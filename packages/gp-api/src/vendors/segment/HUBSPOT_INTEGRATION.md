@@ -93,6 +93,51 @@ The cron enqueues the window in the SQS message itself, so manual triggering jus
 
 3. The consumer will query all campaigns, fire Segment events, and refresh the HubSpot contact fields. HubSpot's 5-day staleness check applies to whether the digest email sends — a manual recovery within ~5 days of the intended run should still trigger emails.
 
+## Door Knocking Canvassing Totals
+
+`DoorKnockingStatsService` fires `Door Knocking - Canvassing Totals Updated`
+with the organization's nine canvassing running totals — on turf create, on
+turf complete, and from a daily sweep over orgs that recorded a knock in the
+last 24 hours.
+
+| Event Name                                  | HubSpot Target                                        | Fired From                                      |
+| ------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------- |
+| `Door Knocking - Canvassing Totals Updated` | Nine properties on the contact, copied to the company | `DoorKnockingStatsService.emitCanvassingTotals` |
+
+**The workflow does not exist yet, and nothing reaches HubSpot until it does.**
+CS needs one workflow keyed on the exact event name that copies each property
+below onto the contact and then onto the associated company. Everything the
+event carries, in the camelCase the payload uses:
+
+| Property                | Type               | Means                                                                                             |
+| ----------------------- | ------------------ | ------------------------------------------------------------------------------------------------- |
+| `uniqueDoorsKnocked`    | number             | Distinct doors where somebody behind them has an answer written down                              |
+| `doorAttempts`          | number             | Every knock recorded, repeat visits included                                                      |
+| `uniqueContactsMade`    | number             | People who came to the door, counted once each                                                    |
+| `totalContactsMade`     | number             | Conversations at the door, counted every time                                                     |
+| `committedVoters`       | number             | Latest door-knock answers are `supporter` **and** will-vote `yes`                                 |
+| `votersPersuaded`       | number             | Answered `non_supporter` at one door and `supporter` at a later one                               |
+| `uniqueTurfsCreated`    | number             | Lists drawn and still held                                                                        |
+| `uniqueTurfsCompleted`  | number             | The subset marked done                                                                            |
+| `lastCanvassActivityAt` | ISO string \| null | The newest knock's timestamp                                                                      |
+| `organizationSlug`      | string             | Attribution                                                                                       |
+| `campaignId`            | number \| null     | Attribution; null for a Serve (`eo-`) org                                                         |
+| `email`                 | string \| null     | The acting user's, also present as a context trait                                                |
+| `hubspotContactId`      | string \| null     | The acting user's, also present as a context trait                                                |
+| `hubspotCompanyId`      | string \| null     | `campaign.data.hubspotId`; null until the first CRM sync back-fills it, and always null for Serve |
+
+Notes:
+
+- **Every number is a running total, deliberately.** A workflow can copy a
+  value onto a property but cannot sum across events, so the property should be
+  SET from the event, never incremented.
+- Property keys are camelCase here (the analytics standard) rather than
+  snake_case matching HubSpot internal names, unlike `Peerly Identity ID
+Created` above. The workflow maps them.
+- The full metric definitions, including the `refused_to_engage` judgement call
+  in the two contacts-made numbers, live in
+  `packages/gp-api/docs/door-knocking.md` § The canvassing totals rollup.
+
 ## Public Profile Completion Requests
 
 When a visitor on a public `/people/*` page asks an unclaimed person to complete their profile, gp-api fires `Person Profile - Completion Requested`. A HubSpot workflow sends the nudge email off it.
@@ -132,6 +177,7 @@ EVENTS.Outreach.CompliancePinSubmitted // 'Voter Outreach - 10DLC Compliance PIN
 EVENTS.Outreach.ComplianceCompleted // 'Voter Outreach - 10DLC Compliance Completed'
 EVENTS.Outreach.PeerlyIdentityIdCreated // 'Peerly Identity ID Created'
 EVENTS.CampaignPlan.WeeklyTasksDigest // 'Campaign Plan - Weekly Tasks Digest'
+EVENTS.DoorKnocking.CanvassingTotalsUpdated // 'Door Knocking - Canvassing Totals Updated'
 EVENTS.PersonProfiles.CompletionRequested // 'Person Profile - Completion Requested'
 ```
 

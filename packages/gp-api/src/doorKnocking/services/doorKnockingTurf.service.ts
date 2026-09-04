@@ -7,6 +7,7 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { OutreachStatus, Prisma } from '../../generated/prisma'
 import { lockTurf } from '../utils/turfLock.util'
 import { activeTurfScope, railTurfScope } from '../utils/turfScope.util'
+import { DoorKnockingStatsService } from './doorKnockingStats.service'
 import {
   DoorKnockingTurfCounts,
   DoorKnockingTurfCountsService,
@@ -93,7 +94,10 @@ const assertRouted = (turf: TurfWithRoute): RoutedTurf => {
 export class DoorKnockingTurfService extends createPrismaBase(
   MODELS.DoorKnockingTurf,
 ) {
-  constructor(private readonly counts: DoorKnockingTurfCountsService) {
+  constructor(
+    private readonly counts: DoorKnockingTurfCountsService,
+    private readonly stats: DoorKnockingStatsService,
+  ) {
     super()
   }
 
@@ -199,7 +203,9 @@ export class DoorKnockingTurfService extends createPrismaBase(
   async complete(
     id: number,
     organizationSlug: string,
+    actorUserId: number,
   ): Promise<DoorKnockingTurf> {
+    let completedNow = false
     const turf = await this.client.$transaction(async (tx) => {
       const locked = await this.lockAndFind(tx, id, organizationSlug)
       if (locked.route.outreach.status === OutreachStatus.completed) {
@@ -210,8 +216,19 @@ export class DoorKnockingTurfService extends createPrismaBase(
         where: { doorKnockingRouteId: locked.route.id },
         data: { status: OutreachStatus.completed },
       })
+      completedNow = true
       return this.restamp(locked, { status: OutreachStatus.completed })
     })
+
+    // Behind the same idempotence guard as the write, so a second tap on a
+    // finished list emits nothing — the totals would be identical, and a
+    // repeated event teaches HubSpot that a list was completed twice.
+    if (completedNow) {
+      void this.stats
+        .emitCanvassingTotals(actorUserId, organizationSlug)
+        .catch(() => undefined)
+    }
+
     return this.withCounts(turf, organizationSlug)
   }
 

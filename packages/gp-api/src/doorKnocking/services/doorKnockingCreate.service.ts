@@ -21,6 +21,7 @@ import {
   OutreachType,
 } from '../../generated/prisma'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
+import { DoorKnockingStatsService } from './doorKnockingStats.service'
 import { DoorKnockingTurfService } from './doorKnockingTurf.service'
 import { pointInPolygon, polygonBbox } from '../utils/geo.util'
 import { routePlannerCredits, routingCredits } from '../utils/geoapifyCost.util'
@@ -93,6 +94,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
     private readonly contacts: ContactsService,
     private readonly contactStatus: ContactStatusService,
     private readonly turfs: DoorKnockingTurfService,
+    private readonly stats: DoorKnockingStatsService,
   ) {
     super()
   }
@@ -105,6 +107,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
     organization: Organization,
     scope: DoorKnockingOutreachScope,
     input: CreateDoorKnockingTurf,
+    actorUserId: number,
   ): Promise<DoorKnockingTurf> {
     // Runs the same eligibility gate as every other voter-data read — a
     // Win campaign without downloadable voter data can't knock either.
@@ -288,6 +291,13 @@ export class DoorKnockingCreateService extends createPrismaBase(
       },
       { timeout: CREATE_TX_TIMEOUT_MS },
     )
+
+    // Fired after the transaction commits so the rollup counts the turf that
+    // was actually persisted, and void-and-caught so a Segment hiccup cannot
+    // fail a create the vendor has already been paid for.
+    void this.stats
+      .emitCanvassingTotals(actorUserId, organization.slug)
+      .catch(() => undefined)
 
     // Read back outside the transaction so the response is built by the one
     // function that builds every turf response, counts included — the new

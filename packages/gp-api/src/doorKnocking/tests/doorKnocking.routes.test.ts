@@ -26,6 +26,7 @@ import { DoorKnockingPeopleApiService } from '../services/doorKnockingPeopleApi.
 import { DoorKnockingCreateService } from '../services/doorKnockingCreate.service'
 import { DoorKnockingNotesService } from '../services/doorKnockingNotes.service'
 import { DoorKnockingServeService } from '../services/doorKnockingServe.service'
+import { DoorKnockingStatsService } from '../services/doorKnockingStats.service'
 import { DoorKnockingTurfCountsService } from '../services/doorKnockingTurfCounts.service'
 import {
   Campaign,
@@ -4118,6 +4119,56 @@ describe('door-knocking routes', () => {
 
       expect(res.status).toBe(200)
       expect(res.data).toEqual([])
+    })
+  })
+
+  // The rollup's two list-lifecycle firing points. What each event CARRIES is
+  // covered against a real database in doorKnockingStats.service.test.ts; what
+  // matters here is that the two routes reach it at all, and with the user who
+  // pressed the button rather than the org's owner.
+  describe('canvassing totals rollup', () => {
+    const spyOnEmit = () =>
+      vi
+        .spyOn(
+          service.app.get(DoorKnockingStatsService),
+          'emitCanvassingTotals',
+        )
+        .mockResolvedValue(undefined)
+
+    it('fires from a turf create', async () => {
+      const emit = spyOnEmit()
+
+      await createTurf()
+
+      expect(emit).toHaveBeenCalledWith(service.user.id, orgSlug)
+    })
+
+    it('fires from a turf complete', async () => {
+      const turf = await createTurf()
+      const emit = spyOnEmit()
+
+      const res = await service.client.post(
+        `/v1/door-knocking/turfs/${turf.id}/complete`,
+        {},
+        orgHeaders(),
+      )
+
+      expect(res.status).toBe(201)
+      expect(emit).toHaveBeenCalledWith(service.user.id, orgSlug)
+    })
+
+    // Telemetry must never fail a canvasser's write: the create has already
+    // paid Geoapify by the time this fires, and the complete has already
+    // written the envelope.
+    it('still succeeds when the rollup throws', async () => {
+      vi.spyOn(
+        service.app.get(DoorKnockingStatsService),
+        'emitCanvassingTotals',
+      ).mockRejectedValue(new Error('segment is down'))
+
+      const res = await postTurf()
+
+      expect(res.status).toBe(201)
     })
   })
 })
