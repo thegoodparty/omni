@@ -156,6 +156,10 @@ export class OutreachRobocallWebhookService extends createPrismaBase(
     customerId: string,
     paymentMethodId: string,
   ): Promise<void> {
+    // Places a hold off-session — reserves REAL MONEY — so, like the deferred-
+    // hold placement sweep it mirrors, it must never fire on dev/preview.
+    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') return
+
     const now = new Date()
     const drafts = await this.model.findMany({
       where: {
