@@ -42,10 +42,10 @@ import {
 } from './voterFilterPreview'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
 import {
-  DISTRICT_UNAVAILABLE_MESSAGE,
-  PACK_ERROR_MESSAGE,
+  districtUnavailableMessage,
+  packErrorMessage,
   PACK_LOADING_DURATION,
-  PACK_LOADING_TITLE,
+  packLoadingTitle,
 } from '../useVoterPack'
 import { suggestTravelMode } from '../travelMode'
 import { useDoorKnockingServeMode } from '../doorKnockingSurface'
@@ -996,6 +996,7 @@ export default function CreateListFlow({
           {panelOpen && (
             <DoorsPanel
               addressPreview={addressPreview}
+              isServe={serveMode}
               pending={previewPending}
               failed={previewFailed}
               stale={previewStale}
@@ -1139,7 +1140,7 @@ export default function CreateListFlow({
                 the same constants, so the pair cannot drift. */}
             {districtHouseholdsPending && (
               <p className="text-xs text-muted-foreground">
-                {PACK_LOADING_TITLE} {PACK_LOADING_DURATION}
+                {packLoadingTitle(serveMode)} {PACK_LOADING_DURATION}
               </p>
             )}
             {/* And the same argument for the failure. `retry: 0` means a failed
@@ -1147,7 +1148,7 @@ export default function CreateListFlow({
                 disabled button with the reason hidden behind it. */}
             {districtHouseholdsFailed && (
               <p role="alert" className="text-sm text-destructive">
-                {PACK_ERROR_MESSAGE}
+                {packErrorMessage(serveMode)}
               </p>
             )}
             {/* And the case that is neither: no request was made, so there is
@@ -1156,7 +1157,7 @@ export default function CreateListFlow({
                 promise of a download that was never going to arrive. */}
             {districtUnavailable && (
               <p role="alert" className="text-sm text-muted-foreground">
-                {DISTRICT_UNAVAILABLE_MESSAGE}
+                {districtUnavailableMessage(serveMode)}
               </p>
             )}
             {/* The count in the CTA is the pack's, and the pack cannot shade

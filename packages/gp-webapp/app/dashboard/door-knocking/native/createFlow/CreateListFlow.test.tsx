@@ -2042,3 +2042,79 @@ describe('CreateListFlow purpose step', () => {
     )
   })
 })
+
+// The word for the people on the map. An elected official already represents
+// them, so nothing here waits on an election to call them constituents — and
+// this flow is where a Serve list is built, which makes it the first place the
+// Win word would be read.
+describe('CreateListFlow on the Serve surface', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+    vi.clearAllMocks()
+  })
+
+  const renderServeAtWho = (
+    props: Partial<ComponentProps<typeof CreateListFlow>> = {},
+  ) => {
+    const view = render(
+      <DoorKnockingSurfaceProvider value>
+        <CreateListFlow {...baseProps} step="filters" {...props} />
+      </DoorKnockingSurfaceProvider>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
+    return view
+  }
+
+  it('waits on a constituent map rather than a voter map', () => {
+    renderServeAtWho({
+      districtHouseholds: 0,
+      districtHouseholdsPending: true,
+    })
+
+    expect(
+      screen.getByText(
+        /Loading your constituent map…\s*Large districts can take up to 30 seconds\./,
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/voter map/)).toBeNull()
+  })
+
+  it('names the constituent map in both ways the count can be absent', () => {
+    const { unmount } = renderServeAtWho({
+      districtHouseholds: 0,
+      districtHouseholdsFailed: true,
+    })
+
+    expect(
+      screen.getByText(
+        'The constituent map could not load. Refresh to try again.',
+      ),
+    ).toBeInTheDocument()
+    unmount()
+
+    renderServeAtWho({ districtHouseholds: 0, districtUnavailable: true })
+
+    expect(
+      screen.getByText(/Constituent data is not available for this office yet/),
+    ).toBeInTheDocument()
+  })
+
+  it('counts constituents behind a door, singular and plural', () => {
+    render(
+      <DoorKnockingSurfaceProvider value>
+        <CreateListFlow
+          {...baseProps}
+          step="draw"
+          addressPreview={preview([
+            { doors: [{ address: '1 A St', people: 1 }] },
+            { doors: [{ address: '3 A St', people: 4 }] },
+          ])}
+        />
+      </DoorKnockingSurfaceProvider>,
+    )
+
+    expect(screen.getByText(/1 constituent$/)).toBeInTheDocument()
+    expect(screen.getByText(/4 constituents$/)).toBeInTheDocument()
+    expect(screen.queryByText(/\bvoters?$/)).toBeNull()
+  })
+})
