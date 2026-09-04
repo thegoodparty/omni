@@ -148,9 +148,23 @@ export class AreaCodeFromZipService {
       return null
     }
 
+    // The model often wraps the answer in prose (e.g. a trailing ["504"])
+    // instead of returning bare JSON, so JSON.parse of the whole string
+    // throws and forces a national number. Pull out the last bracketed
+    // array, which is the model's final answer after any prompt example.
+    const jsonArray = jsonContent.match(/\[[^\]]*\]/g)?.at(-1)
+
+    if (!jsonArray) {
+      this.logger.error(
+        { jsonContent },
+        `No area codes array found in OpenAI response for zip ${zipCode}`,
+      )
+      return null
+    }
+
     try {
       const validationResult = AreaCodeResponseSchema.safeParse(
-        JSON.parse(jsonContent),
+        JSON.parse(jsonArray),
       )
 
       if (!validationResult.success) {
