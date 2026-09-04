@@ -438,19 +438,24 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       ),
     ]
     const byProjectId = new Map<string, PeerlyJob>()
-    for (const identityId of identityIds) {
-      try {
-        const jobs = await timeboxed(
-          this.peerlyP2pJobService.getJobsByIdentityId(identityId),
-        )
-        for (const job of jobs) {
-          byProjectId.set(job.id, job)
-        }
-      } catch (err) {
-        this.logger.warn(
-          { err, identityId },
-          'Admin queue: live job read failed for identity; rendering rows without it',
-        )
+    // Parallel so the queue waits one timebox total, not one per identity.
+    const reads = await Promise.all(
+      identityIds.map((identityId) =>
+        timeboxed(this.peerlyP2pJobService.getJobsByIdentityId(identityId))
+          .then((jobs) => ({ identityId, jobs }))
+          .catch((err: Error) => {
+            this.logger.warn(
+              { err, identityId },
+              'Admin queue: live job read failed for identity; ' +
+                'rendering rows without it',
+            )
+            return { identityId, jobs: [] as PeerlyJob[] }
+          }),
+      ),
+    )
+    for (const { jobs } of reads) {
+      for (const job of jobs) {
+        byProjectId.set(job.id, job)
       }
     }
     return byProjectId

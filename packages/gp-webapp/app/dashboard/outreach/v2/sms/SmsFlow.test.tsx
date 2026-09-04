@@ -268,7 +268,7 @@ describe('SmsFlow', () => {
 
     // Review: free-texts offer covers 1,200 → free branch.
     expect(
-      await screen.findByRole('heading', { level: 3, name: 'Review & pay' }),
+      await screen.findByRole('heading', { level: 3, name: 'Review and send' }),
     ).toBeInTheDocument()
     expect(await screen.findByText('1,200')).toBeInTheDocument()
     const scheduleButton = await screen.findByRole('button', {
