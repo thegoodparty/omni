@@ -106,6 +106,24 @@ describe('mergeCohortIntoSegments', () => {
     ])
   })
 
+  // Amplitude's `is` operator is exact-match, so a mixed-case address added
+  // through the UI would never match the address the app sends.
+  it('lowercases addresses the segment already held', () => {
+    const result = mergeCohortIntoSegments(
+      [emailSegment('Pilot allowlist', ['Old@Example.com'])],
+      {
+        segmentName: 'Pilot allowlist',
+        variant: 'on',
+        emails: ['new@example.com'],
+      },
+    )
+
+    expect(result.segments[0].conditions[0].values).toEqual([
+      'old@example.com',
+      'new@example.com',
+    ])
+  })
+
   // Re-running the same batch is the expected way to confirm a write landed.
   it('is idempotent', () => {
     const result = mergeCohortIntoSegments(

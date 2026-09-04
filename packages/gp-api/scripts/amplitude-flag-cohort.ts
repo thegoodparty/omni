@@ -176,7 +176,15 @@ export const mergeCohortIntoSegments = (
               condition === emailCondition
                 ? {
                     ...condition,
-                    values: [...emailCondition.values, ...added],
+                    // Existing values are lowercased on the way out too: an
+                    // address added through the Amplitude UI can carry casing
+                    // that the exact-match `is` operator would never match.
+                    values: [
+                      ...new Set([
+                        ...emailCondition.values.map((v) => v.toLowerCase()),
+                        ...added,
+                      ]),
+                    ],
                   }
                 : condition,
             ),
@@ -343,10 +351,14 @@ const main = async (): Promise<void> => {
     emails,
   })
 
+  const verb = args.execute
+    ? { create: 'Creating', update: 'Updating' }
+    : { create: 'Would create', update: 'Would update' }
+
   console.log(
     result.createdSegment
-      ? `\nWould create segment "${args.segment}" → ${args.variant}`
-      : `\nWould update segment "${args.segment}"`,
+      ? `\n${verb.create} segment "${args.segment}" → ${args.variant}`
+      : `\n${verb.update} segment "${args.segment}"`,
   )
   console.log(`  adding ${result.added.length}:`)
   for (const email of result.added) console.log(`    + ${email}`)
