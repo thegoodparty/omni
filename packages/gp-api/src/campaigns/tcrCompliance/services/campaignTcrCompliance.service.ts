@@ -68,6 +68,7 @@ import { isGenericComplianceContent } from '../../../websites/util/genericConten
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { AgenticComplianceKickoffMessage } from '../../../queue/queue.types'
 import { ExperimentRunStatus } from '../../../generated/prisma'
@@ -143,6 +144,18 @@ const manualFilingAddressColumns = (
 
 const NON_PROD_BYPASS_CV_TOKEN = 'non-prod-bypass-cv-token'
 
+// Unset in every environment today — Ops has not yet created the PIN-sent
+// single-send email asset in HubSpot (ENG-11034). Read live rather than
+// cached at module load, mirroring SLACK_PEERLY_CONTACT_MEMBER_ID, so a
+// prod cutover needs no redeploy and tests can stub it per-case. Until it's
+// set, the existing Segment-event -> HubSpot workflow email path is
+// unchanged.
+const getPinSentSingleSendEmailId = (): number | null => {
+  const raw = process.env.HUBSPOT_PIN_SENT_EMAIL_ID
+  const emailId = raw ? Number(raw) : NaN
+  return Number.isFinite(emailId) ? emailId : null
+}
+
 // Filler for the NOT NULL business columns on an internal-testing approval
 // row — the row never reaches Peerly (no identity is ever minted for it), so
 // these values are display-only.
@@ -171,6 +184,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     private readonly cronLock: CronLockService,
     private readonly cvPreSubmissionValidation: CvPreSubmissionValidationService,
     private readonly slack: SlackService,
+    private readonly hubspotSingleSend: HubspotSingleSendService,
   ) {
     super()
   }
@@ -533,7 +547,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     }
 
     try {
-      await this.firePinSentEvent(user.id, campaign, pinDelivery, {
+      await this.firePinSentEvent(user, campaign, pinDelivery, {
         peerlyIdentityId,
         pinSentAt: claimTimestamp,
       })
@@ -581,7 +595,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   }
 
   private async firePinSentEvent(
-    userId: number,
+    user: User,
     campaign: Campaign,
     pinDelivery: DerivedPinDelivery,
     context: { peerlyIdentityId: string; pinSentAt: Date },
@@ -591,7 +605,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // state filing, not the candidate's own. Same sensitivity class as the
     // filing email/phone we already sync to HubSpot company properties. The
     // candidate-facing API still masks it (see complianceState.service).
-    await this.analytics.track(userId, EVENTS.Outreach.CompliancePinSent, {
+    await this.analytics.track(user.id, EVENTS.Outreach.CompliancePinSent, {
       peerly_identity_id: context.peerlyIdentityId,
       pin_delivery_method: pinDelivery.method,
       pin_delivery_destination: pinDelivery.destination,
@@ -599,6 +613,49 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       ...(campaign.data.hubspotId
         ? { company_hubspot_id: campaign.data.hubspotId }
         : {}),
+    })
+
+    // The email leg of this notification moves to a direct single-send call
+    // (ENG-11034) — recipient is the account this event is about, not
+    // whatever email a HubSpot workflow would resolve off the contact
+    // record. A HubSpot failure here must not roll back the claim above (that
+    // claim exists so the Segment event fires exactly once, not to gate this
+    // best-effort email leg): log loudly and move on.
+    try {
+      await this.sendPinNotificationSingleSend(user.email, {
+        pin_delivery_method: pinDelivery.method,
+        pin_delivery_destination: pinDelivery.destination,
+        pin_sent_at: formatISO(context.pinSentAt),
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, campaignId: campaign.id },
+        '[TCR Compliance] HubSpot single-send failed for PIN Sent; the ' +
+          'workflow email path still fires from the Segment event',
+      )
+    }
+  }
+
+  // Shared by the PIN Sent and PIN Resent notifications — same content, same
+  // HubSpot asset. Unset HUBSPOT_PIN_SENT_EMAIL_ID (every environment today,
+  // pending the Ops-created asset) is a no-op so the existing Segment-event
+  // -> HubSpot workflow email path keeps working unchanged.
+  private async sendPinNotificationSingleSend(
+    to: string,
+    customProperties: Record<string, string>,
+  ): Promise<void> {
+    const emailId = getPinSentSingleSendEmailId()
+    if (!emailId) {
+      this.logger.debug(
+        'HUBSPOT_PIN_SENT_EMAIL_ID not set — skipping HubSpot single-send; ' +
+          'the workflow email path still covers this notification',
+      )
+      return
+    }
+    await this.hubspotSingleSend.sendSingleSend({
+      emailId,
+      to,
+      customProperties,
     })
   }
 
@@ -2229,7 +2286,9 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     return Boolean(useCase?.activated)
   }
 
-  async resendCampaignVerifyPin(campaign: Campaign): Promise<void> {
+  async resendCampaignVerifyPin(
+    campaign: Campaign & { user: User | null },
+  ): Promise<void> {
     const tcrCompliance = await this.fetchByCampaignId(campaign.id)
     if (!tcrCompliance) {
       throw new NotFoundException(
@@ -2245,7 +2304,11 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         `Non-prod environment detected. Skipping Peerly CV PIN resend for ` +
           `campaign ${campaign.id}.`,
       )
-      this.trackCompliancePinResent(campaign, tcrCompliance.peerlyIdentityId)
+      this.trackCompliancePinResent(
+        campaign,
+        tcrCompliance.peerlyIdentityId,
+        null,
+      )
       return
     }
 
@@ -2259,7 +2322,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // CV only resends once the request is APPROVED (PIN issued) and rejects a
     // resend after VERIFIED (PIN already consumed); pre-checking the live
     // status turns those into actionable 4xxs instead of an opaque 502.
-    const { status } =
+    const { status, pinDelivery } =
       await this.peerlyIdentityService.retrieveCampaignVerifyDetails(
         tcrCompliance.peerlyIdentityId,
         campaign,
@@ -2281,14 +2344,23 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       tcrCompliance.peerlyIdentityId,
       campaign,
     )
-    this.trackCompliancePinResent(campaign, tcrCompliance.peerlyIdentityId)
+    this.trackCompliancePinResent(
+      campaign,
+      tcrCompliance.peerlyIdentityId,
+      pinDelivery,
+    )
   }
 
-  // Telemetry only (HubSpot surfaces staff resend activity on the contact) —
-  // fire-and-forget so a Segment hiccup can never fail the admin's request.
+  // Segment event: telemetry only (HubSpot surfaces staff resend activity on
+  // the contact) — fire-and-forget so a Segment hiccup can never fail the
+  // admin's request. The HubSpot single-send below is a separate best-effort
+  // side effect (ENG-11034): its own failure is logged loudly rather than
+  // silently swallowed, since unlike the Segment telemetry it's the actual
+  // notification delivery path once HUBSPOT_PIN_SENT_EMAIL_ID is set.
   private trackCompliancePinResent(
-    campaign: Campaign,
+    campaign: Campaign & { user: User | null },
     peerlyIdentityId: string | null,
+    pinDelivery: DerivedPinDelivery | null,
   ) {
     void this.analytics
       .track(campaign.userId, EVENTS.Outreach.CompliancePinResent, {
@@ -2299,6 +2371,25 @@ export class CampaignTcrComplianceService extends createPrismaBase(
           : {}),
       })
       .catch(() => undefined)
+
+    if (!campaign.user?.email) {
+      return
+    }
+    void this.sendPinNotificationSingleSend(campaign.user.email, {
+      ...(peerlyIdentityId ? { peerly_identity_id: peerlyIdentityId } : {}),
+      ...(pinDelivery
+        ? {
+            pin_delivery_method: pinDelivery.method,
+            pin_delivery_destination: pinDelivery.destination,
+          }
+        : {}),
+    }).catch((err: unknown) => {
+      this.logger.error(
+        { err, campaignId: campaign.id },
+        '[TCR Compliance] HubSpot single-send failed for PIN Resent; the ' +
+          'workflow email path still fires from the Segment event',
+      )
+    })
   }
 
   async retrieveCampaignVerifyToken(

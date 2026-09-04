@@ -99,8 +99,11 @@ export class CampaignTcrComplianceController {
   async resendCampaignVerifyPinForCampaign(
     @Param('campaignId', ParseIntPipe) campaignId: number,
   ) {
+    // user is included so the HubSpot single-send notification (ENG-11034)
+    // has a recipient address without a second query.
     const campaign = await this.campaignsService.findUniqueOrThrow({
       where: { id: campaignId },
+      include: { user: true },
     })
     await this.tcrComplianceService.resendCampaignVerifyPin(campaign)
   }

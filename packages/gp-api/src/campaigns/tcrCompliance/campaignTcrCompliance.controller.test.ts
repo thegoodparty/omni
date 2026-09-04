@@ -492,6 +492,7 @@ describe('CampaignTcrComplianceController', () => {
 
       expect(mockCampaignsService.findUniqueOrThrow).toHaveBeenCalledWith({
         where: { id: mockCampaign.id },
+        include: { user: true },
       })
       expect(mockTcrService.resendCampaignVerifyPin).toHaveBeenCalledWith(
         mockCampaign,
