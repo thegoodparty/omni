@@ -5,7 +5,10 @@ import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { P2P_JOB_DEFAULTS } from '../constants/p2pJob.constants'
-import { GetJobResponseDto } from '../schemas/peerlyP2pSms.schema'
+import {
+  GetJobResponseDto,
+  JobDetailedStatsResponseDto,
+} from '../schemas/peerlyP2pSms.schema'
 import { PeerlyJobStatus } from '../peerly.types'
 import { PeerlyMediaService } from './peerlyMedia.service'
 import { PeerlyP2pJobService } from './peerlyP2pJob.service'
@@ -514,7 +517,7 @@ describe('PeerlyP2pJobService', () => {
     const range = { startDate: '2026-08-01', endDate: '2026-09-05' }
 
     it('requests the v2 endpoint with a required CUSTOM date range', async () => {
-      mockHttpService.get.mockResolvedValue({ data: {} })
+      mockHttpService.get.mockResolvedValue({ data: { messages: {} } })
 
       await service.getJobDetailedStats('job-1', range)
 
@@ -555,6 +558,22 @@ describe('PeerlyP2pJobService', () => {
 
     it('throws BadGatewayException when the vendor call fails', async () => {
       mockHttpService.get.mockRejectedValue(new Error('API error'))
+
+      await expect(service.getJobDetailedStats('job-1', range)).rejects.toThrow(
+        BadGatewayException,
+      )
+    })
+
+    // Exercises the real schema parse (the suite's default validateResponse
+    // is a blind passthrough): a v2 payload whose keys we don't recognize
+    // must 502, not render as all-zero stats in the CAS console.
+    it('rejects a response with none of the expected counter fields', async () => {
+      mockHttpService.get.mockResolvedValue({
+        data: { unrecognized_v2_key: { TX_SUCCESS: 10 } },
+      })
+      mockHttpService.validateResponse.mockImplementationOnce((data, dto) =>
+        (dto as typeof JobDetailedStatsResponseDto).create(data),
+      )
 
       await expect(service.getJobDetailedStats('job-1', range)).rejects.toThrow(
         BadGatewayException,
