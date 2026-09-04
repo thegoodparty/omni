@@ -62,6 +62,9 @@ const item = (
   canvassRequestedAt: null,
   adminEditedAt: null,
   adminEditedBy: null,
+  canceledAt: null,
+  canceledBy: null,
+  canceledByAdmin: false,
   assignedPa: null,
   standards: { passed: true, failures: [] },
   job: {
@@ -94,6 +97,15 @@ describe('SmsQueue', () => {
               deniedAt: new Date(),
               deniedReason: 'bad link',
             }),
+            item({
+              id: 44,
+              name: 'Canceled send',
+              approvalStatus: 'canceled',
+              canceledAt: new Date(),
+              canceledBy: 'cas@goodparty.org',
+              canceledByAdmin: true,
+              job: null,
+            }),
           ]}
         />
       </Theme>
@@ -112,9 +124,14 @@ describe('SmsQueue', () => {
     await userEvent.click(screen.getByRole('tab', { name: /Denied \(1\)/ }))
     expect(screen.getByText('Denied send')).toBeInTheDocument()
 
+    await userEvent.click(screen.getByRole('tab', { name: /Canceled \(1\)/ }))
+    expect(screen.getByText('Canceled send')).toBeInTheDocument()
+    // A canceled row's job is deleted by design — not a failed read.
+    expect(screen.queryByText('Vendor read failed')).not.toBeInTheDocument()
+
     // The whole row is clickable, not just the campaign link.
     await userEvent.click(screen.getByText('Jane Doe'))
-    expect(mockPush).toHaveBeenCalledWith('/dashboard/sms-outreach/43')
+    expect(mockPush).toHaveBeenCalledWith('/dashboard/sms-outreach/44')
   })
 
   it('does not double-navigate or hijack modified clicks', async () => {

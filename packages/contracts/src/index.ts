@@ -904,6 +904,8 @@ export {
   type ApproveSmsOutreachRequest,
   DenySmsOutreachRequestSchema,
   type DenySmsOutreachRequest,
+  CancelSmsOutreachRequestSchema,
+  type CancelSmsOutreachRequest,
   EditSmsOutreachRequestSchema,
   type EditSmsOutreachRequest,
   SmsTestMessageRequestSchema,

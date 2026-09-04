@@ -13,6 +13,7 @@ const clearCanvassers = vi.fn()
 const getJobsByIdentityId = vi.fn()
 const getJob = vi.fn()
 const getJobDetailedStats = vi.fn()
+const deleteJob = vi.fn()
 const track = vi.fn()
 
 let campaignId: number
@@ -32,6 +33,7 @@ beforeEach(async () => {
   clearCanvassers.mockReset().mockResolvedValue(undefined)
   getJobsByIdentityId.mockReset().mockResolvedValue([])
   getJob.mockReset().mockResolvedValue(liveJob('peerly-job-1'))
+  deleteJob.mockReset().mockResolvedValue(undefined)
   getJobDetailedStats.mockReset().mockResolvedValue({
     sentTotal: 100,
     receivedTotal: 4,
@@ -52,6 +54,7 @@ beforeEach(async () => {
   vi.spyOn(peerly, 'getJobDetailedStats').mockImplementation(
     getJobDetailedStats,
   )
+  vi.spyOn(peerly, 'deleteJob').mockImplementation(deleteJob)
   vi.spyOn(service.app.get(AnalyticsService), 'track').mockImplementation(track)
 
   // AdminOrM2MGuard reads the session user's CURRENT roles.
@@ -103,6 +106,7 @@ const seedOutreach = (
     approvedAt: Date | null
     deniedAt: Date | null
     script: string
+    stripeCheckoutSessionId: string | null
   }> = {},
 ) =>
   service.prisma.outreach.create({
@@ -242,6 +246,77 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       )
       expect(again.status).toBe(HttpStatus.CONFLICT)
       expect(requestCanvassers).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('POST /v1/outreach/admin/sms/:id/cancel', () => {
+    it('cancels with staff attribution and keeps the row visible', async () => {
+      const row = await seedOutreach({ stripeCheckoutSessionId: null })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/cancel`,
+        { canceledBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(res.data.approvalStatus).toBe('canceled')
+      expect(res.data.canceledBy).toBe('cas@goodparty.org')
+      expect(res.data.canceledByAdmin).toBe(true)
+      expect(deleteJob).toHaveBeenCalledWith('peerly-job-1')
+
+      const queue = await service.client.get('/v1/outreach/admin/sms/queue')
+      const item = queue.data.items.find((i: { id: number }) => i.id === row.id)
+      expect(item.approvalStatus).toBe('canceled')
+      // The canceled row's vendor job is gone — no live read attempted.
+      expect(getJobsByIdentityId).not.toHaveBeenCalled()
+
+      const detail = await service.client.get(
+        `/v1/outreach/admin/sms/${row.id}`,
+      )
+      expect(detail.status).toBe(HttpStatus.OK)
+      expect(detail.data.item.approvalStatus).toBe('canceled')
+      expect(detail.data.stats).toBeNull()
+      expect(getJob).not.toHaveBeenCalled()
+      expect(getJobDetailedStats).not.toHaveBeenCalled()
+    })
+
+    it('refuses a second cancel via the idempotent early-return', async () => {
+      const row = await seedOutreach({ stripeCheckoutSessionId: null })
+      await service.client.post(`/v1/outreach/admin/sms/${row.id}/cancel`, {
+        canceledBy: 'cas@goodparty.org',
+      })
+      deleteJob.mockClear()
+      const again = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/cancel`,
+        { canceledBy: 'other@goodparty.org' },
+      )
+      expect(again.status).toBe(HttpStatus.CREATED)
+      expect(deleteJob).not.toHaveBeenCalled()
+      const unchanged = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(unchanged.canceledBy).toBe('cas@goodparty.org')
+    })
+  })
+
+  describe('PATCH on a canceled row', () => {
+    it('400s before any vendor write', async () => {
+      const peerly = service.app.get(PeerlyP2pJobService)
+      const updateJob = vi
+        .spyOn(peerly, 'updatePeerlyP2pJob')
+        .mockResolvedValue(undefined)
+      const row = await seedOutreach({ stripeCheckoutSessionId: null })
+      await service.client.post(`/v1/outreach/admin/sms/${row.id}/cancel`, {
+        canceledBy: 'cas@goodparty.org',
+      })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}`,
+        { script: 'new text', editedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(updateJob).not.toHaveBeenCalled()
     })
   })
 

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   SmsOutreachResults,
@@ -300,6 +301,9 @@ export const OutreachDetailsDrawer = ({
       queryClient.invalidateQueries({
         queryKey: outreachDetailQueryKey(rowId),
       })
+      // Cancel can restore the free-texts offer; refetch the campaign so
+      // the next compose sees the promo without a full reload.
+      queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
       setCancelConfirmOpen(false)
       onOpenChange(false)
       successSnackbar(

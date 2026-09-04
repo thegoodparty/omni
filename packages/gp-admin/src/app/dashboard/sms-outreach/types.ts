@@ -8,16 +8,18 @@ export const STATUS_LABELS: Record<SmsApprovalStatus, string> = {
   denied: 'Denied',
   canvass_requested: 'Send booked',
   peerly_approved: 'Vendor approved',
+  canceled: 'Canceled',
 }
 
 export const STATUS_COLORS: Record<
   SmsApprovalStatus,
-  'amber' | 'red' | 'blue' | 'green'
+  'amber' | 'red' | 'blue' | 'green' | 'gray'
 > = {
   awaiting_review: 'amber',
   denied: 'red',
   canvass_requested: 'blue',
   peerly_approved: 'green',
+  canceled: 'gray',
 }
 
 export const STANDARDS_RULE_LABELS: Record<SmsStandardsRule, string> = {
@@ -28,10 +30,11 @@ export const STANDARDS_RULE_LABELS: Record<SmsStandardsRule, string> = {
   length: 'Message exceeds the vendor length cap',
 }
 
-export type QueueTab = 'awaiting' | 'booked' | 'denied'
+export type QueueTab = 'awaiting' | 'booked' | 'denied' | 'canceled'
 
 export const TAB_STATUSES: Record<QueueTab, SmsApprovalStatus[]> = {
   awaiting: ['awaiting_review'],
   booked: ['canvass_requested', 'peerly_approved'],
   denied: ['denied'],
+  canceled: ['canceled'],
 }

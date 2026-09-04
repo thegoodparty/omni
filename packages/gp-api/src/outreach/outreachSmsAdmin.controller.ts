@@ -11,12 +11,14 @@ import {
 import { ZodValidationPipe } from 'nestjs-zod'
 import {
   ApproveSmsOutreachRequestSchema,
+  CancelSmsOutreachRequestSchema,
   DenySmsOutreachRequestSchema,
   EditSmsOutreachRequestSchema,
   SmsAdminDetailResponseSchema,
   SmsApprovalQueueItemSchema,
   SmsApprovalQueueResponseSchema,
   type ApproveSmsOutreachRequest,
+  type CancelSmsOutreachRequest,
   type DenySmsOutreachRequest,
   type EditSmsOutreachRequest,
 } from '@goodparty_org/contracts'
@@ -63,6 +65,16 @@ export class OutreachSmsAdminController {
     input: DenySmsOutreachRequest,
   ) {
     return this.adminService.deny(id, input)
+  }
+
+  @Post(':id/cancel')
+  @ResponseSchema(SmsApprovalQueueItemSchema)
+  cancel(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(CancelSmsOutreachRequestSchema))
+    input: CancelSmsOutreachRequest,
+  ) {
+    return this.adminService.cancel(id, input)
   }
 
   @Patch(':id')
