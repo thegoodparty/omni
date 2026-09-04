@@ -10,3 +10,9 @@ const override = Number(process.env.CLERK_API_TIMEOUT_MS)
 
 export const CLERK_API_TIMEOUT_MS =
   Number.isFinite(override) && override > 0 ? override : 2_000
+
+// listPendingTeamInvitations pages the ENTIRE Clerk-instance invitation list
+// (Clerk has no server-side org filter) — a heavy but non-hot-path list op,
+// not a per-request auth check. Paging under the 2s SessionGuard cap 502s the
+// whole team read whenever a single page is merely slow, not actually stuck.
+export const CLERK_LIST_TIMEOUT_MS = 10_000

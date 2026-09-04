@@ -93,6 +93,19 @@ describe('voterDemographicFacts', () => {
       NOT_ON_FILE,
     )
   })
+
+  // Dropped rather than blanked. gp-api already nulls the field for an `eo-`
+  // org, so keeping the row would print "Not on file" — a claim about the
+  // voter file where the truth is that this product does not state party to an
+  // elected official at all.
+  it('omits the party row entirely on Serve', () => {
+    const labels = voterDemographicFacts(
+      target({ politicalParty: 'Democratic' }),
+      true,
+    ).map((fact) => fact.label)
+    expect(labels).toEqual(['Registered voter', 'Turnout likelihood'])
+    expect(labels).not.toContain('Political party')
+  })
 })
 
 describe('demographicFacts', () => {

@@ -29,14 +29,15 @@ interface SmsQueueProps {
 type SortKey = 'candidate' | 'sendDate' | 'assigned'
 type SortDir = 'asc' | 'desc'
 
+const TAB_LABELS: Record<QueueTab, string> = {
+  awaiting: 'Awaiting review',
+  booked: 'Booked',
+  denied: 'Denied',
+  canceled: 'Canceled',
+}
+
 const tabLabel = (tab: QueueTab, count: number) =>
-  `${
-    tab === 'awaiting'
-      ? 'Awaiting review'
-      : tab === 'booked'
-        ? 'Booked'
-        : 'Denied'
-  } (${count})`
+  `${TAB_LABELS[tab]} (${count})`
 
 const compareItems = (
   a: SmsApprovalQueueItem,
@@ -109,11 +110,13 @@ export function SmsQueue({ items }: SmsQueueProps) {
           onValueChange={(value) => setTab(value as QueueTab)}
         >
           <Tabs.List>
-            {(['awaiting', 'booked', 'denied'] as const).map((key) => (
-              <Tabs.Trigger key={key} value={key}>
-                {tabLabel(key, byTab(key).length)}
-              </Tabs.Trigger>
-            ))}
+            {(['awaiting', 'booked', 'denied', 'canceled'] as const).map(
+              (key) => (
+                <Tabs.Trigger key={key} value={key}>
+                  {tabLabel(key, byTab(key).length)}
+                </Tabs.Trigger>
+              )
+            )}
           </Tabs.List>
         </Tabs.Root>
         <TextField.Root
@@ -251,7 +254,11 @@ export function SmsQueue({ items }: SmsQueueProps) {
                   )}
                 </Table.Cell>
                 <Table.Cell>
-                  {item.job === null ? (
+                  {item.approvalStatus === 'canceled' ? (
+                    <Text size="2" color="gray">
+                      —
+                    </Text>
+                  ) : item.job === null ? (
                     <Badge color="gray">Vendor read failed</Badge>
                   ) : item.job.deliverabilityCheckError ? (
                     <Badge color="red">Deliverability error</Badge>

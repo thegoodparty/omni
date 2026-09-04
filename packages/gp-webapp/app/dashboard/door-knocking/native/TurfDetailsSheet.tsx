@@ -45,6 +45,7 @@ import {
   turfColorLabel,
 } from './turfQueries'
 import { useTurfsQuery } from './doorKnockingSurface'
+import { WIN_ONLY_FILTER_FIELD_KEYS } from './savedListFilters'
 import { estimateOutingSeconds } from './walkEstimate'
 import { formatDuration } from './formatDuration'
 import { turfStatusLabel } from './turfLifecycle'
@@ -98,6 +99,21 @@ const OPTION_FIELD_LABELS: Record<string, string> = Object.fromEntries(
 // with the same filters can't list them in different orders.
 const FIELD_ORDER: string[] = filterSections.flatMap((section) =>
   section.fields.map((field) => field.label),
+)
+
+// The field LABELS an elected official never sees a row for, from the same
+// keys the create flow hides the groups behind. Labels rather than option keys
+// because the read-back is already grouped by field here, and a group whose
+// every pill was dropped would still print its heading over nothing.
+//
+// A list cut on the Win surface can still carry party columns — nothing
+// backfills a saved filter — so this is a read-back gate and not merely the
+// mirror of a control that is no longer offered.
+const WIN_ONLY_FIELD_LABELS = new Set(
+  filterSections
+    .flatMap((section) => section.fields)
+    .filter((field) => WIN_ONLY_FILTER_FIELD_KEYS.includes(field.key))
+    .map((field) => field.label),
 )
 
 // Income ranges persist as the range strings themselves rather than as option
@@ -198,12 +214,28 @@ interface TurfDetailsSheetProps {
   // same handler the rail card's Knock button calls, so one list cannot start
   // two different ways.
   onKnock: (turf: DoorKnockingTurf) => void
+  // Whether the owning org is an `eo-` one, which is what drops the Win-only
+  // rows from the filter read-back below.
+  //
+  // **A prop from the orchestrator, and deliberately neither of the two things
+  // this file could read for itself.** `useDoorKnockingServeMode()` is the
+  // wrong question — that context answers which rail's LISTS are on screen and
+  // lets a Campaign take precedence, so an `eo-` org holding one reads Win
+  // there and this drawer would print party labels for the same org whose
+  // create flow has just hidden the control. Reading `useOrganization()`
+  // directly is the right question asked in the wrong place: it throws without
+  // a provider, and this sheet is mounted by tests that have none — the same
+  // reason `CreateListFlow` takes `isServeOrg` as a prop rather than
+  // reaching for the org itself. The orchestrator decides once, as it does for
+  // every other fact both surfaces share.
+  isServeOrg: boolean
 }
 
 export default function TurfDetailsSheet({
   turf,
   onClose,
   onKnock,
+  isServeOrg,
 }: TurfDetailsSheetProps) {
   const [editOpen, setEditOpen] = useState(false)
   const { successSnackbar } = useSnackbar()
@@ -253,7 +285,9 @@ export default function TurfDetailsSheet({
         )
         .concat(languageEntries)
     : []
-  const appliedFilterGroups = groupByField(appliedFilterEntries)
+  const appliedFilterGroups = groupByField(appliedFilterEntries).filter(
+    ({ field }) => !isServeOrg || !WIN_ONLY_FIELD_LABELS.has(field),
+  )
 
   const route = routeQuery.data
   const targets = knockableTargets(route?.stops ?? [])

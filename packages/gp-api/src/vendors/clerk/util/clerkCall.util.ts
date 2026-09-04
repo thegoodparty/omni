@@ -23,10 +23,11 @@ export const clerkCall = <T>(
   operation: string,
   attributes: Attributes,
   op: () => Promise<T>,
+  timeoutMs: number = CLERK_API_TIMEOUT_MS,
 ): Promise<T> =>
   tracer.startActiveSpan(
     `clerk.${operation}`,
-    { attributes: { ...attributes, 'clerk.timeout_ms': CLERK_API_TIMEOUT_MS } },
+    { attributes: { ...attributes, 'clerk.timeout_ms': timeoutMs } },
     async (span) => {
       let timer: NodeJS.Timeout | undefined
       try {
@@ -34,8 +35,8 @@ export const clerkCall = <T>(
           op(),
           new Promise<never>((_, reject) => {
             timer = setTimeout(
-              () => reject(new ClerkTimeoutError(CLERK_API_TIMEOUT_MS)),
-              CLERK_API_TIMEOUT_MS,
+              () => reject(new ClerkTimeoutError(timeoutMs)),
+              timeoutMs,
             )
           }),
         ])

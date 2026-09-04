@@ -50,6 +50,32 @@ describe('savedListFilterKeys', () => {
     ).toEqual({ activityConditions: true, precincts: true })
   })
 
+  // The back door behind the hidden control. A list cut on the Win surface —
+  // or before door knocking had a Serve gate at all — still carries its party
+  // columns, and re-expanding them seeds a Serve draft with pills in a group
+  // that is no longer rendered: the map shades to a party cut nobody can see
+  // or clear, and the create then 400s on a filter the official never picked.
+  it('drops the Win-only keys for Serve, keeping everything else', () => {
+    const legacy = list({
+      partyDemocrat: true,
+      partyRepublican: false,
+      audienceSuperVoters: true,
+      contactsMade0: true,
+      hasCellPhone: true,
+      genderFemale: true,
+    })
+
+    expect(savedListFilterKeys(legacy, true)).toEqual({
+      hasCellPhone: true,
+      genderFemale: true,
+    })
+    expect(savedListFilterKeys(legacy)).toMatchObject({
+      partyDemocrat: true,
+      audienceSuperVoters: true,
+      contactsMade0: true,
+    })
+  })
+
   // An empty array is not a criterion, and marking one would print a
   // disclosure about a filter the list does not apply.
   it('marks nothing for a list carrying empty criteria arrays', () => {
