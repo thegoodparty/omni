@@ -15,12 +15,22 @@ interface RecommendedListCardProps {
   onSelect: () => void
 }
 
+// Dollars from the server's own cents. The client never derives a money
+// figure from a per-contact price of its own — gp-api computes this from the
+// same pricing utils the checkout charges from, so the card and the pay step
+// cannot disagree.
+const formatCents = (cents: number): string =>
+  (cents / 100).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+
 export const RecommendedListCard = ({
   recommendation,
   channel,
   onSelect,
 }: RecommendedListCardProps) => {
-  const { copy, count, districtShare } = recommendation
+  const { copy, count, voteGoalShare, estimatedCostCents } = recommendation
 
   return (
     <Card
@@ -40,15 +50,21 @@ export const RecommendedListCard = ({
       <p className="text-sm text-muted-foreground">
         {count.toLocaleString()} people
       </p>
-      {districtShare !== undefined && (
+      {voteGoalShare !== undefined && (
         <p className="text-sm text-muted-foreground">
-          {/* A real list rounding to 0% reads as an empty one, and the size
-              floor guarantees it is not — so the small case is floored to
-              "<1%" rather than printed as zero. */}
-          {districtShare > 0 && districtShare < 0.005
+          {/* A real list rounding to 0% reads as an empty one — and door and
+              supporter lists carry no size floor, so a genuinely tiny share
+              is reachable here rather than hypothetical. Floored to "<1%"
+              rather than printed as zero. */}
+          {voteGoalShare > 0 && voteGoalShare < 0.005
             ? '<1'
-            : Math.round(districtShare * 100)}
-          % of your district
+            : Math.round(voteGoalShare * 100)}
+          % of your vote goal
+        </p>
+      )}
+      {estimatedCostCents !== undefined && (
+        <p className="text-sm text-muted-foreground">
+          About ${formatCents(estimatedCostCents)} to reach them
         </p>
       )}
       {channel === 'doorKnocking' && (

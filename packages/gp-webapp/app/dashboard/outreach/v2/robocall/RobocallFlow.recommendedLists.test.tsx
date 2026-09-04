@@ -43,7 +43,8 @@ const RECOMMENDATION = {
   variant: 'persuadeAffinity' as const,
   filter: { independentAffinity: true, voterStatus: ['Super', 'Likely'] },
   count: 12000,
-  districtShare: 0.31,
+  voteGoalShare: 0.31,
+  estimatedCostCents: 54_000,
   copy: {
     title: 'Persuadable independents',
     criteriaSummary: 'Moderate to high propensity voters',
@@ -112,7 +113,8 @@ describe('RobocallFlow — recommended lists', () => {
 
     await screen.findByText('Persuadable independents')
     expect(screen.getByText(/12,000 people/)).toBeInTheDocument()
-    expect(screen.getByText(/31% of your district/)).toBeInTheDocument()
+    expect(screen.getByText(/31% of your vote goal/)).toBeInTheDocument()
+    expect(screen.getByText(/\$540\.00 to reach them/)).toBeInTheDocument()
 
     await userEvent.click(screen.getByTestId('recommended-list-card'))
 

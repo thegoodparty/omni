@@ -314,7 +314,7 @@ signatures rather than callers reaching into `databricks/` directly.
 | `services/voterDoorKnocking.service.ts`         | Door-knocking cap guards + roster shaping                           |
 | `services/voterPack.service.ts`                 | Encoded voter-pack build/read                                       |
 | `services/voterDensity.service.ts`              | Voter-density heat-map cells (read-only, precomputed H3 centroids)  |
-| `services/voterRecommendedLists.service.ts`     | Recommended-list counts, district total, precinct ranking           |
+| `services/voterRecommendedLists.service.ts`     | Recommended-list counts + door precinct ranking                      |
 | `schemas/filters.schema.ts`                     | Zod filter input schema                                             |
 | `utils/valueMappers.util.ts`                    | Wire value → the value the voter file stores                        |
 | `utils/packEncoder.utils.ts`                    | Pack encoding; inverts `VALUE_MAPPERS` into pack bytes              |

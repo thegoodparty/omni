@@ -25,6 +25,13 @@ export const IDEOLOGY_COLUMN_VALUE = {
 interface RecommendedListRegistryEntry {
   intent: RecommendedListIntent
   requiresIdeologyBucket: boolean
+  // Whether the universe targets id'd supporters and nobody else. Declared
+  // here rather than inferred from the variant name because it is what
+  // exempts a variant from the vote-goal size floor, and a name suffix is
+  // not something the next variant is obliged to honour. The registry test
+  // cross-checks every flag against the variant's own universe, so the two
+  // cannot drift apart silently.
+  supporterBased: boolean
   copy: { title: string; criteriaSummary: string }
 }
 
@@ -35,6 +42,7 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   introNeverIded: {
     intent: 'introduce',
     requiresIdeologyBucket: false,
+    supporterBased: false,
     copy: {
       title: 'Meet voters who have not heard from you',
       criteriaSummary:
@@ -44,6 +52,7 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   persuadeAffinity: {
     intent: 'persuade',
     requiresIdeologyBucket: false,
+    supporterBased: false,
     copy: {
       title: 'Persuadable independent-leaning voters',
       criteriaSummary:
@@ -53,6 +62,7 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   persuadeIdeology: {
     intent: 'persuade',
     requiresIdeologyBucket: true,
+    supporterBased: false,
     copy: {
       title: 'Voters who may lean {bucket}',
       criteriaSummary:
@@ -63,6 +73,7 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   persuadeUndecided: {
     intent: 'persuade',
     requiresIdeologyBucket: false,
+    supporterBased: false,
     copy: {
       title: 'Voters still on the fence',
       criteriaSummary:
@@ -73,6 +84,7 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   eventSupporters: {
     intent: 'event',
     requiresIdeologyBucket: false,
+    supporterBased: true,
     copy: {
       title: 'Invite your supporters',
       criteriaSummary:
@@ -83,6 +95,7 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   eventAffinity: {
     intent: 'event',
     requiresIdeologyBucket: false,
+    supporterBased: false,
     copy: {
       title: 'Invite independent-leaning voters',
       criteriaSummary:
@@ -93,6 +106,7 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   eventIdeology: {
     intent: 'event',
     requiresIdeologyBucket: true,
+    supporterBased: false,
     copy: {
       title: 'Invite voters who may lean {bucket}',
       criteriaSummary:
@@ -104,6 +118,7 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   earlyVoteSupporters: {
     intent: 'earlyVote',
     requiresIdeologyBucket: false,
+    supporterBased: true,
     copy: {
       title: 'Get your supporters voting early',
       criteriaSummary:
@@ -114,6 +129,7 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   earlyVoteAffinity: {
     intent: 'earlyVote',
     requiresIdeologyBucket: false,
+    supporterBased: false,
     copy: {
       title: 'Encourage independent-leaning voters to vote early',
       criteriaSummary:
@@ -123,6 +139,7 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   earlyVoteIdeology: {
     intent: 'earlyVote',
     requiresIdeologyBucket: true,
+    supporterBased: false,
     copy: {
       title: 'Encourage voters who may lean {bucket} to vote early',
       criteriaSummary:
@@ -133,6 +150,7 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   electionDaySupporters: {
     intent: 'electionDay',
     requiresIdeologyBucket: false,
+    supporterBased: true,
     copy: {
       title: 'Chase supporters who need a reminder',
       criteriaSummary:
@@ -143,6 +161,7 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   electionDayAffinity: {
     intent: 'electionDay',
     requiresIdeologyBucket: false,
+    supporterBased: false,
     copy: {
       title: 'Turn out independent-leaning voters',
       criteriaSummary:
@@ -153,6 +172,7 @@ export const RECOMMENDED_LISTS_REGISTRY: Record<
   electionDayIdeology: {
     intent: 'electionDay',
     requiresIdeologyBucket: true,
+    supporterBased: false,
     copy: {
       title: 'Turn out voters who may lean {bucket}',
       criteriaSummary:

@@ -344,7 +344,7 @@ export default function CreateListFlow({
     // Reported on the accept event rather than re-derived: these are the
     // figures the candidate actually saw on the card.
     count: number
-    districtShare?: number
+    voteGoalShare?: number
   } | null>(null)
   const clearRecommendedDraft = useCallback(() => {
     setRecommendedPrecincts([])
@@ -402,7 +402,7 @@ export default function CreateListFlow({
           channel: 'doorKnocking',
           intent: recommendedListIntent as RecommendedListIntent,
           count: recommendation.count,
-          districtShare: recommendation.districtShare,
+          voteGoalShare: recommendation.voteGoalShare,
           modified: false,
           reusedExistingList: true,
         })
@@ -433,7 +433,7 @@ export default function CreateListFlow({
         intent: recommendedListIntent as RecommendedListIntent,
         filter: recommendation.filter,
         count: recommendation.count,
-        districtShare: recommendation.districtShare,
+        voteGoalShare: recommendation.voteGoalShare,
       })
     },
     [onFiltersChange, selectList, savedLists, recommendedListIntent],
@@ -698,7 +698,7 @@ export default function CreateListFlow({
             channel: 'doorKnocking',
             intent: recommendedMeta.intent,
             count: recommendedMeta.count,
-            districtShare: recommendedMeta.districtShare,
+            voteGoalShare: recommendedMeta.voteGoalShare,
             modified: created.recommendedModified ?? false,
             reusedExistingList: false,
           })

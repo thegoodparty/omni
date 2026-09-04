@@ -44,7 +44,7 @@ const RECOMMENDATION = {
   variant: 'persuadeAffinity' as const,
   filter: { independentAffinity: true, voterStatus: ['Super', 'Likely'] },
   count: 8000,
-  districtShare: 0.22,
+  voteGoalShare: 0.22,
   copy: {
     title: 'Persuadable independents',
     criteriaSummary: 'Moderate to high propensity voters',
@@ -97,6 +97,9 @@ describe('PhoneBankingFlow (Win surface) — recommended lists', () => {
     expect(exposureCalls()).toHaveLength(1)
     await screen.findByText('Persuadable independents')
     expect(screen.getByText(/8,000 people/)).toBeInTheDocument()
+    // Volunteer-run, so gp-api sends no cost and the card must show none.
+    // "$0.00 to reach them" would read as free rather than not applicable.
+    expect(screen.queryByText(/to reach them/)).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByTestId('recommended-list-card'))
     await screen.findByText('Name your list')

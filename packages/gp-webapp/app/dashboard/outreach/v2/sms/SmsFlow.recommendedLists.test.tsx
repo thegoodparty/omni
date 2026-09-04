@@ -74,7 +74,8 @@ const RECOMMENDATION = {
   variant: 'persuadeAffinity' as const,
   filter: { independentAffinity: true, voterStatus: ['Super', 'Likely'] },
   count: 19000,
-  districtShare: 0.48,
+  voteGoalShare: 0.48,
+  estimatedCostCents: 66_500,
   copy: {
     title: 'Persuadable independents',
     criteriaSummary: 'Moderate to high propensity voters',
@@ -176,7 +177,8 @@ describe('SmsFlow — recommended lists', () => {
 
     await screen.findByText('Persuadable independents')
     expect(screen.getByText(/19,000 people/)).toBeInTheDocument()
-    expect(screen.getByText(/48% of your district/)).toBeInTheDocument()
+    expect(screen.getByText(/48% of your vote goal/)).toBeInTheDocument()
+    expect(screen.getByText(/\$665\.00 to reach them/)).toBeInTheDocument()
 
     await userEvent.click(screen.getByTestId('recommended-list-card'))
 
@@ -210,7 +212,7 @@ describe('SmsFlow — recommended lists', () => {
       channel: 'sms',
       intent: 'introduce',
       count: 19000,
-      districtShare: 0.48,
+      voteGoalShare: 0.48,
       modified: true,
       reusedExistingList: false,
     })
@@ -289,7 +291,7 @@ describe('SmsFlow — recommended lists', () => {
       channel: 'sms',
       intent: 'introduce',
       count: 19000,
-      districtShare: 0.48,
+      voteGoalShare: 0.48,
       modified: false,
       reusedExistingList: true,
     })

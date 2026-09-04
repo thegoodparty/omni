@@ -29,6 +29,6 @@ import { StrategicLandscapePersister } from './services/strategicLandscape.persi
     ElectionApiService,
     StrategicLandscapeParamsService,
   ],
-  exports: [CampaignStrategyService],
+  exports: [CampaignStrategyService, ElectionApiService],
 })
 export class CampaignStrategyModule {}

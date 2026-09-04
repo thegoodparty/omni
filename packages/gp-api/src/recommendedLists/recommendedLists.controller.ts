@@ -50,7 +50,7 @@ export class RecommendedListsController {
 
     return this.recommendedLists.recommend(
       organization,
-      campaign.id,
+      campaign,
       channel,
       intent ?? null,
     )

@@ -1,23 +1,18 @@
-// Both numbers below came out of the 26-district sizing eval described in
-// docs/features/recommended-lists.md. That eval is re-runnable and these
-// will move when it is re-run, so they live together in one file rather
-// than beside the code that reads them.
-
-// The smallest list worth recommending, as an ABSOLUTE count. Not a share
-// of the district: the share barely moves across district size -- it is a
-// property of the L2 turnout model, not of the district -- so a percentage
-// floor would pass everything or fail everything. The count spans four
-// orders of magnitude across real users, 320 people in Campti Town, LA
-// against 16.9M in California statewide.
-export const RECOMMENDED_LIST_SIZE_FLOOR = 250
-
-// How many doors a door-knocking recommendation aims to cover. Precinct
-// size, not district size, sets what the top precincts hold, so this is a
-// door count rather than a percentage: roughly a week of canvassing almost
-// anywhere.
-export const DOOR_TARGET_VOTERS = 10_000
-
-// Widening steps for a door list that lands under the floor. See
-// RecommendedListsService.sizeDoorDraft for why the retry rarely runs.
-export const DOOR_WIDENING_FACTOR = 2
-export const MAX_DOOR_WIDENING_PASSES = 3
+// The one size floor, expressed as a share of the race's vote goal: a list
+// holding less than this much of what the candidate needs to win cannot
+// move the race, so it is not worth a card. Race-relative rather than
+// absolute on purpose -- two candidates needing 400 and 40,000 votes in
+// similarly sized districts are not owed the same minimum.
+//
+// Two families are exempt from it entirely rather than held to a smaller
+// number, and RecommendedListsService's `sizeFloor` is where that is
+// decided: door knocking, whose lists are three precincts by construction
+// (DOOR_PRECINCT_COUNT), so a race-wide floor would suppress nearly all of
+// them; and the id'd-supporter variants, which always appear beside a
+// larger recommendation for the same intent, so a small supporter list is
+// additive rather than the candidate's only option.
+//
+// Came out of the 26-district sizing eval described in
+// docs/features/recommended-lists.md, which is re-runnable -- expect this to
+// move when it is re-run.
+export const VOTE_GOAL_FLOOR_SHARE = 0.25

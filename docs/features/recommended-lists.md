@@ -159,7 +159,7 @@ and for door knocking a precinct restriction.
 | SMS           | `hasCellPhone`                                          |
 | Robocall      | `hasAnyPhone`                                           |
 | Phone banking | `hasAnyPhone`                                           |
-| Door knocking | the top-N precincts for that variant |
+| Door knocking | the top 3 precincts for that variant |
 
 Email is not a channel — the product doesn't support email outreach, and there
 is no email column in L2 or in the mart. Social and "write my own message" get
@@ -188,53 +188,87 @@ Another reason #1678 gates this work.
 
 ## Door-knocking precinct selection
 
-Rank the variant's own matching voters by precinct, descending by **plain
-count** — not density. Take precincts until the cumulative count reaches a door
-target, rather than a fixed top-3.
+**The top 3 precincts by matching voter count, descending.** Rank the
+variant's own matching voters by `county|precinct` — by **plain count**, not
+density — exclude voters with no precinct, and take the first three. There is
+no accumulation, no adaptive N, and no district-wide fallback. `LIMIT 3` in the
+SQL is the whole narrowing mechanism.
 
 Precincts are only unique within a county, so the persisted `precincts` column
 encodes `county|precinct` pairs.
 
-**Pick N against a door count, not a percentage.** The absolute top-3 total
-sits in a stable 5,000–15,000 band for every district above 15k voters,
-whether that district has 46 precincts or 50,041, because precinct size sets
-it rather than district size. The percentage it represents is meaningless and
-misleading in both directions — 4% in PA-12, 100% in a small Louisiana town.
-Roughly 5,000–15,000 doors is a week of canvassing almost anywhere.
+Three is a reasonable walk list because our precincts are typically small, and
+it is what the source model has always specified — `anchorTurfs()` ranks by
+voter count descending and takes the top 3.
 
-Two things that will bite:
+**An adaptive door target was tried and removed.** The rule was "take
+precincts until the cumulative count reaches 10,000," and **86% of districts
+never reach it** — so accumulation exhausted every precinct in the ranking and
+the door list silently equalled the whole district. Door knocking's only
+narrowing mechanism was inert almost everywhere. The 10,000 figure was also
+justified as "roughly a week of canvassing," which is wrong by an order of
+magnitude: at 15 doors an hour it is about 667 canvasser-hours.
 
-- **Exclude voters with no precinct.** They currently collapse into a single
+One thing that will bite:
+
+- **Exclude voters with no precinct.** They otherwise collapse into a single
   synthetic `COUNTY|` key that ranks like a real precinct. Between 0 and 17,140
   voters per district (CA statewide 17,140, IN-1 941, AL-6 812). Where that
   bucket is large it wins the ranking and sends a canvasser to an undefined
-  geography.
-- **Bound every per-precinct query.** California statewide has **50,041
-  precincts**, two orders of magnitude past the next largest sampled district.
+  geography. Still load-bearing.
 
 ## Minimum size floor
 
-**Express the floor as an absolute count, not a share of the district.** The
-share is nearly constant across district size — it is a property of the L2
-turnout model, not of the district — so a percentage floor either passes
-everything or fails everything. The absolute count spans four orders of
-magnitude across real users: the intro list is 320 people in Campti Town, LA
-and 16.9M in California statewide.
+**One floor, expressed as a share of the race's vote goal: 25% of
+`votesNeededToWin`.** A list holding less than a quarter of the votes the
+candidate needs cannot move the race, so it isn't worth offering. It is
+race-relative on purpose — two candidates needing 400 and 40,000 votes in
+similarly sized districts are not owed the same minimum, which is the property
+an absolute count was a poor substitute for.
 
-**Floor: 250.** At that value the eval's 26 districts lose only the genuinely
-useless variants (9 of 26 event-ideology-Moderate lists, 5 of 26
-election-day-ideology-Conservative) while every primary list survives,
-including in small districts where those lists matter most. A floor of 1,000
-starts suppressing primary lists exactly where they're most useful.
+This is _not_ a share of the district. That share is nearly constant across
+district size — it is a property of the L2 turnout model, not of the district —
+so a district-relative floor either passes everything or fails everything.
+Share of the vote goal is a different quantity entirely.
 
-Behavior below the floor:
+**Two families are exempt from the floor entirely, not held to a smaller one:**
 
-- **Door knocking** — widen N (add precincts) and re-count. If the
-  district-wide version is still under the floor, omit the recommendation.
-- **Every other channel** — omit the recommendation.
+- **Door knocking.** A door list is three precincts by construction, so
+  precinct size sets how big it is and the race has nothing to say about it.
+  Judging a walk against a whole race's vote goal would suppress nearly every
+  door list.
+- **The id'd-supporter variants** — `eventSupporters`, `earlyVoteSupporters`,
+  `electionDaySupporters`. Each always appears beside a larger recommendation
+  for the same intent, so a small supporter list is additive rather than the
+  candidate's only option. The registry's `supporterBased` flag is what marks
+  them, and a test cross-checks that flag against each variant's own universe
+  so the two cannot drift apart. `eventAffinity` is the near miss the check
+  exists for: its support clause carries `supporter` among four values as an
+  exclusion list, and a looser test would hand it an exemption it hasn't
+  earned.
 
-Omit, don't show-and-warn. A variant under 250 contactable people is not a
-recommendation worth a card.
+**A vote goal that doesn't resolve exempts a variant too.** No `raceId` on the
+campaign, no Race row in election-api, an election-api outage, or a
+non-positive win number all yield no goal — and there is then nothing to take a
+share of. The recommendations still ship; `voteGoalShare` is omitted from each
+of them.
+
+**An empty list is always dropped, floor or no floor.** A card offering nobody
+is worse than no card, and it is a real case: a campaign with real supporters
+can still count zero once a channel's contactability filter is applied. The
+`supportStatus`-resolves-to-nobody short-circuit does not cover that, so the
+zero check is separate and explicit.
+
+Omit, don't show-and-warn.
+
+**Where the vote goal comes from, and its standing caveat.**
+`ElectionApiService.getRaceContext` — the client that already fetches
+win-number data, reused rather than duplicated — supplies
+`win_number_effective`, resolved **once per request** inside the existing
+concurrent fan-out rather than as a serial hop in front of it.
+`win_number_effective` **assumes a single seat**, so an at-large or multi-seat
+race overstates the goal and the floor is correspondingly _more permissive_
+there. Known and accepted; not fixed here.
 
 ## Candidate ideology
 
@@ -347,8 +381,8 @@ shape plus everything the card displays:
 | `variant`          | the registry key, e.g. `persuadeAffinity`                   |
 | `filter`           | the unsaved `VoterFileFilter` shape                         |
 | `count`            | contactable size after the channel refinement               |
-| `districtShare`    | `count` over the district total                             |
-| `estimatedCost` | **Deferred.** channel unit price x count, but the unit prices have no resolved source yet — see Open items. Omit the field until that is closed rather than guessing a price. |
+| `voteGoalShare`    | `count` over `votesNeededToWin`. Omitted — not nulled — when the vote goal can't be resolved. Deliberately unbounded above: a list can hold several times the votes a race needs |
+| `estimatedCostCents` | per-contact cost x count, in cents, from the same pricing utils the checkout charges from (`textPricing.util.ts` at 35 tenth-cents, `robocallPricing.util.ts` at 45). SMS and robocall only — phone banking and door knocking are volunteer-run and the field is omitted rather than zero, since "$0" reads as free where the truth is "not applicable". Robocall prices the calls portion alone: the $2 caller-ID number fee is charged once per run, not per contact, and no pre-purchase screen puts it in an estimate either |
 | `copy`             | `{ title, criteriaSummary }` with placeholders filled       |
 | `existingFilterId` | set when this recommendation already exists as a saved list |
 
@@ -357,9 +391,10 @@ Behavior:
 - **Nothing is persisted at recommendation time.** The `VoterFileFilter` row is
   created on submit, through the existing audience-step name flow.
 - **Counts fan out concurrently.** One request is several Databricks
-  aggregates: one count per variant, the district total, and for door knocking
-  a precinct ranking. Run them in parallel and show a loading state. No
-  caching in v1.
+  aggregates: one count per variant, and for door knocking a precinct ranking
+  instead. Run them in parallel and show a loading state. The vote goal
+  resolves alongside the district lookup in the hop before them, since the
+  size floor gates on it. No caching in v1.
 - **Refuse `eo-` organizations.**
 - **Variants under the floor are omitted**, per the rules above.
 
@@ -403,7 +438,7 @@ Reuse tracking is already free — `firstUsedForOutreachAt` exists, and the
 `Outreach` rows pointing at a filter give the return count.
 
 Fire an analytics event on select/continue carrying the variant, count,
-district share, and accepted-as-is vs accepted-and-edited. Follow the
+vote-goal share, and accepted-as-is vs accepted-and-edited. Follow the
 `instrument-analytics-event` skill.
 
 ## Copy
@@ -426,9 +461,8 @@ Listed so nobody helpfully reimplements them.
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Every top-level OR                                          | Not expressible as a saved filter                                                                                   | Rewrites the event and election-day universes, whose union branches were load-bearing                                                                                                                               |
 | Within-district turnout percentiles                         | Not a filter dimension; only the four `Voter_Status` bands are                                                      | Bands are absolute, not district-relative                                                                                                                                                                           |
-| The `3 × votesNeededToWin` cut                              | Computable, but there's nowhere to store "the top N by propensity"                                                  | Lists are no longer sized to the race. Two candidates needing 400 and 40,000 votes in similar districts get the same list                                                                                           |
+| The `3 × votesNeededToWin` cut                              | Computable, but there's nowhere to store "the top N by propensity"                                                  | Lists are not _sized_ to the race — two candidates needing 400 and 40,000 votes in similar districts get the same list. The vote-goal floor makes the race decide whether a list is offered at all, which is weaker but is not nothing |
 | County and city geography levels                            | You can't door-knock a county                                                                                       | None. `pickSubGeo` is gone; always precinct                                                                                                                                                                         |
-| Fixed top-3 precincts                                       | Too thin in large districts                                                                                         | None. N is adaptive                                                                                                                                                                                                 |
 | Geography on the event intent                               | We don't know the venue at recommendation time, so "densest 3 precincts" doesn't do the job its rationale claims    | Event invites aren't geographically targeted. Revisit if the flow starts collecting an event location                                                                                                               |
 | `regAddon` / `modeledIAddon` per-campaign party adjustments | `modeledIAddon` needs `hs_` columns absent from the mart; `regAddon` widens with an OR, which AND-only would invert | **The affinity list doesn't know who you're running against.** A candidate facing a lone Republican and one facing a lone Democrat get the same list. Best candidate for reinstatement once unions are on the table |
 | `hf_likely_vbm`                                             | Not in the mart, and adding it was declined for v1                                                                  | Early voting has no distinct audience                                                                                                                                                                               |
@@ -455,35 +489,31 @@ Listed so nobody helpfully reimplements them.
   signal. Fixing it changes an API response's meaning, so it needs its own
   decision: keep it and accept that it means "everyone", or drop the channel
   from the tile.
-- **Two district totals disagree, so pick the mart's.** The mart's own voter
-  count and `m_election_api__district.registered_voters` differ by under 0.5%
-  usually, but 2.2% for CA statewide (23,348,065 vs 22,847,425) and 0.6% for
-  IN-1. **Use the mart's own count** — `COUNT(*)` over `gp_api_voters` scoped to
-  the district — as the `districtShare` denominator. Two reasons: it is already
-  computed as part of the fan-out, and every list count in the numerator is a
-  mart count, so any other denominator makes the share inconsistent with its own
-  numerator. If the district-stats panel uses `registered_voters`, the two
-  surfaces will disagree by up to 2.2%; aligning that panel is a follow-up, not
-  a reason to pick the wrong denominator here.
 - **Precinct granularity isn't comparable across states.** IN-1 has 523
-  precincts for 518k voters (~990 each); MD-2 has 244 for 547k (~2,240 each). A
-  fixed N buys twice the doors in Maryland. If N is ever user-visible, express
-  it as "the precincts covering your first N doors."
+  precincts for 518k voters (~990 each); MD-2 has 244 for 547k (~2,240 each), so
+  three precincts buys roughly twice the doors in Maryland. That is accepted
+  rather than corrected: the alternative is sizing against a door count, which
+  is the rule the 86% figure above killed.
+- **The cost on the card must agree with the checkout, so it comes from the
+  same utils.** `calcTextAmountInCents` / `calcRobocallAmountInCents` own the
+  tenth-cent rounding, and that rounding rule is what makes the figure match
+  what the candidate is actually charged. Don't re-derive the arithmetic. It is
+  computed from the **channel-refined** count — the same count on the card,
+  after the channel's contactability filter is merged into the filter — so the
+  quote is for the people the channel can actually reach.
 - **The filter UI is flag-gated but `filterDimensions.catalog.ts` is not**, so
   the AI assistant will advertise affinity and ideology before the wizard shows
   them.
 
 ## Open items
 
-- Where per-channel unit pricing lives, for `estimatedCost`. Until this is
-  answered the field is omitted from the response, not guessed.
 - Reconciliation with Nigel's revised model once he lands the AND-only rewrite.
   The propensity-band narrowing (dropping `Unreliable` from `reliable`), the
   precinct-count metric, and dropping event geography all need his sign-off.
 
 ## Where the eval lives
 
-The 26-district sizing eval that set the floor, killed the wide propensity
-band, and showed the address column carries no signal produced a per-district,
+The 26-district sizing eval that killed the wide propensity band and showed
+the address column carries no signal produced a per-district,
 per-variant, per-channel CSV grid plus a re-runnable query script. It is scratch output, not
 committed here. Re-run it after the universes change — they will.
