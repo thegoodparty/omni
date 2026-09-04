@@ -121,11 +121,31 @@ export namespace HubSpot {
     UNLOCKED = 'Unlocked',
   }
 
-  /** team_role values (ENG-10826) — compare/write VALUES, never labels */
+  /**
+   * team_role values (ENG-10826) — compare/write VALUES, never labels.
+   * Superseded by the labeled Contact-Company association (ENG-11030) as
+   * the source of truth for role, pending the data team's Attribute
+   * Registry recording one owner; kept writing for CS until that lands.
+   */
   export enum TeamRole {
     OWNER = 'owner',
     CAMPAIGN_MANAGER = 'campaign manager',
     VOLUNTEER = 'volunteer',
+  }
+
+  /**
+   * User-defined Contact-Company association label names (ENG-11030,
+   * ENG-11031). Label `associationTypeId`s are portal-specific — Ops
+   * creates these labels per portal, so the NAME is the only stable
+   * contract. Resolve ids at runtime via `AssociationLabelsService`;
+   * never hardcode an id. Each direction gets its own name (the sandbox
+   * showed both Candidate and Volunteer displaying as "Campaign" from the
+   * Company side).
+   */
+  export enum AssociationLabelName {
+    CANDIDATE = 'Candidate',
+    CAMPAIGN_MANAGER = 'Campaign Manager',
+    VOLUNTEER = 'Volunteer',
   }
 
   /**
