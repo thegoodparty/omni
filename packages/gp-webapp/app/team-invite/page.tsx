@@ -69,6 +69,8 @@ const isConsumedOrExpiredTicketError = (err: unknown): boolean => {
     }`.toLowerCase()
     return (
       haystack.includes('ticket') ||
+      haystack.includes('sign-in token') ||
+      haystack.includes('sign in token') ||
       haystack.includes('expired') ||
       haystack.includes('already been used') ||
       haystack.includes('consumed')
