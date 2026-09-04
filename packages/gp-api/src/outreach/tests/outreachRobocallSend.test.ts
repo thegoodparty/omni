@@ -15,6 +15,7 @@ import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocal
 import { VoiceBroadcastCampaignStatus } from '@/vendors/callhub/schemas/callhubCampaignReport.schema'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   Campaign,
@@ -29,10 +30,15 @@ let launchSpy: ReturnType<typeof vi.spyOn>
 let statusSpy: ReturnType<typeof vi.spyOn>
 let retrieveSpy: ReturnType<typeof vi.spyOn>
 let trackSpy: ReturnType<typeof vi.spyOn>
+let singleSendSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
 let orgSlug: string
 let filterId: number
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 // retrievePaymentIntent returns the full Stripe.Response<PaymentIntent>; the
 // send gate only reads `.status`, so a minimal object cast is enough here.
@@ -62,6 +68,9 @@ beforeEach(async () => {
     .mockResolvedValue(piWith('requires_capture'))
   trackSpy = vi
     .spyOn(service.app.get(AnalyticsService), 'track')
+    .mockResolvedValue(undefined as never)
+  singleSendSpy = vi
+    .spyOn(service.app.get(HubspotSingleSendService), 'sendSingleSend')
     .mockResolvedValue(undefined as never)
 
   const campaignId = 996
@@ -363,6 +372,31 @@ describe('OutreachRobocallSendService.startCampaign', () => {
     expect(userId).toBe(service.user.id)
     expect(event).toBe(EVENTS.Robocall.HoldFailed)
     expect(messageId).toBe(`${outreachId}:hold_failed_at_dial`)
+    // HUBSPOT_ROBOCALL_HOLD_FAILED_EMAIL_ID unset by default — no single-send.
+    expect(singleSendSpy).not.toHaveBeenCalled()
+  })
+
+  it('sends the HoldFailed single-send email on a dead hold caught at dial time, even if the send itself fails', async () => {
+    vi.stubEnv('HUBSPOT_ROBOCALL_HOLD_FAILED_EMAIL_ID', '4245')
+    singleSendSpy.mockRejectedValue(new Error('hubspot down'))
+    const outreachId = await createDraft({
+      authorizedAmountInCents: 450,
+      withCaptureBefore: true,
+    })
+    retrieveSpy.mockResolvedValueOnce(piWith('canceled'))
+
+    await send.startCampaign(outreachId)
+
+    // A HubSpot failure must not corrupt the already-committed hold_failed
+    // transition.
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.hold_failed)
+    expect(singleSendSpy).toHaveBeenCalledTimes(1)
+    expect(singleSendSpy).toHaveBeenCalledWith({
+      emailId: 4245,
+      to: service.user.email,
+      customProperties: { outreach_id: String(outreachId) },
+    })
   })
 
   it('NEVER dials unpaid: a draft with no authorization intent fails and no launch', async () => {
