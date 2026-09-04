@@ -130,8 +130,11 @@ test('held-office user sees Past label and both run-for actions', async ({
   await expect(
     page.getByRole('menuitem').filter({ hasText: 'Past' }),
   ).toHaveCount(1, { timeout: 15_000 })
+  // Scope to the name span (ENG-11041): the campaign org's secondary
+  // "owner · office" line contains the same office string as the elected
+  // office org's name, so an unscoped menuitem filter matches both.
   await expect(
-    page.getByRole('menuitem').filter({ hasText: eoOrg.name }),
+    page.getByTestId('org-picker-item-name').filter({ hasText: eoOrg.name }),
   ).toBeVisible()
 
   // both gated actions render for a re-election-eligible office holder.

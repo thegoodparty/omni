@@ -278,6 +278,13 @@ export const OrganizationPicker = () => {
               {organizations.map((org) => {
                 const isSelected = org.slug === selected.slug
                 const isPast = org.status === 'past'
+                const office =
+                  org.customPositionName ??
+                  org.positionName ??
+                  org.position?.name
+                const secondaryLine = [org.ownerName, office]
+                  .filter(Boolean)
+                  .join(' · ')
                 return (
                   <DropdownMenuItem
                     key={org.slug}
@@ -295,13 +302,24 @@ export const OrganizationPicker = () => {
                         <span className="size-1.5 rounded-full bg-white" />
                       )}
                     </span>
-                    <span
-                      className={`text-sm font-opensans ${
-                        isPast ? 'text-muted-foreground' : ''
-                      }`}
-                    >
-                      {org.name}
-                    </span>
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <span
+                        data-testid="org-picker-item-name"
+                        className={`truncate text-sm font-opensans ${
+                          isPast ? 'text-muted-foreground' : ''
+                        }`}
+                      >
+                        {org.name}
+                      </span>
+                      {secondaryLine && (
+                        <span
+                          data-testid="org-secondary-line"
+                          className="truncate text-xs font-opensans text-muted-foreground"
+                        >
+                          {secondaryLine}
+                        </span>
+                      )}
+                    </div>
                     {isPast && (
                       <span className="ml-auto text-xs font-opensans text-muted-foreground">
                         Past

@@ -88,8 +88,13 @@ type APIOrganization = z.infer<typeof APIOrganizationSchema>
 // match, else their membership row's role) — a per-viewer fact, not a
 // property of the org itself, so it stays off the shared APIOrganizationSchema
 // that the singular get/patch and admin routes also validate against.
+// ownerName rides along for the same reason: it's display enrichment for the
+// multi-org picker (ENG-11041), not a property the singular get/patch/admin
+// routes need to answer. getUserFullName always returns a string (possibly
+// empty, coerced to null) — never absent — so nullable, not nullish.
 const APIOrganizationWithRoleSchema = APIOrganizationSchema.extend({
   role: OrganizationRoleSchema,
+  ownerName: z.string().nullable(),
 })
 
 type APIOrganizationWithRole = z.infer<typeof APIOrganizationWithRoleSchema>
@@ -210,6 +215,7 @@ export class OrganizationsController {
       organizations: organizations.map((org) => ({
         ...toAPIOrganization(org, organizationStatus(org, now)),
         role: org.role,
+        ownerName: org.ownerName,
       })),
     }
   }

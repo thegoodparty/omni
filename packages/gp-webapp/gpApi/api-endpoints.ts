@@ -2078,7 +2078,15 @@ export type Organization = {
   slug: string
   name: string | null
   positionName: string | null
-  position: null | { id: string; brPositionId: string; state: string }
+  // Optional: existing Organization literals across the app predate this
+  // field. gp-api always sends it now; treat an absent value as null.
+  customPositionName?: string | null
+  position: null | {
+    id: string
+    name?: string
+    brPositionId: string
+    state: string
+  }
   district: null | { id: string; l2Type: string; l2Name: string }
   electedOfficeId: string | null
   campaignId: number | null
@@ -2090,6 +2098,9 @@ export type Organization = {
   // it's a per-viewer fact rather than a property of the org (mirrors gp-api's
   // APIOrganizationWithRoleSchema, which is list-only for the same reason).
   role?: OrganizationRole
+  // The org owner's display name, for the org picker's secondary line
+  // (ENG-11041). List-only, same reasoning as role above.
+  ownerName?: string | null
 }
 
 // Wire shapes for team accounts (win-team-accounts / ENG-10816). Mirror

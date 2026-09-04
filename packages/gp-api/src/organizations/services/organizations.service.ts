@@ -24,6 +24,7 @@ import {
 } from '../schemas/organization.schema'
 
 import { OrgDistrict } from '../organizations.types'
+import { getUserFullName } from '@/users/util/users.util'
 
 export type FriendlyOrganization = {
   slug: string
@@ -90,6 +91,7 @@ export class OrganizationsService extends createPrismaBase(
       include: {
         campaign: true,
         electedOffice: true,
+        owner: true,
         // Scoped to this viewer: an owner-owned org has none, a member org
         // has exactly one (the unique [organizationSlug, userId] index).
         memberships: { where: { userId } },
@@ -98,7 +100,11 @@ export class OrganizationsService extends createPrismaBase(
     return await Promise.all(
       orgs.map(async (org) => {
         const friendly = await this.makeFriendly(org)
-        return { ...friendly, role: this.viewerRole(org, userId) }
+        return {
+          ...friendly,
+          role: this.viewerRole(org, userId),
+          ownerName: getUserFullName(org.owner) || null,
+        }
       }),
     )
   }
