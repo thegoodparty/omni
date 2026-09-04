@@ -1,9 +1,10 @@
 import { HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
+import { OutreachSmsAdminService } from '../services/outreachSmsAdmin.service'
 import { OutreachStatus, OutreachType, UserRole } from '../../generated/prisma'
 
 const service = useTestService()
@@ -437,8 +438,13 @@ describe('CAS SMS console (gp-api admin surface)', () => {
   })
 
   describe('GET /v1/outreach/admin/sms/:id', () => {
+    // Each test below uses its OWN projectId — getDetail now single-flights
+    // and caches its vendor reads per jobId on the service instance, which
+    // outlives a single test, so two tests sharing a jobId could serve one
+    // another's cached (or in-flight) result instead of hitting their own
+    // freshly-configured mock.
     it('merges the live job and stats onto the row', async () => {
-      const row = await seedOutreach()
+      const row = await seedOutreach({ projectId: 'peerly-job-detail-ok' })
 
       const res = await service.client.get(`/v1/outreach/admin/sms/${row.id}`)
 
@@ -450,12 +456,182 @@ describe('CAS SMS console (gp-api admin surface)', () => {
 
     it('renders without stats when the vendor read fails', async () => {
       getJobDetailedStats.mockRejectedValue(new Error('peerly down'))
-      const row = await seedOutreach()
+      const row = await seedOutreach({ projectId: 'peerly-job-detail-fail' })
 
       const res = await service.client.get(`/v1/outreach/admin/sms/${row.id}`)
 
       expect(res.status).toBe(HttpStatus.OK)
       expect(res.data.stats).toBeNull()
+    })
+  })
+
+  describe('OutreachSmsAdminService.getDetail — single-flight + cache + cool-off', () => {
+    // Exercised directly on the service (no HTTP round trip) so the same
+    // service instance's in-memory maps persist across the calls each test
+    // makes within itself, mirroring what a rapid page refresh does. Each
+    // test uses its OWN projectId for the isolation reason noted above.
+    afterEach(() => {
+      vi.unstubAllEnvs()
+    })
+
+    const statsPayload = (overrides: Partial<{ delivered: number }> = {}) => ({
+      sentTotal: 100,
+      receivedTotal: 4,
+      delivered: 90,
+      deliveryFailed: 6,
+      deliveryUnconfirmed: 4,
+      totalCost: 3.5,
+      ...overrides,
+    })
+
+    it('single-flights concurrent detail reads for the same job into one vendor call', async () => {
+      const row = await seedOutreach({ projectId: 'peerly-job-sf-concurrent' })
+      // Assigned synchronously the moment getDetail invokes the mock below.
+      let resolveStats!: (value: ReturnType<typeof statsPayload>) => void
+      getJobDetailedStats.mockReset().mockImplementation(
+        () =>
+          new Promise<ReturnType<typeof statsPayload>>((resolve) => {
+            resolveStats = resolve
+          }),
+      )
+      const smsAdmin = service.app.get(OutreachSmsAdminService)
+
+      const firstCall = smsAdmin.getDetail(row.id)
+      const secondCall = smsAdmin.getDetail(row.id)
+      // Wait for the vendor mock to actually be invoked (not a fixed delay)
+      // before answering it — the calls' own DB prefixes (findFirst +
+      // registrations + owners) run first, at whatever speed the DB gives.
+      await vi.waitFor(() =>
+        expect(getJobDetailedStats).toHaveBeenCalledTimes(1),
+      )
+      resolveStats(statsPayload())
+
+      const [first, second] = await Promise.all([firstCall, secondCall])
+
+      expect(getJobDetailedStats).toHaveBeenCalledTimes(1)
+      expect(first.stats).toMatchObject({ delivered: 90 })
+      expect(second.stats).toMatchObject({ delivered: 90 })
+    })
+
+    it('does not duplicate the vendor call on a later page view while the read is still outstanding past its timebox', async () => {
+      vi.stubEnv('VENDOR_READ_TIMEOUT_MS', '50')
+      const row = await seedOutreach({ projectId: 'peerly-job-sf-outstanding' })
+      // Simulates Peerly still computing the report — never settles.
+      getJobDetailedStats
+        .mockReset()
+        .mockImplementation(
+          () => new Promise<ReturnType<typeof statsPayload>>(() => undefined),
+        )
+      const smsAdmin = service.app.get(OutreachSmsAdminService)
+
+      const first = await smsAdmin.getDetail(row.id)
+      expect(first.stats).toBeNull()
+
+      const second = await smsAdmin.getDetail(row.id)
+      expect(second.stats).toBeNull()
+
+      expect(getJobDetailedStats).toHaveBeenCalledTimes(1)
+    })
+
+    it('serves the cached result on a refresh within the TTL, no vendor call', async () => {
+      const row = await seedOutreach({ projectId: 'peerly-job-sf-cache' })
+      getJobDetailedStats.mockReset().mockResolvedValue(statsPayload())
+      const smsAdmin = service.app.get(OutreachSmsAdminService)
+
+      const first = await smsAdmin.getDetail(row.id)
+      expect(first.stats).toMatchObject({ delivered: 90 })
+
+      // If the cache were bypassed, this would be the answer instead.
+      getJobDetailedStats.mockResolvedValue(statsPayload({ delivered: 1 }))
+      const second = await smsAdmin.getDetail(row.id)
+
+      expect(second.stats).toMatchObject({ delivered: 90 })
+      expect(getJobDetailedStats).toHaveBeenCalledTimes(1)
+    })
+
+    it('issues a new vendor request once the failed-read cool-off expires', async () => {
+      // Generous relative to real DB latency in the call's own DB prefix
+      // (findFirst + registrations + owners) — a too-tight margin here
+      // races against that latency, not against the cool-off logic itself.
+      vi.stubEnv('DETAIL_FAILED_RETRY_COOLDOWN_MS', '300')
+      const row = await seedOutreach({ projectId: 'peerly-job-sf-cooloff' })
+      getJobDetailedStats
+        .mockReset()
+        .mockRejectedValueOnce(new Error('peerly down'))
+      const smsAdmin = service.app.get(OutreachSmsAdminService)
+
+      const first = await smsAdmin.getDetail(row.id)
+      expect(first.stats).toBeNull()
+      expect(getJobDetailedStats).toHaveBeenCalledTimes(1)
+
+      getJobDetailedStats.mockResolvedValueOnce(statsPayload({ delivered: 4 }))
+
+      // Still inside the cool-off — served from the negative cache.
+      const stillCoolingOff = await smsAdmin.getDetail(row.id)
+      expect(stillCoolingOff.stats).toBeNull()
+      expect(getJobDetailedStats).toHaveBeenCalledTimes(1)
+
+      // Past the cool-off — a fresh vendor call is allowed.
+      await new Promise<void>((resolve) => setTimeout(resolve, 600))
+      const afterCooldown = await smsAdmin.getDetail(row.id)
+      expect(afterCooldown.stats).toMatchObject({ delivered: 4 })
+      expect(getJobDetailedStats).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not let a late-resolving abandoned read clobber a newer attempt after the outstanding cool-off sweeps it', async () => {
+      vi.stubEnv('DETAIL_OUTSTANDING_RETRY_COOLDOWN_MS', '300')
+      const row = await seedOutreach({
+        projectId: 'peerly-job-sf-anticlobber',
+      })
+      let resolveFirst!: (value: ReturnType<typeof statsPayload>) => void
+      let resolveSecond!: (value: ReturnType<typeof statsPayload>) => void
+      getJobDetailedStats
+        .mockReset()
+        .mockImplementationOnce(
+          () =>
+            new Promise<ReturnType<typeof statsPayload>>((resolve) => {
+              resolveFirst = resolve
+            }),
+        )
+        .mockImplementationOnce(
+          () =>
+            new Promise<ReturnType<typeof statsPayload>>((resolve) => {
+              resolveSecond = resolve
+            }),
+        )
+      const smsAdmin = service.app.get(OutreachSmsAdminService)
+
+      // Never resolved yet — this read is registered in-flight. Wait for
+      // the vendor mock to actually have been invoked (not just for the
+      // call to have been made) before timing the cool-off from it — the
+      // call's own DB prefix (findFirst + registrations + owners) runs
+      // first and its duration isn't part of what we're timing here.
+      const firstCall = smsAdmin.getDetail(row.id)
+      await vi.waitFor(() =>
+        expect(getJobDetailedStats).toHaveBeenCalledTimes(1),
+      )
+
+      // Past the (stubbed) outstanding cool-off, but the first read is
+      // STILL unresolved — a genuinely abandoned request, per Peerly's
+      // own "no response" guidance. The next call's sweep forgets it and
+      // fires a fresh one instead of continuing to share it.
+      await new Promise<void>((resolve) => setTimeout(resolve, 600))
+      const secondCall = smsAdmin.getDetail(row.id)
+      await vi.waitFor(() =>
+        expect(getJobDetailedStats).toHaveBeenCalledTimes(2),
+      )
+
+      // The abandoned first read finally answers — LATE, and with STALE
+      // data — after the second (current) read is already in flight.
+      resolveFirst(statsPayload({ delivered: 90 }))
+      resolveSecond(statsPayload({ delivered: 4 }))
+      await Promise.all([firstCall, secondCall])
+
+      // A third call must see the fresh (second) answer, not the late,
+      // stale (first) one the abandoned read tried to write.
+      const third = await smsAdmin.getDetail(row.id)
+      expect(third.stats).toMatchObject({ delivered: 4 })
+      expect(getJobDetailedStats).toHaveBeenCalledTimes(2)
     })
   })
 })

@@ -11,6 +11,7 @@ import {
   type DenySmsOutreachRequest,
   type EditSmsOutreachRequest,
   type SmsAdminDetailResponse,
+  type SmsAdminJobStats,
   type SmsApprovalQueueItem,
   type SmsApprovalStatus,
 } from '@goodparty_org/contracts'
@@ -39,7 +40,11 @@ type RegistrationNames = {
 // Live vendor reads are additive detail, but Peerly has shown 45s-4min
 // detailedstats responses on the shared test account. Every live read is
 // timeboxed so a stalling vendor can never hold the queue or review page.
-const VENDOR_READ_TIMEOUT_MS = 10_000
+// A function (not a plain const), read at call time, so tests can shrink it
+// via env instead of waiting out a real 10s bound — same pattern as
+// ordinanceDispatch.service.ts's ORDINANCE_RESOLVE_TIMEOUT_MS.
+const vendorReadTimeoutMs = () =>
+  Number(process.env.VENDOR_READ_TIMEOUT_MS ?? 10_000)
 
 const timeboxed = <T>(read: Promise<T>): Promise<T> => {
   // A read that loses the race is abandoned, not cancelled — hold its
@@ -50,7 +55,7 @@ const timeboxed = <T>(read: Promise<T>): Promise<T> => {
     new Promise<never>((_, reject) => {
       const timer = setTimeout(
         () => reject(new Error('Peerly read exceeded the timebox')),
-        VENDOR_READ_TIMEOUT_MS,
+        vendorReadTimeoutMs(),
       )
       timer.unref?.()
     }),
@@ -59,11 +64,54 @@ const timeboxed = <T>(read: Promise<T>): Promise<T> => {
 
 const DATE_FMT = 'yyyy-MM-dd'
 
+// Peerly flagged (2026-09-04) that our detail reads were rapidly piling
+// duplicate long-running requests — a slow read gets abandoned client-side
+// by the timebox above, but the request keeps computing at Peerly, and the
+// next page view (or gp-admin's post-approve/deny/edit router.refresh())
+// fired another one on top of it. Their contract: one outstanding request
+// per job, wait for it, retry a dead one only after ~10 minutes of silence.
+// These four constants back that: a short cache so a refresh right after an
+// action serves the last answer, and two cool-offs — Peerly's own 10-minute
+// guidance for a request that never came back, and a shorter one for a
+// request that came back with an error (safe to retry sooner than a still-
+// running one).
+const DETAIL_CACHE_TTL_MS = 2 * 60 * 1000
+// Functions, not plain consts — same reason as vendorReadTimeoutMs() above:
+// tests shrink these via env rather than waiting out the real cool-offs.
+const detailFailedRetryCooldownMs = () =>
+  Number(process.env.DETAIL_FAILED_RETRY_COOLDOWN_MS ?? 60_000)
+const detailOutstandingRetryCooldownMs = () =>
+  Number(process.env.DETAIL_OUTSTANDING_RETRY_COOLDOWN_MS ?? 10 * 60 * 1000)
+
+type DetailCacheEntry<T> = { value: T; expiresAt: number }
+type DetailInFlightEntry<T> = { promise: Promise<T>; startedAt: number }
+
 // The CAS approval back office (gp-admin). Scope is deliberately the cancel
 // window: a p2p row at spine `pending` with a vendor job — the state where
 // the job exists at Peerly but nothing sends until canvassers are requested.
 @Injectable()
 export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
+  // Keyed by Peerly jobId (Outreach.projectId). One process per ECS task per
+  // env, so an in-memory map single-flights within a task; it does not
+  // coordinate across replicas, which this problem doesn't need — the goal
+  // is one outstanding request per job, not a cluster-wide lock.
+  private readonly jobCache = new Map<
+    string,
+    DetailCacheEntry<PeerlyJob | null>
+  >()
+  private readonly jobInFlight = new Map<
+    string,
+    DetailInFlightEntry<PeerlyJob | null>
+  >()
+  private readonly statsCache = new Map<
+    string,
+    DetailCacheEntry<SmsAdminJobStats | null>
+  >()
+  private readonly statsInFlight = new Map<
+    string,
+    DetailInFlightEntry<SmsAdminJobStats | null>
+  >()
+
   constructor(
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
     private readonly analytics: AnalyticsService,
@@ -130,28 +178,56 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       }
     }
 
+    const jobId = row.projectId
+
     // Live reads are additive detail — either failing (or stalling past
     // the timebox) must not 404 or hang the row. Parallel: neither read
-    // depends on the other.
+    // depends on the other. Each is single-flighted + cached per jobId
+    // (see the constants above) so a rapid refresh or a concurrent page
+    // view shares one outstanding Peerly request instead of stacking a
+    // new one; the 10s timebox below still bounds how long THIS call
+    // waits for an answer, but the shared read itself keeps running.
     const [job, stats] = await Promise.all([
-      this.timedVendorRead(
-        'live_job',
-        { outreachId },
-        this.peerlyP2pJobService.getJob(row.projectId),
+      this.boundedRead(
+        this.singleFlightCached(
+          this.jobCache,
+          this.jobInFlight,
+          jobId,
+          (value) => value === null,
+          () =>
+            this.loggedVendorRead(
+              'live_job',
+              { outreachId },
+              this.peerlyP2pJobService.getJob(jobId),
+            ),
+        ),
       ),
-      this.timedVendorRead(
-        'detailed_stats',
-        { outreachId },
-        // Scoped to the row's lifetime: Peerly scans the requested span
-        // server-side, and the default THIS_YEAR over a busy account is
-        // what stalled this read for minutes. Window mirrors the inbound
-        // sweep's convention — padded a day each side (Peerly evaluates
-        // the range in its account timezone) and anchored on the send
-        // date (a backdated row's events can predate createdAt).
-        this.peerlyP2pJobService.getJobDetailedStats(row.projectId, {
-          startDate: format(subDays(row.date ?? row.createdAt, 1), DATE_FMT),
-          endDate: format(addDays(new Date(), 1), DATE_FMT),
-        }),
+      this.boundedRead(
+        this.singleFlightCached(
+          this.statsCache,
+          this.statsInFlight,
+          jobId,
+          (value) => value === null,
+          () =>
+            this.loggedVendorRead(
+              'detailed_stats',
+              { outreachId },
+              // Scoped to the row's lifetime: Peerly scans the requested
+              // span server-side, and the default THIS_YEAR over a busy
+              // account is what stalled this read for minutes. Window
+              // mirrors the inbound sweep's convention — padded a day each
+              // side (Peerly evaluates the range in its account timezone)
+              // and anchored on the send date (a backdated row's events
+              // can predate createdAt).
+              this.peerlyP2pJobService.getJobDetailedStats(jobId, {
+                startDate: format(
+                  subDays(row.date ?? row.createdAt, 1),
+                  DATE_FMT,
+                ),
+                endDate: format(addDays(new Date(), 1), DATE_FMT),
+              }),
+            ),
+        ),
       ),
     ])
 
@@ -510,14 +586,14 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
    * vendor layer's own per-request logs are debug-level, which prod
    * does not emit.
    */
-  private async timedVendorRead<T>(
+  private async loggedVendorRead<T>(
     read: string,
     context: Record<string, number | string>,
     vendorRead: Promise<T>,
   ): Promise<T | null> {
     const startedAt = performance.now()
     try {
-      const result = await timeboxed(vendorRead)
+      const result = await vendorRead
       this.logger.info(
         {
           ...context,
@@ -541,6 +617,102 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       )
       return null
     }
+  }
+
+  // Used by the queue listing's per-identity reads, which aren't part of the
+  // single-flight/cache layer below (one read per identity per queue page,
+  // not per row per page view — not the pattern Peerly flagged).
+  private timedVendorRead<T>(
+    read: string,
+    context: Record<string, number | string>,
+    vendorRead: Promise<T>,
+  ): Promise<T | null> {
+    return this.loggedVendorRead(read, context, timeboxed(vendorRead))
+  }
+
+  /**
+   * Single-flight + short-TTL cache + cool-off for a per-jobId vendor read,
+   * used by getDetail's live-job and detailed-stats reads. `cache`/`inFlight`
+   * are the caller's own maps (kept separate per read so an in-flight job
+   * read never blocks on a slow stats read, or vice versa); `key` is the
+   * Peerly jobId.
+   *
+   * A cache hit or an already-in-flight read short-circuits below with no
+   * new vendor call — that's the single-flight/cache half of the contract.
+   * Otherwise a fresh read is fired and registered in `inFlight` BEFORE any
+   * `await` in this function, so two callers racing for the same key can
+   * never both pass the checks above and both fire a vendor read. Its
+   * settle-time cache write is guarded on `startedAt` still matching the
+   * live `inFlight` entry, so a read abandoned by the sweep below (Peerly
+   * never answered within the 10-minute cool-off) can't clobber a newer
+   * attempt's result if it eventually does answer.
+   */
+  private singleFlightCached<T>(
+    cache: Map<string, DetailCacheEntry<T>>,
+    inFlight: Map<string, DetailInFlightEntry<T>>,
+    key: string,
+    isFailure: (value: T) => boolean,
+    produce: () => Promise<T>,
+  ): Promise<T> {
+    this.sweepStaleEntries(cache, inFlight)
+
+    const cached = cache.get(key)
+    if (cached) return Promise.resolve(cached.value)
+
+    const existing = inFlight.get(key)
+    if (existing) return existing.promise
+
+    const startedAt = Date.now()
+    const promise = produce().then((value) => {
+      const current = inFlight.get(key)
+      if (current?.startedAt === startedAt) {
+        inFlight.delete(key)
+        cache.set(key, {
+          value,
+          expiresAt:
+            Date.now() +
+            (isFailure(value)
+              ? detailFailedRetryCooldownMs()
+              : DETAIL_CACHE_TTL_MS),
+        })
+      }
+      return value
+    })
+    inFlight.set(key, { promise, startedAt })
+    return promise
+  }
+
+  // Bounds every OTHER key's stale bookkeeping too (not just the one this
+  // call is about), so the maps stay sized to currently-relevant jobs
+  // instead of growing for the life of the process.
+  private sweepStaleEntries<T>(
+    cache: Map<string, DetailCacheEntry<T>>,
+    inFlight: Map<string, DetailInFlightEntry<T>>,
+  ): void {
+    const now = Date.now()
+    for (const [key, entry] of cache) {
+      if (entry.expiresAt <= now) cache.delete(key)
+    }
+    for (const [key, entry] of inFlight) {
+      if (now - entry.startedAt >= detailOutstandingRetryCooldownMs()) {
+        inFlight.delete(key)
+      }
+    }
+  }
+
+  // Bounds how long THIS getDetail call waits on a single-flighted read —
+  // the shared read itself (registered in inFlight above) keeps running
+  // regardless, so a page view that times out here never spawns a
+  // duplicate; it just renders without this field until a later call picks
+  // up the now-cached (or still-shared) result.
+  private boundedRead<T>(read: Promise<T | null>): Promise<T | null> {
+    return Promise.race([
+      read,
+      new Promise<null>((resolve) => {
+        const timer = setTimeout(() => resolve(null), vendorReadTimeoutMs())
+        timer.unref?.()
+      }),
+    ])
   }
 
   private toQueueItem(
