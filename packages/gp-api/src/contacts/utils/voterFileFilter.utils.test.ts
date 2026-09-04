@@ -232,3 +232,32 @@ describe('convertVoterFileFilterToFilters precincts', () => {
     ).toEqual({ precinct: { in: ['HILLSBOROUGH|'] } })
   })
 })
+
+// Task 7: recommendedVariant/Channel/Intent/Modified are provenance, not
+// filter criteria. recommendedModified is a plain boolean, so without an
+// exclusion it would fall into the generic boolean branch and add a bogus
+// key to every list ever created from a recommendation — silently widening
+// (or narrowing) who the list matches, and breaking the recommendation
+// dedupe check (recommendedListsDedupe.util.ts), which compares this same
+// converted payload.
+describe('excludes recommendation provenance from the payload', () => {
+  it('emits no filter key for recommendedModified: true', () => {
+    expect(
+      convertVoterFileFilterToFilters({
+        partyDemocrat: true,
+        recommendedModified: true,
+      }),
+    ).toEqual({ politicalParty: { eq: 'Democratic' } })
+  })
+
+  it('emits no filter key for recommendedVariant/Channel/Intent', () => {
+    expect(
+      convertVoterFileFilterToFilters({
+        partyDemocrat: true,
+        recommendedVariant: 'persuadeAffinity',
+        recommendedChannel: 'sms',
+        recommendedIntent: 'persuade',
+      }),
+    ).toEqual({ politicalParty: { eq: 'Democratic' } })
+  })
+})

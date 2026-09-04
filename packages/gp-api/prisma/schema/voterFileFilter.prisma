@@ -91,6 +91,14 @@ model VoterFileFilter {
   supportStatus              SupportStatusRollup[]              @default([]) @map("support_status")
   firstUsedForOutreachAt     DateTime?                          @map("first_used_for_outreach_at")
   activityConditions         VoterFileFilterActivityCondition[]
+  /// Registry key of the recommendation this list was created from; null
+  /// means user-built. Set once at create time, never re-derived.
+  recommendedVariant         String?                            @map("recommended_variant")
+  recommendedChannel         String?                            @map("recommended_channel")
+  recommendedIntent          String?                            @map("recommended_intent")
+  /// Whether the candidate edited the recommendation before submitting.
+  /// Null (not false) when recommendedVariant is null.
+  recommendedModified        Boolean?                           @map("recommended_modified")
 
   @@index([organizationSlug])
   @@map("voter_file_filter")
