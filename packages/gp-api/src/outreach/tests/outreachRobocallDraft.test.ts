@@ -14,7 +14,7 @@
  */
 
 import { HttpStatus } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { PeopleListResponse } from '@/contacts/schemas/person.schema'
@@ -23,6 +23,7 @@ import {
   ROBOCALL_NUMBER_FEE_CENTS,
 } from '@/shared/util/robocallPricing.util'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { OutreachRobocallService } from '../services/outreachRobocall.service'
@@ -38,6 +39,10 @@ const findContactsForFilter = vi.fn()
 
 let orgSlug: string
 let filterId: number
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 const CAMPAIGN_ID = 998
 
@@ -190,6 +195,58 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
     expect(
       trackSpy.mock.calls.filter((c) => c[1] === EVENTS.Robocall.Scheduled),
     ).toHaveLength(1)
+  })
+
+  it('sends the Scheduled single-send email with the scheduled date and amount', async () => {
+    vi.stubEnv('HUBSPOT_ROBOCALL_SCHEDULED_EMAIL_ID', '4251')
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+    const singleSendSpy = vi
+      .spyOn(service.app.get(HubspotSingleSendService), 'sendSingleSend')
+      .mockResolvedValue(undefined as never)
+    const body = validDraftBody()
+
+    const res = await postDraft(body)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(singleSendSpy).toHaveBeenCalledTimes(1)
+    expect(singleSendSpy).toHaveBeenCalledWith({
+      emailId: 4251,
+      to: service.user.email,
+      customProperties: {
+        outreach_id: String(res.data.outreachId),
+        scheduled_at: body.scheduledAt,
+        amount_dollars: String(calcRobocallTotalInCents(500) / 100),
+      },
+    })
+  })
+
+  it('does not send a single-send email when HUBSPOT_ROBOCALL_SCHEDULED_EMAIL_ID is unset', async () => {
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+    const singleSendSpy = vi
+      .spyOn(service.app.get(HubspotSingleSendService), 'sendSingleSend')
+      .mockResolvedValue(undefined as never)
+
+    const res = await postDraft(validDraftBody())
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(singleSendSpy).not.toHaveBeenCalled()
+  })
+
+  it('still creates the draft when the Scheduled single-send call fails', async () => {
+    vi.stubEnv('HUBSPOT_ROBOCALL_SCHEDULED_EMAIL_ID', '4251')
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+    vi.spyOn(
+      service.app.get(HubspotSingleSendService),
+      'sendSingleSend',
+    ).mockRejectedValue(new Error('hubspot down'))
+
+    const res = await postDraft(validDraftBody())
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const spine = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: res.data.outreachId },
+    })
+    expect(spine.status).toBe(OutreachStatus.pending_payment)
   })
 
   // Local calendar day, not the UTC date: an evening local send whose UTC

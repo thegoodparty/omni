@@ -64,6 +64,48 @@ describe('GET /v1/organizations', () => {
     )
   })
 
+  it('carries the owner display name (ENG-11041)', async () => {
+    await service.prisma.organization.create({
+      data: { slug: 'campaign-owned-name', ownerId: service.user.id },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    expect(result.data.organizations).toEqual([
+      expect.objectContaining({
+        slug: 'campaign-owned-name',
+        ownerName: 'Johnny Goodparty',
+      }),
+    ])
+  })
+
+  it('nulls the owner display name when the owner has no name on file', async () => {
+    const namelessOwner = await service.prisma.user.create({
+      data: { email: 'nameless-owner@example.com' },
+    })
+    await service.prisma.organization.create({
+      data: { slug: 'campaign-nameless-owner', ownerId: namelessOwner.id },
+    })
+    await service.prisma.organizationMembership.create({
+      data: {
+        organizationSlug: 'campaign-nameless-owner',
+        userId: service.user.id,
+        role: OrganizationRole.campaignAdmin,
+      },
+    })
+
+    const result = await service.client.get('/v1/organizations')
+
+    expect(result.status).toBe(200)
+    expect(result.data.organizations).toEqual([
+      expect.objectContaining({
+        slug: 'campaign-nameless-owner',
+        ownerName: null,
+      }),
+    ])
+  })
+
   it('returns organizations with name from campaign electionDate', async () => {
     const electionsService = service.app.get(ElectionsService)
     vi.spyOn(electionsService, 'getPositionById').mockResolvedValue({

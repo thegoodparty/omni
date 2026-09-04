@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { HttpStatus } from '@nestjs/common'
 import { addDays, getUnixTime } from 'date-fns'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Stripe from 'stripe'
 import { useTestService } from '@/test-service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { OutreachRobocallService } from '@/outreach/services/outreachRobocall.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
@@ -23,6 +24,11 @@ let orgSlug: string
 let filterId: number
 let deriveSpy: ReturnType<typeof vi.spyOn>
 let trackSpy: ReturnType<typeof vi.spyOn>
+let singleSendSpy: ReturnType<typeof vi.spyOn>
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 beforeEach(async () => {
   const stripe = service.app.get(StripeService)
@@ -43,6 +49,9 @@ beforeEach(async () => {
   )
   trackSpy = vi
     .spyOn(service.app.get(AnalyticsService), 'track')
+    .mockResolvedValue(undefined as never)
+  singleSendSpy = vi
+    .spyOn(service.app.get(HubspotSingleSendService), 'sendSingleSend')
     .mockResolvedValue(undefined as never)
 
   const campaignId = 997
@@ -200,6 +209,64 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(userId).toBe(service.user.id)
     expect(event).toBe(EVENTS.Robocall.HoldPlaced)
     expect(messageId).toBe(`${outreachId}:hold_placed`)
+
+    // HUBSPOT_ROBOCALL_HOLD_PLACED_EMAIL_ID is unset by default (ENG-11035) —
+    // no single-send call, no behavior change from before the cutover.
+    expect(singleSendSpy).not.toHaveBeenCalled()
+  })
+
+  it('sends the HoldPlaced single-send email to the account that authorized, with the held amount', async () => {
+    vi.stubEnv('HUBSPOT_ROBOCALL_HOLD_PLACED_EMAIL_ID', '4242')
+    const outreachId = await createDraft({ sendInDays: 2 })
+    deriveSpy.mockResolvedValue(100)
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_1',
+      customer: 'cus_test',
+      type: 'card',
+    })
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_hold_1',
+      status: 'requires_capture',
+      capture_before: captureBeforeUnix(),
+    })
+
+    await postAuthorize(outreachId)
+
+    expect(singleSendSpy).toHaveBeenCalledTimes(1)
+    expect(singleSendSpy).toHaveBeenCalledWith({
+      emailId: 4242,
+      to: service.user.email,
+      customProperties: {
+        outreach_id: String(outreachId),
+        amount_dollars: String(calcRobocallTotalInCents(100) / 100),
+      },
+    })
+  })
+
+  it('still authorizes the hold when the HubSpot single-send call fails', async () => {
+    vi.stubEnv('HUBSPOT_ROBOCALL_HOLD_PLACED_EMAIL_ID', '4242')
+    singleSendSpy.mockRejectedValue(new Error('hubspot down'))
+    const outreachId = await createDraft({ sendInDays: 2 })
+    deriveSpy.mockResolvedValue(100)
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_1',
+      customer: 'cus_test',
+      type: 'card',
+    })
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_hold_1',
+      status: 'requires_capture',
+      capture_before: captureBeforeUnix(),
+    })
+
+    const res = await postAuthorize(outreachId)
+
+    // The money op already committed; a lost single-send email must never
+    // fail the request whose hold succeeded.
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.status).toBe('authorized')
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
   })
 
   it('failSend voids the hold, sets send_failed + failed spine, emails once', async () => {
@@ -230,6 +297,41 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     const [, event, , , messageId] = trackSpy.mock.calls[0] ?? []
     expect(event).toBe(EVENTS.Robocall.SendFailed)
     expect(messageId).toBe(`${outreachId}:send_failed`)
+    // HUBSPOT_ROBOCALL_SEND_FAILED_EMAIL_ID unset by default — no single-send.
+    expect(singleSendSpy).not.toHaveBeenCalled()
+  })
+
+  it('failSend sends the SendFailed single-send email with the failure reason, and voids the hold even if it fails', async () => {
+    vi.stubEnv('HUBSPOT_ROBOCALL_SEND_FAILED_EMAIL_ID', '4243')
+    singleSendSpy.mockRejectedValue(new Error('hubspot down'))
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.staging,
+      authorizationIntentId: 'pi_hold_9',
+    })
+    paymentIntentsCancel.mockResolvedValue({
+      id: 'pi_hold_9',
+      status: 'canceled',
+    })
+
+    const hold = service.app.get(OutreachRobocallHoldService)
+    await hold.failSend(outreachId, 'staging')
+
+    // A HubSpot failure must never corrupt the (already-committed) hold void
+    // or the satellite/spine terminal state.
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.send_failed)
+    expect(paymentIntentsCancel).toHaveBeenCalled()
+    expect((await readSpine(outreachId)).status).toBe('failed')
+
+    expect(singleSendSpy).toHaveBeenCalledTimes(1)
+    expect(singleSendSpy).toHaveBeenCalledWith({
+      emailId: 4243,
+      to: service.user.email,
+      customProperties: {
+        outreach_id: String(outreachId),
+        failure_reason: 'staging',
+      },
+    })
   })
 
   it('failSend records the staged campaign as orphaned so cleanup ABORTs it', async () => {
@@ -582,6 +684,35 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     // later card-update retry that declines again — past Segment's 24h dedup
     // window — still sends a distinct "update your card" email.
     expect(messageId).toBe(`${outreachId}:hold_failed:1`)
+    // HUBSPOT_ROBOCALL_HOLD_FAILED_EMAIL_ID unset by default — no single-send.
+    expect(singleSendSpy).not.toHaveBeenCalled()
+  })
+
+  it('sends the HoldFailed single-send email to the account on a decline', async () => {
+    vi.stubEnv('HUBSPOT_ROBOCALL_HOLD_FAILED_EMAIL_ID', '4244')
+    const outreachId = await createDraft({ sendInDays: 2 })
+    deriveSpy.mockResolvedValue(100)
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_1',
+      customer: 'cus_test',
+      type: 'card',
+    })
+    paymentIntentsCreate.mockRejectedValue(
+      new Stripe.errors.StripeCardError({
+        type: 'card_error',
+        message: 'Your card was declined.',
+        code: 'card_declined',
+      }),
+    )
+
+    await postAuthorize(outreachId)
+
+    expect(singleSendSpy).toHaveBeenCalledTimes(1)
+    expect(singleSendSpy).toHaveBeenCalledWith({
+      emailId: 4244,
+      to: service.user.email,
+      customProperties: { outreach_id: String(outreachId) },
+    })
   })
 
   it('gives a second decline attempt a distinct HoldFailed messageId', async () => {

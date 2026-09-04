@@ -132,6 +132,9 @@ test.describe('Custom office flow', () => {
       // Org list carries the viewer's role (ENG-10823); the creator is the
       // owner.
       role: 'owner',
+      // Org list carries the owner's display name for the picker's
+      // secondary line (ENG-11041).
+      ownerName: expect.any(String),
     })
 
     const { data: campaign } = await client.get<{

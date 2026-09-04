@@ -11,6 +11,7 @@ import {
 } from '@/vendors/stripe/services/stripe.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { Prisma, RobocallSettleState } from '../../generated/prisma'
+import { OutreachRobocallSingleSendService } from './outreachRobocallSingleSend.service'
 
 // One slot after capture (:02), on a minute free of the other robocall crons.
 const ROBOCALL_FRESH_CHARGE_SWEEP_CRON = '5,15,25,35,45,55 * * * *'
@@ -49,6 +50,7 @@ export class OutreachRobocallFreshChargeService extends createPrismaBase(
   constructor(
     private readonly stripe: StripeService,
     private readonly analytics: AnalyticsService,
+    private readonly robocallSingleSend: OutreachRobocallSingleSendService,
   ) {
     super()
   }
@@ -398,5 +400,18 @@ export class OutreachRobocallFreshChargeService extends createPrismaBase(
         'robocall fresh-charge receipt milestone emit failed',
       )
     }
+
+    // Single-send email leg (ENG-11035) — best-effort, never throws; see
+    // OutreachRobocallSingleSendService. A HubSpot failure here must never
+    // fail the charge that already moved money.
+    await this.robocallSingleSend.send(
+      EVENTS.Robocall.Receipt,
+      userId,
+      outreachId,
+      {
+        outreach_id: String(outreachId),
+        captured_amount_dollars: String(capturedAmountInDollars),
+      },
+    )
   }
 }

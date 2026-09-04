@@ -9,6 +9,7 @@ import {
   StripeService,
 } from '@/vendors/stripe/services/stripe.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
 
@@ -18,10 +19,15 @@ let freshCharge: OutreachRobocallFreshChargeService
 let chargeSpy: ReturnType<typeof vi.spyOn>
 let findChargeSpy: ReturnType<typeof vi.spyOn>
 let trackSpy: ReturnType<typeof vi.spyOn>
+let singleSendSpy: ReturnType<typeof vi.spyOn>
 
 let campaign: Campaign
 let orgSlug: string
 let filterId: number
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 beforeEach(async () => {
   freshCharge = service.app.get(OutreachRobocallFreshChargeService)
@@ -36,6 +42,9 @@ beforeEach(async () => {
     .mockResolvedValue(null)
   trackSpy = vi
     .spyOn(service.app.get(AnalyticsService), 'track')
+    .mockResolvedValue(undefined as never)
+  singleSendSpy = vi
+    .spyOn(service.app.get(HubspotSingleSendService), 'sendSingleSend')
     .mockResolvedValue(undefined as never)
 
   const campaignId = 998
@@ -138,6 +147,31 @@ describe('OutreachRobocallFreshChargeService.chargeUncollectable', () => {
     expect(properties).toEqual({
       outreachId,
       capturedAmountInDollars: calcRobocallTotalInCents(100) / 100,
+    })
+    // HUBSPOT_ROBOCALL_RECEIPT_EMAIL_ID unset by default — no single-send.
+    expect(singleSendSpy).not.toHaveBeenCalled()
+  })
+
+  it('sends the Receipt single-send email with the captured amount, and still charges the card if it fails', async () => {
+    vi.stubEnv('HUBSPOT_ROBOCALL_RECEIPT_EMAIL_ID', '4250')
+    singleSendSpy.mockRejectedValue(new Error('hubspot down'))
+    const outreachId = await createDraft({ completedCallCount: 100 })
+
+    await freshCharge.chargeUncollectable(outreachId)
+
+    // The off-session charge already moved money; a lost single-send email
+    // must never fail (or undo) it.
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.charged)
+    expect(chargeSpy).toHaveBeenCalledTimes(1)
+    expect(singleSendSpy).toHaveBeenCalledTimes(1)
+    expect(singleSendSpy).toHaveBeenCalledWith({
+      emailId: 4250,
+      to: service.user.email,
+      customProperties: {
+        outreach_id: String(outreachId),
+        captured_amount_dollars: String(calcRobocallTotalInCents(100) / 100),
+      },
     })
   })
 
