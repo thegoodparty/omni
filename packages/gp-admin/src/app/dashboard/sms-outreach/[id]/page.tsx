@@ -158,7 +158,9 @@ export default async function Page({ params }: PageProps) {
               <DataList.Item>
                 <DataList.Label>Vendor job</DataList.Label>
                 <DataList.Value>
-                  {item.job === null ? (
+                  {item.approvalStatus === 'canceled' ? (
+                    'Deleted with the cancel'
+                  ) : item.job === null ? (
                     'Live read failed'
                   ) : item.job.deliverabilityCheckError ? (
                     <Text color="red">{item.job.deliverabilityCheckError}</Text>

@@ -269,6 +269,15 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(item.approvalStatus).toBe('canceled')
       // The canceled row's vendor job is gone — no live read attempted.
       expect(getJobsByIdentityId).not.toHaveBeenCalled()
+
+      const detail = await service.client.get(
+        `/v1/outreach/admin/sms/${row.id}`,
+      )
+      expect(detail.status).toBe(HttpStatus.OK)
+      expect(detail.data.item.approvalStatus).toBe('canceled')
+      expect(detail.data.stats).toBeNull()
+      expect(getJob).not.toHaveBeenCalled()
+      expect(getJobDetailedStats).not.toHaveBeenCalled()
     })
 
     it('refuses a second cancel via the idempotent early-return', async () => {

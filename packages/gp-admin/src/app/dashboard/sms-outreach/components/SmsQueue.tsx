@@ -254,7 +254,11 @@ export function SmsQueue({ items }: SmsQueueProps) {
                   )}
                 </Table.Cell>
                 <Table.Cell>
-                  {item.job === null ? (
+                  {item.approvalStatus === 'canceled' ? (
+                    <Text size="2" color="gray">
+                      —
+                    </Text>
+                  ) : item.job === null ? (
                     <Badge color="gray">Vendor read failed</Badge>
                   ) : item.job.deliverabilityCheckError ? (
                     <Badge color="red">Deliverability error</Badge>

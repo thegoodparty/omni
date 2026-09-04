@@ -116,6 +116,20 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     const registrations = await this.registrationsByCampaign([row])
     const owners = await this.ownersByCampaign([row])
 
+    // A canceled row's vendor job was deleted with the cancel — both live
+    // reads can only fail, so skip them and render from our own record.
+    if (row.status === OutreachStatus.canceled) {
+      return {
+        item: this.toQueueItem(
+          row,
+          registrations.get(row.campaignId ?? -1),
+          null,
+          owners.get(row.campaignId ?? -1) ?? null,
+        ),
+        stats: null,
+      }
+    }
+
     // Live reads are additive detail — either failing (or stalling past
     // the timebox) must not 404 or hang the row. Parallel: neither read
     // depends on the other.

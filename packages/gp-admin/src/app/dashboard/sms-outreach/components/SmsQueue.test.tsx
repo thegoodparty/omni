@@ -104,6 +104,7 @@ describe('SmsQueue', () => {
               canceledAt: new Date(),
               canceledBy: 'cas@goodparty.org',
               canceledByAdmin: true,
+              job: null,
             }),
           ]}
         />
@@ -125,6 +126,8 @@ describe('SmsQueue', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: /Canceled \(1\)/ }))
     expect(screen.getByText('Canceled send')).toBeInTheDocument()
+    // A canceled row's job is deleted by design — not a failed read.
+    expect(screen.queryByText('Vendor read failed')).not.toBeInTheDocument()
 
     // The whole row is clickable, not just the campaign link.
     await userEvent.click(screen.getByText('Jane Doe'))
