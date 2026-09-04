@@ -21,6 +21,15 @@ enum WillVoteAnswer {
   unsure
 }
 
+// The Serve door's terminal answer, in place of support and will-vote. Binary
+// where those are three-way because there is no Serve equivalent of "unsure":
+// support is a stance a resident may not have settled on, while follow-up is
+// something a canvasser either committed to or did not.
+enum FollowUpAnswer {
+  yes
+  no
+}
+
 model ContactInteractionDoorKnock {
   id               String           @id @default(uuid(7))
   createdAt        DateTime         @default(now()) @map("created_at")
@@ -33,6 +42,13 @@ model ContactInteractionDoorKnock {
   // GOTV signal captured by the door-knocking tool; null on manual/legacy
   // rows and unused by the feed until it wants it.
   willVote         WillVoteAnswer?  @map("will_vote")
+  // The Serve surface's answer, and the only one it captures: an elected
+  // official's canvasser is not asking a constituent about support or turnout.
+  // Mutually exclusive with `supportAnswer` in practice — one surface's
+  // vocabulary per row, enforced by the contract rather than by the database,
+  // since a CHECK constraint would also have to be taught about every legacy
+  // row that predates it.
+  followUp         FollowUpAnswer?  @map("follow_up")
   note             String?
   // The door-knocking tool's route/interaction id, the idempotency key so a
   // re-sync upserts rather than double-writes. Null for manual logs; Postgres

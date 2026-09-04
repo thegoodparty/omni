@@ -1,5 +1,6 @@
 import {
   DoorKnockStatus,
+  FollowUpAnswer,
   RoutePayloadTarget,
   RouteTargetActivity,
   SUPPORT_STATUS_ROLLUP_LABELS,
@@ -33,6 +34,20 @@ export type SupportStatus = Extract<
 
 export const supportStatus = (status: DoorKnockStatus): SupportStatus | null =>
   status === 'supporter' || status === 'non_supporter' ? status : null
+
+// The Serve half of the same question, and it is the same argument: only the
+// two statuses that come from a follow-up answer say anything about follow-up,
+// and everything else is a door with no answer behind it.
+//
+// It answers with the ANSWER rather than the status because that is what the
+// card reads back — the question was "Do they need follow-up?" and the two
+// things a canvasser could tap were Yes and No, so a card saying "Spoke with"
+// would be reading back a word nobody was offered. `STATUS_LABELS` keeps those
+// nouns for the rosters and the legend, exactly as it does for support.
+export const followUpAnswerFor = (
+  status: DoorKnockStatus,
+): FollowUpAnswer | null =>
+  status === 'needs_follow_up' ? 'yes' : status === 'engaged' ? 'no' : null
 
 // Month and year, on the canvasser's own clock. Local rather than the UTC the
 // paper surfaces pin themselves to (`walkFacts.ts`), because those render in

@@ -11,7 +11,8 @@ import {
   ANSWERED_BOXES,
   FOOTER_TAGLINE,
   MARK_INSTRUCTION,
-  SUPPORT_BOXES,
+  answerBoxes,
+  walkColumns,
   WALK_COLUMNS,
   walkSummary,
   type WalkColumnKey,
@@ -211,7 +212,13 @@ const MarkBoxes = ({
   </View>
 )
 
-const AnswerCells = ({ row }: { row: WalkListRow }) => {
+const AnswerCells = ({
+  row,
+  isServe,
+}: {
+  row: WalkListRow
+  isServe: boolean
+}) => {
   // A flagged or already-logged door gets the instruction across all three
   // answer columns instead of boxes: there is nothing to ask, and a blank form
   // is how a door gets knocked twice or a recorded answer overwritten.
@@ -241,13 +248,14 @@ const AnswerCells = ({ row }: { row: WalkListRow }) => {
       <View style={[styles.cell, { width: COLUMN.answered }]}>
         <MarkBoxes options={ANSWERED_BOXES} />
       </View>
-      {/* Support, with the one engagement answer a canvasser still has to be
-          able to write down in front of it: paper cannot branch the way the
-          app's walkthrough does, so the ending and the answer share a column. */}
+      {/* The surface's own last question, with the one engagement answer a
+          canvasser still has to be able to write down in front of it: paper
+          cannot branch the way the app's walkthrough does, so the ending and
+          the answer share a column. */}
       <View
         style={[styles.cell, styles.supportCell, { width: COLUMN.support }]}
       >
-        <MarkBoxes options={SUPPORT_BOXES} />
+        <MarkBoxes options={answerBoxes(isServe)} />
       </View>
       {/* Empty and stays empty: this is the column the canvasser writes in. */}
       <View style={[styles.cell, styles.lastCell, { width: COLUMN.notes }]} />
@@ -255,7 +263,13 @@ const AnswerCells = ({ row }: { row: WalkListRow }) => {
   )
 }
 
-const ResidentRow = ({ row }: { row: WalkListRow }) => (
+const ResidentRow = ({
+  row,
+  isServe,
+}: {
+  row: WalkListRow
+  isServe: boolean
+}) => (
   <View
     style={[styles.row, row.firstInHousehold ? styles.household : styles.mate]}
     wrap={false}
@@ -313,15 +327,15 @@ const ResidentRow = ({ row }: { row: WalkListRow }) => (
     <View style={[styles.cell, { width: COLUMN.phone }]}>
       {row.phone !== null && <Text style={styles.phoneText}>{row.phone}</Text>}
     </View>
-    <AnswerCells row={row} />
+    <AnswerCells row={row} isServe={isServe} />
   </View>
 )
 
 // `fixed` repeats this at the top of every page, so page four is still a table
 // and not eight unlabelled columns of handwriting.
-const HeadRow = () => (
+const HeadRow = ({ isServe }: { isServe: boolean }) => (
   <View style={styles.headRow} fixed>
-    {WALK_COLUMNS.map(({ key, label }, index) => (
+    {walkColumns(isServe).map(({ key, label }, index) => (
       <Text
         key={key}
         style={[
@@ -397,7 +411,9 @@ interface WalkListPdfProps {
 // printable page, ruled into a grid a canvasser fills in and someone else
 // transcribes. Deliberately rendered on the server — see the route handler.
 export const WalkListPdf = ({ turfName, payload }: WalkListPdfProps) => {
-  const rows = walkListRows(payload.stops)
+  // Absent reads as Win, for the reason the printable page's does.
+  const isServe = Boolean(payload.isServe)
+  const rows = walkListRows(payload.stops, isServe)
 
   return (
     <Document title={turfName} author="GoodParty.org" subject="Walk list">
@@ -412,9 +428,9 @@ export const WalkListPdf = ({ turfName, payload }: WalkListPdfProps) => {
           <Text style={styles.empty}>This route has no stops.</Text>
         ) : (
           <>
-            <HeadRow />
+            <HeadRow isServe={isServe} />
             {rows.map((row) => (
-              <ResidentRow key={row.key} row={row} />
+              <ResidentRow key={row.key} row={row} isServe={isServe} />
             ))}
             <View style={styles.gridBottom} />
           </>

@@ -1,5 +1,6 @@
 import { DecodedPack } from './packDecoder'
 import { groupAgeSlices, type DimSlice } from './audienceMix'
+import { statusByteActionability } from './statusPresentation'
 
 // Per-dim selections: dim key -> set of ALLOWED byte values. A dim absent
 // from the map (or with every value selected) doesn't constrain.
@@ -16,8 +17,11 @@ export interface FilterResult {
   // Matched people per dot — a dot with 0 renders dimmed.
   matchedPerDot: Uint32Array
   // Most-actionable canvass status byte among each dot's matched people.
-  // The DOOR_KNOCK_STATUSES array order IS the actionability order, so the
-  // minimum byte wins; 255 = no matched people at the dot.
+  // Ranked through `statusByteActionability` and NOT by the byte itself: the
+  // byte is an index into `DOOR_KNOCK_STATUSES`, which the Serve statuses were
+  // appended to so that packs already on phones keep decoding — so a raw
+  // comparison would rank a Serve conversation below every way a door can
+  // fail. 255 = no matched people at the dot.
   statusPerDot: Uint8Array
 }
 
@@ -77,7 +81,8 @@ export const runFilter = (
       households++
     }
     const status = canvassPlane?.[i] ?? 0
-    if (status < (statusPerDot[dot] ?? 255)) {
+    const current = statusPerDot[dot] ?? 255
+    if (statusByteActionability(status) < statusByteActionability(current)) {
       statusPerDot[dot] = status
     }
   }
@@ -129,7 +134,10 @@ export const applyLoggedKnocks = (
     const current = byDot.get(key)
     // Most actionable wins among doors sharing a coordinate, which is the same
     // rule `runFilter` rolls a dot's people up by.
-    if (current === undefined || knock.status < current) {
+    if (
+      current === undefined ||
+      statusByteActionability(knock.status) < statusByteActionability(current)
+    ) {
       byDot.set(key, knock.status)
     }
   }
@@ -141,7 +149,13 @@ export const applyLoggedKnocks = (
       dotKey(positions[dot * 2] ?? 0, positions[dot * 2 + 1] ?? 0),
     )
     if (logged === undefined) continue
-    if (logged > (statusPerDot[dot] ?? 255)) statusPerDot[dot] = logged
+    const current = statusPerDot[dot] ?? 255
+    // A dot with no matched people keeps its sentinel rather than taking a
+    // logged knock: it is not on this filter, and 255 is what dims it.
+    if (current === 255) continue
+    if (statusByteActionability(logged) > statusByteActionability(current)) {
+      statusPerDot[dot] = logged
+    }
   }
   return { ...result, statusPerDot }
 }

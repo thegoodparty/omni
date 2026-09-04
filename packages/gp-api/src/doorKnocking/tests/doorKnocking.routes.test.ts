@@ -2929,6 +2929,200 @@ describe('door-knocking routes', () => {
         },
       ])
     })
+    // The Serve surface's terminal answer. It exists because without one a
+    // conversation an elected official's canvasser actually had derives to
+    // `unknown`, which every "logged" predicate in the product reads as a door
+    // nobody has been to — so these assert the status, not merely the column.
+    describe('follow-up, the Serve answer', () => {
+      it('derives needs_follow_up and engaged from the answer', async () => {
+        const target = await knockAndGetTarget()
+
+        const yes = await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          followUp: 'yes',
+        })
+
+        expect(yes.status).toBe(201)
+        expect(yes.data).toEqual({
+          personId: target.personId,
+          knockStatus: 'needs_follow_up',
+        })
+
+        const row =
+          await service.prisma.contactInteractionDoorKnock.findFirstOrThrow({
+            where: { organizationSlug: orgSlug },
+          })
+        expect(row).toMatchObject({
+          outcome: 'answered',
+          followUp: 'yes',
+          supportAnswer: null,
+          willVote: null,
+        })
+
+        const no = await record({
+          stopTargetId: target.id,
+          clientKey: 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff',
+          outcome: 'answered',
+          followUp: 'no',
+        })
+        expect(no.data.knockStatus).toBe('engaged')
+      })
+
+      // The whole point: `knockStatus !== 'unknown'` is what the walk view,
+      // walk completion, the turf counts and both paper surfaces read as
+      // "logged", so a Serve knock has to move the served route off `unknown`.
+      it('the served route reports the Serve status back', async () => {
+        stubVendors({ residents: { addresses: [] } })
+        const turf = await createTurf()
+        const target =
+          await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+            orderBy: { id: 'asc' },
+          })
+        await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          followUp: 'yes',
+        })
+
+        const res = await service.client.get(
+          `/v1/door-knocking/turfs/${turf.id}/route`,
+          { ...orgHeaders(), validateStatus: () => true },
+        )
+
+        const targets = (
+          res.data.stops as Array<{
+            addresses: Array<{
+              targets: Array<{ personId: string; knockStatus: string }>
+            }>
+          }>
+        )
+          .flatMap((s) => s.addresses)
+          .flatMap((a) => a.targets)
+        expect(
+          targets.find((t) => t.personId === target.personId)?.knockStatus,
+        ).toBe('needs_follow_up')
+      })
+
+      // The anti-retraction half of `latestKnockStatuses`' answer preference,
+      // asserted through the route because that is the derivation the walk-list
+      // row a canvasser taps comes from. The pack has its own test for the same
+      // property (`colors a pin from the newest answer`) and it exercises a
+      // different implementation — the two agreeing is the whole point, and one
+      // test could not have caught them diverging.
+      //
+      // A canvasser who has a conversation on Tuesday and finds the door shut
+      // on Wednesday made a failed re-attempt, not a correction: the follow-up
+      // they were asked for still stands.
+      it('does not let a later empty knock retract the Serve answer', async () => {
+        stubVendors({ residents: { addresses: [] } })
+        const turf = await createTurf()
+        const target =
+          await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+            orderBy: { id: 'asc' },
+          })
+        await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          followUp: 'yes',
+        })
+        await record({
+          stopTargetId: target.id,
+          clientKey: 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff',
+          outcome: 'not_home',
+        })
+
+        const res = await service.client.get(
+          `/v1/door-knocking/turfs/${turf.id}/route`,
+          { ...orgHeaders(), validateStatus: () => true },
+        )
+
+        const targets = (
+          res.data.stops as Array<{
+            addresses: Array<{
+              targets: Array<{ personId: string; knockStatus: string }>
+            }>
+          }>
+        )
+          .flatMap((s) => s.addresses)
+          .flatMap((a) => a.targets)
+        expect(
+          targets.find((t) => t.personId === target.personId)?.knockStatus,
+        ).toBe('needs_follow_up')
+      })
+
+      // One surface's vocabulary per row. Both answers on one payload would
+      // derive as Serve whatever the caller meant, since follow-up is checked
+      // first, so the contract refuses it rather than letting a status be
+      // decided by an ambiguity.
+      it("refuses a payload carrying both surfaces' answers", async () => {
+        const target = await knockAndGetTarget()
+
+        const res = await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          supportAnswer: 'supporter',
+          followUp: 'yes',
+        })
+
+        expect(res.status).toBe(400)
+      })
+
+      // The other half of the Win ladder, refused separately: `willVote` is the
+      // one field on this payload that leaves door knocking, so a row carrying
+      // it alongside a follow-up answer is worth its own assertion even though
+      // the likelihood writer would have declined it anyway.
+      it('refuses a follow-up payload that also answers will-vote', async () => {
+        const target = await knockAndGetTarget()
+
+        const res = await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          followUp: 'yes',
+          willVote: 'yes',
+        })
+
+        expect(res.status).toBe(400)
+      })
+
+      it('refuses follow-up on a door that never answered', async () => {
+        const target = await knockAndGetTarget()
+
+        const res = await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'not_home',
+          followUp: 'yes',
+        })
+
+        expect(res.status).toBe(400)
+      })
+
+      // ENG-10841's mapping is keyed off `willVote`, which a Serve row never
+      // carries — and the writer already refuses `eo-` orgs outright. Asserted
+      // so a later change to either cannot start writing a turnout model
+      // against constituents of an office holder.
+      it('writes no voter_likelihood event', async () => {
+        const target = await knockAndGetTarget()
+        await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          followUp: 'yes',
+        })
+
+        const events = await service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: orgSlug, field: 'voter_likelihood' },
+        })
+        expect(events).toHaveLength(0)
+      })
+    })
+
     describe('willVote -> voter_likelihood override events (ENG-10841)', () => {
       const recordWillVote = async (willVote: string) => {
         const target = await knockAndGetTarget()
@@ -3637,6 +3831,51 @@ describe('door-knocking routes', () => {
       // a pure function of districtId.
       expect(packRequest?.contactsMade).toEqual([{ personId, bucket: 1 }])
       expect(packRequest?.districtId).toBe(DISTRICT_ID)
+    })
+
+    // The pin and the row a tap later are two derivations of one history, and
+    // they have to agree. Both prefer the newest ANSWER-bearing row over a
+    // newer row without one — a later "not home" is a failed re-attempt, not a
+    // retraction — and the pack used to take the newest row outright, which
+    // showed a returned-to Serve door as `not_home` on the map while the walk
+    // still read `needs_follow_up`.
+    it('colors a pin from the newest answer, not the newest knock', async () => {
+      const personId = '77777777-2222-2222-2222-222222222222'
+      await service.prisma.contactInteractionDoorKnock.createMany({
+        data: [
+          {
+            organizationSlug: orgSlug,
+            personId,
+            occurredAt: new Date('2026-07-10T10:00:00Z'),
+            outcome: 'answered' as const,
+            followUp: 'yes' as const,
+          },
+          {
+            organizationSlug: orgSlug,
+            personId,
+            occurredAt: new Date('2026-07-11T10:00:00Z'),
+            outcome: 'not_home' as const,
+          },
+        ],
+      })
+      let packRequest: DoorKnockingPackRequest | undefined
+      vi.spyOn(
+        service.app.get(DoorKnockingPeopleApiService),
+        'pack',
+      ).mockImplementation((request: DoorKnockingPackRequest) => {
+        packRequest = request
+        return Promise.resolve(packBytes)
+      })
+
+      await service.client.get('/v1/door-knocking/pack', {
+        ...orgHeaders(),
+        responseType: 'arraybuffer',
+        validateStatus: () => true,
+      })
+
+      expect(packRequest?.knockStatuses).toEqual([
+        { personId, status: 'needs_follow_up' },
+      ])
     })
 
     // Absent, not empty: an empty array is an organization that has contacted

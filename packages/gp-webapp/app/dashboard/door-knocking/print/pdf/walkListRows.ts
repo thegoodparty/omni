@@ -1,5 +1,5 @@
 import type { DoorKnockingRoutePayload } from '@goodparty_org/contracts'
-import { skipInstruction, STATUS_LABELS } from '../../native/statusPresentation'
+import { skipInstruction, statusLabel } from '../../native/statusPresentation'
 import {
   describeTarget,
   lastContactLine,
@@ -69,8 +69,11 @@ export interface WalkListRow {
 
 // One row per targeted resident, in walk order. The payload isn't guaranteed to
 // arrive in seq order and paper is walked in it.
+// `isServe` defaults to Win for the same reason the payload flag does: every
+// route frozen before it shipped belonged to a candidate.
 export const walkListRows = (
   stops: DoorKnockingRoutePayload['stops'],
+  isServe = false,
 ): WalkListRow[] => {
   const ordered = stops.slice().sort((a, b) => a.seq - b.seq)
 
@@ -101,7 +104,10 @@ export const walkListRows = (
             ? { kind: 'skip', instruction: skip }
             : target.knockStatus === 'unknown'
               ? { kind: 'form' }
-              : { kind: 'logged', label: STATUS_LABELS[target.knockStatus] },
+              : {
+                  kind: 'logged',
+                  label: statusLabel(target.knockStatus, isServe),
+                },
           firstInStop,
           firstInHousehold,
         }

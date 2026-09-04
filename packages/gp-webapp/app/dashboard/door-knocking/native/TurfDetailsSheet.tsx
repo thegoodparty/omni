@@ -2,11 +2,7 @@
 
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import {
-  DOOR_KNOCK_STATUSES,
-  DoorKnockingTurf,
-  DoorKnockStatus,
-} from '@goodparty_org/contracts'
+import { DoorKnockingTurf, DoorKnockStatus } from '@goodparty_org/contracts'
 import {
   ActivityIcon,
   Button,
@@ -52,7 +48,8 @@ import { turfStatusLabel } from './turfLifecycle'
 import {
   knockStatusCounts,
   STATUS_DOT_COLORS,
-  STATUS_LABELS,
+  statusLabel,
+  surfaceStatuses,
 } from './statusPresentation'
 import { countDoors, knockableTargets } from '../routeCounts'
 
@@ -150,10 +147,17 @@ const StatusBreakdownTable = ({
   counts,
   total,
   caption,
+  isServe,
 }: {
   counts: Record<DoorKnockStatus, number>
   total: number
   caption: string
+  // Which surface's vocabulary to print — both the rows and the words on them.
+  // The rows are one surface's and not the whole wire enum: a Win list has no
+  // follow-up doors to report and a Serve list has no supporters, and a row
+  // that can only ever read zero is not the same statement as a row that
+  // happens to.
+  isServe: boolean
 }) => (
   <div className="overflow-hidden rounded-xl border border-border bg-card">
     <div className="flex items-center gap-2 px-3 py-2 text-muted-foreground">
@@ -161,7 +165,7 @@ const StatusBreakdownTable = ({
       <p className="text-xs">{caption}</p>
     </div>
     <dl className="m-0">
-      {DOOR_KNOCK_STATUSES.map((status) => {
+      {surfaceStatuses(isServe).map((status) => {
         const people = counts[status]
         const percent = total > 0 ? Math.round((people / total) * 100) : 0
         return (
@@ -173,7 +177,7 @@ const StatusBreakdownTable = ({
                   className="size-2.5 shrink-0 rounded-full"
                   style={{ backgroundColor: STATUS_DOT_COLORS[status] }}
                 />
-                <span className="truncate">{STATUS_LABELS[status]}</span>
+                <span className="truncate">{statusLabel(status, isServe)}</span>
               </dt>
               <dd className="flex shrink-0 items-baseline gap-2 text-sm font-medium">
                 <span className="w-[5ch] text-right tabular-nums">
@@ -559,6 +563,7 @@ export default function TurfDetailsSheet({
             <>
               <StatusBreakdownTable
                 counts={statusCounts}
+                isServe={Boolean(route?.isServe)}
                 total={targets.length}
                 caption={`Based on ${targets.length.toLocaleString()} door knocking contact${
                   targets.length === 1 ? '' : 's'

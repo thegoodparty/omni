@@ -39,12 +39,12 @@ import {
 import { routeQueryOptions } from './turfQueries'
 import {
   knockStatusCounts,
-  PROGRESS_LEGEND_ORDER,
-  PROGRESS_STATUS_ORDER,
+  progressLegendOrder,
+  progressStatusOrder,
   readableInkOn,
   rollupStopStatus,
   STATUS_DOT_COLORS,
-  STATUS_LABELS,
+  statusLabel,
   STATUS_RGB,
   stopIsKnockable,
   targetMarker,
@@ -65,9 +65,11 @@ const formatLeg = (seconds: number): string =>
 // bordered status pill, a chevron).
 const ResidentRow = ({
   target,
+  isServe,
   onOpen,
 }: {
   target: RoutePayloadTarget
+  isServe: boolean
   onOpen: () => void
 }) => (
   <button
@@ -86,7 +88,7 @@ const ResidentRow = ({
     {/* ADR 0007 and 0008. Read before walking up, not after opening the sheet,
         so the marker REPLACES the knock status rather than sitting beside it —
         a flagged resident knocked before the flag was set still carries one,
-        and "Do not knock" next to "Support unknown" is two answers to one
+        and "Do not knock" next to the unknown label is two answers to one
         question. */}
     {targetMarker(target) ? (
       <span className="shrink-0 rounded-full border border-warning px-2 py-0.5 text-xs font-medium text-warning">
@@ -94,15 +96,17 @@ const ResidentRow = ({
       </span>
     ) : (
       // The design reads an unlogged resident as "Not visited"; ours says
-      // "Support unknown", which is the 2026-08-20 product call and not drift.
-      // `unknown` also covers answered-but-unsure, so "not visited" would be
-      // false of a door somebody stood at and had a conversation on.
+      // "Support unknown" on Win, which is the 2026-08-20 product call and not
+      // drift. `unknown` also covers answered-but-unsure, so "not visited"
+      // would be false of a door somebody stood at and had a conversation on —
+      // which is also why Serve's wording is "Not yet contacted" and not
+      // "Not visited".
       <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
         <span
           className="h-2 w-2 rounded-full"
           style={{ backgroundColor: STATUS_DOT_COLORS[target.knockStatus] }}
         />
-        {STATUS_LABELS[target.knockStatus]}
+        {statusLabel(target.knockStatus, isServe)}
       </span>
     )}
     <ChevronRightIcon
@@ -343,6 +347,13 @@ export default function WalkView({
   // table also reads — one bucketing of one frozen route, so the walk and the
   // planning surface cannot report the same list differently.
   const statusCounts = useMemo(() => knockStatusCounts(stops), [stops])
+  // Which vocabulary the strip reports in, off the route rather than the
+  // surface context: the route is what the counts are OF, and a walk opened on
+  // a list carries its own answer even when nothing above it does — which is
+  // also how the two paper surfaces get theirs.
+  const isServe = Boolean(routeQuery.data?.isServe)
+  const legendOrder = progressLegendOrder(isServe)
+  const barOrder = progressStatusOrder(isServe)
   const stopStatus = rollupStopStatus
   const targetsForStop = (stop: RoutePayloadStop): RoutePayloadTarget[] =>
     stop.addresses.flatMap((address) => address.targets)
@@ -536,7 +547,7 @@ export default function WalkView({
               aria-hidden="true"
               className="flex h-2 w-full overflow-hidden rounded-full bg-muted"
             >
-              {PROGRESS_STATUS_ORDER.map((status) => (
+              {barOrder.map((status) => (
                 <span
                   key={status}
                   data-status={status}
@@ -566,13 +577,13 @@ export default function WalkView({
               aria-label="Outcomes so far"
               className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"
             >
-              {PROGRESS_LEGEND_ORDER.map((status) => (
+              {legendOrder.map((status) => (
                 <span key={status} className="inline-flex items-center gap-1.5">
                   <span
                     className="h-2.5 w-2.5 rounded-full"
                     style={{ backgroundColor: STATUS_DOT_COLORS[status] }}
                   />
-                  {STATUS_LABELS[status]}
+                  {statusLabel(status, isServe)}
                   <span className="ml-0.5 text-[10px] tabular-nums">
                     {statusCounts[status]}
                   </span>
@@ -845,6 +856,7 @@ export default function WalkView({
                                       <ResidentRow
                                         key={target.stopTargetId}
                                         target={target}
+                                        isServe={isServe}
                                         onOpen={() =>
                                           openSheet(
                                             stop.id,
@@ -863,6 +875,7 @@ export default function WalkView({
                               <ResidentRow
                                 key={target.stopTargetId}
                                 target={target}
+                                isServe={isServe}
                                 onOpen={() =>
                                   openSheet(
                                     stop.id,
@@ -901,7 +914,7 @@ export default function WalkView({
         <PersonSheet
           stop={sheetStop}
           stopSeq={sheetStop.seq}
-          isServe={Boolean(routeQuery.data?.isServe)}
+          isServe={isServe}
           // Both go through `openStopFromMap`, which is the one entry that also
           // brings the list to the stop it opens — without it the canvasser
           // walks four doors from the sheet and closes it onto a list still

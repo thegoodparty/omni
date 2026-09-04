@@ -810,6 +810,65 @@ cacheable, nothing on the Serve surface can select it once the filter control
 and the saved-list re-expansion are gated webapp-side, and removing it would
 fork the district cache. `PACK_FORMAT_REVISION` does not move.
 
+### The Serve door's own answer
+
+A Serve canvasser is asked neither Win question at the door — a constituent has
+no candidate to support and no election on the calendar to turn out for — and
+`ContactInteractionDoorKnock.followUp` (`FollowUpAnswer`, `yes`/`no`, nullable)
+is what they answer instead.
+
+**It is a status and not merely a column, and that is the whole point.**
+`answered` is not a member of `DOOR_KNOCK_STATUSES`: derivation is
+support-first, and everything under a support answer is a way a door failed. So
+a conversation with no support answer derives to `unknown` — and
+`knockStatus !== 'unknown'` is the "logged" predicate in the walk view, walk
+completion, `doorKnockingTurfCounts.service.ts` and both paper surfaces. Simply
+dropping the two questions would have given Serve a walk that never advances,
+never completes, reads 0% in outreach history, and reprints every knocked door
+with blank boxes. `engaged` and `needs_follow_up` are what a Serve walk
+registers progress with.
+
+`deriveKnockStatus` checks follow-up first and takes **no org flag**: a non-null
+`followUp` can only have come from a Serve form, since the contract refuses it
+beside a `supportAnswer` and no Win surface offers the question. The row already
+records which surface wrote it, so the pack service, the status service and
+every caller between them stay ignorant of Win and Serve.
+
+The two statuses are **appended** to `DOOR_KNOCK_STATUSES` rather than slotted
+in beside the support answers they replace. The pack encodes a status as an
+index into that array and a frozen pack on a phone is read against whatever
+vocabulary the client shipped with, so inserting a member would silently
+re-label every existing byte during a deploy. The cost is that the array order
+is no longer the actionability ranking — the webapp's `statusPresentation.ts`
+now states that as an explicit `STATUS_ACTIONABILITY` table, exhaustive over the
+union so a new status cannot arrive unranked.
+
+**Existing `eo-` pilot rows are not backfilled.** They carry support answers
+logged before the Serve surface had its own question, so they keep deriving
+`supporter`/`non_supporter` and go uncounted in a Serve legend. At
+internal-beta volume the rows are countable, and rewriting logged answers into a
+vocabulary their canvasser was never offered would be inventing data.
+
+No CRM write path changes. A Serve row carries a null `supportAnswer`, so it
+contributes nothing to `supportStatus.service.ts`, and the ENG-10841
+`willVote -> voter_likelihood` mapping never fires — both because `willVote` is
+null on such a row and because the writer already refuses `eo-` orgs outright.
+The contract refuses `followUp` beside `willVote` for the second reason rather
+than the first: the event was already unreachable on an `eo-` org, but a stored
+`willVote` on a follow-up knock is an answer to a question the canvasser was
+never shown, and every later reader of the interaction table would read it as
+one that was given.
+
+**Two derivations read this history and they have to agree.**
+`DoorKnockingStatusService.latestKnockStatuses` colours the row a canvasser taps
+and `DoorKnockingPackService` colours the pin they tapped it from, so both take
+the same preference over a person's rows: newest first, but the newest
+**answer-bearing** row wins over a newer one without an answer. A later "not
+home" is a failed re-attempt, not a retraction. The pack used to take the newest
+row outright, which was the same divergence on `supportAnswer`; the Serve answer
+is what made it reachable in a single evening, since returning to a door is the
+whole point of a follow-up.
+
 ## Previous outreach, at the door
 
 Each target carries `history`: its own recent outreach, newest first, capped

@@ -529,77 +529,97 @@ describe('RecordKnockForm saving', () => {
   })
 })
 
-// A Serve org (an elected official) is never asked whether a resident will
-// vote THIS election — there is no election on their calendar to vote in.
-// Win's walkthrough is unchanged; these assert the Serve branch differs only
-// in dropping that one question and everything downstream of it.
+// A Serve org (an elected official) asks neither Win question at the door — a
+// constituent has no candidate to support and no election on the calendar to
+// turn out for — and asks one of its own instead. It has to ask SOMETHING: with
+// no answer the knock derives to `unknown`, which every "logged" predicate in
+// the feature reads as a door nobody has been to.
 describe('RecordKnockForm in serve mode', () => {
-  it('asks support but never will-vote once engaged', () => {
+  it('asks about follow-up and neither Win question once engaged', () => {
     renderForm(vi.fn(), true)
     walkToEngaged()
 
-    answer('Do they support you?', 'Yes')
-
-    expect(screen.getByText('Do they support you?')).toBeVisible()
+    expect(screen.getByText('Do they need follow-up?')).toBeVisible()
+    expect(screen.queryByText('Do they support you?')).toBeNull()
     expect(screen.queryByText('Will they vote this election?')).toBeNull()
   })
 
-  it('completes on support alone and posts with no willVote', async () => {
+  it('completes on follow-up alone and posts it in place of the Win answers', async () => {
     const posted: unknown[] = []
     api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
       posted.push(body)
       return {
         status: 200,
-        data: { personId: 'person-1', knockStatus: 'supporter' },
+        data: { personId: 'person-1', knockStatus: 'needs_follow_up' },
       }
     })
     renderForm(vi.fn(), true)
     walkToEngaged()
 
-    answer('Do they support you?', 'Yes')
+    // Nothing to save on until the one question is answered, and everything
+    // once it is — the branch has nothing else to ask.
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+    answer('Do they need follow-up?', 'Yes')
     expect(screen.getByRole('button', { name: 'Save' })).toBeVisible()
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(posted).toHaveLength(1))
-    expect(posted[0]).toMatchObject({
-      outcome: 'answered',
-      supportAnswer: 'supporter',
-    })
+    expect(posted[0]).toMatchObject({ outcome: 'answered', followUp: 'yes' })
+    // The contract refuses both surfaces' answers on one payload, so this is
+    // not merely tidiness — a Serve form shipping either would 400.
+    expect(posted[0]).not.toHaveProperty('supportAnswer')
     expect(posted[0]).not.toHaveProperty('willVote')
   })
 
-  it('reports the door with no willVote in the DoorLogged payload', async () => {
+  it('reports the follow-up answer and the Serve status it derived', async () => {
     api.mock('POST /v1/door-knocking/interactions', {
       status: 200,
-      data: { personId: 'person-1', knockStatus: 'supporter' },
+      data: { personId: 'person-1', knockStatus: 'engaged' },
     })
     renderForm(vi.fn(), true)
     walkToEngaged()
-    answer('Do they support you?', 'Yes')
+    answer('Do they need follow-up?', 'No')
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() =>
       expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.DoorLogged, {
         outcome: 'answered',
-        knockStatus: 'supporter',
+        knockStatus: 'engaged',
         hasNote: false,
-        supportAnswer: 'supporter',
+        followUp: 'no',
       }),
     )
-    expect(
-      vi
-        .mocked(trackEvent)
-        .mock.calls.some(([, payload]) =>
-          Object.prototype.hasOwnProperty.call(payload ?? {}, 'willVote'),
-        ),
-    ).toBe(false)
+  })
+
+  // Backing out of the engaged branch drops the answer it collected, the same
+  // way it drops the Win pair: the contract refuses any of them on a door that
+  // ended some other way.
+  it('drops the follow-up answer when the door stops being engaged', async () => {
+    const posted: unknown[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      posted.push(body)
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'refused' },
+      }
+    })
+    renderForm(vi.fn(), true)
+    walkToEngaged()
+    answer('Do they need follow-up?', 'Yes')
+
+    answer('Did they engage?', 'Refused')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({ outcome: 'refused_to_engage' })
+    expect(posted[0]).not.toHaveProperty('followUp')
   })
 
   // Win regression: an org that isn't in serve mode keeps the question and
   // keeps sending the answer.
-  it('still asks and posts will-vote in win mode', async () => {
+  it('still asks support and will-vote in win mode', async () => {
     const posted: unknown[] = []
     api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
       posted.push(body)
@@ -610,6 +630,8 @@ describe('RecordKnockForm in serve mode', () => {
     })
     renderForm(vi.fn(), false)
     walkToEngaged()
+
+    expect(screen.queryByText('Do they need follow-up?')).toBeNull()
     answer('Do they support you?', 'Yes')
 
     expect(screen.getByText('Will they vote this election?')).toBeVisible()

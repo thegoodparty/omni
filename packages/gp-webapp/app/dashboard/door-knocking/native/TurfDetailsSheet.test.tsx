@@ -735,6 +735,31 @@ describe('TurfDetailsSheet status breakdown', () => {
     expect(screen.queryByText(/reached/i)).toBeNull()
   })
 
+  // The table is the planning surface's account of a walk, so it reports in the
+  // walk's own vocabulary — off the route, which is what the counts are of, and
+  // not off the org viewing it.
+  it('reports a Serve list in the Serve vocabulary', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routeWithTargets([
+          { knockStatus: 'engaged' },
+          { knockStatus: 'unknown' },
+        ]),
+        isServe: true,
+      },
+    })
+    renderSheet()
+
+    await waitFor(() => expect(row('Spoke with')).toBeInTheDocument())
+    expect(within(row('Spoke with')).getByText('50%')).toBeInTheDocument()
+    expect(
+      within(row('Not yet contacted')).getByText('50%'),
+    ).toBeInTheDocument()
+    expect(within(breakdown()).queryByText('Support unknown')).toBeNull()
+    expect(within(breakdown()).queryByText('Supporter')).toBeNull()
+  })
+
   // A status nobody recorded is an answer, so the row renders at zero rather
   // than vanishing — the vocabulary is fixed, and a table whose rows come and
   // go would make its own shape a fact about the list.

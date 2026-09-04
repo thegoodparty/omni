@@ -10,10 +10,14 @@ import {
   knockStatusCounts,
   readableInkOn,
   readableInkOnHex,
+  progressLegendOrder,
   rollupStopStatus,
   skipInstruction,
+  STATUS_LABELS,
+  statusLabel,
   STATUS_RGB,
   stopIsKnockable,
+  surfaceStatuses,
   targetMarker,
 } from './statusPresentation'
 import { TURF_COLORS, turfColorTick } from './turfQueries'
@@ -80,9 +84,9 @@ describe('rollupStopStatus', () => {
 
   // gp-api used to ship its own stop rollup on the route payload and pinned
   // this order in a hand-written rank map; that copy is gone, so this is the
-  // only place the order is asserted. Here it IS `DOOR_KNOCK_STATUSES`, so a
-  // status added to the contract without a decision about where it ranks
-  // surfaces as a failure rather than as a silently grey stop.
+  // only place the order is asserted. `STATUS_ACTIONABILITY` is exhaustive over
+  // the union, so a status added to the contract without a decision about where
+  // it ranks fails the typecheck rather than becoming a silently grey stop.
   it('ranks the whole vocabulary most-actionable first', () => {
     expect(
       rollupStopStatus(stop([target('refused'), target('not_home')])),
@@ -96,6 +100,37 @@ describe('rollupStopStatus', () => {
     expect(
       rollupStopStatus(stop([target('not_a_voter'), target('inaccessible')])),
     ).toBe('inaccessible')
+  })
+
+  // The Serve statuses are APPENDED to `DOOR_KNOCK_STATUSES` so an existing
+  // pack's bytes keep their meaning, which put them last in the array the rank
+  // used to be read from. Off that order they would fall below every way a door
+  // can fail, and a stop where one constituent had a conversation and another
+  // refused would roll up to `refused` — the Serve walk reporting its own
+  // successes as its worst outcome. These are the cases that fail if the
+  // explicit rank table is ever collapsed back into the array.
+  //
+  // The ranks asserted are the support answers' own, pair for pair: `engaged`
+  // where `supporter` sits, `needs_follow_up` where `non_supporter` does.
+  it('ranks the Serve endings where the support answers sit', () => {
+    expect(rollupStopStatus(stop([target('refused'), target('engaged')]))).toBe(
+      'engaged',
+    )
+    expect(
+      rollupStopStatus(stop([target('refused'), target('needs_follow_up')])),
+    ).toBe('needs_follow_up')
+    expect(
+      rollupStopStatus(stop([target('not_a_voter'), target('engaged')])),
+    ).toBe('engaged')
+    // Still-to-knock beats a conversation that already happened, exactly as it
+    // beats a support answer: one unknocked constituent keeps the whole stop on
+    // the walk. So does a door to come back to.
+    expect(rollupStopStatus(stop([target('engaged'), target('unknown')]))).toBe(
+      'unknown',
+    )
+    expect(
+      rollupStopStatus(stop([target('engaged'), target('not_home')])),
+    ).toBe('not_home')
   })
 
   // ADR 0008 makes the same claim as 0007 about this rollup: both flags remove a
@@ -328,5 +363,60 @@ describe('ink on a coloured fill', () => {
   it('answers the same question of a hex string and a triple', () => {
     expect(readableInkOnHex('#ffffff')).toBe(readableInkOn([255, 255, 255]))
     expect(readableInkOnHex('#000000')).toBe(readableInkOn([0, 0, 0]))
+  })
+})
+
+// The legend arrays are written out in the canvas's layout order while
+// `surfaceStatuses` filters the wire enum, so the two state the same membership
+// twice. A status added to one and not the other is a bar with a segment the
+// legend below it does not name.
+describe('the two vocabularies', () => {
+  it.each([true, false])('agree on what surface %s prints', (isServe) => {
+    expect([...progressLegendOrder(isServe)].sort()).toEqual(
+      [...surfaceStatuses(isServe)].sort(),
+    )
+  })
+
+  // Neither surface offers the other's answers, and the outcome ladder belongs
+  // to both — a door that nobody opened is the same fact whoever knocked it.
+  it('splits only the answer statuses between the surfaces', () => {
+    expect(surfaceStatuses(true)).not.toContain('supporter')
+    expect(surfaceStatuses(true)).not.toContain('non_supporter')
+    expect(surfaceStatuses(false)).not.toContain('engaged')
+    expect(surfaceStatuses(false)).not.toContain('needs_follow_up')
+    for (const shared of [
+      'unknown',
+      'not_home',
+      'inaccessible',
+      'refused',
+      'not_a_voter',
+    ] as DoorKnockStatus[]) {
+      expect(surfaceStatuses(true)).toContain(shared)
+      expect(surfaceStatuses(false)).toContain(shared)
+    }
+  })
+})
+
+// The Serve overrides are sparse, so the interesting assertion is not what
+// moves but what does not: a second copy of "Not home" is how the two surfaces
+// end up disagreeing about a door neither of them asks anything different at.
+describe('statusLabel', () => {
+  it('renames only the unknown bucket on Serve', () => {
+    expect(statusLabel('unknown', false)).toBe('Support unknown')
+    expect(statusLabel('unknown', true)).toBe('Not yet contacted')
+
+    for (const status of DOOR_KNOCK_STATUSES.filter((s) => s !== 'unknown')) {
+      expect(statusLabel(status, true)).toBe(STATUS_LABELS[status])
+      expect(statusLabel(status, false)).toBe(STATUS_LABELS[status])
+    }
+  })
+
+  // The word a Serve canvasser must never read, in the one bucket that used to
+  // carry it. Asserted against the whole Serve vocabulary and not just
+  // `unknown`, because the next status added is the one that reintroduces it.
+  it('never says support anywhere in the Serve vocabulary', () => {
+    for (const status of surfaceStatuses(true)) {
+      expect(statusLabel(status, true).toLowerCase()).not.toContain('support')
+    }
   })
 })
