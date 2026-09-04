@@ -44,7 +44,8 @@ import {
   savedListsQueryOptions,
   turfColorLabel,
 } from './turfQueries'
-import { useTurfsQuery } from './doorKnockingSurface'
+import { useDoorKnockingServeMode, useTurfsQuery } from './doorKnockingSurface'
+import { WIN_ONLY_FILTER_FIELD_KEYS } from './savedListFilters'
 import { estimateOutingSeconds } from './walkEstimate'
 import { formatDuration } from './formatDuration'
 import { turfStatusLabel } from './turfLifecycle'
@@ -98,6 +99,21 @@ const OPTION_FIELD_LABELS: Record<string, string> = Object.fromEntries(
 // with the same filters can't list them in different orders.
 const FIELD_ORDER: string[] = filterSections.flatMap((section) =>
   section.fields.map((field) => field.label),
+)
+
+// The field LABELS an elected official never sees a row for, from the same
+// keys the create flow hides the groups behind. Labels rather than option keys
+// because the read-back is already grouped by field here, and a group whose
+// every pill was dropped would still print its heading over nothing.
+//
+// A list cut on the Win surface can still carry party columns — nothing
+// backfills a saved filter — so this is a read-back gate and not merely the
+// mirror of a control that is no longer offered.
+const WIN_ONLY_FIELD_LABELS = new Set(
+  filterSections
+    .flatMap((section) => section.fields)
+    .filter((field) => WIN_ONLY_FILTER_FIELD_KEYS.includes(field.key))
+    .map((field) => field.label),
 )
 
 // Income ranges persist as the range strings themselves rather than as option
@@ -213,6 +229,7 @@ export default function TurfDetailsSheet({
   // twice. Rule of thumb: liveTurf for anything this surface can edit or that
   // a walk can move — name, colour, the two door counts — and the prop for
   // identity (id, filter id), which no edit can change.
+  const serveMode = useDoorKnockingServeMode()
   const turfsQuery = useTurfsQuery()
   const liveTurf =
     turfsQuery.data?.find((candidate) => candidate.id === turf.id) ?? turf
@@ -253,7 +270,9 @@ export default function TurfDetailsSheet({
         )
         .concat(languageEntries)
     : []
-  const appliedFilterGroups = groupByField(appliedFilterEntries)
+  const appliedFilterGroups = groupByField(appliedFilterEntries).filter(
+    ({ field }) => !serveMode || !WIN_ONLY_FIELD_LABELS.has(field),
+  )
 
   const route = routeQuery.data
   const targets = knockableTargets(route?.stops ?? [])

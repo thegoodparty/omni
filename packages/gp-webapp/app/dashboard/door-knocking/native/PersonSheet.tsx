@@ -207,6 +207,11 @@ interface PersonSheetProps {
   // in this header for the same reason it puts it on the pin: it is how a
   // canvasser says where they are.
   stopSeq: number
+  // Which surface this walk belongs to, off the route payload's own `isServe`
+  // rather than the page's context: this sheet is mounted by tests and by
+  // surfaces with no organization provider above them, and the payload is the
+  // one thing every reader of a served route already holds.
+  isServe: boolean
 }
 
 // The demo's person sheet: a right panel on desktop, a bottom sheet on
@@ -273,6 +278,7 @@ export default function PersonSheet({
   onOpenPreviousStop,
   onOpenNextStop,
   stopSeq,
+  isServe,
 }: PersonSheetProps) {
   const targets = stop.addresses.flatMap((address) => address.targets)
   // The chevrons move the sheet from door to door without unmounting it, so the
@@ -610,7 +616,7 @@ export default function PersonSheet({
           <FactCard
             icon={ClipboardListIcon}
             title="Voter demographics"
-            facts={voterDemographicFacts(target)}
+            facts={voterDemographicFacts(target, isServe)}
           />
 
           {flagControl === null && (

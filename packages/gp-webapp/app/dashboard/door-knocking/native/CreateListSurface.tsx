@@ -240,8 +240,13 @@ export default function CreateListSurface({
   const savedListsQuery = useQuery(savedListsQueryOptions)
   const packQuery = useQuery({ ...voterPackQueryOptions, enabled: false })
   const audience = useMemo(
-    () => audienceOptions(savedListsQuery.data, packQuery.data ?? null),
-    [savedListsQuery.data, packQuery.data],
+    () =>
+      audienceOptions(
+        savedListsQuery.data,
+        packQuery.data ?? null,
+        isElectedOfficial,
+      ),
+    [savedListsQuery.data, packQuery.data, isElectedOfficial],
   )
   // Which list the who step is on, resolved against the same rows the picker
   // is drawn from. The flow owns the choice and reports the id; the row it
