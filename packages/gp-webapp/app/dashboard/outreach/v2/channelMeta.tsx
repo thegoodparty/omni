@@ -70,8 +70,8 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
   doorKnocking: {
     label: 'Door knocking',
     icon: <DoorOpenIcon />,
-    iconTint: 'bg-success-light',
-    badgeTint: 'border-transparent bg-success-light text-foreground',
+    iconTint: 'bg-brand-halo-green-200',
+    badgeTint: 'border-transparent bg-brand-halo-green-200 text-foreground',
   },
   // Same presentation as the legacy type: a candidate reading the history has
   // no use for the distinction between an eCanvasser draft and a native walk,
@@ -79,8 +79,8 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
   nativeDoorKnocking: {
     label: 'Door knocking',
     icon: <DoorOpenIcon />,
-    iconTint: 'bg-success-light',
-    badgeTint: 'border-transparent bg-success-light text-foreground',
+    iconTint: 'bg-brand-halo-green-200',
+    badgeTint: 'border-transparent bg-brand-halo-green-200 text-foreground',
   },
 }
 
