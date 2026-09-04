@@ -21,26 +21,16 @@ import { RecommendedListCard } from 'app/dashboard/outreach/v2/audience/Recommen
 import type { SavedListOption } from './savedListOptions'
 import { WIN_ONLY_FILTER_FIELD_KEYS } from '../savedListFilters'
 
-// Contacts made is how a candidate says "only doors I haven't been to yet",
-// which is the whole point of a second walk. Win-only, exactly as the CRM
-// wizard treats it: campaign activity has no Serve equivalent, and gp-api
-// rejects the selection outright for an elected-office org, so offering it
-// there only ever surfaces as a failed knock.
-const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
-
-// The three groups an elected official is never offered, matching
-// `VoterFileStep`'s own strip. Party and voter likelihood come from
-// `WIN_ONLY_FILTER_FIELD_KEYS`, which is also what stops a saved list
-// re-checking their pills behind the hidden group.
+// The three groups an elected official is never offered — contacts made,
+// political party, voter likelihood — matching `VoterFileStep`'s own strip.
+// All three come from `WIN_ONLY_FILTER_FIELD_KEYS`, which is also what stops a
+// saved list re-checking their pills behind the group that is no longer
+// rendered.
 //
-// Party is the sharper of the two and the reason this is not cosmetic: gp-api
-// 400s a party filter for an `eo-` org, so an official who picked one got no
-// address preview and then a failed create — a paid route the flow could not
-// buy, with nothing on screen naming the pill responsible.
-const WIN_ONLY_FIELD_KEYS = [
-  CONTACTS_MADE_FIELD_KEY,
-  ...WIN_ONLY_FILTER_FIELD_KEYS,
-]
+// Party is the sharpest of the three and the reason this is not cosmetic:
+// gp-api 400s a party filter for an `eo-` org, so an official who picked one
+// got no address preview and then a failed create — a paid route the flow
+// could not buy, with nothing on screen naming the pill responsible.
 
 export const ALL_CONTACTS_VALUE = 'all-contacts'
 
@@ -192,7 +182,7 @@ export const WhoStep = ({
           section.fields
             .filter(
               (field) =>
-                !isServeOrg || !WIN_ONLY_FIELD_KEYS.includes(field.key),
+                !isServeOrg || !WIN_ONLY_FILTER_FIELD_KEYS.includes(field.key),
             )
             .map((field) => (
               <div key={field.key} className="flex flex-col gap-2">

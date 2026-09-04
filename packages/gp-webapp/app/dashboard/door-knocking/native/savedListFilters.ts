@@ -30,17 +30,25 @@ export const UNSHADEABLE_LIST_CRITERIA = [
 
 type UnshadeableListCriterion = (typeof UNSHADEABLE_LIST_CRITERIA)[number]
 
-// The two filter fields an elected official never sees, named by their
-// `filters.config.ts` keys — the same pair the CRM wizard's `VoterFileStep`
-// strips, for the same reason: gp-api 400s a party filter for an `eo-` org
-// outright, and voter likelihood is a turnout-propensity model for a contested
-// election that an office holder does not have.
+// The filter fields an elected official never sees, named by their
+// `filters.config.ts` keys — the same set the CRM wizard's `VoterFileStep`
+// strips, for the same reasons. gp-api 400s a party filter for an `eo-` org
+// outright and rejects contacts-made the same way; voter likelihood is a
+// turnout-propensity model for a contested election that an office holder does
+// not have.
 //
 // Exported because door knocking has three surfaces that must agree about it —
 // the create flow's pill groups, this file's re-expansion of a saved list, and
 // the details drawer's read-back — and a field hidden in one of them while
-// another still speaks its keys is exactly the leak below.
-export const WIN_ONLY_FILTER_FIELD_KEYS = ['political_party', 'voter_likely']
+// another still speaks its keys is exactly the leak below. `contacts_made`
+// lives here rather than beside the group it hides for that reason: it was
+// hidden in the create flow first and named only there, so both of the other
+// two readers went on speaking its keys.
+export const WIN_ONLY_FILTER_FIELD_KEYS = [
+  'political_party',
+  'voter_likely',
+  'contacts_made',
+]
 
 // Those fields' option keys, derived from the config rather than written out
 // again, so a party value added to the catalog cannot arrive un-stripped.

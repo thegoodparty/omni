@@ -540,6 +540,7 @@ describe('TurfDetailsSheet applied filters', () => {
           id: 7,
           partyDemocrat: true,
           audienceSuperVoters: true,
+          contactsMade0: true,
           veteranYes: true,
         },
       ],
@@ -552,6 +553,7 @@ describe('TurfDetailsSheet applied filters', () => {
     expect(screen.queryByText('Democrat')).toBeNull()
     expect(screen.queryByText('Voter Likelihood')).toBeNull()
     expect(screen.queryByText('Super')).toBeNull()
+    expect(screen.queryByText('Prior Contacts Made')).toBeNull()
   })
 
   // Income ranges persist as the range strings themselves and language as

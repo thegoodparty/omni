@@ -60,6 +60,7 @@ describe('savedListFilterKeys', () => {
       partyDemocrat: true,
       partyRepublican: false,
       audienceSuperVoters: true,
+      contactsMade0: true,
       hasCellPhone: true,
       genderFemale: true,
     })
@@ -71,6 +72,7 @@ describe('savedListFilterKeys', () => {
     expect(savedListFilterKeys(legacy)).toMatchObject({
       partyDemocrat: true,
       audienceSuperVoters: true,
+      contactsMade0: true,
     })
   })
 
