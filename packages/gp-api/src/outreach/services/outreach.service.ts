@@ -616,11 +616,13 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   }
 
   /**
-   * Stamped at redemption, from the server's own numbers: the row's
+   * Stamped BEFORE redemption, from the server's own numbers: the row's
    * billableTextCount is client-supplied at draft time and can be stale
    * (a browser that missed a promo restore sends the full count), and the
    * cancel path's promo restore keys on billable < textCount to tie
-   * consumption to THIS row. Server-authoritative stamp closes that hole.
+   * consumption to THIS row. Running the stamp first makes the invariant
+   * one-directional — a consumed promo is always a stamped row — because
+   * a stamp failure skips redemption and the webhook retry re-runs both.
    */
   async markFreeTextsConsumed(
     outreachId: number,
@@ -629,7 +631,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     const row = await this.model.findFirst({
       where: { id: outreachId, campaignId },
     })
-    if (!row || row.textCount === null) {
+    if (!row) {
+      return
+    }
+    if (row.textCount === null) {
+      this.logger.error(
+        { outreachId, campaignId },
+        'markFreeTextsConsumed: textCount is null — billableTextCount ' +
+          'cannot be stamped; promo restore will not fire if this row ' +
+          'is later canceled',
+      )
       return
     }
     await this.model.update({

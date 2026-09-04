@@ -761,6 +761,15 @@ describe('OutreachPurchaseHandlerService', () => {
         124,
         111,
       )
+      const stampOrder = firstOrThrow(
+        vi.mocked(mockOutreachService.markFreeTextsConsumed).mock
+          .invocationCallOrder,
+      )
+      const redeemOrder = firstOrThrow(
+        vi.mocked(mockCampaignsService.redeemFreeTexts).mock
+          .invocationCallOrder,
+      )
+      expect(stampOrder).toBeLessThan(redeemOrder)
     })
 
     it('does not stamp consumption when no offer was redeemed', async () => {

@@ -291,16 +291,22 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
       const hasOffer =
         await this.campaignsService.checkFreeTextsEligibility(campaignId)
       if (hasOffer) {
-        await this.campaignsService.redeemFreeTexts(campaignId)
-        this.logger.info(
-          `Free texts offer redeemed for campaign ${campaignId} after payment ${paymentIntentId}`,
-        )
+        // Stamp BEFORE redeeming: if the stamp fails, redemption is
+        // skipped, the offer stays live, and the webhook retry re-runs
+        // both — so the promo can never end up consumed with an
+        // unstamped row (which would silently defeat the cancel path's
+        // restore). The reverse failure (stamped, redeem lost) leaves
+        // the offer with the candidate — the safe direction.
         if (outreachId) {
           await this.outreachService.markFreeTextsConsumed(
             outreachId,
             campaignId,
           )
         }
+        await this.campaignsService.redeemFreeTexts(campaignId)
+        this.logger.info(
+          `Free texts offer redeemed for campaign ${campaignId} after payment ${paymentIntentId}`,
+        )
       }
     } catch (error) {
       this.logger.error(
