@@ -24,7 +24,9 @@
  * Options:
  *   --flag <key>            Flag key. Required.
  *   --emails-file <path>    File of addresses, one per line. Required.
- *   --variant <key>         Variant the cohort resolves to. Default: on
+ *   --variant <key>         Variant the cohort resolves to. Default: on.
+ *                           Sets the variant on a new segment; on an
+ *                           existing one it must match, or the run aborts.
  *   --segment <name>        Segment to merge into. Default: "Pilot allowlist"
  *   --verify-accounts       Check each address against the users table first,
  *                           and refuse to write if any has no account.
@@ -160,6 +162,17 @@ export const mergeCohortIntoSegments = (
     throw new Error(
       `Segment "${segmentName}" exists but has no ${EMAIL_PROP} "is" condition. ` +
         `Refusing to guess how to merge — inspect the flag in Amplitude.`,
+    )
+  }
+
+  // `--variant` defaults to "on", so rewriting the weights to match it would
+  // let an ordinary add-emails run silently flip a segment somebody pointed at
+  // another variant. Make the operator say which one they mean.
+  const served = Object.keys(existing.rolloutWeights ?? {})
+  if (served.length > 0 && !served.includes(variant)) {
+    throw new Error(
+      `Segment "${segmentName}" serves "${served.join('", "')}", not "${variant}". ` +
+        `Re-run with --variant ${served[0]}, or repoint the segment in Amplitude.`,
     )
   }
 

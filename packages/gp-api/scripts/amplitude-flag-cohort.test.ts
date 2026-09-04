@@ -142,6 +142,19 @@ describe('mergeCohortIntoSegments', () => {
     ])
   })
 
+  it('refuses when the segment serves a different variant', () => {
+    expect(() =>
+      mergeCohortIntoSegments(
+        [emailSegment('Pilot allowlist', ['old@example.com'])],
+        {
+          segmentName: 'Pilot allowlist',
+          variant: 'off',
+          emails: ['new@example.com'],
+        },
+      ),
+    ).toThrow('serves "on", not "off"')
+  })
+
   // Re-running the same batch is the expected way to confirm a write landed.
   it('is idempotent', () => {
     const result = mergeCohortIntoSegments(
