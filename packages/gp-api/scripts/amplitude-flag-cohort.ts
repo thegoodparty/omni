@@ -241,6 +241,20 @@ export const parseArgs = (argv: string[]): Args => {
 
 // ── Amplitude API ────────────────────────────────────────────────────────────
 
+// A successful PATCH answers with the bare text `ok`, not JSON, so parsing
+// every 2xx body as JSON throws on the one call that did the work — after the
+// write has already landed, which reads as a failed run that must not be
+// retried. Reads are validated by their zod schema at the call site, so an
+// unparseable body surfaces there as a schema error rather than being missed.
+export const parseResponseBody = (body: string): unknown => {
+  if (!body.trim()) return undefined
+  try {
+    return JSON.parse(body)
+  } catch {
+    return undefined
+  }
+}
+
 const request = async (
   path: string,
   key: string,
@@ -261,7 +275,7 @@ const request = async (
       `${init?.method ?? 'GET'} ${path} → ${response.status}: ${body}`,
     )
   }
-  return body ? JSON.parse(body) : undefined
+  return parseResponseBody(body)
 }
 
 const findFlag = async (key: string, apiKey: string): Promise<Flag> => {

@@ -4,8 +4,25 @@ import {
   mergeCohortIntoSegments,
   parseArgs,
   parseEmails,
+  parseResponseBody,
   type FlagSegment,
 } from './amplitude-flag-cohort'
+
+describe('parseResponseBody', () => {
+  // Amplitude answers a successful PATCH with this, and parsing it as JSON
+  // threw *after* the write had landed — a real run reported as a failure.
+  it('tolerates the bare "ok" a successful write returns', () => {
+    expect(parseResponseBody('ok')).toBeUndefined()
+  })
+
+  it('tolerates an empty body', () => {
+    expect(parseResponseBody('')).toBeUndefined()
+  })
+
+  it('still parses JSON', () => {
+    expect(parseResponseBody('{"flags":[]}')).toEqual({ flags: [] })
+  })
+})
 
 const emailSegment = (name: string, values: string[]): FlagSegment => ({
   name,
