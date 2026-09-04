@@ -23,8 +23,9 @@ model District {
     ProjectedTurnouts ProjectedTurnout[]
     Positions         Position[]
     TopIssues         DistrictTopIssue[]
-    VoterDensity      DistrictVoterDensity[]
-    VoterDensityMeta  DistrictVoterDensityMeta[]
+    // No back-relations to the voter-density tables: they key on district_id
+    // but carry no FK, because the nightly rebuild of this table drops any FK
+    // pointing at it. See districtVoterDensity.prisma.
 
     @@unique([state, L2DistrictType, L2DistrictName])
     @@map("District")

@@ -27,7 +27,7 @@ into them, never to create or alter them.
 
 | Column        | Type             | Notes                                    |
 | ------------- | ---------------- | ---------------------------------------- |
-| `district_id` | `UUID NOT NULL`  | FK to `District(id)`. See §3.             |
+| `district_id` | `UUID NOT NULL`  | Matches `District(id)`, no FK. See §3.    |
 | `resolution`  | `INTEGER NOT NULL` | H3 resolution of this row.              |
 | `h3_index`    | `TEXT NOT NULL`  | `h3_h3tostring(h3)`; opaque to the app.   |
 | `lat`         | `DOUBLE PRECISION NOT NULL` | H3 cell centroid latitude.     |
@@ -43,7 +43,7 @@ Primary key `(district_id, resolution, h3_index)`, plus an index on
 
 | Column             | Type                        | Notes                              |
 | ------------------ | --------------------------- | ---------------------------------- |
-| `district_id`      | `UUID NOT NULL`             | FK to `District(id)`.               |
+| `district_id`      | `UUID NOT NULL`             | Matches `District(id)`, no FK.      |
 | `resolution`       | `INTEGER NOT NULL`          |                                    |
 | `coverage`         | `DOUBLE PRECISION NOT NULL` | `rendered_voters / total_voters`.   |
 | `min_cell_count`   | `INTEGER NOT NULL`          | The K a build actually used.        |
@@ -59,7 +59,7 @@ Primary key `(district_id, resolution)`.
 Both tables are column-for-column the people-db originals, with the two
 differences noted in §4.
 
-## 3. `district_id` — the ids already match, and now the database enforces it
+## 3. `district_id` — the ids already match, and the loader checks it
 
 The original handoff's §4 asked you to derive `district_id` with
 `generate_salted_uuid([state, l2_district_type, l2_district_name])` so that it
@@ -76,27 +76,23 @@ The one asymmetry runs the safe direction: the people-api view drops the single
 of election-db's. There is no district the cells can reference that election-db
 lacks.
 
-Because of that, these tables carry a real foreign key to `District(id)` —
-something people-db could not have, since District lived in a different database
-there. That was the failure mode worth closing: a cell keyed on a stale or
-differently-salted uuid used to insert cleanly, and the only symptom was a map
-that silently never rendered for that district. Now the load fails instead.
+These tables carry **no** foreign key to `District(id)`, and must not be given
+one. `sync_election_api` rebuilds `District` nightly by renaming the live table
+to `District_old` and dropping it `CASCADE`. Verified against real Postgres:
+that leaves any FK pointing at the stale `District_old`, and the `CASCADE` then
+removes the constraint with only a `NOTICE`. The rows survive, the constraint
+does not, and orphans become insertable from then on.
 
-**What this means for the loader:** if a density row can ever be staged for a
-district the swap has not landed yet, guard the insert the way
-`CANDIDACY_UPSERT_QUERY` guards `race_id` in
-`dbt/project/models/write/write__election_api_db.py`:
+The check lives in the loader instead, in `sync_election_api_density`'s
+`_district_reference_checks`, and it follows the rule this doc already asked
+for: a district the nightly sync has not landed yet is **pruned** from staging
+before the swap, because the next run re-offers it and a monthly load should
+not fail over one late district. Past 1% of staged districts it fails instead —
+at that point the rows are not late, the mart has started minting its own ids,
+and pruning would hide it.
 
-```sql
-WHERE EXISTS (
-    SELECT 1 FROM {db_schema}."District" AS d WHERE d.id = district_id::uuid
-)
-```
-
-Skipping the row is correct — the next full push re-offers it once the district
-exists. Failing the whole load on one unlanded district is not.
-
-Load density **after** `District`, same ordering the people-db DAG already uses.
+The density DAG runs `@monthly` and independently of `sync_election_api`, so it
+does not order itself after `District`; the prune is what makes that safe.
 
 ### Confirming it, if you want the number rather than the argument
 
@@ -114,8 +110,8 @@ where e.id is null
 ```
 
 A non-zero result means the density mart is minting ids rather than reusing the
-bridge's, and the migration should stop until that is fixed — the FK in §3 would
-reject exactly those rows at load time.
+bridge's, and the migration should stop until that is fixed — past 1% the
+loader check in §3 fails the load on exactly those rows.
 
 ## 4. Two schema differences from people-db
 

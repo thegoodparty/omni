@@ -13,6 +13,9 @@
 // deliberate differences: no `green` schema (election-db is single-schema), and
 // `state` is a String rather than people-db's USState enum, matching the
 // District.state it sits beside.
+//
+// No relation to District, and this is not an oversight — see
+// districtId below.
 model DistrictVoterDensity {
   resolution Int
   h3Index    String   @map("h3_index") // h3_h3tostring(h3); opaque to the app
@@ -22,13 +25,20 @@ model DistrictVoterDensity {
   state      String
   updatedAt  DateTime @map("updated_at")
 
-  // The FK people-db could not have: there, District lived in another database,
-  // so a cell could reference a district that did not exist and the only symptom
-  // was a map that silently never rendered. Here the load fails loudly instead —
-  // which is the whole point of co-locating these, since the shared salted uuid
-  // lining up is the one assumption the migration rests on.
-  District   District @relation(fields: [districtId], references: [id])
-  districtId String   @map("district_id") @db.Uuid
+  // == District.id (the shared salted uuid), but deliberately NOT a Prisma
+  // relation, because an FK constraint cannot survive here. sync_election_api
+  // rebuilds District nightly by renaming the live table to District_old and
+  // dropping it CASCADE. Verified against real Postgres: that leaves this FK
+  // pointing at the stale District_old and then drops it with only a NOTICE.
+  // The rows survive, the constraint does not, and orphans become insertable.
+  //
+  // The loud failure that FK was added for is still delivered, by
+  // _district_reference_checks in gp-data-platform's sync_election_api_density
+  // DAG: every staged district_id is matched against live District before the
+  // swap, and a miss fails the load closed. That is the moment the constraint
+  // was doing real work — nothing writes these tables between runs, since the
+  // API only reads them.
+  districtId String @map("district_id") @db.Uuid
 
   // Only ever queried by (districtId, resolution); the PK's leading columns
   // already serve that lookup, and the explicit index keeps it cheap as the
@@ -56,8 +66,8 @@ model DistrictVoterDensityMeta {
   state           String
   updatedAt       DateTime @map("updated_at")
 
-  District   District @relation(fields: [districtId], references: [id])
-  districtId String   @map("district_id") @db.Uuid
+  // Not a relation, for the same reason as the cells table above.
+  districtId String @map("district_id") @db.Uuid
 
   @@id([districtId, resolution])
   @@map("District_Voter_Density_Meta")

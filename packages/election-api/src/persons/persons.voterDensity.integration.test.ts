@@ -256,20 +256,48 @@ describe('GET /v1/persons/:personId/voter-density', () => {
   })
 })
 
-describe('District_Voter_Density foreign key', () => {
-  it('rejects cells for a district that does not exist', async () => {
-    // This is the whole reason the tables moved into election-db. In people-db
-    // District lived in another database, so a cell keyed on a stale or
-    // differently-salted uuid inserted cleanly and the only symptom was a map
-    // that silently never rendered. Here the load fails instead.
+describe('District_Voter_Density district references', () => {
+  // These tables deliberately carry no FK to District. sync_election_api
+  // rebuilds District nightly by renaming the live table aside and dropping it
+  // CASCADE, which takes any FK pointing at it with only a NOTICE — so a
+  // declared FK would be gone after the first nightly run and the schema would
+  // read as drifted from then on.
+  //
+  // The guarantee it was added for now runs one step earlier, in
+  // gp-data-platform's sync_election_api_density DAG
+  // (_district_reference_checks): every staged district_id is matched against
+  // live District and a miss fails the load closed, before the swap. Nothing
+  // else writes these tables, so that is the only moment it can be violated.
+  //
+  // What that leaves for the API is these two properties.
+
+  it('accepts rows for a district that does not exist', async () => {
     await expect(
       seedCells(UNKNOWN_DISTRICT_ID, [
         { h3Index: '88283082a9fffff', lat: 34.2, lng: -118.1, voterCount: 7 },
       ]),
-    ).rejects.toThrow()
+    ).resolves.toBeDefined()
+    await expect(seedMeta(UNKNOWN_DISTRICT_ID, 0.9)).resolves.toBeDefined()
   })
 
-  it('rejects a meta row for a district that does not exist', async () => {
-    await expect(seedMeta(UNKNOWN_DISTRICT_ID, 0.9)).rejects.toThrow()
+  it('never serves an orphaned district rows on another district route', async () => {
+    // The reads are keyed by the district the person actually holds office in,
+    // so a stale vintage row cannot contaminate a live district's map even
+    // with no constraint standing between them.
+    await seedPersonInDistrict(DISTRICT_ID)
+    await seedCells(DISTRICT_ID, [
+      { h3Index: '88283082a9fffff', lat: 34.2, lng: -118.1, voterCount: 7 },
+    ])
+    await seedMeta(DISTRICT_ID, 0.82)
+    await seedCells(UNKNOWN_DISTRICT_ID, [
+      { h3Index: '88283082abfffff', lat: 40.0, lng: -74.0, voterCount: 99 },
+    ])
+
+    const res = await service.client.get(
+      `/v1/persons/${PERSON_ID}/voter-density`,
+    )
+
+    expect(res.data.districtId).toBe(DISTRICT_ID)
+    expect(res.data.cells).toEqual([{ lat: 34.2, lng: -118.1, count: 7 }])
   })
 })
