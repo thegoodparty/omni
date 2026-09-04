@@ -21,6 +21,6 @@ export const extractExistingContactId = (err: unknown): string | undefined => {
   // @hubspot/api-client types ApiException's body as the class's erased
   // generic parameter (any); the SDK deserializes 4xx bodies as ModelError.
   // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-  const body = err.body as ModelError
-  return EXISTING_CONTACT_ID_PATTERN.exec(body.message ?? '')?.[1]
+  const body = err.body as ModelError | null | undefined
+  return EXISTING_CONTACT_ID_PATTERN.exec(body?.message ?? '')?.[1]
 }

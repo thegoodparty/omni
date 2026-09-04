@@ -333,7 +333,13 @@ export class CrmUsersService {
         { existingId },
         'contact create conflicted with an existing contact — adopting',
       )
-      return await this.updateCrmContact(existingId, crmContactProperties)
+      // Fall back to a bare { id } when the follow-up update fails, so
+      // trackContact still persists hubspotId and the adoption isn't lost.
+      return (
+        (await this.updateCrmContact(existingId, crmContactProperties)) ?? {
+          id: existingId,
+        }
+      )
     }
   }
 }

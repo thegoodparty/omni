@@ -128,7 +128,9 @@ export class CrmTeamMembersService {
         { adoptedId, email },
         'team member contact create conflicted with an existing contact — adopting',
       )
-      return await this.updateContact(adoptedId, properties)
+      // Keep the adopted id even when the follow-up property update fails,
+      // so the caller can still associate the contact with the company.
+      return (await this.updateContact(adoptedId, properties)) ?? adoptedId
     }
   }
 

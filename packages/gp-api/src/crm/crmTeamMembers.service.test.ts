@@ -221,6 +221,34 @@ describe('CrmTeamMembersService', () => {
     )
   })
 
+  it('keeps the adopted id for the association when the follow-up update fails', async () => {
+    doSearch.mockResolvedValue({ total: 0, results: [] })
+    create.mockRejectedValue(
+      new ApiException(
+        409,
+        'Conflict',
+        { message: 'Contact already exists. Existing ID: 424242' },
+        {},
+      ),
+    )
+    update.mockRejectedValue(new Error('hubspot transient failure'))
+
+    await service.syncTeamMember({
+      email: 'raced@example.com',
+      name: 'Raced Person',
+      role: OrganizationRole.campaignAdmin,
+      crmCompanyId: 'company-9',
+    })
+
+    expect(associationsCreate).toHaveBeenCalledWith(
+      '0-2',
+      '0-1',
+      expect.objectContaining({
+        inputs: [expect.objectContaining({ to: { id: '424242' } })],
+      }),
+    )
+  })
+
   it('does not adopt on a non-409 create failure (logged, undefined, no association)', async () => {
     doSearch.mockResolvedValue({ total: 0, results: [] })
     create.mockRejectedValue(new Error('hubspot down'))

@@ -239,6 +239,26 @@ describe('CrmUsersService - merge-tolerant contact lookups (ENG-11029)', () => {
     expect(result).toEqual({ id: '909090' })
   })
 
+  it('persists the adopted id even when the follow-up update fails', async () => {
+    doSearch.mockResolvedValue({ total: 0, results: [] })
+    create.mockRejectedValue(
+      new ApiException(
+        409,
+        'Conflict',
+        { message: 'Contact already exists. Existing ID: 909090' },
+        {},
+      ),
+    )
+    update.mockRejectedValue(new Error('hubspot transient failure'))
+
+    const result = await service.trackUserLogin(user)
+
+    expect(users.patchUserMetaData).toHaveBeenCalledWith(user.id, {
+      hubspotId: '909090',
+    })
+    expect(result).toEqual({ id: '909090' })
+  })
+
   it('leaves a non-409 create failure unchanged: logged, no adoption, undefined', async () => {
     doSearch.mockResolvedValue({ total: 0, results: [] })
     create.mockRejectedValue(new Error('hubspot down'))
