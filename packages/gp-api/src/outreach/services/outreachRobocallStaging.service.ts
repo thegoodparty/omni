@@ -120,7 +120,14 @@ export class OutreachRobocallStagingService extends createPrismaBase(
           // just now, so a run whose send passed during a deploy/restart/missed
           // tick still stages (and dials a few minutes late) instead of stranding
           // — the stranded sweep only fails runs older than this same
-          // `now - grace` boundary, so the two never contend for one draft.
+          // `now - grace` boundary. At one instant that split is disjoint;
+          // but the two sweeps fire on separate cron ticks, so their date
+          // windows can briefly overlap on one draft. What actually prevents
+          // double-handling is failSend's pre-existing
+          // `callhubCampaignPkStr: null` (+ `authorized`) CAS: once staging
+          // claims the row, the stranded sweep's failSend matches nothing.
+          // Boundary and CAS are jointly necessary — see
+          // OutreachRobocallHoldService.failSend; do not drop that guard.
           {
             settleState: RobocallSettleState.authorized,
             outreach: {

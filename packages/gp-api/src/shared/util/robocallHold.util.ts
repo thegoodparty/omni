@@ -34,8 +34,17 @@ export const ROBOCALL_SETTLE_MARGIN_HOURS = 24
 // alone) a run up to this many minutes past its send: staging's lower bound and
 // the stranded sweep's past-due threshold BOTH pivot on `now - grace`, so a run
 // in `[now - grace, now]` is staging-eligible (rescued) and only a run older than
-// `now - grace` is stranded-eligible (failed) — one boundary, never both, never
-// neither. 30 min absorbs a deploy/restart/missed-cron so a just-late run still
+// `now - grace` is stranded-eligible (failed). AT A SINGLE INSTANT that split
+// is disjoint and gapless — every past/near send falls to exactly one sweep.
+// But the two sweeps fire on independent cron ticks, so across ticks their date
+// windows can briefly overlap on one draft. What ultimately makes double-
+// handling (double-void / dial-after-void) impossible is the pre-existing
+// `callhubCampaignPkStr: null` (+ `authorized`) CAS guard in
+// OutreachRobocallHoldService.failSend: once one sweep claims the row, the
+// other's failSend CAS matches nothing. The date boundary and that CAS are
+// JOINTLY necessary — do NOT remove the guard believing this grace made it
+// redundant (that reintroduces a double-void race). 30 min absorbs a
+// deploy/restart/missed-cron so a just-late run still
 // stages and dials a few minutes late, which is well inside the hold/capture
 // window; short enough that a robocall never fires meaningfully late — a longer
 // outage correctly falls through to fail + notify. Timing budget: the

@@ -62,8 +62,13 @@ export class OutreachRobocallStrandedService extends createPrismaBase(
           // Send passed by MORE than the staging grace with no campaign ever
           // staged. A run only `now - grace` late is still staging-eligible (the
           // staging sweep's lower bound reaches back to this same boundary), so
-          // failing it here would kill a run staging is about to rescue. Only a
-          // run older than `now - grace` is genuinely stranded.
+          // failing it here would kill a run staging is about to rescue. At one
+          // instant that split is disjoint; but this sweep and staging fire on
+          // separate cron ticks, so their date windows can briefly overlap. The
+          // `callhubCampaignPkStr: null` guard in the failSend CAS below is
+          // what actually stops a double-handle: once staging claims the row
+          // this sweep's failSend matches nothing. Keep it — neither alone
+          // suffices.
           date: { lt: subMinutes(now, ROBOCALL_STAGING_GRACE_MINUTES) },
         },
       },
