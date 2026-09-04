@@ -8,6 +8,25 @@ import {
   PACK_STREAM_MAGIC_BYTES,
 } from '@goodparty_org/contracts'
 
+// A door logged on this device since the pack was built. It rides beside the
+// binary rather than inside it because there is no row in the binary to patch:
+// the wire format carries no person id — the client walks the arrays
+// positionally — so a knock, which gp-api joins in by person id at build time,
+// has nothing on this side to join to. Don't go looking for the id in the
+// query: `buildPackSql` does select one and `PACK_CSV_COLUMNS` lists it, for
+// the `canvassStatus` and `contactsMade` joins server-side; `PackEncoder`
+// drops it, writing only positions, the two index arrays and the u8 planes.
+// The coordinate is the one handle both ends share:
+// `positions` and a route stop's lat/lng are the same people_db columns cast
+// the same way, so a stop lands on a dot exactly or on nothing.
+export interface LoggedKnock {
+  lng: number
+  lat: number
+  // Index into DOOR_KNOCK_STATUSES, which is the encoding the pack's own
+  // `canvassStatus` plane already uses.
+  status: number
+}
+
 export interface DecodedPack {
   manifest: DoorKnockingPackManifest
   // Interleaved [lng, lat] pairs, one per unique coordinate (dot).
@@ -16,6 +35,11 @@ export interface DecodedPack {
   householdToDot: Uint32Array
   // One u8 plane per manifest dim, keyed by dim key.
   dimPlanes: Map<string, Uint8Array>
+  // Doors logged since this pack was built, folded in by `recordLoggedKnocks`
+  // and applied by `applyLoggedKnocks`. Never set by the decoder: a pack that
+  // has just arrived already carries these statuses in its `canvassStatus`
+  // plane.
+  loggedKnocks?: readonly LoggedKnock[]
 }
 
 // Thrown when the response never carried a pack — a build that died after the

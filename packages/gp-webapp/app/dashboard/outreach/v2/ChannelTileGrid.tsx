@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import { ChannelCard } from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
@@ -13,10 +14,12 @@ import {
 import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
 import { useVoterOutreachV2RobocallFlag } from '@shared/experiments/voterOutreachV2RobocallFlag'
 import { useVoterOutreachV2SmsFlag } from '@shared/experiments/voterOutreachV2SmsFlag'
+import { useNativeDoorKnockingFlag } from '@shared/experiments/nativeDoorKnockingFlag'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { TcrCompliance } from 'helpers/types'
 import type { OutreachType } from 'gpApi/types/outreach.types'
+import { voterPackQueryOptions } from 'app/dashboard/door-knocking/native/useVoterPack'
 import { CHANNEL_META } from './channelMeta'
 
 interface ChannelTileGridProps {
@@ -51,6 +54,7 @@ export const ChannelTileGrid = ({
   onCreatePhoneBanking,
 }: ChannelTileGridProps) => {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [campaign] = useCampaign()
   const { isPro } = campaign || {}
   const [flowType, setFlowType] = useState<OutreachType | null>(null)
@@ -60,6 +64,9 @@ export const ChannelTileGrid = ({
   // (or unsettled) falls through to the legacy robocall TaskFlow — checked
   // after the Pro gate since robocall is Pro-locked.
   const robocallV2 = useVoterOutreachV2RobocallFlag()
+  // Read only to decide whether the district download below is worth starting.
+  // The door-knocking page gate is the treatment surface, so no exposure here.
+  const nativeDoorKnocking = useNativeDoorKnockingFlag(false)
   // Own equivalent of ContactsTableProvider's canUseProFeatures — not
   // imported from there (contacts-scoped, would force an organization
   // provider onto every tile-grid test). A pending elected-office query must
@@ -181,6 +188,26 @@ export const ChannelTileGrid = ({
       const listId = pendingPreselectedListId
       setPendingPreselectedListId(undefined)
       lastSyncedPropListIdRef.current = undefined
+      // Start the district download here rather than on the far side of the
+      // navigation. The pack is the slowest read the product has (p50 4.5s,
+      // p95 33.6s in prod) and everything the create flow counts is derived
+      // from it, so every millisecond it can be given ahead of the first step
+      // is a millisecond the candidate does not spend on a dead Continue. The
+      // route transition and the map chunk are that head start; the flow's own
+      // purpose and who steps are the rest of it.
+      //
+      // Prefetch and not fetch: a district this org cannot resolve answers 400
+      // and the page's own `isUnresolvable` branch already speaks for that
+      // case, so a rejection here must not surface as anything.
+      //
+      // Only for the arm that lands on the native page. A control-arm campaign
+      // gets the eCanvasser dashboard, which has no pack in it, and tens of
+      // megabytes of district for a map they will never be shown is a worse
+      // deal than the dead Continue this exists to avoid. The flag is read
+      // without exposure here — pressing a tile is not the treatment.
+      if (nativeDoorKnocking.enabled) {
+        void queryClient.prefetchQuery(voterPackQueryOptions)
+      }
       router.push(
         listId === undefined
           ? '/dashboard/door-knocking?create=1'

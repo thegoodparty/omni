@@ -30,7 +30,12 @@ const {
   packSource,
   packFixture,
   organization,
+  walkSession,
 } = vi.hoisted(() => ({
+  // What the closing walk reports it logged. Zero is a walk that changed
+  // nothing on the map, which is every test here that is not about the doors
+  // reaching it.
+  walkSession: { doorsLogged: 0 },
   // Which org is selected. Mutable because it is what decides Win or Serve
   // for this page — a Campaign takes precedence and an `electedOfficeId` is
   // consulted in its absence — and both answers change where exits land.
@@ -41,8 +46,10 @@ const {
   districtResolution: { isUnresolvable: false },
   // The two states the module-level pack stub otherwise never reaches. The
   // pack has to resolve for almost every test in this file, so holding and
-  // failing it are switches rather than a second mock per test.
-  packSource: { failed: false, held: null as Promise<void> | null },
+  // failing it are switches rather than a second mock per test. `fetches`
+  // counts district downloads, which is the quantity the walk's exit is not
+  // allowed to spend.
+  packSource: { failed: false, held: null as Promise<void> | null, fetches: 0 },
   drawSession: {
     placed: [] as Array<[number, number]>,
     taps: [
@@ -75,10 +82,16 @@ const {
   },
 }))
 
-vi.mock('./useVoterPack', () => ({
+// Only the fetch is replaced. `recordLoggedKnocks` and the loading copy are
+// real, because both are part of what this page does with the pack: the first
+// is how a walk reaches the map without paying for the district again, and the
+// second is what the create sheet and the map region have to agree on.
+vi.mock('./useVoterPack', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./useVoterPack')>()),
   voterPackQueryOptions: {
     queryKey: ['door-knocking-pack'],
     queryFn: async () => {
+      packSource.fetches += 1
       if (packSource.held) await packSource.held
       if (packSource.failed) throw new Error('pack decode failed')
       return packFixture
@@ -108,7 +121,7 @@ vi.mock('./VoterMapCanvas', () => ({
     onDrawPointCount,
     onRoutePinClick,
   }: {
-    filterResult: { people: number }
+    filterResult: { people: number; statusPerDot: Uint8Array }
     turfs: Array<{ id: number; archivedAt: Date | null }>
     routePins: Array<{ stopId: number; seq: number }>
     selectedStopId: number | null
@@ -128,6 +141,10 @@ vi.mock('./VoterMapCanvas', () => ({
     <div
       data-testid="voter-map"
       data-people={String(filterResult.people)}
+      // The knock colour each dot is drawn in, as the status bytes behind it.
+      // A walk's own doors reach the map through this and nothing else, so it
+      // is what says whether they arrived without a fresh district download.
+      data-statuses={Array.from(filterResult.statusPerDot).join(',')}
       // How many outlines the map was handed — every row `GET /turfs` returns.
       data-turfs={String(turfs.length)}
       // Whether an archived list is still among them. Dimming happens inside
@@ -251,7 +268,7 @@ vi.mock('./useWalkSession', async () => {
           setWalkedTurf(started),
         end: () => {
           setWalkedTurf(null)
-          return 0
+          return walkSession.doorsLogged
         },
         recordDoor: vi.fn(),
       }
@@ -477,6 +494,8 @@ beforeEach(() => {
   districtResolution.isUnresolvable = false
   packSource.failed = false
   packSource.held = null
+  packSource.fetches = 0
+  walkSession.doorsLogged = 0
   drawSession.placed = []
   // No org, so no `electedOfficeId`: every test in this file is a Win surface
   // unless it says otherwise, which is what `campaign={null}` already implied
@@ -555,14 +574,20 @@ describe('NativeDoorKnockingPage voter map', () => {
     expect(screen.queryByText(/Introduce myself/)).toBeNull()
   })
 
-  it('spins while the voter pack decodes', async () => {
+  // Titled, and with the duration in it. The bare `LoadingAnimation` says
+  // "Loading... Something awesome." over a wait whose p95 is 34 seconds, which
+  // is the half of this complaint that was about nothing being communicated.
+  it('names the wait, and how long it can be, while the voter pack decodes', async () => {
     let release: () => void = () => undefined
     packSource.held = new Promise<void>((resolve) => {
       release = resolve
     })
     renderPage()
 
-    expect(await screen.findByText('Loading...')).toBeInTheDocument()
+    expect(
+      (await screen.findAllByText('Loading your voter map…')).length,
+    ).toBeGreaterThan(0)
+    expect(screen.queryByText('Loading...')).toBeNull()
     expect(screen.queryByTestId('voter-map')).toBeNull()
 
     await act(async () => {
@@ -579,11 +604,111 @@ describe('NativeDoorKnockingPage voter map', () => {
     renderPage()
 
     expect(
-      await screen.findByText(
+      (
+        await screen.findAllByText(
+          'The voter map could not load. Refresh to try again.',
+        )
+      ).length,
+    ).toBeGreaterThan(0)
+    expect(screen.queryByTestId('voter-map')).toBeNull()
+  })
+})
+
+// The complaint this page was reported with: "the counts take forever, and that
+// amount of lag with nothing communicated to the user is unacceptable". Both
+// halves are the same fact — the who step's count is arithmetic over the pack,
+// so it reads 0 until a district that takes 5-30 seconds has downloaded, and
+// the only surface saying so was the map region this sheet is drawn over.
+describe('NativeDoorKnockingPage create flow while the pack loads', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+  })
+
+  const holdPack = () => {
+    let release: () => void = () => undefined
+    packSource.held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    return async () => {
+      await act(async () => {
+        release()
+      })
+    }
+  }
+
+  // `Continue (0)` is not a pending state. It is a real-looking number, and the
+  // only reading available for it — this district has nobody in it — is the
+  // opposite of the truth.
+  it('never puts a zero in the who step’s button while the count is pending', async () => {
+    const release = holdPack()
+    renderPage()
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Introduce myself/ }),
+    )
+
+    const cta = screen.getByRole('button', { name: 'Continue' })
+    expect(cta).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /Continue \(0\)/ })).toBeNull()
+
+    await release()
+
+    // And the count arrives in it once there is one: the fixture's district is
+    // three households.
+    expect(
+      await screen.findByRole('button', { name: 'Continue (3)' }),
+    ).toBeInTheDocument()
+  })
+
+  // Inside the sheet, because the sheet is what covers the map region the same
+  // sentence is painted into — so for the whole of the wait that matters the
+  // only explanation on the page was behind the surface being looked at.
+  it('says what the who step is waiting for, inside the sheet', async () => {
+    const release = holdPack()
+    renderPage()
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Introduce myself/ }),
+    )
+
+    const sheet = screen.getByRole('dialog')
+    expect(
+      within(sheet).getByText(
+        /Loading your voter map…\s*Large districts can take up to 30 seconds\./,
+      ),
+    ).toBeInTheDocument()
+
+    await release()
+
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole('dialog')).queryByText(
+          /Large districts can take up to 30 seconds\./,
+        ),
+      ).toBeNull(),
+    )
+  })
+
+  // `retry: 0` makes a failed pack final, so without this the step is a
+  // permanently disabled button with the reason hidden behind it.
+  it('surfaces a failed pack in the sheet rather than only behind it', async () => {
+    packSource.failed = true
+    renderPage()
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Introduce myself/ }),
+    )
+
+    const sheet = screen.getByRole('dialog')
+    expect(
+      within(sheet).getByText(
         'The voter map could not load. Refresh to try again.',
       ),
     ).toBeInTheDocument()
-    expect(screen.queryByTestId('voter-map')).toBeNull()
+    expect(
+      within(sheet).getByRole('button', { name: 'Continue' }),
+    ).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /Continue \(0\)/ })).toBeNull()
   })
 })
 
@@ -1509,6 +1634,62 @@ describe('NativeDoorKnockingPage end of walk', () => {
 
     expect(router.push).toHaveBeenCalledWith(SERVE_HUB)
     expect(router.push).not.toHaveBeenCalledWith(OUTREACH_HUB)
+  })
+
+  // The whole district, re-downloaded to move a handful of status bytes, on the
+  // one gesture whose very next frame is a navigation off the map. The doors are
+  // folded into the cached pack instead — see `applyLoggedKnocks` — and the
+  // stops here sit on dot 0's own coordinate, which is the only handle the two
+  // sides share (the pack ships no person id).
+  it('shows the doors just logged without downloading the district again', async () => {
+    walkSession.doorsLogged = 1
+    await startWalk([
+      {
+        ...walkStop(11, 1, '105 Elm St', 'Dorian Fen', 'not_home'),
+        lat: 41.9,
+        lng: -87.65,
+      },
+    ])
+    const fetchesBefore = packSource.fetches
+    // Dot 0 holds an unanswered person, so the pack rolls it up to `unknown`.
+    expect(screen.getByTestId('voter-map')).toHaveAttribute(
+      'data-statuses',
+      '0,0',
+    )
+
+    leaveWalk()
+
+    // `not_home` is index 1 in DOOR_KNOCK_STATUSES, which is the encoding the
+    // pack's own canvassStatus plane uses.
+    await waitFor(() =>
+      expect(screen.getByTestId('voter-map')).toHaveAttribute(
+        'data-statuses',
+        '1,0',
+      ),
+    )
+    expect(packSource.fetches).toBe(fetchesBefore)
+  })
+
+  // A walk that logged nothing has nothing to fold in, and must not invent a
+  // reason to touch the pack either.
+  it('leaves the map alone after a walk that logged no doors', async () => {
+    await startWalk([
+      {
+        ...walkStop(11, 1, '105 Elm St', 'Dorian Fen', 'not_home'),
+        lat: 41.9,
+        lng: -87.65,
+      },
+    ])
+    const fetchesBefore = packSource.fetches
+
+    leaveWalk()
+
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith(OUTREACH_HUB))
+    expect(screen.getByTestId('voter-map')).toHaveAttribute(
+      'data-statuses',
+      '0,0',
+    )
+    expect(packSource.fetches).toBe(fetchesBefore)
   })
 
   // Same for a walk resumed from a Serve history row. The id is dropped

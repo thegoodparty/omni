@@ -36,6 +36,9 @@ const baseProps = {
   onStepChange: vi.fn(),
   onClose: vi.fn(),
   districtHouseholds: 1500,
+  districtHouseholdsPending: false,
+  districtHouseholdsFailed: false,
+  districtUnavailable: false,
   savedLists: [],
   allContactsHouseholds: 12000,
   ring: OPEN_RING,
@@ -618,6 +621,51 @@ describe('CreateListFlow', () => {
     renderAtWho({ districtHouseholds: 0 })
 
     expect(screen.getByRole('button', { name: 'Continue (0)' })).toBeDisabled()
+  })
+
+  // The same disabled button, and a completely different fact. A count that has
+  // not arrived is 0 here too, and printing it makes "we are still counting"
+  // indistinguishable from "this district is empty" — for a wait whose p95 is
+  // 34 seconds. Phone banking's identical CTA on this same shell already drops
+  // to the bare word while it counts.
+  it('drops the count from the who step’s Continue while it is still pending', () => {
+    renderAtWho({ districtHouseholds: 0, districtHouseholdsPending: true })
+
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /Continue \(/ })).toBeNull()
+    expect(
+      screen.getByText(
+        /Loading your voter map…\s*Large districts can take up to 30 seconds\./,
+      ),
+    ).toBeInTheDocument()
+  })
+
+  // And a count that is never arriving. The pack does not retry, so the step is
+  // otherwise a permanently disabled button with nothing on screen saying why —
+  // the map region that carries this sentence is underneath this sheet.
+  it('says why the who step is stuck when the pack failed', () => {
+    renderAtWho({ districtHouseholds: 0, districtHouseholdsFailed: true })
+
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /Continue \(/ })).toBeNull()
+    expect(
+      screen.getByText('The voter map could not load. Refresh to try again.'),
+    ).toBeInTheDocument()
+  })
+
+  // The third way the count can be absent, and the one the other two get
+  // wrong: no pack was ever requested, so it is neither arriving nor failed.
+  // Told it was pending, this step promises a download that will never happen;
+  // told it failed, it asks for a refresh that cannot help.
+  it('says the office has no voter data rather than promising a download', () => {
+    renderAtWho({ districtHouseholds: 0, districtUnavailable: true })
+
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    expect(
+      screen.getByText(/Voter data is not available for this office yet/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Loading your voter map/)).toBeNull()
+    expect(screen.queryByText(/could not load/)).toBeNull()
   })
 
   // CHANGED DELIBERATELY: the flow no longer opens on the filters. `filters`

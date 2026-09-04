@@ -40,6 +40,12 @@ import {
   unpreviewableDisclosureSentence,
 } from './voterFilterPreview'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
+import {
+  DISTRICT_UNAVAILABLE_MESSAGE,
+  PACK_ERROR_MESSAGE,
+  PACK_LOADING_DURATION,
+  PACK_LOADING_TITLE,
+} from '../useVoterPack'
 import { suggestTravelMode } from '../travelMode'
 import { useDoorKnockingServeMode } from '../doorKnockingSurface'
 import {
@@ -105,6 +111,16 @@ interface CreateListFlowProps {
   // polygon exists — once one is drawn, everything the draw step reports comes
   // off turfStats instead.
   districtHouseholds: number
+  // Whether the count above has an answer yet. It is arithmetic over the pack,
+  // not a server call, so it reads 0 for as long as the district takes to
+  // download — and this sheet is drawn over the map region that would otherwise
+  // have said so.
+  districtHouseholdsPending: boolean
+  districtHouseholdsFailed: boolean
+  // Distinct from failed: there is no request to wait on and no retry to
+  // offer, so the step says what is actually wrong instead of asking for a
+  // refresh that changes nothing.
+  districtUnavailable: boolean
   // The who step's list picker, with the parenthesised district counts the
   // canvas puts beside each row. Empty until the saved lists resolve; the step
   // still offers All Contacts, which is the default anyway.
@@ -252,6 +268,9 @@ export default function CreateListFlow({
   onStepChange,
   onClose,
   districtHouseholds,
+  districtHouseholdsPending,
+  districtHouseholdsFailed,
+  districtUnavailable,
   savedLists,
   allContactsHouseholds,
   ring,
@@ -995,8 +1014,27 @@ export default function CreateListFlow({
                 // toggled — the picker's own `All Contacts (N)` is the
                 // UNFILTERED universe and does not — so it is also the only
                 // reading of how big the audience being cut actually is.
-                label: `Continue (${districtHouseholds.toLocaleString()})`,
-                disabled: districtHouseholds === 0,
+                //
+                // While there is no answer the button carries the design's bare
+                // word instead, which is what phone banking's identical CTA
+                // already does on the same shell. `Continue (0)` is not a
+                // pending state: it is a real-looking number, and the reading a
+                // candidate takes from it — this district has nobody in it — is
+                // the opposite of the truth. A failed pack has no answer coming
+                // at all, so it is bare for the same reason; what went wrong is
+                // said in the body, where there is room to say it.
+                label:
+                  districtHouseholdsPending ||
+                  districtHouseholdsFailed ||
+                  districtUnavailable
+                    ? 'Continue'
+                    : `Continue (${districtHouseholds.toLocaleString()})`,
+                disabled:
+                  districtHouseholdsPending ||
+                  districtHouseholdsFailed ||
+                  districtUnavailable ||
+                  districtHouseholds === 0,
+                loading: districtHouseholdsPending,
                 // Always the draw step. Building a new list is a way of
                 // choosing the audience, not a way of finishing early —
                 // there is no door knocking without a boundary and a route.
@@ -1066,6 +1104,35 @@ export default function CreateListFlow({
               recommendationsError={recommendationsQuery.isError}
               onSelectRecommendation={applyRecommendation}
             />
+            {/* Said HERE and not only on the map. The map region already draws
+                a titled loader for the same download, and this sheet is what
+                covers that region — so for the whole of the wait that actually
+                matters it was painted underneath the surface the candidate is
+                looking at, which is how a half-minute of dead Continue arrived
+                with nothing said about it. Same two sentences as the map's, off
+                the same constants, so the pair cannot drift. */}
+            {districtHouseholdsPending && (
+              <p className="text-xs text-muted-foreground">
+                {PACK_LOADING_TITLE} {PACK_LOADING_DURATION}
+              </p>
+            )}
+            {/* And the same argument for the failure. `retry: 0` means a failed
+                pack is final, so without this the step is a permanently
+                disabled button with the reason hidden behind it. */}
+            {districtHouseholdsFailed && (
+              <p role="alert" className="text-sm text-destructive">
+                {PACK_ERROR_MESSAGE}
+              </p>
+            )}
+            {/* And the case that is neither: no request was made, so there is
+                nothing to wait for and nothing a refresh would fix. Left to
+                the two above it, this step was a disabled Continue under a
+                promise of a download that was never going to arrive. */}
+            {districtUnavailable && (
+              <p role="alert" className="text-sm text-muted-foreground">
+                {DISTRICT_UNAVAILABLE_MESSAGE}
+              </p>
+            )}
             {/* The count in the CTA is the pack's, and the pack cannot shade
                 every way a saved list narrows — a list cut by support status
                 or prior outreach previews as the whole district here. Without

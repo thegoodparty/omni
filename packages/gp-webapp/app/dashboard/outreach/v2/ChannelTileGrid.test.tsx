@@ -1,8 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
+import { voterPackQueryOptions } from 'app/dashboard/door-knocking/native/useVoterPack'
 import { ChannelTileGrid } from './ChannelTileGrid'
+
+// Counts district downloads. The real one is a binary fetch of tens of MB, and
+// what this file cares about is only whether pressing the tile asks for it.
+const packFetches = vi.hoisted(() => ({ count: 0 }))
+vi.mock('app/dashboard/door-knocking/native/useVoterPack', () => ({
+  voterPackQueryOptions: {
+    queryKey: ['door-knocking-pack'],
+    queryFn: async () => {
+      packFetches.count += 1
+      return {}
+    },
+  },
+}))
 
 const mockRouterPush = vi.fn()
 vi.mock('next/navigation', async (importOriginal) => ({
@@ -57,6 +71,11 @@ vi.mock('@shared/experiments/voterOutreachV2RobocallFlag', () => ({
 const smsFlag = { ready: true, enabled: false }
 vi.mock('@shared/experiments/voterOutreachV2SmsFlag', () => ({
   useVoterOutreachV2SmsFlag: () => smsFlag,
+}))
+
+const nativeDoorKnockingFlag = { ready: true, enabled: true }
+vi.mock('@shared/experiments/nativeDoorKnockingFlag', () => ({
+  useNativeDoorKnockingFlag: () => nativeDoorKnockingFlag,
 }))
 
 const renderGrid = (
@@ -226,6 +245,53 @@ describe('ChannelTileGrid — door-knocking tile carries the selected list', () 
     mockCampaign = { id: 9, isPro: true }
     mockElectedOffice = { data: null, isPending: false }
     mockRouterPush.mockClear()
+    testQueryClient.clear()
+    packFetches.count = 0
+  })
+
+  // The district download is the slowest read the product has (p50 4.5s, p95
+  // 33.6s in prod) and every count in the create flow is arithmetic over it, so
+  // the flow's first two steps are a dead Continue for as long as it runs. This
+  // is the only place that wait can be started before it is being waited on:
+  // the route transition and the map chunk are a head start the far side of the
+  // navigation cannot give itself.
+  it('starts the district download before navigating to the flow', async () => {
+    renderGrid()
+
+    await userEvent.click(screen.getByText('Door knocking'))
+
+    await waitFor(() => expect(packFetches.count).toBe(1))
+    // And the flow re-uses it rather than asking again — same key, and
+    // `staleTime: Infinity` on the query the page mounts.
+    expect(
+      testQueryClient.getQueryState(voterPackQueryOptions.queryKey),
+    ).toBeDefined()
+  })
+
+  it('does not touch the pack for a tile that is not door knocking', async () => {
+    renderGrid()
+
+    await userEvent.click(screen.getByText('SMS'))
+
+    expect(packFetches.count).toBe(0)
+  })
+
+  // The control arm lands on the eCanvasser dashboard, which has no map in it.
+  // Tens of megabytes of district for a surface they will never be shown is a
+  // worse deal than the wait this prefetch exists to shorten.
+  it('does not download a district for the arm that never sees the map', async () => {
+    nativeDoorKnockingFlag.enabled = false
+    try {
+      renderGrid()
+
+      await userEvent.click(screen.getByText('Door knocking'))
+
+      expect(packFetches.count).toBe(0)
+      // Still navigates: the gate on the far side decides which surface.
+      expect(mockRouterPush).toHaveBeenCalled()
+    } finally {
+      nativeDoorKnockingFlag.enabled = true
+    }
   })
 
   it('carries the preselected list as ?listId=', async () => {

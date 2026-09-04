@@ -139,6 +139,9 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     onStepChange={onStepChange}
     onClose={vi.fn()}
     districtHouseholds={0}
+    districtHouseholdsPending={false}
+    districtHouseholdsFailed={false}
+    districtUnavailable={false}
     ring={ringA}
     turfStats={null}
     drawFullScreen={false}

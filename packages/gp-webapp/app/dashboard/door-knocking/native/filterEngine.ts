@@ -85,6 +85,67 @@ export const runFilter = (
   return { people, households, matchedPerDot, statusPerDot }
 }
 
+// A dot's coordinate as a comparable key. Both sides are rounded to f32 first:
+// `positions` is a Float32Array and a route stop's lat/lng is the same value
+// still at double width, so the two agree only once the stop has been through
+// the same narrowing the pack's encoder put the dot through.
+const dotKey = (lng: number, lat: number): string =>
+  `${Math.fround(lng)},${Math.fround(lat)}`
+
+// Fold the doors logged on this device into a filter result, so a walk shows on
+// the map without re-downloading the district it was cut from.
+//
+// The merge is a MAX and never a rewrite, because knocking can only ever make a
+// door less actionable and `runFilter` reports the most actionable status at a
+// dot — so a dot the pack already answered for keeps what it had, and a
+// coordinate with no dot behind it is dropped rather than guessed at.
+//
+// Where it over-reports is any coordinate whose residents are not all on the
+// turf, because the two sides roll up over different populations: the stop over
+// the turf's filtered targets, the dot over everyone the pack put at that
+// coordinate. A block of flats is the loud version of it (the pack groups
+// households at `AddressLine` while a stop carries the apartment — ADR 0010),
+// but the common one is smaller and worth naming: a party-filtered turf that
+// took one half of a mixed-party couple colours the house for both of them.
+//
+// The exact answer is only knowable from the per-person statuses, which live on
+// the server side of the pack build — and asking for them means the same
+// tens-of-seconds district download this exists to avoid, on the one gesture
+// whose next frame is a navigation away from the map. It errs toward "already
+// knocked", which costs a second look at a door rather than a missed one.
+export const applyLoggedKnocks = (
+  pack: DecodedPack,
+  result: FilterResult,
+): FilterResult => {
+  const knocks = pack.loggedKnocks
+  // The overwhelming case, and the reason this is a guard rather than a branch
+  // inside the loop: without a walk behind it the pass below is a scan of every
+  // dot in the district on every filter pill the create flow toggles.
+  if (!knocks || knocks.length === 0) return result
+
+  const byDot = new Map<string, number>()
+  for (const knock of knocks) {
+    const key = dotKey(knock.lng, knock.lat)
+    const current = byDot.get(key)
+    // Most actionable wins among doors sharing a coordinate, which is the same
+    // rule `runFilter` rolls a dot's people up by.
+    if (current === undefined || knock.status < current) {
+      byDot.set(key, knock.status)
+    }
+  }
+
+  const { positions } = pack
+  const statusPerDot = result.statusPerDot.slice()
+  for (let dot = 0; dot < statusPerDot.length; dot++) {
+    const logged = byDot.get(
+      dotKey(positions[dot * 2] ?? 0, positions[dot * 2 + 1] ?? 0),
+    )
+    if (logged === undefined) continue
+    if (logged > (statusPerDot[dot] ?? 255)) statusPerDot[dot] = logged
+  }
+  return { ...result, statusPerDot }
+}
+
 // Defined in audienceMix and re-exported here, where its consumers already
 // look for it: this module needs audienceMix's age grouping, and importing the
 // type back the other way would make the pair circular.

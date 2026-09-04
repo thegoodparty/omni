@@ -136,6 +136,17 @@ export interface CreateListSurfaceProps {
   // District-wide households matching the filter draft. Honest only on the
   // filters step, where no polygon exists yet.
   districtHouseholds: number
+  // Whether that count is a real answer yet. It is computed in the browser from
+  // the decoded pack, which takes seconds to tens of seconds to arrive, and
+  // until it does the count above is 0 — a number indistinguishable from a
+  // district with nobody in it. The pack is the orchestrator's, so its state
+  // crosses the seam with the count it explains rather than being re-observed
+  // down here.
+  districtHouseholdsPending: boolean
+  districtHouseholdsFailed: boolean
+  // The third case, which is neither of the two above: this org's district
+  // does not resolve, so no pack was ever requested.
+  districtUnavailable: boolean
   // The shape currently on the canvas. Reference identity is load-bearing: the
   // canvas emits a fresh array per change, and comparing it against the ring a
   // preview was asked about is what makes an answer belong to a boundary.
@@ -197,6 +208,9 @@ export default function CreateListSurface({
   onStepChange,
   onClose,
   districtHouseholds,
+  districtHouseholdsPending,
+  districtHouseholdsFailed,
+  districtUnavailable,
   ring,
   turfStats,
   drawPointCount,
@@ -338,6 +352,9 @@ export default function CreateListSurface({
       }}
       onClose={onClose}
       districtHouseholds={districtHouseholds}
+      districtHouseholdsPending={districtHouseholdsPending}
+      districtHouseholdsFailed={districtHouseholdsFailed}
+      districtUnavailable={districtUnavailable}
       savedLists={audience.lists}
       allContactsHouseholds={audience.allContactsHouseholds}
       ring={ring}
