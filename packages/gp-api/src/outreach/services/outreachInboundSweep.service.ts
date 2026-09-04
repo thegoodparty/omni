@@ -99,6 +99,7 @@ interface SweepCounters {
   jobsPolled: number
   jobsFailed: number
   jobsWithoutCapture: number
+  jobsSkippedFuture: number
   jobsSkippedAgedCadence: number
   jobsSkippedInFlight: number
   repliesApplied: number
@@ -161,6 +162,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
       jobsPolled: 0,
       jobsFailed: 0,
       jobsWithoutCapture: 0,
+      jobsSkippedFuture: 0,
       jobsSkippedAgedCadence: 0,
       jobsSkippedInFlight: 0,
       repliesApplied: 0,
@@ -177,6 +179,13 @@ export class OutreachInboundSweepService extends createPrismaBase(
     for (const outreach of candidates) {
       const jobId = outreach.projectId!
       const sendAnchor = outreach.date ?? outreach.createdAt
+      // A pre-scheduled job's Peerly job/list can exist well before its
+      // send date — no CDR/response event can exist before the send
+      // actually happens, so polling it hourly until then is pure waste.
+      if (!isBefore(sendAnchor, now)) {
+        counters.jobsSkippedFuture += 1
+        continue
+      }
       const isAged = isBefore(
         sendAnchor,
         subDays(now, INBOUND_SWEEP_FRESH_WINDOW_DAYS),

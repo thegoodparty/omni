@@ -488,6 +488,23 @@ describe('OutreachInboundSweepService.sweepInboundEvents — cadence + in-flight
     vi.useRealTimers()
   })
 
+  it('skips a job whose send anchor is still in the future — no CDR can exist yet', async () => {
+    const now = new Date('2026-07-10T13:00:00.000Z')
+    const outreach = await createSweepableOutreach()
+    await setOutreachDate(outreach.id, addDays(now, 3))
+    const logSpy = loggerInfoSpy()
+
+    vi.useFakeTimers({ now })
+
+    await sweepService.sweepInboundEvents()
+
+    expect(fetchCdrRows).not.toHaveBeenCalled()
+    expect(logSpy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ jobsSkippedFuture: 1 }),
+      expect.any(String),
+    )
+  })
+
   it('sweeps a fresh job every hourly pass, even on an hour not divisible by the aged interval', async () => {
     const outreach = await createSweepableOutreach()
     await setOutreachDate(outreach.id, SEND_TIME)
