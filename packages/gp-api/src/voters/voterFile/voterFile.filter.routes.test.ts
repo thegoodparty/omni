@@ -1244,6 +1244,37 @@ describe('recommended-list provenance on create', () => {
       recommendedModified: null,
     })
   })
+
+  // Reproduces the duplicate-to-edit repost path (useDuplicateList.ts):
+  // GET /filters returns every list's provenance columns as explicit
+  // `null` (not absent), and a duplicate reposts the segment's own fields.
+  // Before the fix these enum fields were `.optional()`, not `.nullable()`,
+  // so a known key carrying `null` 400'd instead of being silently
+  // stripped — unlike an absent key, which the plain z.object() shape
+  // already tolerates.
+  it('accepts null on the three enum fields (duplicate repost)', async () => {
+    await seedWinCampaign()
+
+    const created = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Persuadable independents (copy)',
+        partyDemocrat: true,
+        recommendedVariant: null,
+        recommendedChannel: null,
+        recommendedIntent: null,
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(created.status).toBe(201)
+    expect(created.data).toMatchObject({
+      recommendedVariant: null,
+      recommendedChannel: null,
+      recommendedIntent: null,
+      recommendedModified: null,
+    })
+  })
 })
 
 // Task 8 (gp-webapp's useOutreachAudience.ts) builds the create-filter body

@@ -15,9 +15,14 @@ export class CreateVoterFileFilterSchema extends createZodDto(
     // channel/intent map 1:1 onto persisted columns; recommendedFilter is
     // input-only — the recommendation's own filter snapshot, used solely to
     // compute recommendedModified at create time (never persisted itself).
-    recommendedVariant: RecommendedListVariantSchema.optional(),
-    recommendedChannel: RecommendedListChannelSchema.optional(),
-    recommendedIntent: RecommendedListIntentSchema.optional(),
+    // The three enums are `.nullable()`, not just `.optional()`: a repost of
+    // an existing SegmentResponse (duplicate-to-edit) carries these columns
+    // as explicit `null`, not an absent key — Zod's silent-strip-unknown-key
+    // behavior this schema otherwise relies on only covers absent keys, and
+    // a known key with an invalid value is a real 400.
+    recommendedVariant: RecommendedListVariantSchema.nullable().optional(),
+    recommendedChannel: RecommendedListChannelSchema.nullable().optional(),
+    recommendedIntent: RecommendedListIntentSchema.nullable().optional(),
     recommendedFilter: RecommendedListFilterSchema.optional(),
   }),
 ) {}
