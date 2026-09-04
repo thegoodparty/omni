@@ -440,8 +440,11 @@ Listed so nobody helpfully reimplements them.
 - **`hasAddress` narrows nothing, and was dropped entirely.**
   `Residence_Addresses_AddressLine` is 100% populated — zero null or empty rows
   across 30.6M voters in CA, MD and LA — and a door-knocking refinement on it
-  was a no-op in all 390 measured eval cells. There is no such column, contract
-  field or catalog entry. Only the precinct restriction narrows a door list.
+  was a no-op in all 390 measured eval cells. There is no persisted
+  `VoterFileFilter` column and no catalog entry — but the pre-existing *wire*
+  filter survives (`PeopleFilters.schema.ts:249`, plus its SQL case), because
+  it backs the door-knock reachability tile described below. Only the precinct
+  restriction narrows a door list.
   Don't derive a "reachable by door" number; it will always read 100%.
 - **Two district totals disagree.** The mart's own voter count and
   `m_election_api__district.registered_voters` differ by under 0.5% usually,
