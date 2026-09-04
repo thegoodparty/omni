@@ -116,7 +116,7 @@ describe('phone banking routes', () => {
     script: 'Hi, this is a volunteer calling about the election.',
     sheetCount: 1,
     voterFileFilterId: filter.id,
-    purpose: 'introduce',
+    purpose: 'introduce_myself',
     ...overrides,
   })
 
@@ -518,7 +518,7 @@ describe('phone banking routes', () => {
             name: 'Concurrent batch',
             script: 'hello',
             sheetCount: 1,
-            purpose: 'introduce',
+            purpose: 'introduce_myself',
             entries: {
               create: [
                 {
@@ -573,7 +573,7 @@ describe('phone banking routes', () => {
             name: 'Concurrent batch',
             script: 'hello',
             sheetCount: 1,
-            purpose: 'introduce',
+            purpose: 'introduce_myself',
             entries: {
               create: [
                 {
@@ -635,7 +635,7 @@ describe('phone banking routes', () => {
             name: 'Concurrent batch',
             script: 'hello',
             sheetCount: 1,
-            purpose: 'introduce',
+            purpose: 'introduce_myself',
             entries: {
               create: audience.slice(0, 60).map(({ phone, person }, i) => ({
                 seq: i + 1,
@@ -691,12 +691,12 @@ describe('phone banking routes', () => {
       expect(second.data.message).toContain('widen the filters')
     })
 
-    it('round-trips a hyphenated purpose through the snake_case DB enum', async () => {
+    it('round-trips a purpose through the DB enum unchanged — no kebab/snake translation', async () => {
       mockPeoplePage([fakePerson({ cellPhone: '3075558999' })])
 
       const build = await service.client.post(
         '/v1/phone-banking/lists',
-        buildBody({ purpose: 'election-day' }),
+        buildBody({ purpose: 'election_day_turnout' }),
         orgHeaders(),
       )
       expect(build.status).toBe(201)
@@ -705,7 +705,7 @@ describe('phone banking routes', () => {
         `/v1/phone-banking/lists/${build.data.id}`,
         orgHeaders(),
       )
-      expect(get.data.purpose).toBe('election-day')
+      expect(get.data.purpose).toBe('election_day_turnout')
     })
 
     it('400s an inline-filters body — the audience is always a saved filter', async () => {
@@ -871,7 +871,7 @@ describe('phone banking routes', () => {
       )
 
       expect(res.status).toBe(200)
-      expect(res.data.purpose).toBe('introduce')
+      expect(res.data.purpose).toBe('introduce_myself')
       expect(res.data.isServe).toBe(false)
       expect(res.data.entries).toHaveLength(2)
       const seqs = res.data.entries.map((entry: { seq: number }) => entry.seq)

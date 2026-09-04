@@ -10,15 +10,13 @@ import {
 import { zCoerceDate } from '../shared/Date.schema'
 import { PhoneBankingOutreachDetailSchema } from '../phoneBanking/PhoneBankingList.schema'
 import { DoorKnockingOutreachDetailSchema } from '../doorKnocking/DoorKnockingTurf.schema'
+import { OUTREACH_PURPOSE_VALUES } from './OutreachPurpose.schema'
 
+// Social shares the canonical outreach vocabulary (OutreachPurpose.schema.ts)
+// plus its own extra `issue_update` value.
 export const SOCIAL_PURPOSE_VALUES = [
-  'introduce_myself',
-  'persuade_voters',
-  'event_invite',
-  'early_voting',
-  'election_day_turnout',
+  ...OUTREACH_PURPOSE_VALUES,
   'issue_update',
-  'custom',
 ] as const
 export const SocialPurposeSchema = z.enum(SOCIAL_PURPOSE_VALUES)
 export type SocialPurpose = z.infer<typeof SocialPurposeSchema>

@@ -1,14 +1,10 @@
 import { z } from 'zod'
 import { SocialToneSchema } from './OutreachSocial.schema'
+import { OUTREACH_PURPOSE_VALUES } from './OutreachPurpose.schema'
 
-export const SMS_PURPOSE_VALUES = [
-  'introduce_myself',
-  'persuade_voters',
-  'event_invite',
-  'early_voting',
-  'election_day_turnout',
-  'custom',
-] as const
+// SMS is the canonical vocabulary every other outreach channel now shares —
+// see OutreachPurpose.schema.ts.
+export const SMS_PURPOSE_VALUES = OUTREACH_PURPOSE_VALUES
 export const SmsPurposeSchema = z.enum(SMS_PURPOSE_VALUES)
 export type SmsPurpose = z.infer<typeof SmsPurposeSchema>
 

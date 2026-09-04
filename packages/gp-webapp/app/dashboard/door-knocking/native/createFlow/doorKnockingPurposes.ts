@@ -1,48 +1,57 @@
-// Door knocking's own goal cards, from its own canvas list (the prototype's
-// DOOR_PURPOSES). Deliberately NOT social's copy, and not phone banking's
-// either: this channel's goals are about a conversation on a doorstep, so
-// "Discover local issues" and "Turn out my supporters" have no equivalent on a
-// channel that sends a message. Robocall and phone banking both shipped with
-// social's labels copy-pasted and had to be corrected (#1379) — the correction
-// is cheaper than the copy-paste.
+import {
+  OUTREACH_PURPOSE_VALUES,
+  type OutreachPurpose,
+} from '@goodparty_org/contracts'
+
+// Door knocking used to carry its own six-value purpose vocabulary — local
+// rather than a contracts enum, because nothing persisted it and the design
+// canvas's own goal cards (issue/introduce/persuade/turnout/event/custom) had
+// no equivalent on the other channels. Recommended lists key every universe
+// on the shared `OUTREACH_PURPOSE_VALUES` intent vocabulary
+// (docs/features/recommended-lists.md), and Task 0 consolidated SMS,
+// robocall and phone banking onto it for exactly this reason — a fourth,
+// door-knocking-shaped translation table was the thing that consolidation
+// existed to avoid. So this step now picks a shared purpose slug directly:
+// `DoorKnockingPurpose` is that same type, re-exported under this file's own
+// name so the flow and its tests don't need to know it stopped being local.
 //
-// The slugs are local rather than a contracts enum, unlike PhoneBankingPurpose:
-// nothing persists a door-knocking purpose. It shapes the flow and seeds a name
-// suggestion, and never crosses the wire, so there is no payload to agree with.
-export const DOOR_KNOCKING_PURPOSE_VALUES = [
-  'issue',
-  'introduce',
-  'persuade',
-  'turnout',
-  'event',
-  'custom',
-] as const
+// The old "Discover local issues" card has no equivalent slug and is gone
+// with the vocabulary it belonged to; "Turn out my supporters" is now spelled
+// `election_day_turnout`, matching what a candidate means by it on every
+// other channel.
+export type DoorKnockingPurpose = OutreachPurpose
 
-export type DoorKnockingPurpose = (typeof DOOR_KNOCKING_PURPOSE_VALUES)[number]
+export const DOOR_KNOCKING_PURPOSE_VALUES = OUTREACH_PURPOSE_VALUES
 
+// Door knocking's own wording for the shared slugs — deliberately NOT
+// social's copy, and not phone banking's either: this channel's goals are
+// about a conversation on a doorstep, so the phrasing stays door-knocking's
+// own. Robocall and phone banking both shipped with social's labels
+// copy-pasted and had to be corrected (#1379) — the correction is cheaper
+// than the copy-paste.
 export const DOOR_KNOCKING_PURPOSE_LABELS: Record<DoorKnockingPurpose, string> =
   {
-    issue: 'Discover local issues',
-    introduce: 'Introduce myself',
-    persuade: 'Persuade undecided voters',
-    turnout: 'Turn out my supporters',
-    event: 'Invite people to an event',
+    introduce_myself: 'Introduce myself',
+    persuade_voters: 'Persuade undecided voters',
+    event_invite: 'Invite people to an event',
+    early_voting: 'Encourage early voting',
+    election_day_turnout: 'Turn out my supporters',
     custom: 'Something else',
   }
 
 // A second line on the card, which phone banking has no equivalent of: a
 // door-knocking goal decides how a candidate spends an evening on foot, and
-// the one-liner is what separates "persuade" from "turn out" before the
-// filters step asks them to express the difference in pills.
+// the one-liner is what separates "persuade" from "turn out" before the who
+// step asks them to express the difference in an audience.
 export const DOOR_KNOCKING_PURPOSE_DESCRIPTIONS: Record<
   DoorKnockingPurpose,
   string
 > = {
-  issue: 'Hear what neighbors care about most.',
-  introduce: 'Meet voters who do not know you yet.',
-  persuade: 'Talk with voters who could still swing your way.',
-  turnout: 'Remind likely supporters to vote.',
-  event: 'Promote a town hall or meet and greet.',
+  introduce_myself: 'Meet voters who do not know you yet.',
+  persuade_voters: 'Talk with voters who could still swing your way.',
+  event_invite: 'Promote a town hall or meet and greet.',
+  early_voting: 'Remind supporters to vote before election day.',
+  election_day_turnout: 'Remind likely supporters to vote.',
   custom: 'Build a list from scratch with your own filters.',
 }
 
@@ -57,11 +66,11 @@ export const DOOR_KNOCKING_PURPOSE_NAME_SUGGESTIONS: Record<
   DoorKnockingPurpose,
   string
 > = {
-  issue: 'Listening walk',
-  introduce: 'Introduction walk',
-  persuade: 'Persuasion walk',
-  turnout: 'Turnout walk',
-  event: 'Event invite walk',
+  introduce_myself: 'Introduction walk',
+  persuade_voters: 'Persuasion walk',
+  event_invite: 'Event invite walk',
+  early_voting: 'Early voting walk',
+  election_day_turnout: 'Turnout walk',
   // The flow suggests nothing for custom; the entry keeps the record total so
   // a new purpose is a compile error here.
   custom: FALLBACK_NAME,

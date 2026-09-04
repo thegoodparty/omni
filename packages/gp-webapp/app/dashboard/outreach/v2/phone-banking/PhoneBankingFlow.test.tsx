@@ -219,7 +219,7 @@ describe('PhoneBankingFlow', () => {
     ).toBeGreaterThan(0)
     expect(createCalls).toHaveLength(1)
     expect(createCalls[0]).toMatchObject({
-      purpose: 'introduce',
+      purpose: 'introduce_myself',
       sheetCount: 1,
       voterFileFilterId: 3,
     })
@@ -571,11 +571,13 @@ describe('PhoneBankingFlow', () => {
     await advanceToScript()
 
     await waitFor(() =>
-      expect(draftCalls).toEqual([{ purpose: 'introduce', tone: 'warm' }]),
+      expect(draftCalls).toEqual([
+        { purpose: 'introduce_myself', tone: 'warm' },
+      ]),
     )
     await waitFor(() =>
       expect(screen.getByLabelText('Call script')).toHaveValue(
-        draftFor({ purpose: 'introduce', tone: 'warm' }),
+        draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
       ),
     )
 
@@ -593,9 +595,9 @@ describe('PhoneBankingFlow', () => {
 
     await waitFor(() =>
       expect(draftCalls).toEqual([
-        { purpose: 'introduce', tone: 'warm' },
+        { purpose: 'introduce_myself', tone: 'warm' },
         {
-          purpose: 'introduce',
+          purpose: 'introduce_myself',
           tone: 'warm',
           currentDraft: 'My own words',
         },
@@ -641,7 +643,7 @@ describe('PhoneBankingFlow', () => {
 
     await waitFor(() =>
       expect(screen.getByLabelText('Call script')).toHaveValue(
-        draftFor({ purpose: 'introduce', tone: 'warm' }),
+        draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
       ),
     )
     // First generation has nothing to reject.
@@ -650,7 +652,7 @@ describe('PhoneBankingFlow', () => {
     await user.click(screen.getByRole('button', { name: /Regenerate/ }))
     await waitFor(() => expect(draftCalls).toHaveLength(2))
     expect(draftCalls[1]).toMatchObject({
-      previousDraft: draftFor({ purpose: 'introduce', tone: 'warm' }),
+      previousDraft: draftFor({ purpose: 'introduce_myself', tone: 'warm' }),
     })
 
     await waitFor(() =>
@@ -691,14 +693,14 @@ describe('PhoneBankingFlow', () => {
     // not sticky for the rest of the session.
     await waitFor(() =>
       expect(screen.getByLabelText('Call script')).toHaveValue(
-        draftFor({ purpose: 'introduce', tone: 'direct' }),
+        draftFor({ purpose: 'introduce_myself', tone: 'direct' }),
       ),
     )
     await user.click(screen.getByRole('radio', { name: /Urgent/ }))
     await waitFor(() => expect(draftCalls).toHaveLength(3))
     expect(draftCalls[2]).toMatchObject({
       tone: 'urgent',
-      previousDraft: draftFor({ purpose: 'introduce', tone: 'direct' }),
+      previousDraft: draftFor({ purpose: 'introduce_myself', tone: 'direct' }),
     })
   })
 
@@ -722,7 +724,10 @@ describe('PhoneBankingFlow', () => {
     await user.click(screen.getByText('Persuade likely voters'))
 
     await waitFor(() => expect(draftCalls).toHaveLength(2))
-    expect(draftCalls[1]).toMatchObject({ purpose: 'persuade', tone: 'warm' })
+    expect(draftCalls[1]).toMatchObject({
+      purpose: 'persuade_voters',
+      tone: 'warm',
+    })
     expect(draftCalls[1]).not.toHaveProperty('instructions')
 
     await pickSavedListAndContinue('Likely Dems')
@@ -1203,7 +1208,7 @@ describe('PhoneBankingFlow with the serve surface', () => {
 
     await waitFor(() => expect(draftCalls).toHaveLength(1))
     expect(draftCalls[0]).toMatchObject({
-      purpose: 'explain-decision',
+      purpose: 'explain_decision',
       tone: 'warm',
     })
 
@@ -1226,7 +1231,7 @@ describe('PhoneBankingFlow with the serve surface', () => {
     ).toBeGreaterThan(0)
     expect(createCalls).toHaveLength(1)
     expect(createCalls[0]).toMatchObject({
-      purpose: 'explain-decision',
+      purpose: 'explain_decision',
       voterFileFilterId: 3,
     })
   })

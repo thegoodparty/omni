@@ -41,7 +41,10 @@ import {
   OutreachAudienceStep,
   type OutreachAudienceCopy,
 } from '../audience/OutreachAudienceStep'
-import { useOutreachAudience } from '../audience/useOutreachAudience'
+import {
+  intentForOutreachPurpose,
+  useOutreachAudience,
+} from '../audience/useOutreachAudience'
 import { SmsPurposeStep } from './SmsPurposeStep'
 import { SmsScheduleStep, TIME_OPTIONS } from './SmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
@@ -282,11 +285,16 @@ export const SmsFlow = ({
 
   const draftRequestRef = useRef(0)
 
+  const recommendedListIntent = purpose
+    ? intentForOutreachPurpose(purpose)
+    : null
+
   const audience = useOutreachAudience({
     open,
     active: stepId === 'audience',
     reachabilityKey: 'sms',
     countOverlay: SMS_COUNT_OVERLAY,
+    recommendedListIntent,
   })
   const { reset: resetAudience } = audience
   const selectedList = audience.selectedList
@@ -787,6 +795,13 @@ export const SmsFlow = ({
               setPhoneListError(false)
               audience.startBuilder()
             }}
+            recommendedListsEnabled={audience.recommendedListsEnabled}
+            recommendations={audience.recommendations}
+            recommendationsLoading={audience.recommendationsLoading}
+            recommendationsError={audience.recommendationsError}
+            recommendedListsChannel={audience.recommendedListsChannel}
+            onSelectRecommendation={audience.applyRecommendation}
+            onRecommendationReused={audience.trackRecommendationReused}
             reachableCount={reachableCount}
             reachableLoading={audience.reachableLoading}
             pricePerContact={PRICE_PER_MESSAGE}

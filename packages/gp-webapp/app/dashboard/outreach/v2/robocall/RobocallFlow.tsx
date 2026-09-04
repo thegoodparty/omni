@@ -21,7 +21,10 @@ import {
   OutreachAudienceStep,
   type OutreachAudienceCopy,
 } from '../audience/OutreachAudienceStep'
-import { useOutreachAudience } from '../audience/useOutreachAudience'
+import {
+  intentForOutreachPurpose,
+  useOutreachAudience,
+} from '../audience/useOutreachAudience'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { RobocallPurposeStep } from './RobocallPurposeStep'
 import { RobocallScheduleStep } from './RobocallScheduleStep'
@@ -119,11 +122,16 @@ export const RobocallFlow = ({
   const [campaign] = useCampaign()
   const timeZone = resolveCampaignTimeZone(campaign?.details?.state)
 
+  const recommendedListIntent = purpose
+    ? intentForOutreachPurpose(purpose)
+    : null
+
   const audience = useOutreachAudience({
     open,
     active: stepId === 'audience',
     reachabilityKey: 'robocall',
     countOverlay: ROBOCALL_COUNT_OVERLAY,
+    recommendedListIntent,
   })
   const { reset: resetAudience } = audience
 
@@ -581,6 +589,13 @@ export const RobocallFlow = ({
             selectedId={audience.selectedListId}
             onSelect={audience.onSelect}
             onStartBuilder={audience.startBuilder}
+            recommendedListsEnabled={audience.recommendedListsEnabled}
+            recommendations={audience.recommendations}
+            recommendationsLoading={audience.recommendationsLoading}
+            recommendationsError={audience.recommendationsError}
+            recommendedListsChannel={audience.recommendedListsChannel}
+            onSelectRecommendation={audience.applyRecommendation}
+            onRecommendationReused={audience.trackRecommendationReused}
             reachableCount={audience.reachableCount}
             reachableLoading={audience.reachableLoading}
             pricePerContact={PRICE_PER_CONTACT}

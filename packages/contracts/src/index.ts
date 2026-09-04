@@ -607,6 +607,7 @@ export {
 export * from './artifactReview'
 
 export * from './raceOpponent'
+export * from './recommendedLists'
 
 export * from './experiments'
 
@@ -737,6 +738,11 @@ export * from './ordinances/Ordinance.schema'
 export * from './ordinances/redline'
 
 export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
+export {
+  OUTREACH_PURPOSE_VALUES,
+  OutreachPurposeSchema,
+  type OutreachPurpose,
+} from './outreach/OutreachPurpose.schema'
 export {
   SOCIAL_PURPOSE_VALUES,
   SocialPurposeSchema,

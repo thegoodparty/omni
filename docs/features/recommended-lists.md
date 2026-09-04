@@ -436,11 +436,15 @@ Listed so nobody helpfully reimplements them.
 
 ## Gotchas
 
-- **There is no address filter, deliberately.** `Residence_Addresses_AddressLine`
-  is 100% populated — zero null or empty rows across 30.6M voters in CA, MD and
-  LA — and a door-knocking refinement on it was a no-op in all 390 measured
-  eval cells. So the precinct restriction is the only thing that narrows a door
-  list. Note this was already true before this feature: the `doorKnocking`
+- **There is no *persisted* address filter, deliberately.**
+  `Residence_Addresses_AddressLine` is 100% populated — zero null or empty rows
+  across 30.6M voters in CA, MD and LA — and a door-knocking refinement on it
+  was a no-op in all 390 measured eval cells. So there is no
+  `VoterFileFilter` column and no catalog entry, and the precinct restriction is
+  the only thing that narrows a door list. The pre-existing *wire* filter does
+  survive (`PeopleFilters.schema.ts:249`, plus its SQL case) because it backs
+  the reachability figure described next — don't go looking for it as though it
+  were removed. Note this was already true before this feature: the `doorKnocking`
   built-in segment carries `filters: []` and has never filtered on address.
 - **The shipped door-knock reachability figure is meaningless, and predates
   this work.** `buildListDetailAggregatesSql` emits

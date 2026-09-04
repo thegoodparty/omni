@@ -10,11 +10,11 @@ export const SERVE_PHONE_BANKING_PURPOSE_LABELS: Record<
   ServePhoneBankingPurpose,
   string
 > = {
-  introduce: 'Introduce myself to constituents',
-  'explain-decision': 'Explain a recent decision',
-  event: 'Invite constituents to a local event',
-  'community-input': 'Ask for community input',
-  'share-resource': 'Share a resource or service',
+  introduce_myself: 'Introduce myself to constituents',
+  explain_decision: 'Explain a recent decision',
+  event_invite: 'Invite constituents to a local event',
+  community_input: 'Ask for community input',
+  share_resource: 'Share a resource or service',
   custom: 'Write my own script',
 }
 
@@ -30,11 +30,11 @@ export const SERVE_PHONE_BANKING_PURPOSE_NAME_SUGGESTIONS: Record<
   ServePhoneBankingPurpose,
   string
 > = {
-  introduce: 'Introduction calls',
-  'explain-decision': 'Decision update calls',
-  event: 'Event invite calls',
-  'community-input': 'Community input calls',
-  'share-resource': 'Resource calls',
+  introduce_myself: 'Introduction calls',
+  explain_decision: 'Decision update calls',
+  event_invite: 'Event invite calls',
+  community_input: 'Community input calls',
+  share_resource: 'Resource calls',
   // The flow suggests nothing for custom; the entry keeps the record total so
   // a new purpose is a compile error here.
   custom: FALLBACK_NAME,

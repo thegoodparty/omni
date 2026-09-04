@@ -67,6 +67,9 @@ import type {
   SmsDraftRequest,
   SmsDraftResponse,
   AcceptInviteResponse,
+  RecommendedListChannel,
+  RecommendedListIntent,
+  RecommendedListsResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -988,6 +991,13 @@ export type APIEndpoints = {
   'GET /v1/voters/voter-file/filters': {
     Request: {}
     Response: SegmentResponse[]
+  }
+  'GET /v1/campaigns/mine/recommended-lists': {
+    Request: {
+      channel: RecommendedListChannel
+      intent?: RecommendedListIntent
+    }
+    Response: RecommendedListsResponse
   }
   'DELETE /v1/voters/voter-file/filter/:id': {
     Request: {}

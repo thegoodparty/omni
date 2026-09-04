@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   transformVoterFileFiltersForBackend,
@@ -14,11 +14,21 @@ import {
 import { voterPackQueryOptions } from './useVoterPack'
 import { savedListUnshadeableCriteria } from './savedListFilters'
 import CreateListFlow from './createFlow/CreateListFlow'
-import type { CreateFlowStep } from './createFlow/CreateListFlow'
+import type {
+  CreateFlowStep,
+  RecommendedCriteria,
+} from './createFlow/CreateListFlow'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { audienceOptions } from './createFlow/savedListOptions'
 import type { PolygonRing } from './VoterMapCanvas'
 import type { PolygonStats } from './filterEngine'
+
+// A module constant so the initial state is the same object on every render
+// and cannot itself churn the preview's memo.
+const NO_RECOMMENDED_CRITERIA: RecommendedCriteria = {
+  precincts: [],
+  supportStatus: [],
+}
 
 // The create-list surface's half of the shared map, as a hook the orchestrator
 // calls at the top level: the tokens are consumed by the canvas, which outlives
@@ -167,6 +177,9 @@ export interface CreateListSurfaceProps {
   // Draft selections the pack can't shade, computed by the orchestrator
   // because it owns the pack's manifest for the map's sake.
   unpreviewableKeys: string[]
+  // The organization the recommendations are asked for, threaded down purely
+  // as a cache-key segment.
+  orgSlug: string | undefined
   // A saved list the candidate arrived with (`?listId=`), for the who step's
   // picker to open on. Passed through rather than resolved here: the picker's
   // rows are the only honest test of whether the id still names one of this
@@ -196,6 +209,7 @@ export default function CreateListSurface({
   onListCreated,
   isElectedOfficial,
   unpreviewableKeys,
+  orgSlug,
   preselectedListId,
   onPreselectApplied,
 }: CreateListSurfaceProps) {
@@ -220,6 +234,20 @@ export default function CreateListSurface({
   // names is looked up once, here, so the preview cannot come to disagree
   // with the picker about what a list carries.
   const [selectedListId, setSelectedListId] = useState<number | null>(null)
+  // An accepted recommendation is a list that does not exist yet, so there is
+  // no row to look its clauses up in — the flow reports them by value.
+  const [recommendedCriteria, setRecommendedCriteria] =
+    useState<RecommendedCriteria>(NO_RECOMMENDED_CRITERIA)
+  // Stable, so the flow's own report effect isn't re-run by this component
+  // re-rendering. The flow memoises the criteria object it hands over, so
+  // both setters bail out when nothing has actually changed.
+  const handleSelectedListChange = useCallback(
+    (listId: number | null, criteria: RecommendedCriteria) => {
+      setSelectedListId(listId)
+      setRecommendedCriteria(criteria)
+    },
+    [],
+  )
   const selectedList = useMemo(
     () => savedListsQuery.data?.find((list) => list.id === selectedListId),
     [savedListsQuery.data, selectedListId],
@@ -252,12 +280,26 @@ export default function CreateListSurface({
   // count the route would be built from (ADR 0010's whole point is that these
   // counts are the knock's own). The pack cannot shade those clauses and says
   // so; this endpoint CAN evaluate them, and does.
+  //
+  // An accepted recommendation is the same gap from the other direction: it
+  // carries precincts and support status and has no saved row to read them
+  // off, and precincts are the ONLY thing that narrows a door list — so
+  // without them the preview's `stops` (which drives the hard stop cap on the
+  // paid route) answers for the whole district. The two sources are mutually
+  // exclusive: picking a list clears the recommendation draft and editing a
+  // pill clears it too.
   const previewFilters = useMemo(
     () => ({
       ...transformVoterFileFiltersForBackend(filters),
       ...savedListUnshadeableCriteria(selectedList),
+      ...(recommendedCriteria.precincts.length
+        ? { precincts: recommendedCriteria.precincts }
+        : {}),
+      ...(recommendedCriteria.supportStatus.length
+        ? { supportStatus: recommendedCriteria.supportStatus }
+        : {}),
     }),
-    [filters, selectedList],
+    [filters, selectedList, recommendedCriteria],
   )
   const previewQuery = useQuery({
     ...addressPreviewQueryOptions(
@@ -323,9 +365,10 @@ export default function CreateListSurface({
       onListCreated={onListCreated}
       isElectedOfficial={isElectedOfficial}
       unpreviewableKeys={unpreviewableKeys}
+      orgSlug={orgSlug}
       preselectedListId={preselectedListId}
       onPreselectApplied={onPreselectApplied}
-      onSelectedListChange={setSelectedListId}
+      onSelectedListChange={handleSelectedListChange}
     />
   )
 }

@@ -129,3 +129,59 @@ describe('useDuplicateList — navigation must not wait on the index refetch (EN
     resolveSegmentsFetch?.()
   })
 })
+
+// Task 7 follow-up: a list's recommendation provenance is set once at
+// create time and must never ride along on a repost — a duplicate is a
+// hand-built list (docs/features/recommended-lists.md). Before the fix,
+// these four fields rode through the destructure's `...rest` untouched,
+// which corrupted provenance on the copy and, for a list with no
+// recommendation, also 400'd (CreateVoterFileFilterSchema's enum fields
+// were `.optional()`, not `.nullable()`, and `null` is a known-but-invalid
+// value, not an absent key — Zod's silent-strip only covers the latter).
+describe('useDuplicateList strips recommendation provenance', () => {
+  beforeEach(() => {
+    selectList.mockClear()
+    mockedUseContactsTable.mockReturnValue({
+      selectList,
+      isWinContext: true,
+      isWinContextReady: true,
+    } as unknown as ReturnType<typeof useContactsTable>)
+  })
+
+  it('drops all four provenance fields from the repost', async () => {
+    const recommendedSegment: SegmentResponse = {
+      id: 42,
+      name: 'Persuadable independents',
+      firstUsedForOutreachAt: null,
+      recommendedVariant: 'persuadeAffinity',
+      recommendedChannel: 'sms',
+      recommendedIntent: 'persuade',
+      recommendedModified: false,
+    }
+
+    let sentBody: Record<string, unknown> | undefined
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 999, name: 'copy' } }
+    })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [recommendedSegment],
+    })
+
+    const qc = newClient()
+    const { result } = renderHook(() => useHarness(recommendedSegment), {
+      wrapper: wrapper(qc),
+    })
+
+    act(() => {
+      result.current.mutate()
+    })
+
+    await waitFor(() => expect(sentBody).toBeDefined())
+    expect(sentBody).not.toHaveProperty('recommendedVariant')
+    expect(sentBody).not.toHaveProperty('recommendedChannel')
+    expect(sentBody).not.toHaveProperty('recommendedIntent')
+    expect(sentBody).not.toHaveProperty('recommendedModified')
+  })
+})

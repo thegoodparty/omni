@@ -16,7 +16,13 @@ import { outreachAudienceListsKey } from 'app/dashboard/outreach/v2/audience/use
 // (id, timestamps, organizationSlug, firstUsedForOutreachAt) are stripped,
 // and each activityConditions entry is narrowed to
 // { outreachType, outreachId, actions } (its own id/voterFileFilterId are
-// server-only too).
+// server-only too). recommendation provenance (recommendedVariant/Channel/
+// Intent/Modified) is stripped the same way — a duplicate is a hand-built
+// list, and reposting the original's provenance would both misattribute the
+// copy to a recommendation it never came from and, for the common case of a
+// non-recommended source list, 400 outright (these are known columns on
+// SegmentResponse carrying `null`, not absent keys the create schema would
+// silently strip).
 export const useDuplicateList = () => {
   const { selectList, isWinContext, isWinContextReady } = useContactsTable()
   const orgSlug = useOrganization()?.slug
@@ -34,6 +40,10 @@ export const useDuplicateList = () => {
         createdAt: _createdAt,
         updatedAt: _updatedAt,
         organizationSlug: _organizationSlug,
+        recommendedVariant: _recommendedVariant,
+        recommendedChannel: _recommendedChannel,
+        recommendedIntent: _recommendedIntent,
+        recommendedModified: _recommendedModified,
         ...rest
       } = segment
 

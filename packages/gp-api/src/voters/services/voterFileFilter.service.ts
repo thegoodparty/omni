@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
+import { findEquivalentFilter } from '@/recommendedLists/recommendedListsDedupe.util'
 import {
   OutreachStatus,
   OutreachType,
@@ -132,7 +133,7 @@ export class VoterFileFilterService extends createPrismaBase(
     organizationSlug: string,
     data: CreateVoterFileFilterSchema,
   ): Promise<VoterFileFilterWithConditions> {
-    const { activityConditions, ...rest } = data
+    const { activityConditions, recommendedFilter, ...rest } = data
 
     if (activityConditions?.length) {
       await this.validateActivityConditions(
@@ -141,10 +142,21 @@ export class VoterFileFilterService extends createPrismaBase(
       )
     }
 
+    // Only meaningful when this list came from a recommendation; a
+    // hand-built list (no recommendedVariant) leaves it null. Reuses the
+    // same payload comparison the recommendation dedupe check uses
+    // (findEquivalentFilter) rather than a second notion of filter
+    // equality — treat the recommended filter as a one-row "saved filters"
+    // list and check whether the submitted filter still matches it.
+    const recommendedModified = rest.recommendedVariant
+      ? findEquivalentFilter(rest, [{ ...recommendedFilter, id: -1 }]) === null
+      : null
+
     return this.model.create({
       data: {
         organizationSlug,
         ...rest,
+        recommendedModified,
         ...(activityConditions
           ? {
               activityConditions: {

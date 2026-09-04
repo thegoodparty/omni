@@ -1,0 +1,18 @@
+// bucket is a nullable String rather than an enum so an abstention and a
+// placement share one row shape, and adding a fourth bucket later needs no
+// enum migration. Valid non-null values are the three IdeologyBucket values
+// in @goodparty_org/contracts.
+model CampaignIdeology {
+  id         Int      @id @default(autoincrement())
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId Int      @unique @map("campaign_id")
+  bucket     String?
+  evidence   String?
+  inputHash  String   @map("input_hash")
+  model      String
+  computedAt DateTime @map("computed_at")
+
+  @@map("campaign_ideology")
+}

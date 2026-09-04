@@ -964,7 +964,7 @@ describe('GET /v1/outreach/:id — nativePhoneBanking', () => {
         script: 'Hi, this is a volunteer calling about the election.',
         sheetCount: 1,
         voterFileFilterId: filter.id,
-        purpose: 'introduce',
+        purpose: 'introduce_myself',
       },
       pbOrgHeaders(),
     )

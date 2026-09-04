@@ -155,6 +155,14 @@ export const convertVoterFileFilterToFilters = (
     // a meaningless FilterObject entry.
     'activityConditions',
     'supportStatus',
+    // Provenance metadata (Task 7, recommended lists), not filter criteria.
+    // recommendedModified is a plain boolean and would otherwise fall into
+    // the generic boolean branch below and pollute the query payload for
+    // every list ever created from a recommendation.
+    'recommendedVariant',
+    'recommendedChannel',
+    'recommendedIntent',
+    'recommendedModified',
   ])
 
   const fieldsHandledSeparately = new Set([

@@ -62,7 +62,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
   it('returns the generated script grounded in office and campaign story', async () => {
     mockDraft('Hi, my name is [your name], a volunteer for Jane Doe.')
 
-    const res = await postDraft({ purpose: 'introduce', tone: 'warm' })
+    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
 
     expect(res.status).toBe(HttpStatus.CREATED)
     expect(res.data).toEqual({
@@ -110,7 +110,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
 
     mockDraft('A grounded script.')
 
-    const res = await postDraft({ purpose: 'introduce', tone: 'warm' })
+    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
     expect(res.status).toBe(HttpStatus.CREATED)
 
     const call = jsonCompletion.mock.calls[0]?.[0]
@@ -126,7 +126,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
   it('includes the volunteer opener and compliance ban in the system prompt', async () => {
     mockDraft('A script.')
 
-    const res = await postDraft({ purpose: 'introduce', tone: 'warm' })
+    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
     expect(res.status).toBe(HttpStatus.CREATED)
 
     const call = jsonCompletion.mock.calls[0]?.[0]
@@ -145,7 +145,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
   it('includes an open-ended issue question for the persuade purpose', async () => {
     mockDraft('A script.')
 
-    const res = await postDraft({ purpose: 'persuade', tone: 'direct' })
+    const res = await postDraft({ purpose: 'persuade_voters', tone: 'direct' })
     expect(res.status).toBe(HttpStatus.CREATED)
 
     const call = jsonCompletion.mock.calls[0]?.[0]
@@ -165,13 +165,13 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
   // unrelated word-level product tweak elsewhere in the block without
   // going stale.
   it.each([
-    ['event', "briefly explain why it's worth attending"],
+    ['event_invite', "briefly explain why it's worth attending"],
     [
-      'vote-early',
+      'early_voting',
       "walk through a plan with them: ask when they're thinking of going",
     ],
     [
-      'election-day',
+      'election_day_turnout',
       'Format as alternating You:/Voter: lines, no more than three ' +
         'exchanges.',
     ],
@@ -191,7 +191,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     },
   )
 
-  it.each(['vote-early', 'election-day'])(
+  it.each(['early_voting', 'election_day_turnout'])(
     'never instructs bracketed voting-logistics placeholders for %s',
     async (purpose) => {
       mockDraft('A script.')
@@ -216,14 +216,17 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     },
   )
 
-  it('includes the election date for the election-day purpose', async () => {
+  it('includes the election date for the election_day_turnout purpose', async () => {
     await service.prisma.campaign.update({
       where: { id: campaign.id },
       data: { details: { ...campaign.details, electionDate: '2026-11-03' } },
     })
     mockDraft('A script.')
 
-    const res = await postDraft({ purpose: 'election-day', tone: 'urgent' })
+    const res = await postDraft({
+      purpose: 'election_day_turnout',
+      tone: 'urgent',
+    })
     expect(res.status).toBe(HttpStatus.CREATED)
 
     const call = jsonCompletion.mock.calls[0]?.[0]
@@ -240,7 +243,10 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     })
     mockDraft('A script.')
 
-    const res = await postDraft({ purpose: 'election-day', tone: 'urgent' })
+    const res = await postDraft({
+      purpose: 'election_day_turnout',
+      tone: 'urgent',
+    })
     expect(res.status).toBe(HttpStatus.CREATED)
 
     const call = jsonCompletion.mock.calls[0]?.[0]
@@ -250,7 +256,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     expect(userPrompt).not.toContain('Election day:')
   })
 
-  it('includes the real early-voting window for the vote-early purpose', async () => {
+  it('includes the real early-voting window for the early_voting purpose', async () => {
     const campaignsService = service.app.get(CampaignsService)
     vi.spyOn(
       campaignsService,
@@ -264,7 +270,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     } as RaceTargetMetrics)
     mockDraft('A script.')
 
-    const res = await postDraft({ purpose: 'vote-early', tone: 'urgent' })
+    const res = await postDraft({ purpose: 'early_voting', tone: 'urgent' })
     expect(res.status).toBe(HttpStatus.CREATED)
 
     const call = jsonCompletion.mock.calls[0]?.[0]
@@ -294,7 +300,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     } as RaceTargetMetrics)
     mockDraft('A script.')
 
-    const res = await postDraft({ purpose: 'vote-early', tone: 'urgent' })
+    const res = await postDraft({ purpose: 'early_voting', tone: 'urgent' })
     expect(res.status).toBe(HttpStatus.CREATED)
 
     const call = jsonCompletion.mock.calls[0]?.[0]
@@ -308,7 +314,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     mockDraft('A clearer version of my own words.')
 
     const res = await postDraft({
-      purpose: 'introduce',
+      purpose: 'introduce_myself',
       tone: 'direct',
       currentDraft: 'Hi, my name is Alex, a volunteer for Jane.',
     })
@@ -336,7 +342,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     mockDraft('A clearer version of my own words.')
 
     const res = await postDraft({
-      purpose: 'vote-early',
+      purpose: 'early_voting',
       tone: 'direct',
       currentDraft:
         'Hi, is this [voter name]? My name is [your name]. Early voting ' +
@@ -362,7 +368,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     mockDraft('A script.')
 
     const withInstructions = await postDraft({
-      purpose: 'introduce',
+      purpose: 'introduce_myself',
       tone: 'warm',
       instructions: 'mention the school levy',
     })
@@ -378,7 +384,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     expect(userPrompt).toContain('mention the school levy')
 
     const withoutInstructions = await postDraft({
-      purpose: 'introduce',
+      purpose: 'introduce_myself',
       tone: 'warm',
     })
     expect(withoutInstructions.status).toBe(HttpStatus.CREATED)
@@ -394,7 +400,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     mockDraft('A polished script.')
 
     const res = await postDraft({
-      purpose: 'introduce',
+      purpose: 'introduce_myself',
       tone: 'warm',
       currentDraft: 'Hi, my name is Alex, a volunteer for Jane.',
       instructions: 'keep it under a minute',
@@ -415,7 +421,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     mockDraft('A different script.')
 
     const res = await postDraft({
-      purpose: 'introduce',
+      purpose: 'introduce_myself',
       tone: 'warm',
       previousDraft: 'Hi, this is the script the candidate rejected.',
     })
@@ -441,7 +447,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     mockDraft(overCapResult)
 
     const res = await postDraft({
-      purpose: 'introduce',
+      purpose: 'introduce_myself',
       tone: 'warm',
       currentDraft: nearCapDraft,
     })
@@ -499,7 +505,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     mockDraft('A polished version.')
 
     const res = await postDraft({
-      purpose: 'introduce',
+      purpose: 'introduce_myself',
       tone: 'warm',
       currentDraft: 'You: hi. Voter: hi there.',
     })
@@ -521,7 +527,10 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
   })
 
   it('rejects invalid input without calling the LLM', async () => {
-    const badTone = await postDraft({ purpose: 'persuade', tone: 'sarcastic' })
+    const badTone = await postDraft({
+      purpose: 'persuade_voters',
+      tone: 'sarcastic',
+    })
     expect(badTone.status).toBe(HttpStatus.BAD_REQUEST)
 
     const badPurpose = await postDraft({
@@ -535,14 +544,14 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
 
   it('rejects an empty or oversized currentDraft without calling the LLM', async () => {
     const empty = await postDraft({
-      purpose: 'introduce',
+      purpose: 'introduce_myself',
       tone: 'warm',
       currentDraft: '',
     })
     expect(empty.status).toBe(HttpStatus.BAD_REQUEST)
 
     const oversized = await postDraft({
-      purpose: 'introduce',
+      purpose: 'introduce_myself',
       tone: 'warm',
       currentDraft: 'x'.repeat(2001),
     })
@@ -553,7 +562,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
 
   it('rejects currentDraft and previousDraft together without calling the LLM', async () => {
     const res = await postDraft({
-      purpose: 'introduce',
+      purpose: 'introduce_myself',
       tone: 'warm',
       currentDraft: 'My own words.',
       previousDraft: 'A script the candidate rejected.',
@@ -566,7 +575,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
   it('maps an LLM failure to 502', async () => {
     jsonCompletion.mockRejectedValue(new Error('model unavailable'))
 
-    const res = await postDraft({ purpose: 'persuade', tone: 'urgent' })
+    const res = await postDraft({ purpose: 'persuade_voters', tone: 'urgent' })
 
     expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
   })
@@ -577,7 +586,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
       data: { isPro: false },
     })
 
-    const res = await postDraft({ purpose: 'introduce', tone: 'warm' })
+    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
 
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
     expect(jsonCompletion).not.toHaveBeenCalled()
@@ -603,7 +612,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
 
     const res = await service.client.post(
       '/v1/outreach/phone-banking/draft',
-      { purpose: 'introduce', tone: 'warm' },
+      { purpose: 'introduce_myself', tone: 'warm' },
       { headers: { 'x-organization-slug': eoSlug } },
     )
 

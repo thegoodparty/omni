@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
 import {
   AlertDialog,
@@ -19,12 +19,22 @@ import {
 import { clientRequest } from 'gpApi/typed-request'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useFeatureFlags } from '@shared/experiments/FeatureFlagsProvider'
+import {
+  useWinRecommendedListsFlag,
+  WIN_RECOMMENDED_LISTS_FLAG_KEY,
+} from '@shared/experiments/winRecommendedListsFlag'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
 import { Intro } from 'app/dashboard/outreach/v2/social/Intro'
+import {
+  builderFiltersFromRecommendation,
+  intentForOutreachPurpose,
+} from 'app/dashboard/outreach/v2/audience/recommendedListMapping.util'
 import {
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import type { SupportStatusRollup } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import {
   unpreviewableDisclosureLabels,
   unpreviewableDisclosureSentence,
@@ -57,6 +67,10 @@ import type {
   DoorKnockingAddressPreviewResponse,
   DoorKnockingMode,
   DoorKnockingTurf,
+  RecommendedList,
+  RecommendedListFilter,
+  RecommendedListIntent,
+  RecommendedListVariant,
 } from '@goodparty_org/contracts'
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { PolygonStats } from '../filterEngine'
@@ -157,6 +171,10 @@ interface CreateListFlowProps {
   // Selected filter option keys the map preview can't narrow by, so the drawn
   // shape shows more people than the list will target.
   unpreviewableKeys: string[]
+  // The organization the recommendations are asked for, purely as a cache-key
+  // segment. A prop rather than a `useOrganization()` read for the same
+  // reason as `isElectedOfficial` above.
+  orgSlug: string | undefined
   // A saved list the candidate arrived on `?listId=` with, from the outreach
   // hub's door-knocking tile. Undefined is the ordinary flow.
   preselectedListId?: number
@@ -170,7 +188,26 @@ interface CreateListFlowProps {
   // `filters` alone. The id travels rather than the clauses because the
   // surface already holds the picker's rows, and resolving a list in two
   // places is two chances to disagree about what it carries.
-  onSelectedListChange?: (listId: number | null) => void
+  //
+  // An ACCEPTED recommendation has no such row to resolve — it is a list that
+  // does not exist yet — so its own two non-boolean clauses travel by value
+  // beside the id. Without them the preview asks about the whole district
+  // inside the ring while the list being built is supporters-only in a
+  // handful of precincts, and the draw step prints that district figure as
+  // the count the paid route is built from.
+  onSelectedListChange?: (
+    listId: number | null,
+    recommendedCriteria: RecommendedCriteria,
+  ) => void
+}
+
+// The clauses an accepted recommendation carries that the who step's boolean
+// pill draft has no plane for. Same three-way split as
+// `savedListUnshadeableCriteria`, minus activity conditions, which no
+// recommendation produces.
+export interface RecommendedCriteria {
+  precincts: string[]
+  supportStatus: SupportStatusRollup[]
 }
 
 // The design's stage copy, verbatim (Door knocking 3.0, `renderDkFlow`'s
@@ -236,6 +273,7 @@ export default function CreateListFlow({
   onListCreated,
   isElectedOfficial,
   unpreviewableKeys,
+  orgSlug,
   preselectedListId,
   onPreselectApplied,
   onSelectedListChange,
@@ -249,6 +287,21 @@ export default function CreateListFlow({
   // component stays mounted for the whole flow.
   const [preDrawStage, setPreDrawStage] = useState<PreDrawStage>('purpose')
   const [purpose, setPurpose] = useState<DoorKnockingPurpose | null>(null)
+  // The recommended-lists intent this purpose maps onto
+  // (docs/features/recommended-lists.md) — null for `custom`, which gets no
+  // recommendation, and null for the whole Serve surface.
+  //
+  // `!serveMode` is not belt-and-braces: recommended lists are Win-only (the
+  // endpoint 400s an eo- org outright) and door knocking is ONE route serving
+  // both rails, so the purpose slug alone cannot tell them apart — an elected
+  // official picking "Introduce myself" reads as `introduce` exactly as a
+  // candidate's does. Without this an eo- session records a
+  // win-recommended-lists exposure it can never be treated on, polluting the
+  // experiment's denominator with sessions the feature is unreachable for.
+  // `PhoneBankingFlow` gates the same map on the same reasoning, from its own
+  // Win/Serve discriminator; this is the third surface to need it.
+  const recommendedListIntent =
+    !serveMode && purpose ? intentForOutreachPurpose(purpose) : null
   // Null means the whole contact universe.
   const [savedListId, setSavedListId] = useState<number | null>(null)
   // The who step's two faces and its panel. Held here rather than in the step
@@ -271,6 +324,34 @@ export default function CreateListFlow({
   // see `leaveFlowFromDraw`.
   const [discardFlowOpen, setDiscardFlowOpen] = useState(false)
 
+  // A recommendation accepted as a brand-new list carries clauses the who
+  // step's boolean pill draft has no plane for — precincts and support
+  // status, the same two the picker's saved lists already ride outside
+  // `filters` (`savedListUnshadeableCriteria`). Door knocking is the one
+  // channel whose recommendation carries a precinct filter
+  // (docs/features/recommended-lists.md), so these are spent at create time
+  // in the `save` mutation below rather than expressed as pills. Cleared
+  // whenever the draft stops being that recommendation: a real saved list is
+  // picked, or a pill is hand-edited.
+  const [recommendedPrecincts, setRecommendedPrecincts] = useState<string[]>([])
+  const [recommendedSupportStatus, setRecommendedSupportStatus] = useState<
+    SupportStatusRollup[]
+  >([])
+  const [recommendedMeta, setRecommendedMeta] = useState<{
+    variant: RecommendedListVariant
+    intent: RecommendedListIntent
+    filter: RecommendedListFilter
+    // Reported on the accept event rather than re-derived: these are the
+    // figures the candidate actually saw on the card.
+    count: number
+    districtShare?: number
+  } | null>(null)
+  const clearRecommendedDraft = useCallback(() => {
+    setRecommendedPrecincts([])
+    setRecommendedSupportStatus([])
+    setRecommendedMeta(null)
+  }, [])
+
   // Choosing a list is two writes that have to happen together: the id here,
   // and the list's own filters lifted into the page's draft so the pills and
   // the map say what the list says. Named once because there are now two ways
@@ -279,13 +360,83 @@ export default function CreateListFlow({
   const selectList = useCallback(
     (listId: number | null) => {
       setSavedListId(listId)
+      clearRecommendedDraft()
       onFiltersChange(
         listId === null
           ? {}
           : (savedLists.find((list) => list.id === listId)?.filters ?? {}),
       )
     },
-    [onFiltersChange, savedLists],
+    [onFiltersChange, savedLists, clearRecommendedDraft],
+  )
+
+  // A recommendation that already exists as a saved list selects that list
+  // instead of creating a duplicate (reusing `selectList`'s own side
+  // effects), matching the pattern the other outreach channels' audience
+  // step already applies. A brand-new one prefills the pill draft plus the
+  // precinct/support-status carry, and stays on this step — the candidate
+  // still presses Continue, exactly as picking a saved list does.
+  const applyRecommendation = useCallback(
+    (recommendation: RecommendedList) => {
+      // Matched against the picker's own rows before it is trusted, exactly
+      // as the `?listId=` preselect below is: `existingFilterId` is resolved
+      // server-side against this org's saved filters, but a row deleted in
+      // the CRM between the recommendations query and the tap would leave
+      // `selectList` pointing the picker at a list that is not there — and
+      // `selectList` reads that row for the draft's own filters, so a miss
+      // silently seeds an EMPTY audience. Falling through builds the list
+      // instead, which is what the recommendation described anyway.
+      const existingRow =
+        recommendation.existingFilterId === null
+          ? undefined
+          : savedLists.find(
+              (list) => list.id === recommendation.existingFilterId,
+            )
+      if (recommendation.existingFilterId !== null && existingRow) {
+        // This branch never reaches the create below, so without its own
+        // event an accept of a recommendation the candidate has taken
+        // before is invisible. `modified` is false by construction —
+        // nothing was submitted, so gp-api has nothing to diff.
+        trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
+          variant: recommendation.variant,
+          channel: 'doorKnocking',
+          intent: recommendedListIntent as RecommendedListIntent,
+          count: recommendation.count,
+          districtShare: recommendation.districtShare,
+          modified: false,
+          reusedExistingList: true,
+        })
+        selectList(existingRow.id)
+        return
+      }
+      const precincts = recommendation.filter.precincts ?? []
+      const supportStatus = recommendation.filter.supportStatus ?? []
+      setSavedListId(null)
+      // The boolean MARKS beside the pill draft, exactly as
+      // `savedListFilterKeys` leaves them for a picked list: they narrow
+      // nothing (`transformVoterFileFiltersForBackend` only emits option
+      // keys, so they never reach a create body) and exist so the page's
+      // `unpreviewableFilterKeys` can name them in the disclosure. Without
+      // them a precinct-restricted recommendation previews as the whole
+      // district with nothing on screen saying why.
+      onFiltersChange({
+        ...builderFiltersFromRecommendation(recommendation.filter),
+        ...(precincts.length ? { precincts: true } : {}),
+        ...(supportStatus.length ? { supportStatus: true } : {}),
+      })
+      setRecommendedPrecincts(precincts)
+      setRecommendedSupportStatus(supportStatus)
+      setRecommendedMeta({
+        variant: recommendation.variant,
+        // Only reachable while the recommendations query below is enabled,
+        // which requires a non-null intent.
+        intent: recommendedListIntent as RecommendedListIntent,
+        filter: recommendation.filter,
+        count: recommendation.count,
+        districtShare: recommendation.districtShare,
+      })
+    },
+    [onFiltersChange, selectList, savedLists, recommendedListIntent],
   )
 
   // A list carried in from the outreach hub's door-knocking tile, so "start a
@@ -319,11 +470,68 @@ export default function CreateListFlow({
   // behind. A fourth writer is easy to add and easy to forget to announce,
   // and the surface above pays for a missed one by previewing an audience the
   // list would not knock.
+  // Memoised so the report below fires only when one of the two actually
+  // changes: the surface stores what it is handed, and a fresh object every
+  // render would set state every render.
+  const recommendedCriteria = useMemo(
+    () => ({
+      precincts: recommendedPrecincts,
+      supportStatus: recommendedSupportStatus,
+    }),
+    [recommendedPrecincts, recommendedSupportStatus],
+  )
   useEffect(() => {
-    onSelectedListChange?.(savedListId)
-  }, [savedListId, onSelectedListChange])
+    onSelectedListChange?.(savedListId, recommendedCriteria)
+  }, [savedListId, recommendedCriteria, onSelectedListChange])
 
   const stage = flowStage(step, preDrawStage)
+
+  // Recommendations render in the who step's list-picker face only — the
+  // same "picker mode, above the saved lists" placement Task 8 used for the
+  // other channels' shared audience step.
+  const recommendationsVisible = stage === 'who' && !buildingList
+  const recommendedListsFlag = useWinRecommendedListsFlag(false)
+  const { exposure } = useFeatureFlags()
+  useEffect(() => {
+    if (!recommendedListsFlag.ready || !recommendationsVisible) return
+    // Structural eligibility, not the flag's value (fires for both arms) —
+    // matches useOutreachAudience's exposure gate for the same flag: a
+    // `custom` purpose could never show a card regardless of the flag.
+    if (recommendedListIntent === null) return
+    exposure(WIN_RECOMMENDED_LISTS_FLAG_KEY)
+  }, [
+    recommendationsVisible,
+    recommendedListsFlag.ready,
+    recommendedListIntent,
+    exposure,
+  ])
+  const recommendationsQuery = useQuery({
+    // Keyed on the org even though this flow is unmounted on every org switch
+    // (it opens from the current org's outreach hub, per
+    // `door-knocking/CLAUDE.md`): the react-query cache is global and
+    // outlives the unmount by `gcTime`, so an org-less key would hand the
+    // next org the previous one's cards for the render before the refetch
+    // lands. Matches useOutreachAudience's key.
+    queryKey: ['door-knocking-recommendations', orgSlug, recommendedListIntent],
+    queryFn: async () => {
+      const { data } = await clientRequest(
+        'GET /v1/campaigns/mine/recommended-lists',
+        {
+          channel: 'doorKnocking',
+          // Guarded by `enabled` below.
+          intent: recommendedListIntent ?? undefined,
+        },
+      )
+      return data
+    },
+    enabled:
+      recommendationsVisible &&
+      recommendedListsFlag.ready &&
+      recommendedListsFlag.enabled &&
+      recommendedListIntent !== null,
+    staleTime: 0,
+  })
+  const recommendations = recommendationsQuery.data ?? []
 
   // How narrow the audience was cut.
   const activeFilterCount = Object.values(filters).filter((value) =>
@@ -441,11 +649,11 @@ export default function CreateListFlow({
       // It must never reach `createdFilterIdRef`, whose cleanup DELETES what
       // it holds: that ref means "a list this flow minted and may still have
       // to clean up", and the candidate's own saved list is neither.
-      const filterId =
-        savedListId ??
-        createdFilterIdRef.current ??
-        (
-          await clientRequest('POST /v1/voters/voter-file/filter', {
+      let filterId = savedListId ?? createdFilterIdRef.current
+      if (filterId === null) {
+        const { data: created } = await clientRequest(
+          'POST /v1/voters/voter-file/filter',
+          {
             // The audience the candidate cut by hand, filed at the moment it
             // is first needed rather than at the who step: a flow abandoned
             // before this point leaves no list behind. A candidate who PICKED
@@ -453,8 +661,49 @@ export default function CreateListFlow({
             // the campaign's own name is the only name this list can take.
             name: name.trim(),
             ...transformVoterFileFiltersForBackend(filters),
+            // The precinct/support-status carry from an accepted
+            // recommendation (docs/features/recommended-lists.md) — empty
+            // for a hand-cut audience or one picked from the saved-lists
+            // rail, since those never populate this state.
+            ...(recommendedPrecincts.length
+              ? { precincts: recommendedPrecincts }
+              : {}),
+            ...(recommendedSupportStatus.length
+              ? { supportStatus: recommendedSupportStatus }
+              : {}),
+            // Sent alongside the submitted criteria purely so gp-api can
+            // diff the two and persist recommendedModified — nothing
+            // recommendation-time is otherwise saved anywhere to diff
+            // against.
+            ...(recommendedMeta
+              ? {
+                  recommendedVariant: recommendedMeta.variant,
+                  recommendedChannel: 'doorKnocking',
+                  recommendedIntent: recommendedMeta.intent,
+                  recommendedFilter: recommendedMeta.filter,
+                }
+              : {}),
+          },
+        )
+        filterId = created.id
+        // Fired here rather than in `onSuccess`, because this is the moment
+        // the recommendation was accepted: the list exists from now on even
+        // if the paid route below fails, and a retry short-circuits on
+        // `createdFilterIdRef` so it cannot fire twice. `recommendedModified`
+        // is gp-api's own diff of the recommendation against what was
+        // actually submitted, and is knowable nowhere earlier.
+        if (recommendedMeta) {
+          trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
+            variant: recommendedMeta.variant,
+            channel: 'doorKnocking',
+            intent: recommendedMeta.intent,
+            count: recommendedMeta.count,
+            districtShare: recommendedMeta.districtShare,
+            modified: created.recommendedModified ?? false,
+            reusedExistingList: false,
           })
-        ).data.id
+        }
+      }
       if (savedListId === null) createdFilterIdRef.current = filterId
       const closedRing: PolygonRing =
         ring[0]?.[0] !== ring[ring.length - 1]?.[0] ||
@@ -784,13 +1033,15 @@ export default function CreateListFlow({
             <WhoStep
               filters={filters}
               onFiltersChange={(next) => {
-                // Editing a pill is leaving the named list behind: the draft
-                // is no longer that list, so the offer to save it as a new one
-                // comes back. The list's own support-status, activity and
-                // precinct clauses leave with it — nothing can carry them onto
-                // the new list, so a draft that kept their marks would go on
-                // disclosing a filter that list will never apply.
+                // Editing a pill is leaving the named list — or the accepted
+                // recommendation — behind: the draft is no longer that list,
+                // so the offer to save it as a new one comes back. The list's
+                // own support-status, activity and precinct clauses leave
+                // with it — nothing can carry them onto the new list, so a
+                // draft that kept their marks would go on disclosing a filter
+                // that list will never apply.
                 setSavedListId(null)
+                clearRecommendedDraft()
                 onFiltersChange(withoutUnshadeableCriteria(next))
               }}
               savedLists={savedLists}
@@ -807,6 +1058,13 @@ export default function CreateListFlow({
               }}
               open={listOpen}
               onOpenChange={setListOpen}
+              recommendedListsEnabled={
+                recommendedListsFlag.ready && recommendedListsFlag.enabled
+              }
+              recommendations={recommendations}
+              recommendationsLoading={recommendationsQuery.isLoading}
+              recommendationsError={recommendationsQuery.isError}
+              onSelectRecommendation={applyRecommendation}
             />
             {/* The count in the CTA is the pack's, and the pack cannot shade
                 every way a saved list narrows — a list cut by support status
