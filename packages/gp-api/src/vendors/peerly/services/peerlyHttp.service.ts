@@ -218,8 +218,14 @@ export class PeerlyHttpService extends PeerlyBaseConfig {
 
   // Some Peerly writes (request_canvassers) validate fields against the
   // API login's own user record, so callers need who we authenticate as.
+  // A user-less auth response only fails THIS path: re-auth once per call
+  // rather than throwing in renewToken, which would take down every
+  // Peerly call for the token's lifetime over a field only this needs.
   async getAuthenticatedUser(): Promise<PeerlyAuthenticatedUser> {
     await this.getToken()
+    if (!this.authenticatedUser) {
+      await this.renewToken()
+    }
     if (!this.authenticatedUser) {
       throw new Error('Peerly token-auth response did not include a user')
     }
