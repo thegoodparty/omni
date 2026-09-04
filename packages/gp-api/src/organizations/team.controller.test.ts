@@ -4,10 +4,11 @@ import { AnalyticsService } from '@/analytics/analytics.service'
 import { EmailService } from '@/email/email.service'
 import { ClerkInvitationsService } from '@/vendors/clerk/services/clerkInvitations.service'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
+import { CrmTeamMembersService } from '@/crm/crmTeamMembers.service'
 import { ClerkClient, Invitation } from '@clerk/backend'
 import { TeamInviteMetadata } from '@goodparty_org/contracts'
 import jwt from 'jsonwebtoken'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationRole } from '../generated/prisma'
 
 const service = useTestService()
@@ -70,6 +71,26 @@ const stubClerkInvitations = () => service.app.get(ClerkInvitationsService)
 const stubFeatures = () => service.app.get(FeaturesService)
 const stubEmail = () => service.app.get(EmailService)
 const stubAnalytics = () => service.app.get(AnalyticsService)
+const stubCrmTeamMembers = () => service.app.get(CrmTeamMembersService)
+
+// Every membership-creation/role-change path fire-and-forgets a HubSpot
+// sync (ENG-10826). Default it to a resolved no-op so tests that don't
+// care about it don't leave a real, unmocked DB lookup racing in the
+// background into the next test — individual tests below re-spy this to
+// assert on it or to simulate a HubSpot failure.
+beforeEach(() => {
+  vi.spyOn(stubCrmTeamMembers(), 'syncTeamMember').mockResolvedValue(undefined)
+})
+
+const createCampaignWithHubspotId = (hubspotId: string) =>
+  service.prisma.campaign.create({
+    data: {
+      userId: service.user.id,
+      slug: `${ORG_SLUG}-campaign`,
+      organizationSlug: ORG_SLUG,
+      data: { hubspotId },
+    },
+  })
 
 describe('GET /v1/organizations/team', () => {
   it('lists the owner via fallback with no members or invites', async () => {
@@ -242,6 +263,84 @@ describe('POST /v1/organizations/team/invites', () => {
       })
       expect(rows).toHaveLength(1)
       expect(rows[0]?.role).toBe(OrganizationRole.campaignAdmin)
+      // Flush the fire-and-forget HubSpot sync before the test ends — the
+      // default mock is re-installed per test, but a call still in flight
+      // when the next test's beforeEach re-spies would otherwise land on
+      // that test's spy instead.
+      await vi.waitFor(() =>
+        expect(stubCrmTeamMembers().syncTeamMember).toHaveBeenCalled(),
+      )
+    })
+
+    it('syncs a HubSpot contact with role and company id', async () => {
+      await createOrg()
+      await createCampaignWithHubspotId('company-123')
+      const invitee = await service.prisma.user.create({
+        data: {
+          email: 'synced@example.com',
+          firstName: 'Sandy',
+          lastName: 'Synced',
+        },
+      })
+      vi.spyOn(stubEmail(), 'sendTeamMemberAddedEmail').mockResolvedValue(
+        undefined as never,
+      )
+      vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+      const syncTeamMember = vi
+        .spyOn(stubCrmTeamMembers(), 'syncTeamMember')
+        .mockResolvedValue(undefined)
+
+      const result = await service.client.post(
+        INVITES_PATH,
+        {
+          email: 'synced@example.com',
+          name: 'ignored — role invite name, not the member record',
+          role: 'campaignAdmin',
+        },
+        { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+      )
+
+      expect(result.status).toBe(201)
+      expect(result.data.member.userId).toBe(invitee.id)
+      await vi.waitFor(() => expect(syncTeamMember).toHaveBeenCalled())
+      expect(syncTeamMember).toHaveBeenCalledWith({
+        email: 'synced@example.com',
+        name: 'Sandy Synced',
+        role: 'campaignAdmin',
+        crmCompanyId: 'company-123',
+      })
+    })
+
+    it('does not fail the request when the HubSpot sync throws', async () => {
+      await createOrg()
+      const invitee = await createMemberUser({ email: 'resilient@x.com' })
+      vi.spyOn(stubEmail(), 'sendTeamMemberAddedEmail').mockResolvedValue(
+        undefined as never,
+      )
+      vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+      // Mocks the dependency to throw what production would throw on a
+      // HubSpot outage — asserts the try/catch around the fire-and-forget
+      // dispatch, not a mock standing in for that behavior.
+      const syncTeamMember = vi
+        .spyOn(stubCrmTeamMembers(), 'syncTeamMember')
+        .mockRejectedValue(new Error('hubspot down'))
+
+      const result = await service.client.post(
+        INVITES_PATH,
+        {
+          email: 'resilient@x.com',
+          name: 'Resilient Person',
+          role: 'campaignAdmin',
+        },
+        { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+      )
+
+      expect(result.status).toBe(201)
+      await vi.waitFor(() => expect(syncTeamMember).toHaveBeenCalled())
+      const rows = await service.prisma.organizationMembership.findMany({
+        where: { organizationSlug: ORG_SLUG, userId: invitee.id },
+      })
+      expect(rows).toHaveLength(1)
     })
 
     it('409s when the invitee is already a member', async () => {
@@ -301,6 +400,9 @@ describe('POST /v1/organizations/team/invites', () => {
       )
 
       expect(result.status).toBe(201)
+      await vi.waitFor(() =>
+        expect(stubCrmTeamMembers().syncTeamMember).toHaveBeenCalled(),
+      )
     })
 
     it('still returns 201 when the notification email fails to send', async () => {
@@ -330,6 +432,9 @@ describe('POST /v1/organizations/team/invites', () => {
         },
       })
       expect(row).not.toBeNull()
+      await vi.waitFor(() =>
+        expect(stubCrmTeamMembers().syncTeamMember).toHaveBeenCalled(),
+      )
     })
   })
 
@@ -621,6 +726,80 @@ describe('POST /v1/organizations/team/invites/accept', () => {
       where: { id: invitee.id },
     })
     expect(updatedUser?.name).toBe('Accepting Person')
+    await vi.waitFor(() =>
+      expect(stubCrmTeamMembers().syncTeamMember).toHaveBeenCalled(),
+    )
+  })
+
+  it('syncs a HubSpot contact with role and company id on accept', async () => {
+    await createOrg()
+    await createCampaignWithHubspotId('company-456')
+    await service.prisma.user.create({
+      data: { email: 'accept-synced@x.com', clerkId: 'user_accept_sync_1' },
+    })
+    vi.spyOn(stubClerkInvitations(), 'getTeamInviteMetadata').mockResolvedValue(
+      {
+        organizationSlug: ORG_SLUG,
+        role: 'volunteer',
+        name: 'Synced Acceptor',
+        invitedByUserId: service.user.id,
+      },
+    )
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadata',
+    ).mockResolvedValue(undefined)
+    vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+    const syncTeamMember = vi
+      .spyOn(stubCrmTeamMembers(), 'syncTeamMember')
+      .mockResolvedValue(undefined)
+
+    const result = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_accept_sync_1') },
+    )
+
+    expect(result.status).toBe(201)
+    await vi.waitFor(() => expect(syncTeamMember).toHaveBeenCalled())
+    expect(syncTeamMember).toHaveBeenCalledWith({
+      email: 'accept-synced@x.com',
+      name: 'Synced Acceptor',
+      role: 'volunteer',
+      crmCompanyId: 'company-456',
+    })
+  })
+
+  it('does not fail accept when the HubSpot sync throws', async () => {
+    await createOrg()
+    await service.prisma.user.create({
+      data: { email: 'accept-resilient@x.com', clerkId: 'user_accept_res_1' },
+    })
+    vi.spyOn(stubClerkInvitations(), 'getTeamInviteMetadata').mockResolvedValue(
+      {
+        organizationSlug: ORG_SLUG,
+        role: 'campaignAdmin',
+        name: 'Resilient Acceptor',
+        invitedByUserId: service.user.id,
+      },
+    )
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadata',
+    ).mockResolvedValue(undefined)
+    vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+    const syncTeamMember = vi
+      .spyOn(stubCrmTeamMembers(), 'syncTeamMember')
+      .mockRejectedValue(new Error('hubspot down'))
+
+    const result = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_accept_res_1') },
+    )
+
+    expect(result.status).toBe(201)
+    await vi.waitFor(() => expect(syncTeamMember).toHaveBeenCalled())
   })
 
   it('does not overwrite an existing user name', async () => {
@@ -656,6 +835,9 @@ describe('POST /v1/organizations/team/invites/accept', () => {
       where: { id: invitee.id },
     })
     expect(updatedUser?.name).not.toBe('Invite Name')
+    await vi.waitFor(() =>
+      expect(stubCrmTeamMembers().syncTeamMember).toHaveBeenCalled(),
+    )
   })
 
   it('is idempotent on a double accept', async () => {
@@ -695,6 +877,9 @@ describe('POST /v1/organizations/team/invites/accept', () => {
       where: { organizationSlug: ORG_SLUG },
     })
     expect(rows).toHaveLength(1)
+    await vi.waitFor(() =>
+      expect(stubCrmTeamMembers().syncTeamMember).toHaveBeenCalled(),
+    )
   })
 
   it('404s with no invite metadata', async () => {
@@ -737,6 +922,54 @@ describe('PATCH /v1/organizations/team/members/:userId', () => {
       fromRole: 'volunteer',
       toRole: 'campaignAdmin',
     })
+    await vi.waitFor(() =>
+      expect(stubCrmTeamMembers().syncTeamMember).toHaveBeenCalled(),
+    )
+  })
+
+  it('syncs the new role to the HubSpot contact', async () => {
+    await createOrg()
+    await createCampaignWithHubspotId('company-789')
+    const member = await createMemberUser({ email: 'role-synced@x.com' })
+    await addMembership(member.id, OrganizationRole.volunteer)
+    vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+    const syncTeamMember = vi
+      .spyOn(stubCrmTeamMembers(), 'syncTeamMember')
+      .mockResolvedValue(undefined)
+
+    const result = await service.client.patch(
+      `${TEAM_PATH}/members/${member.id}`,
+      { role: 'campaignAdmin' },
+      { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+    )
+
+    expect(result.status).toBe(200)
+    await vi.waitFor(() => expect(syncTeamMember).toHaveBeenCalled())
+    expect(syncTeamMember).toHaveBeenCalledWith({
+      email: 'role-synced@x.com',
+      name: null,
+      role: 'campaignAdmin',
+      crmCompanyId: 'company-789',
+    })
+  })
+
+  it('does not fail a role change when the HubSpot sync throws', async () => {
+    await createOrg()
+    const member = await createMemberUser({ email: 'role-resilient@x.com' })
+    await addMembership(member.id, OrganizationRole.volunteer)
+    vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+    const syncTeamMember = vi
+      .spyOn(stubCrmTeamMembers(), 'syncTeamMember')
+      .mockRejectedValue(new Error('hubspot down'))
+
+    const result = await service.client.patch(
+      `${TEAM_PATH}/members/${member.id}`,
+      { role: 'campaignAdmin' },
+      { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+    )
+
+    expect(result.status).toBe(200)
+    await vi.waitFor(() => expect(syncTeamMember).toHaveBeenCalled())
   })
 
   it('403s for a campaignAdmin', async () => {

@@ -85,6 +85,22 @@ source is always the DB, not request input. The Clerk metadata clear runs
 **Owner has no membership row**, so `:userId === Organization.ownerId` is a
 400 on both member-management routes (ownership transfer is out of scope).
 
+## HubSpot contact sync (ENG-10826)
+
+Direct-add, accept, and role-change each fire-and-forget
+`CrmTeamMembersService.syncTeamMember` (`src/crm/crmTeamMembers.service.ts`)
+after the Postgres write — a HubSpot outage must never fail or slow the
+response, so the call is `void`-invoked and its own errors are caught and
+logged, never surfaced. It upserts a contact by email, sets the `team_role`
+property (values, not labels — `owner` / `campaign manager` / `volunteer`),
+and associates it with the campaign's company using the non-primary
+`companyToContact` association (280), not `primaryCompanyToContact` — a
+team member can already have their own primary company from their own
+campaign, and this association must not displace it. `team_role` must be
+defined as a contact property in the HubSpot portal (21589597) first;
+HubSpot silently drops writes to an undefined property. Member removal does
+not touch HubSpot — the contact and its `team_role` value are left as-is.
+
 ## Org listing gotcha
 
 `GET /v1/organizations` is owned-or-member

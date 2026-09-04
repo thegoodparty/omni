@@ -30,6 +30,14 @@ export type CRMContactProperties = {
   candidate_profile_requests?: string
 }
 
+/** Properties for a team member's HubSpot contact (ENG-10826). */
+export type CRMTeamMemberContactProperties = {
+  email: string
+  firstname?: string
+  lastname?: string
+  team_role: HubSpot.TeamRole
+}
+
 /** HubSpot related types and enums */
 export namespace HubSpot {
   /** Hubspot webhook payload */
@@ -111,6 +119,13 @@ export namespace HubSpot {
   export enum VoterDataAdoption {
     LOCKED = 'Locked',
     UNLOCKED = 'Unlocked',
+  }
+
+  /** team_role values (ENG-10826) — compare/write VALUES, never labels */
+  export enum TeamRole {
+    OWNER = 'owner',
+    CAMPAIGN_MANAGER = 'campaign manager',
+    VOLUNTEER = 'volunteer',
   }
 
   /**
