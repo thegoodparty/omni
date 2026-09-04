@@ -7,6 +7,7 @@ import type { Campaign, User } from 'helpers/types'
 const clientRequestMock = vi.fn()
 const useCampaignMock = vi.fn()
 const useUserMock = vi.fn()
+const useDoorKnockingServeModeMock = vi.fn()
 
 vi.mock('gpApi/typed-request', () => ({
   clientRequest: (...args: unknown[]) => clientRequestMock(...args),
@@ -18,6 +19,10 @@ vi.mock('@shared/hooks/useCampaign', () => ({
 
 vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => useUserMock(),
+}))
+
+vi.mock('./doorKnockingSurface', () => ({
+  useDoorKnockingServeMode: () => useDoorKnockingServeModeMock(),
 }))
 
 import { useDoorScript } from './useDoorScript'
@@ -51,6 +56,8 @@ beforeEach(() => {
   useCampaignMock.mockReturnValue([campaign()])
   useUserMock.mockReset()
   useUserMock.mockReturnValue([user()])
+  useDoorKnockingServeModeMock.mockReset()
+  useDoorKnockingServeModeMock.mockReturnValue(false)
   clientRequestMock.mockResolvedValue({ data: [] })
 })
 
@@ -111,6 +118,29 @@ describe('useDoorScript', () => {
       "Hi, I'm Jane Doe, running for City Council.",
     )
     expect(result.current.issues).toEqual([])
+  })
+
+  // Talking points are built from the campaign and its issue positions, and a
+  // Serve org has neither — so the hook must not spend the request at all,
+  // not merely render nothing with it.
+  it('does not fetch positions in serve mode', () => {
+    useDoorKnockingServeModeMock.mockReturnValue(true)
+
+    const { result } = renderHook(() => useDoorScript(), { wrapper })
+
+    expect(clientRequestMock).not.toHaveBeenCalled()
+    expect(result.current.issues).toEqual([])
+  })
+
+  it('still fetches positions in win mode', async () => {
+    renderHook(() => useDoorScript(), { wrapper })
+
+    await waitFor(() =>
+      expect(clientRequestMock).toHaveBeenCalledWith(
+        'GET /v1/campaigns/:id/positions',
+        { id: '7' },
+      ),
+    )
   })
 
   it('does not fetch before the campaign is known', () => {

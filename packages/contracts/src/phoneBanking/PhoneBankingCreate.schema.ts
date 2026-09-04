@@ -1,5 +1,8 @@
 import { z } from 'zod'
-import { OUTREACH_PURPOSE_VALUES } from '../outreach/OutreachPurpose.schema'
+import {
+  OUTREACH_PURPOSE_VALUES,
+  SERVE_OUTREACH_PURPOSE_VALUES,
+} from '../outreach/OutreachPurpose.schema'
 
 // Phone banking shares the canonical outreach vocabulary
 // (OutreachPurpose.schema.ts) — its storage enum used to be the one
@@ -9,20 +12,11 @@ export const PHONE_BANKING_PURPOSE_VALUES = OUTREACH_PURPOSE_VALUES
 export const PhoneBankingPurposeSchema = z.enum(PHONE_BANKING_PURPOSE_VALUES)
 export type PhoneBankingPurpose = z.infer<typeof PhoneBankingPurposeSchema>
 
-// Serve's own purpose vocabulary (constituent framing, no election
-// mechanics). Shared slugs (introduce_myself, event_invite, custom)
-// deliberately reuse the Win strings above — rows are disambiguated by
-// scoping (campaignId vs organizationSlug), not by slug, same rule as serve
-// social. Serve carries no election mechanics, so it does not adopt
-// early_voting / election_day_turnout.
-export const SERVE_PHONE_BANKING_PURPOSE_VALUES = [
-  'introduce_myself',
-  'explain_decision',
-  'event_invite',
-  'community_input',
-  'share_resource',
-  'custom',
-] as const
+// Serve's purpose vocabulary is shared the same way the Win one above is
+// (OutreachPurpose.schema.ts) — constituent framing, no election mechanics,
+// so it does not adopt early_voting / election_day_turnout. Door knocking
+// reads the same list.
+export const SERVE_PHONE_BANKING_PURPOSE_VALUES = SERVE_OUTREACH_PURPOSE_VALUES
 export const ServePhoneBankingPurposeSchema = z.enum(
   SERVE_PHONE_BANKING_PURPOSE_VALUES,
 )

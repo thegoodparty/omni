@@ -33,6 +33,7 @@ import RecordKnockForm from './RecordKnockForm'
 import { SUPPORT_OPTIONS } from './knockQuestions'
 import DoorScript from './DoorScript'
 import { useDoorScript } from './useDoorScript'
+import { useDoorKnockingServeMode } from './doorKnockingSurface'
 import DoNotKnockControl from './DoNotKnockControl'
 import NotAVoterControl from './NotAVoterControl'
 import ActivityFeedCard from './ActivityFeedCard'
@@ -288,6 +289,10 @@ export default function PersonSheet({
     if (bodyRef.current) bodyRef.current.scrollTop = 0
   }, [stop.id])
   const script = useDoorScript()
+  // Talking points are built from the campaign and its issue positions, both
+  // meaningless for an elected official — withheld outright rather than left
+  // to self-hide on the empty fields a Serve org happens to produce.
+  const serveMode = useDoorKnockingServeMode()
   const target =
     targets.find((candidate) => candidate.stopTargetId === selectedTargetId) ??
     targets[0]
@@ -471,7 +476,10 @@ export default function PersonSheet({
 
         {/* `renderPanel`'s card sequence, in its order: Talking points, Contact
             information, Household, Voter demographics, Voter support,
-            Demographic information, Notes, Activity Feed.
+            Demographic information, Notes, Activity Feed. That is the Win
+            order — in serve mode Talking points is withheld outright (see
+            `serveMode` above) and the panel opens on Contact information,
+            with the rest unchanged.
 
             **Notes moving to seventh reverses a position ADR 0011 recorded.**
             The ADR argued it second, above the profile, because it is the only
@@ -487,8 +495,10 @@ export default function PersonSheet({
           {/* First in the body, where the canvas draws it — it used to be a
               collapsed disclosure pinned above the form. Withheld for a flagged
               resident, by the same `flagControl` predicate the support card
-              reads: a door nobody should knock has nothing to open with. */}
-          {flagControl === null && (
+              reads: a door nobody should knock has nothing to open with. Withheld
+              outright in serve mode — see `serveMode` above — because there is no
+              campaign or issue positions to build a script from at all. */}
+          {flagControl === null && !serveMode && (
             <DoorScript intro={script.intro} issues={script.issues} />
           )}
 
