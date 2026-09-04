@@ -3005,6 +3005,54 @@ describe('door-knocking routes', () => {
         ).toBe('needs_follow_up')
       })
 
+      // The anti-retraction half of `latestKnockStatuses`' answer preference,
+      // asserted through the route because that is the derivation the walk-list
+      // row a canvasser taps comes from. The pack has its own test for the same
+      // property (`colors a pin from the newest answer`) and it exercises a
+      // different implementation — the two agreeing is the whole point, and one
+      // test could not have caught them diverging.
+      //
+      // A canvasser who has a conversation on Tuesday and finds the door shut
+      // on Wednesday made a failed re-attempt, not a correction: the follow-up
+      // they were asked for still stands.
+      it('does not let a later empty knock retract the Serve answer', async () => {
+        stubVendors({ residents: { addresses: [] } })
+        const turf = await createTurf()
+        const target =
+          await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+            orderBy: { id: 'asc' },
+          })
+        await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          followUp: 'yes',
+        })
+        await record({
+          stopTargetId: target.id,
+          clientKey: 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff',
+          outcome: 'not_home',
+        })
+
+        const res = await service.client.get(
+          `/v1/door-knocking/turfs/${turf.id}/route`,
+          { ...orgHeaders(), validateStatus: () => true },
+        )
+
+        const targets = (
+          res.data.stops as Array<{
+            addresses: Array<{
+              targets: Array<{ personId: string; knockStatus: string }>
+            }>
+          }>
+        )
+          .flatMap((s) => s.addresses)
+          .flatMap((a) => a.targets)
+        expect(
+          targets.find((t) => t.personId === target.personId)?.knockStatus,
+        ).toBe('needs_follow_up')
+      })
+
       // One surface's vocabulary per row. Both answers on one payload would
       // derive as Serve whatever the caller meant, since follow-up is checked
       // first, so the contract refuses it rather than letting a status be
