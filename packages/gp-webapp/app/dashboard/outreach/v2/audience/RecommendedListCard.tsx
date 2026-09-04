@@ -1,5 +1,3 @@
-'use client'
-
 import { Card } from '@styleguide'
 import type {
   RecommendedList,
