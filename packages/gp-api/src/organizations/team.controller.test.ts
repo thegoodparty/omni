@@ -1395,15 +1395,18 @@ describe('DELETE /v1/organizations/team/members/:userId', () => {
     )
 
     expect(result.status).toBe(204)
+    // Fire-and-forget: a previous test's late call can land during this
+    // one, so anchor the wait on THIS call's exact args (toHaveBeenCalledWith
+    // matches any recorded call) rather than a bare toHaveBeenCalled(),
+    // which a stale call would satisfy before the real one has landed.
     await vi.waitFor(() =>
-      expect(removeTeamMemberAssociation).toHaveBeenCalled(),
+      expect(removeTeamMemberAssociation).toHaveBeenCalledWith({
+        email: 'remove-synced@x.com',
+        role: 'campaignAdmin',
+        crmCompanyId: 'company-remove-1',
+        clearTeamRole: true,
+      }),
     )
-    expect(removeTeamMemberAssociation).toHaveBeenCalledWith({
-      email: 'remove-synced@x.com',
-      role: 'campaignAdmin',
-      crmCompanyId: 'company-remove-1',
-      clearTeamRole: true,
-    })
   })
 
   it('does not clear team_role when the member has a membership on another team', async () => {
@@ -1431,11 +1434,16 @@ describe('DELETE /v1/organizations/team/members/:userId', () => {
     )
 
     expect(result.status).toBe(204)
+    // Same fire-and-forget hazard as above — anchor on this test's own
+    // email/clearTeamRole combination so a stale call from a previous test
+    // (a different email, clearTeamRole: true) can't satisfy the wait.
     await vi.waitFor(() =>
-      expect(removeTeamMemberAssociation).toHaveBeenCalled(),
-    )
-    expect(removeTeamMemberAssociation).toHaveBeenCalledWith(
-      expect.objectContaining({ clearTeamRole: false }),
+      expect(removeTeamMemberAssociation).toHaveBeenCalledWith({
+        email: 'multi-team@x.com',
+        role: 'campaignAdmin',
+        crmCompanyId: 'company-remove-2',
+        clearTeamRole: false,
+      }),
     )
   })
 
