@@ -51,17 +51,19 @@ const DEFAULT_VARIANT = 'on'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-const FlagConditionSchema = z.object({
-  type: z.string(),
-  prop: z.string(),
-  op: z.string(),
-  values: z.array(z.string()),
-})
+const FlagConditionSchema = z
+  .object({
+    type: z.string(),
+    prop: z.string(),
+    op: z.string(),
+    values: z.array(z.string()),
+  })
+  .passthrough()
 
-// `.passthrough()` on both, deliberately. Read responses carry fields the PATCH
-// body doesn't document (a per-segment `bucketingKey`), and this array is sent
-// back wholesale — stripping to the documented shape would reset those on every
-// run. An unexpected field rejected loudly by the API beats silent drift.
+// `.passthrough()` on all three, deliberately. Read responses carry fields the
+// PATCH body doesn't document (a per-segment `bucketingKey`), and this array is
+// sent back wholesale — stripping to the documented shape would reset those on
+// every run. An unexpected field rejected loudly by the API beats silent drift.
 const FlagSegmentSchema = z
   .object({
     name: z.string(),
@@ -106,7 +108,7 @@ export const parseEmails = (contents: string): string[] => {
     // arrive from CS.
     const match = line.match(/[^\s<>,;]+@[^\s<>,;]+/)
     if (!match) continue
-    seen.add(match[0].toLowerCase())
+    seen.add(match[0].replace(/\.+$/, '').toLowerCase())
   }
   return [...seen]
 }

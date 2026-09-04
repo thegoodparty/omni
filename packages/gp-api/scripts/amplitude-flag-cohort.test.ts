@@ -42,6 +42,10 @@ describe('parseEmails', () => {
       'a@example.com',
     ])
   })
+
+  it('strips a trailing period from a bare address', () => {
+    expect(parseEmails('user@example.com.')).toEqual(['user@example.com'])
+  })
 })
 
 describe('mergeCohortIntoSegments', () => {
