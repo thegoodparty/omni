@@ -329,9 +329,11 @@ export default function PersonSheet({
     if (bodyRef.current) bodyRef.current.scrollTop = 0
   }, [stop.id])
   const script = useDoorScript()
-  // Talking points are built from the campaign and its issue positions, both
-  // meaningless for an elected official — withheld outright rather than left
-  // to self-hide on the empty fields a Serve org happens to produce.
+  // Serve's script is the opener alone: the bulleted stances under it are the
+  // candidate's own, from an issues editor an elected official has no campaign
+  // to have written in. `useDoorScript` builds the Serve sentence from the
+  // office rather than leaving this card to self-hide on the empty fields a
+  // Serve org produces, which is what it used to do.
   const serveMode = useDoorKnockingServeMode()
   const target =
     targets.find((candidate) => candidate.stopTargetId === selectedTargetId) ??
@@ -517,11 +519,10 @@ export default function PersonSheet({
         {/* `renderPanel`'s card sequence, in its order: Talking points, Contact
             information, Household, Voter demographics, Voter support,
             Demographic information, Notes, Activity Feed. That is the Win
-            order — in serve mode Talking points is withheld outright (see
-            `serveMode` above) and the panel opens on Contact information,
-            the fourth card is headed for a constituent, and the fifth is
-            Follow-up in place of Voter support. The sequence itself is the
-            same on both rails.
+            order — in serve mode the first card is headed Introduction and
+            carries the opener alone (see `serveMode` above), the fourth is
+            headed for a constituent, and the fifth is Follow-up in place of
+            Voter support. The sequence itself is the same on both rails.
 
             **Notes moving to seventh reverses a position ADR 0011 recorded.**
             The ADR argued it second, above the profile, because it is the only
@@ -537,11 +538,17 @@ export default function PersonSheet({
           {/* First in the body, where the canvas draws it — it used to be a
               collapsed disclosure pinned above the form. Withheld for a flagged
               resident, by the same `flagControl` predicate the support card
-              reads: a door nobody should knock has nothing to open with. Withheld
-              outright in serve mode — see `serveMode` above — because there is no
-              campaign or issue positions to build a script from at all. */}
-          {flagControl === null && !serveMode && (
-            <DoorScript intro={script.intro} issues={script.issues} />
+              reads: a door nobody should knock has nothing to open with. Drawn
+              on both surfaces otherwise: Serve's card is one sentence — see
+              `serveMode` above — and one sentence is what an official's
+              canvasser most needs, since the thing they have to say at a door
+              they cannot invent is whose door-knocker they are. */}
+          {flagControl === null && (
+            <DoorScript
+              intro={script.intro}
+              issues={script.issues}
+              isServe={serveMode}
+            />
           )}
 
           <section className="mb-4 rounded-xl border border-border">

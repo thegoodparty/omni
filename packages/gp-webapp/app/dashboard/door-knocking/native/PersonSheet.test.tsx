@@ -40,7 +40,9 @@ vi.mock('./RecordKnockForm', () => ({
 // and who it is withheld from.
 vi.mock('./DoorScript', () => ({
   __esModule: true,
-  default: () => <div data-testid="door-script" />,
+  default: ({ isServe }: { isServe: boolean }) => (
+    <div data-testid="door-script" data-serve={String(isServe)} />
+  ),
 }))
 
 const target = (
@@ -403,11 +405,10 @@ describe('PersonSheet card order', () => {
     ])
   })
 
-  // Serve mode drops Talking points outright — it is built from the
-  // campaign and its issue positions, which an elected official has neither
-  // — so the remaining six cards keep their order with the first one gone
-  // rather than leaving a gap or reordering around it.
-  it('opens on Contact information in serve mode, with the rest unchanged', () => {
+  // Serve keeps the same seven cards in the same order. The script card leads
+  // on both surfaces now that it has a Serve sentence to say; what changes is
+  // what is inside it, which is DoorScript's own test.
+  it('keeps the card order in serve mode', () => {
     renderSheet([target()], undefined, true)
 
     const body = screen
@@ -425,8 +426,7 @@ describe('PersonSheet card order', () => {
       'Notes',
       'Activity Feed',
     ])
-    expect(screen.queryByTestId('door-script')).toBeNull()
-    expect(body.firstElementChild).toBe(contactCard())
+    expect(body.firstElementChild).toBe(screen.getByTestId('door-script'))
   })
 })
 
@@ -456,20 +456,27 @@ describe('PersonSheet talking points', () => {
     expect(screen.queryByTestId('record-knock-form')).toBeNull()
   })
 
-  // The card is meaningless for an elected official — it is built from the
-  // candidate's campaign and their campaign issue positions, and a Serve org
-  // has neither. Withheld outright rather than left to self-hide on empty
-  // fields.
-  it('does not render in serve mode, where there is no campaign to script from', () => {
+  // It used to be withheld outright, on the reasoning that a Serve org has no
+  // campaign and no issue positions to script from — true of the bulleted
+  // stances, and not of the opener, which is the one line a canvasser at an
+  // official's door cannot invent. The surface reaches the card so it can head
+  // itself for what it holds.
+  it('renders in serve mode, told which surface it is', () => {
     renderSheet([target()], undefined, true)
 
-    expect(screen.queryByTestId('door-script')).toBeNull()
+    expect(screen.getByTestId('door-script')).toHaveAttribute(
+      'data-serve',
+      'true',
+    )
   })
 
   it('still renders in win mode', () => {
     renderSheet([target()], undefined, false)
 
-    expect(screen.getByTestId('door-script')).toBeInTheDocument()
+    expect(screen.getByTestId('door-script')).toHaveAttribute(
+      'data-serve',
+      'false',
+    )
   })
 })
 

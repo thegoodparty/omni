@@ -184,15 +184,17 @@ export class DoorKnockingController {
     })
   }
 
-  // No webapp caller and none wanted: the rail lists every turf at once, so a
-  // single-turf read has no surface. It is not orphaned — the routes suite
-  // reads a turf's derived counts and lifecycle back through it, and the
-  // print-walk-list e2e spec uses it as the control proving a turf exists
-  // before asserting the print route's own failure.
-  //
   // Org-scoped only, no serve sibling, like every other by-id route here: an
   // id the caller already holds cannot be made to cross a surface by asking
   // for it on the wrong one.
+  //
+  // That is exactly why both print surfaces title their sheets from this and
+  // not from the rail. They already hold a turf id they fetched a route with;
+  // the rail's surface filter could only take a list away from them, and did —
+  // a Serve turf is not on the Win rail, so every elected official's walk sheet
+  // and PDF was titled with the fallback. The routes suite and the
+  // print-walk-list e2e spec read it too, the latter as the control proving a
+  // turf exists before asserting the print route's own failure.
   @Get('turfs/:id')
   @UseOrganization()
   @ResponseSchema(DoorKnockingTurfSchema)
