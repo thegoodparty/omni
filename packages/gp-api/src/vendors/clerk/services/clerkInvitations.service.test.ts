@@ -1,8 +1,13 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClerkClient } from '@clerk/backend'
 import { BadGatewayException } from '@nestjs/common'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { CLERK_LIST_TIMEOUT_MS } from '@/vendors/clerk/clerk.consts'
 import { ClerkInvitationsService } from './clerkInvitations.service'
+
+// Stands in for a Clerk call that never settles, so the only way the
+// caller can proceed is clerkCall's own timeout.
+const hangForever = <T>(): Promise<T> => new Promise(() => undefined)
 
 // ClerkClient is a type-only export, but SWC emits it as runtime decorator
 // metadata for the constructor param, so the mock must expose a placeholder.
@@ -171,6 +176,97 @@ describe('ClerkInvitationsService', () => {
       await expect(
         service.listPendingTeamInvitations('acme'),
       ).rejects.toBeInstanceOf(BadGatewayException)
+    })
+
+    describe('page retries', () => {
+      beforeEach(() => {
+        vi.useFakeTimers()
+      })
+
+      afterEach(() => {
+        vi.useRealTimers()
+      })
+
+      it('retries a page that times out once, then returns the full list', async () => {
+        const getInvitationList = vi
+          .fn()
+          .mockImplementationOnce(hangForever)
+          .mockResolvedValueOnce({
+            data: [
+              {
+                id: 'inv_1',
+                publicMetadata: { ...metadata, organizationSlug: 'acme' },
+              },
+            ],
+            totalCount: 1,
+          })
+        const { service } = makeService({ getInvitationList })
+
+        const pending = service.listPendingTeamInvitations('acme')
+        // First attempt times out at CLERK_LIST_TIMEOUT_MS, then the retry
+        // helper's fixed backoff elapses before the second (successful) try.
+        await vi.advanceTimersByTimeAsync(CLERK_LIST_TIMEOUT_MS + 1_000)
+
+        const result = await pending
+        expect(result.map((invitation) => invitation.id)).toEqual(['inv_1'])
+        expect(getInvitationList).toHaveBeenCalledTimes(2)
+      })
+
+      it('retries a page rejected with a 429 rate-limit error, honoring retryAfter', async () => {
+        const rateLimitError = Object.assign(new Error('Too Many Requests'), {
+          status: 429,
+          retryAfter: 2,
+        })
+        const getInvitationList = vi
+          .fn()
+          .mockRejectedValueOnce(rateLimitError)
+          .mockResolvedValueOnce({
+            data: [
+              {
+                id: 'inv_1',
+                publicMetadata: { ...metadata, organizationSlug: 'acme' },
+              },
+            ],
+            totalCount: 1,
+          })
+        const { service } = makeService({ getInvitationList })
+
+        const pending = service.listPendingTeamInvitations('acme')
+        await vi.advanceTimersByTimeAsync(2_000)
+
+        const result = await pending
+        expect(result.map((invitation) => invitation.id)).toEqual(['inv_1'])
+        expect(getInvitationList).toHaveBeenCalledTimes(2)
+      })
+
+      it('throws BadGatewayException once page retries are exhausted', async () => {
+        // Exercises the real production error path: the dependency keeps
+        // throwing the same 429 shape production would see from Clerk, not
+        // a mock standing in for the retry helper itself.
+        const rateLimitError = Object.assign(new Error('Too Many Requests'), {
+          status: 429,
+        })
+        const getInvitationList = vi.fn().mockRejectedValue(rateLimitError)
+        const { service } = makeService({ getInvitationList })
+
+        const pending = service.listPendingTeamInvitations('acme')
+        const assertion =
+          expect(pending).rejects.toBeInstanceOf(BadGatewayException)
+        await vi.advanceTimersByTimeAsync(2_000)
+
+        await assertion
+        expect(getInvitationList).toHaveBeenCalledTimes(3)
+      })
+
+      it('does not retry a non-timeout, non-429 failure', async () => {
+        const getInvitationList = vi.fn().mockRejectedValue(new Error('down'))
+        const { service } = makeService({ getInvitationList })
+
+        await expect(
+          service.listPendingTeamInvitations('acme'),
+        ).rejects.toBeInstanceOf(BadGatewayException)
+        expect(getInvitationList).toHaveBeenCalledTimes(1)
+      })
     })
   })
 

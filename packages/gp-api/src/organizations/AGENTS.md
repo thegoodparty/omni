@@ -78,7 +78,12 @@ membership rows with `listPendingTeamInvitations(slug)`, which pages through
 Clerk's *entire instance-wide* pending-invitation list (it has no
 server-side org filter) before filtering to this org — a single page would
 silently drop this org's invites once the instance-wide pending count
-exceeds the page size.
+exceeds the page size. Each page uses `CLERK_LIST_TIMEOUT_MS` (10s), not the
+`SessionGuard`-tuned `CLERK_API_TIMEOUT_MS` (2s) — this loop is a heavy,
+non-hot-path list op, and a page merely running slow under normal Clerk
+latency shouldn't 502 the whole team read. A page that times out or hits a
+Clerk 429 gets up to 2 retries (honoring `retryAfter` on a 429) before the
+error propagates to `BadGatewayException`.
 
 **Revoke clears the invitee's own metadata too, not just the invitation.**
 An invitee who already signed up via the invite link carries the same
