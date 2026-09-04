@@ -468,15 +468,27 @@ export class OrganizationTeamService {
         ),
       )
     ).flat()
-    const [invitation] = invitations
-    if (invitations.length !== 1 || !invitation) {
+
+    // A user with multiple verified emails may hold one pending invite per
+    // email. Ambiguity is measured in orgs, not invitations: matches that
+    // all point to the same org are unambiguous (redeem the first); matches
+    // spanning different orgs resolve to none rather than guessing.
+    const candidates = invitations.flatMap((invitation) => {
+      const parsed = TeamInviteMetadataSchema.safeParse(
+        invitation.publicMetadata,
+      )
+      return parsed.success
+        ? [{ metadata: parsed.data, invitationId: invitation.id }]
+        : []
+    })
+    const [first] = candidates
+    if (!first) {
       return null
     }
-
-    const parsed = TeamInviteMetadataSchema.safeParse(invitation.publicMetadata)
-    return parsed.success
-      ? { metadata: parsed.data, invitationId: invitation.id }
-      : null
+    const slugs = new Set(
+      candidates.map((candidate) => candidate.metadata.organizationSlug),
+    )
+    return slugs.size === 1 ? first : null
   }
 
   private async createPendingInvite(params: {

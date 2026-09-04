@@ -117,10 +117,13 @@ export class TeamController {
   // only the caller's own pending invite (no org scope exists yet), returns
   // nothing unless an invite was created while the flag was on, and gating
   // it would strand an in-flight invitee if the flag ramps back down.
+  // A verified M2M token passes SessionGuard without populating
+  // request.user — these session-only routes must tolerate that instead of
+  // dereferencing undefined.
   @Get('invites/mine')
   @ResponseSchema(MyPendingInviteResponseSchema)
-  getMyPendingInvite(@ReqUser() user: User) {
-    return this.team.getMyPendingInvite(user)
+  getMyPendingInvite(@ReqUser() user: User | undefined) {
+    return user ? this.team.getMyPendingInvite(user) : { invite: null }
   }
 
   // Ungated on purpose: invites cannot exist unless the flag was on when
@@ -128,7 +131,10 @@ export class TeamController {
   // would strand an in-flight invitee if the flag ramps back down.
   @Post('invites/accept')
   @ResponseSchema(AcceptInviteResponseSchema)
-  acceptInvite(@ReqUser() user: User) {
+  acceptInvite(@ReqUser() user: User | undefined) {
+    if (!user) {
+      throw new NotFoundException('No pending invitation found')
+    }
     return this.team.acceptInvite(user)
   }
 

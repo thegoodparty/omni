@@ -1043,6 +1043,54 @@ describe('POST /v1/organizations/team/invites/accept', () => {
     expect(findByEmail).not.toHaveBeenCalled()
   })
 
+  it('redeems when two verified emails hold invites to the same org', async () => {
+    await createOrg()
+    const invitee = await service.prisma.user.create({
+      data: { email: 'two-emails@x.com', clerkId: 'user_two_emails_1' },
+    })
+    mockInviteState(null, ['two-emails@x.com', 'work@x.com'])
+    vi.spyOn(
+      stubClerkInvitations(),
+      'findPendingTeamInvitationsByEmail',
+    ).mockImplementation(async (email: string) => [
+      mockInvitation({
+        id: email === 'work@x.com' ? 'inv_work' : 'inv_personal',
+        emailAddress: email,
+        publicMetadata: {
+          organizationSlug: ORG_SLUG,
+          role: 'campaignAdmin',
+          name: 'Two Emails',
+          invitedByUserId: service.user.id,
+        },
+      }),
+    ])
+    vi.spyOn(stubClerkInvitations(), 'revokeInvitation').mockResolvedValue(
+      mockInvitation({ id: 'inv_personal' }),
+    )
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadata',
+    ).mockResolvedValue(undefined)
+    vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+
+    const result = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_two_emails_1') },
+    )
+
+    expect(result.status).toBe(201)
+    const row = await service.prisma.organizationMembership.findUnique({
+      where: {
+        organizationSlug_userId: {
+          organizationSlug: ORG_SLUG,
+          userId: invitee.id,
+        },
+      },
+    })
+    expect(row).not.toBeNull()
+  })
+
   it('404s when several pending invitations match rather than guessing', async () => {
     await createOrg()
     await service.prisma.user.create({

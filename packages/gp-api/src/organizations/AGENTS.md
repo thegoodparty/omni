@@ -96,7 +96,8 @@ impersonation, the wrong Clerk record) and fetches that user's own Clerk
 signed up organically instead of through the ticket never receives Clerk's
 copy (ENG-11027) — both accept and `GET team/invites/mine` fall back to the
 pending invitation addressed to one of the user's Clerk-**verified** emails
-(exactly one match redeems; zero or several resolve to none). A
+(matches that all point to one org redeem; matches spanning several orgs
+resolve to none). A
 fallback-accept also revokes the invitation object after the DB commit,
 best-effort, so it can't be re-consumed or linger as pending.
 `@@unique([organizationSlug, userId])` makes a double-accept a Prisma unique-constraint conflict; that's caught and turned
