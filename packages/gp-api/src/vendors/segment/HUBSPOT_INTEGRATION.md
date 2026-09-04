@@ -387,6 +387,22 @@ Segment identifies users by email, so events land on the **contact** record firs
 
 A company can have multiple contacts, but the expectation is a 1:1 relationship between a contact and a company. The `10 DLC Compliance Status` on the **company** is what downstream HubSpot automations (e.g. compliance reminder emails) key off of. The drift report (`scripts/10dlc-status-drift-report.ts`) checks the status on the company record for this reason.
 
+## Single-Send API Path (ENG-11034)
+
+`HubspotSingleSendService` (`src/crm/hubspotSingleSend.service.ts`) sends a
+transactional email directly via HubSpot's marketing single-send API
+(`client.marketing.transactional.singleSendApi.sendEmail`), instead of
+Segment event → HubSpot workflow → email. Recipient and content are explicit
+call parameters, not resolved from the HubSpot contact record — a
+merged/secondary contact can't misroute the address or render stale content.
+
+The PIN Sent / PIN Resent notification (`campaignTcrCompliance.service.ts`)
+is the first path cut over. It still fires `CompliancePinSent` /
+`CompliancePinResent` as before (other workflows/Zaps key off those events
+for non-email actions); only the email leg moved. The asset id is
+`HUBSPOT_PIN_SENT_EMAIL_ID` — unset (every environment today, pending the
+Ops-created asset) skips the single-send call with no behavior change.
+
 ## HubSpot Workflow Configuration
 
 Workflows trigger on:

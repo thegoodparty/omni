@@ -19,7 +19,7 @@ import {
 } from '../../../generated/prisma'
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
 import { PinoLogger } from 'nestjs-pino'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { CampaignTcrComplianceService } from './campaignTcrCompliance.service'
 import { CvPreSubmissionValidationService } from './cvPreSubmissionValidation.service'
@@ -36,6 +36,7 @@ import { CronLockService } from '@/cron/services/cronLock.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { SlackChannel } from '@/vendors/slack/slackService.types'
 import { EVENTS } from '@/vendors/segment/segment.types'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { PrismaService } from '@/prisma/prisma.service'
 import { MessageGroup, QueueType } from '../../../queue/queue.types'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -183,6 +184,10 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
             tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
             markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
           },
+        },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
         },
         CampaignTcrComplianceService,
       ],
@@ -1148,6 +1153,10 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
             markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
           },
         },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -1773,6 +1782,10 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
             tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
             markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
           },
+        },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
         },
         CampaignTcrComplianceService,
       ],
@@ -3014,6 +3027,10 @@ describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
             markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
           },
         },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -3158,6 +3175,10 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
             tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
             markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
           },
+        },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
         },
         CampaignTcrComplianceService,
       ],
@@ -3395,8 +3416,14 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
   }
   let mockModel: { findUnique: ReturnType<typeof vi.fn> }
   let mockAnalytics: { track: ReturnType<typeof vi.fn> }
+  let mockSendSingleSend: ReturnType<typeof vi.fn>
+  let mockLogger: ReturnType<typeof createMockLogger>
 
-  const campaign = createMockCampaign({ id: 7, userId: 1 })
+  const recipient = createMockUser({ id: 1, email: 'candidate@example.com' })
+  const campaign = {
+    ...createMockCampaign({ id: 7, userId: 1 }),
+    user: recipient,
+  }
 
   const withEnv = async (
     value: string | undefined,
@@ -3413,6 +3440,10 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
     }
   }
 
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   beforeEach(async () => {
     mockPeerly = {
       retrieveCampaignVerifyDetails: vi.fn(),
@@ -3420,6 +3451,8 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
     }
     mockModel = { findUnique: vi.fn() }
     mockAnalytics = { track: vi.fn().mockResolvedValue(undefined) }
+    mockSendSingleSend = vi.fn().mockResolvedValue(undefined)
+    mockLogger = createMockLogger()
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -3431,7 +3464,7 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
         { provide: ComplianceStateService, useValue: {} },
         { provide: QueueProducerService, useValue: {} },
         { provide: ExperimentRunsService, useValue: {} },
-        { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: PinoLogger, useValue: mockLogger },
         { provide: AnalyticsService, useValue: mockAnalytics },
         {
           provide: SlackService,
@@ -3452,6 +3485,10 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
             tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
             markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
           },
+        },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: mockSendSingleSend },
         },
         CampaignTcrComplianceService,
       ],
@@ -3583,7 +3620,62 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
         EVENTS.Outreach.CompliancePinResent,
         { triggered_by: 'admin', peerly_identity_id: 'peerly-1' },
       )
+      // Unset HUBSPOT_PIN_SENT_EMAIL_ID (every environment today) — the
+      // Segment-event workflow email path is unaffected.
+      expect(mockSendSingleSend).not.toHaveBeenCalled()
     })
+  })
+
+  it('sends to the campaign account email once configured', async () => {
+    vi.stubEnv('HUBSPOT_PIN_SENT_EMAIL_ID', '999888')
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: PeerlyCvVerificationStatus.APPROVED,
+      pinDelivery: { method: 'text', destination: '3126851162' },
+    })
+
+    await withEnv('prod', async () => {
+      await service.resendCampaignVerifyPin(campaign)
+
+      expect(mockSendSingleSend).toHaveBeenCalledWith({
+        emailId: 999888,
+        to: recipient.email,
+        customProperties: {
+          peerly_identity_id: 'peerly-1',
+          pin_delivery_method: 'text',
+          pin_delivery_destination: '3126851162',
+        },
+      })
+    })
+  })
+
+  it('logs loudly (not silently) when single-send fails, without failing the request', async () => {
+    vi.stubEnv('HUBSPOT_PIN_SENT_EMAIL_ID', '999888')
+    mockSendSingleSend.mockRejectedValueOnce(new Error('HubSpot down'))
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: PeerlyCvVerificationStatus.APPROVED,
+      pinDelivery: null,
+    })
+
+    await withEnv('prod', async () => {
+      await expect(
+        service.resendCampaignVerifyPin(campaign),
+      ).resolves.toBeUndefined()
+    })
+    // The single-send is fire-and-forget off the void'd promise — flush the
+    // microtask queue so its rejection handler (the logger.error call) runs.
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(Error), campaignId: 7 }),
+      expect.stringContaining('HubSpot single-send failed for PIN Resent'),
+    )
   })
 
   it('does not fire the resent event when the Peerly resend call fails', async () => {
@@ -3745,6 +3837,10 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
           },
         },
         { provide: CronLockService, useValue: mockCronLock },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -3992,6 +4088,10 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
             markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
           },
         },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -4210,6 +4310,10 @@ describe('CampaignTcrComplianceService - overrideCvValidation', () => {
             tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
             markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
           },
+        },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
         },
         CampaignTcrComplianceService,
       ],

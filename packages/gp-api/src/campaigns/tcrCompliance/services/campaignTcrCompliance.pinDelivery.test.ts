@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PinoLogger } from 'nestjs-pino'
 import { PrismaService } from '@/prisma/prisma.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
@@ -23,6 +23,7 @@ import { QueueProducerService } from '../../../queue/producer/queueProducer.serv
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { SlackService } from '../../../vendors/slack/services/slack.service'
 import { CvPreSubmissionValidationService } from './cvPreSubmissionValidation.service'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 
 describe('CampaignTcrComplianceService - applyCvDetection', () => {
   const user = createMockUser({ id: 55 })
@@ -45,6 +46,8 @@ describe('CampaignTcrComplianceService - applyCvDetection', () => {
   }
   let mockTrack: ReturnType<typeof vi.fn>
   let mockTrackCampaign: ReturnType<typeof vi.fn>
+  let mockSendSingleSend: ReturnType<typeof vi.fn>
+  let mockLogger: ReturnType<typeof createMockLogger>
 
   const detect = (
     rec: TcrCompliance,
@@ -54,12 +57,18 @@ describe('CampaignTcrComplianceService - applyCvDetection', () => {
     },
   ) => service.applyCvDetection(rec, campaignWithUser, details)
 
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   beforeEach(async () => {
     mockModel = {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     }
     mockTrack = vi.fn().mockResolvedValue(undefined)
     mockTrackCampaign = vi.fn().mockResolvedValue(undefined)
+    mockSendSingleSend = vi.fn().mockResolvedValue(undefined)
+    mockLogger = createMockLogger()
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -79,7 +88,7 @@ describe('CampaignTcrComplianceService - applyCvDetection', () => {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
-        { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: PinoLogger, useValue: mockLogger },
         {
           provide: CronLockService,
           useValue: {
@@ -88,6 +97,10 @@ describe('CampaignTcrComplianceService - applyCvDetection', () => {
           },
         },
         { provide: CvPreSubmissionValidationService, useValue: {} },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: mockSendSingleSend },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -323,5 +336,61 @@ describe('CampaignTcrComplianceService - applyCvDetection', () => {
     // regression that skipped it would leave the record claimed-but-never-fired
     // and permanently excluded from PIN detection.
     expect(mockModel.updateMany).toHaveBeenCalledTimes(2)
+  })
+
+  describe('HubSpot single-send (ENG-11034)', () => {
+    it('does not call single-send when HUBSPOT_PIN_SENT_EMAIL_ID is unset', async () => {
+      await detect(record, {
+        status: PeerlyCvVerificationStatus.APPROVED,
+        pinDelivery: { method: 'text', destination: '3126851162' },
+      })
+
+      expect(mockSendSingleSend).not.toHaveBeenCalled()
+      // The Segment-event workflow email path is unaffected.
+      expect(mockTrack).toHaveBeenCalledTimes(1)
+    })
+
+    it('sends to the triggering account email with the PIN details as call properties', async () => {
+      vi.stubEnv('HUBSPOT_PIN_SENT_EMAIL_ID', '999888')
+
+      await detect(record, {
+        status: PeerlyCvVerificationStatus.APPROVED,
+        pinDelivery: { method: 'text', destination: '3126851162' },
+      })
+
+      expect(mockSendSingleSend).toHaveBeenCalledWith({
+        emailId: 999888,
+        to: user.email,
+        customProperties: {
+          pin_delivery_method: 'text',
+          pin_delivery_destination: '3126851162',
+          pin_sent_at: expect.any(String),
+        },
+      })
+    })
+
+    it('logs loudly and does not roll back the claim when single-send fails', async () => {
+      vi.stubEnv('HUBSPOT_PIN_SENT_EMAIL_ID', '999888')
+      mockSendSingleSend.mockRejectedValue(new Error('HubSpot down'))
+
+      await expect(
+        detect(record, {
+          status: PeerlyCvVerificationStatus.APPROVED,
+          pinDelivery: { method: 'text', destination: '3126851162' },
+        }),
+      ).resolves.not.toThrow()
+
+      // The Segment event already fired successfully, so the claim must
+      // stand — only the initial claim call, no rollback.
+      expect(mockModel.updateMany).toHaveBeenCalledTimes(1)
+      expect(mockTrack).toHaveBeenCalledTimes(1)
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          err: expect.any(Error),
+          campaignId: campaignWithUser.id,
+        }),
+        expect.stringContaining('HubSpot single-send failed for PIN Sent'),
+      )
+    })
   })
 })
