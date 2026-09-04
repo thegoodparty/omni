@@ -67,6 +67,7 @@ import type {
   SmsDraftRequest,
   SmsDraftResponse,
   AcceptInviteResponse,
+  MyPendingInviteResponse,
   RecommendedListChannel,
   RecommendedListIntent,
   RecommendedListsResponse,
@@ -511,6 +512,16 @@ export type APIEndpoints = {
   'POST /v1/organizations/team/invites/accept': {
     Request: {}
     Response: AcceptInviteResponse
+  }
+
+  // The signed-in user's own pending invite, resolved server-side: the Clerk
+  // publicMetadata copy first, then gp-api's pending-invitation fallback by
+  // verified email (ENG-11027) — so it finds the invite even for an invitee
+  // who signed up organically instead of through the ticket. Ungated and
+  // session-only, like accept.
+  'GET /v1/organizations/team/invites/mine': {
+    Request: {}
+    Response: MyPendingInviteResponse
   }
 
   'PATCH /v1/organizations/:slug': {

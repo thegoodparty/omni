@@ -113,9 +113,16 @@ export class ClerkInvitationsService {
   // this is the only place the accept endpoint may read it from (never the
   // request body). A shape that doesn't parse (already accepted, cleared, or
   // never invited) is "no invite", not an error.
-  async getTeamInviteMetadata(
-    clerkId: string,
-  ): Promise<TeamInviteMetadata | null> {
+  //
+  // Also returns the user's VERIFIED email addresses off the same Clerk
+  // read, so callers can fall back to the pending-invitation lookup for an
+  // invitee who signed up organically and never received the metadata copy
+  // (ENG-11027). Unverified addresses are excluded on purpose: an unverified
+  // email must never be able to redeem an invitation addressed to it.
+  async getTeamInviteState(clerkId: string): Promise<{
+    metadata: TeamInviteMetadata | null
+    verifiedEmails: string[]
+  }> {
     let user
     try {
       user = await clerkCall(
@@ -132,7 +139,46 @@ export class ClerkInvitationsService {
     }
 
     const metadata = TeamInviteMetadataSchema.safeParse(user.publicMetadata)
-    return metadata.success ? metadata.data : null
+    return {
+      metadata: metadata.success ? metadata.data : null,
+      verifiedEmails: user.emailAddresses
+        .filter((email) => email.verification?.status === 'verified')
+        .map((email) => email.emailAddress.toLowerCase()),
+    }
+  }
+
+  // Pending team invitations addressed to one email. `query` filters
+  // server-side (Clerk matches it against email_address or id, possibly
+  // partially), so the exact-email match is re-checked here, and
+  // invitations that aren't team invites (no parseable TeamInviteMetadata)
+  // are dropped.
+  async findPendingTeamInvitationsByEmail(
+    email: string,
+  ): Promise<Invitation[]> {
+    const normalized = email.toLowerCase()
+    try {
+      const { data } = await clerkCall(
+        'invitations.getInvitationList',
+        { 'clerk.email': normalized },
+        () =>
+          this.clerkClient.invitations.getInvitationList({
+            status: 'pending',
+            query: normalized,
+            limit: 500,
+          }),
+      )
+      return data.filter(
+        (invitation) =>
+          invitation.emailAddress.toLowerCase() === normalized &&
+          TeamInviteMetadataSchema.safeParse(invitation.publicMetadata).success,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err },
+        'Failed to look up Clerk team invitations by email',
+      )
+      throw new BadGatewayException('Failed to look up team invitations')
+    }
   }
 
   // Clears the invite keys after acceptance so the pending-invite payload

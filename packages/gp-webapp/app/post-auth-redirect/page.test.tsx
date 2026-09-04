@@ -48,6 +48,13 @@ beforeEach(() => {
   mockTrackRegistration.mockClear()
   replaceSpy = vi.fn()
   setLocation('')
+  // Zero-org sessions probe gp-api for a pending invite on the invitee's
+  // verified email (ENG-11027) — default it to none; the fallback-routing
+  // tests below override it.
+  api.mock('GET /v1/organizations/team/invites/mine', {
+    status: 200,
+    data: { invite: null },
+  })
 })
 
 afterEach(() => {
@@ -254,6 +261,54 @@ describe('PostAuthRedirectPage', () => {
     render(<PostAuthRedirectPage />)
 
     await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+  })
+
+  it('routes to /team-invite when a zero-org session has a pending invitation on its email (ENG-11027 fallback)', async () => {
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [] },
+    })
+    api.mock('GET /v1/organizations/team/invites/mine', {
+      status: 200,
+      data: {
+        invite: { organizationSlug: 'org-one', role: 'campaignAdmin' },
+      },
+    })
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 200,
+      data: { status: false },
+    })
+    api.mock('GET /v1/elected-office/current', { status: 404, data: {} })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/team-invite'))
+  })
+
+  it('does not probe for a pending invitation when the session already has an org', async () => {
+    let mineProbed = false
+    api.mock('GET /v1/organizations/team/invites/mine', () => {
+      mineProbed = true
+      return { status: 200, data: { invite: null } }
+    })
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [orgFixture] },
+    })
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 200,
+      data: { status: 'candidate' },
+    })
+    api.mock('GET /v1/elected-office/current', { status: 404, data: {} })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    expect(mineProbed).toBe(false)
   })
 
   it('signup source + fresh createdAt: fires trackRegistrationCompleted and submits the CRM registration with the hubspotutk', async () => {

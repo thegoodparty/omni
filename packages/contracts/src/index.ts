@@ -435,6 +435,8 @@ export {
   type InviteMemberResponse,
   AcceptInviteResponseSchema,
   type AcceptInviteResponse,
+  MyPendingInviteResponseSchema,
+  type MyPendingInviteResponse,
 } from './campaigns/Team.schema'
 
 export * from './campaigns/compliance'

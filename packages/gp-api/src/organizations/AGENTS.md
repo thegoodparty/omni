@@ -40,6 +40,7 @@ via a Clerk invitation). No other code path may create one.
 | GET    | `team`                           | `@UseOrganization()`            |
 | POST   | `team/invites`                   | `@UseOrganization()` + flag gate |
 | DELETE | `team/invites/:id`                | `@UseOrganization()`            |
+| GET    | `team/invites/mine`               | session only, NOT org-scoped   |
 | POST   | `team/invites/accept`             | session only, NOT org-scoped   |
 | PATCH  | `team/members/:userId`            | `@UseOrganization()` + `@OwnerOnly()` |
 | DELETE | `team/members/:userId`            | `@UseOrganization()` + `@OwnerOnly()` |
@@ -91,8 +92,15 @@ succeeded).
 **Accept never trusts the request.** It reads `request.user` (never
 `effectiveUser` — that resolves to an impersonating admin under
 impersonation, the wrong Clerk record) and fetches that user's own Clerk
-`publicMetadata` server-side. `@@unique([organizationSlug, userId])` makes a
-double-accept a Prisma unique-constraint conflict; that's caught and turned
+`publicMetadata` server-side. When that metadata is absent — an invitee who
+signed up organically instead of through the ticket never receives Clerk's
+copy (ENG-11027) — both accept and `GET team/invites/mine` fall back to the
+pending invitation addressed to one of the user's Clerk-**verified** emails
+(matches that all point to one org redeem; matches spanning several orgs
+resolve to none). A
+fallback-accept also revokes the invitation object after the DB commit,
+best-effort, so it can't be re-consumed or linger as pending.
+`@@unique([organizationSlug, userId])` makes a double-accept a Prisma unique-constraint conflict; that's caught and turned
 into a 200 with the *persisted* row, never the request body — response
 source is always the DB, not request input. The Clerk metadata clear runs
 *after* the DB commit; a failed clear just means the next accept retries it.

@@ -68,6 +68,19 @@ const mockInvitation = (overrides: Partial<Invitation> = {}): Invitation =>
   }) as unknown as Invitation
 
 const stubClerkInvitations = () => service.app.get(ClerkInvitationsService)
+
+// acceptInvite resolution reads getTeamInviteState (the metadata Clerk
+// copied onto the user + their verified emails). Most tests exercise the
+// metadata path, so no verified emails are needed; fallback tests below
+// pass them explicitly.
+const mockInviteState = (
+  metadata: TeamInviteMetadata | null,
+  verifiedEmails: string[] = [],
+) =>
+  vi.spyOn(stubClerkInvitations(), 'getTeamInviteState').mockResolvedValue({
+    metadata,
+    verifiedEmails,
+  })
 const stubFeatures = () => service.app.get(FeaturesService)
 const stubEmail = () => service.app.get(EmailService)
 const stubAnalytics = () => service.app.get(AnalyticsService)
@@ -657,10 +670,9 @@ describe('DELETE /v1/organizations/team/invites/:id', () => {
       name: 'Signed Up',
       invitedByUserId: service.user.id,
     }
-    vi.spyOn(
-      stubClerkInvitations(),
-      'getTeamInviteMetadata',
-    ).mockImplementation(() => Promise.resolve(liveMetadata))
+    vi.spyOn(stubClerkInvitations(), 'getTeamInviteState').mockImplementation(
+      () => Promise.resolve({ metadata: liveMetadata, verifiedEmails: [] }),
+    )
     vi.spyOn(
       stubClerkInvitations(),
       'clearTeamInviteMetadataByEmail',
@@ -704,14 +716,12 @@ describe('POST /v1/organizations/team/invites/accept', () => {
     const invitee = await service.prisma.user.create({
       data: { email: 'accepting@x.com', clerkId: 'user_accept_1' },
     })
-    vi.spyOn(stubClerkInvitations(), 'getTeamInviteMetadata').mockResolvedValue(
-      {
-        organizationSlug: ORG_SLUG,
-        role: 'campaignAdmin',
-        name: 'Accepting Person',
-        invitedByUserId: service.user.id,
-      },
-    )
+    mockInviteState({
+      organizationSlug: ORG_SLUG,
+      role: 'campaignAdmin',
+      name: 'Accepting Person',
+      invitedByUserId: service.user.id,
+    })
     const clear = vi
       .spyOn(stubClerkInvitations(), 'clearTeamInviteMetadata')
       .mockResolvedValue(undefined)
@@ -755,14 +765,12 @@ describe('POST /v1/organizations/team/invites/accept', () => {
     await service.prisma.user.create({
       data: { email: 'accept-synced@x.com', clerkId: 'user_accept_sync_1' },
     })
-    vi.spyOn(stubClerkInvitations(), 'getTeamInviteMetadata').mockResolvedValue(
-      {
-        organizationSlug: ORG_SLUG,
-        role: 'volunteer',
-        name: 'Synced Acceptor',
-        invitedByUserId: service.user.id,
-      },
-    )
+    mockInviteState({
+      organizationSlug: ORG_SLUG,
+      role: 'volunteer',
+      name: 'Synced Acceptor',
+      invitedByUserId: service.user.id,
+    })
     vi.spyOn(
       stubClerkInvitations(),
       'clearTeamInviteMetadata',
@@ -793,14 +801,12 @@ describe('POST /v1/organizations/team/invites/accept', () => {
     await service.prisma.user.create({
       data: { email: 'accept-resilient@x.com', clerkId: 'user_accept_res_1' },
     })
-    vi.spyOn(stubClerkInvitations(), 'getTeamInviteMetadata').mockResolvedValue(
-      {
-        organizationSlug: ORG_SLUG,
-        role: 'campaignAdmin',
-        name: 'Resilient Acceptor',
-        invitedByUserId: service.user.id,
-      },
-    )
+    mockInviteState({
+      organizationSlug: ORG_SLUG,
+      role: 'campaignAdmin',
+      name: 'Resilient Acceptor',
+      invitedByUserId: service.user.id,
+    })
     vi.spyOn(
       stubClerkInvitations(),
       'clearTeamInviteMetadata',
@@ -829,14 +835,12 @@ describe('POST /v1/organizations/team/invites/accept', () => {
         firstName: 'Existing',
       },
     })
-    vi.spyOn(stubClerkInvitations(), 'getTeamInviteMetadata').mockResolvedValue(
-      {
-        organizationSlug: ORG_SLUG,
-        role: 'campaignAdmin',
-        name: 'Invite Name',
-        invitedByUserId: service.user.id,
-      },
-    )
+    mockInviteState({
+      organizationSlug: ORG_SLUG,
+      role: 'campaignAdmin',
+      name: 'Invite Name',
+      invitedByUserId: service.user.id,
+    })
     vi.spyOn(
       stubClerkInvitations(),
       'clearTeamInviteMetadata',
@@ -863,14 +867,12 @@ describe('POST /v1/organizations/team/invites/accept', () => {
     await service.prisma.user.create({
       data: { email: 'twice@x.com', clerkId: 'user_twice_1' },
     })
-    vi.spyOn(stubClerkInvitations(), 'getTeamInviteMetadata').mockResolvedValue(
-      {
-        organizationSlug: ORG_SLUG,
-        role: 'campaignAdmin',
-        name: 'Twice',
-        invitedByUserId: service.user.id,
-      },
-    )
+    mockInviteState({
+      organizationSlug: ORG_SLUG,
+      role: 'campaignAdmin',
+      name: 'Twice',
+      invitedByUserId: service.user.id,
+    })
     vi.spyOn(
       stubClerkInvitations(),
       'clearTeamInviteMetadata',
@@ -904,9 +906,7 @@ describe('POST /v1/organizations/team/invites/accept', () => {
     await service.prisma.user.create({
       data: { email: 'nothing@x.com', clerkId: 'user_nothing_1' },
     })
-    vi.spyOn(stubClerkInvitations(), 'getTeamInviteMetadata').mockResolvedValue(
-      null,
-    )
+    mockInviteState(null)
 
     const result = await service.client.post(
       ACCEPT_PATH,
@@ -915,6 +915,284 @@ describe('POST /v1/organizations/team/invites/accept', () => {
     )
 
     expect(result.status).toBe(404)
+  })
+
+  // ENG-11027: an invitee who signed up organically (not through the
+  // ticket) never received the metadata copy — accept falls back to the
+  // pending invitation addressed to their verified email.
+  it('falls back to the pending invitation on a verified email and revokes it', async () => {
+    await createOrg()
+    const invitee = await service.prisma.user.create({
+      data: { email: 'organic@x.com', clerkId: 'user_organic_1' },
+    })
+    mockInviteState(null, ['organic@x.com'])
+    const findByEmail = vi
+      .spyOn(stubClerkInvitations(), 'findPendingTeamInvitationsByEmail')
+      .mockResolvedValue([
+        mockInvitation({
+          id: 'inv_fallback_1',
+          emailAddress: 'organic@x.com',
+          publicMetadata: {
+            organizationSlug: ORG_SLUG,
+            role: 'campaignAdmin',
+            name: 'Organic Signup',
+            invitedByUserId: service.user.id,
+          },
+        }),
+      ])
+    const revoke = vi
+      .spyOn(stubClerkInvitations(), 'revokeInvitation')
+      .mockResolvedValue(mockInvitation({ id: 'inv_fallback_1' }))
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadata',
+    ).mockResolvedValue(undefined)
+    vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+
+    const result = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_organic_1') },
+    )
+
+    expect(result.status).toBe(201)
+    expect(result.data).toEqual({
+      organizationSlug: ORG_SLUG,
+      role: 'campaignAdmin',
+    })
+    expect(findByEmail).toHaveBeenCalledWith('organic@x.com')
+    expect(revoke).toHaveBeenCalledWith('inv_fallback_1')
+
+    const row = await service.prisma.organizationMembership.findUnique({
+      where: {
+        organizationSlug_userId: {
+          organizationSlug: ORG_SLUG,
+          userId: invitee.id,
+        },
+      },
+    })
+    expect(row?.role).toBe('campaignAdmin')
+  })
+
+  it('still succeeds when revoking the fallback invitation fails', async () => {
+    await createOrg()
+    const invitee = await service.prisma.user.create({
+      data: { email: 'organic-revoke@x.com', clerkId: 'user_organic_2' },
+    })
+    mockInviteState(null, ['organic-revoke@x.com'])
+    vi.spyOn(
+      stubClerkInvitations(),
+      'findPendingTeamInvitationsByEmail',
+    ).mockResolvedValue([
+      mockInvitation({
+        id: 'inv_fallback_2',
+        emailAddress: 'organic-revoke@x.com',
+        publicMetadata: {
+          organizationSlug: ORG_SLUG,
+          role: 'campaignAdmin',
+          name: 'Organic Signup',
+          invitedByUserId: service.user.id,
+        },
+      }),
+    ])
+    vi.spyOn(stubClerkInvitations(), 'revokeInvitation').mockRejectedValue(
+      new Error('clerk down'),
+    )
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadata',
+    ).mockResolvedValue(undefined)
+    vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+
+    const result = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_organic_2') },
+    )
+
+    expect(result.status).toBe(201)
+    const row = await service.prisma.organizationMembership.findUnique({
+      where: {
+        organizationSlug_userId: {
+          organizationSlug: ORG_SLUG,
+          userId: invitee.id,
+        },
+      },
+    })
+    expect(row).not.toBeNull()
+  })
+
+  it('never consults pending invitations when the user has no verified email', async () => {
+    await createOrg()
+    await service.prisma.user.create({
+      data: { email: 'unverified@x.com', clerkId: 'user_unverified_1' },
+    })
+    mockInviteState(null, [])
+    const findByEmail = vi.spyOn(
+      stubClerkInvitations(),
+      'findPendingTeamInvitationsByEmail',
+    )
+
+    const result = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_unverified_1') },
+    )
+
+    expect(result.status).toBe(404)
+    expect(findByEmail).not.toHaveBeenCalled()
+  })
+
+  it('redeems when two verified emails hold invites to the same org', async () => {
+    await createOrg()
+    const invitee = await service.prisma.user.create({
+      data: { email: 'two-emails@x.com', clerkId: 'user_two_emails_1' },
+    })
+    mockInviteState(null, ['two-emails@x.com', 'work@x.com'])
+    vi.spyOn(
+      stubClerkInvitations(),
+      'findPendingTeamInvitationsByEmail',
+    ).mockImplementation(async (email: string) => [
+      mockInvitation({
+        id: email === 'work@x.com' ? 'inv_work' : 'inv_personal',
+        emailAddress: email,
+        publicMetadata: {
+          organizationSlug: ORG_SLUG,
+          role: 'campaignAdmin',
+          name: 'Two Emails',
+          invitedByUserId: service.user.id,
+        },
+      }),
+    ])
+    vi.spyOn(stubClerkInvitations(), 'revokeInvitation').mockResolvedValue(
+      mockInvitation({ id: 'inv_personal' }),
+    )
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadata',
+    ).mockResolvedValue(undefined)
+    vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+
+    const result = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_two_emails_1') },
+    )
+
+    expect(result.status).toBe(201)
+    const row = await service.prisma.organizationMembership.findUnique({
+      where: {
+        organizationSlug_userId: {
+          organizationSlug: ORG_SLUG,
+          userId: invitee.id,
+        },
+      },
+    })
+    expect(row).not.toBeNull()
+  })
+
+  it('404s when several pending invitations match rather than guessing', async () => {
+    await createOrg()
+    await service.prisma.user.create({
+      data: { email: 'ambiguous@x.com', clerkId: 'user_ambiguous_1' },
+    })
+    mockInviteState(null, ['ambiguous@x.com'])
+    vi.spyOn(
+      stubClerkInvitations(),
+      'findPendingTeamInvitationsByEmail',
+    ).mockResolvedValue([
+      mockInvitation({ id: 'inv_a', emailAddress: 'ambiguous@x.com' }),
+      mockInvitation({
+        id: 'inv_b',
+        emailAddress: 'ambiguous@x.com',
+        publicMetadata: {
+          organizationSlug: 'another-org',
+          role: 'campaignAdmin',
+          name: 'Ambiguous',
+          invitedByUserId: service.user.id,
+        },
+      }),
+    ])
+
+    const result = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_ambiguous_1') },
+    )
+
+    expect(result.status).toBe(404)
+    expect(await service.prisma.organizationMembership.count()).toBe(0)
+  })
+})
+
+describe('GET /v1/organizations/team/invites/mine', () => {
+  const MINE_PATH = `${TEAM_PATH}/invites/mine`
+
+  it('returns the invite off the Clerk metadata copy', async () => {
+    await service.prisma.user.create({
+      data: { email: 'mine-meta@x.com', clerkId: 'user_mine_1' },
+    })
+    mockInviteState({
+      organizationSlug: ORG_SLUG,
+      role: 'campaignAdmin',
+      name: 'Mine Meta',
+      invitedByUserId: service.user.id,
+    })
+
+    const result = await service.client.get(MINE_PATH, {
+      headers: authHeaderFor('user_mine_1'),
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data).toEqual({
+      invite: { organizationSlug: ORG_SLUG, role: 'campaignAdmin' },
+    })
+  })
+
+  it('falls back to the pending invitation without consuming it', async () => {
+    await service.prisma.user.create({
+      data: { email: 'mine-fallback@x.com', clerkId: 'user_mine_2' },
+    })
+    mockInviteState(null, ['mine-fallback@x.com'])
+    vi.spyOn(
+      stubClerkInvitations(),
+      'findPendingTeamInvitationsByEmail',
+    ).mockResolvedValue([
+      mockInvitation({
+        id: 'inv_mine_1',
+        emailAddress: 'mine-fallback@x.com',
+      }),
+    ])
+    const revoke = vi.spyOn(stubClerkInvitations(), 'revokeInvitation')
+
+    const result = await service.client.get(MINE_PATH, {
+      headers: authHeaderFor('user_mine_2'),
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data).toEqual({
+      invite: { organizationSlug: ORG_SLUG, role: 'campaignAdmin' },
+    })
+    expect(revoke).not.toHaveBeenCalled()
+    expect(await service.prisma.organizationMembership.count()).toBe(0)
+  })
+
+  it('returns null when nothing is pending', async () => {
+    await service.prisma.user.create({
+      data: { email: 'mine-none@x.com', clerkId: 'user_mine_3' },
+    })
+    mockInviteState(null, ['mine-none@x.com'])
+    vi.spyOn(
+      stubClerkInvitations(),
+      'findPendingTeamInvitationsByEmail',
+    ).mockResolvedValue([])
+
+    const result = await service.client.get(MINE_PATH, {
+      headers: authHeaderFor('user_mine_3'),
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data).toEqual({ invite: null })
   })
 })
 

@@ -18,6 +18,7 @@ import { ZodValidationPipe } from 'nestjs-zod'
 import {
   AcceptInviteResponseSchema,
   InviteMemberResponseSchema,
+  MyPendingInviteResponseSchema,
   TeamResponseSchema,
 } from '@goodparty_org/contracts'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
@@ -112,12 +113,28 @@ export class TeamController {
     await this.team.revokeInvite(organization, id)
   }
 
+  // Session-only and ungated, same reasoning as accept below: it resolves
+  // only the caller's own pending invite (no org scope exists yet), returns
+  // nothing unless an invite was created while the flag was on, and gating
+  // it would strand an in-flight invitee if the flag ramps back down.
+  // A verified M2M token passes SessionGuard without populating
+  // request.user — these session-only routes must tolerate that instead of
+  // dereferencing undefined.
+  @Get('invites/mine')
+  @ResponseSchema(MyPendingInviteResponseSchema)
+  getMyPendingInvite(@ReqUser() user: User | undefined) {
+    return user ? this.team.getMyPendingInvite(user) : { invite: null }
+  }
+
   // Ungated on purpose: invites cannot exist unless the flag was on when
   // they were created, so this is unreachable until then, and gating it
   // would strand an in-flight invitee if the flag ramps back down.
   @Post('invites/accept')
   @ResponseSchema(AcceptInviteResponseSchema)
-  acceptInvite(@ReqUser() user: User) {
+  acceptInvite(@ReqUser() user: User | undefined) {
+    if (!user) {
+      throw new NotFoundException('No pending invitation found')
+    }
     return this.team.acceptInvite(user)
   }
 

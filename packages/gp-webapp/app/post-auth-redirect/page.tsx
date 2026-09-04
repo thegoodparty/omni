@@ -197,9 +197,31 @@ const PostAuthRedirectPage = () => {
         // re-reads Clerk at accept time — but a successful schema parse is
         // enough to justify a routing detour, so a malformed/absent
         // publicMetadata value can never hijack sign-in routing.
-        const hasPendingTeamInvite = TeamInviteMetadataSchema.safeParse(
+        let hasPendingTeamInvite = TeamInviteMetadataSchema.safeParse(
           clerkUser?.publicMetadata,
         ).success
+        // An invitee who signed up organically never received Clerk's
+        // metadata copy (ENG-11027) — gp-api resolves their invite from the
+        // pending invitation on their verified email instead. Probed only
+        // for zero-org sessions: that's every pre-onboarding sign-in (the
+        // cohort an unaccepted invite can apply to), and it keeps this
+        // Clerk-backed lookup off the hot path of every established user's
+        // login.
+        if (!hasPendingTeamInvite && organizations.length === 0) {
+          try {
+            const inviteRes = await clientRequest(
+              'GET /v1/organizations/team/invites/mine',
+              {},
+              { ignoreResponseError: true },
+            )
+            hasPendingTeamInvite = inviteRes.ok && !!inviteRes.data.invite
+          } catch {
+            // ignoreResponseError only suppresses HTTP errors — a transport
+            // failure here still throws, and letting it reach the outer
+            // catch would abandon the whole resolution flow instead of just
+            // this best-effort probe.
+          }
+        }
 
         const resolvedPath = resolvePostAuthRedirectPath(
           user,

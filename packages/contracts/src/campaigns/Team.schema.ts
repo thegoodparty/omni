@@ -51,3 +51,20 @@ export const AcceptInviteResponseSchema = z.object({
 })
 
 export type AcceptInviteResponse = z.infer<typeof AcceptInviteResponseSchema>
+
+// GET /organizations/team/invites/mine: the signed-in user's own pending
+// invite, resolved server-side — the Clerk publicMetadata copy first, then
+// the pending-invitation fallback by verified email for an invitee who
+// signed up organically (ENG-11027). Null when none.
+export const MyPendingInviteResponseSchema = z.object({
+  invite: z
+    .object({
+      organizationSlug: z.string(),
+      role: TeamInviteRoleSchema,
+    })
+    .nullable(),
+})
+
+export type MyPendingInviteResponse = z.infer<
+  typeof MyPendingInviteResponseSchema
+>
