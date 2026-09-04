@@ -117,7 +117,7 @@ export class AreaCodeFromZipService {
     zipCode: string,
   ): Promise<string[] | null> {
     const prompt = `What are the area codes (NPA codes) for the zip code ${zipCode} in the United States?
-      Please respond with ONLY a JSON array of area code strings (3-digit numbers), for example: ["415", "510"].
+      Please respond with ONLY a JSON array of area code strings (3-digit numbers).
       If you cannot determine the area codes, respond with an empty array: [].`
 
     let jsonContent: string
@@ -148,30 +148,33 @@ export class AreaCodeFromZipService {
       return null
     }
 
-    try {
-      const validationResult = AreaCodeResponseSchema.safeParse(
-        JSON.parse(jsonContent),
-      )
+    // The model often wraps the answer in prose instead of returning bare
+    // JSON, so JSON.parse of the whole string throws and forces a national
+    // number. Scan every bracketed array and take the first that is a valid,
+    // non-empty area-code list: the answer precedes any trailing "[]" the
+    // model mentions, and the prompt carries no example array to echo.
+    const candidates = jsonContent.match(/\[[^\]]*\]/g) ?? []
 
-      if (!validationResult.success) {
-        this.logger.error(
-          {
-            errors: validationResult.error.issues,
-            jsonContent,
-          },
-          `Invalid area codes response format from OpenAI for zip ${zipCode}:`,
+    for (const candidate of candidates) {
+      try {
+        const validationResult = AreaCodeResponseSchema.safeParse(
+          JSON.parse(candidate),
         )
-        return null
-      }
 
-      return validationResult.data
-    } catch (error) {
-      this.logger.error(
-        { jsonContent },
-        `Error parsing JSON response from OpenAI for zip ${zipCode}: ${error}`,
-      )
-      return null
+        if (validationResult.success && validationResult.data.length > 0) {
+          return validationResult.data
+        }
+      } catch {
+        // Not JSON (e.g. an unquoted "[504]" in prose) — try the next match
+        continue
+      }
     }
+
+    this.logger.error(
+      { jsonContent },
+      `No valid area codes array found in OpenAI response for zip ${zipCode}`,
+    )
+    return null
   }
 
   private async saveAreaCodesToS3(
