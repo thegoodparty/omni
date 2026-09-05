@@ -118,7 +118,13 @@ export default async function candidateAccess(): Promise<void> {
     // nav, so a typed /dashboard/* URL can never render a manager UI shell
     // for them. Server-side because every dashboard page routes through this
     // gate before it renders anything.
-    if (await isActiveOrgVolunteer()) {
+    //
+    // Exception: a /print/ download route (the phone-banking and
+    // door-knocking call-sheet PDFs) is hit via a bare <a href>, not a page
+    // navigation — bouncing it to /volunteer would swap the file download
+    // for an HTML page. An assigned volunteer's request is still authorized
+    // by gp-api itself (ENG-11050), so skip the bounce for these (ENG-11054).
+    if (!pathname.includes('/print/') && (await isActiveOrgVolunteer())) {
       return redirect(VOLUNTEER_PATH)
     }
   }

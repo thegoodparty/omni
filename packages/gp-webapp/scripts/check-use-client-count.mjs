@@ -335,11 +335,21 @@ import { dirname, join, relative } from 'node:path'
 // VolunteerTopBar.tsx). It holds the profile-dropdown open/close state and
 // reads useUser()/the org-picker context, same reason app/volunteer/layout.tsx
 // stays a server component and this is its one client leaf.
-// 2026-09-05: 598 -> 599 for the outreach drawer's Assignees section
+// 2026-09-05: 598 -> 599 for the volunteer assignments page (ENG-11053,
+// AssignmentsPage.tsx). It runs a React Query fetch, reads useOrganization(),
+// and handles retry — the route itself (app/volunteer/page.tsx) stays a
+// server component and renders no directive. AssignmentCard.tsx is a plain
+// presentational child with no hooks of its own, so it carries none.
+// 2026-09-05: 599 -> 600 for the volunteer door-knocking walk (ENG-11055,
+// VolunteerWalkPage.tsx). It runs several React Query fetches, a live-location
+// watch and the walk session/completion mutations — the route itself
+// (app/volunteer/door-knocking/[turfId]/page.tsx) stays a server component,
+// validating the id param and rendering no directive of its own.
+// 2026-09-05: 600 -> 601 for the outreach drawer's Assignees section
 // (ENG-11056, OutreachAssigneesSection.tsx). It holds picker/dialog open
 // state and drives assign/remove/invite mutations against a query cache, so
 // it can't be a server component — same reasoning as TeamPage.tsx above.
-const BASELINE = 599
+const BASELINE = 601
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

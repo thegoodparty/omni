@@ -474,6 +474,25 @@ describe('WalkView', () => {
     ).toBeTruthy()
   })
 
+  // ENG-11055: the volunteer walk composes this view with no archive handler
+  // at all — `useWalkArchive` is manager-only — so the button has to be
+  // absent rather than wired to a no-op a volunteer could press.
+  it('renders no archive button when the walk has no archive handler', async () => {
+    render(
+      <WalkView
+        turfId={3}
+        selectedStopId={null}
+        onSelectStop={vi.fn()}
+        liveLocation={{ status: 'off', fix: null, approximate: false }}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    expect(screen.queryByRole('button', { name: 'Move to archive' })).toBeNull()
+  })
+
   // The canvas segments its bar by outcome. Ours was one blue bar with the
   // counts underneath, recorded as a deliberate departure — overturned by the
   // product owner on 2026-08-25 (audit item 14). `unknown` is deliberately not

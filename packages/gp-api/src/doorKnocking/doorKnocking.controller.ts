@@ -36,8 +36,10 @@ import {
   UpdateDoorKnockingTurfSchema,
 } from '@goodparty_org/contracts'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { AllowVolunteer } from '@/organizations/decorators/AllowVolunteer.decorator'
 import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
+import { ReqOrganizationRole } from '@/organizations/decorators/ReqOrganizationRole.decorator'
 import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
 import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
 import { UseElectedOffice } from '@/electedOffice/decorators/UseElectedOffice.decorator'
@@ -48,6 +50,7 @@ import {
   Campaign,
   ElectedOffice,
   Organization,
+  OrganizationRole,
   User,
 } from '../generated/prisma'
 import { DoorKnockingTurfService } from './services/doorKnockingTurf.service'
@@ -67,6 +70,13 @@ import {
 // EXCEPT the two suppression writes below. Reads are gated alongside the
 // writes: a map you can open but cannot route is a worse answer than an
 // upgrade prompt, and creating a list spends real Geoapify routing credits.
+//
+// Six routes additionally carry @AllowVolunteer() (ENG-11051): a volunteer's
+// walk — turf get, route serve, complete, interactions, do-not-knock,
+// not-a-voter — scoped to their own OutreachAssignment by the service layer
+// (see doorKnockingAccess.util.ts). Everything else (create, list, update,
+// delete, archive, pack, quota, address-preview) stays manager+ by the
+// guard's default posture.
 @Controller('door-knocking')
 export class DoorKnockingController {
   constructor(
@@ -195,15 +205,21 @@ export class DoorKnockingController {
   // and PDF was titled with the fallback. The routes suite and the
   // print-walk-list e2e spec read it too, the latter as the control proving a
   // turf exists before asserting the print route's own failure.
+  // A volunteer reads the turf + route they were assigned to walk
+  // (ENG-11051) — the assignment-scoped check lives in the service, keyed
+  // off the resolved organizationRole this decorator admits volunteers past.
   @Get('turfs/:id')
   @UseOrganization()
+  @AllowVolunteer()
   @ResponseSchema(DoorKnockingTurfSchema)
   async getTurf(
     @Param('id', ParseIntPipe) id: number,
     @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+    @ReqOrganizationRole() role: OrganizationRole,
   ) {
     await this.contacts.assertProAccess(organization)
-    return this.turfService.get(id, organization.slug)
+    return this.turfService.get(id, organization.slug, user.id, role)
   }
 
   @Put('turfs/:id')
@@ -236,16 +252,20 @@ export class DoorKnockingController {
   // two write the Outreach envelope the turf hangs off. They take a turf id
   // because that is what the client holds; the envelope is one @unique hop
   // away.
+  // A volunteer ends the knocking session on the turf they were assigned
+  // (ENG-11051).
   @Post('turfs/:id/complete')
   @UseOrganization()
+  @AllowVolunteer()
   @ResponseSchema(DoorKnockingTurfSchema)
   async completeTurf(
     @Param('id', ParseIntPipe) id: number,
     @ReqOrganization() organization: Organization,
     @ReqUser() user: User,
+    @ReqOrganizationRole() role: OrganizationRole,
   ) {
     await this.contacts.assertProAccess(organization)
-    return this.turfService.complete(id, organization.slug, user.id)
+    return this.turfService.complete(id, organization.slug, user.id, role)
   }
 
   // One route with a body rather than archive/unarchive as a pair: the client
@@ -264,15 +284,19 @@ export class DoorKnockingController {
     return this.turfService.setArchived(id, organization.slug, input.archived)
   }
 
+  // A volunteer walks the route on the turf they were assigned (ENG-11051).
   @Get('turfs/:id/route')
   @UseOrganization()
+  @AllowVolunteer()
   @ResponseSchema(DoorKnockingRoutePayloadSchema)
   async serveRoute(
     @Param('id', ParseIntPipe) id: number,
     @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+    @ReqOrganizationRole() role: OrganizationRole,
   ) {
     await this.contacts.assertProAccess(organization)
-    return this.serveService.serve(id, organization)
+    return this.serveService.serve(id, organization, user.id, role)
   }
 
   // Returns the stream rather than awaiting the pack: awaiting it kept the
@@ -325,17 +349,20 @@ export class DoorKnockingController {
     return this.quotaService.read(organization)
   }
 
+  // A volunteer logs a knock on a door in their assigned turf (ENG-11051).
   @Post('interactions')
   @UseOrganization()
+  @AllowVolunteer()
   @ResponseSchema(RecordDoorKnockInteractionResponseSchema)
   async recordInteraction(
     @ReqOrganization() organization: Organization,
     @ReqUser() user: User,
+    @ReqOrganizationRole() role: OrganizationRole,
     @Body(new ZodValidationPipe(RecordDoorKnockInteractionSchema))
     input: RecordDoorKnockInteraction,
   ) {
     await this.contacts.assertProAccess(organization)
-    return this.interactionService.record(organization, user.id, input)
+    return this.interactionService.record(organization, user.id, input, role)
   }
 
   // ADR 0007, and the first of the two deliberate holes in the Pro gate above.
@@ -346,14 +373,21 @@ export class DoorKnockingController {
   // return, even though every other route here now 400s for it.
   @Post('do-not-knock')
   @UseOrganization()
+  @AllowVolunteer()
   @ResponseSchema(SetDoNotKnockResponseSchema)
   setDoNotKnock(
     @ReqOrganization() organization: Organization,
     @ReqUser() user: User,
+    @ReqOrganizationRole() role: OrganizationRole,
     @Body(new ZodValidationPipe(SetDoNotKnockSchema))
     input: SetDoNotKnock,
   ) {
-    return this.interactionService.setDoNotKnock(organization, user.id, input)
+    return this.interactionService.setDoNotKnock(
+      organization,
+      user.id,
+      input,
+      role,
+    )
   }
 
   // ADR 0008, and the second hole. Ungated for the same reason as
@@ -363,13 +397,20 @@ export class DoorKnockingController {
   // work a subscription buys.
   @Post('not-a-voter')
   @UseOrganization()
+  @AllowVolunteer()
   @ResponseSchema(SetNotAVoterResponseSchema)
   setNotAVoter(
     @ReqOrganization() organization: Organization,
     @ReqUser() user: User,
+    @ReqOrganizationRole() role: OrganizationRole,
     @Body(new ZodValidationPipe(SetNotAVoterSchema))
     input: SetNotAVoter,
   ) {
-    return this.interactionService.setNotAVoter(organization, user.id, input)
+    return this.interactionService.setNotAVoter(
+      organization,
+      user.id,
+      input,
+      role,
+    )
   }
 }

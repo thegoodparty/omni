@@ -1,10 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import {
   DoorKnockingTurf,
   UpdateDoorKnockingTurf,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { OutreachStatus, Prisma } from '../../generated/prisma'
+import {
+  OrganizationRole,
+  OutreachStatus,
+  Prisma,
+} from '../../generated/prisma'
+import { assertVolunteerAssignedToOutreach } from '../utils/doorKnockingAccess.util'
 import { lockTurf } from '../utils/turfLock.util'
 import { activeTurfScope, railTurfScope } from '../utils/turfScope.util'
 import { DoorKnockingStatsService } from './doorKnockingStats.service'
@@ -27,7 +33,7 @@ const ROUTE_INCLUDE = {
     select: {
       id: true,
       totalSeconds: true,
-      outreach: { select: { status: true, archivedAt: true } },
+      outreach: { select: { id: true, status: true, archivedAt: true } },
     },
   },
 } as const satisfies Prisma.DoorKnockingTurfInclude
@@ -97,6 +103,7 @@ export class DoorKnockingTurfService extends createPrismaBase(
   constructor(
     private readonly counts: DoorKnockingTurfCountsService,
     private readonly stats: DoorKnockingStatsService,
+    private readonly moduleRef: ModuleRef,
   ) {
     super()
   }
@@ -149,8 +156,23 @@ export class DoorKnockingTurfService extends createPrismaBase(
 
   // Same aggregate over one route. Every turf has one, so unlike the old
   // version there is no branch here that can answer without counts.
-  async get(id: number, organizationSlug: string): Promise<DoorKnockingTurf> {
+  //
+  // A volunteer's read is additionally scoped to their own assignment
+  // (ENG-11051) — an unassigned volunteer 404s exactly like a cross-org id.
+  async get(
+    id: number,
+    organizationSlug: string,
+    userId: number,
+    role: OrganizationRole | undefined,
+  ): Promise<DoorKnockingTurf> {
     const turf = await this.findForOrganization(id, organizationSlug)
+    await assertVolunteerAssignedToOutreach(
+      this.moduleRef,
+      role,
+      turf.route.outreach.id,
+      userId,
+      'Turf not found',
+    )
     return this.withCounts(turf, organizationSlug)
   }
 
@@ -217,10 +239,18 @@ export class DoorKnockingTurfService extends createPrismaBase(
     id: number,
     organizationSlug: string,
     actorUserId: number,
+    role: OrganizationRole | undefined,
   ): Promise<DoorKnockingTurf> {
     let completedNow = false
     const turf = await this.client.$transaction(async (tx) => {
       const locked = await this.lockAndFind(tx, id, organizationSlug)
+      await assertVolunteerAssignedToOutreach(
+        this.moduleRef,
+        role,
+        locked.route.outreach.id,
+        actorUserId,
+        'Turf not found',
+      )
       if (locked.route.outreach.status === OutreachStatus.completed) {
         return locked
       }

@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import {
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionResponse,
@@ -16,7 +17,9 @@ import {
   DoNotKnockStatus,
   NotAVoterStatus,
   Organization,
+  OrganizationRole,
 } from '../../generated/prisma'
+import { assertVolunteerAssignedToOutreach } from '../utils/doorKnockingAccess.util'
 import { deriveKnockStatus } from '../utils/knockStatus.util'
 
 @Injectable()
@@ -26,6 +29,7 @@ export class DoorKnockingInteractionService extends createPrismaBase(
   constructor(
     private readonly doorKnockInteractions: ContactInteractionDoorKnockService,
     private readonly contactStatus: ContactStatusService,
+    private readonly moduleRef: ModuleRef,
   ) {
     super()
   }
@@ -39,10 +43,18 @@ export class DoorKnockingInteractionService extends createPrismaBase(
     organization: Organization,
     actorUserId: number,
     input: RecordDoorKnockInteraction,
+    role: OrganizationRole | undefined,
   ): Promise<RecordDoorKnockInteractionResponse> {
-    const personId = await this.personIdForTarget(
+    const { personId, outreachId } = await this.resolveTargetForOrg(
       organization.slug,
       input.stopTargetId,
+    )
+    await assertVolunteerAssignedToOutreach(
+      this.moduleRef,
+      role,
+      outreachId,
+      actorUserId,
+      'Stop target not found',
     )
 
     const interaction = await this.doorKnockInteractions.recordIdempotent({
@@ -77,10 +89,18 @@ export class DoorKnockingInteractionService extends createPrismaBase(
     organization: Organization,
     actorUserId: number,
     input: SetDoNotKnock,
+    role: OrganizationRole | undefined,
   ): Promise<SetDoNotKnockResponse> {
-    const personId = await this.personIdForTarget(
+    const { personId, outreachId } = await this.resolveTargetForOrg(
       organization.slug,
       input.stopTargetId,
+    )
+    await assertVolunteerAssignedToOutreach(
+      this.moduleRef,
+      role,
+      outreachId,
+      actorUserId,
+      'Stop target not found',
     )
 
     await this.contactStatus.changeStatus({
@@ -115,10 +135,18 @@ export class DoorKnockingInteractionService extends createPrismaBase(
     organization: Organization,
     actorUserId: number,
     input: SetNotAVoter,
+    role: OrganizationRole | undefined,
   ): Promise<SetNotAVoterResponse> {
-    const personId = await this.personIdForTarget(
+    const { personId, outreachId } = await this.resolveTargetForOrg(
       organization.slug,
       input.stopTargetId,
+    )
+    await assertVolunteerAssignedToOutreach(
+      this.moduleRef,
+      role,
+      outreachId,
+      actorUserId,
+      'Stop target not found',
     )
 
     await this.contactStatus.changeStatus({
@@ -143,7 +171,9 @@ export class DoorKnockingInteractionService extends createPrismaBase(
 
   // Resolving through the route -> turf -> filter chain is the authorization:
   // holding a stopTargetId proves nothing on its own, but a target that
-  // resolves under the caller's org is one the caller was routed to.
+  // resolves under the caller's org is one the caller was routed to. The
+  // outreach id rides the same query (route -> outreach is the envelope, one
+  // hop) so a volunteer's assignment check costs no second round trip.
   //
   // Deliberately does NOT filter `deletedAt: null` the way `activeTurfScope`
   // does. The phone snapshots the route and syncs knocks later, so a list
@@ -153,10 +183,10 @@ export class DoorKnockingInteractionService extends createPrismaBase(
   // so this resolves nothing across a tenant; it simply does not require the
   // list to have survived the walk. Contrast the knock freeze, which does
   // filter: that one bills a Geoapify route.
-  private async personIdForTarget(
+  private async resolveTargetForOrg(
     organizationSlug: string,
     stopTargetId: number,
-  ): Promise<string> {
+  ): Promise<{ personId: string; outreachId: number }> {
     const target = await this.findFirst({
       where: {
         id: stopTargetId,
@@ -166,11 +196,23 @@ export class DoorKnockingInteractionService extends createPrismaBase(
           },
         },
       },
-      select: { personId: true },
+      select: {
+        personId: true,
+        stop: {
+          select: { route: { select: { outreach: { select: { id: true } } } } },
+        },
+      },
     })
     if (!target) {
       throw new NotFoundException('Stop target not found')
     }
-    return target.personId
+    const outreachId = target.stop.route.outreach?.id
+    if (outreachId === undefined) {
+      throw new Error(
+        `Door-knocking route for stop target ${stopTargetId} has no ` +
+          'outreach envelope; every route is created with one',
+      )
+    }
+    return { personId: target.personId, outreachId }
   }
 }
