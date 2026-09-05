@@ -666,21 +666,27 @@ export default function NativeDoorKnockingPage({
                 over a wait that runs to half a minute is the part of this that
                 got reported. The create flow says the same two sentences from
                 inside its own sheet — see `CreateListFlow` — since the sheet
-                covers this region for the whole of the wait that matters. */}
-              {!isUnresolvable && packQuery.isPending && (
-                <div className="flex h-full items-center justify-center">
-                  <LoadingAnimation
-                    title={
-                      <>
-                        {packLoadingTitle(serveMode)}
-                        <span className="mt-2 block text-base font-normal text-zinc-600">
-                          {PACK_LOADING_DURATION}
-                        </span>
-                      </>
-                    }
-                  />
-                </div>
-              )}
+                covers this region for the whole of the wait that matters.
+                Skipped when a walk was carried in (`walkTurfId` set): the
+                walk drawer's own skeleton is the loading UX for that path,
+                and a big captioned loader on the map behind it would compete
+                visually with the surface the candidate is actually watching. */}
+              {!isUnresolvable &&
+                packQuery.isPending &&
+                walkTurfId === undefined && (
+                  <div className="flex h-full items-center justify-center">
+                    <LoadingAnimation
+                      title={
+                        <>
+                          {packLoadingTitle(serveMode)}
+                          <span className="mt-2 block text-base font-normal text-zinc-600">
+                            {PACK_LOADING_DURATION}
+                          </span>
+                        </>
+                      }
+                    />
+                  </div>
+                )}
               {packQuery.isError && (
                 <p className="p-4 text-sm text-destructive">
                   {packErrorMessage(serveMode)}
