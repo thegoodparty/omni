@@ -13,7 +13,7 @@ export const ROBOCALL_PURPOSE_LABELS: Record<RobocallPurpose, string> = {
   introduce_myself: 'Introduce myself to voters',
   persuade_voters: 'Persuade likely voters',
   event_invite: 'Invite voters to a local event',
-  early_voting: 'Encourage voters to vote early',
+  early_voting: 'Encourage early voting',
   election_day_turnout: 'Encourage voters to vote on election day',
   custom: 'Write my own script',
 }

@@ -127,7 +127,7 @@ const openToAudience = async () => {
   const onClose = vi.fn()
   const onScheduled = vi.fn().mockResolvedValue(undefined)
   render(<SmsFlow open onClose={onClose} onScheduled={onScheduled} />)
-  await userEvent.click(screen.getByText('Introduce myself'))
+  await userEvent.click(screen.getByText('Introduce myself to voters'))
   expect(await screen.findByText('Who are you texting?')).toBeInTheDocument()
 }
 

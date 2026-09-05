@@ -220,7 +220,7 @@ describe('SmsFlow', () => {
     const { onScheduled } = openFlow()
 
     // Purpose
-    await userEvent.click(screen.getByText('Introduce myself'))
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
 
     // Audience: auto-filter hides the auto-generated list.
     expect(await screen.findByText('Who are you texting?')).toBeInTheDocument()
@@ -307,7 +307,7 @@ describe('SmsFlow', () => {
     })
     openFlow()
 
-    await userEvent.click(screen.getByText('Introduce myself'))
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
     await userEvent.click(await screen.findByText('Choose a voter list'))
     await userEvent.click(await screen.findByText('Likely voters'))
     await userEvent.click(
@@ -350,7 +350,7 @@ describe('SmsFlow', () => {
     }))
     openFlow()
 
-    await userEvent.click(screen.getByText('Introduce myself'))
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
     await userEvent.click(await screen.findByText('Choose a voter list'))
     await userEvent.click(await screen.findByText('Create a new list'))
 
