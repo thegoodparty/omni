@@ -17,13 +17,20 @@ Guards (in `guards/` + `decorators/`), chained in this order by
 `@UseOrganization()`:
 
 1. `UseOrganizationGuard` — reads the header, resolves a role via
-   `resolveRole`, attaches `request.organization` / `request.organizationRole`.
-   Fails closed on a `volunteer` role today (Phase 1.5 opens specific
-   surfaces deliberately) and 404s when no org/role resolves.
+   `resolveRole`, attaches `request.organization` / `request.organizationRole`
+   for any resolved membership (owner, `campaignAdmin`, or `volunteer`), and
+   404s only when no org/role resolves at all. It doesn't gate on role —
+   that's the next guard's job.
 2. `OrganizationRoleGuard` — reads `request.organizationRole` and enforces
    the team-role line: default posture is owner-or-campaignAdmin;
    `@OwnerOnly()` restricts to the owner; `@AllowVolunteer()` admits any
-   resolved role (currently unreachable — see above).
+   resolved role, including volunteer.
+
+`UseCampaignGuard` (chained by `@UseCampaign()`) follows the same division:
+it resolves and attaches, `OrganizationRoleGuard` enforces. Two other
+guards behind `X-Organization-Slug` — `UseEngagementContextGuard` (CRM) and
+`CanDownloadVoterFileGuard` — keep their own permanent volunteer denial
+instead of deferring to `OrganizationRoleGuard`; see their own comments.
 
 `@ReqOrganization()` / `@ReqOrganizationRole()` inject what the guard
 attached. Read `@UseOrganization()`'s JSDoc before changing the chain order —

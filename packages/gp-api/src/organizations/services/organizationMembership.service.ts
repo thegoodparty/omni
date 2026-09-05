@@ -15,8 +15,9 @@ export class OrganizationMembershipService extends createPrismaBase(
   // shapes so the guards never re-implement the fallback order themselves.
   // Owner path stays a single query; only a non-owner pays for the second.
   // Resolves a volunteer's real role rather than denying it here — every
-  // caller must decide for itself whether volunteer is admitted (Phase 1.5
-  // opens specific surfaces deliberately; today every guard denies it).
+  // caller decides for itself whether volunteer is admitted. UseOrganization
+  // / UseCampaign attach it and defer to OrganizationRoleGuard;
+  // UseEngagementContext and CanDownloadVoterFile still deny it themselves.
   async resolveRole(
     slug: string,
     userId: number,

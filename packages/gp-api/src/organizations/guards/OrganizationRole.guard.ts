@@ -51,11 +51,10 @@ export class OrganizationRoleGuard implements CanActivate {
       throw new ForbiddenException('Organization owner access required')
     }
 
-    // Volunteer memberships don't exist yet — every scoping guard fails
-    // closed on them before this guard ever sees `role === volunteer`. This
-    // branch is unreachable end-to-end today; it is unit-tested directly so
-    // Phase 1.5 (which opens specific surfaces by loosening those guards)
-    // lands on an already-proven admission path.
+    // Phase 1.5: UseOrganizationGuard / UseCampaignGuard now resolve and
+    // attach any membership, including volunteer, so this branch is
+    // reachable end-to-end on any route carrying @AllowVolunteer(). No
+    // route carries it yet — later tickets open specific surfaces.
     const allowVolunteer = this.reflector.getAllAndOverride<boolean>(
       ALLOW_VOLUNTEER_KEY,
       [context.getHandler(), context.getClass()],

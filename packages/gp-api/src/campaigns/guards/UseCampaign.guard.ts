@@ -58,11 +58,11 @@ export class UseCampaignGuard implements CanActivate {
         slug,
         userId,
       )
-      // Fail closed: volunteer memberships don't exist yet, but this guard
-      // backs write routes across most feature modules, so a future
-      // volunteer row must not get in here by default (Phase 1.5 grants
-      // specific surfaces deliberately).
-      if (resolved && resolved.role !== OrganizationRole.volunteer) {
+      // This guard only resolves and attaches — it doesn't gate on role.
+      // OrganizationRoleGuard (next in @UseCampaign()'s guard chain)
+      // enforces the team-role line, so a volunteer reaches it as a
+      // resolved member and gets a 403 there, not a 404 here.
+      if (resolved) {
         campaign = await this.campaignsService.findFirst({
           where: { organizationSlug: slug },
           include,
@@ -76,6 +76,12 @@ export class UseCampaignGuard implements CanActivate {
       request.organizationRole = role
       return true
     } else if (continueIfNotFound === true) {
+      // A resolved member of a campaign-less org must still carry their
+      // role, or OrganizationRoleGuard's unset-role passthrough would let
+      // a volunteer through unenforced on solo-@UseCampaign routes.
+      if (role) {
+        request.organizationRole = role
+      }
       return true
     }
 
