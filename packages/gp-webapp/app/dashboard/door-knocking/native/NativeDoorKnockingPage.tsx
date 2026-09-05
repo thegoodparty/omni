@@ -628,9 +628,18 @@ export default function NativeDoorKnockingPage({
       />
     ) : null
 
+  // Full-page loader while entering walk mode — the pack (map data)
+  // takes 4.5s p50 / 34s p95, and the walk sheet + map need it before
+  // anything on screen is useful. Show once we know the user is heading
+  // to a walk (`walkTurfId` was carried in) and pack hasn't landed yet.
+  // Skip when exiting (isExiting owns the whole screen already) and once
+  // the walk surface has opened (walk sheet takes over the wait UI).
+  const showWalkEnteringLoader =
+    !isExiting && walkTurfId !== undefined && !walkTurf && packQuery.isPending
+
   return (
     <>
-      {isExiting &&
+      {(isExiting || showWalkEnteringLoader) &&
         typeof document !== 'undefined' &&
         createPortal(
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background">
