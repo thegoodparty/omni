@@ -90,7 +90,10 @@ let assignments: MyAssignment[]
 
 beforeEach(() => {
   testQueryClient.clear()
-  mockUseOrganization.mockReturnValue({ slug: 'org-1' })
+  mockUseOrganization.mockReturnValue({
+    slug: 'org-1',
+    name: 'Renee Wells for City Council',
+  })
   assignments = [phoneBankingAssignment, doorKnockingAssignment]
   api.mock('GET /v1/outreach/assignments/mine', () => ({
     status: 200,
@@ -103,6 +106,11 @@ describe('AssignmentsPage — rendering assignments', () => {
     render(<AssignmentsPage />)
 
     expect(await screen.findByText('Call list A')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'You have 2 assignments from Renee Wells for City Council.',
+      ),
+    ).toBeInTheDocument()
     expect(screen.getByText('Turf B')).toBeInTheDocument()
     expect(screen.getAllByText('Phone banking').length).toBeGreaterThan(0)
     expect(screen.getByText('Door knocking')).toBeInTheDocument()
@@ -150,8 +158,24 @@ describe('AssignmentsPage — empty / loading / error triad', () => {
 
     render(<AssignmentsPage />)
 
-    expect(await screen.findByText('No assignments yet')).toBeInTheDocument()
+    expect(
+      await screen.findByText('You do not have any assignments yet.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Your campaign will send you a list or route when they are ready.',
+      ),
+    ).toBeInTheDocument()
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  })
+
+  it('omits the subtext when there are no assignments', async () => {
+    assignments = []
+
+    render(<AssignmentsPage />)
+
+    await screen.findByText('You do not have any assignments yet.')
+    expect(screen.queryByText(/You have/)).not.toBeInTheDocument()
   })
 
   it('renders skeletons while the fetch is pending, never the empty state', () => {
@@ -166,8 +190,11 @@ describe('AssignmentsPage — empty / loading / error triad', () => {
 
     const { container } = render(<AssignmentsPage />)
 
-    expect(screen.queryByText('No assignments yet')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('You do not have any assignments yet.'),
+    ).not.toBeInTheDocument()
     expect(screen.queryByText('Call list A')).not.toBeInTheDocument()
+    expect(screen.queryByText(/You have/)).not.toBeInTheDocument()
     expect(
       container.querySelectorAll('[data-slot="skeleton"]').length,
     ).toBeGreaterThan(0)
@@ -188,8 +215,11 @@ describe('AssignmentsPage — empty / loading / error triad', () => {
     expect(
       await screen.findByText('Couldn’t load your assignments'),
     ).toBeInTheDocument()
-    expect(screen.queryByText('No assignments yet')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('You do not have any assignments yet.'),
+    ).not.toBeInTheDocument()
     expect(screen.queryByText('Call list A')).not.toBeInTheDocument()
+    expect(screen.queryByText(/You have/)).not.toBeInTheDocument()
 
     let refetched = false
     api.mock('GET /v1/outreach/assignments/mine', () => {
@@ -200,5 +230,64 @@ describe('AssignmentsPage — empty / loading / error triad', () => {
 
     await waitFor(() => expect(refetched).toBe(true))
     expect(await screen.findByText('Call list A')).toBeInTheDocument()
+  })
+})
+
+describe('AssignmentsPage — AssignmentCard CTA labels', () => {
+  it('labels the action "Call this list" / "Walk this route" at zero progress, with the progress line still shown', async () => {
+    assignments = [
+      {
+        ...phoneBankingAssignment,
+        phoneBanking: {
+          ...phoneBankingAssignment.phoneBanking!,
+          peopleCalled: 0,
+        },
+      },
+      {
+        ...doorKnockingAssignment,
+        doorKnocking: {
+          ...doorKnockingAssignment.doorKnocking!,
+          loggedCount: 0,
+        },
+      },
+    ]
+
+    render(<AssignmentsPage />)
+
+    expect(
+      await screen.findByRole('link', { name: 'Call this list' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'Walk this route' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('0 of 80 people reached')).toBeInTheDocument()
+    expect(screen.getByText('0 of 60 people logged')).toBeInTheDocument()
+  })
+
+  it('labels the action "Continue calling" / "Continue knocking" once progress exists, with the progress line shown', async () => {
+    render(<AssignmentsPage />)
+
+    expect(
+      await screen.findByRole('link', { name: 'Continue calling' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'Continue knocking' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('30 of 80 people reached')).toBeInTheDocument()
+    expect(screen.getByText('20 of 60 people logged')).toBeInTheDocument()
+  })
+})
+
+describe('AssignmentsPage — assignment-count subtext', () => {
+  it('renders the singular form for exactly one assignment', async () => {
+    assignments = [phoneBankingAssignment]
+
+    render(<AssignmentsPage />)
+
+    expect(
+      await screen.findByText(
+        'You have 1 assignment from Renee Wells for City Council.',
+      ),
+    ).toBeInTheDocument()
   })
 })

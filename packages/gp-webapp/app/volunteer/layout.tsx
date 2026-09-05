@@ -9,7 +9,8 @@ export const dynamic = 'force-dynamic'
  * Volunteer route group (ENG-11052, Phase 1.5 of the Team accounts TDD): a
  * volunteer gets this reductive shell instead of the campaign dashboard,
  * which assumes a campaign (nav, campaign fetches, tracker widgets). Just a
- * top bar — logo, org picker, profile dropdown — no left rail and no
+ * top bar — logo, "Volunteer" badge, org picker, profile dropdown — plus a
+ * campaign-name banner underneath (ENG-11065) — no left rail and no
  * `fetchCampaignStatus`/`candidateAccess` dependency, since neither applies
  * to a volunteer.
  *
