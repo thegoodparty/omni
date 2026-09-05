@@ -166,6 +166,43 @@ describe('VolunteerWalkPage', () => {
     expect(router.push).toHaveBeenCalledWith('/volunteer')
   })
 
+  it('shows a retry error card on a server error, and actually refetches on Try again', async () => {
+    let turfCalls = 0
+    let routeCalls = 0
+    api.mock('GET /v1/door-knocking/turfs/:id', () => {
+      turfCalls += 1
+      return { status: 500, data: { message: 'upstream error' } }
+    })
+    api.mock('GET /v1/door-knocking/turfs/:id/route', () => {
+      routeCalls += 1
+      return { status: 500, data: { message: 'upstream error' } }
+    })
+
+    render(<VolunteerWalkPage turfId={7} />)
+
+    expect(
+      await screen.findByText('Couldn’t load this route'),
+    ).toBeInTheDocument()
+    // A 500 is not a revocation — the two cards must not be conflatable.
+    expect(
+      screen.queryByText('You’re no longer assigned to this route'),
+    ).toBeNull()
+
+    await waitFor(() => expect(turfCalls).toBeGreaterThan(0))
+    await waitFor(() => expect(routeCalls).toBeGreaterThan(0))
+    const turfCallsBeforeRetry = turfCalls
+    const routeCallsBeforeRetry = routeCalls
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+    // The observable effect of the retry, not merely that the button's own
+    // handler ran: both endpoints actually go back over the wire.
+    await waitFor(() => {
+      expect(turfCalls).toBeGreaterThan(turfCallsBeforeRetry)
+      expect(routeCalls).toBeGreaterThan(routeCallsBeforeRetry)
+    })
+  })
+
   it('shows a not-assigned card when the turf is no longer this volunteer’s', async () => {
     api.mock('GET /v1/door-knocking/turfs/:id', {
       status: 404,
