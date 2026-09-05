@@ -78,6 +78,14 @@ export const useWalkMapSession = (walkTurf: { id: number } | null) => {
     routePins,
     routeLoop: routeQuery.data?.route.loop ?? false,
     routeGeometry: walkTurf ? (routeQuery.data?.pathGeometry ?? null) : null,
+    // Whether the walk's own route is still hydrating. The map region's
+    // MapLoader reads this to keep the "Loading your route" spinner up
+    // through both waits — the pack AND this route — so a walk built
+    // fresh off Build route (pack already warm, only the route to fetch)
+    // looks the same as a walk resumed off "Continue knocking" (both to
+    // fetch). Same walkview end-state either way, so the loading UX has
+    // to match too.
+    routePending: Boolean(walkTurf) && routeQuery.isPending,
     // What the session reports on the way out, for the funnel event.
     stopCount: routeQuery.data?.route.stopCount ?? 0,
     openStopRequest,

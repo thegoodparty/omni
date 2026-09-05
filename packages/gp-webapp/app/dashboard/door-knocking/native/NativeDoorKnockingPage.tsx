@@ -714,16 +714,25 @@ export default function NativeDoorKnockingPage({
                 </p>
               )}
               {/* One loader for the walk: MapLoader shows behind the walk
-                drawer while the pack downloads (and again briefly if the
-                canvas chunk hasn't landed). The dynamic-import fallback
-                above uses the same component, so pack-load → chunk-load
-                → real canvas is one continuous surface, no swap. Gated on
-                walkTurf so the create-flow arrival stays with its own
-                in-sheet loading copy — putting MapLoader behind that
-                sheet would print two competing loaders on one screen. */}
-              {walkTurf && !isUnresolvable && !packQuery.data && (
-                <MapLoader bottomPadPx={mapControlsOffset} />
-              )}
+                drawer while EITHER the pack downloads OR the walk's own
+                route hydrates. The canvas dynamic-import fallback uses
+                the same component, so pack-load → chunk-load → route-
+                fetch → real canvas is one continuous surface, no swap.
+                Gated on walkTurf so the create-flow arrival stays with
+                its own in-sheet loading copy — putting MapLoader behind
+                that sheet would print two competing loaders on one
+                screen.
+
+                The `routePending` half is what makes a fresh Build-route
+                landing look like a "Continue knocking" landing: on Build
+                route the pack is already warm from the create flow, so
+                only the route is left to fetch — without this OR, that
+                second wait sat silently on a bare district. */}
+              {walkTurf &&
+                !isUnresolvable &&
+                (!packQuery.data || walkMap.routePending) && (
+                  <MapLoader bottomPadPx={mapControlsOffset} />
+                )}
               {packQuery.isError && (
                 <p className="p-4 text-sm text-destructive">
                   {packErrorMessage(serveMode)}
