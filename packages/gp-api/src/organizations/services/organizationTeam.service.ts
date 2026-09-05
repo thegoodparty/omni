@@ -231,9 +231,20 @@ export class OrganizationTeamService {
 
         // Backfills the invite's name and phone onto a blank profile — never
         // overwrites either field the invitee already set for themselves.
+        // Re-read inside the transaction: `user` is a pre-transaction
+        // snapshot, and a profile save landing between it and this write
+        // must not be clobbered by a stale blank-field guard.
+        const currentUser = await tx.user.findUnique({
+          where: { id: user.id },
+          select: { phone: true, firstName: true, lastName: true, name: true },
+        })
         const profileUpdate: Prisma.UserUpdateInput = {}
-        if (!getUserFullName(user)) profileUpdate.name = metadata.name
-        if (metadata.phone && !user.phone) profileUpdate.phone = metadata.phone
+        if (!getUserFullName(currentUser ?? user)) {
+          profileUpdate.name = metadata.name
+        }
+        if (metadata.phone && !currentUser?.phone) {
+          profileUpdate.phone = metadata.phone
+        }
         if (Object.keys(profileUpdate).length > 0) {
           await tx.user.update({
             where: { id: user.id },
@@ -589,9 +600,9 @@ export class OrganizationTeamService {
               invitedByUserId,
               tx,
             )
-            if (phone && !existingUser.phone) {
-              await tx.user.update({
-                where: { id: existingUser.id },
+            if (phone) {
+              await tx.user.updateMany({
+                where: { id: existingUser.id, phone: null },
                 data: { phone },
               })
             }
@@ -601,9 +612,9 @@ export class OrganizationTeamService {
             const membership = await tx.organizationMembership.create({
               data: membershipData,
             })
-            if (phone && !existingUser.phone) {
-              await tx.user.update({
-                where: { id: existingUser.id },
+            if (phone) {
+              await tx.user.updateMany({
+                where: { id: existingUser.id, phone: null },
                 data: { phone },
               })
             }

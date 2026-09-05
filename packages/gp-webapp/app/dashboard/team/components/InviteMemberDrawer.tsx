@@ -128,6 +128,9 @@ const InviteMemberDrawer = ({
         onInteractOutside={(event) => {
           if (inviteMutation.isPending) event.preventDefault()
         }}
+        onEscapeKeyDown={(event) => {
+          if (inviteMutation.isPending) event.preventDefault()
+        }}
       >
         <DrawerHandle />
         <DrawerHeader className="gap-3 px-6 pt-2 pb-4">
