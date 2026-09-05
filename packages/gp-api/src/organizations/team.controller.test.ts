@@ -5,6 +5,7 @@ import { EmailService } from '@/email/email.service'
 import { ClerkInvitationsService } from '@/vendors/clerk/services/clerkInvitations.service'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { CrmTeamMembersService } from '@/crm/crmTeamMembers.service'
+import { OutreachAssignmentService } from '@/outreach/services/outreachAssignment.service'
 import { ClerkClient, Invitation } from '@clerk/backend'
 import { TeamInviteMetadata } from '@goodparty_org/contracts'
 import jwt from 'jsonwebtoken'
@@ -41,6 +42,23 @@ const addMembership = (userId: number, role: OrganizationRole) =>
   service.prisma.organizationMembership.create({
     data: { organizationSlug: ORG_SLUG, userId, role },
   })
+
+// A real Outreach row this org can list-scope a volunteer invite to —
+// assertOutreachInOrg resolves it through the campaign join.
+// Campaign.organizationSlug is @unique, so callers use this at most once per
+// org per test.
+const createOutreachForOrg = async (organizationSlug = ORG_SLUG) => {
+  const campaign = await service.prisma.campaign.create({
+    data: {
+      organizationSlug,
+      userId: service.user.id,
+      slug: `${organizationSlug}-outreach-campaign`,
+    },
+  })
+  return service.prisma.outreach.create({
+    data: { campaignId: campaign.id, outreachType: 'text' },
+  })
+}
 
 const createOtherOwnedOrg = async () => {
   const otherOwner = await service.prisma.user.create({
@@ -156,7 +174,37 @@ describe('GET /v1/organizations/team', () => {
         id: 'inv_1',
         email: 'invitee@example.com',
         role: 'campaignAdmin',
+        outreachId: null,
       }),
+    ])
+  })
+
+  // ENG-11049/ENG-11056: the manager drawer filters pending invites by
+  // outreachId, so a list-scoped volunteer invite must surface it.
+  it('exposes outreachId on a pending volunteer invite', async () => {
+    await createOrg()
+    vi.spyOn(
+      stubClerkInvitations(),
+      'listPendingTeamInvitations',
+    ).mockResolvedValue([
+      mockInvitation({
+        publicMetadata: {
+          organizationSlug: ORG_SLUG,
+          role: 'volunteer',
+          name: 'Volunteer Invitee',
+          invitedByUserId: service.user.id,
+          outreachId: 42,
+        },
+      }),
+    ])
+
+    const result = await service.client.get(TEAM_PATH, {
+      headers: { [ORG_SLUG_HEADER]: ORG_SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.pendingInvites).toEqual([
+      expect.objectContaining({ role: 'volunteer', outreachId: 42 }),
     ])
   })
 
@@ -187,7 +235,7 @@ describe('POST /v1/organizations/team/invites', () => {
     expect(result.status).toBe(404)
   })
 
-  it('rejects a role other than campaignAdmin', async () => {
+  it('rejects a volunteer invite with no outreachId', async () => {
     await createOrg()
 
     const result = await service.client.post(
@@ -197,6 +245,70 @@ describe('POST /v1/organizations/team/invites', () => {
     )
 
     expect(result.status).toBe(400)
+  })
+
+  it('rejects a campaignAdmin invite that carries an outreachId', async () => {
+    await createOrg()
+    const outreach = await createOutreachForOrg()
+
+    const result = await service.client.post(
+      INVITES_PATH,
+      {
+        email: 'new@example.com',
+        name: 'New Person',
+        role: 'campaignAdmin',
+        outreachId: outreach.id,
+      },
+      { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+    )
+
+    expect(result.status).toBe(400)
+  })
+
+  it('404s when the flag is disabled for a volunteer invite too', async () => {
+    await createOrg()
+    const outreach = await createOutreachForOrg()
+    vi.spyOn(stubFeatures(), 'isFeatureEnabled').mockResolvedValueOnce(false)
+
+    const result = await service.client.post(
+      INVITES_PATH,
+      {
+        email: 'new@example.com',
+        name: 'New Person',
+        role: 'volunteer',
+        outreachId: outreach.id,
+      },
+      { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+    )
+
+    expect(result.status).toBe(404)
+  })
+
+  it("rejects a volunteer invite pointing at another org's outreach, persisting nothing and never reaching Clerk", async () => {
+    await createOrg()
+    const otherOrg = await service.prisma.organization.create({
+      data: { slug: 'other-outreach-org', ownerId: service.user.id },
+    })
+    const otherOutreach = await createOutreachForOrg(otherOrg.slug)
+    const createInvitation = vi.spyOn(
+      stubClerkInvitations(),
+      'createTeamInvitation',
+    )
+
+    const result = await service.client.post(
+      INVITES_PATH,
+      {
+        email: 'cross-org@example.com',
+        name: 'Cross Org',
+        role: 'volunteer',
+        outreachId: otherOutreach.id,
+      },
+      { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+    )
+
+    expect(result.status).toBe(404)
+    expect(createInvitation).not.toHaveBeenCalled()
+    expect(await service.prisma.organizationMembership.count()).toBe(0)
   })
 
   it('404s for a non-member', async () => {
@@ -471,6 +583,43 @@ describe('POST /v1/organizations/team/invites', () => {
         expect(stubCrmTeamMembers().syncTeamMember).toHaveBeenCalled(),
       )
     })
+
+    // ENG-11049: a list-scoped volunteer invite for an existing account
+    // creates the membership AND the assignment in the same act.
+    it('creates the membership and the outreach assignment atomically for a volunteer', async () => {
+      await createOrg()
+      const outreach = await createOutreachForOrg()
+      const invitee = await createMemberUser({ email: 'vol-known@x.com' })
+      vi.spyOn(stubEmail(), 'sendTeamMemberAddedEmail').mockResolvedValue(
+        undefined as never,
+      )
+      vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+
+      const result = await service.client.post(
+        INVITES_PATH,
+        {
+          email: 'vol-known@x.com',
+          name: 'Volunteer Known',
+          role: 'volunteer',
+          outreachId: outreach.id,
+        },
+        { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+      )
+
+      expect(result.status).toBe(201)
+      expect(result.data).toEqual({
+        status: 'added',
+        member: expect.objectContaining({
+          userId: invitee.id,
+          role: 'volunteer',
+        }),
+      })
+      const assignments = await service.prisma.outreachAssignment.findMany({
+        where: { outreachId: outreach.id, assigneeUserId: invitee.id },
+      })
+      expect(assignments).toHaveLength(1)
+      expect(assignments[0]?.assignedByUserId).toBe(service.user.id)
+    })
   })
 
   describe('new-email branch', () => {
@@ -515,6 +664,47 @@ describe('POST /v1/organizations/team/invites', () => {
         where: { organizationSlug: ORG_SLUG },
       })
       expect(rows).toHaveLength(0)
+    })
+
+    // ENG-11049: the Clerk invitation for a volunteer carries the outreachId
+    // in its metadata, and the response surfaces it too (ENG-11056 filters
+    // the pending list by it).
+    it('carries outreachId in the Clerk metadata for a volunteer invite', async () => {
+      await createOrg()
+      const outreach = await createOutreachForOrg()
+      const createInvitation = vi
+        .spyOn(stubClerkInvitations(), 'createTeamInvitation')
+        .mockResolvedValue(mockInvitation({ emailAddress: 'vol-fresh@x.com' }))
+      vi.spyOn(
+        stubClerkInvitations(),
+        'listPendingTeamInvitations',
+      ).mockResolvedValue([])
+
+      const result = await service.client.post(
+        INVITES_PATH,
+        {
+          email: 'vol-fresh@x.com',
+          name: 'Volunteer Fresh',
+          role: 'volunteer',
+          outreachId: outreach.id,
+        },
+        { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+      )
+
+      expect(result.status).toBe(201)
+      expect(result.data).toEqual({
+        status: 'pending',
+        invite: expect.objectContaining({
+          email: 'vol-fresh@x.com',
+          role: 'volunteer',
+          outreachId: outreach.id,
+        }),
+      })
+      expect(createInvitation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          publicMetadata: expect.objectContaining({ outreachId: outreach.id }),
+        }),
+      )
     })
 
     it('409s when an invitation is already pending for the email', async () => {
@@ -741,6 +931,7 @@ describe('POST /v1/organizations/team/invites/accept', () => {
     expect(result.data).toEqual({
       organizationSlug: ORG_SLUG,
       role: 'campaignAdmin',
+      assignment: null,
     })
     expect(clear).toHaveBeenCalledWith('user_accept_1')
 
@@ -906,6 +1097,279 @@ describe('POST /v1/organizations/team/invites/accept', () => {
     )
   })
 
+  // ENG-11049: the retried call's own transaction throws on the membership
+  // create BEFORE ever reaching tryAssignOutreachInTx, so the double-accept
+  // recovery path can't rely on this call having set assignedOutreachId —
+  // it must consult the persisted assignment the WINNING call created.
+  // Response source is always the DB, never re-derived from request state.
+  it('a double accept of a volunteer invite still returns the assignment pointer', async () => {
+    await createOrg()
+    const outreach = await createOutreachForOrg()
+    const invitee = await service.prisma.user.create({
+      data: { email: 'vol-twice@x.com', clerkId: 'user_vol_twice_1' },
+    })
+    mockInviteState({
+      organizationSlug: ORG_SLUG,
+      role: 'volunteer',
+      name: 'Volunteer Twice',
+      invitedByUserId: service.user.id,
+      outreachId: outreach.id,
+    })
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadata',
+    ).mockResolvedValue(undefined)
+    vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+
+    const first = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_vol_twice_1') },
+    )
+    const second = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_vol_twice_1') },
+    )
+
+    expect(first.status).toBe(201)
+    expect(second.status).toBe(201)
+    expect(second.data).toEqual(first.data)
+    expect(second.data).toEqual({
+      organizationSlug: ORG_SLUG,
+      role: 'volunteer',
+      assignment: {
+        outreachId: outreach.id,
+        outreachType: 'text',
+        phoneBankingListId: null,
+        doorKnockingRouteId: null,
+      },
+    })
+
+    expect(
+      await service.prisma.organizationMembership.count({
+        where: { organizationSlug: ORG_SLUG },
+      }),
+    ).toBe(1)
+    expect(
+      await service.prisma.outreachAssignment.count({
+        where: { outreachId: outreach.id, assigneeUserId: invitee.id },
+      }),
+    ).toBe(1)
+  })
+
+  // ENG-11049: a list-scoped volunteer invite creates the assignment in the
+  // same transaction as the membership, and the response carries a pointer
+  // so the webapp can route the volunteer straight to their work.
+  it('creates the outreach assignment atomically with the membership for a volunteer invite', async () => {
+    await createOrg()
+    const outreach = await createOutreachForOrg()
+    const invitee = await service.prisma.user.create({
+      data: { email: 'vol-accept@x.com', clerkId: 'user_vol_accept_1' },
+    })
+    mockInviteState({
+      organizationSlug: ORG_SLUG,
+      role: 'volunteer',
+      name: 'Volunteer Acceptor',
+      invitedByUserId: service.user.id,
+      outreachId: outreach.id,
+    })
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadata',
+    ).mockResolvedValue(undefined)
+    vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+
+    const result = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_vol_accept_1') },
+    )
+
+    expect(result.status).toBe(201)
+    expect(result.data).toEqual({
+      organizationSlug: ORG_SLUG,
+      role: 'volunteer',
+      assignment: {
+        outreachId: outreach.id,
+        outreachType: 'text',
+        phoneBankingListId: null,
+        doorKnockingRouteId: null,
+      },
+    })
+
+    const assignments = await service.prisma.outreachAssignment.findMany({
+      where: { outreachId: outreach.id, assigneeUserId: invitee.id },
+    })
+    expect(assignments).toHaveLength(1)
+    expect(assignments[0]?.assignedByUserId).toBe(service.user.id)
+    await vi.waitFor(() =>
+      expect(stubCrmTeamMembers().syncTeamMember).toHaveBeenCalled(),
+    )
+  })
+
+  // Never nest $transaction: the assignment create runs inside the same
+  // transaction as the membership create, so an unexpected failure there
+  // must roll the membership back too, not leave a seat with no assignment.
+  it('rolls back the membership when the assignment create fails unexpectedly', async () => {
+    await createOrg()
+    const outreach = await createOutreachForOrg()
+    await service.prisma.user.create({
+      data: { email: 'vol-fail@x.com', clerkId: 'user_vol_fail_1' },
+    })
+    mockInviteState({
+      organizationSlug: ORG_SLUG,
+      role: 'volunteer',
+      name: 'Volunteer Fail',
+      invitedByUserId: service.user.id,
+      outreachId: outreach.id,
+    })
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadata',
+    ).mockResolvedValue(undefined)
+    // Mocks the dependency to throw what an unexpected production failure
+    // would look like — not the known deleted-outreach NotFoundException,
+    // which is tolerated — to prove the transaction actually rolls back
+    // rather than the membership create simply always succeeding.
+    const assignSpy = vi
+      .spyOn(service.app.get(OutreachAssignmentService), 'assign')
+      .mockRejectedValue(new Error('db exploded'))
+
+    try {
+      const result = await service.client.post(
+        ACCEPT_PATH,
+        {},
+        { headers: authHeaderFor('user_vol_fail_1') },
+      )
+
+      expect(result.status).toBe(500)
+      expect(await service.prisma.organizationMembership.count()).toBe(0)
+    } finally {
+      // clearMocks resets call history, not implementation — a permanent
+      // rejection left installed here would silently break every later
+      // test in this file that accepts a volunteer invite with an
+      // outreachId (e.g. the deleted-outreach test right after this one).
+      assignSpy.mockRestore()
+    }
+  })
+
+  // The invite and the accept can straddle a deletion of the outreach in
+  // between — the membership still commits, and the response just carries
+  // no assignment pointer, rather than failing an otherwise-valid accept.
+  it('creates the membership and skips the assignment when the outreach was deleted before accept', async () => {
+    await createOrg()
+    const outreach = await createOutreachForOrg()
+    const deletedOutreachId = outreach.id
+    await service.prisma.outreach.delete({ where: { id: outreach.id } })
+    const invitee = await service.prisma.user.create({
+      data: { email: 'vol-gone@x.com', clerkId: 'user_vol_gone_1' },
+    })
+    mockInviteState({
+      organizationSlug: ORG_SLUG,
+      role: 'volunteer',
+      name: 'Volunteer Gone',
+      invitedByUserId: service.user.id,
+      outreachId: deletedOutreachId,
+    })
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadata',
+    ).mockResolvedValue(undefined)
+    vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+
+    const result = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_vol_gone_1') },
+    )
+
+    expect(result.status).toBe(201)
+    expect(result.data).toEqual({
+      organizationSlug: ORG_SLUG,
+      role: 'volunteer',
+      assignment: null,
+    })
+    const row = await service.prisma.organizationMembership.findUnique({
+      where: {
+        organizationSlug_userId: {
+          organizationSlug: ORG_SLUG,
+          userId: invitee.id,
+        },
+      },
+    })
+    expect(row).not.toBeNull()
+    expect(await service.prisma.outreachAssignment.count()).toBe(0)
+  })
+
+  // ENG-11049 blocker fix: if the outreach's org changed between invite and
+  // accept (reassigned to a different campaign), assign()'s own cross-org
+  // guard throws BadRequestException carrying the org slug + outreach id in
+  // its message — that must be tolerated the same way a deleted outreach
+  // is, never left to roll back the accept or leak into the response.
+  it('creates the membership and skips the assignment when the outreach belongs to a different org at accept time', async () => {
+    await createOrg()
+    const outreach = await createOutreachForOrg()
+    const otherOrg = await service.prisma.organization.create({
+      data: { slug: 'other-org-at-accept', ownerId: service.user.id },
+    })
+    const otherCampaign = await service.prisma.campaign.create({
+      data: {
+        organizationSlug: otherOrg.slug,
+        userId: service.user.id,
+        slug: `${otherOrg.slug}-campaign`,
+      },
+    })
+    // Simulates the outreach moving to a different org's campaign after
+    // the invite was sent but before it was accepted.
+    await service.prisma.outreach.update({
+      where: { id: outreach.id },
+      data: { campaignId: otherCampaign.id },
+    })
+    const invitee = await service.prisma.user.create({
+      data: { email: 'vol-crossorg@x.com', clerkId: 'user_vol_crossorg_1' },
+    })
+    mockInviteState({
+      organizationSlug: ORG_SLUG,
+      role: 'volunteer',
+      name: 'Volunteer CrossOrg',
+      invitedByUserId: service.user.id,
+      outreachId: outreach.id,
+    })
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadata',
+    ).mockResolvedValue(undefined)
+    vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+
+    const result = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_vol_crossorg_1') },
+    )
+
+    expect(result.status).toBe(201)
+    // Exact equality — only these three fields, so assign()'s cross-org
+    // BadRequestException message (which carries the org slug + outreach
+    // id) cannot have leaked into the response.
+    expect(result.data).toEqual({
+      organizationSlug: ORG_SLUG,
+      role: 'volunteer',
+      assignment: null,
+    })
+
+    const row = await service.prisma.organizationMembership.findUnique({
+      where: {
+        organizationSlug_userId: {
+          organizationSlug: ORG_SLUG,
+          userId: invitee.id,
+        },
+      },
+    })
+    expect(row).not.toBeNull()
+    expect(await service.prisma.outreachAssignment.count()).toBe(0)
+  })
+
   it('404s with no invite metadata', async () => {
     await service.prisma.user.create({
       data: { email: 'nothing@x.com', clerkId: 'user_nothing_1' },
@@ -963,6 +1427,7 @@ describe('POST /v1/organizations/team/invites/accept', () => {
     expect(result.data).toEqual({
       organizationSlug: ORG_SLUG,
       role: 'campaignAdmin',
+      assignment: null,
     })
     expect(findByEmail).toHaveBeenCalledWith('organic@x.com')
     expect(revoke).toHaveBeenCalledWith('inv_fallback_1')
@@ -976,6 +1441,65 @@ describe('POST /v1/organizations/team/invites/accept', () => {
       },
     })
     expect(row?.role).toBe('campaignAdmin')
+  })
+
+  // ENG-11049: the fallback-accept path (organic signup, no Clerk metadata
+  // copy) reads outreachId off the pending invitation's metadata the same
+  // way the primary path reads it off the user's own metadata — the
+  // assignment must still be created.
+  it('creates the outreach assignment on a fallback accept with an outreachId', async () => {
+    await createOrg()
+    const outreach = await createOutreachForOrg()
+    const invitee = await service.prisma.user.create({
+      data: { email: 'organic-vol@x.com', clerkId: 'user_organic_vol_1' },
+    })
+    mockInviteState(null, ['organic-vol@x.com'])
+    vi.spyOn(
+      stubClerkInvitations(),
+      'findPendingTeamInvitationsByEmail',
+    ).mockResolvedValue([
+      mockInvitation({
+        id: 'inv_fallback_vol_1',
+        emailAddress: 'organic-vol@x.com',
+        publicMetadata: {
+          organizationSlug: ORG_SLUG,
+          role: 'volunteer',
+          name: 'Organic Volunteer',
+          invitedByUserId: service.user.id,
+          outreachId: outreach.id,
+        },
+      }),
+    ])
+    vi.spyOn(stubClerkInvitations(), 'revokeInvitation').mockResolvedValue(
+      mockInvitation({ id: 'inv_fallback_vol_1' }),
+    )
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadata',
+    ).mockResolvedValue(undefined)
+    vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+
+    const result = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_organic_vol_1') },
+    )
+
+    expect(result.status).toBe(201)
+    expect(result.data).toEqual({
+      organizationSlug: ORG_SLUG,
+      role: 'volunteer',
+      assignment: {
+        outreachId: outreach.id,
+        outreachType: 'text',
+        phoneBankingListId: null,
+        doorKnockingRouteId: null,
+      },
+    })
+    const assignments = await service.prisma.outreachAssignment.findMany({
+      where: { outreachId: outreach.id, assigneeUserId: invitee.id },
+    })
+    expect(assignments).toHaveLength(1)
   })
 
   it('still succeeds when revoking the fallback invitation fails', async () => {
@@ -1309,14 +1833,35 @@ describe('PATCH /v1/organizations/team/members/:userId', () => {
     expect(result.status).toBe(400)
   })
 
-  it('400s for a role other than campaignAdmin', async () => {
+  // ENG-11049: the owner can move a member between manager and volunteer.
+  it('the owner can demote a member to volunteer and creates no assignment', async () => {
     await createOrg()
-    const member = await createMemberUser({ email: 'volunteer-req@x.com' })
+    const member = await createMemberUser({ email: 'demote-req@x.com' })
     await addMembership(member.id, OrganizationRole.campaignAdmin)
+    vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
 
     const result = await service.client.patch(
       `${TEAM_PATH}/members/${member.id}`,
       { role: 'volunteer' },
+      { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data.role).toBe('volunteer')
+    expect(await service.prisma.outreachAssignment.count()).toBe(0)
+    await vi.waitFor(() =>
+      expect(stubCrmTeamMembers().syncTeamMember).toHaveBeenCalled(),
+    )
+  })
+
+  it('400s for a role the enum does not carry', async () => {
+    await createOrg()
+    const member = await createMemberUser({ email: 'bad-role-req@x.com' })
+    await addMembership(member.id, OrganizationRole.campaignAdmin)
+
+    const result = await service.client.patch(
+      `${TEAM_PATH}/members/${member.id}`,
+      { role: 'owner' },
       { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
     )
 

@@ -250,6 +250,7 @@ export class ClerkInvitationsService {
               role: null,
               name: null,
               invitedByUserId: null,
+              outreachId: null,
             },
           }),
       )
