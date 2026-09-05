@@ -3,7 +3,7 @@ import { useCheckoutSession } from 'app/dashboard/purchase/components/CheckoutSe
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { centsToDollars } from 'helpers/numberHelper'
 
-import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
+import { Spinner } from '@styleguide'
 import PurchaseError from 'app/dashboard/purchase/components/PurchaseError'
 import { OutreachPurchaseForm } from 'app/dashboard/components/tasks/flows/OutreachPurchaseForm'
 import { noop } from '@shared/utils/noop'
@@ -70,7 +70,9 @@ export const PurchaseStep = ({
       {error ? (
         <PurchaseError error={error} />
       ) : !phoneListId || !checkoutSession ? (
-        <LoadingAnimation {...{}} />
+        <div className="flex justify-center py-12">
+          <Spinner />
+        </div>
       ) : (
         <OutreachPurchaseForm
           {...{

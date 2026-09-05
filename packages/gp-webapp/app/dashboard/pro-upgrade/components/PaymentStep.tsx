@@ -2,9 +2,8 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 import { useCheckout } from '@stripe/react-stripe-js/checkout'
-import { Button, ProBadge } from '@styleguide'
+import { Button, ProBadge, Spinner } from '@styleguide'
 import Body2 from '@shared/typography/Body2'
-import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { APP_BASE } from 'appEnv'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
@@ -118,7 +117,9 @@ const PaymentContent = ({
   if (!checkoutSession) {
     return (
       <PaymentFrame onBack={onBack}>
-        <LoadingAnimation />
+        <div className="flex justify-center py-12">
+          <Spinner />
+        </div>
       </PaymentFrame>
     )
   }
