@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -9,6 +9,7 @@ import {
   AlertDialogTitle,
   Button,
   IconButton,
+  toast,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -51,65 +52,136 @@ export const DrawFullScreen = ({
   onClose,
 }: DrawFullScreenProps) => {
   const [instructionsOpen, setInstructionsOpen] = useState(true)
+  const undoRef = useRef<HTMLButtonElement>(null)
+  // The stop-count pill shakes when a new tap pushes the shape past the 150
+  // cap, or when a subsequent tap keeps it over. The tooltip already carries
+  // the "Limit is 150 stops per list" message and force-opens on overCap, so
+  // the shake is attention feedback — no toast, to avoid stacking a snackbar
+  // on top of a tooltip that's already saying it.
+  const pillRef = useRef<HTMLSpanElement>(null)
+  const prevStopsRef = useRef(stops)
+  useEffect(() => {
+    const previous = prevStopsRef.current
+    prevStopsRef.current = stops
+    // Only shake on a new tap that KEPT us over — undoing while still
+    // over-cap is progress in the right direction, so the pill should not
+    // scold the very move that's fixing the problem.
+    if (!overCap || stops <= previous) return
+    const el = pillRef.current
+    if (!el) return
+    el.classList.remove('animate-shake')
+    // Reflow: React seeing the same class on re-render will not restart the
+    // CSS animation, so the class has to go away and come back with a layout
+    // between the two writes.
+    void el.offsetWidth
+    el.classList.add('animate-shake')
+  }, [stops, overCap])
 
   return (
     <div className="pointer-events-none absolute inset-0 z-20">
+      {/* Pre-first-point hint: sits at the same vertical position as the
+          Undo/count cluster to the right and the map's own zoom/locate
+          cluster to the left, so the three read as one row of chrome
+          instead of a modal-looking pill floating over the map.
+          Disappears the moment a point lands, because the map itself
+          becomes the affordance. */}
       {pointCount === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center p-4">
-          <span className="rounded-2xl border border-border bg-card px-4 py-3 text-sm font-medium shadow-lg">
-            Tap the map to add boundary points
+        <div className="absolute inset-x-0 bottom-[88px] z-10 flex h-9 justify-center">
+          <span className="pointer-events-none inline-flex items-center rounded-full border border-border bg-card px-3.5 text-sm font-medium text-foreground shadow-sm">
+            Tap or click to add your first point
           </span>
         </div>
       )}
-      {pointCount > 0 && (
-        // Bottom-right, clear of the footer — the canvas's own 88px offset.
-        <div className="absolute right-3 bottom-[88px] z-10 flex items-center gap-2">
-          {/* Forced open over the cap: the pill turning red is the whole
-              explanation otherwise, and a colour is not a limit. */}
-          <Tooltip open={overCap ? true : undefined}>
-            <TooltipTrigger asChild>
-              <span
-                className={`pointer-events-auto inline-flex h-9 items-center rounded-full border bg-card px-3.5 text-sm font-semibold ${
-                  overCap
-                    ? 'border-destructive text-destructive'
-                    : 'border-border text-foreground'
-                }`}
-              >
-                {stops.toLocaleString()} selected
-              </span>
-            </TooltipTrigger>
-            {/* Stops, not doors: the 150 is a cap on the stops the router
-                visits, and a limit quoted in a unit it is not measured in is a
-                limit nobody can act on. */}
-            <TooltipContent side="top">
-              Limit is 150 stops per list
-            </TooltipContent>
-          </Tooltip>
-          <IconButton
-            type="button"
-            variant="outline"
-            aria-label="Undo"
-            className="pointer-events-auto bg-card"
-            onClick={onUndoPoint}
-          >
-            <Undo2Icon className="size-[18px]" />
-          </IconButton>
-        </div>
-      )}
+      {/* Bottom-right, clear of the footer — the canvas's own 88px offset.
+          Always visible like the map's own zoom/locate cluster on the left,
+          so a candidate reading the instructions sees where Undo will land
+          and how the count will read. Undo handles the zero-point press by
+          toasting + shaking rather than hiding. */}
+      <div className="absolute right-3 bottom-[88px] z-10 flex items-center gap-2">
+        {/* Forced open over the cap: the pill turning red is the whole
+            explanation otherwise, and a colour is not a limit. */}
+        <Tooltip open={overCap ? true : undefined}>
+          <TooltipTrigger asChild>
+            <span
+              ref={pillRef}
+              onAnimationEnd={(e) =>
+                e.currentTarget.classList.remove('animate-shake')
+              }
+              className={`pointer-events-auto inline-flex h-9 items-center rounded-full border bg-card px-3.5 text-sm font-semibold ${
+                overCap
+                  ? 'border-destructive text-destructive'
+                  : 'border-border text-foreground'
+              }`}
+            >
+              {stops.toLocaleString()} selected
+            </span>
+          </TooltipTrigger>
+          {/* Stops, not doors: the 150 is a cap on the stops the router
+              visits, and a limit quoted in a unit it is not measured in is a
+              limit nobody can act on. */}
+          <TooltipContent side="top">
+            Limit is 150 stops per list
+          </TooltipContent>
+        </Tooltip>
+        <IconButton
+          ref={undoRef}
+          type="button"
+          variant="outline"
+          aria-label="Undo"
+          // `hover:bg-card` overrides the outline variant's default
+          // `hover:bg-tertiary-dark/5` — the 5% tint reads as the map
+          // "showing through" over a light basemap. Same argument for the
+          // count pill's opaque bg-card beside it.
+          className="pointer-events-auto bg-card hover:bg-card"
+          onAnimationEnd={() => {
+            undoRef.current?.classList.remove('animate-shake')
+          }}
+          onClick={() => {
+            if (pointCount === 0) {
+              // The toast says what happened, the shake says the tap DID
+              // reach the control and it deliberately did nothing. The
+              // reflow read is what lets the class re-apply mid-animation
+              // — React seeing the same class on re-render will not
+              // restart CSS.
+              toast('There is nothing to undo')
+              const el = undoRef.current
+              if (el) {
+                el.classList.remove('animate-shake')
+                void el.offsetWidth
+                el.classList.add('animate-shake')
+              }
+              return
+            }
+            onUndoPoint()
+          }}
+        >
+          <Undo2Icon className="size-[18px]" />
+        </IconButton>
+      </div>
       <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-10 border-t border-border bg-background p-4">
-        <div className="mx-auto w-full max-w-[608px]">
-          {/* Row-reverse mirroring `OutreachFlowShell`'s footer: Continue on
-              the right, Back on the left. Back reuses `onClose`, which the
-              caller already wires to `leaveFullScreen` — so the shape's own
-              "Discard this turf?" still guards a drawn boundary. */}
-          <div className="flex flex-row-reverse items-center justify-between gap-3">
-            <Button disabled={continueDisabled} onClick={onContinue}>
-              Continue
-            </Button>
-            <Button variant="ghost" aria-label="Back" onClick={onClose}>
-              Back
-            </Button>
-          </div>
+        {/* Row-reverse mirroring `OutreachFlowShell`'s footer: Continue on
+            the right, Back on the left. Back reuses `onClose`, which the
+            caller already wires to `leaveFullScreen` — so the shape's own
+            "Discard this turf?" still guards a drawn boundary. */}
+        <div className="mx-auto flex w-full max-w-[608px] flex-row-reverse items-center justify-between gap-3">
+          <Button
+            size="large"
+            className="min-w-0 flex-1 lg:min-w-[240px] lg:flex-none"
+            disabled={continueDisabled}
+            onClick={onContinue}
+          >
+            Continue
+          </Button>
+          <Button
+            type="button"
+            size="large"
+            variant="ghost"
+            aria-label="Back"
+            className="shrink-0 lg:min-w-[140px]"
+            onClick={onClose}
+          >
+            Back
+          </Button>
         </div>
       </div>
       <AlertDialog open={instructionsOpen} onOpenChange={setInstructionsOpen}>
@@ -120,7 +192,10 @@ export const DrawFullScreen = ({
               Instructions for drawing your door-knocking boundary.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <ol className="ml-5 list-decimal space-y-2 text-sm">
+          {/* `[&>li]:list-item` guards against a global rule that hides
+              bullets on <li> elements; without it the numbers vanish and
+              the list reads as an unindented paragraph. */}
+          <ol className="list-decimal space-y-2 pl-5 text-base [&>li]:list-item">
             <li>
               Tap or click the map to drop corner points around the area you
               want to knock.

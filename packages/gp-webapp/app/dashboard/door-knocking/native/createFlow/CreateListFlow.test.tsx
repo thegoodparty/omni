@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps, ReactElement } from 'react'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { toast } from '@styleguide'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
@@ -14,6 +15,11 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('helpers/analyticsHelper')>()
   return { ...actual, trackEvent: vi.fn() }
+})
+
+vi.mock('@styleguide', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@styleguide')>()
+  return { ...actual, toast: vi.fn() }
 })
 
 // mapbox-gl-draw hands back an open ring; save must close it before POSTing.
@@ -843,9 +849,12 @@ describe('CreateListFlow', () => {
     )
   })
 
-  // The mis-tap fix: a stray vertex was previously only draggable somewhere
-  // harmless, and a turf's polygon freezes permanently once it is knocked.
-  it('offers Undo only once a point exists', () => {
+  // Undo and the count pill sit on the map from the moment the drawing
+  // surface opens — like the zoom/locate cluster on the left — so a candidate
+  // reading the instructions sees where each will land. Undo stays enabled
+  // and answers a stray click with a toast rather than disappearing or going
+  // grey, which the design's own zoom/locate cluster never does either.
+  it('offers Undo from the start, toasting a stray click', () => {
     const onUndoPoint = vi.fn()
     const { rerender } = render(
       drawingSurface({
@@ -856,7 +865,11 @@ describe('CreateListFlow', () => {
       }),
     )
     dismissDrawInstructions()
-    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
+
+    vi.mocked(toast).mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(onUndoPoint).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith('There is nothing to undo')
 
     rerender(
       drawingSurface({
