@@ -864,13 +864,20 @@ export default function NativeDoorKnockingPage({
             />
           )}
           {/* One action and no cancel: there is nothing to decide here, and
-            nothing the candidate can do to proceed today. The remedy the copy
-            names — go knock what is already mapped — is behind this dialog on
-            the rail it opened over. */}
+            nothing the candidate can do to proceed today. Dismissing always
+            navigates back to the outreach hub — door knocking has no
+            legitimate landing surface any more (no saved-lists rail, no
+            bare-map state in the design), so leaving the candidate on this
+            route after dismissing would strand them on a map with saved turfs
+            behind it and no surface on top. Also clears `?create=1` from the
+            URL so a reload doesn't re-fire the same "landing opened →
+            refused" sequence. */}
           <AlertDialog
             open={refusedCampaignLimit !== null}
             onOpenChange={(next) => {
-              if (!next) setRefusedCampaignLimit(null)
+              if (next) return
+              setRefusedCampaignLimit(null)
+              beginExitNavigation(setIsExiting, hubPath)
             }}
           >
             <AlertDialogContent>
@@ -884,7 +891,10 @@ export default function NativeDoorKnockingPage({
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogAction
-                  onClick={() => setRefusedCampaignLimit(null)}
+                  onClick={() => {
+                    setRefusedCampaignLimit(null)
+                    beginExitNavigation(setIsExiting, hubPath)
+                  }}
                 >
                   Got it
                 </AlertDialogAction>
