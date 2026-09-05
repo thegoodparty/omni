@@ -247,6 +247,9 @@ describe('POST /v1/organizations/team/invites', () => {
     vi.spyOn(stubClerkInvitations(), 'createTeamInvitation').mockResolvedValue(
       mockInvitation({ emailAddress: 'general-vol@x.com' }),
     )
+    const track = vi
+      .spyOn(stubAnalytics(), 'track')
+      .mockResolvedValue(undefined as never)
 
     const result = await service.client.post(
       INVITES_PATH,
@@ -267,6 +270,15 @@ describe('POST /v1/organizations/team/invites', () => {
         outreachId: null,
       }),
     })
+    // Delegate review (round 2, PR #1738): listScoped used to be a bare
+    // `role === 'volunteer'`, which misclassified a general (no-outreach)
+    // volunteer invite as list-scoped.
+    await vi.waitFor(() => expect(track).toHaveBeenCalled())
+    expect(track).toHaveBeenCalledWith(
+      service.user.id,
+      'Team - Member Invited',
+      expect.objectContaining({ role: 'volunteer', listScoped: false }),
+    )
   })
 
   it('rejects a campaignAdmin invite that carries an outreachId', async () => {
@@ -615,7 +627,9 @@ describe('POST /v1/organizations/team/invites', () => {
       vi.spyOn(stubEmail(), 'sendTeamMemberAddedEmail').mockResolvedValue(
         undefined as never,
       )
-      vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+      const track = vi
+        .spyOn(stubAnalytics(), 'track')
+        .mockResolvedValue(undefined as never)
 
       const result = await service.client.post(
         INVITES_PATH,
@@ -641,6 +655,14 @@ describe('POST /v1/organizations/team/invites', () => {
       })
       expect(assignments).toHaveLength(1)
       expect(assignments[0]?.assignedByUserId).toBe(service.user.id)
+      // Delegate review (round 2, PR #1738): the counterpart to the general
+      // (no-outreach) volunteer invite's listScoped: false above.
+      await vi.waitFor(() => expect(track).toHaveBeenCalled())
+      expect(track).toHaveBeenCalledWith(
+        service.user.id,
+        'Team - Member Invited',
+        expect.objectContaining({ role: 'volunteer', listScoped: true }),
+      )
     })
 
     // ENG-11058: a general volunteer invite (no outreachId) for an existing

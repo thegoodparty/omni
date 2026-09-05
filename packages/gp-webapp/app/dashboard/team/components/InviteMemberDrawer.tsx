@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
+import { FetchError } from 'ofetch'
 import type { InviteMemberResponse } from 'gpApi/api-endpoints'
 import {
   Button,
@@ -98,7 +99,18 @@ const InviteMemberDrawer = ({
       onOpenChange(false)
       onInvited(response)
     },
-    onError: (error: unknown) => setErrorMessage(toInviteErrorMessage(error)),
+    onError: (error: unknown) => {
+      setErrorMessage(toInviteErrorMessage(error))
+      // A 400 is InviteTeamMemberDto's own validation failing (e.g. an
+      // invalid phone via PhoneSchema) — that field lives on step 1, so
+      // showing the message on step 2 leaves it with nothing to point at.
+      // A 409 (already a member/pending) is about the email, also step 1,
+      // but stays on step 2 — the role the candidate is mid-picking is a
+      // real in-progress choice a network error shouldn't discard.
+      if (error instanceof FetchError && error.status === 400) {
+        setStep(1)
+      }
+    },
   })
 
   const trimmedName = name.trim()

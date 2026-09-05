@@ -164,7 +164,7 @@ export class OrganizationTeamService {
       .track(invitedByUserId, EVENTS.Team.MemberInvited, {
         role,
         invitedByRole,
-        listScoped: role === 'volunteer',
+        listScoped: role === 'volunteer' && outreachId !== undefined,
       })
       .catch(() => undefined)
 

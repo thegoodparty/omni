@@ -331,7 +331,11 @@ describe('TeamPage — invite flow (ENG-11058 two-step drawer)', () => {
   // ENG-11058 delegate fix: an invalid phone 400s via PhoneSchema server-side
   // (InviteTeamMemberDto) — that message must surface inline too, not just
   // the generic fallback the 409-only check used to leave it with.
-  it('shows the 400 message inline instead of closing the drawer', async () => {
+  // ENG-11058 delegate fix (round 2): a 400 is InviteTeamMemberDto's own
+  // validation (e.g. an invalid phone via PhoneSchema) — the field it's
+  // about lives on step 1, so the message has to navigate back there rather
+  // than render on step 2 with no phone field in sight.
+  it('shows the 400 message and navigates back to step 1, where the phone field lives', async () => {
     const user = userEvent.setup()
     api.mock('POST /v1/organizations/team/invites', {
       status: 400,
@@ -353,8 +357,12 @@ describe('TeamPage — invite flow (ENG-11058 two-step drawer)', () => {
       await screen.findByText('Must be valid phone number'),
     ).toBeInTheDocument()
     expect(
-      screen.getByText('What role would you like to assign?'),
+      await screen.findByText('Who do you want to invite?'),
     ).toBeInTheDocument()
+    expect(
+      screen.queryByText('What role would you like to assign?'),
+    ).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Phone number')).toHaveValue('abc')
   })
 })
 
