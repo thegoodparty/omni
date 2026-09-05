@@ -118,6 +118,11 @@ const SELECTION_RING_WIDTH = 3
 // keeps listing it. See the archived-dimming note in this directory's
 // AGENTS.md for why this is a strength change and not a filter.
 const ARCHIVED_RING_ALPHA = 0.28
+// Same idea for the walk. During a walk the numbered pins are the action
+// and the ring is orientation — muting it lets the pins carry the visual
+// weight without removing the "these are the doors in your list" boundary.
+// If both apply (a walk on an archived list, rare), the two multiply.
+const WALK_ACTIVE_RING_ALPHA = 0.3
 
 export type PolygonRing = Array<[number, number]>
 
@@ -232,6 +237,13 @@ interface VoterMapCanvasProps {
 // fetch client into the maplibre/deck.gl chunk to answer a one-field question.
 const archivedAlpha = (turf: DoorKnockingTurf, alpha: number): number =>
   turf.archivedAt ? Math.round(alpha * ARCHIVED_RING_ALPHA) : alpha
+
+// The walk-active counterpart of `archivedAlpha`, but a scalar op — the
+// mute isn't per-turf (during a walk visibleTurfs is already scoped to the
+// walked list by the orchestrator), so this only asks "are we in a walk
+// right now" and takes the alpha down by the same strength-only pattern.
+const walkActiveAlpha = (alpha: number, walkActive: boolean): number =>
+  walkActive ? Math.round(alpha * WALK_ACTIVE_RING_ALPHA) : alpha
 
 const hexToRgba = (
   hex: string,
@@ -769,12 +781,29 @@ export default function VoterMapCanvas({
           // accent bar, so recolouring it would break the one thing that ties
           // an outline to a row. This is the same treatment the archived card
           // gets in the rail (`dimmed`), on the other half of the screen.
+          //
+          // During a walk (routePins non-empty), the ring gets the same
+          // strength-only pullback so the numbered pins carry the visual
+          // weight and the boundary reads as ambient context. Composes with
+          // the archived treatment above — a walk on an archived list gets
+          // both multiplications and reads as nearly invisible, which is
+          // the right answer for that rare state.
           getFillColor: (turf) =>
-            hexToRgba(turf.color, archivedAlpha(turf, 40)),
+            hexToRgba(
+              turf.color,
+              walkActiveAlpha(archivedAlpha(turf, 40), routePins.length > 0),
+            ),
           getLineColor: (turf) =>
-            hexToRgba(turf.color, archivedAlpha(turf, 220)),
+            hexToRgba(
+              turf.color,
+              walkActiveAlpha(archivedAlpha(turf, 220), routePins.length > 0),
+            ),
           lineWidthMinPixels: 2,
           pickable: false,
+          updateTriggers: {
+            getFillColor: routePins.length > 0,
+            getLineColor: routePins.length > 0,
+          },
         }),
         new ScatterplotLayer({
           id: 'voter-dots',
