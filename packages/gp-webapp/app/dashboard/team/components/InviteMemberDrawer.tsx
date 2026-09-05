@@ -159,7 +159,10 @@ const InviteMemberDrawer = ({
                   id="invite-member-phone"
                   type="tel"
                   value={phone}
-                  onChange={(event) => setPhone(event.target.value)}
+                  onChange={(event) => {
+                    setPhone(event.target.value)
+                    setErrorMessage(null)
+                  }}
                 />
               </div>
               <div className="flex flex-col gap-2">
