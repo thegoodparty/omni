@@ -339,7 +339,7 @@ describe('TeamPage — invite flow (ENG-11058 two-step drawer)', () => {
     const user = userEvent.setup()
     api.mock('POST /v1/organizations/team/invites', {
       status: 400,
-      data: { message: 'Must be valid phone number' },
+      data: { message: ['Must be valid phone number'] },
     })
 
     render(<TeamPage />)
