@@ -1096,17 +1096,13 @@ export default function VoterMapCanvas({
       if (pin.lat < minY) minY = pin.lat
       if (pin.lat > maxY) maxY = pin.lat
     }
-    // Cap the bottom padding to what the canvas can actually spare: a sheet
-    // taller than the canvas (or a container that hasn't been measured
-    // yet) would otherwise ask fitBounds for more padding than there's
-    // room for and get no fit at all. 80px top/left/right + at least 240px
-    // clear for the pins themselves.
-    const height = mapRef.current.getCanvas().clientHeight
-    const requestedBottom = (routeFrameBottomPx ?? 0) + 16
-    const bottomPad = Math.max(
-      80,
-      Math.min(requestedBottom, Math.max(80, height - 240)),
-    )
+    // Bottom padding = the sheet's covered height + a small gap, floored
+    // at 80 so the pins never crowd the top edge. Trust the reported sheet
+    // height directly rather than capping against canvas.clientHeight — the
+    // effect can run during initial mount when the canvas measures small or
+    // zero, and that clamp then false-negatives to the floor, centering
+    // pins in the whole viewport (right at the drawer's top edge).
+    const bottomPad = Math.max(80, (routeFrameBottomPx ?? 0) + 16)
     mapRef.current.fitBounds(
       [
         [minX, minY],
