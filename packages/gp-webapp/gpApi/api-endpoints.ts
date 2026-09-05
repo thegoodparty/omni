@@ -71,6 +71,7 @@ import type {
   RecommendedListChannel,
   RecommendedListIntent,
   RecommendedListsResponse,
+  MyAssignmentsResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -392,6 +393,16 @@ export type APIEndpoints = {
   'GET /v1/outreach/serve/:id': {
     Request: {}
     Response: OutreachDetail
+  }
+
+  // Team-accounts (ENG-11048/ENG-11053): the caller's own assignment rows
+  // across every org they're assigned in (org-scoped via the header), each
+  // hydrated with the phoneBanking/doorKnocking channel-pointer + progress
+  // block for the two native channels only — every other outreachType
+  // carries neither. Manager+ callers can hit this too, not volunteer-only.
+  'GET /v1/outreach/assignments/mine': {
+    Request: {}
+    Response: MyAssignmentsResponse
   }
 
   // Stateless script draft/improve for the phone-banking create flow —
