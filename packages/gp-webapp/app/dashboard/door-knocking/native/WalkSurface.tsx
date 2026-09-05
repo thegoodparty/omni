@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Button, DrawerHandle } from '@styleguide'
+import { Button } from '@styleguide'
 import { routeQueryOptions } from './turfQueries'
 import { rollupStopStatus, stopIsKnockable } from './statusPresentation'
 import type { LiveLocation } from './useLiveLocation'
@@ -254,22 +254,30 @@ export default function WalkSurface({
       // Over the map at every width, unlike the manage rail — a walk is one
       // route and the map under it is the street being walked, so there is no
       // desktop arrangement where the two sit side by side.
-      className={`absolute inset-x-0 bottom-0 z-20 flex flex-col overflow-hidden rounded-t-2xl border-t border-border bg-card shadow-lg transition-[height] duration-[260ms] ease-out ${heightClass}`}
+      //
+      // `overflow-clip` rather than `overflow-hidden`: both prevent the aside
+      // from scrolling by user gesture, but the CSSOM spec treats
+      // `overflow-hidden` as a valid scroll target for `Element.scrollIntoView`
+      // — so a pin tap that scrolled the tapped row into center inside the
+      // WalkView list ALSO scrolled the aside's content up, hiding the drag
+      // handle and header above the sheet's own top edge. `overflow-clip`
+      // clips content the same way but is excluded from that scroll-target
+      // walk, so scrollIntoView reaches only the inner list container.
+      className={`absolute inset-x-0 bottom-0 z-20 flex flex-col overflow-clip rounded-t-2xl border-t border-border bg-card shadow-lg transition-[height] duration-[260ms] ease-out ${heightClass}`}
     >
-      {/* Header composition matches the styleguide's Drawer: DrawerHandle
-          (a mt-4 mb-2 h-2 w-30 pill) followed by a p-4 header row with the
-          title in text-xl semibold. Layout is bespoke here (custom aside,
-          not the vaul primitive — vaul non-modal aria-hides the map, which
-          this surface has to leave interactive), but the visual language
-          reads as the same drawer a candidate sees elsewhere in the app.
-          The whole top block is the drag grip: pointer handlers wrap it,
-          Enter/Space cycles the snap for a11y. */}
+      {/* Grip + header. The grip is the whole top block: pointer handlers
+          wrap it, Enter/Space cycles the snap for a11y. The handle pill
+          matches the styleguide's DrawerHandle dimensions (h-2 w-[120px])
+          but is inlined here so the sheet's own layout stack owns its
+          top spacing — a DrawerHandle child with its own mt-4/mb-2
+          margins ended up visually flat against the sheet's top edge for
+          reasons that weren't worth chasing through the theme tokens. */}
       <div
         role="button"
         tabIndex={0}
         aria-expanded={snap !== 'peek'}
         aria-label={snap === 'full' ? 'Collapse the route' : 'Expand the route'}
-        className="mx-auto flex w-full max-w-[608px] shrink-0 cursor-grab touch-none flex-col"
+        className="mx-auto flex w-full max-w-[608px] shrink-0 cursor-grab touch-none flex-col gap-3 px-4 pt-3 pb-4"
         {...gripHandlers}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
@@ -278,8 +286,8 @@ export default function WalkSurface({
           }
         }}
       >
-        <DrawerHandle />
-        <div className="flex items-center gap-3 px-4 pt-2 pb-4">
+        <span className="mx-auto h-1.5 w-[120px] shrink-0 rounded-full bg-muted-foreground/50" />
+        <div className="flex items-center gap-3">
           <h2 className="min-w-0 flex-1 truncate text-xl font-semibold">
             {turfName}
           </h2>
