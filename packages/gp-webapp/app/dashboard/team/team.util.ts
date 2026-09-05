@@ -36,9 +36,12 @@ const INVITE_ERROR_FALLBACK =
 // Shared by InviteMemberDialog (the outreach drawer's list-scoped entry
 // point) and InviteMemberDrawer (the team page's two-step drawer, ENG-11058)
 // — both hit the same 409 (already a member / already pending) on the same
-// endpoint, and gp-api's own message reads better than a generic one.
+// endpoint, and gp-api's own message reads better than a generic one. 400
+// covers InviteTeamMemberDto's own validation failures (e.g. an invalid
+// phone number via PhoneSchema) — same reasoning, its message reads better
+// than the generic fallback too.
 export const toInviteErrorMessage = (error: unknown): string =>
   (error instanceof FetchError &&
-    error.status === 409 &&
+    (error.status === 409 || error.status === 400) &&
     extractApiErrorInfo(error.data).message) ||
   INVITE_ERROR_FALLBACK

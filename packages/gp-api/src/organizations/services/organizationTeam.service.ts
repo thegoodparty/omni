@@ -570,7 +570,12 @@ export class OrganizationTeamService {
     // A list-scoped volunteer invite creates the membership and its
     // assignment atomically, the same guarantee accept gives the
     // Clerk-invitation branch — a crash between the two must never leave a
-    // volunteer with a seat but no assigned list.
+    // volunteer with a seat but no assigned list. The optional phone
+    // backfill (only when User.phone is still empty, so a direct-add never
+    // clobbers a number the person already saved) rides the same
+    // transaction as the membership row in both sub-branches — otherwise a
+    // crash after the membership commits silently loses the phone with no
+    // retry (re-inviting the same email 409s).
     const created =
       outreachId !== undefined
         ? await this.membership.client.$transaction(async (tx) => {
@@ -584,19 +589,26 @@ export class OrganizationTeamService {
               invitedByUserId,
               tx,
             )
+            if (phone && !existingUser.phone) {
+              await tx.user.update({
+                where: { id: existingUser.id },
+                data: { phone },
+              })
+            }
             return membership
           })
-        : await this.membership.model.create({ data: membershipData })
-
-    // Carries the invite's optional phone onto the existing account — only
-    // when User.phone is still empty, so a direct-add never clobbers a
-    // number the person already saved to their own profile.
-    if (phone && !existingUser.phone) {
-      await this.membership.client.user.update({
-        where: { id: existingUser.id },
-        data: { phone },
-      })
-    }
+        : await this.membership.client.$transaction(async (tx) => {
+            const membership = await tx.organizationMembership.create({
+              data: membershipData,
+            })
+            if (phone && !existingUser.phone) {
+              await tx.user.update({
+                where: { id: existingUser.id },
+                data: { phone },
+              })
+            }
+            return membership
+          })
 
     const campaignName =
       (await this.organizations.resolvePositionNameByOrganizationSlug(

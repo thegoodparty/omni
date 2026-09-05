@@ -327,6 +327,35 @@ describe('TeamPage — invite flow (ENG-11058 two-step drawer)', () => {
       screen.getByText('What role would you like to assign?'),
     ).toBeInTheDocument()
   })
+
+  // ENG-11058 delegate fix: an invalid phone 400s via PhoneSchema server-side
+  // (InviteTeamMemberDto) — that message must surface inline too, not just
+  // the generic fallback the 409-only check used to leave it with.
+  it('shows the 400 message inline instead of closing the drawer', async () => {
+    const user = userEvent.setup()
+    api.mock('POST /v1/organizations/team/invites', {
+      status: 400,
+      data: { message: 'Must be valid phone number' },
+    })
+
+    render(<TeamPage />)
+    await screen.findByText('Owner Person')
+
+    await user.click(screen.getByRole('button', { name: 'Invite' }))
+    await user.type(screen.getByLabelText('Name'), 'New Person')
+    await user.type(screen.getByLabelText('Phone number'), 'abc')
+    await user.type(screen.getByLabelText('Email'), 'new@example.com')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('radio', { name: /Campaign Manager/ }))
+    await user.click(screen.getByRole('button', { name: 'Send invite' }))
+
+    expect(
+      await screen.findByText('Must be valid phone number'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('What role would you like to assign?'),
+    ).toBeInTheDocument()
+  })
 })
 
 describe('TeamPage — "How roles work" card (ENG-11058)', () => {
