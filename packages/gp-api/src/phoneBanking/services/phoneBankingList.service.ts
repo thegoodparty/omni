@@ -28,10 +28,12 @@ import {
   ContactStatusField,
   NotAVoterStatus,
   Organization,
+  OrganizationRole,
   OutreachStatus,
   OutreachType,
   Prisma,
 } from '../../generated/prisma'
+import { PhoneBankingAccessService } from './phoneBankingAccess.service'
 
 // Mirrors p2pPhoneListUpload.service.ts's SEGMENT_PAGE_SIZE — the page size
 // the resolved audience is paged through during a build.
@@ -107,6 +109,7 @@ export class PhoneBankingListService extends createPrismaBase(
     private readonly contacts: ContactsService,
     private readonly contactStatus: ContactStatusService,
     private readonly voterQuery: VoterQueryService,
+    private readonly access: PhoneBankingAccessService,
   ) {
     super()
   }
@@ -203,6 +206,8 @@ export class PhoneBankingListService extends createPrismaBase(
   async getForOrganization(
     id: number,
     organization: Organization,
+    role: OrganizationRole,
+    userId: number,
   ): Promise<PhoneBankingListResponse> {
     const list = await this.model.findFirst({
       where: { id, organizationSlug: organization.slug },
@@ -211,6 +216,7 @@ export class PhoneBankingListService extends createPrismaBase(
     if (!list) {
       throw new NotFoundException('Phone banking list not found')
     }
+    await this.access.assertVolunteerAccess(id, role, userId)
     return this.toResponse(list, organization)
   }
 
