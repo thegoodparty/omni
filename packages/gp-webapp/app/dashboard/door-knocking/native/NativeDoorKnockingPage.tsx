@@ -262,17 +262,30 @@ export default function NativeDoorKnockingPage({
   // preview map behind its own sheet), so the filter is walk-scoped and not
   // a global toggle.
   //
-  // On the drawing surface, drop every saved ring: the full-screen map is a
-  // single-task tool for cutting ONE new boundary, and existing rings are a
-  // reading task interrupting a drawing one. The step BEHIND the drawing
-  // surface (DrawStep) is where the candidate reviews what they've already
-  // covered, so the context isn't lost — just moved to where it fits.
+  // While the create flow is open, drop every saved ring. Two reasons in
+  // one gate:
+  //
+  // 1. On the drawing surface the full-screen map is a single-task tool
+  //    for cutting ONE new boundary, and existing rings are a reading
+  //    task interrupting a drawing one.
+  //
+  // 2. On the transitions in and out of the drawing surface (Continue →
+  //    confirm, Back → draw step), the shell mounts/unmounts around the
+  //    live map. Vaul's mount animation briefly exposes the map before
+  //    the sheet covers it — and if saved turfs came back the moment
+  //    drawFullScreen flipped false, that reveal flashed a district of
+  //    unrelated rings. Keeping the gate on the whole flow instead of
+  //    just the surface removes that flash without a transition timer.
+  //
+  // The step BEHIND the drawing surface (DrawStep) is where the candidate
+  // reviews what they've already covered, so the "what have I done"
+  // context isn't lost — just moved to where it fits.
   const visibleTurfs = useMemo(() => {
     const all = turfsQuery.data ?? []
-    if (draw.fullScreen) return []
+    if (flowStep) return []
     if (!walkTurf) return all
     return all.filter((candidate) => candidate.id === walkTurf.id)
-  }, [turfsQuery.data, walkTurf, draw.fullScreen])
+  }, [turfsQuery.data, walkTurf, flowStep])
   // The pack's bounding box, framed by the create flow's draw step as a
   // static-map preview card. Null while the pack decodes; the card omits
   // the image in that window rather than rendering against no rect.

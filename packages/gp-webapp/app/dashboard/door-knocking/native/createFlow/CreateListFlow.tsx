@@ -3,19 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-  Input,
-  Label,
-} from '@styleguide'
+import { Input, Label } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -68,7 +56,6 @@ import {
 import { WhoStep } from './WhoStep'
 import { DrawStep } from './DrawStep'
 import { DrawFullScreen } from './DrawFullScreen'
-import { DoorsPanel } from './DoorsPanel'
 import { RouteStep } from './RouteStep'
 import type { SavedListOption } from './savedListOptions'
 import type {
@@ -85,9 +72,7 @@ import type { PolygonStats } from '../filterEngine'
 
 export type { CreateFlowStep } from './createFlowSteps'
 
-// Informational, not a gate: past this the evening is long enough to be worth
-// saying out loud. The hard cap at 150 is what actually blocks.
-const SOFT_STOP_LIMIT = 100
+// Hard cap on stops per list — anything over this can't route.
 const HARD_STOP_LIMIT = 150
 const CREATE_ERROR_FALLBACK =
   'Building the route failed — nothing was saved. Try again in a moment.'
@@ -267,7 +252,7 @@ const STAGE_META: Record<
 type CreateFlowPurpose = DoorKnockingPurpose | ServeDoorKnockingPurpose
 
 const ROUTE_CAPTION =
-  'This builds the route and locks the turf — the list of doors is frozen so ' +
+  'This builds the route and locks the turf. The list of doors is frozen so ' +
   'everyone works from the same plan, and the directions are bought for the ' +
   'travel mode you pick. You only do this once per turf.'
 
@@ -287,18 +272,10 @@ export default function CreateListFlow({
   ring,
   turfStats,
   drawnStops,
-  addressPreview,
-  previewPending,
-  previewFailed,
-  previewStale,
-  onShowAddresses,
-  onHideAddresses,
-  onRetryAddresses,
   drawPointCount,
   onUndoPoint,
   drawFullScreen,
   onDrawFullScreenChange,
-  onRestartDrawing,
   color,
   onListCreated,
   isServeOrg,
@@ -369,10 +346,6 @@ export default function CreateListFlow({
     null,
   )
   const [loop, setLoop] = useState(true)
-  // The design's own confirm, asked only when leaving the drawing surface with
-  // a shape on it. Distinct from the shell's "Discard changes?", which is
-  // about abandoning the whole flow.
-  const [discardShapeOpen, setDiscardShapeOpen] = useState(false)
 
   // A recommendation accepted as a brand-new list carries clauses the who
   // step's boolean pill draft has no plane for — precincts and support
@@ -670,18 +643,15 @@ export default function CreateListFlow({
   // understated the evening exactly where buildings are densest.
   //
   // One quantity, one number: the preview REPLACES the estimate rather than
-  // sitting beside it (ADR 0010). Its counts are the ones the route will be
-  // built from — the same evaluation, the same suppressions, the same
-  // unit-level door — so once they exist the pack's superset is not a second
-  // opinion worth printing, it is the thing that was standing in for them.
-  const exactCounts = addressPreview !== null
-  // Four states of one panel — waiting, failed, describing a boundary that
-  // has moved, and answered — so the toggle reads the same in all of them.
-  const panelOpen =
-    exactCounts || previewPending || previewFailed || previewStale
-  const stops = addressPreview?.stops ?? turfStats?.stops ?? 0
-  const doors = addressPreview?.doors ?? turfStats?.households ?? 0
-  const people = addressPreview?.people ?? turfStats?.people ?? 0
+  // The pack's counts drive every reading of the drawn shape now that
+  // the address-preview panel has left the draw step. Once the route
+  // step commits, the paid `POST /door-knocking/turfs` runs its own
+  // exact evaluation server-side and freezes the list; the draw step's
+  // counts stay pack-derived because they are still ephemeral answers
+  // about a boundary the candidate may yet adjust.
+  const stops = turfStats?.stops ?? 0
+  const doors = turfStats?.households ?? 0
+  const people = turfStats?.people ?? 0
 
   // Derived rather than seeded into state: the pack decodes on its own
   // schedule, so a suggestion that arrives after the route step is on screen
@@ -828,7 +798,6 @@ export default function CreateListFlow({
   })
 
   const overCap = stops > HARD_STOP_LIMIT
-  const longWalk = stops > SOFT_STOP_LIMIT && !overCap
   // The per-list stop cap above is the only thing the drawing surface
   // enforces. A daily allowance used to be checked here too: a 500-stop
   // budget rode the address preview, so a shape could be refused for its size
@@ -843,48 +812,15 @@ export default function CreateListFlow({
     savedListId !== null,
   )
 
-  // Leaving the drawing surface. The canvas asks before throwing a shape away
-  // and closes silently when there is nothing to throw.
+  // Leaving the drawing surface. Back is a step-back inside the flow, not a
+  // close — the drawn shape stays and the candidate lands on the draw step
+  // where they can Continue with it or open the drawing surface again to
+  // adjust. The old "Discard this turf?" prompt fired here whenever Back
+  // was pressed with any vertices, which read as "you're about to lose
+  // work" for a gesture that never lost any.
   const leaveFullScreen = () => {
-    if (drawPointCount > 0) {
-      setDiscardShapeOpen(true)
-      return
-    }
     onDrawFullScreenChange(false)
   }
-
-  const discardShapeDialog = (
-    <AlertDialog open={discardShapeOpen} onOpenChange={setDiscardShapeOpen}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Discard this turf?</AlertDialogTitle>
-          <AlertDialogDescription>
-            The boundaries you drew will not be saved.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Keep drawing</AlertDialogCancel>
-          <AlertDialogAction
-            variant="destructive"
-            onClick={() => {
-              setDiscardShapeOpen(false)
-              // The boundary has to actually go. Closing the overlay alone left
-              // the ring on the canvas and still feeding the step's selected
-              // count, which made "will not be saved" a sentence the next
-              // screen contradicted. `onRestartDrawing` empties the shape and
-              // leaves a live session behind the shield, so pressing Draw
-              // boundaries again lands on a map that can be drawn on —
-              // `clearDrawing` would end the session and give a dead map.
-              onRestartDrawing()
-              onDrawFullScreenChange(false)
-            }}
-          >
-            Discard
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  )
 
   // The drawing surface is the one thing that renders OUTSIDE the shell:
   // it takes over the whole map with its own chrome, at a z-index above
@@ -912,7 +848,6 @@ export default function CreateListFlow({
           }}
           onClose={leaveFullScreen}
         />
-        {discardShapeDialog}
       </>
     )
   }
@@ -996,13 +931,25 @@ export default function CreateListFlow({
                 }
               : stage === 'confirm'
                 ? {
-                    label: 'Save',
+                    // "Continue", not "Save" — nothing is written yet at this
+                    // step. The only write in the flow happens on the route
+                    // step's Build route CTA (turf + Geoapify route + outreach
+                    // envelope, in one paid transaction). Calling this "Save"
+                    // read as commit and cost, when it's really just the next
+                    // step.
+                    label: 'Continue',
                     disabled: name.trim().length === 0,
                     onClick: () => goToStage('route'),
                   }
                 : {
-                    label: save.isPending ? 'Building route…' : 'Build route',
+                    // While the mutation runs, the button shows both a
+                    // spinner (via `loading`) and the "Building route"
+                    // label — same treatment the design calls for on the
+                    // one CTA whose click starts a paid multi-second
+                    // request.
+                    label: save.isPending ? 'Building route' : 'Build route',
                     disabled: save.isPending,
+                    loading: save.isPending,
                     onClick: () => save.mutate(),
                   }
       }
@@ -1109,68 +1056,12 @@ export default function CreateListFlow({
         )}
 
         {stage === 'draw' && (
-          <>
-            <DrawStep
-              districtBounds={districtBounds}
-              matchingHouseholds={districtHouseholds}
-              selectedHouseholds={doors}
-              onOpenFullScreen={() => onDrawFullScreenChange(true)}
-            >
-              {/* What is left below the preview is only what the shape
-                  can be WRONG about — the cap, the long evening, and the
-                  addresses the boundary actually caught. The walk-time
-                  estimate and the party-mix breakdown that used to sit
-                  here are gone: the design draws nothing under its
-                  preview, the estimate is now a metric in the details
-                  drawer, and a party split of a superset is a second set
-                  of numbers on a step whose own count line is the point.
-
-                  The disclosure stays because it is not a fact about the
-                  audience but a hedge on the count printed above it — a
-                  shortfall the exact counts do not have, unsaid, is a
-                  count that reads as exact. */}
-              {!exactCounts && unpreviewableDisclosure && (
-                <p className="text-xs text-muted-foreground">
-                  {unpreviewableDisclosure}
-                </p>
-              )}
-              {overCap && (
-                <p className="text-sm text-destructive">
-                  Over the {HARD_STOP_LIMIT}-stop limit — draw a smaller area.
-                </p>
-              )}
-              {longWalk && (
-                <p className="text-sm text-warning">
-                  Over {SOFT_STOP_LIMIT} stops is a long evening. You can still
-                  save it, or draw a smaller area.
-                </p>
-              )}
-              {doors > 0 && (
-                <Button
-                  size="small"
-                  variant="ghost"
-                  className="-ml-3 self-start"
-                  aria-expanded={panelOpen}
-                  aria-controls="draw-step-doors"
-                  onClick={panelOpen ? onHideAddresses : onShowAddresses}
-                >
-                  {panelOpen ? 'Hide the addresses' : 'See the addresses'}
-                </Button>
-              )}
-              {panelOpen && (
-                <DoorsPanel
-                  addressPreview={addressPreview}
-                  isServe={serveMode}
-                  pending={previewPending}
-                  failed={previewFailed}
-                  stale={previewStale}
-                  onShow={onShowAddresses}
-                  onRetry={onRetryAddresses}
-                />
-              )}
-            </DrawStep>
-            {discardShapeDialog}
-          </>
+          <DrawStep
+            districtBounds={districtBounds}
+            matchingHouseholds={districtHouseholds}
+            selectedHouseholds={doors}
+            onOpenFullScreen={() => onDrawFullScreenChange(true)}
+          />
         )}
 
         {stage === 'confirm' && (

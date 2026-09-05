@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react'
 import { PencilIcon } from '@styleguide'
 import { geoapifyStaticUrl } from './geoapifyStaticUrl'
 
@@ -12,28 +11,25 @@ interface DrawStepProps {
   matchingHouseholds: number
   selectedHouseholds: number
   onOpenFullScreen: () => void
-  // Everything this step reports about the shape beyond the count line: the
-  // cap warnings, the addresses panel. Rendered below the preview, in the
-  // scrolling half of the step.
-  children: ReactNode
 }
 
 // The draw step body inside OutreachFlowShell. The shell provides header
 // (with the "Draw your door knocking boundaries" Intro) and footer; this
-// component provides the counts, the preview card, and the addresses
-// panel.
+// step is just the counts and one big clickable card that opens the
+// full-screen drawing surface. Cap warnings, address preview and every
+// other bit of feedback live on the drawing surface itself, where the
+// shape can be seen — putting them here left the candidate reading
+// warnings on a static preview that had no ring on it.
 //
-// The preview is one big clickable card that opens the full-screen drawing
-// surface. Static Geoapify PNG framed to the pack's bounding box, with a
-// pill in the center as a visual affordance. The card itself is the
-// button; the pill is decorative (aria-hidden) so screen readers announce
-// one control, not two.
+// The preview card is a static Geoapify PNG framed to the pack's bounding
+// box, with a pill in the center as a visual affordance. The card itself
+// is the button; the pill is decorative (aria-hidden) so screen readers
+// announce one control, not two.
 export const DrawStep = ({
   districtBounds,
   matchingHouseholds,
   selectedHouseholds,
   onOpenFullScreen,
-  children,
 }: DrawStepProps) => (
   <div className="flex flex-col gap-6">
     <p className="text-sm">
@@ -77,6 +73,5 @@ export const DrawStep = ({
         </span>
       </span>
     </button>
-    {children}
   </div>
 )
