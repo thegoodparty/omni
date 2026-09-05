@@ -105,6 +105,9 @@ vi.mock('./useVoterPack', async (importOriginal) => ({
 // against whatever the surface over it says about it.
 vi.mock('./VoterMapCanvas', () => ({
   __esModule: true,
+  // Draw step's static-map preview asks for the pack's bounds; the tests
+  // don't exercise the image, so null is fine — the DrawStep omits it.
+  packBounds: () => null,
   default: ({
     filterResult,
     turfs,

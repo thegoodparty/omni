@@ -133,6 +133,10 @@ export interface CreateListSurfaceProps {
   onFiltersChange: (filters: VoterFileFilters) => void
   onStepChange: (step: CreateFlowStep) => void
   onClose: () => void
+  // The pack's bounding box, threaded to the draw step's static-map
+  // preview card. Null while the pack decodes; the preview omits the image
+  // in that window rather than rendering against no rect.
+  districtBounds: [[number, number], [number, number]] | null
   // District-wide households matching the filter draft. Honest only on the
   // filters step, where no polygon exists yet.
   districtHouseholds: number
@@ -207,6 +211,7 @@ export default function CreateListSurface({
   onFiltersChange,
   onStepChange,
   onClose,
+  districtBounds,
   districtHouseholds,
   districtHouseholdsPending,
   districtHouseholdsFailed,
@@ -352,6 +357,7 @@ export default function CreateListSurface({
         onStepChange(next)
       }}
       onClose={onClose}
+      districtBounds={districtBounds}
       districtHouseholds={districtHouseholds}
       districtHouseholdsPending={districtHouseholdsPending}
       districtHouseholdsFailed={districtHouseholdsFailed}

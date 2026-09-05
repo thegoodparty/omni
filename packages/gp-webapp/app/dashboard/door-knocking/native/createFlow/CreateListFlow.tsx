@@ -113,6 +113,10 @@ interface CreateListFlowProps {
   onFiltersChange: (filters: VoterFileFilters) => void
   onStepChange: (step: CreateFlowStep) => void
   onClose: () => void
+  // The pack's bounding box, framed by the draw step's static-map preview
+  // card. Null while the pack decodes; the preview omits the image in that
+  // window rather than rendering against no rect.
+  districtBounds: [[number, number], [number, number]] | null
   // District-wide households matching the filter draft. Honest only before a
   // polygon exists — once one is drawn, everything the draw step reports comes
   // off turfStats instead.
@@ -277,6 +281,7 @@ export default function CreateListFlow({
   onFiltersChange,
   onStepChange,
   onClose,
+  districtBounds,
   districtHouseholds,
   districtHouseholdsPending,
   districtHouseholdsFailed,
@@ -364,9 +369,6 @@ export default function CreateListFlow({
   // a shape on it. Distinct from the shell's "Discard changes?", which is
   // about abandoning the whole flow.
   const [discardShapeOpen, setDiscardShapeOpen] = useState(false)
-  // The shell's "Discard changes?", raised by hand for the draw step only —
-  // see `leaveFlowFromDraw`.
-  const [discardFlowOpen, setDiscardFlowOpen] = useState(false)
 
   // A recommendation accepted as a brand-new list carries clauses the who
   // step's boolean pill draft has no plane for — precincts and support
@@ -845,44 +847,6 @@ export default function CreateListFlow({
     onDrawFullScreenChange(false)
   }
 
-  // Leaving the FLOW from the draw step, which is the one step rendered outside
-  // `OutreachFlowShell` and so the one step whose X is not already wired to the
-  // shell's "Discard changes?". Left as a bare `onClose` it discarded a drawn
-  // boundary silently — on the step where there is most to lose, and where
-  // every sibling step asks. Same dialog, same words, raised from here because
-  // the shell that owns it is not in this branch of the tree.
-  const leaveFlowFromDraw = () => {
-    if (dirty) {
-      setDiscardFlowOpen(true)
-      return
-    }
-    onClose()
-  }
-
-  const discardFlowDialog = (
-    <AlertDialog open={discardFlowOpen} onOpenChange={setDiscardFlowOpen}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Discard changes?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Your draft and selections will be lost.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Keep editing</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => {
-              setDiscardFlowOpen(false)
-              onClose()
-            }}
-          >
-            Discard
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  )
-
   const discardShapeDialog = (
     <AlertDialog open={discardShapeOpen} onOpenChange={setDiscardShapeOpen}>
       <AlertDialogContent>
@@ -916,97 +880,33 @@ export default function CreateListFlow({
     </AlertDialog>
   )
 
-  if (stage === 'draw') {
-    const { currentStep, totalSteps } = stepperPosition(stage)
-    if (drawFullScreen) {
-      return (
-        <>
-          <DrawFullScreen
-            pointCount={drawPointCount}
-            onUndoPoint={onUndoPoint}
-            stops={stops}
-            overCap={overCap}
-            // The design's bare word, in every state. What the button is
-            // waiting for is said by the surface rather than by the button:
-            // the centred hint names the gesture until the first point lands,
-            // and the count pill reads the shape from there. A button that
-            // renames itself three times is three controls to read where the
-            // design draws one.
-            continueDisabled={!ring || stops === 0 || overCap}
-            onContinue={() => {
-              onDrawFullScreenChange(false)
-              goToStage('confirm')
-            }}
-            onClose={leaveFullScreen}
-          />
-          {discardShapeDialog}
-        </>
-      )
-    }
+  // The drawing surface is the one thing that renders OUTSIDE the shell:
+  // it takes over the whole map with its own chrome, at a z-index above
+  // the sheet, and only ever appears from the draw stage. Every other
+  // stage — draw included, when the surface is not up — flows through the
+  // shell below with its own body branch.
+  if (stage === 'draw' && drawFullScreen) {
     return (
       <>
-        <DrawStep
-          currentStep={currentStep}
-          totalSteps={totalSteps}
-          onBack={back}
-          onClose={leaveFlowFromDraw}
-          matchingHouseholds={districtHouseholds}
-          selectedHouseholds={doors}
-          onOpenFullScreen={() => onDrawFullScreenChange(true)}
-        >
-          {/* What is left below the canvas's preview is only what the shape
-              can be WRONG about — the cap, the long evening, and the addresses
-              the boundary actually caught. The walk-time estimate and the
-              party-mix breakdown that used to sit here are gone: the canvas
-              draws nothing under its preview, the estimate is now a metric in
-              the details drawer, and a party split of a superset is a second
-              set of numbers on a step whose own count line is the point.
-
-              The disclosure stays because it is not a fact about the audience
-              but a hedge on the count printed above it — a shortfall the exact
-              counts do not have, unsaid, is a count that reads as exact. */}
-          {!exactCounts && unpreviewableDisclosure && (
-            <p className="text-xs text-muted-foreground">
-              {unpreviewableDisclosure}
-            </p>
-          )}
-          {overCap && (
-            <p className="text-sm text-destructive">
-              Over the {HARD_STOP_LIMIT}-stop limit — draw a smaller area.
-            </p>
-          )}
-          {longWalk && (
-            <p className="text-sm text-warning">
-              Over {SOFT_STOP_LIMIT} stops is a long evening. You can still save
-              it, or draw a smaller area.
-            </p>
-          )}
-          {doors > 0 && (
-            <Button
-              size="small"
-              variant="ghost"
-              className="-ml-3 self-start"
-              aria-expanded={panelOpen}
-              aria-controls="draw-step-doors"
-              onClick={panelOpen ? onHideAddresses : onShowAddresses}
-            >
-              {panelOpen ? 'Hide the addresses' : 'See the addresses'}
-            </Button>
-          )}
-          {panelOpen && (
-            <DoorsPanel
-              addressPreview={addressPreview}
-              isServe={serveMode}
-              pending={previewPending}
-              failed={previewFailed}
-              stale={previewStale}
-              onShow={onShowAddresses}
-              onRetry={onRetryAddresses}
-            />
-          )}
-        </DrawStep>
+        <DrawFullScreen
+          pointCount={drawPointCount}
+          onUndoPoint={onUndoPoint}
+          stops={stops}
+          overCap={overCap}
+          // The design's bare word, in every state. What the button is
+          // waiting for is said by the surface rather than by the button:
+          // the centred hint names the gesture until the first point lands,
+          // and the count pill reads the shape from there. A button that
+          // renames itself three times is three controls to read where the
+          // design draws one.
+          continueDisabled={!ring || stops === 0 || overCap}
+          onContinue={() => {
+            onDrawFullScreenChange(false)
+            goToStage('confirm')
+          }}
+          onClose={leaveFullScreen}
+        />
         {discardShapeDialog}
-        {discardFlowDialog}
       </>
     )
   }
@@ -1066,17 +966,27 @@ export default function CreateListFlow({
                 // there is no door knocking without a boundary and a route.
                 onClick: () => goToStage('draw'),
               }
-            : stage === 'confirm'
+            : stage === 'draw'
               ? {
-                  label: 'Save',
-                  disabled: name.trim().length === 0,
-                  onClick: () => goToStage('route'),
+                  // Bare word — the shape's own count sits on the drawing
+                  // surface, and the disclosure sentence and cap warnings are
+                  // below this step's preview card, so a count in the CTA
+                  // would be the third place saying the same number.
+                  label: 'Continue',
+                  disabled: !ring || stops === 0 || overCap,
+                  onClick: () => goToStage('confirm'),
                 }
-              : {
-                  label: save.isPending ? 'Building route…' : 'Build route',
-                  disabled: save.isPending,
-                  onClick: () => save.mutate(),
-                }
+              : stage === 'confirm'
+                ? {
+                    label: 'Save',
+                    disabled: name.trim().length === 0,
+                    onClick: () => goToStage('route'),
+                  }
+                : {
+                    label: save.isPending ? 'Building route…' : 'Build route',
+                    disabled: save.isPending,
+                    onClick: () => save.mutate(),
+                  }
       }
     >
       <div className="flex flex-col gap-6">
@@ -1172,6 +1082,71 @@ export default function CreateListFlow({
                 {unpreviewableDisclosure}
               </p>
             )}
+          </>
+        )}
+
+        {stage === 'draw' && (
+          <>
+            <DrawStep
+              districtBounds={districtBounds}
+              matchingHouseholds={districtHouseholds}
+              selectedHouseholds={doors}
+              onOpenFullScreen={() => onDrawFullScreenChange(true)}
+            >
+              {/* What is left below the preview is only what the shape
+                  can be WRONG about — the cap, the long evening, and the
+                  addresses the boundary actually caught. The walk-time
+                  estimate and the party-mix breakdown that used to sit
+                  here are gone: the design draws nothing under its
+                  preview, the estimate is now a metric in the details
+                  drawer, and a party split of a superset is a second set
+                  of numbers on a step whose own count line is the point.
+
+                  The disclosure stays because it is not a fact about the
+                  audience but a hedge on the count printed above it — a
+                  shortfall the exact counts do not have, unsaid, is a
+                  count that reads as exact. */}
+              {!exactCounts && unpreviewableDisclosure && (
+                <p className="text-xs text-muted-foreground">
+                  {unpreviewableDisclosure}
+                </p>
+              )}
+              {overCap && (
+                <p className="text-sm text-destructive">
+                  Over the {HARD_STOP_LIMIT}-stop limit — draw a smaller area.
+                </p>
+              )}
+              {longWalk && (
+                <p className="text-sm text-warning">
+                  Over {SOFT_STOP_LIMIT} stops is a long evening. You can still
+                  save it, or draw a smaller area.
+                </p>
+              )}
+              {doors > 0 && (
+                <Button
+                  size="small"
+                  variant="ghost"
+                  className="-ml-3 self-start"
+                  aria-expanded={panelOpen}
+                  aria-controls="draw-step-doors"
+                  onClick={panelOpen ? onHideAddresses : onShowAddresses}
+                >
+                  {panelOpen ? 'Hide the addresses' : 'See the addresses'}
+                </Button>
+              )}
+              {panelOpen && (
+                <DoorsPanel
+                  addressPreview={addressPreview}
+                  isServe={serveMode}
+                  pending={previewPending}
+                  failed={previewFailed}
+                  stale={previewStale}
+                  onShow={onShowAddresses}
+                  onRetry={onRetryAddresses}
+                />
+              )}
+            </DrawStep>
+            {discardShapeDialog}
           </>
         )}
 

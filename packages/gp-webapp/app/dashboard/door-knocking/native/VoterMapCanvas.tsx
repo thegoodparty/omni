@@ -294,7 +294,7 @@ const buildColors = (
   return colors
 }
 
-const packBounds = (
+export const packBounds = (
   positions: Float32Array,
 ): [[number, number], [number, number]] | null => {
   if (positions.length === 0) return null

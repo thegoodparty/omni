@@ -36,7 +36,7 @@ import WalkSurface, { useWalkMapSession, WalkMapHint } from './WalkSurface'
 import { useWalkSession } from './useWalkSession'
 import { useLiveLocation } from './useLiveLocation'
 import { useWalkArchive, useWalkCompletion } from './walkCompletion'
-import type { PolygonRing } from './VoterMapCanvas'
+import { packBounds, type PolygonRing } from './VoterMapCanvas'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import { useOrganization } from '@shared/organization-picker'
 
@@ -272,6 +272,13 @@ export default function NativeDoorKnockingPage({
     if (!walkTurf) return all
     return all.filter((candidate) => candidate.id === walkTurf.id)
   }, [turfsQuery.data, walkTurf, draw.fullScreen])
+  // The pack's bounding box, framed by the create flow's draw step as a
+  // static-map preview card. Null while the pack decodes; the card omits
+  // the image in that window rather than rendering against no rect.
+  const districtBounds = useMemo(
+    () => (packQuery.data ? packBounds(packQuery.data.positions) : null),
+    [packQuery.data],
+  )
   // What the map shades. Only two surfaces can be on screen now, and only one
   // of them scopes the dots: the create flow's draft narrows them as the
   // filters are cut, and the walk leaves the whole district shaded under its
@@ -795,6 +802,7 @@ export default function NativeDoorKnockingPage({
                 onFiltersChange={setFilters}
                 onStepChange={changeFlowStep}
                 onClose={closeFlow}
+                districtBounds={districtBounds}
                 districtHouseholds={filterResult?.households ?? 0}
                 // The count above is derived from the pack, so it reads 0 for
                 // the whole of a download the sheet is drawn over. These two
