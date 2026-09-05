@@ -3,6 +3,7 @@ import {
   Button,
   Card,
   Eyebrow,
+  Skeleton,
   ToggleGroup,
   ToggleGroupItem,
   cn,
@@ -10,7 +11,6 @@ import {
 import {
   CheckIcon,
   ChevronDownIcon,
-  Loader2Icon,
   PlusIcon,
 } from '@styleguide/components/ui/icons'
 import type { RecommendedList } from '@goodparty_org/contracts'
@@ -43,6 +43,18 @@ interface WhoStepProps {
   // to cutting one by hand, not a filter.
   selectedListId: number | null
   onSelectList: (listId: number | null) => void
+  // Whether the candidate has actively picked an audience yet. Distinct
+  // from `selectedListId === null`, which is ambiguous ("nothing picked"
+  // vs. "picked All contacts"). The parent flips this to true in its
+  // `selectList` callback so the trigger commits to the pick — including
+  // an explicit All-contacts pick — instead of showing the placeholder.
+  hasPickedAudience: boolean
+  // True when the current audience came from a recommended-list card,
+  // not from the picker. The picker's own selected-state visuals are
+  // suppressed then — the audience lives on the recommendation card, not
+  // on any row of this popover, so highlighting a row (in particular the
+  // default "All contacts" row) would mislead.
+  hasActiveRecommendation: boolean
   isServeOrg: boolean
   // Which of the step's two faces is on screen: the list picker, or the
   // filter pills behind "Create a new list". Lifted so it survives a step back
@@ -111,6 +123,8 @@ export const WhoStep = ({
   allContactsHouseholds,
   selectedListId,
   onSelectList,
+  hasPickedAudience,
+  hasActiveRecommendation,
   isServeOrg,
   building,
   onBuildingChange,
@@ -123,6 +137,13 @@ export const WhoStep = ({
   onSelectRecommendation,
 }: WhoStepProps) => {
   const pickerRef = useRef<HTMLDivElement>(null)
+  // The picker only commits its selected-state visuals (border, checkmark,
+  // trigger text, selected-row tint) when a saved-list row was picked here
+  // — never when the audience came from a recommendation card or from
+  // hand-cut filters. The audience is committed either way (Continue is
+  // gated on `hasPickedAudience`); this is just about what the picker
+  // itself claims to hold.
+  const showsPickerSelection = hasPickedAudience && !hasActiveRecommendation
 
   // A panel that overlays the rest of the step has to close on the two
   // gestures every menu closes on, or it traps the step underneath it.
@@ -229,25 +250,46 @@ export const WhoStep = ({
   ]
   const activeId =
     selectedListId === null ? ALL_CONTACTS_VALUE : String(selectedListId)
-  const active = options.find((option) => option.id === activeId) ?? options[0]
+  // `options` always includes the "All contacts" row prepended above, so the
+  // fallback is a real row — the assertion tells the compiler what the
+  // construction already guarantees.
+  const active = options.find((option) => option.id === activeId) ?? options[0]!
+
+  // Initial skeleton (matches OutreachAudienceStep's shape) covers both
+  // sections while the recommendations query is in flight. The pack is
+  // deliberately NOT in this gate — its 4.5s p50 / 34s p95 fetch only
+  // affects per-list door counts, which skeleton in place inside the rows
+  // (see popover render below and the trigger subtitle) rather than
+  // holding the whole picker hostage.
+  const initialLoading = recommendedListsEnabled && recommendationsLoading
+
+  if (initialLoading) {
+    return (
+      <div
+        data-testid="who-step-loading"
+        aria-busy="true"
+        aria-live="polite"
+        className="flex flex-col gap-6"
+      >
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-3 w-32" />
+          <Skeleton className="h-24 w-full rounded-xl" />
+        </div>
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-3 w-20" />
+          <Skeleton className="h-16 w-full rounded-xl" />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <>
       {recommendedListsEnabled &&
-        (recommendationsLoading ||
-          recommendationsError ||
-          recommendations.length > 0) && (
+        (recommendationsError || recommendations.length > 0) && (
           <div className="flex flex-col gap-2">
             <Eyebrow>Recommended for you</Eyebrow>
-            {recommendationsLoading ? (
-              <div
-                data-testid="recommended-lists-loading"
-                className="flex items-center gap-1.5 text-sm text-muted-foreground"
-              >
-                <Loader2Icon className="size-3.5 animate-spin" />
-                Finding your best audiences…
-              </div>
-            ) : recommendationsError ? (
+            {recommendationsError ? (
               <p
                 data-testid="recommended-lists-error"
                 className="text-sm text-destructive"
@@ -285,15 +327,35 @@ export const WhoStep = ({
               onOpenChange(!open)
             }
           }}
-          className="cursor-pointer flex-row items-center justify-between gap-3 rounded-xl p-4"
+          className={cn(
+            'cursor-pointer flex-row items-center justify-between gap-3 rounded-xl p-4 transition-colors',
+            showsPickerSelection ? 'border-primary' : 'hover:border-primary/50',
+          )}
         >
           <span className="min-w-0">
             <span className="block truncate font-medium">
-              {active ? active.name : 'Select a list'}
+              {showsPickerSelection
+                ? active.name
+                : // Nothing picked from the picker (either genuinely
+                  // nothing, or the audience came from a recommendation).
+                  // When recommended cards are on screen, the picker's
+                  // role shifts to "here's where your saved lists are";
+                  // otherwise the placeholder invites the choice.
+                  recommendations.length > 0
+                  ? 'View your lists here'
+                  : 'Choose a voter list'}
             </span>
-            <span className="block text-sm text-muted-foreground">
-              {active ? active.sub : ''}
-            </span>
+            {showsPickerSelection ? (
+              active.sub ? (
+                <span className="block text-sm text-muted-foreground">
+                  {active.sub}
+                </span>
+              ) : (
+                // Pack hasn't landed — skeleton the count so the trigger
+                // still confirms which list is picked.
+                <Skeleton className="mt-1 h-4 w-16" />
+              )
+            ) : null}
           </span>
           <ChevronDownIcon
             className={cn(
@@ -334,7 +396,14 @@ export const WhoStep = ({
 
             <div role="listbox" aria-labelledby="create-list-audience-label">
               {options.map((option) => {
-                const selected = option.id === activeId
+                // Only mark a row as selected once the candidate has
+                // actually picked from the picker itself. `activeId`
+                // falls through to "All contacts" whenever `savedListId`
+                // is null — including when the audience came from a
+                // recommendation card — so gating on `showsPickerSelection`
+                // is what stops a recommendation pick from lighting up an
+                // unrelated row in this popover.
+                const selected = showsPickerSelection && option.id === activeId
                 return (
                   <button
                     key={option.id}
@@ -342,6 +411,10 @@ export const WhoStep = ({
                     role="option"
                     aria-selected={selected}
                     onClick={() => {
+                      // Even a click on "All contacts" (which maps to null
+                      // at the parent) counts as an explicit pick — the
+                      // parent's `selectList` flips `hasPickedAudience`
+                      // true, which flows back and commits the trigger.
                       onSelectList(option.listId)
                       onOpenChange(false)
                     }}
@@ -351,9 +424,15 @@ export const WhoStep = ({
                       <span className="block truncate font-medium">
                         {option.name}
                       </span>
-                      <span className="block text-sm text-muted-foreground">
-                        {option.sub}
-                      </span>
+                      {option.sub ? (
+                        <span className="block text-sm text-muted-foreground">
+                          {option.sub}
+                        </span>
+                      ) : (
+                        // Pack hasn't landed for this row yet — skeleton
+                        // the door count without hiding the option.
+                        <Skeleton className="mt-1 h-4 w-16" />
+                      )}
                     </span>
                     {selected && (
                       <CheckIcon className="size-5 shrink-0 text-primary" />

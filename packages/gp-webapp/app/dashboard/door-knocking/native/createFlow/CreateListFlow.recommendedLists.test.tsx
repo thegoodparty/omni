@@ -250,12 +250,13 @@ describe('CreateListFlow — recommended lists', () => {
     })
     renderAtWho()
 
-    await waitFor(() =>
-      expect(screen.queryByTestId('recommended-list-card')).toBeNull(),
-    )
+    // Wait for the initial skeleton to clear before asserting the picker
+    // is present — the whole step is skeletoned while the recs query is
+    // in flight (matches OutreachAudienceStep's shape).
     expect(
-      screen.getByRole('combobox', { name: 'All lists' }),
+      await screen.findByRole('combobox', { name: 'All lists' }),
     ).toBeInTheDocument()
+    expect(screen.queryByTestId('recommended-list-card')).toBeNull()
   })
 
   it('shows a loading state while recommendations resolve', async () => {
@@ -265,9 +266,7 @@ describe('CreateListFlow — recommended lists', () => {
     )
     renderAtWho()
 
-    expect(
-      await screen.findByTestId('recommended-lists-loading'),
-    ).toBeInTheDocument()
+    expect(await screen.findByTestId('who-step-loading')).toBeInTheDocument()
     expect(screen.queryByTestId('recommended-list-card')).toBeNull()
   })
 

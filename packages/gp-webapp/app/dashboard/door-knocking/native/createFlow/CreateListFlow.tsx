@@ -354,6 +354,14 @@ export default function CreateListFlow({
       : null
   // Null means the whole contact universe.
   const [savedListId, setSavedListId] = useState<number | null>(null)
+  // Whether the candidate has actively picked an audience yet. Distinct
+  // from `savedListId === null`, which is ambiguous — that could mean
+  // "nothing picked" or "picked All contacts". The who-step trigger and
+  // the Continue button both need to differentiate, so this is flipped
+  // true by every writer of `savedListId` (the picker's own click, the
+  // recommendation accept, the `?listId=` preselect below) through
+  // `selectList`.
+  const [hasPickedAudience, setHasPickedAudience] = useState(false)
   // The who step's two faces and its panel. Held here rather than in the step
   // so that a step back from `draw` returns to the face the candidate left —
   // someone who cut a custom audience and pressed Back means to edit those
@@ -406,6 +414,7 @@ export default function CreateListFlow({
   // — and a second copy of the pair is a second chance for them to diverge.
   const selectList = useCallback(
     (listId: number | null) => {
+      setHasPickedAudience(true)
       setSavedListId(listId)
       clearRecommendedDraft()
       onFiltersChange(
@@ -458,6 +467,7 @@ export default function CreateListFlow({
       }
       const precincts = recommendation.filter.precincts ?? []
       const supportStatus = recommendation.filter.supportStatus ?? []
+      setHasPickedAudience(true)
       setSavedListId(null)
       // The boolean MARKS beside the pill draft, exactly as
       // `savedListFilterKeys` leaves them for a picked list: they narrow
@@ -1025,6 +1035,12 @@ export default function CreateListFlow({
               allContactsHouseholds={allContactsHouseholds}
               selectedListId={savedListId}
               onSelectList={selectList}
+              hasPickedAudience={hasPickedAudience}
+              // True while the draft came from a recommendation card
+              // rather than a picker pick — the who step suppresses its
+              // own selected-state visuals then, so the audience isn't
+              // shown twice.
+              hasActiveRecommendation={recommendedMeta !== null}
               isServeOrg={isServeOrg}
               building={buildingList}
               onBuildingChange={(next) => {

@@ -625,8 +625,14 @@ describe('CreateListFlow', () => {
   // picker's own door count is the unfiltered universe and stands still — so
   // reading the CTA as the picker's count would be reading the district as the
   // list.
-  it('counts the filtered audience in the who step’s Continue, not the whole universe', () => {
+  it('counts the filtered audience in the who step’s Continue, not the whole universe', async () => {
     renderAtWho({ districtHouseholds: 1500, allContactsHouseholds: 12000 })
+
+    // Pick All contacts so the trigger commits to a selection — the
+    // picker now shows a placeholder until the candidate has actively
+    // picked, so a bare initial render reads as "Choose a voter list"
+    // rather than the picked audience.
+    await pickList(/All contacts/)
 
     expect(
       screen.getByRole('button', { name: 'Continue (1,500)' }),
@@ -1883,7 +1889,10 @@ describe('CreateListFlow preselected list', () => {
     const onFiltersChange = vi.fn()
     renderAtWho({ savedLists, onFiltersChange })
 
-    expect(audiencePicker()).toHaveTextContent('All contacts')
+    // No pick, no preselect → the picker reads its placeholder rather
+    // than defaulting to "All contacts" (which would falsely commit the
+    // trigger to a selection the candidate never made).
+    expect(audiencePicker()).toHaveTextContent('Choose a voter list')
     expect(onFiltersChange).not.toHaveBeenCalled()
   })
 
@@ -1917,7 +1926,9 @@ describe('CreateListFlow preselected list', () => {
       <CreateListFlow {...props} step="filters" savedLists={[]} />,
     )
     fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
-    expect(audiencePicker()).toHaveTextContent('All contacts')
+    // Rows haven't arrived, preselect is still waiting → the picker
+    // reads its placeholder rather than committing to a default.
+    expect(audiencePicker()).toHaveTextContent('Choose a voter list')
 
     rerender(
       <CreateListFlow {...props} step="filters" savedLists={savedLists} />,
