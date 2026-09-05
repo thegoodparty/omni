@@ -19,10 +19,10 @@ import {
   DoorClosedIcon,
   FootprintsIcon,
   HouseIcon,
+  Skeleton,
   UserIcon,
   UsersIcon,
 } from '@styleguide'
-import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import { countDoors, isKnockable, knockableTargets } from '../routeCounts'
 import { liveLocationMessage, type LiveLocation } from './useLiveLocation'
 import { formatDuration } from './formatDuration'
@@ -483,9 +483,31 @@ export default function WalkView({
 
   return (
     <div className="mx-auto min-h-0 w-full max-w-[608px] flex-1 overflow-y-auto px-4 pb-6">
+      {/* Mirror the loaded state's vertical rhythm so the transition to
+        real content isn't a layout jump: progress pill at top, PDF button
+        below it, then a run of stop rows (numbered marker + two text
+        lines each). Four rows is enough to fill the sheet at `half`
+        without over-drawing at `peek`. */}
       {routeQuery.isPending && (
-        <div className="flex h-full items-center justify-center">
-          <LoadingAnimation />
+        <div
+          data-testid="walk-view-loading"
+          aria-busy="true"
+          aria-live="polite"
+          className="flex flex-col gap-4 py-4"
+        >
+          <Skeleton className="h-6 w-36 rounded-full" />
+          <Skeleton className="h-10 w-full rounded-md" />
+          <div className="flex flex-col gap-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="flex items-center gap-3">
+                <Skeleton className="size-8 shrink-0 rounded-full" />
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
+                  <Skeleton className="h-3.5 w-3/5" />
+                  <Skeleton className="h-3 w-2/5" />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
       {/* Only when there is no route to walk. A background serve that fails —
