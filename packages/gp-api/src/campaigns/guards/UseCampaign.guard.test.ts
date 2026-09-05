@@ -202,6 +202,29 @@ describe('UseCampaignGuard', () => {
     expect(req.organizationRole).toBe(OrganizationRole.volunteer)
   })
 
+  // A campaign-less org (e.g. Serve) must still attach the resolved role,
+  // or OrganizationRoleGuard's unset-role passthrough would let a volunteer
+  // through unenforced on solo-@UseCampaign continueIfNotFound routes.
+  it('attaches the role under continueIfNotFound with no campaign', async () => {
+    mockMetadata({ continueIfNotFound: true })
+    vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue({
+      role: OrganizationRole.volunteer,
+      organization: { slug: 'campaign-100', ownerId: 1 } as never,
+    })
+    vi.spyOn(campaignsService, 'findFirst').mockResolvedValue(null)
+
+    const ctx = buildContext({ 'x-organization-slug': 'campaign-100' }, 2)
+    const result = await guard.canActivate(ctx)
+
+    expect(result).toBe(true)
+    const req = ctx.switchToHttp().getRequest() as {
+      campaign?: Campaign
+      organizationRole?: unknown
+    }
+    expect(req.campaign).toBeUndefined()
+    expect(req.organizationRole).toBe(OrganizationRole.volunteer)
+  })
+
   it('throws NotFoundException when no header is present', async () => {
     mockMetadata()
 

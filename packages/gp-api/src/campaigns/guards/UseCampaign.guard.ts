@@ -76,6 +76,12 @@ export class UseCampaignGuard implements CanActivate {
       request.organizationRole = role
       return true
     } else if (continueIfNotFound === true) {
+      // A resolved member of a campaign-less org must still carry their
+      // role, or OrganizationRoleGuard's unset-role passthrough would let
+      // a volunteer through unenforced on solo-@UseCampaign routes.
+      if (role) {
+        request.organizationRole = role
+      }
       return true
     }
 
