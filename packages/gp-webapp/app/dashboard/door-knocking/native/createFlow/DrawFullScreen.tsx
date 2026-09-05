@@ -79,14 +79,14 @@ export const DrawFullScreen = ({
 
   return (
     <div className="pointer-events-none absolute inset-0 z-20">
-      {/* Pre-first-point hint: sits at the same vertical position as the
-          Undo/count cluster to the right and the map's own zoom/locate
-          cluster to the left, so the three read as one row of chrome
-          instead of a modal-looking pill floating over the map.
-          Disappears the moment a point lands, because the map itself
-          becomes the affordance. */}
+      {/* Pre-first-point hint: sits one row above the Undo/count cluster
+          (at 88px) rather than beside it, because at narrow widths the
+          centered hint would collide with the right-side pills and be
+          clipped. Stacking removes the horizontal competition without a
+          breakpoint. Disappears the moment a point lands, because the
+          map itself becomes the affordance. */}
       {pointCount === 0 && (
-        <div className="absolute inset-x-0 bottom-[88px] z-10 flex h-9 justify-center">
+        <div className="absolute inset-x-0 bottom-[136px] z-10 flex h-9 justify-center px-4">
           <span className="pointer-events-none inline-flex items-center rounded-full border border-border bg-card px-3.5 text-sm font-medium text-foreground shadow-sm">
             Tap or click to add your first point
           </span>
