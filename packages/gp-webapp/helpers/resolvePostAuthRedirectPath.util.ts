@@ -24,6 +24,12 @@ export const WIN_WELCOME_PATH = '/win/welcome'
  */
 export const TEAM_INVITE_PATH = '/team-invite'
 
+/**
+ * Volunteer route group (ENG-11052, Phase 1.5): the reductive shell a
+ * volunteer lands on instead of the campaign dashboard.
+ */
+export const VOLUNTEER_PATH = '/volunteer'
+
 export const resolvePostAuthRedirectPath = (
   user: { roles?: string[] } | null,
   campaignStatus: CampaignStatus | null,
@@ -39,12 +45,23 @@ export const resolvePostAuthRedirectPath = (
   // their own tool) but ahead of every candidate/onboarding branch, so a
   // stranded invitee is never routed anywhere else first.
   hasPendingTeamInvite = false,
+  // The viewer's role in their ACTIVE org (mirrors the org-picker's own
+  // active-org resolution), true only when the caller has independently
+  // confirmed the win-team-accounts flag is on. A volunteer's active org
+  // never resolves a campaign server-side (gp-api's UseCampaignGuard fails
+  // closed on a volunteer membership), so campaignStatus reads `false` for
+  // them same as a brand-new lead — this branch has to win ahead of that
+  // fallthrough or a volunteer is misrouted into onboarding.
+  isActiveOrgVolunteer = false,
 ): string => {
   if (user?.roles?.includes('sales')) {
     return '/sales/add-campaign'
   }
   if (hasPendingTeamInvite) {
     return TEAM_INVITE_PATH
+  }
+  if (isActiveOrgVolunteer) {
+    return VOLUNTEER_PATH
   }
   if (campaignStatus?.status === 'candidate') {
     return '/dashboard'

@@ -55,4 +55,16 @@ describe('ProfileDropdown — Account Settings visibility x organization role', 
     render(<ProfileDropdown open toggleCallback={vi.fn()} user={user} />)
     expect(screen.getByText('Profile')).toBeInTheDocument()
   })
+
+  it('hides Account Settings for a volunteer', () => {
+    mockUseOrganizationRole.mockReturnValue('volunteer')
+    render(<ProfileDropdown open toggleCallback={vi.fn()} user={user} />)
+    expect(screen.queryByText('Account Settings')).not.toBeInTheDocument()
+  })
+
+  it('still shows Profile for a volunteer — only account settings is gated', () => {
+    mockUseOrganizationRole.mockReturnValue('volunteer')
+    render(<ProfileDropdown open toggleCallback={vi.fn()} user={user} />)
+    expect(screen.getByText('Profile')).toBeInTheDocument()
+  })
 })

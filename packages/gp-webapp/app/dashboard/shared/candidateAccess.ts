@@ -8,7 +8,9 @@ import { getServerUser } from 'helpers/userServerHelper'
 import {
   resolvePostAuthRedirectPath,
   CampaignStatus,
+  VOLUNTEER_PATH,
 } from 'helpers/resolvePostAuthRedirectPath.util'
+import { isActiveOrgVolunteer } from '@shared/organizations/activeOrgVolunteer.server'
 
 export async function fetchCampaignStatus(): Promise<CampaignStatus> {
   try {
@@ -54,14 +56,21 @@ const fetchHasElectedOfficeOrg = async (): Promise<boolean> => {
 }
 
 export async function getPostAuthRedirectPath(): Promise<string> {
-  const [user, campaignStatus, hasCurrentEO, myElectedOffices, hasEoOrg] =
-    await Promise.all([
-      getServerUser(),
-      fetchCampaignStatus(),
-      fetchHasCurrentElectedOffice(),
-      fetchMyElectedOffices(),
-      fetchHasElectedOfficeOrg(),
-    ])
+  const [
+    user,
+    campaignStatus,
+    hasCurrentEO,
+    myElectedOffices,
+    hasEoOrg,
+    activeOrgIsVolunteer,
+  ] = await Promise.all([
+    getServerUser(),
+    fetchCampaignStatus(),
+    fetchHasCurrentElectedOffice(),
+    fetchMyElectedOffices(),
+    fetchHasElectedOfficeOrg(),
+    isActiveOrgVolunteer(),
+  ])
 
   // Mirror the OTP /post-auth-redirect path: `/current` only resolves the
   // active-slug org's office (404s behind a campaign org), so scan every office
@@ -84,6 +93,8 @@ export async function getPostAuthRedirectPath(): Promise<string> {
     campaignStatus,
     hasElectedOffice,
     electedOfficeOnboardingComplete,
+    false,
+    activeOrgIsVolunteer,
   )
 }
 
@@ -101,6 +112,14 @@ export default async function candidateAccess(): Promise<void> {
     const organizations = await getCurrentUserOrganizations()
     if (organizations.length === 0) {
       return redirect('/onboarding/office-selection')
+    }
+    // A volunteer's active org gets the reductive /volunteer shell instead
+    // of the campaign dashboard (ENG-11052) — enforced here, not just in the
+    // nav, so a typed /dashboard/* URL can never render a manager UI shell
+    // for them. Server-side because every dashboard page routes through this
+    // gate before it renders anything.
+    if (await isActiveOrgVolunteer()) {
+      return redirect(VOLUNTEER_PATH)
     }
   }
 

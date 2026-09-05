@@ -177,7 +177,13 @@ const TeamInvitePage = () => {
       // seeded server-side by PageWrapper, and the membership this call
       // just created isn't visible to that fetch until it re-runs — same
       // constraint /post-auth-redirect documents for its own navigation.
-      window.location.href = '/dashboard'
+      // A volunteer lands on the reductive /volunteer shell (ENG-11052)
+      // rather than the campaign dashboard; /volunteer's own layout is the
+      // single source of truth for the win-team-accounts flag check, so
+      // this doesn't need to re-check it — a flag-off session bounces
+      // straight back to /dashboard from there.
+      window.location.href =
+        res.data.role === 'volunteer' ? '/volunteer' : '/dashboard'
       return
     }
     if (res.status === 404) {

@@ -10,6 +10,9 @@ const Nav = (): React.JSX.Element => {
   const pathname = usePathname()
   const hideGlobalNav =
     pathname?.startsWith('/dashboard') ||
+    // The volunteer shell (ENG-11052) draws its own top bar — logo, org
+    // picker, profile dropdown — same reasoning as /dashboard.
+    pathname?.startsWith('/volunteer') ||
     pathname?.startsWith('/onboarding') ||
     // The elected-official ("serve") flow is a focused, full-screen experience
     // with its own logo + stepper chrome (mirroring /onboarding), so the global
