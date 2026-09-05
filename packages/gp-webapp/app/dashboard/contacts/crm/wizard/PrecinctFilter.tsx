@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
+import { Drawer as VaulDrawer } from 'vaul'
 import {
   Button,
-  Drawer,
   DrawerBody,
   DrawerContent,
   DrawerDescription,
@@ -222,7 +222,7 @@ export default function PrecinctFilter({
         ) : null}
       </ToggleGroup>
 
-      <Drawer open={sheetOpen} onOpenChange={setSheetOpen}>
+      <VaulDrawer.NestedRoot open={sheetOpen} onOpenChange={setSheetOpen}>
         {/* No X anywhere on this drawer — the Save button in the footer is
             the deliberate exit, and this sheet is nested inside CrmSheet
             whose own X already covers "exit the whole thing". Two X's on
@@ -277,7 +277,7 @@ export default function PrecinctFilter({
             </Button>
           </DrawerFooter>
         </DrawerContent>
-      </Drawer>
+      </VaulDrawer.NestedRoot>
     </div>
   )
 }
