@@ -375,7 +375,7 @@ describe('WalkSurface seam', () => {
 
     expect(screen.getByText('Riverside loop')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Close' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Exit route' }))
 
     expect(onExit).toHaveBeenCalled()
   })
@@ -392,7 +392,7 @@ describe('WalkSurface seam', () => {
     const sheet = screen.getByRole('complementary')
     expect(sheet).toHaveAttribute('data-snap', 'half')
 
-    screen.getByRole('button', { name: 'Close' }).focus()
+    screen.getByRole('button', { name: 'Exit route' }).focus()
     await userEvent.keyboard('{Enter}')
 
     expect(onExit).toHaveBeenCalledTimes(1)

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { IconButton, XMarkIcon } from '@styleguide'
+import { Button } from '@styleguide'
 import { routeQueryOptions } from './turfQueries'
 import { rollupStopStatus, stopIsKnockable } from './statusPresentation'
 import type { LiveLocation } from './useLiveLocation'
@@ -205,14 +205,23 @@ export default function WalkSurface({
       // Over the map at every width, unlike the manage rail — a walk is one
       // route and the map under it is the street being walked, so there is no
       // desktop arrangement where the two sit side by side.
-      className={`absolute inset-x-0 bottom-0 z-20 flex flex-col overflow-hidden rounded-t-2xl border-t border-border bg-card shadow-lg transition-[height] duration-[260ms] ease-out ${heightClass}`}
+      //
+      // `overflow-clip` rather than `overflow-hidden`: both prevent the aside
+      // from scrolling by user gesture, but the CSSOM spec treats
+      // `overflow-hidden` as a valid scroll target for `Element.scrollIntoView`
+      // — so a pin tap that scrolled the tapped row into center inside the
+      // WalkView list ALSO scrolled the aside's content up, hiding the drag
+      // handle and header above the sheet's own top edge. `overflow-clip`
+      // clips content the same way but is excluded from that scroll-target
+      // walk, so scrollIntoView reaches only the inner list container.
+      className={`absolute inset-x-0 bottom-0 z-20 flex flex-col overflow-clip rounded-t-2xl border-t border-border bg-card shadow-lg transition-[height] duration-[260ms] ease-out ${heightClass}`}
     >
       <div
         role="button"
         tabIndex={0}
         aria-expanded={snap !== 'peek'}
         aria-label={snap === 'full' ? 'Collapse the route' : 'Expand the route'}
-        className="mx-auto flex w-full max-w-[608px] shrink-0 cursor-grab touch-none flex-col gap-2.5 px-4 pt-2 pb-3"
+        className="mx-auto flex w-full max-w-[608px] shrink-0 cursor-grab touch-none flex-col gap-3 px-4 pt-3 pb-4"
         {...gripHandlers}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
@@ -221,29 +230,35 @@ export default function WalkSurface({
           }
         }}
       >
-        <span className="mx-auto h-2 w-[120px] shrink-0 rounded-full bg-border" />
-        <div className="mt-1.5 flex items-center justify-between gap-3">
-          <span className="truncate text-[15px] font-semibold">{turfName}</span>
-          {/* The pointer events are stopped rather than the click: the grip
-              around this button is driven by pointer handlers, so a press that
-              did not stop them would drag the sheet under the finger closing
-              it. Keydown is stopped for the keyboard equivalent: the grip
-              treats Enter/Space as "cycle the snap" and preventDefaults them,
-              so a bubbled keypress on this button would both swallow the
-              button's own click (the default action the browser fires after
-              keydown propagation) and toggle the sheet — leaving Close unable
-              to close. */}
-          <IconButton
+        <span className="mx-auto h-1.5 w-[120px] shrink-0 rounded-full bg-muted-foreground/50" />
+        <div className="flex items-center gap-3">
+          <h2 className="min-w-0 flex-1 truncate text-xl font-semibold">
+            {turfName}
+          </h2>
+          {/* Labeled "Exit route" rather than an X: an X on a peek-visible
+              bottom sheet reads as "dismiss this sheet" by every vaul/shadcn
+              convention, and dragging the grip to peek already does that. An
+              X that instead exits the whole walk violates the strongest
+              convention this pattern has.
+
+              The pointer events are stopped rather than the click: the grip
+              around this button is driven by pointer handlers, so a press
+              that did not stop them would drag the sheet under the finger.
+              Keydown is stopped for the keyboard equivalent: the grip treats
+              Enter/Space as "cycle the snap" and preventDefaults them, so a
+              bubbled keypress on this button would both swallow the button's
+              own click and toggle the sheet. */}
+          <Button
             variant="ghost"
-            aria-label="Close"
+            size="small"
             className="shrink-0"
             onPointerDown={(event) => event.stopPropagation()}
             onPointerUp={(event) => event.stopPropagation()}
             onKeyDown={(event) => event.stopPropagation()}
             onClick={onExit}
           >
-            <XMarkIcon size={18} />
-          </IconButton>
+            Exit route
+          </Button>
         </div>
       </div>
       {snap !== 'peek' && (

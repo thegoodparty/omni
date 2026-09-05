@@ -475,10 +475,11 @@ const startWalk = async (
   return screen.findByRole('button', { name: 'tap pin 11' })
 }
 
-// The walk's one way out, which is the X in its own sheet header. PersonSheet's
-// is labelled "Close person details", so this can only be the walk's.
+// The walk's one way out, which is the "Exit route" button in its own sheet
+// header. PersonSheet's close is labelled "Close person details", so this
+// can only be the walk's.
 const leaveWalk = () =>
-  fireEvent.click(walkSurface().getByRole('button', { name: 'Close' }))
+  fireEvent.click(walkSurface().getByRole('button', { name: 'Exit route' }))
 
 // The hubs door knocking is entered from and every exit from it lands on —
 // one per surface, because one route serves both.
@@ -812,7 +813,7 @@ describe('NativeDoorKnockingPage create flow', () => {
     // The limit is quoted from the response rather than a constant this
     // component keeps, so an org raised past five reads its own number.
     expect(
-      screen.getByText(/You've created 5 door knocking campaigns today/),
+      screen.getByText(/You created 5 door knocking campaigns today/),
     ).toBeInTheDocument()
     expect(screen.queryByText(/Introduce myself/)).toBeNull()
   })

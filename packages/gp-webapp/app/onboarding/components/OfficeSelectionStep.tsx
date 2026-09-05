@@ -552,7 +552,7 @@ export const OfficeSelectionStep = ({
           </div>
         ) : null}
 
-        {showResults ? (
+        {showResults || query.isError ? (
           <div className="text-center">
             <Button
               type="button"
