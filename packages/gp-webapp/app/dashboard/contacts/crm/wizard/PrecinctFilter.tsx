@@ -223,13 +223,9 @@ export default function PrecinctFilter({
       </ToggleGroup>
 
       <VaulDrawer.NestedRoot open={sheetOpen} onOpenChange={setSheetOpen}>
-        {/* No X anywhere on this drawer — the Save button in the footer is
-            the deliberate exit, and this sheet is nested inside CrmSheet
-            whose own X already covers "exit the whole thing". Two X's on
-            screen at once (parent + child) reads as noise. */}
-        <DrawerContent closeClassName="hidden">
+        <DrawerContent>
           <DrawerHandle />
-          <DrawerHeader hideClose>
+          <DrawerHeader>
             <DrawerTitle>Precinct</DrawerTitle>
             {selected.length > 0 ? (
               <DrawerDescription>{selected.length} selected</DrawerDescription>
