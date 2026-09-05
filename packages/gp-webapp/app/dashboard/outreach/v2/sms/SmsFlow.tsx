@@ -36,6 +36,7 @@ import {
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { dollarsToCents } from 'helpers/numberHelper'
 import { hasAnyVoterFileSelection } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import {
   OutreachAudienceStep,
@@ -754,6 +755,7 @@ export const SmsFlow = ({
             ? 'Review and send'
             : STEP_TITLES[stepId]
       }
+      headerBadge={<ChannelBadge type={OUTREACH_TYPES.text} />}
       currentStep={stepIndex + 1}
       totalSteps={scheduled ? 0 : STEP_ORDER.length}
       onBack={!scheduled && stepIndex > 0 ? handleBack : undefined}

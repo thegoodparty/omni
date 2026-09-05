@@ -23,6 +23,7 @@ import {
   OUTREACH_OPTIONS,
   OUTREACH_TYPES,
 } from 'app/dashboard/outreach/constants'
+import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { PurposeStep } from '../PurposeStep'
 // Intro is a channel-generic v2 component that currently lives under
@@ -623,6 +624,7 @@ export const PhoneBankingFlow = ({
       open={open}
       onClose={onClose}
       title={STEP_TITLES[stepId]}
+      headerBadge={<ChannelBadge type={OUTREACH_TYPES.nativePhoneBanking} />}
       currentStep={stepIndex + 1}
       totalSteps={STEP_ORDER.length}
       onBack={stepIndex > 0 && !saved ? handleBack : undefined}

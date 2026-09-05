@@ -10,6 +10,7 @@ import {
   type SocialTone,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
+import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import {
   OUTREACH_OPTIONS,
@@ -567,6 +568,7 @@ export const RobocallFlow = ({
       open={open}
       onClose={onClose}
       title={STEP_TITLES[stepId]}
+      headerBadge={<ChannelBadge type={OUTREACH_TYPES.robocall} />}
       currentStep={stepIndex + 1}
       totalSteps={STEP_ORDER.length}
       onBack={stepIndex > 0 ? handleBack : undefined}
