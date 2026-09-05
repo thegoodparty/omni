@@ -8,8 +8,9 @@ interface UseTeamAccountsFlagResult {
 }
 
 // Gate for the team accounts surface (ENG-10816): the /dashboard/team page
-// and its left-rail nav item. Defaults off (useFlagOn falls back to 'off'),
-// so the page is unreachable and the nav item hidden until the flag is on.
+// and its account-menu nav item (ENG-11061 moved it out of the primary nav).
+// Defaults off (useFlagOn falls back to 'off'), so the page is unreachable
+// and the nav item hidden until the flag is on.
 //
 // Pass trackExposure=false on surfaces that read the flag to decide whether to
 // render something (the dashboard nav item) but aren't themselves the
