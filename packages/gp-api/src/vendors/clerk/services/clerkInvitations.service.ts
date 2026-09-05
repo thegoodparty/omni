@@ -251,6 +251,7 @@ export class ClerkInvitationsService {
               name: null,
               invitedByUserId: null,
               outreachId: null,
+              phone: null,
             },
           }),
       )

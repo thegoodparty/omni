@@ -352,7 +352,12 @@ import { dirname, join, relative } from 'node:path'
 // ENG-11059: OutreachAssignModal.tsx is a new client component — it owns
 // interactive dialog state (search/role-filter, assign/unassign clicks) that
 // can't run on the server.
-const BASELINE = 602
+// 2026-09-05: 602 -> 603 for the team page's two-step invite drawer
+// (ENG-11058, InviteMemberDrawer.tsx). It owns the step/form/role state and
+// drives the invite mutation, same reasoning as InviteMemberDialog.tsx —
+// which it replaces on the team page (the outreach entry point keeps using
+// the dialog unchanged, so both files still exist).
+const BASELINE = 603
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

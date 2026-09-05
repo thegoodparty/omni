@@ -577,15 +577,19 @@ export type APIEndpoints = {
 
   // Gated server-side by the win-team-accounts flag (404 while off) — the
   // only route that can create a membership row, so gating just this one
-  // makes the whole feature inert at 0%. A volunteer invite (ENG-11049) is
-  // list-scoped: it must carry outreachId, and a campaignAdmin invite must
-  // not — gp-api's Zod refine enforces both directions.
+  // makes the whole feature inert at 0%. outreachId is optional: the
+  // outreach drawer's list-scoped volunteer invite (ENG-11049) still sends
+  // one, but a general volunteer invite from the team page's drawer
+  // (ENG-11058) legally omits it; a campaignAdmin invite must never carry
+  // one — gp-api's Zod refine enforces that direction. phone (ENG-11058) is
+  // optional on either role and only ever backfills a blank profile field.
   'POST /v1/organizations/team/invites': {
     Request: {
       email: string
       name: string
       role: 'campaignAdmin' | 'volunteer'
       outreachId?: number
+      phone?: string
     }
     Response: InviteMemberResponse
   }
