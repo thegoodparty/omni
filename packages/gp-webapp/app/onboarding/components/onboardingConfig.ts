@@ -1,3 +1,4 @@
+import { BallotReadyPositionLevelSchema } from '@goodparty_org/contracts'
 import type { OnboardingStepConfig, NonEmptyArray } from './onboardingTypes'
 
 // Shared "Why we ask" aside copy for all three story steps (rendered in the
@@ -61,7 +62,11 @@ export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
           f.city &&
           f.officeTermLength &&
           validTermLengths.includes(f.officeTermLength) &&
-          f.electionDate
+          f.electionDate &&
+          // details.ballotLevel is enum-validated server-side, and 10DLC
+          // compliance derives the office level from it (ENG-11043) — an
+          // unset level must block Continue, not persist as missing.
+          BallotReadyPositionLevelSchema.safeParse(f.level).success
         )
       ) {
         return false

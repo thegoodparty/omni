@@ -122,6 +122,7 @@ model Outreach {
   contactInteractionTexts           ContactInteractionText[]
   contactInteractionRobocalls       ContactInteractionRobocall[]
   voterFileFilterActivityConditions VoterFileFilterActivityCondition[]
+  assignments                       OutreachAssignment[]
 
   @@index([campaignId])
   @@index([organizationSlug])

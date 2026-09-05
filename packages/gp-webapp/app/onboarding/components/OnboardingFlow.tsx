@@ -803,6 +803,11 @@ export default function OnboardingFlow({
       { key: 'details.district', value: form.district },
       { key: 'details.officeTermLength', value: form.officeTermLength },
       { key: 'details.electionDate', value: form.electionDate },
+      // The 10DLC compliance flows derive the office level from
+      // details.ballotLevel; leaving it unset silently treated manual-entry
+      // federal candidates as local (ENG-11043). The step's isValid gates
+      // Continue on a valid BallotReadyPositionLevel value.
+      { key: 'details.ballotLevel', value: form.level },
       // Manual entry doesn't collect ZIP directly — the office-picker step
       // required a valid ZIP before "I don't see my office" was clickable, so
       // reuse that. Persist so HubSpot / Peerly get an area code (ENG-10618).
