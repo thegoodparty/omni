@@ -260,11 +260,18 @@ export default function NativeDoorKnockingPage({
   // list stays on screen everywhere else (the hub view, the create flow's
   // preview map behind its own sheet), so the filter is walk-scoped and not
   // a global toggle.
+  //
+  // On the drawing surface, drop every saved ring: the full-screen map is a
+  // single-task tool for cutting ONE new boundary, and existing rings are a
+  // reading task interrupting a drawing one. The step BEHIND the drawing
+  // surface (DrawStep) is where the candidate reviews what they've already
+  // covered, so the context isn't lost — just moved to where it fits.
   const visibleTurfs = useMemo(() => {
     const all = turfsQuery.data ?? []
+    if (draw.fullScreen) return []
     if (!walkTurf) return all
     return all.filter((candidate) => candidate.id === walkTurf.id)
-  }, [turfsQuery.data, walkTurf])
+  }, [turfsQuery.data, walkTurf, draw.fullScreen])
   // What the map shades. Only two surfaces can be on screen now, and only one
   // of them scopes the dots: the create flow's draft narrows them as the
   // filters are cut, and the walk leaves the whole district shaded under its
