@@ -258,7 +258,7 @@ const STAGE_META: Record<
   },
   confirm: {
     title: 'Name your campaign',
-    caption: 'Give your campaign a name so you can spot it on the map.',
+    caption: 'Give your campaign a name to find it in your outreach history.',
   },
 }
 
