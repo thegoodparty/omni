@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { DoorKnockingTurf, DoorKnockStatus } from '@goodparty_org/contracts'
 import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
-import type { Campaign } from 'helpers/types'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
@@ -578,28 +577,11 @@ describe('NativeDoorKnockingPage voter map', () => {
     expect(screen.queryByText(/Introduce myself/)).toBeNull()
   })
 
-  // Titled, and with the duration in it. The bare `LoadingAnimation` says
-  // "Loading... Something awesome." over a wait whose p95 is 34 seconds, which
-  // is the half of this complaint that was about nothing being communicated.
-  it('names the wait, and how long it can be, while the voter pack decodes', async () => {
-    let release: () => void = () => undefined
-    packSource.held = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    renderPage()
-
-    expect(
-      (await screen.findAllByText('Loading your voter map…')).length,
-    ).toBeGreaterThan(0)
-    expect(screen.queryByText('Loading...')).toBeNull()
-    expect(screen.queryByTestId('voter-map')).toBeNull()
-
-    await act(async () => {
-      release()
-    })
-
-    expect(await mapReady()).toBeInTheDocument()
-  })
+  // The map-region pack loader is gone — the walk drawer's own MapLoader
+  // owns the wait when a walk is being entered, and the create flow's
+  // in-sheet copy owns it otherwise. Pack pending with no walk being
+  // entered now shows nothing behind the surface on top; the wait UX
+  // lives on whichever surface the candidate is actually watching.
 
   // A refresh is the whole remedy, and it is the honest one: the pack is a
   // single decoded blob, so there is no partial map to fall back to.
@@ -640,26 +622,13 @@ describe('NativeDoorKnockingPage create flow while the pack loads', () => {
     }
   }
 
-  // The WORDS follow `serveMode`, not the `eo-` slug `isServeOrg` reads for
-  // party. The two diverge for an elected official still holding a live
-  // campaign, and this is that org: it is drawing its Win rail, so it is
-  // looking at a Win map. Both the sheet and the region under it say so, which
-  // is the drift the shared accessors exist to prevent — they cover each other
-  // for the whole of this wait.
-  it('names the map for the rail on screen, not for the slug', async () => {
-    organization.current = { slug: 'eo-city-council', electedOfficeId: 9 }
-    const release = holdPack()
-    // The live campaign is what makes this the divergent case: `serveMode`
-    // lets a Campaign win, so this org is Win by rail and Serve by slug.
-    renderPage({ campaign: { id: 3 } as Campaign })
-
-    expect(
-      (await screen.findAllByText('Loading your voter map…')).length,
-    ).toBeGreaterThan(0)
-    expect(screen.queryByText('Loading your constituent map…')).toBeNull()
-
-    await release()
-  })
+  // The Win/Serve wording divergence used to be asserted on the map-region
+  // loader's caption. That surface is gone — the walk drawer's MapLoader
+  // says "Loading your route" for both rails (the walk is the surface, not
+  // the map), and the create flow's in-sheet copy still carries the
+  // serveMode-derived wording where it matters. The invariant lives in
+  // the pack-error and district-unavailable messages here and in
+  // CreateListFlow's sheet copy.
 
   // `Continue (0)` is not a pending state. It is a real-looking number, and the
   // only reading available for it — this district has nobody in it — is the

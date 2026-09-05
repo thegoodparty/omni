@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { DOOR_KNOCK_STATUSES, DoorKnockingTurf } from '@goodparty_org/contracts'
 import { Spinner } from '@styleguide'
-import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { DoorKnockingDailyLimitDialog } from './DoorKnockingDailyLimitDialog'
 import { Campaign } from 'helpers/types'
@@ -14,8 +13,6 @@ import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFi
 import {
   districtUnavailableMessage,
   packErrorMessage,
-  PACK_LOADING_DURATION,
-  packLoadingTitle,
   recordLoggedKnocks,
   voterPackQueryOptions,
 } from './useVoterPack'
@@ -43,13 +40,21 @@ import type { PolygonRing } from './VoterMapCanvas'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import { useOrganization } from '@shared/organization-picker'
 
+// One loading vocabulary for both waits that show behind the walk drawer:
+// the pack download (4.5s p50 / 34s p95) AND the VoterMapCanvas chunk
+// (~200ms first time, cached after). Spinner + "Loading your route" text
+// side-by-side. Serves as the dynamic-import fallback below AND the
+// map-region loader inside the return.
+const MapLoader = () => (
+  <div className="flex h-full w-full items-center justify-center gap-3">
+    <Spinner />
+    <p className="text-sm text-muted-foreground">Loading your route</p>
+  </div>
+)
+
 const VoterMapCanvas = dynamic(() => import('./VoterMapCanvas'), {
   ssr: false,
-  loading: () => (
-    <div className="flex h-full w-full items-center justify-center">
-      <LoadingAnimation title="Loading the map…" />
-    </div>
-  ),
+  loading: MapLoader,
 })
 
 interface NativeDoorKnockingPageProps {
@@ -662,40 +667,15 @@ export default function NativeDoorKnockingPage({
                   {districtUnavailableMessage(serveMode)}
                 </p>
               )}
-              {/* Titled, because an untitled "Loading... Something awesome."
-                over a wait that runs to half a minute is the part of this that
-                got reported. The create flow says the same two sentences from
-                inside its own sheet — see `CreateListFlow` — since the sheet
-                covers this region for the whole of the wait that matters.
-                Skipped when a walk is being entered or already open — the
-                walk drawer's own skeleton is the loading UX for that path,
-                and a big captioned loader on the map behind it would compete
-                visually with the surface the candidate is actually watching.
-                Three-way gate because the deep-link transition has a brief
-                render between router.replace() stripping `?walkTurfId=` and
-                walk.start()'s state update setting walkTurf — without the
-                ref, the loader flashes in that gap. `consumedWalkTurfId` is
-                set INSIDE the deep-link effect before either navigation
-                call, so any render during the transition sees "a walk was
-                initiated" and keeps the loader hidden. */}
-              {!isUnresolvable &&
-                packQuery.isPending &&
-                walkTurfId === undefined &&
-                !walkTurf &&
-                consumedWalkTurfId.current === undefined && (
-                  <div className="flex h-full items-center justify-center">
-                    <LoadingAnimation
-                      title={
-                        <>
-                          {packLoadingTitle(serveMode)}
-                          <span className="mt-2 block text-base font-normal text-zinc-600">
-                            {PACK_LOADING_DURATION}
-                          </span>
-                        </>
-                      }
-                    />
-                  </div>
-                )}
+              {/* One loader for the walk: MapLoader shows behind the walk
+                drawer while the pack downloads (and again briefly if the
+                canvas chunk hasn't landed). The dynamic-import fallback
+                above uses the same component, so pack-load → chunk-load
+                → real canvas is one continuous surface, no swap. Gated on
+                walkTurf so the create-flow arrival stays with its own
+                in-sheet loading copy — putting MapLoader behind that
+                sheet would print two competing loaders on one screen. */}
+              {walkTurf && !isUnresolvable && !packQuery.data && <MapLoader />}
               {packQuery.isError && (
                 <p className="p-4 text-sm text-destructive">
                   {packErrorMessage(serveMode)}
