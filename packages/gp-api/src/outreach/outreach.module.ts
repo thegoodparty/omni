@@ -34,6 +34,7 @@ import { OutreachNotificationInterceptor } from './interceptors/outreachNotifica
 import { OutreachCompletionService } from './services/outreachCompletion.service'
 import { OutreachInboundSweepService } from './services/outreachInboundSweep.service'
 import { OutreachMaterializationService } from './services/outreachMaterialization.service'
+import { OutreachAssignmentService } from './services/outreachAssignment.service'
 import { OutreachService } from './services/outreach.service'
 import { OutreachSocialService } from './services/outreachSocial.service'
 import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
@@ -148,6 +149,7 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     OutreachPurchaseHandlerService,
     OutreachMaterializationService,
     OutreachRobocallSingleSendService,
+    OutreachAssignmentService,
   ],
   exports: [OutreachService, OutreachPurchaseHandlerService],
 })
