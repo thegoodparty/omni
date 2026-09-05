@@ -12,6 +12,7 @@ const {
   mockGetCurrentUserOrganizations,
   mockServerFetch,
   mockGetServerUser,
+  mockIsActiveOrgVolunteer,
 } = vi.hoisted(() => ({
   mockAuth: vi.fn(),
   mockHeadersGet: vi.fn(),
@@ -19,6 +20,11 @@ const {
   mockGetCurrentUserOrganizations: vi.fn(),
   mockServerFetch: vi.fn(),
   mockGetServerUser: vi.fn(),
+  mockIsActiveOrgVolunteer: vi.fn(),
+}))
+
+vi.mock('@shared/organizations/activeOrgVolunteer.server', () => ({
+  isActiveOrgVolunteer: () => mockIsActiveOrgVolunteer(),
 }))
 
 vi.mock('gpApi/serverFetch', () => ({
@@ -73,6 +79,7 @@ beforeEach(() => {
   mockGetCurrentUserOrganizations.mockResolvedValue([minimalOrg])
   mockGetServerUser.mockResolvedValue(null)
   mockServerFetch.mockResolvedValue({ ok: true, status: 200, data: {} })
+  mockIsActiveOrgVolunteer.mockResolvedValue(false)
 })
 
 // Dispatch serverFetch responses by the route's path so getPostAuthRedirectPath
@@ -183,6 +190,16 @@ describe('getPostAuthRedirectPath', () => {
 
     await expect(getPostAuthRedirectPath()).resolves.toBe('/dashboard')
   })
+
+  it('routes an active-org volunteer to /volunteer even with no campaign or elected office', async () => {
+    routeServerFetch({
+      current: { ok: false, status: 404, data: null },
+      mine: { ok: true, status: 200, data: [] },
+    })
+    mockIsActiveOrgVolunteer.mockResolvedValue(true)
+
+    await expect(getPostAuthRedirectPath()).resolves.toBe('/volunteer')
+  })
 })
 
 describe('candidateAccess', () => {
@@ -242,5 +259,36 @@ describe('candidateAccess', () => {
     expect(mockRedirect).not.toHaveBeenCalledWith(
       '/onboarding/office-selection',
     )
+  })
+
+  it('redirects a volunteer away from /dashboard/* to /volunteer', async () => {
+    mockAuth.mockResolvedValue({
+      userId: 'user_2abc',
+      actor: { sub: 'admin' },
+    })
+    mockHeadersGet.mockImplementation((name) =>
+      name === 'x-pathname' ? '/dashboard/campaign-details' : null,
+    )
+    mockGetCurrentUserOrganizations.mockResolvedValue([minimalOrg])
+    mockIsActiveOrgVolunteer.mockResolvedValue(true)
+
+    await candidateAccess()
+
+    expect(mockRedirect).toHaveBeenCalledWith('/volunteer')
+  })
+
+  it('does not check the volunteer role for non-dashboard routes', async () => {
+    mockAuth.mockResolvedValue({
+      userId: 'user_2abc',
+      actor: { sub: 'admin' },
+    })
+    mockHeadersGet.mockImplementation((name) =>
+      name === 'x-pathname' ? '/polls/welcome' : null,
+    )
+
+    await candidateAccess()
+
+    expect(mockIsActiveOrgVolunteer).not.toHaveBeenCalled()
+    expect(mockRedirect).not.toHaveBeenCalled()
   })
 })

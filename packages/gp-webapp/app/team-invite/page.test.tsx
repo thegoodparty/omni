@@ -216,6 +216,34 @@ describe('TeamInvitePage', () => {
     await waitFor(() => expect(hrefAssignments).toContain('/dashboard'))
   })
 
+  // ENG-11052: a volunteer accept lands on the reductive /volunteer shell,
+  // not the campaign dashboard — /volunteer's own layout re-checks the
+  // win-team-accounts flag, so this hard nav doesn't need to.
+  it('accepting as a volunteer hard-navigates to /volunteer instead of /dashboard', async () => {
+    mockUser = {
+      publicMetadata: { ...validMetadata, role: 'volunteer' },
+    }
+    api.mock('POST /v1/organizations/team/invites/accept', {
+      status: 200,
+      data: {
+        organizationSlug: 'jane-doe-for-congress',
+        role: 'volunteer',
+      },
+    })
+
+    render(<TeamInvitePage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Accept invitation' }))
+
+    await waitFor(() =>
+      expect(mockSetCookie).toHaveBeenCalledWith(
+        'organization-slug',
+        'jane-doe-for-congress',
+      ),
+    )
+    await waitFor(() => expect(hrefAssignments).toContain('/volunteer'))
+    expect(hrefAssignments).not.toContain('/dashboard')
+  })
+
   it('a 404 on accept (invite already used) falls back to the neutral state instead of an error', async () => {
     mockUser = { publicMetadata: validMetadata }
     api.mock('POST /v1/organizations/team/invites/accept', {

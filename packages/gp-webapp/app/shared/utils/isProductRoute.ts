@@ -5,6 +5,8 @@ export const isProductRoute = (
   const isDashboardPath =
     pathname?.startsWith('/dashboard') ||
     pathname?.startsWith('/volunteer-dashboard') ||
+    // The volunteer shell (ENG-11052) — same focused chrome as /dashboard.
+    pathname?.startsWith('/volunteer') ||
     pathname?.startsWith('/product-tour')
 
   const isProfilePath = pathname?.startsWith('/dashboard/profile')
