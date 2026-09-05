@@ -344,7 +344,7 @@ describe('CreateListFlow — recommended lists', () => {
     fireEvent.change(screen.getByLabelText('Campaign name'), {
       target: { value: 'Tuesday evening' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     rerender(
       <CreateListFlow
         {...baseProps}
@@ -438,7 +438,7 @@ describe('CreateListFlow — recommended lists', () => {
     fireEvent.change(screen.getByLabelText('Campaign name'), {
       target: { value: 'Tuesday evening' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     rerender(
       <CreateListFlow {...baseProps} savedLists={savedLists} step="route" />,
     )

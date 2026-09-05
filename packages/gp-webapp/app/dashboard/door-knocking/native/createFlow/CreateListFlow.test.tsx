@@ -77,28 +77,6 @@ const baseProps = {
   onRetryAddresses: vi.fn(),
 }
 
-const preview = (
-  locations: Array<{ doors: Array<{ address: string; people: number }> }>,
-  totals?: {
-    stops: number
-    doors: number
-    people: number
-  },
-) => ({
-  locations,
-  stops: totals?.stops ?? locations.length,
-  doors:
-    totals?.doors ??
-    locations.reduce((sum, location) => sum + location.doors.length, 0),
-  people:
-    totals?.people ??
-    locations.reduce(
-      (sum, location) =>
-        sum + location.doors.reduce((doors, door) => doors + door.people, 0),
-      0,
-    ),
-})
-
 // What gp-api hands back for a created turf. Every count is a real number
 // because the route exists by the time this response is written — the create
 // transaction buys it — so there is no shape of turf with nothing to report.
@@ -134,7 +112,7 @@ const advanceToRoute = (
   fireEvent.change(screen.getByLabelText('Campaign name'), {
     target: { value: campaignName },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
   rerender(<CreateListFlow {...baseProps} {...props} step="route" />)
 }
 
@@ -476,20 +454,9 @@ describe('CreateListFlow', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
-  // The limit itself is stated on the step behind the map, where the rest of
-  // what the shape costs an evening is stated: the drawing surface is the map
-  // and the way forward from it, so a candidate over the cap reads why there.
-  it('names the stop limit on the step framing the map', () => {
-    render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        turfStats={turfStats(151, 140)}
-      />,
-    )
-
-    expect(screen.getByText(/Over the 150-stop limit/)).toBeInTheDocument()
-  })
+  // Removed: draw step body no longer prints cap warnings (design change —
+  // DrawStep is body-only inside OutreachFlowShell; the over-cap pill still
+  // shows on the drawing surface itself).
 
   // The button is the design's bare word in every state, including all three
   // of its dead ones. It used to rename itself — counting the points still
@@ -584,45 +551,8 @@ describe('CreateListFlow', () => {
     expect(screen.queryByText(/50 Democratic/)).toBeNull()
   })
 
-  // Soft warning informs; only the 150 cap blocks.
-  it('warns past 100 stops without blocking the save', () => {
-    const { rerender } = render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        turfStats={turfStats(100, 80)}
-      />,
-    )
-    expect(screen.queryByText(/long evening/)).toBeNull()
-
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        turfStats={turfStats(101, 80)}
-      />,
-    )
-    expect(
-      screen.getByText(/Over 100 stops is a long evening/),
-    ).toBeInTheDocument()
-
-    // Past the hard cap only the blocking message stands.
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        turfStats={turfStats(151, 120)}
-      />,
-    )
-    expect(screen.queryByText(/long evening/)).toBeNull()
-    expect(screen.getByText(/Over the 150-stop limit/)).toBeInTheDocument()
-
-    // Informing is all it does: the shape is still finishable at 101 stops,
-    // which is the whole difference between this warning and the cap.
-    rerender(drawingSurface({ turfStats: turfStats(101, 80) }))
-    dismissDrawInstructions()
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
-  })
+  // Removed: `longWalk` soft warning and SOFT_STOP_LIMIT are gone; only the
+  // 150 hard cap remains, enforced by the drawing surface's pill.
 
   // The who step's Continue carries the audience it is about to continue with.
   // It is the one number on the step that moves as a pill is toggled — the
@@ -784,87 +714,10 @@ describe('CreateListFlow', () => {
     expect(screen.queryByLabelText(/top issue/i)).toBeNull()
   })
 
-  // The pack has no 65+ bucket, so that pill leaves the shaded preview
-  // unnarrowed while the saved list still applies it — a candidate drawing
-  // against the wider shape has no way to know unless we say so.
-  it('discloses filters the map preview cannot narrow by', () => {
-    const { rerender } = render(
-      <CreateListFlow {...baseProps} step="draw" unpreviewableKeys={[]} />,
-    )
-    expect(screen.queryByText(/can’t yet shade by/)).toBeNull()
-
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        unpreviewableKeys={['age65Plus']}
-      />,
-    )
-    const label = filterSections
-      .flatMap((section) => section.fields)
-      .flatMap((field) => field.options)
-      .find((option) => option.key === 'age65Plus')?.label
-    expect(label).toBeTruthy()
-    expect(
-      screen.getByText(
-        (_, element) =>
-          element?.tagName === 'P' &&
-          new RegExp(`can’t yet shade by ${label}`).test(
-            element.textContent ?? '',
-          ),
-      ),
-    ).toBeInTheDocument()
-  })
-
-  // The bare option labels ('0'…'5+') made this read "the map can't shade by
-  // 0 yet", which sounds like a bug rather than a filter.
-  it('names the prior-contacts group rather than its bucket number', () => {
-    render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        unpreviewableKeys={['contactsMade0', 'contactsMade3']}
-      />,
-    )
-
-    const disclosure = screen.getByText(
-      (_, element) =>
-        element?.tagName === 'P' &&
-        /can’t yet shade by/.test(element.textContent ?? ''),
-    )
-    // Named once, however many of its buckets are selected.
-    expect(disclosure.textContent).toContain(
-      'can’t yet shade by Prior contacts made,',
-    )
-  })
-
-  // Two unshadeable filters used to be comma-joined into a sentence written
-  // for one — "shade by 65+, Prior contacts made yet, so these counts include
-  // people that filter will exclude" — which reads as a typo rather than as a
-  // list. The wiring, not the joining, is what this asserts; the joins
-  // themselves are covered in voterFilterPreview.test.ts.
-  it('joins two unshadeable filters with or, and pluralises around them', () => {
-    render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        unpreviewableKeys={['age65Plus', 'contactsMade0']}
-      />,
-    )
-
-    const disclosure = screen.getByText(
-      (_, element) =>
-        element?.tagName === 'P' &&
-        /can’t yet shade by/.test(element.textContent ?? ''),
-    )
-    // "Your list", not "Your saved list": this renders the draw step of a
-    // from-scratch list, so there is no saved list to name.
-    expect(disclosure.textContent).toBe(
-      'The map can’t yet shade by 65+ or Prior contacts made, so these counts ' +
-        'include people those filters will exclude. Your list still ' +
-        'applies them when you knock.',
-    )
-  })
+  // Removed: draw step body no longer renders the unpreviewable-filter
+  // disclosure (design change — DrawStep is body-only inside
+  // OutreachFlowShell). The who step still shows the disclosure for a picked
+  // list, covered by the "discloses a picked list's unshadeable clauses" test.
 
   // Undo and the count pill sit on the map from the moment the drawing
   // surface opens — like the zoom/locate cluster on the left — so a candidate
@@ -900,59 +753,9 @@ describe('CreateListFlow', () => {
     expect(onUndoPoint).toHaveBeenCalledTimes(1)
   })
 
-  // Leaving the map is how a half-drawn shape gets thrown away, and there is
-  // no way back to it. Its own question, not the shell's "Discard changes?":
-  // that one is about abandoning the whole flow, and answering it here would
-  // offer to lose the audience along with the boundary.
-  it('asks before leaving the drawing surface with a shape on it', () => {
-    const onDrawFullScreenChange = vi.fn()
-    const { rerender } = render(
-      drawingSurface({
-        ring: null,
-        turfStats: null,
-        drawPointCount: 0,
-        onDrawFullScreenChange,
-      }),
-    )
-    dismissDrawInstructions()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    expect(onDrawFullScreenChange).toHaveBeenCalledWith(false)
-    expect(screen.queryByText('Discard this turf?')).toBeNull()
-
-    rerender(drawingSurface({ drawPointCount: 2, onDrawFullScreenChange }))
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    expect(onDrawFullScreenChange).toHaveBeenCalledTimes(1)
-    expect(screen.getByText('Discard this turf?')).toBeInTheDocument()
-    expect(
-      screen.getByText('The boundaries you drew will not be saved.'),
-    ).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
-    expect(onDrawFullScreenChange).toHaveBeenCalledTimes(2)
-    expect(onDrawFullScreenChange).toHaveBeenLastCalledWith(false)
-  })
-
-  // The dialog above says the boundary will not be saved, and it has to be
-  // true by the time the next screen is read. Closing the overlay alone left
-  // the ring on the canvas, still feeding the step's selected-household count —
-  // a sentence the very next screen contradicted. It restarts the session
-  // rather than clearing it, because the canvas keeps drawing live behind the
-  // draw step's shield and a cleared map is one the next Draw boundaries lands
-  // on with nothing able to place a point.
-  it('throws the boundary away when the discard is confirmed', () => {
-    const onRestartDrawing = vi.fn()
-    render(drawingSurface({ drawPointCount: 2, onRestartDrawing }))
-    dismissDrawInstructions()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Keep drawing' }))
-    expect(onRestartDrawing).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
-    expect(onRestartDrawing).toHaveBeenCalledTimes(1)
-  })
+  // Removed: the discard-shape dialog on the drawing surface is gone (design
+  // change — Back on DrawFullScreen now closes the surface unconditionally,
+  // keeping the shape).
 
   // The draw step is the one step rendered outside `OutreachFlowShell`, so its
   // X is the one X not already wired to the shell's confirm — and it is the
@@ -1011,241 +814,17 @@ describe('CreateListFlow', () => {
     expect(undo.parentElement).not.toHaveClass('pointer-events-auto')
   })
 
-  // The gap the walkthrough reported: the draw step stated a door count and
-  // never said which doors it meant, at the one moment the shape can still be
-  // changed. One row per door, and a block of flats reads as the several doors
-  // it is under the single coordinate the router will visit.
-  it('lists the enclosed addresses, grouping the ones that share a location', () => {
-    render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        turfStats={turfStats(2, 3)}
-        addressPreview={preview([
-          {
-            doors: [
-              { address: '1200 W Elm St Apt 1', people: 2 },
-              { address: '1200 W Elm St Apt 2', people: 1 },
-            ],
-          },
-          { doors: [{ address: '14 N Oak Ave', people: 4 }] },
-        ])}
-      />,
-    )
+  // Removed: DoorsPanel / address preview left the draw step (design change —
+  // draw step body is now the counts row plus the Geoapify preview card
+  // only). The preview props still exist on CreateListFlowProps for now but
+  // nothing on the draw step consumes them.
 
-    const panel = document.getElementById('draw-step-doors')
-    expect(panel).not.toBeNull()
-    expect(screen.getByText('2 doors at one location')).toBeInTheDocument()
-    // Three rows for the three doors the stats bar counts, and no numerals on
-    // them: nothing has decided a visiting order at draw time, so a numbered
-    // row would imply one the canvasser is held to.
-    expect(panel?.querySelectorAll('li li')).toHaveLength(3)
-    expect(panel?.querySelector('ol')).toBeNull()
-    expect(screen.getByText('1200 W Elm St Apt 1')).toBeInTheDocument()
-    expect(screen.getByText('1200 W Elm St Apt 2')).toBeInTheDocument()
-    expect(screen.getByText('14 N Oak Ave')).toBeInTheDocument()
-    // globals.css gives every `<li>` inside a `data-slot` element `display:
-    // flex`, which ran the "N doors at one location" heading into the first
-    // address. jsdom has no layout, so this asserts the override is present
-    // rather than its effect; the rendered proof is in the PR's screenshots.
-    const location = screen
-      .getByText('2 doors at one location')
-      .closest('li') as HTMLElement
-    expect(location.className.split(/\s+/)).toContain('block')
-  })
-
-  // The rule this feature has already broken once: one quantity gets one
-  // number. The preview counts the same doors the route will be built from,
-  // so it REPLACES the pack's estimate — and the hedges that estimate needed
-  // go with it, because they explain a shortfall these counts don't have.
-  it('reports the preview counts and retires the estimate that stood in', () => {
-    const estimate = {
-      stops: 14,
-      people: 22,
-      households: 9,
-      partyMix: [],
-      ageMix: [],
-    }
-    const answered = preview(
-      [{ doors: [{ address: '14 N Oak Ave', people: 3 }] }],
-      { stops: 6, doors: 7, people: 12 },
-    )
-    const { rerender } = render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        turfStats={estimate}
-        unpreviewableKeys={['age65Plus']}
-      />,
-    )
-
-    expect(screen.getByText('9')).toBeInTheDocument()
-    expect(screen.getByText(/The map can’t yet shade by/)).toBeInTheDocument()
-
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        turfStats={estimate}
-        unpreviewableKeys={['age65Plus']}
-        addressPreview={answered}
-      />,
-    )
-
-    // The pack's 9 doors are gone from the count line, not sitting beside the
-    // preview's 7.
-    expect(screen.getByText('7')).toBeInTheDocument()
-    expect(screen.queryByText('9')).toBeNull()
-    expect(screen.queryByText(/The map can’t yet shade by/)).toBeNull()
-    // What the preview does still owe the reader: these are suppressed
-    // already, so a shorter walk than this is not the expectation.
-    expect(screen.getByText(/already out/)).toBeInTheDocument()
-
-    // The same replacement one surface over: the pill counts the preview's
-    // stops rather than the pack's 14.
-    rerender(drawingSurface({ turfStats: estimate, addressPreview: answered }))
-    expect(screen.getByText('6 selected')).toBeInTheDocument()
-    expect(screen.queryByText('14 selected')).toBeNull()
-  })
-
-  // A ring over half a district holds more stops than a route can and more
-  // rows than a phone should render, so the list stops and says it stopped —
-  // silently showing 150 of 900 is the reading that misleads. The shortfall is
-  // counted in stops, the unit the cap above it is stated in.
-  it('says how many stops it left off the list', () => {
-    const { rerender } = render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        addressPreview={preview([
-          {
-            doors: [
-              { address: '1 A St', people: 1 },
-              { address: '3 A St', people: 1 },
-            ],
-          },
-        ])}
-      />,
-    )
-    expect(screen.queryByText(/Showing the first/)).toBeNull()
-
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        addressPreview={preview(
-          [
-            {
-              doors: [
-                { address: '1 A St', people: 1 },
-                { address: '3 A St', people: 1 },
-              ],
-            },
-          ],
-          { stops: 900, doors: 2000, people: 4000 },
-        )}
-      />,
-    )
-    expect(
-      screen.getByText('Showing the first 1 of 900 stops.'),
-    ).toBeInTheDocument()
-  })
-
-  // The preview is a scan of people-db for one shape. Drawing must never
-  // trigger one, so the panel is a request the page answers rather than
-  // something the flow opens off state it already has.
-  it('asks the page for the addresses instead of opening the panel itself', () => {
-    const onShowAddresses = vi.fn()
-    render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        turfStats={turfStats(2, 3)}
-        onShowAddresses={onShowAddresses}
-      />,
-    )
-
-    expect(document.getElementById('draw-step-doors')).toBeNull()
-    const toggle = screen.getByRole('button', { name: 'See the addresses' })
-    expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    fireEvent.click(toggle)
-    expect(onShowAddresses).toHaveBeenCalledTimes(1)
-  })
-
-  // A list of addresses under a boundary that has since moved is the worst
-  // reading this panel can produce: it looks like the answer and describes a
-  // different shape. It is withdrawn, the counts fall back to the estimate,
-  // and asking again is the candidate's press rather than an automatic
-  // round trip on every vertex.
-  it('withdraws a list whose boundary moved, and offers to ask again', () => {
-    const onShowAddresses = vi.fn()
-    render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        turfStats={{
-          stops: 14,
-          people: 22,
-          households: 9,
-          partyMix: [],
-          ageMix: [],
-        }}
-        previewStale
-        onShowAddresses={onShowAddresses}
-      />,
-    )
-
-    expect(screen.getByText(/Your boundary changed/)).toBeInTheDocument()
-    expect(document.querySelectorAll('#draw-step-doors li')).toHaveLength(0)
-    expect(screen.getByText('9')).toBeInTheDocument()
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Show the addresses here' }),
-    )
-    expect(onShowAddresses).toHaveBeenCalledTimes(1)
-  })
-
-  // A failed lookup leaves the estimate standing rather than blanking the
-  // step: the shape is still drawable and still savable without it.
-  it('offers a retry when the lookup fails', () => {
-    const onRetryAddresses = vi.fn()
-    render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        turfStats={{
-          stops: 14,
-          people: 22,
-          households: 9,
-          partyMix: [],
-          ageMix: [],
-        }}
-        previewFailed
-        onRetryAddresses={onRetryAddresses}
-      />,
-    )
-
-    expect(screen.getByText('9')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
-    expect(onRetryAddresses).toHaveBeenCalledTimes(1)
-  })
-
-  // Nothing to list, so nothing to offer: the button would spend a scan on a
-  // shape that Continue already says holds no doors.
-  it('offers no address list for a shape holding nothing', () => {
-    render(
-      <CreateListFlow {...baseProps} step="draw" turfStats={turfStats(0, 0)} />,
-    )
-
-    expect(
-      screen.queryByRole('button', { name: 'See the addresses' }),
-    ).toBeNull()
-  })
-
-  // One full-width Save, because there is one thing this step can do: name the
-  // campaign and go on to the route. The pair it replaced — "Save and draw
+  // One full-width Continue, because there is one thing this step can do: name
+  // the campaign and go on to the route. The pair it replaced — "Save and draw
   // another" beside "Save and exit" — both wrote a turf here, which is the
-  // write that moved to the end of the flow.
-  it('gives the confirm step a single Save that advances rather than writes', async () => {
+  // write that moved to the end of the flow. The label was renamed from Save
+  // to Continue because nothing writes at this step.
+  it('gives the confirm step a single Continue that advances rather than writes', async () => {
     let posts = 0
     api.mock('POST /v1/voters/voter-file/filter', () => {
       posts += 1
@@ -1262,29 +841,27 @@ describe('CreateListFlow', () => {
     )
 
     expect(screen.queryByRole('button', { name: /^Save and/ })).toBeNull()
-    const save = screen.getByRole('button', { name: 'Save' })
-    expect(save).toBeDisabled()
+    const cta = screen.getByRole('button', { name: 'Continue' })
+    expect(cta).toBeDisabled()
 
     fireEvent.change(screen.getByLabelText('Campaign name'), {
       target: { value: 'Tuesday evening' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(onStepChange).toHaveBeenCalledWith('route')
     expect(posts).toBe(0)
   })
 
-  // The last step names the list it is about to buy a route for, so a
-  // candidate reading it knows which of the evening's turfs they are spending
-  // on. And the whole of what the press does is said under the title, because
-  // it is the one press in the flow that cannot be undone.
-  it('names the walk on the route step and says what Build route buys', () => {
+  // The whole of what the press does is said under the title, because it is
+  // the one press in the flow that cannot be undone.
+  it('says what Build route buys on the route step', () => {
     const { rerender } = render(
       <CreateListFlow {...baseProps} step="confirm" />,
     )
     advanceToRoute(rerender, {}, 'Lakeview blitz')
 
-    expect(heading('Knock Lakeview blitz walk')).toBeInTheDocument()
+    expect(heading('How will you knock?')).toBeInTheDocument()
     expect(
       screen.getByText(/This builds the route and locks the turf/),
     ).toBeInTheDocument()
@@ -1298,7 +875,7 @@ describe('CreateListFlow', () => {
 
   // The one press that spends money, so it says so while it is spending and
   // cannot be pressed twice.
-  it('says Building route… while the purchase is in flight', async () => {
+  it('says Building route while the purchase is in flight', async () => {
     let release: () => void
     const held = new Promise<void>((resolve) => {
       release = resolve
@@ -1324,7 +901,7 @@ describe('CreateListFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
 
     const building = await screen.findByRole('button', {
-      name: 'Building route…',
+      name: 'Building route',
     })
     expect(building).toBeDisabled()
 
@@ -2151,22 +1728,8 @@ describe('CreateListFlow on the Serve surface', () => {
     ).toBeInTheDocument()
   })
 
-  it('counts constituents behind a door, singular and plural', () => {
-    render(
-      <DoorKnockingSurfaceProvider value>
-        <CreateListFlow
-          {...baseProps}
-          step="draw"
-          addressPreview={preview([
-            { doors: [{ address: '1 A St', people: 1 }] },
-            { doors: [{ address: '3 A St', people: 4 }] },
-          ])}
-        />
-      </DoorKnockingSurfaceProvider>,
-    )
-
-    expect(screen.getByText(/1 constituent$/)).toBeInTheDocument()
-    expect(screen.getByText(/4 constituents$/)).toBeInTheDocument()
-    expect(screen.queryByText(/\bvoters?$/)).toBeNull()
-  })
+  // Removed: DoorsPanel is gone from the draw step (design change — no more
+  // per-door people count in the create flow). The Serve-vs-Win constituent
+  // wording still runs everywhere DoorsPanel is used (person sheet, walk
+  // view).
 })
