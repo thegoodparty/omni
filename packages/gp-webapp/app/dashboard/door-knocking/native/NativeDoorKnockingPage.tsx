@@ -42,19 +42,25 @@ import { useOrganization } from '@shared/organization-picker'
 
 // One loading vocabulary for both waits that show behind the walk drawer:
 // the pack download (4.5s p50 / 34s p95) AND the VoterMapCanvas chunk
-// (~200ms first time, cached after). Spinner + "Loading your route" text
-// side-by-side. Serves as the dynamic-import fallback below AND the
-// map-region loader inside the return.
-const MapLoader = () => (
-  <div className="flex h-full w-full items-center justify-center gap-3">
+// (~200ms first time, cached after). Spinner + "Loading your route" body
+// text side-by-side. `bottomPadPx` shifts vertical centering above the
+// walk drawer so the loader lands in the visible band, not the viewport
+// middle (which the drawer covers) — dynamic-import fallback below calls
+// it with no arg since it can't reach the page's mapControlsOffset state,
+// which is fine because the chunk load is brief and cached after first.
+const MapLoader = ({ bottomPadPx }: { bottomPadPx?: number | null } = {}) => (
+  <div
+    className="flex h-full w-full items-center justify-center gap-3"
+    style={bottomPadPx ? { paddingBottom: bottomPadPx } : undefined}
+  >
     <Spinner />
-    <p className="text-sm text-muted-foreground">Loading your route</p>
+    <p className="text-base text-foreground">Loading your route</p>
   </div>
 )
 
 const VoterMapCanvas = dynamic(() => import('./VoterMapCanvas'), {
   ssr: false,
-  loading: MapLoader,
+  loading: () => <MapLoader />,
 })
 
 interface NativeDoorKnockingPageProps {
@@ -675,7 +681,9 @@ export default function NativeDoorKnockingPage({
                 walkTurf so the create-flow arrival stays with its own
                 in-sheet loading copy — putting MapLoader behind that
                 sheet would print two competing loaders on one screen. */}
-              {walkTurf && !isUnresolvable && !packQuery.data && <MapLoader />}
+              {walkTurf && !isUnresolvable && !packQuery.data && (
+                <MapLoader bottomPadPx={mapControlsOffset} />
+              )}
               {packQuery.isError && (
                 <p className="p-4 text-sm text-destructive">
                   {packErrorMessage(serveMode)}

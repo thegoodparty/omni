@@ -1070,10 +1070,30 @@ export default function VoterMapCanvas({
     if (bounds) mapRef.current.fitBounds(bounds, { padding: 64 })
   }, [focusTurf])
 
+  // Persist a bottom padding on the map itself so every camera op — the
+  // route fit below, but also panTo, easeTo, and the live-location
+  // recenter — respects the sheet's covered area. maplibre's setPadding is
+  // more reliable than passing padding via fitBounds options: the latter
+  // is per-call and sometimes silently ignores object-form padding
+  // depending on version; setPadding is a persistent camera property that
+  // any subsequent fit re-centers against.
+  useEffect(() => {
+    const map = mapRef.current
+    // Guarded: test mocks don't stub `setPadding`, and older maplibre
+    // versions may lack it. Skip cleanly when unavailable.
+    if (!map || typeof map.setPadding !== 'function') return
+    map.setPadding({
+      top: 0,
+      bottom: routeFrameBottomPx ? routeFrameBottomPx + 16 : 0,
+      left: 0,
+      right: 0,
+    })
+  }, [routeFrameBottomPx])
+
   // Fit the camera around the route. Refits whenever the pin set actually
   // changes AND whenever the walk sheet snaps (routeFrameBottomPx changes),
   // so the pins stay visible in the band above the sheet as it opens —
-  // Google Maps pattern. Signature includes the bottom padding so a re-snap
+  // Google Maps pattern. Signature includes the padding source so a re-snap
   // with the same route still refits; otherwise the ref short-circuits.
   const fittedRouteRef = useRef<string | null>(null)
   useEffect(() => {
@@ -1096,19 +1116,15 @@ export default function VoterMapCanvas({
       if (pin.lat < minY) minY = pin.lat
       if (pin.lat > maxY) maxY = pin.lat
     }
-    // Bottom padding = the sheet's covered height + a small gap, floored
-    // at 80 so the pins never crowd the top edge. Trust the reported sheet
-    // height directly rather than capping against canvas.clientHeight — the
-    // effect can run during initial mount when the canvas measures small or
-    // zero, and that clamp then false-negatives to the floor, centering
-    // pins in the whole viewport (right at the drawer's top edge).
-    const bottomPad = Math.max(80, (routeFrameBottomPx ?? 0) + 16)
+    // Uniform padding via fitBounds option — the persistent bottom pad
+    // from setPadding above handles the sheet-clearance; this just gives
+    // the pins a little breathing room from the map edges.
     mapRef.current.fitBounds(
       [
         [minX, minY],
         [maxX, maxY],
       ],
-      { padding: { top: 80, bottom: bottomPad, left: 80, right: 80 } },
+      { padding: 80 },
     )
   }, [routePins, routeFrameBottomPx])
 
