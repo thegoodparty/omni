@@ -5,7 +5,7 @@ import { Spinner } from '@styleguide'
 // Spinner in a centered section so a streamed placeholder matches the
 // app's canonical waiting state.
 export const RouteLoading = (): React.JSX.Element => (
-  <div className="flex h-[60vh] items-center justify-center">
+  <div className="flex min-h-[60vh] flex-1 items-center justify-center">
     <Spinner />
   </div>
 )
