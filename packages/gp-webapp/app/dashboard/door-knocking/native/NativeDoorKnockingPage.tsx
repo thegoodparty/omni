@@ -262,30 +262,27 @@ export default function NativeDoorKnockingPage({
   // preview map behind its own sheet), so the filter is walk-scoped and not
   // a global toggle.
   //
-  // While the create flow is open, drop every saved ring. Two reasons in
-  // one gate:
+  // Saved turfs render on this map only during a walk, and only the one
+  // being walked. Every other state — the create flow (all of it), the
+  // brief transition into a walk when handleListCreated batches
+  // flow-close + walk-start, and any window where neither is on screen —
+  // shows a bare map without other rings.
   //
-  // 1. On the drawing surface the full-screen map is a single-task tool
-  //    for cutting ONE new boundary, and existing rings are a reading
-  //    task interrupting a drawing one.
-  //
-  // 2. On the transitions in and out of the drawing surface (Continue →
-  //    confirm, Back → draw step), the shell mounts/unmounts around the
-  //    live map. Vaul's mount animation briefly exposes the map before
-  //    the sheet covers it — and if saved turfs came back the moment
-  //    drawFullScreen flipped false, that reveal flashed a district of
-  //    unrelated rings. Keeping the gate on the whole flow instead of
-  //    just the surface removes that flash without a transition timer.
-  //
-  // The step BEHIND the drawing surface (DrawStep) is where the candidate
-  // reviews what they've already covered, so the "what have I done"
-  // context isn't lost — just moved to where it fits.
+  // The design has no landing surface that lists saved turfs on a bare
+  // map, so nothing depends on "show all rings when idle" being real. The
+  // create flow used to show them scoped by the draw preview; the draw
+  // surface then took the whole map for a single-task cut. Both cases
+  // want zero saved rings visible. During a walk, the neighbours' rings
+  // are noise around the route the canvasser is on, so we scope to just
+  // the walked turf. Everything else falls into "hide them" by default,
+  // which is what removes the flash on the sheet-close/walk-open handoff
+  // (there's no window where saved rings can render before the walk
+  // scoping kicks in — they're just always hidden unless a walk is up).
   const visibleTurfs = useMemo(() => {
+    if (!walkTurf) return []
     const all = turfsQuery.data ?? []
-    if (flowStep) return []
-    if (!walkTurf) return all
     return all.filter((candidate) => candidate.id === walkTurf.id)
-  }, [turfsQuery.data, walkTurf, flowStep])
+  }, [turfsQuery.data, walkTurf])
   // The pack's bounding box, framed by the create flow's draw step as a
   // static-map preview card. Null while the pack decodes; the card omits
   // the image in that window rather than rendering against no rect.
