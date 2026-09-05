@@ -74,9 +74,14 @@ export const RecommendedListNameDrawer = ({
 
   return (
     <VaulDrawer.NestedRoot open={open} onOpenChange={onOpenChange}>
-      <DrawerContent>
+      {/* No X anywhere on this drawer — Continue in the footer is the
+          deliberate exit, and this sheet is nested inside OutreachSheet
+          whose own X already covers "exit the whole flow". Two X's on
+          screen at once (parent + child) reads as noise. Handle drag,
+          Escape, and outside-click still dismiss. */}
+      <DrawerContent closeClassName="hidden">
         <DrawerHandle />
-        <DrawerHeader>
+        <DrawerHeader hideClose>
           <DrawerTitle>Name this list</DrawerTitle>
           <DrawerDescription>
             Give this list a name so you can find it later.
