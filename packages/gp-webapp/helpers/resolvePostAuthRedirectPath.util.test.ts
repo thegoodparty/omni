@@ -120,4 +120,71 @@ describe('resolvePostAuthRedirectPath', () => {
       '/dashboard',
     )
   })
+
+  it('routes a volunteer-only user to /volunteer even though campaignStatus reads false', () => {
+    expect(
+      resolvePostAuthRedirectPath(
+        null,
+        { status: false },
+        false,
+        true,
+        false,
+        true,
+      ),
+    ).toBe('/volunteer')
+    expect(
+      resolvePostAuthRedirectPath(null, null, false, true, false, true),
+    ).toBe('/volunteer')
+  })
+
+  it('routes by the ACTIVE org role for a manager+volunteer multi-org user, not any org they hold', () => {
+    // Active org is one they manage: candidate status wins, same as today.
+    expect(
+      resolvePostAuthRedirectPath(
+        null,
+        { status: 'candidate' },
+        false,
+        true,
+        false,
+        false,
+      ),
+    ).toBe('/dashboard')
+    // Active org is the one where they're a volunteer: /volunteer wins even
+    // though the user also owns/manages another org elsewhere.
+    expect(
+      resolvePostAuthRedirectPath(
+        null,
+        { status: 'candidate' },
+        false,
+        true,
+        false,
+        true,
+      ),
+    ).toBe('/volunteer')
+  })
+
+  it('prefers a pending team invite over an active volunteer membership', () => {
+    expect(
+      resolvePostAuthRedirectPath(null, null, false, true, true, true),
+    ).toBe('/team-invite')
+  })
+
+  it('prefers the sales role over an active volunteer membership', () => {
+    expect(
+      resolvePostAuthRedirectPath(
+        { roles: ['sales'] },
+        null,
+        false,
+        true,
+        false,
+        true,
+      ),
+    ).toBe('/sales/add-campaign')
+  })
+
+  it('defaults isActiveOrgVolunteer to false, leaving existing callers unaffected', () => {
+    expect(resolvePostAuthRedirectPath(null, { status: 'candidate' })).toBe(
+      '/dashboard',
+    )
+  })
 })

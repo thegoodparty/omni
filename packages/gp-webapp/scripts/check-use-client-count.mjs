@@ -331,7 +331,11 @@ import { dirname, join, relative } from 'node:path'
 // (mutations, dialog open/close, form fields) and can't be server components;
 // the route itself (app/dashboard/team/page.tsx) stays a server component and
 // renders no directive.
-const BASELINE = 597
+// 2026-09-04: 597 -> 598 for the volunteer shell's top bar (ENG-11052,
+// VolunteerTopBar.tsx). It holds the profile-dropdown open/close state and
+// reads useUser()/the org-picker context, same reason app/volunteer/layout.tsx
+// stays a server component and this is its one client leaf.
+const BASELINE = 598
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
