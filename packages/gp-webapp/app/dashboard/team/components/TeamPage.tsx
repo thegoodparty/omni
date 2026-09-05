@@ -163,18 +163,24 @@ const TeamPage = (): React.JSX.Element => {
           </Card>
 
           <Card className="flex flex-col gap-4 p-6">
-            <div className="flex items-center justify-between gap-4">
-              <h2 className="m-0 text-xl font-semibold text-foreground">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="m-0 text-xl font-semibold text-foreground">
+                  People
+                </h2>
+                {/* No subtext at all on error — the error message below the
+                    header already covers it, and there's no count to derive
+                    from the [] fallback. */}
                 {isPending ? (
-                  <Skeleton className="h-6 w-40" />
-                ) : isError ? (
-                  // Never render a count derived from the [] fallback below
-                  // — a failed fetch has no member count to report.
-                  'Your team'
-                ) : (
-                  `${members.length} ${members.length === 1 ? 'person' : 'people'} on this campaign`
+                  <Skeleton className="mt-1 h-5 w-40" />
+                ) : isError ? null : (
+                  <p className="m-0 text-sm text-muted-foreground">
+                    {members.length}{' '}
+                    {members.length === 1 ? 'person' : 'people'} on this
+                    campaign
+                  </p>
                 )}
-              </h2>
+              </div>
               {/* Deliberately not owner-gated: "a manager can invite other
                   managers" is a stated ENG-10816 goal, and POST
                   /v1/organizations/team/invites is intentionally

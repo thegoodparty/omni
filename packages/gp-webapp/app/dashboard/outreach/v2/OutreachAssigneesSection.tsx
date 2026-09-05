@@ -12,28 +12,32 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  Avatar,
+  AvatarFallback,
+  Badge,
   Button,
   Card,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Eyebrow,
   IconButton,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
   Skeleton,
 } from '@styleguide'
-import { MailIcon, PlusIcon, Trash2Icon } from '@styleguide/components/ui/icons'
+import {
+  MoreHorizontalIcon,
+  Trash2Icon,
+  UserPlusIcon,
+} from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
 import { useSnackbar } from 'helpers/useSnackbar'
-import {
-  ROLE_LABELS,
-  formatName,
-  teamQueryKey,
-} from 'app/dashboard/team/team.util'
+import { ROLE_LABELS, teamQueryKey } from 'app/dashboard/team/team.util'
 import InviteMemberDialog from 'app/dashboard/team/components/InviteMemberDialog'
 import { volunteerAssignmentsQueryKey } from 'app/volunteer/components/AssignmentsPage'
-import { shortOutreachDate } from './outreachDate.util'
+import { OutreachAssignModal, initialsFor } from './OutreachAssignModal'
 
 const outreachAssigneesQueryKey = (outreachId: number) => [
   'outreach-assignees',
@@ -42,14 +46,23 @@ const outreachAssigneesQueryKey = (outreachId: number) => [
 
 interface OutreachAssigneesSectionProps {
   outreachId: number
+  // The outreach/list name, for the assign modal's title. The drawer holds
+  // the row this section only receives an id for, so it threads the name in
+  // — absent (a row with no name/title) falls back to generic copy rather
+  // than rendering "Assign to undefined".
+  outreachName?: string
 }
 
-// Manager+ assign/unassign for one outreach envelope (ENG-11056), gated on
-// win-team-accounts. Volunteers never reach this drawer at all (their whole
-// surface is /volunteer's own assignments page), so there's no second,
-// role-based gate here — only the flag.
+// Manager+ assign/unassign for a self-run list (ENG-11056; the "Assign to"
+// modal is ENG-11059's design correction — every org member is assignable,
+// owner included, not just volunteers), rendered inside the details drawer
+// for nativePhoneBanking/nativeDoorKnocking rows. Gated on win-team-accounts
+// (trackExposure: false — the drawer read isn't the flag's own treatment
+// surface) and returns null off. Volunteers never reach this drawer at all,
+// so there is no second, role-based gate here beyond the flag.
 export const OutreachAssigneesSection = ({
   outreachId,
+  outreachName,
 }: OutreachAssigneesSectionProps) => {
   const { ready: flagReady, enabled: flagEnabled } = useTeamAccountsFlag(false)
   const organization = useOrganization()
@@ -57,11 +70,16 @@ export const OutreachAssigneesSection = ({
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
 
-  const [pickerOpen, setPickerOpen] = useState(false)
+  const [assignOpen, setAssignOpen] = useState(false)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<OutreachAssignee | null>(
     null,
   )
+  // userIds with an assign/unassign call in flight from the modal — tracked
+  // independently of either mutation's own isPending/variables, which only
+  // ever reflect the MOST RECENT mutate() call and so cannot disable two
+  // different rows toggled in quick succession (see OutreachAssignModal.tsx).
+  const [pendingUserIds, setPendingUserIds] = useState<Set<number>>(new Set())
 
   const assigneesQuery = useQuery({
     queryKey: outreachAssigneesQueryKey(outreachId),
@@ -101,7 +119,6 @@ export const OutreachAssigneesSection = ({
         assigneeUserId,
       }),
     onSuccess: async () => {
-      setPickerOpen(false)
       await invalidateAll()
       successSnackbar('Assigned')
     },
@@ -124,6 +141,42 @@ export const OutreachAssigneesSection = ({
       errorSnackbar("Couldn't remove this assignee. Please try again."),
   })
 
+  // Single entry point for the modal's row click: marks the userId pending
+  // BEFORE calling the mutation, and clears it once that SPECIFIC call
+  // settles. Deliberately mutateAsync + try/finally, not mutate() with a
+  // per-call onSettled option: MutationObserver.mutate() detaches its
+  // observer from the PREVIOUS mutation before attaching to the new one
+  // (query-core's mutationObserver.js), so a per-call onSettled passed to an
+  // earlier mutate() never fires once a later mutate() on the same shared
+  // instance has been made — exactly the case here, where two different
+  // rows can each start a call before the first settles. mutateAsync's
+  // returned promise is that mutation's own execute() promise, so awaiting
+  // it ties completion to the call that produced it, not to whichever
+  // mutation the observer is currently attached to.
+  const handleToggleAssignment = async (
+    userId: number,
+    currentlyAssigned: boolean,
+  ) => {
+    setPendingUserIds((prev) => new Set(prev).add(userId))
+    try {
+      if (currentlyAssigned) {
+        await removeMutation.mutateAsync(userId)
+      } else {
+        await assignMutation.mutateAsync(userId)
+      }
+    } catch {
+      // Already surfaced via the mutation-level onError's errorSnackbar
+      // above — this catch only stops that rejection from becoming an
+      // unhandled promise rejection now that we await mutateAsync here.
+    } finally {
+      setPendingUserIds((prev) => {
+        const next = new Set(prev)
+        next.delete(userId)
+        return next
+      })
+    }
+  }
+
   if (!flagReady || !flagEnabled) return null
 
   const assignees = assigneesQuery.data ?? []
@@ -135,80 +188,23 @@ export const OutreachAssigneesSection = ({
   const pendingInvites = (teamQuery.data?.pendingInvites ?? []).filter(
     (invite) => invite.outreachId === outreachId,
   )
-  const candidates = members.filter(
-    (member) => member.role !== 'owner' && !assignedUserIds.has(member.userId),
-  )
   const hasRows = assignees.length > 0 || pendingInvites.length > 0
 
   return (
     <>
       <section className="space-y-3">
         <div className="flex items-center justify-between gap-2">
-          <Eyebrow>Assignees</Eyebrow>
-          <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="small">
-                <PlusIcon className="size-4" />
-                Assign
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-72 p-0">
-              <div className="max-h-72 divide-y divide-border overflow-y-auto">
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 p-3 text-left transition-colors hover:bg-muted"
-                  onClick={() => {
-                    setPickerOpen(false)
-                    setInviteOpen(true)
-                  }}
-                >
-                  <MailIcon className="size-4 text-primary" />
-                  <span className="font-medium text-primary">
-                    Invite a volunteer
-                  </span>
-                </button>
-                {teamQuery.isError ? (
-                  <div className="space-y-1 p-3">
-                    <p className="m-0 text-sm text-muted-foreground">
-                      Couldn&apos;t load your team.
-                    </p>
-                    <Button
-                      variant="link"
-                      className="h-auto p-0"
-                      onClick={() => teamQuery.refetch()}
-                    >
-                      Try again
-                    </Button>
-                  </div>
-                ) : teamQuery.isPending ? (
-                  <div className="p-3">
-                    <Skeleton className="h-5 w-full" />
-                  </div>
-                ) : candidates.length === 0 ? (
-                  <p className="m-0 p-3 text-sm text-muted-foreground">
-                    No other team members to assign.
-                  </p>
-                ) : (
-                  candidates.map((member) => (
-                    <button
-                      key={member.userId}
-                      type="button"
-                      disabled={assignMutation.isPending}
-                      className="flex w-full flex-col items-start gap-0.5 p-3 text-left transition-colors hover:bg-muted disabled:opacity-50"
-                      onClick={() => assignMutation.mutate(member.userId)}
-                    >
-                      <span className="truncate font-medium text-foreground">
-                        {formatName(member.name, member.email)}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {ROLE_LABELS[member.role] ?? member.role}
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
-            </PopoverContent>
-          </Popover>
+          <Eyebrow>
+            <UserPlusIcon />
+            Assigned to
+          </Eyebrow>
+          <Button
+            variant="link"
+            className="h-auto p-0"
+            onClick={() => setAssignOpen(true)}
+          >
+            Assign someone
+          </Button>
         </div>
 
         {assigneesQuery.isPending ? (
@@ -233,37 +229,52 @@ export const OutreachAssigneesSection = ({
         ) : (
           <div className="space-y-2">
             {assignees.map((assignee) => {
+              const member = members.find((m) => m.userId === assignee.userId)
               const displayName =
-                assignee.name ??
-                members.find((member) => member.userId === assignee.userId)
-                  ?.email ??
-                `Member #${assignee.userId}`
+                assignee.name ?? member?.email ?? `Member #${assignee.userId}`
               return (
                 <Card
                   key={assignee.userId}
-                  className="flex flex-row items-center justify-between gap-3 p-3"
+                  className="flex flex-row items-center gap-3 p-3"
                 >
-                  <div className="min-w-0">
-                    <p className="m-0 truncate text-sm font-medium text-foreground">
-                      {displayName}
-                    </p>
-                    <p className="m-0 text-xs text-muted-foreground">
-                      {ROLE_LABELS[assignee.role] ?? assignee.role} · Assigned{' '}
-                      {shortOutreachDate(assignee.createdAt)}
-                    </p>
+                  <Avatar size="small">
+                    <AvatarFallback>{initialsFor(displayName)}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {displayName}
+                      </span>
+                      <Badge variant="soft" shape="pill">
+                        {ROLE_LABELS[assignee.role] ?? assignee.role}
+                      </Badge>
+                    </div>
+                    {member?.email && (
+                      <p className="m-0 truncate text-xs text-muted-foreground">
+                        {member.email}
+                      </p>
+                    )}
                   </div>
-                  <IconButton
-                    variant="ghost"
-                    size="small"
-                    aria-label={`Remove ${displayName}`}
-                    disabled={
-                      removeMutation.isPending &&
-                      removeMutation.variables === assignee.userId
-                    }
-                    onClick={() => setRemoveTarget(assignee)}
-                  >
-                    <Trash2Icon className="size-4" />
-                  </IconButton>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <IconButton
+                        variant="ghost"
+                        size="small"
+                        aria-label={`Manage ${displayName}`}
+                      >
+                        <MoreHorizontalIcon />
+                      </IconButton>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() => setRemoveTarget(assignee)}
+                      >
+                        <Trash2Icon />
+                        Remove
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </Card>
               )
             })}
@@ -285,6 +296,23 @@ export const OutreachAssigneesSection = ({
           </div>
         )}
       </section>
+
+      <OutreachAssignModal
+        open={assignOpen}
+        onOpenChange={setAssignOpen}
+        outreachName={outreachName}
+        members={members}
+        assignedUserIds={assignedUserIds}
+        pendingUserIds={pendingUserIds}
+        onToggleAssignment={handleToggleAssignment}
+        teamQueryPending={teamQuery.isPending}
+        teamQueryError={teamQuery.isError}
+        onRetryTeamQuery={() => teamQuery.refetch()}
+        onInviteVolunteer={() => {
+          setAssignOpen(false)
+          setInviteOpen(true)
+        }}
+      />
 
       <InviteMemberDialog
         open={inviteOpen}

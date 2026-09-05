@@ -96,6 +96,7 @@ describe('TeamPage — members and pending invites', () => {
     // from the "How roles work" card's own "Campaign Manager" (ENG-11058).
     expect(screen.getAllByText('Campaign Manager').length).toBe(3)
     expect(screen.getByText('Invitee Person')).toBeInTheDocument()
+    expect(screen.getByText('People')).toBeInTheDocument()
     expect(screen.getByText('2 people on this campaign')).toBeInTheDocument()
   })
 
@@ -458,7 +459,7 @@ describe('TeamPage — loading and error states (ENG-11039)', () => {
     expect(
       screen.queryByText(/people on this campaign|person on this campaign/),
     ).not.toBeInTheDocument()
-    expect(screen.getByText('Your team')).toBeInTheDocument()
+    expect(screen.getByText('People')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryByText('No pending invites.')).not.toBeInTheDocument()
     expect(

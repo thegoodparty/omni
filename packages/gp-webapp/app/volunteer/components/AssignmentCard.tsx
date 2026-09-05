@@ -71,7 +71,7 @@ const resolveAction = (
     return {
       action: {
         href: `/volunteer/phone-banking/${listId}`,
-        label: 'Continue calling',
+        label: peopleCalled === 0 ? 'Call this list' : 'Continue calling',
       },
       progress: `${peopleCalled} of ${peopleTotal} people reached`,
     }
@@ -84,7 +84,7 @@ const resolveAction = (
     return {
       action: {
         href: `/volunteer/door-knocking/${turfId}`,
-        label: 'Continue knocking',
+        label: loggedCount === 0 ? 'Walk this route' : 'Continue knocking',
       },
       progress: `${loggedCount} of ${peopleCount} people logged`,
     }

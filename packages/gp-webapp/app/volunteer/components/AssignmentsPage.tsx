@@ -45,11 +45,24 @@ const AssignmentsPage = (): React.JSX.Element => {
   const active = assignments.filter((a) => !isTerminalStatus(a.status))
   const completed = assignments.filter((a) => isTerminalStatus(a.status))
 
+  // Only shown once the query has resolved successfully with at least one
+  // assignment — at zero the empty-state card already carries the message,
+  // and "You have 0 assignments" next to it would be redundant.
+  const showSubtext =
+    !isPending && !isError && assignments.length > 0 && !!organization?.name
+  const assignmentNoun = assignments.length === 1 ? 'assignment' : 'assignments'
+  const subtext = `You have ${assignments.length} ${assignmentNoun} from ${organization?.name}.`
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6 sm:px-8">
-      <h1 className="m-0 text-xl font-semibold text-foreground">
-        Your assignments
-      </h1>
+      <div className="flex flex-col gap-1">
+        <h1 className="m-0 text-xl font-semibold text-foreground">
+          Your assignments
+        </h1>
+        {showSubtext && (
+          <p className="m-0 text-sm text-muted-foreground">{subtext}</p>
+        )}
+      </div>
 
       {isPending ? (
         <div className="flex flex-col gap-3">
@@ -78,10 +91,10 @@ const AssignmentsPage = (): React.JSX.Element => {
             <ClipboardListIcon className="size-6 text-muted-foreground" />
           </span>
           <p className="m-0 text-sm font-semibold text-foreground">
-            No assignments yet
+            You do not have any assignments yet.
           </p>
           <p className="m-0 max-w-sm text-sm text-muted-foreground">
-            Your campaign will assign you work here once it’s ready.
+            Your campaign will send you a list or route when they are ready.
           </p>
         </Card>
       ) : (
