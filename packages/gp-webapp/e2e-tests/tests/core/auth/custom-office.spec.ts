@@ -58,6 +58,10 @@ test.describe('Custom office flow', () => {
     ).toBeVisible()
 
     await page.getByLabel('Office Name').fill('City Council')
+    // Office level is required since ENG-11043 — Continue stays disabled
+    // until one is picked, and it persists to details.ballotLevel.
+    await page.getByRole('combobox', { name: /office level/i }).click()
+    await page.getByRole('option', { name: 'Local, township or city' }).click()
     await page.getByRole('combobox', { name: /state/i }).click()
     await page.getByRole('option', { name: 'NC' }).click()
     await page.getByLabel('City, Town Or County').fill('Hendersonville')
@@ -161,6 +165,9 @@ test.describe('Custom office flow', () => {
         district: '3',
         officeTermLength: '4 years',
         state: 'NC',
+        // ENG-11043: manual entry now persists the selected office level as
+        // the BallotReadyPositionLevel enum value.
+        ballotLevel: 'LOCAL',
         electionId: null,
         // ENG-10618: the office-picker ZIP entered above (82001) now persists onto
         // the campaign so HubSpot/Peerly can rent a robocall line with the right area code.

@@ -155,6 +155,10 @@ describe('OnboardingFlow — persists ZIP into new campaign', () => {
     fireEvent.change(await screen.findByLabelText(/office name/i), {
       target: { value: 'Town Dogcatcher' },
     })
+    fireEvent.click(screen.getByRole('combobox', { name: /office level/i }))
+    fireEvent.click(
+      screen.getByRole('option', { name: 'Local, township or city' }),
+    )
     fireEvent.click(screen.getByRole('combobox', { name: /state/i }))
     fireEvent.click(screen.getByRole('option', { name: 'NC' }))
     fireEvent.change(screen.getByLabelText(/city, town or county/i), {
