@@ -99,7 +99,7 @@ const AssignmentsPage = (): React.JSX.Element => {
           {completed.length > 0 && (
             <div className="flex flex-col gap-3">
               <h2 className="m-0 text-sm font-semibold text-muted-foreground">
-                Completed
+                Closed
               </h2>
               {completed.map((assignment) => (
                 <AssignmentCard

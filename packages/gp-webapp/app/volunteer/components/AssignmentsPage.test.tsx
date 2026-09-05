@@ -124,7 +124,7 @@ describe('AssignmentsPage — rendering assignments', () => {
     render(<AssignmentsPage />)
 
     expect(await screen.findByText('Call list A')).toBeInTheDocument()
-    expect(screen.getByText('Completed')).toBeInTheDocument()
+    expect(screen.getByText('Closed')).toBeInTheDocument()
     expect(screen.getByText('Call list C')).toBeInTheDocument()
     expect(screen.getByText('Done')).toBeInTheDocument()
   })
@@ -138,7 +138,7 @@ describe('AssignmentsPage — rendering assignments', () => {
     render(<AssignmentsPage />)
 
     expect(await screen.findByText('Canceled list')).toBeInTheDocument()
-    expect(screen.getByText('Completed')).toBeInTheDocument()
+    expect(screen.getByText('Closed')).toBeInTheDocument()
     // The canceled card sits in the done group, with no Continue action.
     expect(screen.getAllByRole('link', { name: /Continue/ })).toHaveLength(1)
   })

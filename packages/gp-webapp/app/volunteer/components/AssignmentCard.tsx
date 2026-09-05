@@ -35,14 +35,24 @@ interface AssignmentAction {
 
 // Canceled/denied/failed/completed work must not offer a "Continue" action;
 // the assignments page groups these out of the active list with the same set.
-export const TERMINAL_STATUSES = new Set([
-  'completed',
-  'canceled',
-  'denied',
-  'failed',
-])
+// Typed against the contract enum so a new OutreachStatus member forces a
+// grouped-or-active decision here instead of silently landing in active.
+const TERMINAL_BY_STATUS: Record<
+  NonNullable<MyAssignment['status']>,
+  boolean
+> = {
+  pending_payment: false,
+  pending: false,
+  approved: false,
+  paid: false,
+  in_progress: false,
+  completed: true,
+  canceled: true,
+  denied: true,
+  failed: true,
+}
 export const isTerminalStatus = (status: MyAssignment['status']) =>
-  TERMINAL_STATUSES.has(status ?? '')
+  status !== null && TERMINAL_BY_STATUS[status]
 
 // Only the two native channels carry a channel-pointer to route to (their
 // own future pages, ENG-11053's follow-ons) — every other assignable
