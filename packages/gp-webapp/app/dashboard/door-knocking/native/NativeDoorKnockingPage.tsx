@@ -770,22 +770,6 @@ export default function NativeDoorKnockingPage({
                 <Spinner />
               </div>
             )}
-            {/* Full-page loader for the walk entry only — the pack takes
-              4.5s p50 / 34s p95, and until it lands the route map has
-              nothing to draw. Scoped to the walk (walkTurfId set + walk
-              hasn't opened yet); the create flow's draw-boundaries step
-              has its own in-sheet affordance for the same wait and stays
-              on that path. Contextual pattern: Spinner + text sibling,
-              because the wait is meaningful and the caption is what says
-              "we know what you asked for; hang on." */}
-            {walkTurfId !== undefined && !walkTurf && packQuery.isPending && (
-              <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-background">
-                <Spinner />
-                <p className="text-sm text-muted-foreground">
-                  Loading your route
-                </p>
-              </div>
-            )}
             {walkSurface()}
             {flowStep && (
               <CreateListSurface
