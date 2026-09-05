@@ -632,7 +632,12 @@ endpoint must subscribe to `payment_method.attached`.
   (`PhoneBankingList`, `PhoneBankingListEntry[Person]`,
   `ContactInteractionPhoneBanking`, `PhoneBankingSuppressedPhone`) and
   controller/service live in a separate `src/phoneBanking/` module — this
-  package only owns the stateless draft/improve endpoint above.
+  package only owns the stateless draft/improve endpoint above. That
+  module's two caller routes (`GET lists/:id`, `POST lists/:id/calls`)
+  carry `@AllowVolunteer()`; a volunteer is admitted only when
+  `PhoneBankingAccessService` finds an `OutreachAssignment` on the list's
+  envelope (via `OutreachAssignmentService.existsFor`, imported from this
+  module), else 404 — create/serve-create/delete stay manager+ (ENG-11050).
 
 ## Tests
 
