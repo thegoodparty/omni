@@ -53,6 +53,7 @@ const pendingInvite: PendingInvite = {
   email: 'invitee@example.com',
   role: 'campaignAdmin',
   createdAt: '2024-01-03T00:00:00.000Z',
+  outreachId: null,
 }
 
 const pendingInvite2: PendingInvite = {
@@ -61,6 +62,7 @@ const pendingInvite2: PendingInvite = {
   email: 'second-invitee@example.com',
   role: 'campaignAdmin',
   createdAt: '2024-01-04T00:00:00.000Z',
+  outreachId: null,
 }
 
 // Mutable so DELETE mock handlers can simulate a real backend: a mutation's
@@ -196,6 +198,7 @@ describe('TeamPage — invite flow', () => {
             name: req.body.name,
             role: 'campaignAdmin',
             createdAt: '2024-01-04T00:00:00.000Z',
+            outreachId: null,
           },
         },
       }
@@ -319,6 +322,80 @@ describe('TeamPage — loading and error states (ENG-11039)', () => {
         'Couldn’t load pending invites. Try refreshing the page.',
       ),
     ).toBeInTheDocument()
+  })
+})
+
+describe('TeamPage — role change (ENG-11049)', () => {
+  it('offers Make Volunteer on a manager row and PATCHes the right value', async () => {
+    const user = userEvent.setup()
+    let patchBody: unknown
+    let patchedUserId: string | undefined
+    api.mock(
+      'PATCH /v1/organizations/team/members/:userId',
+      ({ params, body }) => {
+        patchedUserId = params.userId
+        patchBody = body
+        members = members.map((m) =>
+          m.userId === manager.userId ? { ...m, role: 'volunteer' } : m,
+        )
+        return { status: 200, data: { ...manager, role: 'volunteer' } }
+      },
+    )
+    render(<TeamPage />)
+
+    await screen.findByText('Manager Person')
+    await user.click(
+      screen.getByRole('button', { name: 'Manage Manager Person' }),
+    )
+    await user.click(await screen.findByText('Make Volunteer'))
+
+    await waitFor(() => {
+      expect(patchedUserId).toBe(String(manager.userId))
+      expect(patchBody).toEqual({ role: 'volunteer' })
+    })
+    expect(await screen.findByText('Volunteer')).toBeInTheDocument()
+  })
+
+  it('offers Make Campaign Manager on a volunteer row and PATCHes the right value', async () => {
+    const user = userEvent.setup()
+    const volunteer: TeamMember = {
+      userId: 3,
+      name: 'Val Volunteer',
+      email: 'val@example.com',
+      role: 'volunteer',
+      createdAt: '2024-01-05T00:00:00.000Z',
+    }
+    members = [owner, volunteer]
+    pendingInvites = []
+    let patchBody: unknown
+    api.mock('PATCH /v1/organizations/team/members/:userId', ({ body }) => {
+      patchBody = body
+      members = members.map((m) =>
+        m.userId === volunteer.userId ? { ...m, role: 'campaignAdmin' } : m,
+      )
+      return { status: 200, data: { ...volunteer, role: 'campaignAdmin' } }
+    })
+    render(<TeamPage />)
+
+    await screen.findByText('Val Volunteer')
+    await user.click(
+      screen.getByRole('button', { name: 'Manage Val Volunteer' }),
+    )
+    await user.click(await screen.findByText('Make Campaign Manager'))
+
+    await waitFor(() => {
+      expect(patchBody).toEqual({ role: 'campaignAdmin' })
+    })
+    expect(await screen.findByText('Campaign Manager')).toBeInTheDocument()
+  })
+
+  it('never offers a role-change action to a manager (no Manage menu at all)', async () => {
+    mockUseOrganizationRole.mockReturnValue('campaignAdmin')
+    render(<TeamPage />)
+
+    await screen.findByText('Manager Person')
+    expect(screen.queryByText('Make Volunteer')).not.toBeInTheDocument()
+    expect(screen.queryByText('Make Campaign Manager')).not.toBeInTheDocument()
   })
 })
 

@@ -70,6 +70,7 @@ import {
   useOutreachDetail,
   type OutreachDetailFetcher,
 } from './useOutreachDetail'
+import { OutreachAssigneesSection } from './OutreachAssigneesSection'
 import { SocialAssetCard } from './SocialAssetCards'
 import { socialPurposeLabel } from './socialPurposes'
 import {
@@ -765,6 +766,15 @@ export const OutreachDetailsDrawer = ({
                 </p>
               )}
             </DetailsSection>
+
+            {/* Manager assign/unassign for a self-run list (ENG-11056),
+                flag-gated inside the section itself so this renders nothing
+                extra when win-team-accounts is off. Volunteers never open
+                this drawer (their whole surface is /volunteer's own
+                assignments page), so there's no second gate here. */}
+            {(isPhoneBanking || isDoorKnocking) && (
+              <OutreachAssigneesSection outreachId={row.id} />
+            )}
 
             {complianceV2 && isSms && isCompleted && results && statRows && (
               <DetailsSection title="Statistics">
