@@ -91,14 +91,15 @@ export class OutreachAssignmentController {
       user.id,
     )
 
-    const outreachType =
-      await this.assignments.findOutreachTypeOrThrow(outreachId)
-    void this.analytics
-      .track(user.id, EVENTS.Team.OutreachAssigned, {
-        outreachId,
-        outreachType,
-        assigneeUserId: input.assigneeUserId,
-      })
+    void this.assignments
+      .findOutreachTypeOrThrow(outreachId)
+      .then((outreachType) =>
+        this.analytics.track(user.id, EVENTS.Team.OutreachAssigned, {
+          outreachId,
+          outreachType,
+          assigneeUserId: input.assigneeUserId,
+        }),
+      )
       .catch(() => undefined)
 
     return assignee
@@ -118,14 +119,15 @@ export class OutreachAssignmentController {
       assigneeUserId,
     )
 
-    const outreachType =
-      await this.assignments.findOutreachTypeOrThrow(outreachId)
-    void this.analytics
-      .track(user.id, EVENTS.Team.OutreachAssignmentRemoved, {
-        outreachId,
-        outreachType,
-        assigneeUserId,
-      })
+    void this.assignments
+      .findOutreachTypeOrThrow(outreachId)
+      .then((outreachType) =>
+        this.analytics.track(user.id, EVENTS.Team.OutreachAssignmentRemoved, {
+          outreachId,
+          outreachType,
+          assigneeUserId,
+        }),
+      )
       .catch(() => undefined)
   }
 
