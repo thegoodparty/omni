@@ -122,9 +122,7 @@ const advanceToWho = async () => {
 const pickSavedListAndContinue = async (listName: string) => {
   await user.click(screen.getByText('Choose a voter list'))
   await user.click(await screen.findByText(listName))
-  await user.click(
-    await screen.findByRole('button', { name: /Continue \([\d,]+\)/ }),
-  )
+  await user.click(await screen.findByRole('button', { name: /Continue/ }))
 }
 
 const advanceToScript = async () => {
@@ -199,9 +197,7 @@ describe('PhoneBankingFlow', () => {
     expect(
       await screen.findByText(/Reach 10 voters by phone banking/),
     ).toBeInTheDocument()
-    await user.click(
-      await screen.findByRole('button', { name: /Continue \(10\)/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: 'Continue' }))
 
     await screen.findAllByText('Write your call script')
     await waitFor(() =>
@@ -499,11 +495,9 @@ describe('PhoneBankingFlow', () => {
     await user.click(await screen.findByText('Create a new list'))
     await user.click(screen.getByRole('button', { name: 'Democrat' }))
     await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: /Continue \(\d+\)/ }),
-      ).toBeEnabled(),
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
     )
-    await user.click(screen.getByRole('button', { name: /Continue \(\d+\)/ }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText('Name your list')
     await user.type(screen.getByLabelText('List name'), 'My audience')
     mockCreateList(99, 'My audience')
@@ -792,7 +786,7 @@ describe('PhoneBankingFlow', () => {
 
     await user.click(screen.getByText('Choose a voter list'))
     await user.click(await screen.findByText('Likely Dems'))
-    await screen.findByRole('button', { name: /Continue \(10\)/ })
+    await screen.findByRole('button', { name: 'Continue' })
 
     // Back to purpose discards the pick; re-entering who is a fresh picker
     // with Continue disabled, not a resumed selection.
@@ -814,7 +808,7 @@ describe('PhoneBankingFlow', () => {
     await user.click(screen.getByLabelText('Back'))
     expect(await screen.findByText('Likely Dems')).toBeInTheDocument()
     expect(
-      await screen.findByRole('button', { name: /Continue \(10\)/ }),
+      await screen.findByRole('button', { name: 'Continue' }),
     ).toBeEnabled()
   })
 
@@ -879,16 +873,14 @@ describe('PhoneBankingFlow', () => {
     await user.click(await screen.findByText('Create a new list'))
     await user.click(screen.getByRole('button', { name: 'Democrat' }))
     await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: /Continue \(\d+\)/ }),
-      ).toBeEnabled(),
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
     )
     expect(countBodies.at(-1)).toMatchObject({
       partyDemocrat: true,
       hasAnyPhone: true,
     })
 
-    await user.click(screen.getByRole('button', { name: /Continue \(\d+\)/ }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findAllByText('Name your list')
     await user.type(screen.getByLabelText('List name'), 'My audience')
     await user.click(screen.getByRole('button', { name: 'Create list' }))
@@ -928,7 +920,7 @@ describe('PhoneBankingFlow', () => {
 
     await user.click(screen.getByText('Choose a voter list'))
     await user.click(await screen.findByText('All voters'))
-    await screen.findByRole('button', { name: /Continue \(20\)/ })
+    await screen.findByRole('button', { name: /Continue/ })
 
     expect(screen.queryByText(/have a phone number/)).not.toBeInTheDocument()
   })
@@ -949,11 +941,9 @@ describe('PhoneBankingFlow', () => {
     await user.click(await screen.findByText('Create a new list'))
     await user.click(screen.getByRole('button', { name: 'Democrat' }))
     await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: /Continue \(\d+\)/ }),
-      ).toBeEnabled(),
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
     )
-    await user.click(screen.getByRole('button', { name: /Continue \(\d+\)/ }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
       (await screen.findAllByText('Name your list')).length,
@@ -1015,11 +1005,9 @@ describe('PhoneBankingFlow', () => {
     await user.click(screen.getByText('Choose a voter list'))
     await user.click(await screen.findByText('Create a new list'))
     await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: /Continue \(50\)/ }),
-      ).toBeEnabled(),
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
     )
-    await user.click(screen.getByRole('button', { name: /Continue \(50\)/ }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
       (await screen.findAllByText('Name your list')).length,
@@ -1103,7 +1091,7 @@ describe('PhoneBankingFlow', () => {
       await screen.findByText(/Reach 5 voters by phone banking/),
     ).toBeInTheDocument()
     expect(
-      await screen.findByRole('button', { name: /Continue \(5\)/ }),
+      await screen.findByRole('button', { name: /Continue/ }),
     ).toBeEnabled()
   })
 

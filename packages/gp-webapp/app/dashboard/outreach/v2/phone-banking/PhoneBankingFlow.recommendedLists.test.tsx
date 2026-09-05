@@ -78,7 +78,12 @@ describe('PhoneBankingFlow (Win surface) — recommended lists', () => {
   const openToWho = async () => {
     render(<PhoneBankingFlow open onClose={vi.fn()} />)
     await userEvent.click(screen.getByText('Introduce myself to voters'))
-    expect(await screen.findByText('Choose a voter list')).toBeInTheDocument()
+    // Trigger reads either the neutral "Choose a voter list" or, when
+    // recommended cards are on screen, "View your lists here" — either
+    // proves the audience picker has rendered.
+    expect(
+      await screen.findByText(/Choose a voter list|View your lists here/),
+    ).toBeInTheDocument()
   }
 
   it('records the exposure and carries the variant/channel/intent through', async () => {
@@ -102,9 +107,9 @@ describe('PhoneBankingFlow (Win surface) — recommended lists', () => {
     expect(screen.queryByText(/to reach them/)).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByTestId('recommended-list-card'))
-    await screen.findByText('Name your list')
+    await screen.findByText('Name this list')
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Create list' }),
+      await screen.findByRole('button', { name: 'Continue' }),
     )
 
     expect(filterCalls).toHaveLength(1)

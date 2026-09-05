@@ -58,10 +58,14 @@ export const useSheetSnap = (initial: SheetSnap = 'half') => {
       const from = dragStartY.current
       dragStartY.current = null
       if (from === null) return
-      if (!dragMoved.current) {
-        cycle()
-        return
-      }
+      // A stationary press does nothing. This used to tap-to-cycle through
+      // the three snaps and silently produced unwanted resizes — a canvasser
+      // resting a thumb on the header (the only place they could hold the
+      // sheet) or a keyboard user reaching for the Exit button would land
+      // a click and the sheet would move under them. Keyboard cycling
+      // (Enter/Space on the grip's role="button") stays intentional and
+      // still calls `cycle()`.
+      if (!dragMoved.current) return
       const delta = event.clientY - from
       if (Math.abs(delta) < DRAG_THRESHOLD_PX) return
       setSnap((current) => {

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps, ReactElement } from 'react'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { toast } from '@styleguide'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
@@ -13,6 +14,11 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('helpers/analyticsHelper')>()
   return { ...actual, trackEvent: vi.fn() }
+})
+
+vi.mock('@styleguide', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@styleguide')>()
+  return { ...actual, toast: vi.fn() }
 })
 
 // mapbox-gl-draw hands back an open ring; save must close it before POSTing.
@@ -58,7 +64,6 @@ const baseProps = {
   drawnStops: null,
   onListCreated: vi.fn(),
   isElectedOfficial: false,
-  unpreviewableKeys: [],
   orgSlug: 'campaign-9',
   addressPreview: null,
   previewPending: false,
@@ -170,6 +175,14 @@ const buildNewList = () => {
 const drawingSurface = (
   props: Partial<ComponentProps<typeof CreateListFlow>> = {},
 ) => <CreateListFlow {...baseProps} step="draw" drawFullScreen {...props} />
+
+// DrawFullScreen shows an instructions AlertDialog every mount; radix's
+// aria-hidden on the rest of the tree hides the drawing surface from
+// getByRole/getByText until it's dismissed.
+const dismissDrawingInstructions = () => {
+  const gotIt = screen.queryByRole('button', { name: 'Got it' })
+  if (gotIt) fireEvent.click(gotIt)
+}
 
 // The step heading is said twice on purpose — once sr-only as the sheet's
 // accessible title, once in the body as the intro block — so a test that
@@ -432,7 +445,10 @@ describe('CreateListFlow', () => {
     const onStepChange = vi.fn()
 
     renderAtWho({ filters: { partyDemocrat: true }, onStepChange })
-    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    // Pick All contacts to enable Continue; the hand-cut filter draft is
+    // the audience being advanced, not the picked All-contacts row.
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     // Waited out rather than read straight back, so a POST that was fired and
     // is merely still in flight fails this rather than passing it.
@@ -444,6 +460,7 @@ describe('CreateListFlow', () => {
     const { rerender } = render(
       drawingSurface({ ring: null, turfStats: null, drawPointCount: 0 }),
     )
+    dismissDrawingInstructions()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
 
     rerender(drawingSurface({ turfStats: turfStats(151, 140) }))
@@ -482,6 +499,7 @@ describe('CreateListFlow', () => {
     const unfinished = (drawPointCount: number) =>
       drawingSurface({ ring: null, turfStats: null, drawPointCount })
     const { rerender } = render(unfinished(1))
+    dismissDrawingInstructions()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
 
     rerender(unfinished(2))
@@ -528,6 +546,7 @@ describe('CreateListFlow', () => {
   // right above it and counts the same shape, in the unit the cap is stated in.
   it('leaves the count to the pill rather than the drawing surface’s Continue', () => {
     render(drawingSurface({ turfStats: turfStats(14, 9) }))
+    dismissDrawingInstructions()
 
     const advance = screen.getByRole('button', { name: 'Continue' })
     expect(advance).toBeEnabled()
@@ -599,6 +618,7 @@ describe('CreateListFlow', () => {
     // Informing is all it does: the shape is still finishable at 101 stops,
     // which is the whole difference between this warning and the cap.
     rerender(drawingSurface({ turfStats: turfStats(101, 80) }))
+    dismissDrawingInstructions()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
@@ -607,20 +627,24 @@ describe('CreateListFlow', () => {
   // picker's own door count is the unfiltered universe and stands still — so
   // reading the CTA as the picker's count would be reading the district as the
   // list.
-  it('counts the filtered audience in the who step’s Continue, not the whole universe', () => {
+  it('counts the filtered audience in the who step’s Continue, not the whole universe', async () => {
     renderAtWho({ districtHouseholds: 1500, allContactsHouseholds: 12000 })
 
-    expect(
-      screen.getByRole('button', { name: 'Continue (1,500)' }),
-    ).toBeEnabled()
-    expect(audiencePicker()).toHaveTextContent('All contacts')
-    expect(audiencePicker()).toHaveTextContent('12,000 doors')
+    // Without a pick the CTA is bare and disabled. Picking All contacts
+    // commits the audience and reveals the filtered count.
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    await pickList(/All contacts/)
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
-  it('refuses to continue from an audience holding nobody', () => {
+  it('refuses to continue from an audience holding nobody', async () => {
     renderAtWho({ districtHouseholds: 0 })
 
-    expect(screen.getByRole('button', { name: 'Continue (0)' })).toBeDisabled()
+    // Same disabled state, two reasons: no pick yet, and then a picked
+    // audience with zero households.
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    await pickList(/All contacts/)
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
   })
 
   // The same disabled button, and a completely different fact. A count that has
@@ -631,13 +655,12 @@ describe('CreateListFlow', () => {
   it('drops the count from the who step’s Continue while it is still pending', () => {
     renderAtWho({ districtHouseholds: 0, districtHouseholdsPending: true })
 
+    // The button state is the whole message — no inline "loading your voter
+    // map" paragraph any more. See NativeDoorKnockingPage for the map
+    // region's own spinner-only loader.
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     expect(screen.queryByRole('button', { name: /Continue \(/ })).toBeNull()
-    expect(
-      screen.getByText(
-        /Loading your voter map…\s*Large districts can take up to 30 seconds\./,
-      ),
-    ).toBeInTheDocument()
+    expect(screen.queryByText(/Loading your voter map/)).toBeNull()
   })
 
   // And a count that is never arriving. The pack does not retry, so the step is
@@ -672,7 +695,7 @@ describe('CreateListFlow', () => {
   // is the orchestrator's name for the whole pre-draw phase, and reaching the
   // draw step from an unfiltered draft is now two moves — pick a goal, then
   // continue past the audience.
-  it('advances from the goal cards through the audience to the draw step', () => {
+  it('advances from the goal cards through the audience to the draw step', async () => {
     const onStepChange = vi.fn()
     renderAtWho({ onStepChange })
 
@@ -680,7 +703,9 @@ describe('CreateListFlow', () => {
     // nothing about it — it only needs to know when a shape is being cut.
     expect(onStepChange).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    // Pick an audience to enable Continue.
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(onStepChange).toHaveBeenCalledWith('draw')
   })
 
@@ -752,91 +777,12 @@ describe('CreateListFlow', () => {
     expect(screen.queryByLabelText(/top issue/i)).toBeNull()
   })
 
-  // The pack has no 65+ bucket, so that pill leaves the shaded preview
-  // unnarrowed while the saved list still applies it — a candidate drawing
-  // against the wider shape has no way to know unless we say so.
-  it('discloses filters the map preview cannot narrow by', () => {
-    const { rerender } = render(
-      <CreateListFlow {...baseProps} step="draw" unpreviewableKeys={[]} />,
-    )
-    expect(screen.queryByText(/can’t yet shade by/)).toBeNull()
-
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        unpreviewableKeys={['age65Plus']}
-      />,
-    )
-    const label = filterSections
-      .flatMap((section) => section.fields)
-      .flatMap((field) => field.options)
-      .find((option) => option.key === 'age65Plus')?.label
-    expect(label).toBeTruthy()
-    expect(
-      screen.getByText(
-        (_, element) =>
-          element?.tagName === 'P' &&
-          new RegExp(`can’t yet shade by ${label}`).test(
-            element.textContent ?? '',
-          ),
-      ),
-    ).toBeInTheDocument()
-  })
-
-  // The bare option labels ('0'…'5+') made this read "the map can't shade by
-  // 0 yet", which sounds like a bug rather than a filter.
-  it('names the prior-contacts group rather than its bucket number', () => {
-    render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        unpreviewableKeys={['contactsMade0', 'contactsMade3']}
-      />,
-    )
-
-    const disclosure = screen.getByText(
-      (_, element) =>
-        element?.tagName === 'P' &&
-        /can’t yet shade by/.test(element.textContent ?? ''),
-    )
-    // Named once, however many of its buckets are selected.
-    expect(disclosure.textContent).toContain(
-      'can’t yet shade by Prior contacts made,',
-    )
-  })
-
-  // Two unshadeable filters used to be comma-joined into a sentence written
-  // for one — "shade by 65+, Prior contacts made yet, so these counts include
-  // people that filter will exclude" — which reads as a typo rather than as a
-  // list. The wiring, not the joining, is what this asserts; the joins
-  // themselves are covered in voterFilterPreview.test.ts.
-  it('joins two unshadeable filters with or, and pluralises around them', () => {
-    render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        unpreviewableKeys={['age65Plus', 'contactsMade0']}
-      />,
-    )
-
-    const disclosure = screen.getByText(
-      (_, element) =>
-        element?.tagName === 'P' &&
-        /can’t yet shade by/.test(element.textContent ?? ''),
-    )
-    // "Your list", not "Your saved list": this renders the draw step of a
-    // from-scratch list, so there is no saved list to name.
-    expect(disclosure.textContent).toBe(
-      'The map can’t yet shade by 65+ or Prior contacts made, so these counts ' +
-        'include people those filters will exclude. Your list still ' +
-        'applies them when you knock.',
-    )
-  })
-
-  // The mis-tap fix: a stray vertex was previously only draggable somewhere
-  // harmless, and a turf's polygon freezes permanently once it is knocked.
-  it('offers Undo only once a point exists', () => {
+  // Undo and the count pill sit on the map from the moment the drawing
+  // surface opens — like the zoom/locate cluster on the left — so a candidate
+  // reading the instructions sees where each will land. Undo stays enabled
+  // and answers a stray click with a toast rather than disappearing or going
+  // grey, which the design's own zoom/locate cluster never does either.
+  it('offers Undo from the start, toasting a stray click', () => {
     const onUndoPoint = vi.fn()
     const { rerender } = render(
       drawingSurface({
@@ -846,7 +792,12 @@ describe('CreateListFlow', () => {
         onUndoPoint,
       }),
     )
-    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
+    dismissDrawingInstructions()
+
+    vi.mocked(toast).mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(onUndoPoint).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith('There is nothing to undo')
 
     rerender(
       drawingSurface({
@@ -874,15 +825,16 @@ describe('CreateListFlow', () => {
         onDrawFullScreenChange,
       }),
     )
+    dismissDrawingInstructions()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(onDrawFullScreenChange).toHaveBeenCalledWith(false)
-    expect(screen.queryByText('Discard this turf?')).toBeNull()
+    expect(screen.queryByText('Discard this boundary?')).toBeNull()
 
     rerender(drawingSurface({ drawPointCount: 2, onDrawFullScreenChange }))
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(onDrawFullScreenChange).toHaveBeenCalledTimes(1)
-    expect(screen.getByText('Discard this turf?')).toBeInTheDocument()
+    expect(screen.getByText('Discard this boundary?')).toBeInTheDocument()
     expect(
       screen.getByText('The boundaries you drew will not be saved.'),
     ).toBeInTheDocument()
@@ -902,12 +854,13 @@ describe('CreateListFlow', () => {
   it('throws the boundary away when the discard is confirmed', () => {
     const onRestartDrawing = vi.fn()
     render(drawingSurface({ drawPointCount: 2, onRestartDrawing }))
+    dismissDrawingInstructions()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     fireEvent.click(screen.getByRole('button', { name: 'Keep drawing' }))
     expect(onRestartDrawing).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
     expect(onRestartDrawing).toHaveBeenCalledTimes(1)
   })
@@ -960,6 +913,7 @@ describe('CreateListFlow', () => {
   // pressing Undo also drops a boundary point where the button was.
   it('keeps the draw controls from leaking a click through to the map', () => {
     render(drawingSurface({ drawPointCount: 2 }))
+    dismissDrawingInstructions()
 
     const undo = screen.getByRole('button', { name: 'Undo' })
     expect(undo).toHaveClass('pointer-events-auto')
@@ -1028,23 +982,16 @@ describe('CreateListFlow', () => {
       { stops: 6, doors: 7, people: 12 },
     )
     const { rerender } = render(
-      <CreateListFlow
-        {...baseProps}
-        step="draw"
-        turfStats={estimate}
-        unpreviewableKeys={['age65Plus']}
-      />,
+      <CreateListFlow {...baseProps} step="draw" turfStats={estimate} />,
     )
 
     expect(screen.getByText('9')).toBeInTheDocument()
-    expect(screen.getByText(/The map can’t yet shade by/)).toBeInTheDocument()
 
     rerender(
       <CreateListFlow
         {...baseProps}
         step="draw"
         turfStats={estimate}
-        unpreviewableKeys={['age65Plus']}
         addressPreview={answered}
       />,
     )
@@ -1053,7 +1000,6 @@ describe('CreateListFlow', () => {
     // preview's 7.
     expect(screen.getByText('7')).toBeInTheDocument()
     expect(screen.queryByText('9')).toBeNull()
-    expect(screen.queryByText(/The map can’t yet shade by/)).toBeNull()
     // What the preview does still owe the reader: these are suppressed
     // already, so a shorter walk than this is not the expectation.
     expect(screen.getByText(/already out/)).toBeInTheDocument()
@@ -1061,6 +1007,7 @@ describe('CreateListFlow', () => {
     // The same replacement one surface over: the pill counts the preview's
     // stops rather than the pack's 14.
     rerender(drawingSurface({ turfStats: estimate, addressPreview: answered }))
+    dismissDrawingInstructions()
     expect(screen.getByText('6 selected')).toBeInTheDocument()
     expect(screen.queryByText('14 selected')).toBeNull()
   })
@@ -1411,7 +1358,7 @@ describe('CreateListFlow steps', () => {
 
     // And it really does continue to the map rather than to an ending of its
     // own — the stepper's promise and the flow's behaviour are the same claim.
-    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(onStepChange).toHaveBeenLastCalledWith('draw')
 
     rerender(
@@ -1518,16 +1465,22 @@ describe('CreateListFlow steps', () => {
     expect(onFiltersChange).toHaveBeenCalledWith({})
   })
 
-  // The counts come from the pack, which decodes on its own schedule, so a row
-  // waiting for one is the ordinary first frame rather than a broken list. It
-  // is still pickable — the count is what the audience is, not whether it is.
-  it('renders a list with no count yet rather than hiding it', async () => {
+  // The pack fetch is slow (4.5s p50 / 34s p95) and only powers door
+  // counts, so the picker itself renders while the pack is still in
+  // flight — each row is visible with its name, and its count is a
+  // skeleton until the pack lands. The initial full-page skeleton is
+  // reserved for the recs query.
+  it('shows the picker with count skeletons while the pack decodes', async () => {
     renderAtWho({
       savedLists: [
         { id: 4, name: 'Precinct 2', households: null, filters: {} },
       ],
       allContactsHouseholds: null,
     })
+
+    expect(
+      screen.getByRole('combobox', { name: 'All lists' }),
+    ).toBeInTheDocument()
 
     openPicker()
     expect(
@@ -1539,64 +1492,6 @@ describe('CreateListFlow steps', () => {
   // The reported defect, at the step it was reported from. A persuasion list
   // is narrowed by support status, and the pack has no plane for it — so
   // starting from a 256-person list put the whole district in the Continue
-  // button and said nothing about why. The count itself cannot be fixed here
-  // (the map genuinely cannot shade that clause), so the step has to say so:
-  // an undisclosed superset is what made this read as the list being ignored.
-  it('discloses, on the who step, a picked list’s unshadeable clauses', async () => {
-    const { rerender } = renderAtWho({
-      savedLists,
-      districtHouseholds: 12_000,
-      unpreviewableKeys: [],
-    })
-    expect(screen.queryByText(/can’t yet shade by/)).toBeNull()
-
-    // Pick the row for real rather than posting the lifted draft in as props:
-    // the sentence names the picked list, so a test that never picks one is
-    // asserting wording the flow cannot actually reach.
-    await pickList(/Precinct 2 homeowners/)
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        step="filters"
-        savedLists={savedLists}
-        districtHouseholds={12_000}
-        filters={{ supportStatus: true }}
-        unpreviewableKeys={['supportStatus']}
-      />,
-    )
-
-    // The CTA's count is still the whole district here, which is the thing the
-    // sentence below discloses.
-    expect(
-      screen.getByRole('button', { name: 'Continue (12,000)' }),
-    ).toBeEnabled()
-    expect(screen.getByText(/The map can’t yet shade by/)).toHaveTextContent(
-      'The map can’t yet shade by Support status, so these counts include ' +
-        'people that filter will exclude. Your saved list still applies it ' +
-        'when you knock.',
-    )
-  })
-
-  // The same sentence, one step earlier in the decision: a candidate who
-  // builds a list from scratch and picks 65+ has an unshadeable selection and
-  // no list to attribute it to. Citing "your saved list" there describes
-  // something that does not exist; dropping the promise instead would end the
-  // sentence on "that filter will exclude", which reads as the filter being
-  // ignored. Both halves are checked because fixing either one alone is a
-  // regression in the other.
-  it('does not cite a saved list on the who step when none is picked', () => {
-    renderAtWho({
-      savedLists,
-      districtHouseholds: 12_000,
-      filters: { age65Plus: true },
-      unpreviewableKeys: ['age65Plus'],
-    })
-
-    const disclosure = screen.getByText(/The map can’t yet shade by/)
-    expect(disclosure).toHaveTextContent('Your list still applies it when you')
-    expect(disclosure).not.toHaveTextContent('saved list')
-  })
-
   // Picking a list is two writes that have to happen together, and the second
   // one is what the preview reads. A list whose only narrowing is a clause the
   // draft cannot hold must still arrive marked, or the who step has nothing to
@@ -1709,7 +1604,7 @@ describe('CreateListFlow steps', () => {
 
     const { rerender } = renderAtWho(props)
     await pickList(/Super voters/)
-    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     rerender(<CreateListFlow {...props} step="confirm" />)
     advanceToRoute(rerender, props)
@@ -1770,7 +1665,7 @@ describe('CreateListFlow steps', () => {
   // Back from the draw step returns to the audience, which is the step
   // immediately in front of the map on the only path there is — and the page
   // hears `filters` for it, which is what resets the address panel.
-  it('returns from the draw step to the who step', () => {
+  it('returns from the draw step to the who step', async () => {
     const onStepChange = vi.fn()
     const savedLists = [
       { id: 4, name: 'Precinct 2 homeowners', households: 820, filters: {} },
@@ -1778,7 +1673,9 @@ describe('CreateListFlow steps', () => {
     const props = { ...baseProps, savedLists, onStepChange }
 
     const { rerender } = renderAtWho(props)
-    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    // Pick an audience to enable Continue.
+    await pickList(/All contacts/)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(onStepChange).toHaveBeenCalledWith('draw')
 
     rerender(<CreateListFlow {...props} step="draw" />)
@@ -1862,8 +1759,10 @@ describe('CreateListFlow preselected list', () => {
     })
 
     const picker = audiencePicker()
-    expect(picker).toHaveTextContent('All contacts')
-    expect(picker).toHaveTextContent('12,000 doors')
+    // A missed preselection is nothing selected — the trigger falls back to
+    // its neutral placeholder.
+    expect(picker).toHaveTextContent('Choose a voter list')
+    expect(picker).not.toHaveTextContent('12,000 doors')
     expect(onFiltersChange).not.toHaveBeenCalled()
     // A missed preselection is the ordinary flow and nothing else — same
     // audience the flow opens on, same five steps in front of it.
@@ -1876,7 +1775,7 @@ describe('CreateListFlow preselected list', () => {
     const onFiltersChange = vi.fn()
     renderAtWho({ savedLists, onFiltersChange })
 
-    expect(audiencePicker()).toHaveTextContent('All contacts')
+    expect(audiencePicker()).toHaveTextContent('Choose a voter list')
     expect(onFiltersChange).not.toHaveBeenCalled()
   })
 
@@ -1910,7 +1809,9 @@ describe('CreateListFlow preselected list', () => {
       <CreateListFlow {...props} step="filters" savedLists={[]} />,
     )
     fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
-    expect(audiencePicker()).toHaveTextContent('All contacts')
+    // Preselection hasn't landed (no rows yet), so the trigger shows its
+    // neutral placeholder rather than "All contacts" or a specific list.
+    expect(audiencePicker()).toHaveTextContent('Choose a voter list')
 
     rerender(
       <CreateListFlow {...props} step="filters" savedLists={savedLists} />,
@@ -1964,7 +1865,7 @@ describe('CreateListFlow preselected list', () => {
     }
 
     const { rerender } = renderAtWho(props)
-    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     rerender(<CreateListFlow {...props} step="confirm" />)
     advanceToRoute(rerender, props)

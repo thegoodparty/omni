@@ -28,6 +28,8 @@ const baseProps = {
   allContactsHouseholds: 1000,
   selectedListId: null,
   onSelectList: vi.fn(),
+  hasPickedAudience: false,
+  hasActiveRecommendation: false,
   isElectedOfficial: false,
   building: false,
   onBuildingChange: vi.fn(),
@@ -61,11 +63,16 @@ describe('WhoStep — recommended lists', () => {
     expect(screen.queryByText('Recommended for you')).toBeNull()
   })
 
-  it('shows a loading state while recommendations resolve', () => {
+  // Unified landing loader (matches OutreachAudienceStep): while either
+  // the pack or the recs query is in flight, the whole step renders one
+  // skeleton block that covers both sections. They reveal together.
+  it('shows a single skeleton while recs or the pack resolve', () => {
     render(<WhoStep {...baseProps} recommendationsLoading />)
 
-    expect(screen.getByTestId('recommended-lists-loading')).toBeInTheDocument()
+    expect(screen.getByTestId('who-step-loading')).toBeInTheDocument()
+    expect(screen.queryByText('Recommended for you')).toBeNull()
     expect(screen.queryByTestId('recommended-list-card')).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'All lists' })).toBeNull()
   })
 
   // A 502/504 from the endpoint is deliberate — the service refuses rather

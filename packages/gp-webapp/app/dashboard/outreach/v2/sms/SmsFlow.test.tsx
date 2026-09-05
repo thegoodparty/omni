@@ -237,9 +237,7 @@ describe('SmsFlow', () => {
     expect(
       await screen.findByText(/Message 1,200 voters for \$42\.00/),
     ).toBeInTheDocument()
-    await userEvent.click(
-      screen.getByRole('button', { name: /Continue \(1,200\)/ }),
-    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     // Schedule: a date 4 days out clears the 48-hour floor.
     expect(
@@ -316,7 +314,7 @@ describe('SmsFlow', () => {
     await userEvent.click(await screen.findByText('Choose a voter list'))
     await userEvent.click(await screen.findByText('Likely voters'))
     await userEvent.click(
-      await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+      await screen.findByRole('button', { name: 'Continue' }),
     )
 
     expect(
@@ -364,13 +362,14 @@ describe('SmsFlow', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     await userEvent.click(screen.getByRole('button', { name: 'Super' }))
 
-    // Debounced count settles into the CTA label.
-    const continueWithCount = await screen.findByRole(
-      'button',
-      { name: 'Continue (875)' },
+    // Wait for the debounced count to settle (button enables) — the label
+    // stays bare "Continue", so poll for enablement.
+    await waitFor(
+      () =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
       { timeout: 3000 },
     )
-    await userEvent.click(continueWithCount)
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     // Name step: live count sentence + name input gate.
     expect(await screen.findByText('Name your list')).toBeInTheDocument()

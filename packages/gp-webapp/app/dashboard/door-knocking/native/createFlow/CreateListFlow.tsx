@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
 import {
@@ -27,6 +27,7 @@ import {
 import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
 import { Intro } from 'app/dashboard/outreach/v2/social/Intro'
+import { RecommendedListNameDrawer } from 'app/dashboard/outreach/v2/audience/RecommendedListNameDrawer'
 import {
   builderFiltersFromRecommendation,
   intentForOutreachPurpose,
@@ -36,16 +37,11 @@ import {
   type VoterFileFilters,
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import type { SupportStatusRollup } from 'app/dashboard/contacts/crm/shared/contacts-types'
-import {
-  unpreviewableDisclosureLabels,
-  unpreviewableDisclosureSentence,
-} from './voterFilterPreview'
+import {} from './voterFilterPreview'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
 import {
   DISTRICT_UNAVAILABLE_MESSAGE,
   PACK_ERROR_MESSAGE,
-  PACK_LOADING_DURATION,
-  PACK_LOADING_TITLE,
 } from '../useVoterPack'
 import { suggestTravelMode } from '../travelMode'
 import { useDoorKnockingServeMode } from '../doorKnockingSurface'
@@ -75,9 +71,7 @@ import type {
   DoorKnockingMode,
   DoorKnockingTurf,
   RecommendedList,
-  RecommendedListFilter,
   RecommendedListIntent,
-  RecommendedListVariant,
 } from '@goodparty_org/contracts'
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { PolygonStats } from '../filterEngine'
@@ -169,7 +163,7 @@ interface CreateListFlowProps {
   drawFullScreen: boolean
   onDrawFullScreenChange: (full: boolean) => void
   // Throw the drawn boundary away and open a fresh drawing session on the same
-  // map. What "Discard this turf?" means: the canvas keeps the session live
+  // map. What "Discard this boundary?" means: the canvas keeps the session live
   // behind the draw step's shield, so a discard that merely cleared would leave
   // a map nothing can be drawn on next time the surface opens.
   onRestartDrawing: () => void
@@ -185,9 +179,10 @@ interface CreateListFlowProps {
   // VoterFileStep. A prop rather than a context read so this stays a plain
   // presentational flow and its tests don't need an organization provider.
   isElectedOfficial: boolean
-  // Selected filter option keys the map preview can't narrow by, so the drawn
-  // shape shows more people than the list will target.
-  unpreviewableKeys: string[]
+  // The pack's bounding box, framed as the draw step's static-map preview.
+  // Null (or omitted) until the pack decodes; the preview omits the image
+  // in that window rather than rendering Geoapify without a rect.
+  districtBounds?: [[number, number], [number, number]] | null
   // The organization the recommendations are asked for, purely as a cache-key
   // segment. A prop rather than a `useOrganization()` read for the same
   // reason as `isElectedOfficial` above.
@@ -221,10 +216,19 @@ interface CreateListFlowProps {
 // The clauses an accepted recommendation carries that the who step's boolean
 // pill draft has no plane for. Same three-way split as
 // `savedListUnshadeableCriteria`, minus activity conditions, which no
-// recommendation produces.
+// recommendation produces. Always empty in this file now — the recommendation
+// naming drawer persists a real list before the who step ends, so the
+// address preview reads its clauses off the saved row rather than from the
+// draft. Kept because the surface still routes them through this shape and
+// a future in-flow recommendation could re-populate it without a wire
+// change.
 export interface RecommendedCriteria {
   precincts: string[]
   supportStatus: SupportStatusRollup[]
+}
+const NO_RECOMMENDED_CRITERIA: RecommendedCriteria = {
+  precincts: [],
+  supportStatus: [],
 }
 
 // The design's stage copy, verbatim (Door knocking 3.0, `renderDkFlow`'s
@@ -293,7 +297,7 @@ export default function CreateListFlow({
   color,
   onListCreated,
   isElectedOfficial,
-  unpreviewableKeys,
+  districtBounds,
   orgSlug,
   preselectedListId,
   onPreselectApplied,
@@ -325,6 +329,13 @@ export default function CreateListFlow({
     !serveMode && purpose ? intentForOutreachPurpose(purpose) : null
   // Null means the whole contact universe.
   const [savedListId, setSavedListId] = useState<number | null>(null)
+  // Whether the candidate has picked an audience at all. Distinct from
+  // `savedListId === null`, which is ambiguous (nothing picked vs.
+  // explicitly picked "All contacts"). Gates the who-step Continue so the
+  // flow never assumes an audience the candidate never chose. Flipped true
+  // by every writer of `savedListId` (the picker, the recommendation
+  // accept, the `?listId=` preselect below) via `selectList`.
+  const [hasPickedAudience, setHasPickedAudience] = useState(false)
   // The who step's two faces and its panel. Held here rather than in the step
   // so that a step back from `draw` returns to the face the candidate left —
   // someone who cut a custom audience and pressed Back means to edit those
@@ -341,37 +352,14 @@ export default function CreateListFlow({
   // a shape on it. Distinct from the shell's "Discard changes?", which is
   // about abandoning the whole flow.
   const [discardShapeOpen, setDiscardShapeOpen] = useState(false)
-  // The shell's "Discard changes?", raised by hand for the draw step only —
-  // see `leaveFlowFromDraw`.
-  const [discardFlowOpen, setDiscardFlowOpen] = useState(false)
 
-  // A recommendation accepted as a brand-new list carries clauses the who
-  // step's boolean pill draft has no plane for — precincts and support
-  // status, the same two the picker's saved lists already ride outside
-  // `filters` (`savedListUnshadeableCriteria`). Door knocking is the one
-  // channel whose recommendation carries a precinct filter
-  // (docs/features/recommended-lists.md), so these are spent at create time
-  // in the `save` mutation below rather than expressed as pills. Cleared
-  // whenever the draft stops being that recommendation: a real saved list is
-  // picked, or a pill is hand-edited.
-  const [recommendedPrecincts, setRecommendedPrecincts] = useState<string[]>([])
-  const [recommendedSupportStatus, setRecommendedSupportStatus] = useState<
-    SupportStatusRollup[]
-  >([])
-  const [recommendedMeta, setRecommendedMeta] = useState<{
-    variant: RecommendedListVariant
-    intent: RecommendedListIntent
-    filter: RecommendedListFilter
-    // Reported on the accept event rather than re-derived: these are the
-    // figures the candidate actually saw on the card.
-    count: number
-    voteGoalShare?: number
-  } | null>(null)
-  const clearRecommendedDraft = useCallback(() => {
-    setRecommendedPrecincts([])
-    setRecommendedSupportStatus([])
-    setRecommendedMeta(null)
-  }, [])
+  // The recommendation whose card the candidate tapped when it has no
+  // existingFilterId: opens the naming drawer, which on submit creates the
+  // saved list and advances to the draw step. A recommendation that already
+  // resolves to a saved list bypasses this and goes straight through
+  // `selectList` — same as the outreach flows.
+  const [pendingRecommendation, setPendingRecommendation] =
+    useState<RecommendedList | null>(null)
 
   // Choosing a list is two writes that have to happen together: the id here,
   // and the list's own filters lifted into the page's draft so the pills and
@@ -380,24 +368,23 @@ export default function CreateListFlow({
   // — and a second copy of the pair is a second chance for them to diverge.
   const selectList = useCallback(
     (listId: number | null) => {
+      setHasPickedAudience(true)
       setSavedListId(listId)
-      clearRecommendedDraft()
       onFiltersChange(
         listId === null
           ? {}
           : (savedLists.find((list) => list.id === listId)?.filters ?? {}),
       )
     },
-    [onFiltersChange, savedLists, clearRecommendedDraft],
+    [onFiltersChange, savedLists],
   )
 
   // A recommendation that already exists as a saved list selects that list
   // instead of creating a duplicate (reusing `selectList`'s own side
   // effects), matching the pattern the other outreach channels' audience
-  // step already applies. A brand-new one prefills the pill draft plus the
-  // precinct/support-status carry, and stays on this step — the candidate
-  // still presses Continue, exactly as picking a saved list does.
-  const applyRecommendation = useCallback(
+  // step already applies. A brand-new one opens the naming drawer — the
+  // candidate names the list before we POST it (and advance to draw).
+  const onRecommendationSelected = useCallback(
     (recommendation: RecommendedList) => {
       // Matched against the picker's own rows before it is trusted, exactly
       // as the `?listId=` preselect below is: `existingFilterId` is resolved
@@ -405,8 +392,9 @@ export default function CreateListFlow({
       // the CRM between the recommendations query and the tap would leave
       // `selectList` pointing the picker at a list that is not there — and
       // `selectList` reads that row for the draft's own filters, so a miss
-      // silently seeds an EMPTY audience. Falling through builds the list
-      // instead, which is what the recommendation described anyway.
+      // silently seeds an EMPTY audience. Falling through to the naming
+      // drawer builds the list instead, which is what the recommendation
+      // described anyway.
       const existingRow =
         recommendation.existingFilterId === null
           ? undefined
@@ -430,34 +418,59 @@ export default function CreateListFlow({
         selectList(existingRow.id)
         return
       }
+      setPendingRecommendation(recommendation)
+    },
+    [selectList, savedLists, recommendedListIntent],
+  )
+
+  // Drawer submit: POST the recommendation as a saved list, fire the accept
+  // event with gp-api's own recommendedModified diff, refresh the picker so
+  // Back from draw finds the new row, select it, close the drawer and
+  // advance to draw. Throws propagate so the drawer catches and shows an
+  // inline error.
+  const createRecommendedList = useCallback(
+    async (recommendation: RecommendedList, listName: string) => {
+      const trimmed = listName.trim()
+      const filters = builderFiltersFromRecommendation(recommendation.filter)
       const precincts = recommendation.filter.precincts ?? []
       const supportStatus = recommendation.filter.supportStatus ?? []
-      setSavedListId(null)
-      // The boolean MARKS beside the pill draft, exactly as
-      // `savedListFilterKeys` leaves them for a picked list: they narrow
-      // nothing (`transformVoterFileFiltersForBackend` only emits option
-      // keys, so they never reach a create body) and exist so the page's
-      // `unpreviewableFilterKeys` can name them in the disclosure. Without
-      // them a precinct-restricted recommendation previews as the whole
-      // district with nothing on screen saying why.
-      onFiltersChange({
-        ...builderFiltersFromRecommendation(recommendation.filter),
-        ...(precincts.length ? { precincts: true } : {}),
-        ...(supportStatus.length ? { supportStatus: true } : {}),
-      })
-      setRecommendedPrecincts(precincts)
-      setRecommendedSupportStatus(supportStatus)
-      setRecommendedMeta({
+      // Only reachable while recommendations are rendered, which requires a
+      // non-null intent (the query's own `enabled` gate).
+      const intent = recommendedListIntent as RecommendedListIntent
+      const { data: created } = await clientRequest(
+        'POST /v1/voters/voter-file/filter',
+        {
+          name: trimmed,
+          ...transformVoterFileFiltersForBackend(filters),
+          ...(precincts.length ? { precincts } : {}),
+          ...(supportStatus.length ? { supportStatus } : {}),
+          recommendedVariant: recommendation.variant,
+          recommendedChannel: 'doorKnocking',
+          recommendedIntent: intent,
+          recommendedFilter: recommendation.filter,
+        },
+      )
+      trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
         variant: recommendation.variant,
-        // Only reachable while the recommendations query below is enabled,
-        // which requires a non-null intent.
-        intent: recommendedListIntent as RecommendedListIntent,
-        filter: recommendation.filter,
+        channel: 'doorKnocking',
+        intent,
         count: recommendation.count,
         voteGoalShare: recommendation.voteGoalShare,
+        modified: created.recommendedModified ?? false,
+        reusedExistingList: false,
       })
+      // Await the refetch so Back from draw finds the new row in the
+      // picker rather than the pre-create snapshot.
+      await queryClient.invalidateQueries({
+        queryKey: ['door-knocking-saved-lists'],
+      })
+      selectList(created.id)
+      setPendingRecommendation(null)
+      // Straight to draw — `goToStage('draw')` reduces to this since 'draw'
+      // is its own step, so `preDrawStage` doesn't need touching.
+      onStepChange('draw')
     },
-    [onFiltersChange, selectList, savedLists, recommendedListIntent],
+    [queryClient, recommendedListIntent, selectList, onStepChange],
   )
 
   // A list carried in from the outreach hub's door-knocking tile, so "start a
@@ -486,24 +499,14 @@ export default function CreateListFlow({
     onPreselectApplied?.()
   }, [preselectedListId, savedLists, selectList, onPreselectApplied])
 
-  // Reported from the state rather than from each of the three places that
-  // writes it — the picker, the preselect, and the two ways of leaving a list
-  // behind. A fourth writer is easy to add and easy to forget to announce,
-  // and the surface above pays for a missed one by previewing an audience the
-  // list would not knock.
-  // Memoised so the report below fires only when one of the two actually
-  // changes: the surface stores what it is handed, and a fresh object every
-  // render would set state every render.
-  const recommendedCriteria = useMemo(
-    () => ({
-      precincts: recommendedPrecincts,
-      supportStatus: recommendedSupportStatus,
-    }),
-    [recommendedPrecincts, recommendedSupportStatus],
-  )
+  // The surface uses this to build the address-preview request. A picked
+  // recommendation is saved as a real list before we leave the who step, so
+  // its precincts/supportStatus flow through the saved list's own
+  // `savedListUnshadeableCriteria` — there is no in-flight recommendation
+  // whose clauses have to travel by value any more.
   useEffect(() => {
-    onSelectedListChange?.(savedListId, recommendedCriteria)
-  }, [savedListId, recommendedCriteria, onSelectedListChange])
+    onSelectedListChange?.(savedListId, NO_RECOMMENDED_CRITERIA)
+  }, [savedListId, onSelectedListChange])
 
   const stage = flowStage(step, preDrawStage)
 
@@ -680,50 +683,14 @@ export default function CreateListFlow({
             // before this point leaves no list behind. A candidate who PICKED
             // a list arrives with `savedListId` set and never reaches here, so
             // the campaign's own name is the only name this list can take.
+            // A picked recommendation is saved by the naming drawer before
+            // this step reaches route, so there is no recommendation shape
+            // to persist here — this branch is hand-cut lists only.
             name: name.trim(),
             ...transformVoterFileFiltersForBackend(filters),
-            // The precinct/support-status carry from an accepted
-            // recommendation (docs/features/recommended-lists.md) — empty
-            // for a hand-cut audience or one picked from the saved-lists
-            // rail, since those never populate this state.
-            ...(recommendedPrecincts.length
-              ? { precincts: recommendedPrecincts }
-              : {}),
-            ...(recommendedSupportStatus.length
-              ? { supportStatus: recommendedSupportStatus }
-              : {}),
-            // Sent alongside the submitted criteria purely so gp-api can
-            // diff the two and persist recommendedModified — nothing
-            // recommendation-time is otherwise saved anywhere to diff
-            // against.
-            ...(recommendedMeta
-              ? {
-                  recommendedVariant: recommendedMeta.variant,
-                  recommendedChannel: 'doorKnocking',
-                  recommendedIntent: recommendedMeta.intent,
-                  recommendedFilter: recommendedMeta.filter,
-                }
-              : {}),
           },
         )
         filterId = created.id
-        // Fired here rather than in `onSuccess`, because this is the moment
-        // the recommendation was accepted: the list exists from now on even
-        // if the paid route below fails, and a retry short-circuits on
-        // `createdFilterIdRef` so it cannot fire twice. `recommendedModified`
-        // is gp-api's own diff of the recommendation against what was
-        // actually submitted, and is knowable nowhere earlier.
-        if (recommendedMeta) {
-          trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
-            variant: recommendedMeta.variant,
-            channel: 'doorKnocking',
-            intent: recommendedMeta.intent,
-            count: recommendedMeta.count,
-            voteGoalShare: recommendedMeta.voteGoalShare,
-            modified: created.recommendedModified ?? false,
-            reusedExistingList: false,
-          })
-        }
       }
       if (savedListId === null) createdFilterIdRef.current = filterId
       const closedRing: PolygonRing =
@@ -807,11 +774,6 @@ export default function CreateListFlow({
   // on a spent day rather than letting a candidate draw and then taking the
   // shape away.
 
-  const unpreviewableDisclosure = unpreviewableDisclosureSentence(
-    unpreviewableDisclosureLabels(unpreviewableKeys),
-    savedListId !== null,
-  )
-
   // Leaving the drawing surface. The canvas asks before throwing a shape away
   // and closes silently when there is nothing to throw.
   const leaveFullScreen = () => {
@@ -822,49 +784,11 @@ export default function CreateListFlow({
     onDrawFullScreenChange(false)
   }
 
-  // Leaving the FLOW from the draw step, which is the one step rendered outside
-  // `OutreachFlowShell` and so the one step whose X is not already wired to the
-  // shell's "Discard changes?". Left as a bare `onClose` it discarded a drawn
-  // boundary silently — on the step where there is most to lose, and where
-  // every sibling step asks. Same dialog, same words, raised from here because
-  // the shell that owns it is not in this branch of the tree.
-  const leaveFlowFromDraw = () => {
-    if (dirty) {
-      setDiscardFlowOpen(true)
-      return
-    }
-    onClose()
-  }
-
-  const discardFlowDialog = (
-    <AlertDialog open={discardFlowOpen} onOpenChange={setDiscardFlowOpen}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Discard changes?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Your draft and selections will be lost.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Keep editing</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => {
-              setDiscardFlowOpen(false)
-              onClose()
-            }}
-          >
-            Discard
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  )
-
   const discardShapeDialog = (
     <AlertDialog open={discardShapeOpen} onOpenChange={setDiscardShapeOpen}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Discard this turf?</AlertDialogTitle>
+          <AlertDialogTitle>Discard this boundary?</AlertDialogTitle>
           <AlertDialogDescription>
             The boundaries you drew will not be saved.
           </AlertDialogDescription>
@@ -893,96 +817,32 @@ export default function CreateListFlow({
     </AlertDialog>
   )
 
-  if (stage === 'draw') {
-    const { currentStep, totalSteps } = stepperPosition(stage)
-    if (drawFullScreen) {
-      return (
-        <>
-          <DrawFullScreen
-            pointCount={drawPointCount}
-            onUndoPoint={onUndoPoint}
-            stops={stops}
-            overCap={overCap}
-            // The design's bare word, in every state. What the button is
-            // waiting for is said by the surface rather than by the button:
-            // the centred hint names the gesture until the first point lands,
-            // and the count pill reads the shape from there. A button that
-            // renames itself three times is three controls to read where the
-            // design draws one.
-            continueDisabled={!ring || stops === 0 || overCap}
-            onContinue={() => {
-              onDrawFullScreenChange(false)
-              goToStage('confirm')
-            }}
-            onClose={leaveFullScreen}
-          />
-          {discardShapeDialog}
-        </>
-      )
-    }
+  // Full-screen draw is the one surface that still escapes the shell: the
+  // real MapLibre map has to fill the viewport for the drawing gesture.
+  // The preview state (below) renders inside the shell like every other
+  // stage.
+  if (stage === 'draw' && drawFullScreen) {
     return (
       <>
-        <DrawStep
-          currentStep={currentStep}
-          totalSteps={totalSteps}
-          onBack={back}
-          onClose={leaveFlowFromDraw}
-          matchingHouseholds={districtHouseholds}
-          selectedHouseholds={doors}
-          onOpenFullScreen={() => onDrawFullScreenChange(true)}
-        >
-          {/* What is left below the canvas's preview is only what the shape
-              can be WRONG about — the cap, the long evening, and the addresses
-              the boundary actually caught. The walk-time estimate and the
-              party-mix breakdown that used to sit here are gone: the canvas
-              draws nothing under its preview, the estimate is now a metric in
-              the details drawer, and a party split of a superset is a second
-              set of numbers on a step whose own count line is the point.
-
-              The disclosure stays because it is not a fact about the audience
-              but a hedge on the count printed above it — a shortfall the exact
-              counts do not have, unsaid, is a count that reads as exact. */}
-          {!exactCounts && unpreviewableDisclosure && (
-            <p className="text-xs text-muted-foreground">
-              {unpreviewableDisclosure}
-            </p>
-          )}
-          {overCap && (
-            <p className="text-sm text-destructive">
-              Over the {HARD_STOP_LIMIT}-stop limit — draw a smaller area.
-            </p>
-          )}
-          {longWalk && (
-            <p className="text-sm text-warning">
-              Over {SOFT_STOP_LIMIT} stops is a long evening. You can still save
-              it, or draw a smaller area.
-            </p>
-          )}
-          {doors > 0 && (
-            <Button
-              size="small"
-              variant="ghost"
-              className="-ml-3 self-start"
-              aria-expanded={panelOpen}
-              aria-controls="draw-step-doors"
-              onClick={panelOpen ? onHideAddresses : onShowAddresses}
-            >
-              {panelOpen ? 'Hide the addresses' : 'See the addresses'}
-            </Button>
-          )}
-          {panelOpen && (
-            <DoorsPanel
-              addressPreview={addressPreview}
-              pending={previewPending}
-              failed={previewFailed}
-              stale={previewStale}
-              onShow={onShowAddresses}
-              onRetry={onRetryAddresses}
-            />
-          )}
-        </DrawStep>
+        <DrawFullScreen
+          pointCount={drawPointCount}
+          onUndoPoint={onUndoPoint}
+          stops={stops}
+          overCap={overCap}
+          // The design's bare word, in every state. What the button is
+          // waiting for is said by the surface rather than by the button:
+          // the centred hint names the gesture until the first point lands,
+          // and the count pill reads the shape from there. A button that
+          // renames itself three times is three controls to read where the
+          // design draws one.
+          continueDisabled={!ring || stops === 0 || overCap}
+          onContinue={() => {
+            onDrawFullScreenChange(false)
+            goToStage('confirm')
+          }}
+          onClose={leaveFullScreen}
+        />
         {discardShapeDialog}
-        {discardFlowDialog}
       </>
     )
   }
@@ -1026,34 +886,47 @@ export default function CreateListFlow({
                 // the opposite of the truth. A failed pack has no answer coming
                 // at all, so it is bare for the same reason; what went wrong is
                 // said in the body, where there is room to say it.
-                label:
-                  districtHouseholdsPending ||
-                  districtHouseholdsFailed ||
-                  districtUnavailable
-                    ? 'Continue'
-                    : `Continue (${districtHouseholds.toLocaleString()})`,
+                // Bare "Continue" in every state — the audience size is
+                // shown on the picker itself, not in the CTA.
+                label: 'Continue',
                 disabled:
+                  !hasPickedAudience ||
                   districtHouseholdsPending ||
                   districtHouseholdsFailed ||
                   districtUnavailable ||
                   districtHouseholds === 0,
-                loading: districtHouseholdsPending,
+                // The pack's spinner belongs on the picker/skeleton, not on
+                // the CTA — a spinning Continue while nothing is pickable
+                // reads as "the flow is doing something" rather than
+                // "we're waiting on your voter map".
                 // Always the draw step. Building a new list is a way of
                 // choosing the audience, not a way of finishing early —
                 // there is no door knocking without a boundary and a route.
                 onClick: () => goToStage('draw'),
               }
-            : stage === 'confirm'
+            : stage === 'draw'
               ? {
-                  label: 'Save',
-                  disabled: name.trim().length === 0,
-                  onClick: () => goToStage('route'),
+                  // Bare "Continue" in every state, matching the who step
+                  // and DrawFullScreen — a button that renames itself three
+                  // times is three controls to read where the design draws
+                  // one. Disabled until a valid ring exists; drawing itself
+                  // happens on the "Draw boundaries" button inside the
+                  // step's preview.
+                  label: 'Continue',
+                  disabled: !ring || stops === 0 || overCap,
+                  onClick: () => goToStage('confirm'),
                 }
-              : {
-                  label: save.isPending ? 'Building route…' : 'Build route',
-                  disabled: save.isPending,
-                  onClick: () => save.mutate(),
-                }
+              : stage === 'confirm'
+                ? {
+                    label: 'Save',
+                    disabled: name.trim().length === 0,
+                    onClick: () => goToStage('route'),
+                  }
+                : {
+                    label: save.isPending ? 'Building route…' : 'Build route',
+                    disabled: save.isPending,
+                    onClick: () => save.mutate(),
+                  }
       }
     >
       <div className="flex flex-col gap-6">
@@ -1074,21 +947,26 @@ export default function CreateListFlow({
             <WhoStep
               filters={filters}
               onFiltersChange={(next) => {
-                // Editing a pill is leaving the named list — or the accepted
-                // recommendation — behind: the draft is no longer that list,
-                // so the offer to save it as a new one comes back. The list's
-                // own support-status, activity and precinct clauses leave
-                // with it — nothing can carry them onto the new list, so a
-                // draft that kept their marks would go on disclosing a filter
-                // that list will never apply.
+                // Editing a pill is leaving the named list behind: the draft
+                // is no longer that list, so the offer to save it as a new
+                // one comes back. The list's own support-status, activity
+                // and precinct clauses leave with it — nothing can carry
+                // them onto the new list, so a draft that kept their marks
+                // would go on disclosing a filter that list will never
+                // apply.
                 setSavedListId(null)
-                clearRecommendedDraft()
                 onFiltersChange(withoutUnshadeableCriteria(next))
               }}
               savedLists={savedLists}
               allContactsHouseholds={allContactsHouseholds}
               selectedListId={savedListId}
               onSelectList={selectList}
+              hasPickedAudience={hasPickedAudience}
+              // No in-flight recommendation draft any more — a picked
+              // recommendation is committed as a saved list by the naming
+              // drawer, so the picker's own selection visuals are correct
+              // to show it from the moment we return.
+              hasActiveRecommendation={false}
               isElectedOfficial={isElectedOfficial}
               building={buildingList}
               onBuildingChange={(next) => {
@@ -1105,20 +983,23 @@ export default function CreateListFlow({
               recommendations={recommendations}
               recommendationsLoading={recommendationsQuery.isLoading}
               recommendationsError={recommendationsQuery.isError}
-              onSelectRecommendation={applyRecommendation}
+              onSelectRecommendation={onRecommendationSelected}
             />
-            {/* Said HERE and not only on the map. The map region already draws
-                a titled loader for the same download, and this sheet is what
-                covers that region — so for the whole of the wait that actually
-                matters it was painted underneath the surface the candidate is
-                looking at, which is how a half-minute of dead Continue arrived
-                with nothing said about it. Same two sentences as the map's, off
-                the same constants, so the pair cannot drift. */}
-            {districtHouseholdsPending && (
-              <p className="text-xs text-muted-foreground">
-                {PACK_LOADING_TITLE} {PACK_LOADING_DURATION}
-              </p>
-            )}
+            <RecommendedListNameDrawer
+              open={pendingRecommendation !== null}
+              onOpenChange={(next) => {
+                if (!next) setPendingRecommendation(null)
+              }}
+              defaultName={pendingRecommendation?.copy.title ?? ''}
+              onSubmit={async (name) => {
+                if (!pendingRecommendation) return
+                await createRecommendedList(pendingRecommendation, name)
+              }}
+            />
+            {/* No inline "loading your voter map" copy — the shell's
+                Continue button's own disabled state carries the wait, and a
+                paragraph repeating the loader is exactly the kind of noise
+                the app-wide Spinner move retired. */}
             {/* And the same argument for the failure. `retry: 0` means a failed
                 pack is final, so without this the step is a permanently
                 disabled button with the reason hidden behind it. */}
@@ -1136,19 +1017,50 @@ export default function CreateListFlow({
                 {DISTRICT_UNAVAILABLE_MESSAGE}
               </p>
             )}
-            {/* The count in the CTA is the pack's, and the pack cannot shade
-                every way a saved list narrows — a list cut by support status
-                or prior outreach previews as the whole district here. Without
-                this the gap would first appear on the draw step, two moves
-                after the number that provoked it, and a candidate starting
-                from a 256-person list would read the district figure as their
-                list being ignored. */}
-            {unpreviewableDisclosure && (
-              <p className="text-xs text-muted-foreground">
-                {unpreviewableDisclosure}
+          </>
+        )}
+
+        {stage === 'draw' && (
+          <DrawStep
+            districtBounds={districtBounds}
+            matchingHouseholds={districtHouseholds}
+            selectedHouseholds={doors}
+            onOpenFullScreen={() => onDrawFullScreenChange(true)}
+          >
+            {overCap && (
+              <p className="text-sm text-destructive">
+                Over the {HARD_STOP_LIMIT}-stop limit — draw a smaller area.
               </p>
             )}
-          </>
+            {longWalk && (
+              <p className="text-sm text-warning">
+                Over {SOFT_STOP_LIMIT} stops is a long evening. You can still
+                save it, or draw a smaller area.
+              </p>
+            )}
+            {doors > 0 && (
+              <Button
+                size="small"
+                variant="ghost"
+                className="-ml-3 self-start"
+                aria-expanded={panelOpen}
+                aria-controls="draw-step-doors"
+                onClick={panelOpen ? onHideAddresses : onShowAddresses}
+              >
+                {panelOpen ? 'Hide the addresses' : 'See the addresses'}
+              </Button>
+            )}
+            {panelOpen && (
+              <DoorsPanel
+                addressPreview={addressPreview}
+                pending={previewPending}
+                failed={previewFailed}
+                stale={previewStale}
+                onShow={onShowAddresses}
+                onRetry={onRetryAddresses}
+              />
+            )}
+          </DrawStep>
         )}
 
         {stage === 'confirm' && (

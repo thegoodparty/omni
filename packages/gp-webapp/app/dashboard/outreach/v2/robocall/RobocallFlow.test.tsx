@@ -354,9 +354,7 @@ const gotoSchedule = async (
   await gotoAudience(purposeLabel, onClose)
   await userEvent.click(await screen.findByText('Choose a voter list'))
   await userEvent.click(await screen.findByText('Renters in 98103'))
-  await userEvent.click(
-    await screen.findByRole('button', { name: /Continue \(80\)/ }),
-  )
+  await userEvent.click(await screen.findByRole('button', { name: /Continue/ }))
   await screen.findByLabelText('Campaign name')
 }
 
@@ -468,7 +466,7 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
 
     const continueBtn = await screen.findByRole('button', {
-      name: /Continue \(80\)/,
+      name: /Continue/,
     })
     await userEvent.click(continueBtn)
     // Advancing lands on the schedule ("When") step, not the placeholder.
@@ -512,11 +510,13 @@ describe('RobocallFlow', () => {
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
 
-    // Once it settles, the count appears and Continue enables.
+    // Once it settles, Continue enables. Poll for enablement — the
+    // button label no longer changes (it's always bare "Continue"), so
+    // findByRole's own name-match can't wait for the settle.
     releaseListDetail()
-    expect(
-      await screen.findByRole('button', { name: /Continue \(80\)/ }),
-    ).toBeEnabled()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
   })
 
   it('treats a null landline count as unavailable, not zero', async () => {
@@ -567,16 +567,16 @@ describe('RobocallFlow', () => {
     await userEvent.click(await screen.findByText('Choose a voter list'))
     await userEvent.click(await screen.findByText('Create a new list'))
 
-    // A selection makes the landline-overlaid builder count run; wait out the
-    // debounce for the settled "Continue (50)".
+    // A selection makes the landline-overlaid builder count run; wait for
+    // Continue to actually enable (the label is always bare "Continue",
+    // so we can't use the label as the wait signal).
     await userEvent.click(screen.getByText('mock-add-filter'))
-    await userEvent.click(
-      await screen.findByRole(
-        'button',
-        { name: /Continue \(50\)/ },
-        { timeout: 3000 },
-      ),
+    await waitFor(
+      () =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      { timeout: 3000 },
     )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     // Name step -> Create list -> POST /voter-file/filter -> schedule step.
     await userEvent.type(
@@ -595,13 +595,12 @@ describe('RobocallFlow', () => {
     await userEvent.click(await screen.findByText('Choose a voter list'))
     await userEvent.click(await screen.findByText('Create a new list'))
     await userEvent.click(screen.getByText('mock-add-filter'))
-    await userEvent.click(
-      await screen.findByRole(
-        'button',
-        { name: /Continue \(50\)/ },
-        { timeout: 3000 },
-      ),
+    await waitFor(
+      () =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      { timeout: 3000 },
     )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await userEvent.type(
       screen.getByLabelText('mock list name'),
       'My landline list',
@@ -625,7 +624,7 @@ describe('RobocallFlow', () => {
 
     // …and the cleared error must not re-flash when re-entering the name step.
     await userEvent.click(
-      await screen.findByRole('button', { name: /Continue \(50\)/ }),
+      await screen.findByRole('button', { name: 'Continue' }),
     )
     expect(screen.getByLabelText('mock list name')).toBeInTheDocument()
     expect(
@@ -654,20 +653,19 @@ describe('RobocallFlow', () => {
     await userEvent.click(await screen.findByText('Choose a voter list'))
     await userEvent.click(await screen.findByText('Create a new list'))
     await userEvent.click(screen.getByText('mock-add-filter'))
-    await userEvent.click(
-      await screen.findByRole(
-        'button',
-        { name: /Continue \(50\)/ },
-        { timeout: 3000 },
-      ),
+    await waitFor(
+      () =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      { timeout: 3000 },
     )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
     // On the name step; Back returns to filters (not the picker), and the
     // built selection persists (count still shows).
     expect(screen.getByLabelText('mock list name')).toBeInTheDocument()
     await userEvent.click(screen.getByLabelText('Back'))
     expect(screen.getByText('Build a voter list')).toBeInTheDocument()
     expect(
-      await screen.findByRole('button', { name: /Continue \(50\)/ }),
+      await screen.findByRole('button', { name: 'Continue' }),
     ).toBeInTheDocument()
   })
 
@@ -679,7 +677,7 @@ describe('RobocallFlow', () => {
     // Pick a list so the selection is live (Continue enabled at 80).
     await userEvent.click(await screen.findByText('Choose a voter list'))
     await userEvent.click(await screen.findByText('Renters in 98103'))
-    await screen.findByRole('button', { name: /Continue \(80\)/ })
+    await screen.findByRole('button', { name: /Continue/ })
 
     // Back to purpose discards the pick; re-entering audience is a fresh picker
     // with Continue disabled, not a resumed selection.
@@ -745,7 +743,7 @@ describe('RobocallFlow', () => {
     await userEvent.click(await screen.findByText('Renters in 98103'))
     await userEvent.click(await screen.findByText('All registered voters'))
     await userEvent.click(
-      await screen.findByRole('button', { name: /Continue \(80\)/ }),
+      await screen.findByRole('button', { name: /Continue/ }),
     )
 
     expect(await screen.findByLabelText('Campaign name')).toHaveValue(
@@ -1005,7 +1003,7 @@ describe('RobocallFlow', () => {
     await userEvent.click(await screen.findByText('Choose a voter list'))
     await userEvent.click(await screen.findByText('Renters in 98103'))
     await userEvent.click(
-      await screen.findByRole('button', { name: /Continue \(80\)/ }),
+      await screen.findByRole('button', { name: /Continue/ }),
     )
     await screen.findByLabelText('Campaign name')
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
@@ -1126,7 +1124,7 @@ describe('RobocallFlow', () => {
     await userEvent.click(await screen.findByText('Choose a voter list'))
     await userEvent.click(await screen.findByText('Renters in 98103'))
     await userEvent.click(
-      await screen.findByRole('button', { name: /Continue \(80\)/ }),
+      await screen.findByRole('button', { name: /Continue/ }),
     )
     await screen.findByLabelText('Campaign name')
     await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
@@ -1316,13 +1314,12 @@ describe('RobocallFlow', () => {
     await userEvent.click(await screen.findByText('Choose a voter list'))
     await userEvent.click(await screen.findByText('Create a new list'))
     await userEvent.click(screen.getByText('mock-add-filter'))
-    await userEvent.click(
-      await screen.findByRole(
-        'button',
-        { name: /Continue \(50\)/ },
-        { timeout: 3000 },
-      ),
+    await waitFor(
+      () =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      { timeout: 3000 },
     )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await userEvent.type(
       screen.getByLabelText('mock list name'),
       'My landline list',

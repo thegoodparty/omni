@@ -1,7 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import { Card, cn, Popover, PopoverContent, PopoverTrigger } from '@styleguide'
+import {
+  Card,
+  cn,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Skeleton,
+} from '@styleguide'
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -23,6 +30,7 @@ import VoterFileStep from 'app/dashboard/contacts/crm/wizard/VoterFileStep'
 import NameStep from 'app/dashboard/contacts/crm/wizard/NameStep'
 import { Intro } from '../social/Intro'
 import { RecommendedListCard } from './RecommendedListCard'
+import { RecommendedListNameDrawer } from './RecommendedListNameDrawer'
 
 export type OutreachAudienceMode = 'picker' | 'filters' | 'name'
 
@@ -77,14 +85,20 @@ interface OutreachAudienceStepProps {
   recommendationsLoading: boolean
   recommendationsError: boolean
   recommendedListsChannel: RecommendedListChannel
-  // A recommendation with an existingFilterId selects that list (reusing
-  // this step's own onSelect, with whatever side effects the caller already
-  // attaches to it) rather than creating a duplicate; only a recommendation
-  // with none reaches this.
-  onSelectRecommendation: (recommendation: RecommendedList) => void
-  // Fired instead, on that same existingFilterId branch, so an accept of a
-  // recommendation the candidate has taken before is still measured — it
-  // never reaches `createList`, which is where the other kind is counted.
+  // A recommendation with no existingFilterId opens the naming drawer;
+  // this callback fires when the candidate submits the drawer's name
+  // input. Seeds the builder from the recommendation and creates the
+  // saved list in one atomic call (audience.createRecommendedList), then
+  // the caller advances to the next step. Throws → the drawer catches
+  // and shows the inline error.
+  onCreateRecommendedList: (
+    recommendation: RecommendedList,
+    name: string,
+  ) => Promise<void>
+  // Fires on the OTHER branch — a recommendation that resolved to a saved
+  // list the candidate already has selects that list directly (via
+  // onSelect(existingFilterId)); this callback exists so the accept still
+  // shows up in the conversion event even though it routes around create.
   onRecommendationReused: (recommendation: RecommendedList) => void
   // The saved list's reachable count for THIS channel (reachability[key] from
   // the list detail): null while loading or when the aggregate failed
@@ -136,7 +150,7 @@ export const OutreachAudienceStep = ({
   recommendationsLoading,
   recommendationsError,
   recommendedListsChannel,
-  onSelectRecommendation,
+  onCreateRecommendedList,
   onRecommendationReused,
   reachableCount,
   reachableLoading,
@@ -158,6 +172,11 @@ export const OutreachAudienceStep = ({
   builderCountErrorMessage,
 }: OutreachAudienceStepProps) => {
   const [open, setOpen] = useState(false)
+  // The recommendation whose card the candidate tapped, opening the
+  // naming drawer. Cleared on drawer close (cancel) or on a successful
+  // submit; either way the picker returns to its default state.
+  const [pendingRecommendation, setPendingRecommendation] =
+    useState<RecommendedList | null>(null)
   const active = lists.find((l) => l.id === selectedId) ?? null
 
   if (mode === 'name') {
@@ -210,6 +229,43 @@ export const OutreachAudienceStep = ({
     )
   }
 
+  // Unified landing loader: keep the initial fetch of saved lists and the
+  // recommendations query hidden behind one skeleton instead of two staggered
+  // spinners in different regions of the step. The reachable-count fetch that
+  // fires when a candidate picks a list stays inline on the trigger card
+  // below — it is a user-initiated follow-up, not part of the landing.
+  const initialLoading =
+    listsLoading || (recommendedListsEnabled && recommendationsLoading)
+
+  if (initialLoading) {
+    return (
+      <div className="space-y-6">
+        <Intro
+          channel={channel}
+          title={copy.pickerTitle}
+          body={copy.pickerBody}
+        />
+        <div
+          data-testid="outreach-audience-loading"
+          aria-busy="true"
+          aria-live="polite"
+          className="space-y-6"
+        >
+          {recommendedListsEnabled && (
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-32" />
+              <Skeleton className="h-24 w-full rounded-xl" />
+            </div>
+          )}
+          <div className="space-y-2">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-16 w-full rounded-xl" />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <Intro
@@ -219,22 +275,12 @@ export const OutreachAudienceStep = ({
       />
 
       {recommendedListsEnabled &&
-        (recommendationsLoading ||
-          recommendationsError ||
-          recommendations.length > 0) && (
+        (recommendationsError || recommendations.length > 0) && (
           <div className="space-y-2">
             <p className="text-xs font-bold uppercase text-primary">
               Recommended for you
             </p>
-            {recommendationsLoading ? (
-              <div
-                data-testid="recommended-lists-loading"
-                className="flex items-center gap-1.5 text-sm text-muted-foreground"
-              >
-                <Loader2Icon className="size-3.5 animate-spin" />
-                Finding your best audiences…
-              </div>
-            ) : recommendationsError ? (
+            {recommendationsError ? (
               <p
                 data-testid="recommended-lists-error"
                 className="text-sm text-destructive"
@@ -250,7 +296,9 @@ export const OutreachAudienceStep = ({
                     channel={recommendedListsChannel}
                     onSelect={() => {
                       if (recommendation.existingFilterId === null) {
-                        onSelectRecommendation(recommendation)
+                        // No saved-list twin — open the naming drawer so
+                        // the candidate names the list before we create.
+                        setPendingRecommendation(recommendation)
                         return
                       }
                       onRecommendationReused(recommendation)
@@ -279,7 +327,15 @@ export const OutreachAudienceStep = ({
                 <p className="truncate font-medium text-foreground">
                   {listsLoading
                     ? 'Loading your lists…'
-                    : (active?.name ?? 'Choose a voter list')}
+                    : (active?.name ??
+                      // Nothing is preselected. When recommended cards are on
+                      // screen, the picker's role shifts to "here's where your
+                      // saved lists are" — the placeholder names that. With
+                      // no recs the picker is the primary way to pick, and
+                      // the placeholder invites the choice.
+                      (recommendations.length > 0
+                        ? 'View your lists here'
+                        : 'Choose a voter list'))}
                 </p>
                 {active && (
                   <p className="text-sm text-muted-foreground">
@@ -386,6 +442,18 @@ export const OutreachAudienceStep = ({
           {copy.unitCostLabel} ${pricePerContact.toFixed(3)}
         </p>
       )}
+      <RecommendedListNameDrawer
+        open={pendingRecommendation !== null}
+        onOpenChange={(next) => {
+          if (!next) setPendingRecommendation(null)
+        }}
+        defaultName={pendingRecommendation?.copy.title ?? ''}
+        onSubmit={async (name) => {
+          if (!pendingRecommendation) return
+          await onCreateRecommendedList(pendingRecommendation, name)
+          setPendingRecommendation(null)
+        }}
+      />
     </div>
   )
 }

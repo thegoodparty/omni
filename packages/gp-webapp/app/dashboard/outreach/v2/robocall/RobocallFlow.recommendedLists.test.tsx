@@ -77,7 +77,12 @@ beforeEach(() => {
 const openToAudience = async () => {
   render(<RobocallFlow open onClose={vi.fn()} />)
   await userEvent.click(screen.getByText('Introduce myself to voters'))
-  expect(await screen.findByText('Choose a voter list')).toBeInTheDocument()
+  // The trigger reads either the neutral "Choose a voter list" or, when
+  // recommended cards are on screen, "View your lists here" — either is
+  // proof the audience step's picker has rendered.
+  expect(
+    await screen.findByText(/Choose a voter list|View your lists here/),
+  ).toBeInTheDocument()
 }
 
 describe('RobocallFlow — recommended lists', () => {
@@ -118,13 +123,15 @@ describe('RobocallFlow — recommended lists', () => {
 
     await userEvent.click(screen.getByTestId('recommended-list-card'))
 
-    expect(await screen.findByText('Name your list')).toBeInTheDocument()
+    // Naming drawer opens with the recommendation's title pre-filled;
+    // Continue creates the list and advances.
+    expect(await screen.findByText('Name this list')).toBeInTheDocument()
     expect(screen.getByLabelText('List name')).toHaveValue(
       'Persuadable independents',
     )
 
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Create list' }),
+      await screen.findByRole('button', { name: 'Continue' }),
     )
 
     expect(filterCalls).toHaveLength(1)

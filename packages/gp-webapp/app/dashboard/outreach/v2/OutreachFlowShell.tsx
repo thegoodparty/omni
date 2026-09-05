@@ -166,7 +166,8 @@ export const OutreachFlowShell = ({
               {cta && (
                 <Button
                   type="button"
-                  className="min-w-0 flex-1 text-sm lg:min-w-[240px] lg:flex-none"
+                  size="large"
+                  className="min-w-0 flex-1 lg:min-w-[240px] lg:flex-none"
                   onClick={cta.onClick}
                   disabled={cta.disabled}
                   loading={cta.loading}
@@ -177,8 +178,9 @@ export const OutreachFlowShell = ({
               {cta?.secondary && (
                 <Button
                   type="button"
+                  size="large"
                   variant={cta.secondary.variant ?? 'ghost'}
-                  className="min-w-0 flex-1 text-sm lg:min-w-[240px] lg:flex-none"
+                  className="min-w-0 flex-1 lg:min-w-[240px] lg:flex-none"
                   disabled={cta.secondary.disabled}
                   onClick={cta.secondary.onClick}
                 >
@@ -188,9 +190,10 @@ export const OutreachFlowShell = ({
               {onBack && (
                 <Button
                   type="button"
+                  size="large"
                   variant="ghost"
                   aria-label="Back"
-                  className="shrink-0 text-sm lg:min-w-[140px]"
+                  className="shrink-0 lg:min-w-[140px]"
                   onClick={onBack}
                 >
                   Back

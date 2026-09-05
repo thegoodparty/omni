@@ -187,11 +187,10 @@ describe('SmsFlow — recommended lists', () => {
 
     await userEvent.click(screen.getByTestId('recommended-list-card'))
 
-    // Landed on the name step with the recommendation's title prefilled and
-    // still editable — "a candidate must still be able to edit the filter
-    // before submitting" (Back reaches the filters step with the same
-    // prefilled selection, matching the existing name -> filters Back path).
-    expect(await screen.findByText('Name your list')).toBeInTheDocument()
+    // Opens the naming drawer with the recommendation's title pre-filled
+    // and editable. The filters step is deliberately not reached — the
+    // recommendation is take-it-or-leave-it under the new flow.
+    expect(await screen.findByText('Name this list')).toBeInTheDocument()
     expect(screen.getByLabelText('List name')).toHaveValue(
       'Persuadable independents',
     )
@@ -221,29 +220,6 @@ describe('SmsFlow — recommended lists', () => {
       modified: true,
       reusedExistingList: false,
     })
-  })
-
-  // The recommendation's own criteria are real filter keys on the draft
-  // (recommendedListMapping.util.ts) and the transform persists them by key,
-  // not by what is rendered — so a filters step that does not render their
-  // groups leaves them active and with no control to clear them.
-  it('renders the recommendation’s own criteria on the filters step behind Back', async () => {
-    api.mock('GET /v1/campaigns/mine/recommended-lists', {
-      status: 200,
-      data: [RECOMMENDATION],
-    })
-    api.mock('POST /v1/contacts/count', { status: 200, data: { count: 19000 } })
-    await openToAudience()
-
-    await userEvent.click(await screen.findByTestId('recommended-list-card'))
-    await screen.findByText('Name your list')
-
-    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
-
-    expect(await screen.findByText('Build a voter list')).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'Open to Independents' }),
-    ).toHaveAttribute('data-state', 'on')
   })
 
   it('selects the existing list instead of creating a duplicate', async () => {
@@ -313,7 +289,7 @@ describe('SmsFlow — recommended lists', () => {
     expect(screen.getByText('Choose a voter list')).toBeInTheDocument()
   })
 
-  it('shows a loading state while counts resolve', async () => {
+  it('shows a single skeleton while recs or saved lists resolve', async () => {
     // Never resolves for the life of the test — enough to pin the loading
     // node without racing ofetch's own automatic GET retry (500/502/504 are
     // all in its default retryStatusCodes, so a single scripted resolution
@@ -325,9 +301,12 @@ describe('SmsFlow — recommended lists', () => {
     await openToAudience()
 
     expect(
-      await screen.findByTestId('recommended-lists-loading'),
+      await screen.findByTestId('outreach-audience-loading'),
     ).toBeInTheDocument()
     expect(screen.queryByTestId('recommended-list-card')).toBeNull()
+    // The picker's trigger card is hidden behind the same landing skeleton,
+    // so "Choose a voter list" is not visible until both queries settle.
+    expect(screen.queryByText('Choose a voter list')).toBeNull()
   })
 
   // The endpoint can also throw a 502/504 on a warehouse outage, deliberately

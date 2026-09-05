@@ -249,24 +249,22 @@ describe('CreateListFlow — recommended lists', () => {
     })
     renderAtWho()
 
-    await waitFor(() =>
-      expect(screen.queryByTestId('recommended-list-card')).toBeNull(),
-    )
+    // Wait for the unified landing skeleton to clear (recs settle to empty)
+    // before checking the picker; findByRole polls until the combobox lands.
     expect(
-      screen.getByRole('combobox', { name: 'All lists' }),
+      await screen.findByRole('combobox', { name: 'All lists' }),
     ).toBeInTheDocument()
+    expect(screen.queryByTestId('recommended-list-card')).toBeNull()
   })
 
-  it('shows a loading state while recommendations resolve', async () => {
+  it('shows a single skeleton while recs or the pack resolve', async () => {
     api.mock(
       'GET /v1/campaigns/mine/recommended-lists',
       () => new Promise(() => undefined),
     )
     renderAtWho()
 
-    expect(
-      await screen.findByTestId('recommended-lists-loading'),
-    ).toBeInTheDocument()
+    expect(await screen.findByTestId('who-step-loading')).toBeInTheDocument()
     expect(screen.queryByTestId('recommended-list-card')).toBeNull()
   })
 
@@ -287,18 +285,17 @@ describe('CreateListFlow — recommended lists', () => {
   })
 
   // Door knocking is the one channel whose recommendation carries a precinct
-  // filter (docs/features/recommended-lists.md). Selecting it has to reach
-  // the map preview, carry the pill draft it prefilled and the precincts, and
-  // finally reach the created filter's POST body.
+  // filter (docs/features/recommended-lists.md). The naming drawer's submit
+  // has to reach the created filter's POST body with those clauses intact,
+  // and fire the accept event with gp-api's own recommendedModified diff.
   it('carries a recommendation’s precincts through to the created filter', async () => {
     api.mock('GET /v1/campaigns/mine/recommended-lists', {
       status: 200,
       data: [RECOMMENDATION],
     })
-    api.mock('POST /v1/door-knocking/turfs', () => ({
-      status: 200,
-      data: { ...savedTurf, voterFileFilterId: 88 },
-    }))
+    // Awaited invalidate after the drawer's POST refetches this — mock it
+    // so MSW does not warn on an unhandled request.
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
     const filterCalls: Record<string, unknown>[] = []
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
       filterCalls.push(body)
@@ -313,50 +310,24 @@ describe('CreateListFlow — recommended lists', () => {
         },
       }
     })
-    const onFiltersChange = vi.fn()
-    const { rerender } = renderAtWho({ onFiltersChange })
+    const onStepChange = vi.fn()
+    renderAtWho({ onStepChange })
 
     const card = await screen.findByTestId('recommended-list-card')
     fireEvent.click(card)
 
-    // The pill draft the recommendation resolves to, bubbled up exactly like
-    // picking a saved list does — the caller (the page, here the test) is
-    // what actually applies it back down as `filters`. `precincts: true` is
-    // a MARK and not a filter: `savedListFilterKeys` leaves the same one for
-    // a picked list, and the page turns it into the "the map can't shade by
-    // Precinct" disclosure. The transform drops it from every request body.
-    expect(onFiltersChange).toHaveBeenCalledWith({
-      audienceSuperVoters: true,
-      audienceLikelyVoters: true,
-      precincts: true,
-    })
-    const appliedFilters = onFiltersChange.mock.calls.at(-1)?.[0]
+    // The naming drawer opens with the recommendation's copy.title
+    // pre-filled; Continue there is what POSTs the list and advances.
+    expect(await screen.findByText('Name this list')).toBeInTheDocument()
+    expect(screen.getByLabelText('List name')).toHaveValue(
+      'Voters you have not met',
+    )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        onFiltersChange={onFiltersChange}
-        filters={appliedFilters}
-        step="confirm"
-      />,
-    )
-    fireEvent.change(screen.getByLabelText('Campaign name'), {
-      target: { value: 'Tuesday evening' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    rerender(
-      <CreateListFlow
-        {...baseProps}
-        onFiltersChange={onFiltersChange}
-        filters={appliedFilters}
-        step="route"
-      />,
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
 
     await waitFor(() => expect(filterCalls).toHaveLength(1))
     expect(filterCalls[0]).toMatchObject({
+      name: 'Voters you have not met',
       precincts: ['Cook|101', 'Cook|102'],
       recommendedVariant: 'introNeverIded',
       recommendedChannel: 'doorKnocking',
@@ -367,7 +338,7 @@ describe('CreateListFlow — recommended lists', () => {
 
     // The experiment's numerator on this channel. Knowable no earlier than
     // the create response, which is what carries `recommendedModified`.
-    expect(acceptedCalls()).toHaveLength(1)
+    await waitFor(() => expect(acceptedCalls()).toHaveLength(1))
     expect(acceptedCalls()[0]?.[1]).toEqual({
       variant: 'introNeverIded',
       channel: 'doorKnocking',
@@ -377,29 +348,29 @@ describe('CreateListFlow — recommended lists', () => {
       modified: true,
       reusedExistingList: false,
     })
+
+    // The flow leaves the who step for draw automatically — no second CTA
+    // press is what makes this different from a saved-list pick.
+    await waitFor(() => expect(onStepChange).toHaveBeenCalledWith('draw'))
   })
 
   // `existingFilterId` is resolved server-side, so a list deleted in the CRM
   // between the recommendations query and the tap leaves an id the picker
   // has no row for — and `selectList` reads that row for the draft's own
   // filters, so trusting the id blind seeds an empty audience under a name
-  // that promises a specific one. Falling through builds the recommendation.
-  it('builds the list when the existing id names no picker row', async () => {
+  // that promises a specific one. Falling through opens the naming drawer
+  // so the list gets built instead.
+  it('opens the naming drawer when the existing id names no picker row', async () => {
     api.mock('GET /v1/campaigns/mine/recommended-lists', {
       status: 200,
       data: [EXISTING_RECOMMENDATION],
     })
-    const onFiltersChange = vi.fn()
     // savedLists deliberately empty: id 501 resolves to nothing.
-    renderAtWho({ onFiltersChange })
+    renderAtWho()
 
     fireEvent.click(await screen.findByTestId('recommended-list-card'))
 
-    expect(onFiltersChange).toHaveBeenCalledWith({
-      audienceSuperVoters: true,
-      audienceLikelyVoters: true,
-      precincts: true,
-    })
+    expect(await screen.findByText('Name this list')).toBeInTheDocument()
     expect(acceptedCalls()).toHaveLength(0)
   })
 
@@ -431,7 +402,7 @@ describe('CreateListFlow — recommended lists', () => {
     const card = await screen.findByTestId('recommended-list-card')
     fireEvent.click(card)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     rerender(
       <CreateListFlow {...baseProps} savedLists={savedLists} step="confirm" />,
     )

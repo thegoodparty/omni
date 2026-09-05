@@ -1,8 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { IconButton, XMarkIcon } from '@styleguide'
+import { Button, DrawerHandle } from '@styleguide'
 import { routeQueryOptions } from './turfQueries'
 import { rollupStopStatus, stopIsKnockable } from './statusPresentation'
 import type { LiveLocation } from './useLiveLocation'
@@ -147,8 +147,9 @@ export interface WalkSurfaceProps {
   // page's title row — which is where the design puts it, and which is what
   // makes the header readable at the `peek` snap where nothing else renders.
   turfName: string
-  // The X beside that name. The same exit the page's own chrome offers, so
-  // there is one way out of a walk and not two that could end it differently.
+  // The Exit route button beside that name. The same exit the page's own
+  // chrome offers, so there is one way out of a walk and not two that could
+  // end it differently.
   onExit: () => void
   // `Move to archive`, the one button under the stop list. The write is the
   // orchestrator's because it outlives the walk it shelves (`useWalkArchive`),
@@ -159,6 +160,12 @@ export interface WalkSurfaceProps {
   // How far up the map this sheet reaches, so the zoom cluster can clear it.
   // Only the sheet knows, and only at its current snap.
   onMapControlsOffsetChange: (offsetPx: number | null) => void
+  // Same reading, in pixels, for the map's route-framing effect: the
+  // canvas re-fits the pins so they stay visible above the sheet, the
+  // Google Maps pattern for a persistent bottom sheet over a route map.
+  // `null` when the sheet no longer covers the map (unmount, full snap).
+  // Optional so a caller can opt out.
+  onSheetHeightChange?: (heightPx: number | null) => void
   openStopRequest: OpenStopRequest | null
   // Which stop is marked. Both directions of it cross this seam, because the
   // list and the map each draw it and only one of them is behind here: the
@@ -179,6 +186,22 @@ export interface WalkSurfaceProps {
   onKnockRecorded: () => void
 }
 
+// The three snaps' fractions of the viewport height, in the same order the
+// `SheetSnap` type in useSheetSnap.ts lists them. Kept as a local table so
+// the sheet-height report below (`onSheetHeightChange`) can derive a real
+// pixel value without having to measure the DOM — the snap change fires
+// first, the render follows, and a measurement inside the effect would see
+// yesterday's height.
+const SNAP_HEIGHT_FRACTION: Record<'peek' | 'half' | 'full', number | null> = {
+  // peek is a content height (grip + header), not a fraction — the map is
+  // effectively uncovered, so we report a small nominal 96px so the route
+  // fit leaves a little room at the bottom of the map for the sheet strip.
+  peek: null,
+  half: 0.5,
+  full: 0.92,
+}
+const PEEK_HEIGHT_PX = 96
+
 export default function WalkSurface({
   turfId,
   turfName,
@@ -186,6 +209,7 @@ export default function WalkSurface({
   onMoveToArchive,
   archivePending,
   onMapControlsOffsetChange,
+  onSheetHeightChange,
   openStopRequest,
   selectedStopId,
   onSelectStop,
@@ -198,6 +222,31 @@ export default function WalkSurface({
   const { snap, cycle, gripHandlers, heightClass, sheetRef } = useSheetSnap()
   useSheetControlsOffset(sheetRef, snap, onMapControlsOffsetChange, undefined)
 
+  // Report the sheet's height to the map on every snap change, so the route
+  // re-fits into the band above the sheet (Google Maps behaviour). Derived
+  // from the snap alone rather than measuring the sheet's clientHeight —
+  // the effect runs before the height-class transition settles, so a
+  // measurement would read the previous snap's size for the first ~250ms.
+  // At `full` the report is null: no map worth reframing to.
+  useEffect(() => {
+    if (!onSheetHeightChange) return
+    if (snap === 'full') {
+      onSheetHeightChange(null)
+      return
+    }
+    if (snap === 'peek') {
+      onSheetHeightChange(PEEK_HEIGHT_PX)
+      return
+    }
+    const fraction = SNAP_HEIGHT_FRACTION.half
+    if (fraction === null || typeof window === 'undefined') return
+    onSheetHeightChange(Math.round(fraction * window.innerHeight))
+  }, [snap, onSheetHeightChange])
+  // Withdraw the reported height on unmount so the map's fit is not held
+  // against a sheet that no longer exists. Same reasoning
+  // useSheetControlsOffset's own cleanup uses for the zoom cluster.
+  useEffect(() => () => onSheetHeightChange?.(null), [onSheetHeightChange])
+
   return (
     <aside
       ref={sheetRef}
@@ -207,12 +256,20 @@ export default function WalkSurface({
       // desktop arrangement where the two sit side by side.
       className={`absolute inset-x-0 bottom-0 z-20 flex flex-col overflow-hidden rounded-t-2xl border-t border-border bg-card shadow-lg transition-[height] duration-[260ms] ease-out ${heightClass}`}
     >
+      {/* Header composition matches the styleguide's Drawer: DrawerHandle
+          (a mt-4 mb-2 h-2 w-30 pill) followed by a p-4 header row with the
+          title in text-xl semibold. Layout is bespoke here (custom aside,
+          not the vaul primitive — vaul non-modal aria-hides the map, which
+          this surface has to leave interactive), but the visual language
+          reads as the same drawer a candidate sees elsewhere in the app.
+          The whole top block is the drag grip: pointer handlers wrap it,
+          Enter/Space cycles the snap for a11y. */}
       <div
         role="button"
         tabIndex={0}
         aria-expanded={snap !== 'peek'}
         aria-label={snap === 'full' ? 'Collapse the route' : 'Expand the route'}
-        className="mx-auto flex w-full max-w-[608px] shrink-0 cursor-grab touch-none flex-col gap-2.5 px-4 pt-2 pb-3"
+        className="mx-auto flex w-full max-w-[608px] shrink-0 cursor-grab touch-none flex-col"
         {...gripHandlers}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
@@ -221,29 +278,40 @@ export default function WalkSurface({
           }
         }}
       >
-        <span className="mx-auto h-2 w-[120px] shrink-0 rounded-full bg-border" />
-        <div className="mt-1.5 flex items-center justify-between gap-3">
-          <span className="truncate text-[15px] font-semibold">{turfName}</span>
-          {/* The pointer events are stopped rather than the click: the grip
-              around this button is driven by pointer handlers, so a press that
-              did not stop them would drag the sheet under the finger closing
-              it. Keydown is stopped for the keyboard equivalent: the grip
-              treats Enter/Space as "cycle the snap" and preventDefaults them,
-              so a bubbled keypress on this button would both swallow the
-              button's own click (the default action the browser fires after
-              keydown propagation) and toggle the sheet — leaving Close unable
-              to close. */}
-          <IconButton
+        <DrawerHandle />
+        <div className="flex items-center gap-3 px-4 pt-2 pb-4">
+          <h2 className="min-w-0 flex-1 truncate text-xl font-semibold">
+            {turfName}
+          </h2>
+          {/* Labeled "Exit route" rather than an X: an X on a peek-visible
+              bottom sheet reads as "dismiss this sheet" (every vaul/shadcn
+              caller does), and the grip around it already dismisses the
+              sheet by dragging to peek — so an X that instead exits the
+              whole walk violates the strongest convention this pattern
+              has. "Exit" rather than "End" is deliberate: nothing here
+              finalizes the list (walk state persists, re-entry is one tap
+              from the outreach hub), and "End" reads more terminal than
+              the action actually is.
+
+              The pointer events are stopped rather than the click: the
+              grip around this button is driven by pointer handlers, so a
+              press that did not stop them would drag the sheet under the
+              finger. Keydown is stopped for the keyboard equivalent: the
+              grip treats Enter/Space as "cycle the snap" and
+              preventDefaults them, so a bubbled keypress on this button
+              would both swallow the button's own click and toggle the
+              sheet. */}
+          <Button
             variant="ghost"
-            aria-label="Close"
+            size="small"
             className="shrink-0"
             onPointerDown={(event) => event.stopPropagation()}
             onPointerUp={(event) => event.stopPropagation()}
             onKeyDown={(event) => event.stopPropagation()}
             onClick={onExit}
           >
-            <XMarkIcon size={18} />
-          </IconButton>
+            Exit route
+          </Button>
         </div>
       </div>
       {snap !== 'peek' && (

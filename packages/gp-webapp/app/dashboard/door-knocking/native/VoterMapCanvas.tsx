@@ -113,6 +113,14 @@ const MATCH_BLUE: [number, number, number, number] = [...PRIMARY_BLUE, 210]
 // list row, where selection is a ring on the numbered circle rather than a fill.
 const SELECTION_RING_PADDING = 6
 const SELECTION_RING_WIDTH = 3
+// The first stop of the route wears a primary-blue fill so the canvasser
+// knows where to start walking — the pin's own knock-status colour (grey
+// for `unknown`, which is what every un-logged pin including #1 opens as)
+// otherwise leaves the starting door indistinguishable from the sequence
+// behind it. Overrides the pin-fill "is the stop's status" rule for #1
+// only; the numeral stays white on the blue fill and the border stays
+// white too, matching the knockable pin's visual weight.
+const FIRST_STOP_FILL: [number, number, number, number] = [...PRIMARY_BLUE, 235]
 // How far the outlines of an archived list are pulled back. Not zero: an
 // archived list is context the candidate can still recognise, and the rail
 // keeps listing it. See the archived-dimming note in this directory's
@@ -143,6 +151,14 @@ interface VoterMapCanvasProps {
   turfs: DoorKnockingTurf[]
   // Numbered stop pins for the open route's walk view.
   routePins: RoutePin[]
+  // Bottom padding to reserve when framing the route with fitBounds — the
+  // walk's bottom sheet covers this many pixels of the map, so the pins
+  // need to fit into the band above it (the Google Maps pattern). The
+  // route-framing effect re-runs whenever this changes, so as the sheet
+  // snaps between peek/half/full the route re-fits above it. Omitted on
+  // surfaces that don't cover the map, and the fit falls back to the
+  // symmetric 80px used before this prop existed.
+  routeFrameBottomPx?: number | null
   // The stop the walk is currently on, ringed so the map and the list agree
   // about where the canvasser is. Matched on `stopId`, which is the route
   // payload's identity for a stop — `seq` is what both surfaces DRAW on it, and
@@ -276,7 +292,7 @@ const buildColors = (
   return colors
 }
 
-const packBounds = (
+export const packBounds = (
   positions: Float32Array,
 ): [[number, number], [number, number]] | null => {
   if (positions.length === 0) return null
@@ -430,6 +446,7 @@ export default function VoterMapCanvas({
   filterResult,
   turfs,
   routePins,
+  routeFrameBottomPx = null,
   selectedStopId,
   routeLoop,
   routeGeometry,
@@ -909,18 +926,24 @@ export default function VoterMapCanvas({
           // eighth fill color would read as another outcome and would owe the
           // legend an entry, but "not a target" is a different question from
           // "which status" — an outline answers it without joining the seven
-          // colors a canvasser is still learning.
+          // colors a canvasser is still learning. The first stop overrides
+          // both channels with primary blue + a white outline so "start
+          // here" is the read regardless of status or knockability.
           getFillColor: (pin) =>
-            pin.knockable
-              ? [...STATUS_RGB[pin.status], 235]
-              : [255, 255, 255, 220],
+            pin.seq === 1
+              ? FIRST_STOP_FILL
+              : pin.knockable
+                ? [...STATUS_RGB[pin.status], 235]
+                : [255, 255, 255, 220],
           getLineColor: (pin) =>
-            pin.knockable
+            pin.seq === 1 || pin.knockable
               ? [255, 255, 255, 255]
               : [...STATUS_RGB[pin.status], 235],
           // Thicker ring on a hollow pin, so at street zoom the outline is the
-          // thing that reads rather than a hairline around a white dot.
-          getLineWidth: (pin) => (pin.knockable ? 2 : 3),
+          // thing that reads rather than a hairline around a white dot. The
+          // first stop is filled, so it takes the thin ring like a knockable
+          // pin.
+          getLineWidth: (pin) => (pin.seq === 1 || pin.knockable ? 2 : 3),
           lineWidthUnits: 'pixels',
           updateTriggers: {
             getFillColor: routePins,
@@ -941,9 +964,11 @@ export default function VoterMapCanvas({
           getPosition: (pin) => [pin.lng, pin.lat],
           getText: (pin) => String(pin.seq),
           // The numeral sits on the fill, so it has to invert with it — white
-          // on a hollow pin is a number nobody can read.
+          // on a hollow pin is a number nobody can read. The first stop's
+          // primary-blue fill wants a white numeral regardless of its
+          // knockability, same as any filled pin.
           getColor: (pin) =>
-            pin.knockable
+            pin.seq === 1 || pin.knockable
               ? [255, 255, 255, 255]
               : [...STATUS_RGB[pin.status], 255],
           updateTriggers: { getColor: routePins },
@@ -1034,8 +1059,11 @@ export default function VoterMapCanvas({
     if (bounds) mapRef.current.fitBounds(bounds, { padding: 64 })
   }, [focusTurf])
 
-  // Fit once per distinct route: refit when the pin set actually changes,
-  // not on every rerender that passes the same array contents.
+  // Fit the camera around the route. Refits whenever the pin set actually
+  // changes AND whenever the walk sheet snaps between peek/half/full, so
+  // the pins stay visible above the sheet as it opens (Google Maps pattern).
+  // Signature includes the bottom padding so a re-snap with the same route
+  // still refits: otherwise the ref would short-circuit the second call.
   const fittedRouteRef = useRef<string | null>(null)
   useEffect(() => {
     if (routePins.length === 0) {
@@ -1044,7 +1072,7 @@ export default function VoterMapCanvas({
     }
     const first = routePins[0]
     const last = routePins[routePins.length - 1]
-    const signature = `${routePins.length}:${first?.lat},${first?.lng}:${last?.lat},${last?.lng}`
+    const signature = `${routePins.length}:${first?.lat},${first?.lng}:${last?.lat},${last?.lng}:${routeFrameBottomPx ?? 'none'}`
     if (fittedRouteRef.current === signature || !mapRef.current) return
     fittedRouteRef.current = signature
     let minX = Infinity
@@ -1057,14 +1085,35 @@ export default function VoterMapCanvas({
       if (pin.lat < minY) minY = pin.lat
       if (pin.lat > maxY) maxY = pin.lat
     }
+    // Cap the bottom padding to what the canvas can actually spare: a sheet
+    // taller than the map (or a container that hasn't been measured yet)
+    // would otherwise ask fitBounds for more padding than it has and get no
+    // fit at all. FRAME_MARGIN either side + at least FRAME_MARGIN*3 of
+    // room for the pins themselves.
+    const height = mapRef.current.getCanvas().clientHeight
+    const requestedBottom = routeFrameBottomPx ?? 80
+    const bottomPad = Math.max(
+      80,
+      Math.min(
+        requestedBottom + FRAME_MARGIN,
+        Math.max(80, height - FRAME_MARGIN * 3),
+      ),
+    )
     mapRef.current.fitBounds(
       [
         [minX, minY],
         [maxX, maxY],
       ],
-      { padding: 80 },
+      {
+        padding: {
+          top: 80,
+          bottom: bottomPad,
+          left: 80,
+          right: 80,
+        },
+      },
     )
-  }, [routePins])
+  }, [routePins, routeFrameBottomPx])
 
   useEffect(() => {
     if (startDrawToken === 0) return
@@ -1185,7 +1234,10 @@ export default function VoterMapCanvas({
             type="button"
             variant="outline"
             aria-label="Zoom in"
-            className="bg-card"
+            // `hover:bg-card` overrides the outline variant's default 5% tint
+            // so the button stays opaque over the map — same argument the
+            // drawing surface's Undo button uses.
+            className="bg-card hover:bg-card"
             onClick={() => mapRef.current?.zoomIn()}
           >
             <PlusIcon className="size-[18px]" />
@@ -1194,7 +1246,7 @@ export default function VoterMapCanvas({
             type="button"
             variant="outline"
             aria-label="Zoom out"
-            className="bg-card"
+            className="bg-card hover:bg-card"
             onClick={() => mapRef.current?.zoomOut()}
           >
             <MinusIcon className="size-[18px]" />
@@ -1211,7 +1263,7 @@ export default function VoterMapCanvas({
                 liveLocationEnabled ? 'Hide my location' : 'Show my location'
               }
               aria-pressed={liveLocationEnabled}
-              className="bg-card"
+              className="bg-card hover:bg-card"
               onClick={() => onToggleLiveLocation(!liveLocationEnabled)}
             >
               {liveLocationEnabled ? (

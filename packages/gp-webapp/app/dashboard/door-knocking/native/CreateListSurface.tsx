@@ -185,9 +185,11 @@ export interface CreateListSurfaceProps {
   // VoterFileStep. A prop rather than a context read so this stays testable
   // without an organization provider.
   isElectedOfficial: boolean
-  // Draft selections the pack can't shade, computed by the orchestrator
-  // because it owns the pack's manifest for the map's sake.
-  unpreviewableKeys: string[]
+  // The pack's own bounding box, computed by the orchestrator alongside
+  // filterResult (packBounds is a pure derivation of the pack the page
+  // decodes). The draw step frames its static-map preview to this;
+  // omitted (or null) means the preview renders without an image.
+  districtBounds?: [[number, number], [number, number]] | null
   // The organization the recommendations are asked for, threaded down purely
   // as a cache-key segment.
   orgSlug: string | undefined
@@ -222,7 +224,7 @@ export default function CreateListSurface({
   drawnStops,
   onListCreated,
   isElectedOfficial,
-  unpreviewableKeys,
+  districtBounds,
   orgSlug,
   preselectedListId,
   onPreselectApplied,
@@ -381,7 +383,7 @@ export default function CreateListSurface({
       drawnStops={drawnStops}
       onListCreated={onListCreated}
       isElectedOfficial={isElectedOfficial}
-      unpreviewableKeys={unpreviewableKeys}
+      districtBounds={districtBounds}
       orgSlug={orgSlug}
       preselectedListId={preselectedListId}
       onPreselectApplied={onPreselectApplied}

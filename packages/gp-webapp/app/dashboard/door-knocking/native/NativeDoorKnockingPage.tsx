@@ -15,6 +15,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Spinner,
+  cn,
 } from '@styleguide'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { Campaign } from 'helpers/types'
@@ -22,8 +23,6 @@ import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFi
 import {
   DISTRICT_UNAVAILABLE_MESSAGE,
   PACK_ERROR_MESSAGE,
-  PACK_LOADING_DURATION,
-  PACK_LOADING_TITLE,
   recordLoggedKnocks,
   voterPackQueryOptions,
 } from './useVoterPack'
@@ -36,10 +35,8 @@ import {
 import { quotaQueryOptions, turfsQueryOptions } from './turfQueries'
 import { DoorKnockingSurfaceProvider } from './doorKnockingSurface'
 import type { CreateFlowStep } from './createFlow/CreateListFlow'
-import {
-  filtersToDimSelections,
-  unpreviewableFilterKeys,
-} from './createFlow/voterFilterPreview'
+import { geoapifyStaticUrl } from './createFlow/geoapifyStaticUrl'
+import { filtersToDimSelections } from './createFlow/voterFilterPreview'
 import { stopPositionsInRing } from './travelMode'
 import CreateListSurface, { useCreateListDraw } from './CreateListSurface'
 import TurfDetailsSheet from './TurfDetailsSheet'
@@ -47,7 +44,7 @@ import WalkSurface, { useWalkMapSession, WalkMapHint } from './WalkSurface'
 import { useWalkSession } from './useWalkSession'
 import { useLiveLocation } from './useLiveLocation'
 import { useWalkArchive, useWalkCompletion } from './walkCompletion'
-import type { PolygonRing } from './VoterMapCanvas'
+import { packBounds, type PolygonRing } from './VoterMapCanvas'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import { useOrganization } from '@shared/organization-picker'
 
@@ -251,6 +248,13 @@ export default function NativeDoorKnockingPage({
   // that surface knows how tall it currently is. Held here because the canvas
   // that draws the cluster outlives all of them.
   const [mapControlsOffset, setMapControlsOffset] = useState<number | null>(16)
+  // How much of the map's height the walk sheet is currently covering, so
+  // the canvas can re-fit the route pins into the band above it — the
+  // Google Maps behaviour where the map re-centres as the bottom sheet
+  // snaps. `null` off a walk; the canvas falls back to symmetric padding.
+  const [routeFrameBottomPx, setRouteFrameBottomPx] = useState<number | null>(
+    null,
+  )
   // The walk session carries an id and a name, which is all the walk needs; the
   // lifecycle write needs the row itself, because `canCompleteTurf` gates on
   // `locked` and on the two timestamps. Resolved off the rail's own query so
@@ -321,18 +325,30 @@ export default function NativeDoorKnockingPage({
         : null,
     [packQuery.data, selections],
   )
-  // Selections the pack's buckets can't express, so the drawn preview is a
-  // superset of what the list will really target. Surfaced in the create flow
-  // instead of leaving the map quietly disagreeing with the filters above it.
-  // Computed here rather than inside the flow because the manifest is the
-  // page's — the map is what decodes it, and gates it on a resolvable district.
-  const unpreviewableKeys = useMemo(
-    () =>
-      packQuery.data
-        ? unpreviewableFilterKeys(filters, packQuery.data.manifest)
-        : [],
-    [packQuery.data, filters],
+  // The static-map preview the draw step shows is framed to this — the
+  // pack's own bounds. Computed here beside the pack for the same reason
+  // filterResult is: the pack is the page's, and the flow only reads a
+  // derived shape off it. Null until the pack decodes.
+  const districtBounds = useMemo(
+    () => (packQuery.data ? packBounds(packQuery.data.positions) : null),
+    [packQuery.data],
   )
+  // Warm the Geoapify static-map preview as soon as the bounds are known,
+  // typically while the candidate is still on purpose or who. Without this
+  // the browser only fires the request when DrawStep renders the <img> tag,
+  // so the candidate waits on Geoapify's server render + the PNG download
+  // AFTER they click Continue on the who step. `new Image()` triggers a
+  // background fetch that lands in the HTTP cache; the DrawStep <img> then
+  // gets it instantly.
+  useEffect(() => {
+    if (!districtBounds) return
+    const img = new Image()
+    img.src = geoapifyStaticUrl({
+      bounds: districtBounds,
+      width: 608,
+      height: 260,
+    })
+  }, [districtBounds])
   // The route step suggests walk vs drive from how spread out the drawn shape's
   // own stops are, and the pack is the only thing that knows where they are
   // before the route is bought. Since the purchase moved to the end of the
@@ -603,6 +619,7 @@ export default function NativeDoorKnockingPage({
         onMoveToArchive={() => walkArchive.moveToArchive(endWalk)}
         archivePending={walkArchive.pending}
         onMapControlsOffsetChange={setMapControlsOffset}
+        onSheetHeightChange={setRouteFrameBottomPx}
         onKnockRecorded={walk.recordDoor}
         openStopRequest={walkMap.openStopRequest}
         selectedStopId={walkMap.selectedStopId}
@@ -652,25 +669,33 @@ export default function NativeDoorKnockingPage({
             being walked got the smaller half of the screen at the moment it
             mattered most. */}
             <div className="relative flex min-h-0 flex-1">
-              <div className="relative min-w-0 flex-1">
-                {/* Before the isPending branch: a district-gated query is
-                neither pending-with-a-request nor errored, so that branch
-                would otherwise spin forever. */}
+              {/* Map region stays mounted throughout so MapLibre initializes
+                  once and its tiles are ready when the drawing surface takes
+                  over — but in modal mode it's visually hidden until the
+                  candidate needs it. Otherwise dragging the drawer down
+                  reveals a map behind, and mounting it only on demand
+                  costs a chunk load + tile fetch at the click. Route mode
+                  always shows it (the map IS the surface there). */}
+              <div
+                className={cn(
+                  'relative min-w-0 flex-1 transition-opacity',
+                  !standalone && !draw.fullScreen && !walkTurf
+                    ? 'pointer-events-none opacity-0'
+                    : 'opacity-100',
+                )}
+              >
+                {/* No pending-state spinner and no titled loader in this
+                    region. The create flow's shell and the walk sheet cover
+                    the map region for the whole of the pack decode, so
+                    anything painted here is only ever visible in the
+                    hand-off frames — which the user's clear ask has been
+                    "don't show a loading state on open". District errors
+                    still get a visible sentence because the shell may not
+                    be up when they fire; likewise the unresolvable case.  */}
                 {isUnresolvable && (
                   <p className="p-4 text-sm text-muted-foreground">
                     {DISTRICT_UNAVAILABLE_MESSAGE}
                   </p>
-                )}
-                {!isUnresolvable && packQuery.isPending && (
-                  <div className="flex h-full flex-col items-center justify-center gap-3">
-                    <Spinner />
-                    <p className="text-base font-semibold">
-                      {PACK_LOADING_TITLE}
-                    </p>
-                    <p className="text-base font-normal text-zinc-600">
-                      {PACK_LOADING_DURATION}
-                    </p>
-                  </div>
                 )}
                 {packQuery.isError && (
                   <p className="p-4 text-sm text-destructive">
@@ -681,8 +706,17 @@ export default function NativeDoorKnockingPage({
                   <VoterMapCanvas
                     pack={packQuery.data}
                     filterResult={filterResult}
-                    turfs={visibleTurfs}
+                    // Saved lists' outlines are hidden in two modes: while
+                    // the candidate is cutting a new one (the draw surface
+                    // should be a blank map, not one crowded with earlier
+                    // boundaries) and while a walk is on screen (the map
+                    // should show only the route being walked — the pins
+                    // and the path — with no unrelated shapes competing
+                    // for the canvasser's attention). The hub landing
+                    // surface still shows the full set.
+                    turfs={flowStep === 'draw' || walkTurf ? [] : visibleTurfs}
                     routePins={walkMap.routePins}
+                    routeFrameBottomPx={routeFrameBottomPx}
                     // The other half of the walk's one selection: the list marks
                     // the row, the canvas rings the pin, and both read this.
                     selectedStopId={walkMap.selectedStopId}
@@ -692,11 +726,12 @@ export default function NativeDoorKnockingPage({
                     // rail that used to select one is gone, and the walk frames
                     // its own route.
                     focusTurf={null}
-                    // Street level, where neighborhood street names first appear:
-                    // fitBounds to the whole district opens too far out to orient
-                    // against, and the map's job at mount is to say where you are.
-                    // Only the opening view — panning and turf focus own it after.
-                    initialZoom={16}
+                    // Neighborhood level — a step back from the street-level
+                    // 16 the map used to open at, because the drawing surface
+                    // needs enough context around the mouse to know where the
+                    // block being enclosed sits in the district. Panning and
+                    // turf focus own the camera after the opening view.
+                    initialZoom={14}
                     startDrawToken={draw.startDrawToken}
                     clearDrawToken={draw.clearDrawToken}
                     undoDrawToken={draw.undoDrawToken}
@@ -794,7 +829,7 @@ export default function NativeDoorKnockingPage({
                   drawnStops={drawnStops}
                   onListCreated={handleListCreated}
                   isElectedOfficial={isElectedOfficial}
-                  unpreviewableKeys={unpreviewableKeys}
+                  districtBounds={districtBounds}
                   orgSlug={organization?.slug}
                   preselectedListId={carriedListId}
                   onPreselectApplied={() =>

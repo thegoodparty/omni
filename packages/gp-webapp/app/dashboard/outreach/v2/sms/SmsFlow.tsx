@@ -669,9 +669,9 @@ export const SmsFlow = ({
     ? null
     : stepId === 'audience' && audience.mode === 'filters'
       ? {
-          label: audience.builderCounting
-            ? 'Continue'
-            : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
+          // Bare "Continue" in every state — audience size is shown on
+          // the picker/filters card, not in the CTA.
+          label: 'Continue',
           onClick: () => audience.setMode('name'),
           disabled:
             !hasAnyVoterFileSelection(
@@ -700,11 +700,7 @@ export const SmsFlow = ({
           }
         : stepId === 'audience'
           ? {
-              label: phoneListError
-                ? 'Try again'
-                : reachableCount !== null
-                  ? `Continue (${reachableCount.toLocaleString()})`
-                  : 'Continue',
+              label: phoneListError ? 'Try again' : 'Continue',
               onClick: () => {
                 void handleAudienceContinue()
               },
@@ -814,7 +810,27 @@ export const SmsFlow = ({
             recommendationsLoading={audience.recommendationsLoading}
             recommendationsError={audience.recommendationsError}
             recommendedListsChannel={audience.recommendedListsChannel}
-            onSelectRecommendation={audience.applyRecommendation}
+            onCreateRecommendedList={async (recommendation, name) => {
+              // Recommendation flow (naming drawer): create the saved
+              // filter, derive its phone list, and advance to schedule —
+              // one atomic gesture instead of the old filters + name
+              // sub-step chain. Throws propagate to the drawer as the
+              // inline error the candidate can retry from.
+              const created = await audience.createRecommendedList(
+                recommendation,
+                name,
+              )
+              setPhoneList(null)
+              setStopPolling(false)
+              setPhoneListCreating(true)
+              const result = await createP2pPhoneList(created, created.id)
+              setPhoneListCreating(false)
+              if (!result.ok || !result.token) {
+                throw new Error("Couldn't create phone list")
+              }
+              setPhoneListToken(result.token)
+              setStepId('schedule')
+            }}
             onRecommendationReused={audience.trackRecommendationReused}
             reachableCount={reachableCount}
             reachableLoading={audience.reachableLoading}

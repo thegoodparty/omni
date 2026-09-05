@@ -599,9 +599,12 @@ describe('VoterMapCanvas drawing', () => {
   // what a canvasser is standing in front of, so it draws hollow — an outline
   // says "not a target" where an eighth fill colour would say "another status".
   it('draws a stop with nobody knockable hollow, not in a new colour', () => {
+    // seq >= 2 so the first-stop override (see the dedicated test below)
+    // doesn't paint over the status/knockability colours these assertions
+    // are about.
     const knockable: RoutePin = {
       stopId: 11,
-      seq: 1,
+      seq: 2,
       lat: 41.92,
       lng: -87.66,
       status: 'unknown',
@@ -611,7 +614,7 @@ describe('VoterMapCanvas drawing', () => {
     const flagged: RoutePin = {
       ...knockable,
       stopId: 12,
-      seq: 2,
+      seq: 3,
       knockable: false,
     }
 
@@ -644,20 +647,66 @@ describe('VoterMapCanvas drawing', () => {
     expect(numbers?.getColor?.(flagged)).toEqual([...status, 255])
   })
 
-  // The list has always marked the stop the walk is on; the map drew nothing
-  // for it, so the two surfaces described the same street in two vocabularies.
-  // The ring goes OUTSIDE the pin because the pin's own fill and stroke are
-  // already saying which status it is and whether anyone there is knockable.
-  it('rings the marked stop without taking a channel off its pin', () => {
-    const marked: RoutePin = {
+  // First stop is the one the canvasser walks TO — the pin's status colour
+  // (grey `unknown` on an un-logged route) otherwise leaves it visually
+  // indistinguishable from the sequence behind it. The override runs on
+  // seq alone, so it survives every status the pin could be in, and the
+  // border and numeral track the filled-pin look to keep the numeral
+  // readable.
+  it('draws the first stop in primary, regardless of status or knockability', () => {
+    const first: RoutePin = {
       stopId: 11,
       seq: 1,
       lat: 41.92,
       lng: -87.66,
       status: 'unknown',
+      knockable: false,
+    }
+
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        startDrawToken={0}
+        routePins={[first]}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    const pins = layer('route-pins')
+    // Primary blue fill, white border, thin border like a knockable pin —
+    // "not a target" is orthogonal to "this is where you start", so the
+    // hollow-pin look does not apply.
+    expect(pins?.getFillColor?.(first)).toEqual([30, 99, 236, 235])
+    expect(pins?.getLineColor?.(first)).toEqual([255, 255, 255, 255])
+    expect(pins?.getLineWidth?.(first)).toBe(2)
+    // White numeral on the blue fill, same rule the knockable branch above
+    // uses — a status-coloured numeral would drop to unreadable on the
+    // primary blue.
+    expect(layer('route-pin-numbers')?.getColor?.(first)).toEqual([
+      255, 255, 255, 255,
+    ])
+  })
+
+  // The list has always marked the stop the walk is on; the map drew nothing
+  // for it, so the two surfaces described the same street in two vocabularies.
+  // The ring goes OUTSIDE the pin because the pin's own fill and stroke are
+  // already saying which status it is and whether anyone there is knockable.
+  it('rings the marked stop without taking a channel off its pin', () => {
+    // seq >= 2 for the marked pin so the first-stop primary-blue override
+    // doesn't overwrite the status fill this test is about — the ring is
+    // an OUTSIDE-the-pin mark and has to survive whatever the pin itself
+    // is painted with, but the fill assertions below are on the pin's own
+    // status/knockability accessors.
+    const marked: RoutePin = {
+      stopId: 11,
+      seq: 2,
+      lat: 41.92,
+      lng: -87.66,
+      status: 'unknown',
       knockable: true,
     }
-    const other: RoutePin = { ...marked, stopId: 12, seq: 2 }
+    const other: RoutePin = { ...marked, stopId: 12, seq: 3 }
 
     const { rerender } = render(
       <VoterMapCanvas

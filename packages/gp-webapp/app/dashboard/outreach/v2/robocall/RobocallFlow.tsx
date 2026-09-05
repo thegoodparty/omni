@@ -496,9 +496,9 @@ export const RobocallFlow = ({
   const audienceCta: FlowShellCta =
     audience.mode === 'filters'
       ? {
-          label: audience.builderCounting
-            ? 'Continue'
-            : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
+          // Bare "Continue" in every state — audience size is shown on
+          // the picker/filters card, not in the CTA.
+          label: 'Continue',
           onClick: () => audience.setMode('name'),
           disabled:
             !hasBuilderSelection ||
@@ -517,10 +517,7 @@ export const RobocallFlow = ({
             loading: audience.createListPending,
           }
         : {
-            label:
-              audience.reachableCount !== null
-                ? `Continue (${audience.reachableCount.toLocaleString()})`
-                : 'Continue',
+            label: 'Continue',
             onClick: goToSchedule,
             disabled:
               !audience.selectedList ||
@@ -596,7 +593,14 @@ export const RobocallFlow = ({
             recommendationsLoading={audience.recommendationsLoading}
             recommendationsError={audience.recommendationsError}
             recommendedListsChannel={audience.recommendedListsChannel}
-            onSelectRecommendation={audience.applyRecommendation}
+            onCreateRecommendedList={async (recommendation, name) => {
+              // Recommendation flow (naming drawer): create the saved
+              // filter and advance to the schedule step in one atomic
+              // gesture. Throws propagate to the drawer as the inline
+              // error the candidate can retry from.
+              await audience.createRecommendedList(recommendation, name)
+              goToSchedule()
+            }}
             onRecommendationReused={audience.trackRecommendationReused}
             reachableCount={audience.reachableCount}
             reachableLoading={audience.reachableLoading}

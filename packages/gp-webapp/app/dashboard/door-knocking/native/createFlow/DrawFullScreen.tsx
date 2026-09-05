@@ -1,11 +1,19 @@
+import { useEffect, useRef, useState } from 'react'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   Button,
   IconButton,
+  toast,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
   Undo2Icon,
-  XMarkIcon,
 } from '@styleguide'
 
 interface DrawFullScreenProps {
@@ -37,34 +45,63 @@ export const DrawFullScreen = ({
   continueDisabled,
   onContinue,
   onClose,
-}: DrawFullScreenProps) => (
-  <div className="pointer-events-none absolute inset-0 z-20">
-    <div className="absolute inset-x-4 top-4 z-10 flex items-center justify-end">
-      <IconButton
-        type="button"
-        variant="outline"
-        aria-label="Close"
-        className="pointer-events-auto bg-card"
-        onClick={onClose}
-      >
-        <XMarkIcon className="size-[18px]" />
-      </IconButton>
-    </div>
-    {pointCount === 0 && (
-      <div className="absolute inset-0 flex items-center justify-center p-4">
-        <span className="rounded-2xl border border-border bg-card px-4 py-3 text-sm font-medium shadow-lg">
-          Tap the map to add boundary points
-        </span>
-      </div>
-    )}
-    {pointCount > 0 && (
-      // Bottom-right, clear of the footer — the canvas's own 88px offset.
+}: DrawFullScreenProps) => {
+  // Every open of the drawing surface unmounts and remounts this component
+  // (leaveFullScreen tears the map down), so seeding from `true` is what
+  // makes "show the instructions every time" work without an effect.
+  const [instructionsOpen, setInstructionsOpen] = useState(true)
+  // The Undo button shakes on a nothing-to-undo press (see onClick below).
+  const undoRef = useRef<HTMLButtonElement>(null)
+  // The stop-count pill shakes when a new point pushed the shape past the
+  // 150-stop cap, or when a subsequent tap kept it over. The tooltip already
+  // carries the "Limit is 150 stops per list" message and force-opens on
+  // overCap, so the shake is attention feedback — no toast, to avoid
+  // stacking a snackbar on top of a tooltip that's already saying it.
+  const pillRef = useRef<HTMLSpanElement>(null)
+  const prevStopsRef = useRef(stops)
+  useEffect(() => {
+    const previous = prevStopsRef.current
+    prevStopsRef.current = stops
+    // Only shake on a new tap that KEPT us over — undoing while still
+    // over-cap is progress in the right direction, so the pill should not
+    // scold the very move that's fixing the problem.
+    if (!overCap || stops <= previous) return
+    const el = pillRef.current
+    if (!el) return
+    el.classList.remove('animate-shake')
+    void el.offsetWidth
+    el.classList.add('animate-shake')
+  }, [stops, overCap])
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-20">
+      {/* Pre-first-point hint: sits at the same vertical position as the
+          Undo cluster to the right and the map's own zoom/locate cluster to
+          the left, so the three read as one row of chrome instead of a
+          modal-looking pill floating over the map. Disappears the moment
+          a point lands, because the map itself becomes the affordance. */}
+      {pointCount === 0 && (
+        <div className="absolute inset-x-0 bottom-[88px] z-10 flex h-9 justify-center">
+          <span className="pointer-events-none inline-flex items-center rounded-full border border-border bg-card px-3.5 text-sm font-medium text-foreground shadow-sm">
+            Tap or click to add your first point
+          </span>
+        </div>
+      )}
+      {/* Bottom-right, clear of the footer — the canvas's own 88px offset.
+          Always visible like the map's own zoom/locate cluster on the left, so
+          a candidate reading the instructions sees where Undo will land and
+          how the count will read. Undo disables itself with nothing to
+          undo. */}
       <div className="absolute right-3 bottom-[88px] z-10 flex items-center gap-2">
         {/* Forced open over the cap: the pill turning red is the whole
             explanation otherwise, and a colour is not a limit. */}
         <Tooltip open={overCap ? true : undefined}>
           <TooltipTrigger asChild>
             <span
+              ref={pillRef}
+              onAnimationEnd={(e) =>
+                e.currentTarget.classList.remove('animate-shake')
+              }
               className={`pointer-events-auto inline-flex h-9 items-center rounded-full border bg-card px-3.5 text-sm font-semibold ${
                 overCap
                   ? 'border-destructive text-destructive'
@@ -82,26 +119,90 @@ export const DrawFullScreen = ({
           </TooltipContent>
         </Tooltip>
         <IconButton
+          ref={undoRef}
           type="button"
           variant="outline"
           aria-label="Undo"
-          className="pointer-events-auto bg-card"
-          onClick={onUndoPoint}
+          // `hover:bg-card` overrides the outline variant's default
+          // `hover:bg-tertiary-dark/5` — the 5% tint reads as the map
+          // "showing through" over a light basemap. Same argument for the
+          // count pill's opaque bg-card beside it.
+          className="pointer-events-auto bg-card hover:bg-card"
+          // Cleared here rather than on a timer so a rapid re-trigger
+          // can restart the animation via the reflow trick below —
+          // adding the class while it is still there is a no-op and the
+          // second press would visually swallow.
+          onAnimationEnd={() => {
+            undoRef.current?.classList.remove('animate-shake')
+          }}
+          onClick={() => {
+            if (pointCount === 0) {
+              // Same feedback path as the prototype's merge-tag pill: the
+              // toast says what happened, the shake says the tap DID reach
+              // the control and it deliberately did nothing. The reflow
+              // read is what lets the class re-apply mid-animation — React
+              // seeing the same class on re-render will not restart CSS.
+              toast('There is nothing to undo')
+              const el = undoRef.current
+              if (el) {
+                el.classList.remove('animate-shake')
+                void el.offsetWidth
+                el.classList.add('animate-shake')
+              }
+              return
+            }
+            onUndoPoint()
+          }}
         >
           <Undo2Icon className="size-[18px]" />
         </IconButton>
       </div>
-    )}
-    <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-10 border-t border-border bg-background p-4">
-      <div className="mx-auto w-full max-w-[608px]">
-        <Button
-          className="w-full"
-          disabled={continueDisabled}
-          onClick={onContinue}
-        >
-          Continue
-        </Button>
+      <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-10 border-t border-border bg-background p-4">
+        <div className="mx-auto flex w-full max-w-[608px] flex-row-reverse items-center justify-between gap-3">
+          <Button
+            size="large"
+            className="min-w-0 flex-1 lg:min-w-[240px] lg:flex-none"
+            disabled={continueDisabled}
+            onClick={onContinue}
+          >
+            Continue
+          </Button>
+          <Button
+            type="button"
+            size="large"
+            variant="ghost"
+            aria-label="Back"
+            className="shrink-0 lg:min-w-[140px]"
+            onClick={onClose}
+          >
+            Back
+          </Button>
+        </div>
       </div>
+      <AlertDialog open={instructionsOpen} onOpenChange={setInstructionsOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Draw your boundary</AlertDialogTitle>
+            <AlertDialogDescription className="sr-only">
+              Instructions for drawing your door-knocking boundary.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <ol className="list-decimal space-y-2 pl-5 text-base [&>li]:list-item">
+            <li>
+              Tap or click the map to drop corner points around the area you
+              want to knock.
+            </li>
+            <li>Add at least 3 points to close the shape.</li>
+            <li>Use Undo to remove your last point.</li>
+            <li>Aim for 150 stops or fewer. Larger areas won&apos;t route.</li>
+          </ol>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setInstructionsOpen(false)}>
+              Got it
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
-  </div>
-)
+  )
+}
