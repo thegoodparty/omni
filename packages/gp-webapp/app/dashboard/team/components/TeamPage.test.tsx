@@ -95,6 +95,7 @@ describe('TeamPage — members and pending invites', () => {
     // role in this fixture, so both render the same label.
     expect(screen.getAllByText('Campaign Manager').length).toBe(2)
     expect(screen.getByText('Invitee Person')).toBeInTheDocument()
+    expect(screen.getByText('People')).toBeInTheDocument()
     expect(screen.getByText('2 people on this campaign')).toBeInTheDocument()
   })
 
@@ -314,7 +315,7 @@ describe('TeamPage — loading and error states (ENG-11039)', () => {
     expect(
       screen.queryByText(/people on this campaign|person on this campaign/),
     ).not.toBeInTheDocument()
-    expect(screen.getByText('Your team')).toBeInTheDocument()
+    expect(screen.getByText('People')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryByText('No pending invites.')).not.toBeInTheDocument()
     expect(
