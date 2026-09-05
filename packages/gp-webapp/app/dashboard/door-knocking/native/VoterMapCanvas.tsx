@@ -1231,7 +1231,7 @@ export default function VoterMapCanvas({
             type="button"
             variant="outline"
             aria-label="Zoom in"
-            className="bg-card"
+            className="bg-card hover:bg-card"
             onClick={() => mapRef.current?.zoomIn()}
           >
             <PlusIcon className="size-[18px]" />
@@ -1240,7 +1240,7 @@ export default function VoterMapCanvas({
             type="button"
             variant="outline"
             aria-label="Zoom out"
-            className="bg-card"
+            className="bg-card hover:bg-card"
             onClick={() => mapRef.current?.zoomOut()}
           >
             <MinusIcon className="size-[18px]" />
@@ -1257,7 +1257,7 @@ export default function VoterMapCanvas({
                 liveLocationEnabled ? 'Hide my location' : 'Show my location'
               }
               aria-pressed={liveLocationEnabled}
-              className="bg-card"
+              className="bg-card hover:bg-card"
               onClick={() => onToggleLiveLocation(!liveLocationEnabled)}
             >
               {liveLocationEnabled ? (
