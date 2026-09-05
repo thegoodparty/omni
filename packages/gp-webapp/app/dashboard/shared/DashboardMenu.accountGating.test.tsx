@@ -20,6 +20,7 @@ const {
   mockUseTeamAccountsFlag,
   mockUseAppUser,
   mockUseClerkUser,
+  mockUseIsMobile,
 } = vi.hoisted(() => ({
   mockUseElectedOffice: vi.fn(),
   mockUseOrganization: vi.fn(),
@@ -27,6 +28,7 @@ const {
   mockUseTeamAccountsFlag: vi.fn(),
   mockUseAppUser: vi.fn(),
   mockUseClerkUser: vi.fn(),
+  mockUseIsMobile: vi.fn(),
 }))
 
 vi.mock('@shared/hooks/useElectedOffice', () => ({
@@ -46,6 +48,14 @@ vi.mock('@shared/hooks/useUser', () => ({
 vi.mock('@clerk/nextjs', () => ({
   useUser: () => mockUseClerkUser(),
 }))
+// SidebarProvider/useSidebar derive isMobile from this hook (window.innerWidth
+// under the hood) — mock it directly, same pattern as
+// organization-picker.test.tsx, rather than juggling window.innerWidth: it's
+// the one seam that flips both the real SidebarProvider's internal state and
+// DashboardMenu's own useSidebar() read together.
+vi.mock('@styleguide/hooks/use-mobile', () => ({
+  useIsMobile: () => mockUseIsMobile(),
+}))
 
 const renderMenu = () =>
   render(
@@ -62,6 +72,9 @@ beforeEach(() => {
   mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: false })
   mockUseAppUser.mockReturnValue([null, vi.fn(), false])
   mockUseClerkUser.mockReturnValue({ user: null, isLoaded: true })
+  // Desktop by default — matches the jsdom-default (isMobile=false) baseline
+  // every pre-existing test in this file already assumed.
+  mockUseIsMobile.mockReturnValue(false)
 })
 
 describe('DashboardMenu — Team removed from the primary nav (ENG-11061)', () => {
@@ -103,6 +116,29 @@ describe('DashboardMenu — Team item in the account menu (ENG-11061)', () => {
       data: { id: 'eo-1' },
       isLoading: false,
     })
+    mockUseOrganization.mockReturnValue({
+      slug: 'eo-1',
+      electedOfficeId: 'eo-1',
+    })
+    renderMenu()
+    await openAccountMenu()
+    expect(screen.queryByText('Team')).not.toBeInTheDocument()
+  })
+
+  // Bugbot review (ENG-11061): useElectedOffice() is an async, per-org-slug
+  // query. Right after the org picker switches the active org,
+  // organization.electedOfficeId (useOrganization) flips synchronously, but
+  // this query is still resolving for the new slug — data can still read
+  // undefined (or, on a slow refetch, hold the previous org's cached
+  // result). Without the synchronous organization.electedOfficeId check,
+  // Team would flash for a Serve org during exactly this window.
+  it('hides Team for an elected office even while the async elected-office query is still pending', async () => {
+    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
+    mockUseElectedOffice.mockReturnValue({ data: undefined, isLoading: true })
+    mockUseOrganization.mockReturnValue({
+      slug: 'eo-1',
+      electedOfficeId: 'eo-1',
+    })
     renderMenu()
     await openAccountMenu()
     expect(screen.queryByText('Team')).not.toBeInTheDocument()
@@ -111,6 +147,42 @@ describe('DashboardMenu — Team item in the account menu (ENG-11061)', () => {
   it('reads the flag without tracking exposure (nav is not the treatment surface)', () => {
     renderMenu()
     expect(mockUseTeamAccountsFlag).toHaveBeenCalledWith(false)
+  })
+})
+
+describe('DashboardMenu — Team item in the mobile sidebar (ENG-11061)', () => {
+  // Team's mobile placement is a second, independent render path
+  // (DashboardMenu.tsx's `isMobile &&` block) — it renders the item directly
+  // in the sidebar rather than behind the desktop dropdown, so no
+  // openAccountMenu() step is needed here.
+  beforeEach(() => {
+    mockUseIsMobile.mockReturnValue(true)
+  })
+
+  it('is absent when the flag is off', () => {
+    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: false })
+    renderMenu()
+    expect(screen.queryByText('Team')).not.toBeInTheDocument()
+  })
+
+  it('shows Team in the mobile sidebar when the flag is on', () => {
+    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
+    renderMenu()
+    expect(screen.getByText('Team')).toBeInTheDocument()
+  })
+
+  it('hides Team for an elected office, even when the flag is on', () => {
+    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
+    mockUseElectedOffice.mockReturnValue({
+      data: { id: 'eo-1' },
+      isLoading: false,
+    })
+    mockUseOrganization.mockReturnValue({
+      slug: 'eo-1',
+      electedOfficeId: 'eo-1',
+    })
+    renderMenu()
+    expect(screen.queryByText('Team')).not.toBeInTheDocument()
   })
 })
 

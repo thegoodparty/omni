@@ -364,6 +364,7 @@ export default function DashboardMenu({
   const [ecanvasser] = useEcanvasser()
   const { data: electedOffice, isLoading: isElectedOfficeLoading } =
     useElectedOffice()
+  const organization = useOrganization()
   // trackExposure=false: this is a render-decision read, not the experiment's
   // treatment surface (the team page itself tracks exposure).
   const { enabled: teamAccountsEnabled } = useTeamAccountsFlag(false)
@@ -384,7 +385,17 @@ export default function DashboardMenu({
   // non-goal: Serve staff accounts are out of scope, so this never renders for
   // an elected-office org — see gp-api's matching 400 on POST team/invites for
   // an eo- org slug; delegate review, PR #1688).
-  const showTeamAccountItem = teamAccountsEnabled && !electedOffice
+  //
+  // Gated on BOTH signals, not just useElectedOffice: that query is per-org
+  // slug and can still be mid-flight (or holding the previous org's result)
+  // right after the org picker switches the active org — organization
+  // (useOrganization) flips synchronously on that switch, so
+  // organization.electedOfficeId is what every other nav item's v2Category
+  // filter already relies on for the same distinction (bugbot review,
+  // ENG-11061). Belt-and-suspenders here only ever makes the item MORE
+  // restrictive, never less.
+  const showTeamAccountItem =
+    teamAccountsEnabled && !electedOffice && !organization?.electedOfficeId
 
   return (
     <NewNavMenu
