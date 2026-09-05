@@ -246,7 +246,7 @@ export class OrganizationTeamService {
           profileUpdate.phone = metadata.phone
         }
         if (Object.keys(profileUpdate).length > 0) {
-          await tx.user.update({
+          await tx.user.updateMany({
             where: { id: user.id },
             data: profileUpdate,
           })
