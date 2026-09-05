@@ -10,7 +10,16 @@ import { AUTOMATIC_NOTE, type ListDetailsFooterMode } from './footerMode'
 // confirm dialog and 409 handling in one component) and the outreach drawer's
 // opens its own AlertDialog, so there is nothing shared to describe there.
 export type ListDetailsFooterAction =
-  | { kind: 'link'; label: string; href: string; icon?: ReactNode }
+  | {
+      kind: 'link'
+      label: string
+      href: string
+      icon?: ReactNode
+      // Fires right before navigation. Callers wire this to close the
+      // enclosing drawer/sheet so the destination surface doesn't render
+      // beneath it.
+      onClick?: () => void
+    }
   | {
       kind: 'button'
       label: string
@@ -41,8 +50,8 @@ interface ListDetailsFooterProps {
 const PrimaryAction = ({ action }: { action: ListDetailsFooterAction }) => {
   if (action.kind === 'link') {
     return (
-      <Button asChild className="flex-1">
-        <Link href={action.href}>
+      <Button asChild size="large" className="flex-1">
+        <Link href={action.href} onClick={action.onClick}>
           {action.icon}
           {action.label}
         </Link>
@@ -51,6 +60,7 @@ const PrimaryAction = ({ action }: { action: ListDetailsFooterAction }) => {
   }
   return (
     <Button
+      size="large"
       className="flex-1"
       disabled={action.kind === 'disabled' || action.disabled}
       onClick={action.kind === 'button' ? action.onClick : undefined}
