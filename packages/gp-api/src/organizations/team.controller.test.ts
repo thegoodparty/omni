@@ -1097,6 +1097,67 @@ describe('POST /v1/organizations/team/invites/accept', () => {
     )
   })
 
+  // ENG-11049: the retried call's own transaction throws on the membership
+  // create BEFORE ever reaching tryAssignOutreachInTx, so the double-accept
+  // recovery path can't rely on this call having set assignedOutreachId —
+  // it must consult the persisted assignment the WINNING call created.
+  // Response source is always the DB, never re-derived from request state.
+  it('a double accept of a volunteer invite still returns the assignment pointer', async () => {
+    await createOrg()
+    const outreach = await createOutreachForOrg()
+    const invitee = await service.prisma.user.create({
+      data: { email: 'vol-twice@x.com', clerkId: 'user_vol_twice_1' },
+    })
+    mockInviteState({
+      organizationSlug: ORG_SLUG,
+      role: 'volunteer',
+      name: 'Volunteer Twice',
+      invitedByUserId: service.user.id,
+      outreachId: outreach.id,
+    })
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadata',
+    ).mockResolvedValue(undefined)
+    vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+
+    const first = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_vol_twice_1') },
+    )
+    const second = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_vol_twice_1') },
+    )
+
+    expect(first.status).toBe(201)
+    expect(second.status).toBe(201)
+    expect(second.data).toEqual(first.data)
+    expect(second.data).toEqual({
+      organizationSlug: ORG_SLUG,
+      role: 'volunteer',
+      assignment: {
+        outreachId: outreach.id,
+        outreachType: 'text',
+        phoneBankingListId: null,
+        doorKnockingRouteId: null,
+      },
+    })
+
+    expect(
+      await service.prisma.organizationMembership.count({
+        where: { organizationSlug: ORG_SLUG },
+      }),
+    ).toBe(1)
+    expect(
+      await service.prisma.outreachAssignment.count({
+        where: { outreachId: outreach.id, assigneeUserId: invitee.id },
+      }),
+    ).toBe(1)
+  })
+
   // ENG-11049: a list-scoped volunteer invite creates the assignment in the
   // same transaction as the membership, and the response carries a pointer
   // so the webapp can route the volunteer straight to their work.
@@ -1312,6 +1373,65 @@ describe('POST /v1/organizations/team/invites/accept', () => {
       },
     })
     expect(row?.role).toBe('campaignAdmin')
+  })
+
+  // ENG-11049: the fallback-accept path (organic signup, no Clerk metadata
+  // copy) reads outreachId off the pending invitation's metadata the same
+  // way the primary path reads it off the user's own metadata — the
+  // assignment must still be created.
+  it('creates the outreach assignment on a fallback accept with an outreachId', async () => {
+    await createOrg()
+    const outreach = await createOutreachForOrg()
+    const invitee = await service.prisma.user.create({
+      data: { email: 'organic-vol@x.com', clerkId: 'user_organic_vol_1' },
+    })
+    mockInviteState(null, ['organic-vol@x.com'])
+    vi.spyOn(
+      stubClerkInvitations(),
+      'findPendingTeamInvitationsByEmail',
+    ).mockResolvedValue([
+      mockInvitation({
+        id: 'inv_fallback_vol_1',
+        emailAddress: 'organic-vol@x.com',
+        publicMetadata: {
+          organizationSlug: ORG_SLUG,
+          role: 'volunteer',
+          name: 'Organic Volunteer',
+          invitedByUserId: service.user.id,
+          outreachId: outreach.id,
+        },
+      }),
+    ])
+    vi.spyOn(stubClerkInvitations(), 'revokeInvitation').mockResolvedValue(
+      mockInvitation({ id: 'inv_fallback_vol_1' }),
+    )
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadata',
+    ).mockResolvedValue(undefined)
+    vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+
+    const result = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_organic_vol_1') },
+    )
+
+    expect(result.status).toBe(201)
+    expect(result.data).toEqual({
+      organizationSlug: ORG_SLUG,
+      role: 'volunteer',
+      assignment: {
+        outreachId: outreach.id,
+        outreachType: 'text',
+        phoneBankingListId: null,
+        doorKnockingRouteId: null,
+      },
+    })
+    const assignments = await service.prisma.outreachAssignment.findMany({
+      where: { outreachId: outreach.id, assigneeUserId: invitee.id },
+    })
+    expect(assignments).toHaveLength(1)
   })
 
   it('still succeeds when revoking the fallback invitation fails', async () => {

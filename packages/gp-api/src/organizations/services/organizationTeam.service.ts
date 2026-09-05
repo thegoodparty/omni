@@ -266,6 +266,20 @@ export class OrganizationTeamService {
         throw err
       }
       membership = existing
+
+      // The retried call's own transaction throws on the membership
+      // create BEFORE tryAssignOutreachInTx ever runs, so this branch
+      // can't rely on assignedOutreachId being set by this call — consult
+      // the persisted row the WINNING call created instead. Response
+      // source is always the DB, never re-derived from request state.
+      if (metadata.outreachId !== undefined) {
+        const alreadyAssigned =
+          await this.resolveOutreachAssignments().existsFor(
+            metadata.outreachId,
+            user.id,
+          )
+        if (alreadyAssigned) assignedOutreachId = metadata.outreachId
+      }
     }
 
     await this.clearInviteMetadata(user.clerkId)
