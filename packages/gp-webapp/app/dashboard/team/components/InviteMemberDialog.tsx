@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { FetchError } from 'ofetch'
 import type { InviteMemberResponse } from 'gpApi/api-endpoints'
 import {
   Button,
@@ -15,20 +14,8 @@ import {
   Label,
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
-import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-
-const INVITE_ERROR_FALLBACK =
-  'Something went wrong sending the invite. Please try again.'
-
-// 409 covers both server-side reasons an invite can't go out (already a
-// member, or an invite already pending for this email) — surface gp-api's own
-// message rather than a generic one, since the two read differently.
-const toInviteErrorMessage = (error: unknown): string =>
-  (error instanceof FetchError &&
-    error.status === 409 &&
-    extractApiErrorInfo(error.data).message) ||
-  INVITE_ERROR_FALLBACK
+import { toInviteErrorMessage } from '../team.util'
 
 interface InviteMemberDialogProps {
   open: boolean

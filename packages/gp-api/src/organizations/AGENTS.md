@@ -74,29 +74,49 @@ other managers" is a stated ENG-10816 goal, so neither `createInvite` nor
 `campaignAdmin`) may invite or revoke a pending invite. Only member
 management (`PATCH`/`DELETE team/members/:userId`) is owner-only.
 
-**Volunteer invites are list-scoped (ENG-11049, Phase 1.5).** A volunteer
-invite always carries an `outreachId` (the DTO refine enforces this — and
-forbids one on a `campaignAdmin` invite); `inviteMember` validates it belongs
-to the inviting org via `OutreachAssignmentService.assertOutreachInOrg`
-*before* anything is written or a Clerk invitation is sent. The invite and the
-eventual `OutreachAssignment` are created in the same act: the direct-add
-branch creates the membership + assignment in one transaction; the
-Clerk-invitation branch carries `outreachId` in `TeamInviteMetadata`
-(optional — absent for `campaignAdmin`) and `acceptInvite` creates the
-assignment inside the same transaction as the membership, threading `tx` into
-`OutreachAssignmentService.assign`. If the outreach was deleted between
-invite and accept, the membership still commits and the assignment is
-skipped (logged, not thrown) — only a genuine unexpected error rolls the
-transaction back. `AcceptInviteResponse.assignment` carries a lightweight
-pointer (outreach id/type + channel pointer) when one was created, so the
-webapp can route the volunteer straight to their work; null for a
-`campaignAdmin` accept or a skipped assignment. `PendingInvite.outreachId`
-exposes the same field on the pending-list response for the manager drawer
-(ENG-11056) to filter by. `Team - Member Invited` fires `listScoped: true`
-for a volunteer invite. `PATCH team/members/:userId` also carries the same
-two-value role enum, so the owner can move an existing member between
-`campaignAdmin` and `volunteer` — a role change never creates or touches an
-`OutreachAssignment`; volunteers get their list only through an invite.
+**A volunteer invite's `outreachId` is optional (ENG-11058).** The team
+page's Invite drawer sends a general volunteer invite with no `outreachId` —
+legal since the ticket dropped the DTO refine that used to require one; the
+invite still forbids one on a `campaignAdmin` invite. The outreach drawer's
+per-list entry point (ENG-11049, ENG-11056) is a second, still-live way to
+invite a volunteer, and *its* invites still carry an `outreachId`; when
+present, `inviteMember` validates it belongs to the inviting org via
+`OutreachAssignmentService.assertOutreachInOrg` *before* anything is written
+or a Clerk invitation is sent. When an `outreachId` is present, the invite
+and the eventual `OutreachAssignment` are created in the same act: the
+direct-add branch creates the membership + assignment in one transaction;
+the Clerk-invitation branch carries `outreachId` in `TeamInviteMetadata`
+(optional — absent for both `campaignAdmin` and a general volunteer invite)
+and `acceptInvite` creates the assignment inside the same transaction as the
+membership, threading `tx` into `OutreachAssignmentService.assign`. A
+general volunteer invite (no `outreachId`) skips this entirely — the
+volunteer lands on `/volunteer`'s empty state until a manager assigns them
+work. If a list-scoped outreach was deleted between invite and accept, the
+membership still commits and the assignment is skipped (logged, not
+thrown) — only a genuine unexpected error rolls the transaction back.
+`AcceptInviteResponse.assignment` carries a lightweight pointer (outreach
+id/type + channel pointer) when one was created, so the webapp can route the
+volunteer straight to their work; null for a `campaignAdmin` accept, a
+general volunteer accept, or a skipped assignment. `PendingInvite.outreachId`
+exposes the same field on the pending-list response — the team page's own
+table renders a general volunteer invite (`outreachId: null`) as a normal
+pending invite with Revoke, and a list-scoped one (ENG-11056) with a
+"Managed in outreach" label instead. `Team - Member Invited` fires
+`listScoped: true` for a volunteer invite that carries an `outreachId`.
+`PATCH team/members/:userId` also carries the same two-value role enum, so
+the owner can move an existing member between `campaignAdmin` and
+`volunteer` — a role change never creates or touches an
+`OutreachAssignment`; volunteers get their list only through an invite (or
+never, for a general one, until a manager assigns them one).
+
+**An invite's optional `phone` only ever backfills a blank profile
+(ENG-11058).** `InviteTeamMemberDto.phone` (validated via contracts'
+`PhoneSchema`) rides in `TeamInviteMetadata` for the Clerk-invitation branch
+and is written straight through for a direct-add — in both cases the
+condition is `!User.phone` on the target account, checked immediately before
+the write, so an invite can never clobber a number the person already saved
+to their own profile. Accept writes it (alongside the existing name backfill)
+inside the same transaction as the membership row.
 
 **Invite branches on whether the email has a local account** (never a
 Clerk-only check): a known email gets added directly + emailed

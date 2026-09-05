@@ -35,8 +35,13 @@ import {
   useOrganizationRole,
 } from '@shared/organization-picker'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { ROLE_LABELS, formatName, teamQueryKey } from '../team.util'
-import InviteMemberDialog from './InviteMemberDialog'
+import {
+  ROLE_DESCRIPTIONS,
+  ROLE_LABELS,
+  formatName,
+  teamQueryKey,
+} from '../team.util'
+import InviteMemberDrawer from './InviteMemberDrawer'
 
 const TeamPage = (): React.JSX.Element => {
   const organization = useOrganization()
@@ -140,10 +145,21 @@ const TeamPage = (): React.JSX.Element => {
         <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4">
           <Card className="flex flex-row items-start gap-3 p-6">
             <CircleHelpIcon className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
-            <p className="m-0 text-sm text-muted-foreground">
-              Your Campaign Manager can run everything except your billing and
-              account settings.
-            </p>
+            <div className="flex flex-col gap-2">
+              <h2 className="m-0 text-sm font-semibold text-foreground">
+                How roles work
+              </h2>
+              <p className="m-0 text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">
+                  Campaign Manager
+                </span>{' '}
+                {ROLE_DESCRIPTIONS.campaignAdmin}
+              </p>
+              <p className="m-0 text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">Volunteer</span>{' '}
+                {ROLE_DESCRIPTIONS.volunteer}
+              </p>
+            </div>
           </Card>
 
           <Card className="flex flex-col gap-4 p-6">
@@ -375,7 +391,7 @@ const TeamPage = (): React.JSX.Element => {
         </div>
       </div>
 
-      <InviteMemberDialog
+      <InviteMemberDrawer
         open={inviteOpen}
         onOpenChange={setInviteOpen}
         onInvited={invalidateTeam}

@@ -235,16 +235,38 @@ describe('POST /v1/organizations/team/invites', () => {
     expect(result.status).toBe(404)
   })
 
-  it('rejects a volunteer invite with no outreachId', async () => {
+  // ENG-11058: a general volunteer invite (no outreach) is legal — the
+  // outreach drawer's list-scoped invite (ENG-11049) is a second, optional
+  // entry point, not a requirement.
+  it('accepts a volunteer invite with no outreachId, creating a pending invite with a null outreachId', async () => {
     await createOrg()
+    vi.spyOn(
+      stubClerkInvitations(),
+      'listPendingTeamInvitations',
+    ).mockResolvedValue([])
+    vi.spyOn(stubClerkInvitations(), 'createTeamInvitation').mockResolvedValue(
+      mockInvitation({ emailAddress: 'general-vol@x.com' }),
+    )
 
     const result = await service.client.post(
       INVITES_PATH,
-      { email: 'new@example.com', name: 'New Person', role: 'volunteer' },
+      {
+        email: 'general-vol@x.com',
+        name: 'General Volunteer',
+        role: 'volunteer',
+      },
       { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
     )
 
-    expect(result.status).toBe(400)
+    expect(result.status).toBe(201)
+    expect(result.data).toEqual({
+      status: 'pending',
+      invite: expect.objectContaining({
+        email: 'general-vol@x.com',
+        role: 'volunteer',
+        outreachId: null,
+      }),
+    })
   })
 
   it('rejects a campaignAdmin invite that carries an outreachId', async () => {
@@ -619,6 +641,100 @@ describe('POST /v1/organizations/team/invites', () => {
       })
       expect(assignments).toHaveLength(1)
       expect(assignments[0]?.assignedByUserId).toBe(service.user.id)
+    })
+
+    // ENG-11058: a general volunteer invite (no outreachId) for an existing
+    // account still direct-adds, and creates no assignment at all — there's
+    // no outreach for tryAssignOutreachInTx's sibling on this branch to
+    // point at.
+    it('adds an existing user as a general volunteer with no assignment when outreachId is omitted', async () => {
+      await createOrg()
+      const invitee = await createMemberUser({
+        email: 'general-vol-known@x.com',
+      })
+      vi.spyOn(stubEmail(), 'sendTeamMemberAddedEmail').mockResolvedValue(
+        undefined as never,
+      )
+      vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+
+      const result = await service.client.post(
+        INVITES_PATH,
+        {
+          email: 'general-vol-known@x.com',
+          name: 'General Volunteer Known',
+          role: 'volunteer',
+        },
+        { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+      )
+
+      expect(result.status).toBe(201)
+      expect(result.data).toEqual({
+        status: 'added',
+        member: expect.objectContaining({
+          userId: invitee.id,
+          role: 'volunteer',
+        }),
+      })
+      const assignments = await service.prisma.outreachAssignment.findMany({
+        where: { assigneeUserId: invitee.id },
+      })
+      expect(assignments).toHaveLength(0)
+    })
+
+    // ENG-11058: phone is scoped to "User.phone is currently empty" — a
+    // direct-add invite must never clobber a number already on the account.
+    it('writes the invite phone onto an existing user with no phone', async () => {
+      await createOrg()
+      const invitee = await createMemberUser({ email: 'phone-empty@x.com' })
+      vi.spyOn(stubEmail(), 'sendTeamMemberAddedEmail').mockResolvedValue(
+        undefined as never,
+      )
+      vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+
+      const result = await service.client.post(
+        INVITES_PATH,
+        {
+          email: 'phone-empty@x.com',
+          name: 'Phone Empty',
+          role: 'campaignAdmin',
+          phone: '2025551234',
+        },
+        { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+      )
+
+      expect(result.status).toBe(201)
+      const updatedUser = await service.prisma.user.findUnique({
+        where: { id: invitee.id },
+      })
+      expect(updatedUser?.phone).toBe('2025551234')
+    })
+
+    it('does not overwrite an existing phone on an existing user', async () => {
+      await createOrg()
+      const invitee = await service.prisma.user.create({
+        data: { email: 'phone-set@x.com', phone: '2025559999' },
+      })
+      vi.spyOn(stubEmail(), 'sendTeamMemberAddedEmail').mockResolvedValue(
+        undefined as never,
+      )
+      vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+
+      const result = await service.client.post(
+        INVITES_PATH,
+        {
+          email: 'phone-set@x.com',
+          name: 'Phone Set',
+          role: 'campaignAdmin',
+          phone: '2025551234',
+        },
+        { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+      )
+
+      expect(result.status).toBe(201)
+      const updatedUser = await service.prisma.user.findUnique({
+        where: { id: invitee.id },
+      })
+      expect(updatedUser?.phone).toBe('2025559999')
     })
   })
 
@@ -1052,6 +1168,78 @@ describe('POST /v1/organizations/team/invites/accept', () => {
       where: { id: invitee.id },
     })
     expect(updatedUser?.name).not.toBe('Invite Name')
+    await vi.waitFor(() =>
+      expect(stubCrmTeamMembers().syncTeamMember).toHaveBeenCalled(),
+    )
+  })
+
+  // ENG-11058: the invite's optional phone backfills a blank User.phone on
+  // accept, in the same transaction as the membership row.
+  it('writes the invite phone onto an accepting user with no phone', async () => {
+    await createOrg()
+    const invitee = await service.prisma.user.create({
+      data: { email: 'accept-phone-empty@x.com', clerkId: 'user_phone_1' },
+    })
+    mockInviteState({
+      organizationSlug: ORG_SLUG,
+      role: 'campaignAdmin',
+      name: 'Phone Acceptor',
+      invitedByUserId: service.user.id,
+      phone: '2025551234',
+    })
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadata',
+    ).mockResolvedValue(undefined)
+
+    const result = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_phone_1') },
+    )
+
+    expect(result.status).toBe(201)
+    const updatedUser = await service.prisma.user.findUnique({
+      where: { id: invitee.id },
+    })
+    expect(updatedUser?.phone).toBe('2025551234')
+    await vi.waitFor(() =>
+      expect(stubCrmTeamMembers().syncTeamMember).toHaveBeenCalled(),
+    )
+  })
+
+  it('does not overwrite an existing phone on accept', async () => {
+    await createOrg()
+    const invitee = await service.prisma.user.create({
+      data: {
+        email: 'accept-phone-set@x.com',
+        clerkId: 'user_phone_2',
+        phone: '2025559999',
+      },
+    })
+    mockInviteState({
+      organizationSlug: ORG_SLUG,
+      role: 'campaignAdmin',
+      name: 'Phone Acceptor Two',
+      invitedByUserId: service.user.id,
+      phone: '2025551234',
+    })
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadata',
+    ).mockResolvedValue(undefined)
+
+    const result = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_phone_2') },
+    )
+
+    expect(result.status).toBe(201)
+    const updatedUser = await service.prisma.user.findUnique({
+      where: { id: invitee.id },
+    })
+    expect(updatedUser?.phone).toBe('2025559999')
     await vi.waitFor(() =>
       expect(stubCrmTeamMembers().syncTeamMember).toHaveBeenCalled(),
     )

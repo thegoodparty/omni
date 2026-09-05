@@ -349,7 +349,12 @@ import { dirname, join, relative } from 'node:path'
 // (ENG-11056, OutreachAssigneesSection.tsx). It holds picker/dialog open
 // state and drives assign/remove/invite mutations against a query cache, so
 // it can't be a server component — same reasoning as TeamPage.tsx above.
-const BASELINE = 601
+// 2026-09-05: 601 -> 602 for the team page's two-step invite drawer
+// (ENG-11058, InviteMemberDrawer.tsx). It owns the step/form/role state and
+// drives the invite mutation, same reasoning as InviteMemberDialog.tsx —
+// which it replaces on the team page (the outreach entry point keeps using
+// the dialog unchanged, so both files still exist).
+const BASELINE = 602
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

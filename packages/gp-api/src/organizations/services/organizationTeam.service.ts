@@ -121,14 +121,17 @@ export class OrganizationTeamService {
     name: string
     role: TeamInviteRole
     outreachId?: number
+    phone?: string
   }): Promise<InviteMemberResponse> {
-    const { organization, invitedByUserId, invitedByRole, name, role } = params
+    const { organization, invitedByUserId, invitedByRole, name, role, phone } =
+      params
     const outreachId = params.outreachId
     const email = toLowerAndTrim(params.email)
 
-    // Validated before anything is written or a Clerk invitation is sent —
-    // the DTO refine already guarantees a volunteer invite carries an
-    // outreachId, but never THIS org's outreach until checked here.
+    // outreachId is optional (a general volunteer invite carries none,
+    // ENG-11058); when present, validated before anything is written or a
+    // Clerk invitation is sent — the DTO refine only forbids one on a
+    // campaignAdmin invite, never that it belongs to THIS org's outreach.
     if (outreachId !== undefined) {
       await this.resolveOutreachAssignments().assertOutreachInOrg(
         organization.slug,
@@ -144,6 +147,7 @@ export class OrganizationTeamService {
           invitedByUserId,
           role,
           outreachId,
+          phone,
           existingUser,
         })
       : await this.createPendingInvite({
@@ -153,6 +157,7 @@ export class OrganizationTeamService {
           email,
           name,
           outreachId,
+          phone,
         })
 
     void this.analytics
@@ -224,10 +229,15 @@ export class OrganizationTeamService {
           },
         })
 
-        if (!getUserFullName(user)) {
+        // Backfills the invite's name and phone onto a blank profile — never
+        // overwrites either field the invitee already set for themselves.
+        const profileUpdate: Prisma.UserUpdateInput = {}
+        if (!getUserFullName(user)) profileUpdate.name = metadata.name
+        if (metadata.phone && !user.phone) profileUpdate.phone = metadata.phone
+        if (Object.keys(profileUpdate).length > 0) {
           await tx.user.update({
             where: { id: user.id },
-            data: { name: metadata.name },
+            data: profileUpdate,
           })
         }
 
@@ -521,10 +531,17 @@ export class OrganizationTeamService {
     invitedByUserId: number
     role: TeamInviteRole
     outreachId?: number
+    phone?: string
     existingUser: User
   }): Promise<InviteMemberResponse> {
-    const { organization, invitedByUserId, role, outreachId, existingUser } =
-      params
+    const {
+      organization,
+      invitedByUserId,
+      role,
+      outreachId,
+      phone,
+      existingUser,
+    } = params
 
     const existingMembership =
       existingUser.id === organization.ownerId
@@ -570,6 +587,16 @@ export class OrganizationTeamService {
             return membership
           })
         : await this.membership.model.create({ data: membershipData })
+
+    // Carries the invite's optional phone onto the existing account — only
+    // when User.phone is still empty, so a direct-add never clobbers a
+    // number the person already saved to their own profile.
+    if (phone && !existingUser.phone) {
+      await this.membership.client.user.update({
+        where: { id: existingUser.id },
+        data: { phone },
+      })
+    }
 
     const campaignName =
       (await this.organizations.resolvePositionNameByOrganizationSlug(
@@ -664,9 +691,17 @@ export class OrganizationTeamService {
     email: string
     name: string
     outreachId?: number
+    phone?: string
   }): Promise<InviteMemberResponse> {
-    const { organization, invitedByUserId, role, email, name, outreachId } =
-      params
+    const {
+      organization,
+      invitedByUserId,
+      role,
+      email,
+      name,
+      outreachId,
+      phone,
+    } = params
 
     const pending = await this.clerkInvitations.listPendingTeamInvitations(
       organization.slug,
@@ -686,6 +721,7 @@ export class OrganizationTeamService {
         name,
         invitedByUserId,
         outreachId,
+        phone,
       },
     })
 

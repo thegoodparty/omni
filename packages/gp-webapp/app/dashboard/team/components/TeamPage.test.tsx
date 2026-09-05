@@ -92,8 +92,9 @@ describe('TeamPage — members and pending invites', () => {
     expect(screen.getByText('Manager Person')).toBeInTheDocument()
     expect(screen.getByText('Owner')).toBeInTheDocument()
     // The manager row and the pending invite both carry the campaignAdmin
-    // role in this fixture, so both render the same label.
-    expect(screen.getAllByText('Campaign Manager').length).toBe(2)
+    // role in this fixture, so both render the same label — plus one more
+    // from the "How roles work" card's own "Campaign Manager" (ENG-11058).
+    expect(screen.getAllByText('Campaign Manager').length).toBe(3)
     expect(screen.getByText('Invitee Person')).toBeInTheDocument()
     expect(screen.getByText('2 people on this campaign')).toBeInTheDocument()
   })
@@ -182,8 +183,8 @@ describe('TeamPage — owner vs manager affordances', () => {
   })
 })
 
-describe('TeamPage — invite flow', () => {
-  it('opens the invite modal and posts the entered email/name with the fixed role', async () => {
+describe('TeamPage — invite flow (ENG-11058 two-step drawer)', () => {
+  it('walks step 1 -> step 2, posts the picked role, phone omitted when blank', async () => {
     const user = userEvent.setup()
     let capturedBody: unknown
     api.mock('POST /v1/organizations/team/invites', (req) => {
@@ -196,7 +197,62 @@ describe('TeamPage — invite flow', () => {
             id: 'new-invite',
             email: req.body.email,
             name: req.body.name,
-            role: 'campaignAdmin',
+            role: req.body.role,
+            createdAt: '2024-01-04T00:00:00.000Z',
+            outreachId: null,
+          },
+        },
+      }
+    })
+
+    render(<TeamPage />)
+    await screen.findByText('Owner Person')
+
+    await user.click(screen.getByRole('button', { name: 'Invite' }))
+    expect(
+      await screen.findByText('Who do you want to invite?'),
+    ).toBeInTheDocument()
+    // Continue is disabled until both required fields are filled.
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    await user.type(screen.getByLabelText('Name'), 'New Person')
+    await user.type(screen.getByLabelText('Email'), 'new@example.com')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText('What role would you like to assign?'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send invite' })).toBeDisabled()
+    await user.click(screen.getByRole('radio', { name: /Volunteer/ }))
+    await user.click(screen.getByRole('button', { name: 'Send invite' }))
+
+    await waitFor(() => {
+      expect(capturedBody).toEqual({
+        email: 'new@example.com',
+        name: 'New Person',
+        role: 'volunteer',
+      })
+    })
+    await waitFor(() => {
+      expect(
+        screen.queryByText('Who do you want to invite?'),
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  it('carries an entered phone number through to the request', async () => {
+    const user = userEvent.setup()
+    let capturedBody: unknown
+    api.mock('POST /v1/organizations/team/invites', (req) => {
+      capturedBody = req.body
+      return {
+        status: 200,
+        data: {
+          status: 'pending',
+          invite: {
+            id: 'new-invite',
+            email: req.body.email,
+            name: req.body.name,
+            role: req.body.role,
             createdAt: '2024-01-04T00:00:00.000Z',
             outreachId: null,
           },
@@ -209,7 +265,10 @@ describe('TeamPage — invite flow', () => {
 
     await user.click(screen.getByRole('button', { name: 'Invite' }))
     await user.type(screen.getByLabelText('Name'), 'New Person')
+    await user.type(screen.getByLabelText('Phone number'), '2025551234')
     await user.type(screen.getByLabelText('Email'), 'new@example.com')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('radio', { name: /Campaign Manager/ }))
     await user.click(screen.getByRole('button', { name: 'Send invite' }))
 
     await waitFor(() => {
@@ -217,16 +276,32 @@ describe('TeamPage — invite flow', () => {
         email: 'new@example.com',
         name: 'New Person',
         role: 'campaignAdmin',
+        phone: '2025551234',
       })
-    })
-    await waitFor(() => {
-      expect(
-        screen.queryByRole('dialog', { name: 'Invite a team member' }),
-      ).not.toBeInTheDocument()
     })
   })
 
-  it('shows the 409 message inline instead of closing the modal', async () => {
+  it('Back from step 2 returns to step 1 with the entered values intact', async () => {
+    const user = userEvent.setup()
+    render(<TeamPage />)
+    await screen.findByText('Owner Person')
+
+    await user.click(screen.getByRole('button', { name: 'Invite' }))
+    await user.type(screen.getByLabelText('Name'), 'New Person')
+    await user.type(screen.getByLabelText('Email'), 'new@example.com')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('What role would you like to assign?')
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(
+      await screen.findByText('Who do you want to invite?'),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Name')).toHaveValue('New Person')
+    expect(screen.getByLabelText('Email')).toHaveValue('new@example.com')
+  })
+
+  it('shows the 409 message inline instead of closing the drawer', async () => {
     const user = userEvent.setup()
     api.mock('POST /v1/organizations/team/invites', {
       status: 409,
@@ -239,6 +314,8 @@ describe('TeamPage — invite flow', () => {
     await user.click(screen.getByRole('button', { name: 'Invite' }))
     await user.type(screen.getByLabelText('Name'), 'New Person')
     await user.type(screen.getByLabelText('Email'), 'new@example.com')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('radio', { name: /Campaign Manager/ }))
     await user.click(screen.getByRole('button', { name: 'Send invite' }))
 
     expect(
@@ -247,7 +324,26 @@ describe('TeamPage — invite flow', () => {
       ),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('dialog', { name: 'Invite a team member' }),
+      screen.getByText('What role would you like to assign?'),
+    ).toBeInTheDocument()
+  })
+})
+
+describe('TeamPage — "How roles work" card (ENG-11058)', () => {
+  it('states both locked role descriptions', async () => {
+    render(<TeamPage />)
+    await screen.findByText('Owner Person')
+
+    expect(screen.getByText('How roles work')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /Runs everything on the campaign except billing and account settings\./,
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /Runs door knocking or phone banking outreach campaigns only\./,
+      ),
     ).toBeInTheDocument()
   })
 })
@@ -353,7 +449,11 @@ describe('TeamPage — role change (ENG-11049)', () => {
       expect(patchedUserId).toBe(String(manager.userId))
       expect(patchBody).toEqual({ role: 'volunteer' })
     })
-    expect(await screen.findByText('Volunteer')).toBeInTheDocument()
+    // Scoped to the row: the "How roles work" card (ENG-11058) also reads
+    // "Volunteer" verbatim, so an unscoped findByText now matches twice.
+    const row = (await screen.findByText('Manager Person')).closest('tr')
+    expect(row).not.toBeNull()
+    expect(within(row!).getByText('Volunteer')).toBeInTheDocument()
   })
 
   it('offers Make Campaign Manager on a volunteer row and PATCHes the right value', async () => {
@@ -386,7 +486,12 @@ describe('TeamPage — role change (ENG-11049)', () => {
     await waitFor(() => {
       expect(patchBody).toEqual({ role: 'campaignAdmin' })
     })
-    expect(await screen.findByText('Campaign Manager')).toBeInTheDocument()
+    // Scoped to the row: the "How roles work" card (ENG-11058) also reads
+    // "Campaign Manager" verbatim, so an unscoped findByText now matches
+    // more than once.
+    const row = (await screen.findByText('Val Volunteer')).closest('tr')
+    expect(row).not.toBeNull()
+    expect(within(row!).getByText('Campaign Manager')).toBeInTheDocument()
   })
 
   it('never offers a role-change action to a manager (no Manage menu at all)', async () => {
