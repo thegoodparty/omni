@@ -1411,19 +1411,20 @@ describe('NativeDoorKnockingPage walk map', () => {
     testQueryClient.clear()
   })
 
-  it('opens the door behind a tapped pin', async () => {
+  it('expands the row behind a tapped pin without opening PersonSheet', async () => {
     const pin = await startWalk()
 
     fireEvent.click(pin)
 
+    // The row for the tapped pin expands in place so the candidate can pick
+    // the resident — PersonSheet doesn't cover the drawer's drag handle and
+    // header. The resident's row is a reachable button inside the sheet.
     await waitFor(() =>
-      expect(screen.getByText('Did they answer?')).toBeInTheDocument(),
+      expect(
+        screen.getByRole('button', { name: /Dorian Fen/ }),
+      ).toBeInTheDocument(),
     )
-    // The door, which is what the sheet is headed with and what a pin is: the
-    // stop behind pin 11, not whichever of its residents is selected first.
-    expect(
-      screen.getByRole('heading', { name: '105 Elm St', level: 2 }),
-    ).toBeInTheDocument()
+    expect(screen.queryByText('Did they answer?')).toBeNull()
   })
 
   // The list has marked the stop the walk is on since #1392; the map drew

@@ -2255,12 +2255,32 @@ describe('WalkView map pin taps', () => {
     return rerender
   }
 
+  // Tap a pin, then open PersonSheet the way a candidate does now — by
+  // clicking the resident inside the expanded row. The chevron tests below
+  // need PersonSheet on screen; this is the intended path to reach it.
+  const walkAndOpenResident = async (
+    stops: DoorKnockingRoutePayload['stops'],
+    request: { stopId: number; token: number },
+    residentName: string | RegExp,
+  ) => {
+    const rerender = await walkThenTap(stops, request)
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name:
+          typeof residentName === 'string'
+            ? new RegExp(residentName)
+            : residentName,
+      }),
+    )
+    return rerender
+  }
+
   beforeEach(() => {
     testQueryClient.clear()
     vi.mocked(trackEvent).mockClear()
   })
 
-  it('opens the tapped stop’s door', async () => {
+  it('expands the tapped stop’s row without opening the sheet', async () => {
     await walkThenTap(
       [
         stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
@@ -2269,8 +2289,17 @@ describe('WalkView map pin taps', () => {
       { stopId: 12, token: 1 },
     )
 
-    await expectSheetAtDoor('210 Cedar Row')
-    expect(screen.getByText('Did they answer?')).toBeInTheDocument()
+    // The tapped stop's row expands in place: aria-expanded flips, its
+    // resident becomes visible, PersonSheet does not open (no "Did they
+    // answer?" copy on screen).
+    await waitFor(() =>
+      expect(stopRow(1)).toHaveAttribute('aria-expanded', 'true'),
+    )
+    expect(stopRow(0)).toHaveAttribute('aria-expanded', 'false')
+    expect(
+      screen.getByRole('button', { name: /Marisol Vega/ }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Did they answer?')).toBeNull()
   })
 
   // The other half of the map's selection: the list follows the pin. The map
@@ -2299,9 +2328,12 @@ describe('WalkView map pin taps', () => {
     }
   })
 
-  // The row expands for a household so the canvasser can pick; a pin has no
-  // list under it to expand into, and the sheet's own switcher is that picker.
-  it('opens a household at the first resident still worth knocking', async () => {
+  // A household expands to show every resident — the flagged one included —
+  // so the canvasser sees whom the tap will log for and picks explicitly.
+  // The old behaviour opened the sheet directly on the first knockable
+  // resident; that shortcut took the pick away from the candidate at the
+  // one place they can catch a flag set on the wrong person.
+  it('expands a household so the candidate can pick the resident', async () => {
     await walkThenTap(
       [
         stop(11, 1, '105 Elm St', [
@@ -2312,16 +2344,26 @@ describe('WalkView map pin taps', () => {
       { stopId: 11, token: 1 },
     )
 
-    await expectSheetOnResident('Winnie Fen')
-    expect(screen.getByText('Did they answer?')).toBeInTheDocument()
+    // Both residents are visible in the expanded row — the flagged one and
+    // the still-knockable one — and no sheet is on screen. The candidate
+    // opens PersonSheet from here by clicking the resident of their choice.
+    await waitFor(() =>
+      expect(stopRow(0)).toHaveAttribute('aria-expanded', 'true'),
+    )
+    expect(
+      screen.getByRole('button', { name: /Dorian Fen/ }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Winnie Fen/ }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Did they answer?')).toBeNull()
   })
 
-  // A hollow pin has nobody left to knock. Opening it anyway is the point: the
-  // sheet withholds the script and the form and renders the flag's own control
-  // instead, so the tap answers "why am I skipping this house?" from the
-  // doorstep — where a flag set on the wrong resident is caught — rather than
-  // going dead under the thumb, which is the bug being fixed.
-  it('opens a stop with nobody knockable without offering a knock', async () => {
+  // A hollow pin has nobody left to knock. The row still expands so the
+  // candidate can see WHY every resident is off the list — a flag set on the
+  // wrong person is caught here rather than at the doorstep — but no
+  // knock-form is offered.
+  it('expands a stop with nobody knockable without opening the sheet', async () => {
     await walkThenTap(
       [
         stop(11, 1, '105 Elm St', [
@@ -2331,74 +2373,63 @@ describe('WalkView map pin taps', () => {
       { stopId: 11, token: 1 },
     )
 
-    await expectSheetAtDoor('105 Elm St')
-    expect(screen.queryByText('Did they answer?')).toBeNull()
+    await waitFor(() =>
+      expect(stopRow(0)).toHaveAttribute('aria-expanded', 'true'),
+    )
     expect(
-      screen.getByText(/asked not to be visited again/),
+      screen.getByRole('button', { name: /Dorian Fen/ }),
     ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
-  })
-
-  // Closing the sheet leaves the page's tapped-pin state alone, so a bare stop
-  // id would be inert the second time — the token is what makes the same pin
-  // openable again.
-  it('reopens the same stop when its pin is tapped again', async () => {
-    const rerender = await walkThenTap(
-      [stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')])],
-      { stopId: 11, token: 1 },
-    )
-    await waitFor(() =>
-      expect(screen.getByText('Did they answer?')).toBeInTheDocument(),
-    )
-    await closePersonSheet()
-
-    rerender(
-      <WalkHarness turfId={3} openStopRequest={{ stopId: 11, token: 2 }} />,
-    )
-
-    await waitFor(() =>
-      expect(screen.getByText('Did they answer?')).toBeInTheDocument(),
-    )
-  })
-
-  // Every knock patches the route cache, which rebuilds the stops the effect
-  // reads — a reopen on each one would spring the sheet back up on a canvasser
-  // who had closed it.
-  it('does not reopen the sheet when a knock patches the route', async () => {
-    api.mock('POST /v1/door-knocking/interactions', {
-      status: 200,
-      data: { personId: 'person-21', knockStatus: 'not_home' },
-    })
-    await walkThenTap([stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')])], {
-      stopId: 11,
-      token: 1,
-    })
-    await waitFor(() =>
-      expect(screen.getByText('Did they answer?')).toBeInTheDocument(),
-    )
-
-    // Nothing left ahead, so logging this door closes the sheet — and it has
-    // to stay closed.
-    knockNotHome()
-    await waitFor(() =>
-      expect(screen.queryByText('Did they answer?')).toBeNull(),
-    )
-
     expect(screen.queryByText('Did they answer?')).toBeNull()
   })
 
-  // The canvas's panel header navigates the route door by door
-  // (`navBtn('chevron-left', ()=>this.openPanel(route[idx-1].id), hasPrev)`);
-  // ours had no equivalent, so the only way to the next house was to close the
-  // sheet and find the row. Both chevrons go through the same open path a pin
-  // tap does, so the list follows and the mark moves with them.
-  it('walks to the next and previous door from the sheet', async () => {
-    await walkThenTap(
+  // Closing the row leaves the page's tapped-pin state alone, so a bare
+  // stop id would be inert the second time — the token is what makes the
+  // same pin re-expand it.
+  it('re-expands the same stop when its pin is tapped again', async () => {
+    const rerender = await walkThenTap(
       [
         stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
         stop(12, 2, '210 Cedar Row', [target(22, 'Marisol Vega')]),
       ],
       { stopId: 11, token: 1 },
+    )
+    await waitFor(() =>
+      expect(stopRow(0)).toHaveAttribute('aria-expanded', 'true'),
+    )
+
+    // Tap a different stop to collapse the first row.
+    rerender(
+      <WalkHarness turfId={3} openStopRequest={{ stopId: 12, token: 2 }} />,
+    )
+    await waitFor(() =>
+      expect(stopRow(1)).toHaveAttribute('aria-expanded', 'true'),
+    )
+    expect(stopRow(0)).toHaveAttribute('aria-expanded', 'false')
+
+    // Re-tap the first stop's pin — same stop id, new token — and its row
+    // re-expands.
+    rerender(
+      <WalkHarness turfId={3} openStopRequest={{ stopId: 11, token: 3 }} />,
+    )
+    await waitFor(() =>
+      expect(stopRow(0)).toHaveAttribute('aria-expanded', 'true'),
+    )
+  })
+
+  // The canvas's panel header navigates the route door by door
+  // (`navBtn('chevron-left', ()=>this.openPanel(route[idx-1].id), hasPrev)`);
+  // ours had no equivalent, so the only way to the next house was to close
+  // the sheet and find the row. The chevrons live inside PersonSheet — which
+  // the candidate opens by picking a resident from the expanded row — and
+  // still bring the list along as they move between doors.
+  it('walks to the next and previous door from the sheet', async () => {
+    await walkAndOpenResident(
+      [
+        stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
+        stop(12, 2, '210 Cedar Row', [target(22, 'Marisol Vega')]),
+      ],
+      { stopId: 11, token: 1 },
+      'Dorian Fen',
     )
     await expectSheetAtDoor('105 Elm St')
 
@@ -2418,12 +2449,13 @@ describe('WalkView map pin taps', () => {
   // last door is indistinguishable from one that broke, and the pair keeps its
   // place in the header instead of reflowing it as the canvasser walks.
   it('disables the chevrons at the ends of the route', async () => {
-    await walkThenTap(
+    await walkAndOpenResident(
       [
         stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
         stop(12, 2, '210 Cedar Row', [target(22, 'Marisol Vega')]),
       ],
       { stopId: 11, token: 1 },
+      'Dorian Fen',
     )
     await expectSheetAtDoor('105 Elm St')
 
@@ -2444,12 +2476,13 @@ describe('WalkView map pin taps', () => {
   // person led with three blue discs around their name. The hit target is the
   // same either way, which is the half that matters at a doorstep.
   it('draws the panel’s header controls as glyphs, not filled circles', async () => {
-    await walkThenTap(
+    await walkAndOpenResident(
       [
         stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
         stop(12, 2, '210 Cedar Row', [target(22, 'Marisol Vega')]),
       ],
       { stopId: 11, token: 1 },
+      'Dorian Fen',
     )
     await expectSheetAtDoor('105 Elm St')
 
@@ -2467,12 +2500,13 @@ describe('WalkView map pin taps', () => {
   // and 7 for exactly that reason: with 1 and 2 an off-by-nothing index bug
   // would agree with the right answer and the test would pass on a wrong build.
   it('names the stop by its route number in the sheet header', async () => {
-    await walkThenTap(
+    await walkAndOpenResident(
       [
         stop(11, 3, '105 Elm St', [target(21, 'Dorian Fen')]),
         stop(12, 7, '210 Cedar Row', [target(22, 'Marisol Vega')]),
       ],
       { stopId: 12, token: 1 },
+      'Marisol Vega',
     )
 
     await expectSheetAtDoor('210 Cedar Row')
@@ -2491,12 +2525,13 @@ describe('WalkView map pin taps', () => {
   // scrolling body keeps its offset — a canvasser who read the activity feed at
   // one house would arrive at the next already past the address and the phones.
   it('returns the sheet to the top of the next door', async () => {
-    await walkThenTap(
+    await walkAndOpenResident(
       [
         stop(11, 1, '105 Elm St', [target(21, 'Dorian Fen')]),
         stop(12, 2, '210 Cedar Row', [target(22, 'Marisol Vega')]),
       ],
       { stopId: 11, token: 1 },
+      'Dorian Fen',
     )
     await expectSheetAtDoor('105 Elm St')
     // The card headers are inside the scrolling body, so this finds it without
@@ -2518,9 +2553,6 @@ describe('WalkView map pin taps', () => {
     ).toBe(0)
   })
 })
-
-// ADR 0011. The card's own reads and writes are DoorNotesCard.test.tsx's and
-// the list algebra is doorNotes.test.ts's; what belongs here is the one thing
 // only the walk can hold — that a note written at a door outlives the sheet it
 // was written in, because it goes into the cached route payload rather than
 // into state that dies with the sheet.
