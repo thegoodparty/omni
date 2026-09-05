@@ -1497,6 +1497,43 @@ describe('DELETE /v1/organizations/team/members/:userId', () => {
     expect(result.status).toBe(404)
   })
 
+  // ENG-11048: assignments are access grants, not attribution, so removal
+  // deletes them outright rather than leaving a stale grant behind.
+  it("deletes the member's outreach assignments in the same removal", async () => {
+    await createOrg()
+    const member = await createMemberUser({ email: 'assigned-remove@x.com' })
+    await addMembership(member.id, OrganizationRole.volunteer)
+    const campaign = await service.prisma.campaign.create({
+      data: {
+        organizationSlug: ORG_SLUG,
+        userId: service.user.id,
+        slug: `${ORG_SLUG}-remove-campaign`,
+      },
+    })
+    const outreach = await service.prisma.outreach.create({
+      data: { campaignId: campaign.id, outreachType: 'text' },
+    })
+    await service.prisma.outreachAssignment.create({
+      data: {
+        organizationSlug: ORG_SLUG,
+        outreachId: outreach.id,
+        assigneeUserId: member.id,
+      },
+    })
+
+    const result = await service.client.delete(
+      `${TEAM_PATH}/members/${member.id}`,
+      { headers: { [ORG_SLUG_HEADER]: ORG_SLUG } },
+    )
+
+    expect(result.status).toBe(204)
+    expect(
+      await service.prisma.outreachAssignment.count({
+        where: { assigneeUserId: member.id },
+      }),
+    ).toBe(0)
+  })
+
   it('403s for a campaignAdmin, including removing themselves', async () => {
     await createOrg()
     const admin = await createMemberUser({

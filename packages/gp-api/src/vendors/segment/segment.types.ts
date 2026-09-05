@@ -167,6 +167,10 @@ export const EVENTS = {
     InviteAccepted: 'Team - Invite Accepted',
     RoleChanged: 'Team - Role Changed',
     MemberRemoved: 'Team - Member Removed',
+    // Outreach assignment (ENG-11048). Fires from the two mutating
+    // OutreachAssignment endpoints only.
+    OutreachAssigned: 'Team - Outreach Assigned',
+    OutreachAssignmentRemoved: 'Team - Outreach Assignment Removed',
   },
   // Robocall payment milestones (Win, VO 2.0). Server-truth outcomes of the
   // pay-time authorization hold the browser cannot observe. Each is emitted
