@@ -314,27 +314,56 @@ const TeamPage = (): React.JSX.Element => {
                         <TableCell>{invite.name}</TableCell>
                         <TableCell>
                           {ROLE_LABELS[invite.role] ?? invite.role}
+                          {/* List-scoped volunteer invites (ENG-11049) are
+                              created from — and only make sense in the
+                              context of — one outreach list, so a bare
+                              "Volunteer" row here would read as a normal
+                              team invite. Name the scope inline rather than
+                              hiding the row: hiding it would violate the
+                              ticket's own AC that these show up here too
+                              (delegate review, PR #1736). */}
+                          {invite.outreachId != null && (
+                            <span className="block text-xs text-muted-foreground">
+                              List-scoped
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell>{invite.email}</TableCell>
                         <TableCell>
-                          <IconButton
-                            variant="ghost"
-                            size="small"
-                            aria-label={`Revoke invite for ${invite.email}`}
-                            // Scoped to THIS row's invite id, not just
-                            // isPending — one shared mutation instance backs
-                            // every row, so isPending alone would disable
-                            // every other pending invite's button while any
-                            // one revoke is in flight (delegate review, PR
-                            // #1688).
-                            disabled={
-                              revokeMutation.isPending &&
-                              revokeMutation.variables === invite.id
-                            }
-                            onClick={() => revokeMutation.mutate(invite.id)}
-                          >
-                            <Trash2Icon />
-                          </IconButton>
+                          {invite.outreachId != null ? (
+                            // No Revoke here: this invite's Cancel lives with
+                            // the outreach that scopes it (the drawer's
+                            // Assignees section), where the context to
+                            // cancel it safely actually is. Revoking it from
+                            // this context-free table would silently cancel
+                            // an outreach-scoped invite the manager can't see
+                            // here (delegate review, PR #1736).
+                            <span
+                              className="text-xs text-muted-foreground"
+                              title="Manage from the outreach's assignees section"
+                            >
+                              Managed in outreach
+                            </span>
+                          ) : (
+                            <IconButton
+                              variant="ghost"
+                              size="small"
+                              aria-label={`Revoke invite for ${invite.email}`}
+                              // Scoped to THIS row's invite id, not just
+                              // isPending — one shared mutation instance backs
+                              // every row, so isPending alone would disable
+                              // every other pending invite's button while any
+                              // one revoke is in flight (delegate review, PR
+                              // #1688).
+                              disabled={
+                                revokeMutation.isPending &&
+                                revokeMutation.variables === invite.id
+                              }
+                              onClick={() => revokeMutation.mutate(invite.id)}
+                            >
+                              <Trash2Icon />
+                            </IconButton>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))

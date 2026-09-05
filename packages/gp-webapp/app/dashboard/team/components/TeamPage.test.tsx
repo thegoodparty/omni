@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -465,5 +465,40 @@ describe('TeamPage — revoking a pending invite', () => {
       expect(screen.queryByText('Invitee Person')).not.toBeInTheDocument()
     })
     expect(screen.getByText('Second Invitee')).toBeInTheDocument()
+  })
+})
+
+// Delegate review (PR #1736): a list-scoped volunteer invite still belongs
+// in this table (the ticket's own AC), but revoking it here has no outreach
+// context — that action lives with the drawer's Assignees section instead.
+describe('TeamPage — list-scoped pending invites (delegate review, PR #1736)', () => {
+  it('renders a list-scoped invite with a Volunteer + list-scoped label and no Revoke button, while a plain invite keeps its Revoke button', async () => {
+    const listScopedInvite: PendingInvite = {
+      id: 'invite-scoped',
+      name: 'Val Volunteer',
+      email: 'val@example.com',
+      role: 'volunteer',
+      createdAt: '2024-01-06T00:00:00.000Z',
+      outreachId: 30,
+    }
+    pendingInvites = [pendingInvite, listScopedInvite]
+
+    render(<TeamPage />)
+
+    await screen.findByText('Val Volunteer')
+    const scopedRow = screen.getByText('Val Volunteer').closest('tr')
+    expect(scopedRow).not.toBeNull()
+    expect(within(scopedRow!).getByText('Volunteer')).toBeInTheDocument()
+    expect(within(scopedRow!).getByText('List-scoped')).toBeInTheDocument()
+    expect(
+      within(scopedRow!).queryByRole('button', { name: /Revoke invite/ }),
+    ).not.toBeInTheDocument()
+
+    // The plain (non-list-scoped) invite is untouched.
+    expect(
+      screen.getByRole('button', {
+        name: 'Revoke invite for invitee@example.com',
+      }),
+    ).toBeInTheDocument()
   })
 })
