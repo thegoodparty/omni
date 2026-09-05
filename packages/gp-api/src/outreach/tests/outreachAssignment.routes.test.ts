@@ -380,6 +380,35 @@ describe('DELETE /v1/outreach/:id/assignments/:userId', () => {
     expect(mine.status).toBe(HttpStatus.OK)
     expect(mine.data.assignments).toEqual([])
   })
+
+  it('403s when the caller is a volunteer, not a manager', async () => {
+    const outreach = await createOutreach()
+    const volunteer = await createMemberUser({
+      email: 'unassign-volunteer-forbidden@example.com',
+      clerkId: 'user_unassign_volunteer_forbidden',
+    })
+    await addMembership(volunteer.id, OrganizationRole.volunteer)
+    await service.prisma.outreachAssignment.create({
+      data: {
+        organizationSlug: ORG_SLUG,
+        outreachId: outreach.id,
+        assigneeUserId: volunteer.id,
+        assignedByUserId: service.user.id,
+      },
+    })
+
+    const result = await service.client.delete(
+      `/v1/outreach/${outreach.id}/assignments/${volunteer.id}`,
+      {
+        headers: {
+          [ORG_SLUG_HEADER]: ORG_SLUG,
+          ...authHeaderFor('user_unassign_volunteer_forbidden'),
+        },
+      },
+    )
+
+    expect(result.status).toBe(HttpStatus.FORBIDDEN)
+  })
 })
 
 describe('GET /v1/outreach/:id/assignments', () => {
