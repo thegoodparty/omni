@@ -1592,3 +1592,36 @@ so a malformed body on a gated route 400s as `Validation failed` rather than
 with the Pro message. Both refuse; only the wording differs.
 
 `@goodparty_org/contracts` is unchanged — this adds no field to any payload.
+
+## Volunteer access to the walk (ENG-11051)
+
+Six routes carry `@AllowVolunteer()`, admitting an assigned volunteer past
+`OrganizationRoleGuard`'s default manager+ posture: turf `GET :id`, route
+`GET :id/route`, `POST :id/complete`, `POST interactions`,
+`POST do-not-knock`, `POST not-a-voter` — the whole loop of reading a turf,
+walking its route, logging a knock, and ending the session. Every other
+route (create, list, update, delete, archive, `GET pack`, `GET quota`,
+`POST address-preview`) stays manager+: `pack` answers for the whole
+district rather than one turf, and quota/address-preview describe spend and
+audience a volunteer never draws from.
+
+One shared predicate enforces it, `assertVolunteerAssignedToOutreach`
+(`utils/doorKnockingAccess.util.ts`): a no-op for owner/campaignAdmin, and
+for a volunteer, resolves turf → route → `Outreach` envelope →
+`OutreachAssignmentService.existsFor(outreachId, userId)` (ENG-11048's
+assignment model), 404ing an unassigned volunteer exactly like a cross-org
+id — so probing a teammate's turf reveals nothing about whether it exists.
+`OutreachAssignmentService` is resolved lazily off `ModuleRef` rather than
+injected, since DoorKnockingModule and OutreachModule already close a
+multi-module cycle a plain import can't break (the same reasoning as
+`OrganizationTeamService.removeMember`).
+
+`do-not-knock` / `not-a-voter` resolve the outreach id through the same
+query the interaction routes already ran to find `personId`
+(`resolveTargetForOrg`), so the check costs no second round trip.
+
+**Open question, not resolved here.** The served route already nulls
+`politicalParty` for `eo-` orgs (see "Win and Serve on one route" above);
+a Win volunteer still sees party today, same as a manager. Hiding it from
+volunteers specifically — as opposed to by Win/Serve surface — would be a
+new product decision.
