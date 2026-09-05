@@ -27,6 +27,7 @@ import { USER_WEBSITE_QUERY_KEY } from 'app/dashboard/website/util/website.util'
 import { TCR_COMPLIANCE_QUERY_KEY } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import {
   submitTcrCompliance,
+  TcrComplianceSubmitError,
   toRegistrationFormData,
 } from 'app/dashboard/profile/texting-compliance/util/registrationFormData.util'
 import { StyledAlert } from '@shared/alerts/StyledAlert'
@@ -50,16 +51,18 @@ import { useProUpgradeWizard } from './ProUpgradeWizard'
 
 // The backend createAgentic endpoint validates officeLevel against the
 // federal/state/local enum, and the federal branch additionally requires FEC
-// fields. The candidate already chose an office in onboarding, so we derive the
-// level from `details.ballotLevel` rather than re-asking. That value comes from
-// two paths with different casing: BallotReady search stores lowercase
-// `local` / `state` / `federal` (per `position.level`), while manual entry
-// stores the capitalized labels `Federal` / `State` / `County/Regional` /
-// `Local/Township/City` (OfficeStepForm). Match case-insensitively on the only
-// two levels that change behavior; everything else — county/city/township,
-// regional, and any missing value on a pre-structured-office campaign — maps to
-// `local`, the safe default for our overwhelmingly down-ballot audience that
-// keeps the candidate from stalling on a hidden field.
+// fields. When onboarding recorded an office level we derive it from
+// `details.ballotLevel` rather than re-asking. That value comes from paths
+// with different casing: BallotReady search stores lowercase
+// `local` / `state` / `federal` (per `position.level`), manual entry stores
+// the uppercase BallotReadyPositionLevel enum, and legacy campaigns carry the
+// capitalized OfficeStepForm labels (`Federal` / `County/Regional` / …). Match
+// case-insensitively on the only two levels that change behavior; everything
+// else — county/city/township, regional — maps to `local`, the right answer
+// for our overwhelmingly down-ballot audience. A campaign with NO ballot
+// level (manual office entry didn't collect one before ENG-11043) must be
+// asked instead: silently defaulting to local hid the FEC fields from federal
+// candidates, whose FEC.gov filing URL was then rejected server-side.
 type OfficeLevel = 'federal' | 'state' | 'local'
 
 export const ballotLevelToOfficeLevel = (
@@ -70,6 +73,10 @@ export const ballotLevelToOfficeLevel = (
   if (normalized === 'state') return 'state'
   return 'local'
 }
+
+export const hasBallotLevel = (
+  ballotLevel: string | null | undefined,
+): boolean => Boolean(ballotLevel?.trim())
 
 // EIN and committee come from `campaign.details` (the EIN was collected and
 // validated at the previous step). Email/phone/address are left blank: account
@@ -88,7 +95,9 @@ export const getInitialFilingDetailsState = (
     electionFilingLink: '',
     campaignCommitteeName: details.campaignCommittee || '',
     candidateName: '',
-    officeLevel: ballotLevelToOfficeLevel(details.ballotLevel),
+    officeLevel: hasBallotLevel(details.ballotLevel)
+      ? ballotLevelToOfficeLevel(details.ballotLevel)
+      : '',
     ein: details.einNumber || '',
     phone: '',
     address: { formatted_address: '', place_id: '' },
@@ -115,11 +124,16 @@ const validateFilingDetails = (data: FormDataState) =>
 interface FilingDetailsFormProps {
   onSubmit: (formData: FormDataState) => void
   loading: boolean
+  // True when the campaign has no details.ballotLevel to derive the office
+  // level from (manual office entry didn't collect one before ENG-11043) —
+  // the form must ask, mirroring the standalone registration form.
+  askOfficeLevel: boolean
 }
 
 const FilingDetailsForm = ({
   onSubmit,
   loading,
+  askOfficeLevel,
 }: FilingDetailsFormProps): React.JSX.Element => {
   const { formData, handleChange } = useFormData()
   const {
@@ -242,6 +256,27 @@ const FilingDetailsForm = ({
       )}
 
       <div className="flex flex-col gap-6">
+        {askOfficeLevel && (
+          <div className="flex w-full flex-col gap-1.5">
+            <Label>Office level *</Label>
+            <Select
+              value={getStringValue(officeLevel)}
+              onValueChange={(val) => handleChange({ officeLevel: val })}
+            >
+              <SelectTrigger
+                className="w-full"
+                aria-invalid={showError('officeLevel') || undefined}
+              >
+                <SelectValue placeholder="Select an office level" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="federal">Federal</SelectItem>
+                <SelectItem value="state">State</SelectItem>
+                <SelectItem value="local">Local</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <TextField
           label="Candidate Name"
           placeholder="Jane Smith"
@@ -407,7 +442,7 @@ const FilingDetailsStep = (): React.JSX.Element => {
       await submitTcrCompliance(
         apiRoutes.campaign.tcrCompliance.createAgentic,
         toRegistrationFormData(formData),
-        'Failed to submit filing details',
+        'Failed to submit filing details. Please try again later.',
       )
       trackEvent(EVENTS.Outreach.DlcCompliance.RegistrationSubmitted, {
         email: getStringValue(formData.email),
@@ -420,11 +455,18 @@ const FilingDetailsStep = (): React.JSX.Element => {
         queryClient.invalidateQueries({ queryKey: TCR_COMPLIANCE_QUERY_KEY }),
       ])
       goToNextStep()
-    } catch {
+    } catch (error) {
       trackEvent(EVENTS.Outreach.DlcCompliance.RegistrationSubmitError, {
         email: getStringValue(formData.email),
       })
-      errorSnackbar('Failed to submit filing details. Please try again later.')
+      // Show the server's own rejection reason when there is one (e.g. the
+      // FEC.gov-URL-on-non-federal check) — the generic copy sent candidates
+      // to support with no clue what to fix (ENG-11043).
+      errorSnackbar(
+        error instanceof TcrComplianceSubmitError
+          ? error.message
+          : 'Failed to submit filing details. Please try again later.',
+      )
     } finally {
       setLoading(false)
     }
@@ -434,12 +476,18 @@ const FilingDetailsStep = (): React.JSX.Element => {
     return <div className="text-sm text-muted-foreground">Loading…</div>
   }
 
+  const details = (campaign?.details ?? {}) as { ballotLevel?: string | null }
+
   return (
     <FormDataProvider
       initialState={getInitialFilingDetailsState(campaign)}
       validator={validateFilingDetails}
     >
-      <FilingDetailsForm onSubmit={handleSubmit} loading={loading} />
+      <FilingDetailsForm
+        onSubmit={handleSubmit}
+        loading={loading}
+        askOfficeLevel={!hasBallotLevel(details.ballotLevel)}
+      />
     </FormDataProvider>
   )
 }

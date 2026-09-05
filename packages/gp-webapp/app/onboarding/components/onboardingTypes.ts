@@ -57,6 +57,12 @@ export type OnboardingJsonValue =
 
 export interface ManualOfficeForm {
   office: string
+  // A BallotReadyPositionLevel value ('LOCAL' | 'COUNTY' | 'STATE' |
+  // 'FEDERAL'), or '' until selected. Persisted to details.ballotLevel, which
+  // downstream 10DLC compliance derives the office level from — before this
+  // field existed, manual-entry federal candidates were silently treated as
+  // local and their FEC filing URL was rejected (ENG-11043).
+  level: string
   state: string
   city: string
   district: string
