@@ -257,4 +257,31 @@ describe('OutreachAssignmentService', () => {
     })
     expect(row.assignedByUserId).toBeNull()
   })
+
+  // ENG-11049: accept threads a tx so the assignment commits or rolls back
+  // with the membership row it accompanies — never a second $transaction.
+  it('assign participates in a caller-supplied transaction', async () => {
+    const outreach = await createOutreach()
+    const member = await service.prisma.user.create({
+      data: { email: 'tx-assignee@goodparty.org' },
+    })
+
+    await expect(
+      service.prisma.$transaction(async (tx) => {
+        await assignmentService.assign(
+          organization.slug,
+          outreach.id,
+          member.id,
+          service.user.id,
+          tx,
+        )
+        throw new Error('rollback')
+      }),
+    ).rejects.toThrow('rollback')
+
+    const rows = await service.prisma.outreachAssignment.findMany({
+      where: { outreachId: outreach.id, assigneeUserId: member.id },
+    })
+    expect(rows).toHaveLength(0)
+  })
 })

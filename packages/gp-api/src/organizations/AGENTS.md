@@ -74,6 +74,30 @@ other managers" is a stated ENG-10816 goal, so neither `createInvite` nor
 `campaignAdmin`) may invite or revoke a pending invite. Only member
 management (`PATCH`/`DELETE team/members/:userId`) is owner-only.
 
+**Volunteer invites are list-scoped (ENG-11049, Phase 1.5).** A volunteer
+invite always carries an `outreachId` (the DTO refine enforces this — and
+forbids one on a `campaignAdmin` invite); `inviteMember` validates it belongs
+to the inviting org via `OutreachAssignmentService.assertOutreachInOrg`
+*before* anything is written or a Clerk invitation is sent. The invite and the
+eventual `OutreachAssignment` are created in the same act: the direct-add
+branch creates the membership + assignment in one transaction; the
+Clerk-invitation branch carries `outreachId` in `TeamInviteMetadata`
+(optional — absent for `campaignAdmin`) and `acceptInvite` creates the
+assignment inside the same transaction as the membership, threading `tx` into
+`OutreachAssignmentService.assign`. If the outreach was deleted between
+invite and accept, the membership still commits and the assignment is
+skipped (logged, not thrown) — only a genuine unexpected error rolls the
+transaction back. `AcceptInviteResponse.assignment` carries a lightweight
+pointer (outreach id/type + channel pointer) when one was created, so the
+webapp can route the volunteer straight to their work; null for a
+`campaignAdmin` accept or a skipped assignment. `PendingInvite.outreachId`
+exposes the same field on the pending-list response for the manager drawer
+(ENG-11056) to filter by. `Team - Member Invited` fires `listScoped: true`
+for a volunteer invite. `PATCH team/members/:userId` also carries the same
+two-value role enum, so the owner can move an existing member between
+`campaignAdmin` and `volunteer` — a role change never creates or touches an
+`OutreachAssignment`; volunteers get their list only through an invite.
+
 **Invite branches on whether the email has a local account** (never a
 Clerk-only check): a known email gets added directly + emailed
 (`EmailService.sendTeamMemberAddedEmail`); an unknown email gets a Clerk

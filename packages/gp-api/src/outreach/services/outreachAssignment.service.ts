@@ -74,11 +74,15 @@ export class OutreachAssignmentService extends createPrismaBase(
     return outreach.outreachType
   }
 
+  // `tx` (ENG-11049) lets a team-invite accept create the membership and
+  // this assignment atomically — never nest a $transaction, so this thread's
+  // caller owns the outer one, matching deleteAllForMember's convention.
   async assign(
     organizationSlug: string,
     outreachId: number,
     assigneeUserId: number,
     assignedByUserId: number,
+    tx?: Prisma.TransactionClient,
   ): Promise<OutreachAssignment> {
     const effectiveOrgSlug = await this.resolveOutreachOrgSlug(outreachId)
     if (effectiveOrgSlug !== organizationSlug) {
@@ -89,7 +93,8 @@ export class OutreachAssignmentService extends createPrismaBase(
     // Upsert, not create: the same (outreachId, assigneeUserId) pair may be
     // assigned more than once and must collapse to one row. `update: {}`
     // deliberately leaves an existing row's assignedByUserId untouched.
-    return this.model.upsert({
+    const client = tx ?? this.client
+    return client.outreachAssignment.upsert({
       where: { outreachId_assigneeUserId: { outreachId, assigneeUserId } },
       create: {
         organizationSlug,

@@ -436,6 +436,8 @@ export {
   type TeamResponse,
   InviteMemberResponseSchema,
   type InviteMemberResponse,
+  AcceptedAssignmentSchema,
+  type AcceptedAssignment,
   AcceptInviteResponseSchema,
   type AcceptInviteResponse,
   MyPendingInviteResponseSchema,
