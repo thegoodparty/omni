@@ -555,6 +555,15 @@ export const OutreachDetailsDrawer = ({
                           ? CONTINUE_LABELS.doorKnocking
                           : CONTINUE_LABELS.phoneBanking,
                         href: continueHref,
+                        // Close the details drawer before navigating so the
+                        // destination surface (door knocking's walk sheet
+                        // intercept, phone banking's call list route) doesn't
+                        // render beneath this vaul drawer's z-50 body portal.
+                        // For door knocking specifically the walk sheet lives
+                        // in a fixed z-40 container per DoorKnockingFlow.tsx —
+                        // it can't win a z-fight with the details drawer, so
+                        // we clear it out of the way.
+                        onClick: () => onOpenChange(false),
                       }
                     : // Both channels' hrefs are ids that ride the detail —
                       // phone banking's list, door knocking's turf — so
