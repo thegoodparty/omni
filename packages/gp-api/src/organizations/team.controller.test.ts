@@ -1302,6 +1302,74 @@ describe('POST /v1/organizations/team/invites/accept', () => {
     expect(await service.prisma.outreachAssignment.count()).toBe(0)
   })
 
+  // ENG-11049 blocker fix: if the outreach's org changed between invite and
+  // accept (reassigned to a different campaign), assign()'s own cross-org
+  // guard throws BadRequestException carrying the org slug + outreach id in
+  // its message — that must be tolerated the same way a deleted outreach
+  // is, never left to roll back the accept or leak into the response.
+  it('creates the membership and skips the assignment when the outreach belongs to a different org at accept time', async () => {
+    await createOrg()
+    const outreach = await createOutreachForOrg()
+    const otherOrg = await service.prisma.organization.create({
+      data: { slug: 'other-org-at-accept', ownerId: service.user.id },
+    })
+    const otherCampaign = await service.prisma.campaign.create({
+      data: {
+        organizationSlug: otherOrg.slug,
+        userId: service.user.id,
+        slug: `${otherOrg.slug}-campaign`,
+      },
+    })
+    // Simulates the outreach moving to a different org's campaign after
+    // the invite was sent but before it was accepted.
+    await service.prisma.outreach.update({
+      where: { id: outreach.id },
+      data: { campaignId: otherCampaign.id },
+    })
+    const invitee = await service.prisma.user.create({
+      data: { email: 'vol-crossorg@x.com', clerkId: 'user_vol_crossorg_1' },
+    })
+    mockInviteState({
+      organizationSlug: ORG_SLUG,
+      role: 'volunteer',
+      name: 'Volunteer CrossOrg',
+      invitedByUserId: service.user.id,
+      outreachId: outreach.id,
+    })
+    vi.spyOn(
+      stubClerkInvitations(),
+      'clearTeamInviteMetadata',
+    ).mockResolvedValue(undefined)
+    vi.spyOn(stubAnalytics(), 'track').mockResolvedValue(undefined as never)
+
+    const result = await service.client.post(
+      ACCEPT_PATH,
+      {},
+      { headers: authHeaderFor('user_vol_crossorg_1') },
+    )
+
+    expect(result.status).toBe(201)
+    // Exact equality — only these three fields, so assign()'s cross-org
+    // BadRequestException message (which carries the org slug + outreach
+    // id) cannot have leaked into the response.
+    expect(result.data).toEqual({
+      organizationSlug: ORG_SLUG,
+      role: 'volunteer',
+      assignment: null,
+    })
+
+    const row = await service.prisma.organizationMembership.findUnique({
+      where: {
+        organizationSlug_userId: {
+          organizationSlug: ORG_SLUG,
+          userId: invitee.id,
+        },
+      },
+    })
+    expect(row).not.toBeNull()
+    expect(await service.prisma.outreachAssignment.count()).toBe(0)
+  })
+
   it('404s with no invite metadata', async () => {
     await service.prisma.user.create({
       data: { email: 'nothing@x.com', clerkId: 'user_nothing_1' },

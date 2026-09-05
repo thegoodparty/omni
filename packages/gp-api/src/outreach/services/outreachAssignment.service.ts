@@ -37,10 +37,16 @@ export class OutreachAssignmentService extends createPrismaBase(
   // Refuses to attach an assignment to an outreach owned by a different
   // organization. Pre-org-scope Win rows have organizationSlug null on
   // Outreach, so the effective org resolves through the campaign join.
+  // Takes the same optional `tx` as `assign` — reading through `this.client`
+  // instead of a caller's open transaction would demand a second pool
+  // connection per in-flight call, which can deadlock the pool under a
+  // burst of concurrent accepts.
   private async resolveOutreachOrgSlug(
     outreachId: number,
+    tx?: Prisma.TransactionClient,
   ): Promise<string | null> {
-    const outreach = await this.client.outreach.findUnique({
+    const client = tx ?? this.client
+    const outreach = await client.outreach.findUnique({
       where: { id: outreachId },
       include: { campaign: true },
     })
@@ -84,7 +90,7 @@ export class OutreachAssignmentService extends createPrismaBase(
     assignedByUserId: number,
     tx?: Prisma.TransactionClient,
   ): Promise<OutreachAssignment> {
-    const effectiveOrgSlug = await this.resolveOutreachOrgSlug(outreachId)
+    const effectiveOrgSlug = await this.resolveOutreachOrgSlug(outreachId, tx)
     if (effectiveOrgSlug !== organizationSlug) {
       throw new BadRequestException(
         `Outreach ${outreachId} does not belong to organization ${organizationSlug}`,

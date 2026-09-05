@@ -284,4 +284,43 @@ describe('OutreachAssignmentService', () => {
     })
     expect(rows).toHaveLength(0)
   })
+
+  // ENG-11049 blocker fix: assign()'s org lookup must read through the
+  // caller's tx, not a second connection off this.client — reading off a
+  // separate connection inside an interactive transaction demands a second
+  // pool connection per in-flight accept (a connection-pool deadlock risk
+  // under a burst) and would also 404 on an outreach this same transaction
+  // just created but hasn't committed yet. Proves the tx-read directly: an
+  // outreach created inside the transaction is invisible to any OTHER
+  // connection until commit, so assign() succeeding on it here is only
+  // possible if its lookup used this transaction.
+  it("assign's org lookup reads through the caller's tx", async () => {
+    const member = await service.prisma.user.create({
+      data: { email: 'tx-lookup-assignee@goodparty.org' },
+    })
+
+    await service.prisma.$transaction(async (tx) => {
+      const outreach = await tx.outreach.create({
+        data: { organizationSlug: organization.slug, outreachType: 'text' },
+      })
+
+      await assignmentService.assign(
+        organization.slug,
+        outreach.id,
+        member.id,
+        service.user.id,
+        tx,
+      )
+
+      const row = await tx.outreachAssignment.findUnique({
+        where: {
+          outreachId_assigneeUserId: {
+            outreachId: outreach.id,
+            assigneeUserId: member.id,
+          },
+        },
+      })
+      expect(row).not.toBeNull()
+    })
+  })
 })

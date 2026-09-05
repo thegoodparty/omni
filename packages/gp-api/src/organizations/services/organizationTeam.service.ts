@@ -443,11 +443,15 @@ export class OrganizationTeamService {
   }
 
   // Creates the volunteer's OutreachAssignment inside the same transaction as
-  // the membership row it accompanies. An outreach deleted between invite
-  // and accept is tolerated — the membership still commits, there's just no
-  // assignment to route the volunteer to — but any other failure (a genuine
-  // DB error, a cross-org mismatch that should never happen given the
-  // invite-time check) propagates and rolls the whole accept back.
+  // the membership row it accompanies. Two known-shape failures are
+  // tolerated — the membership still commits, there's just no assignment to
+  // route the volunteer to — because both can legitimately happen in the
+  // gap between invite and accept: NotFoundException (the outreach was
+  // deleted) and BadRequestException (assign()'s own cross-org guard, if the
+  // outreach's org changed) — the latter also carries the org slug/outreach
+  // id in its message, which must never reach the accept response uncaught.
+  // Any OTHER failure (a genuine DB error) propagates and rolls the whole
+  // accept back.
   private async tryAssignOutreachInTx(
     tx: Prisma.TransactionClient,
     metadata: TeamInviteMetadata,
@@ -464,10 +468,15 @@ export class OrganizationTeamService {
       )
       return true
     } catch (err) {
-      if (!(err instanceof NotFoundException)) throw err
+      if (
+        !(err instanceof NotFoundException) &&
+        !(err instanceof BadRequestException)
+      ) {
+        throw err
+      }
       this.logger.warn(
         { err, outreachId: metadata.outreachId },
-        'Outreach for a volunteer invite was gone at accept; membership created without an assignment',
+        'Outreach for a volunteer invite was gone or cross-org at accept; membership created without an assignment',
       )
       return false
     }
