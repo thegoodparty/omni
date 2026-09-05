@@ -5,17 +5,9 @@ import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { DOOR_KNOCK_STATUSES, DoorKnockingTurf } from '@goodparty_org/contracts'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
+import { DoorKnockingDailyLimitDialog } from './DoorKnockingDailyLimitDialog'
 import { Campaign } from 'helpers/types'
 import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import {
@@ -827,32 +819,14 @@ export default function NativeDoorKnockingPage({
             }}
           />
         )}
-        {/* One action and no cancel: there is nothing to decide here, and
-            nothing the candidate can do to proceed today. The remedy the copy
-            names — go knock what is already mapped — is behind this dialog on
-            the rail it opened over. */}
-        <AlertDialog
-          open={refusedCampaignLimit !== null}
-          onOpenChange={(next) => {
-            if (!next) setRefusedCampaignLimit(null)
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Daily limit reached</AlertDialogTitle>
-              <AlertDialogDescription>
-                You&apos;ve created {refusedCampaignLimit} door knocking
-                campaigns today. Go knock the doors you&apos;ve already mapped,
-                and build more lists tomorrow.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogAction onClick={() => setRefusedCampaignLimit(null)}>
-                Got it
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        {/* Safety net for direct-URL entry, a race between the hub's own
+            gate and the quota refetch, or a limit hit in another tab —
+            the hub intercepts the tile click when it can, but this ensures
+            an org that reaches the page still gets refused cleanly. */}
+        <DoorKnockingDailyLimitDialog
+          limit={refusedCampaignLimit}
+          onDismiss={() => setRefusedCampaignLimit(null)}
+        />
       </DashboardLayout>
     </DoorKnockingSurface>
   )
