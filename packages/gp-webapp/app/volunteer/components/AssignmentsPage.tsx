@@ -48,7 +48,8 @@ const AssignmentsPage = (): React.JSX.Element => {
   // Only shown once the query has resolved successfully with at least one
   // assignment — at zero the empty-state card already carries the message,
   // and "You have 0 assignments" next to it would be redundant.
-  const showSubtext = !isPending && !isError && assignments.length > 0
+  const showSubtext =
+    !isPending && !isError && assignments.length > 0 && !!organization?.name
   const assignmentNoun = assignments.length === 1 ? 'assignment' : 'assignments'
   const subtext = `You have ${assignments.length} ${assignmentNoun} from ${organization?.name}.`
 

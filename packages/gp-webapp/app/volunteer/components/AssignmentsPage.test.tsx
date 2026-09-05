@@ -290,4 +290,13 @@ describe('AssignmentsPage — assignment-count subtext', () => {
       ),
     ).toBeInTheDocument()
   })
+
+  it('omits the subtext when the organization has no name', async () => {
+    mockUseOrganization.mockReturnValue({ slug: 'org-1', name: null })
+
+    render(<AssignmentsPage />)
+
+    expect(await screen.findByText('Call list A')).toBeInTheDocument()
+    expect(screen.queryByText(/You have/)).not.toBeInTheDocument()
+  })
 })
