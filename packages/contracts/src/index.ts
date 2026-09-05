@@ -796,6 +796,16 @@ export {
   type OutreachDetail,
 } from './outreach/OutreachSocial.schema'
 export {
+  OutreachAssigneeSchema,
+  type OutreachAssignee,
+  OutreachAssigneesResponseSchema,
+  type OutreachAssigneesResponse,
+  MyAssignmentSchema,
+  type MyAssignment,
+  MyAssignmentsResponseSchema,
+  type MyAssignmentsResponse,
+} from './outreach/OutreachAssignment.schema'
+export {
   PhoneBankingScriptPurposeSchema,
   type PhoneBankingScriptPurpose,
   PHONE_BANKING_SCRIPT_MAX_LENGTH,

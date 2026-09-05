@@ -120,6 +120,15 @@ source is always the DB, not request input. The Clerk metadata clear runs
 **Owner has no membership row**, so `:userId === Organization.ownerId` is a
 400 on both member-management routes (ownership transfer is out of scope).
 
+**Removal deletes the member's outreach assignments in the same transaction**
+(ENG-11048): assignments are access grants, not attribution — attribution
+lives on the interaction rows' `actorUserId` — so a removed member keeps no
+lingering access. `OrganizationTeamService.removeMember` resolves
+`OutreachAssignmentService` lazily via `ModuleRef` rather than injecting it:
+`OutreachModule` imports this module for `@UseOrganization()`, and its own
+import graph closes a multi-module cycle a single `forwardRef` can't break
+(same reasoning as `RaceOpponentService` in `campaignIdeology.service.ts`).
+
 ## HubSpot contact sync (ENG-10826, ENG-11030)
 
 Direct-add, accept, role-change, and removal each fire-and-forget a call

@@ -7,6 +7,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import { PinoLogger } from 'nestjs-pino'
 import {
   AcceptInviteResponse,
@@ -29,6 +30,7 @@ import { toLowerAndTrim } from '@/shared/util/strings.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { CrmTeamMembersService } from '@/crm/crmTeamMembers.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
+import { OutreachAssignmentService } from '@/outreach/services/outreachAssignment.service'
 import { WrapperType } from '@/shared/types/utility.types'
 import {
   Organization,
@@ -52,6 +54,7 @@ export class OrganizationTeamService {
     private readonly crmTeamMembers: CrmTeamMembersService,
     @Inject(forwardRef(() => CampaignsService))
     private readonly campaigns: WrapperType<CampaignsService>,
+    private readonly moduleRef: ModuleRef,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OrganizationTeamService.name)
@@ -350,7 +353,28 @@ export class OrganizationTeamService {
     )
     const targetUser = await this.users.findUser({ id: targetUserId })
 
-    await this.membership.model.delete({ where: { id: existing.id } })
+    // Assignments are access grants, not attribution (attribution lives on
+    // the interaction rows' actorUserId) — removing a member deletes them
+    // outright, in the same transaction as the membership row so a crash
+    // between the two can never strand a former member's access.
+    //
+    // OutreachAssignmentService is resolved lazily via ModuleRef rather than
+    // injected: OutreachModule imports OrganizationsModule (for
+    // @UseOrganization()), and OutreachModule's own import graph (Payments ->
+    // Campaigns -> CampaignsAi, etc.) closes a multi-module cycle a single
+    // forwardRef can't break — same reasoning as RaceOpponentService in
+    // campaignIdeology.service.ts and paymentEventsService.ts.
+    const outreachAssignments = this.moduleRef.get(OutreachAssignmentService, {
+      strict: false,
+    })
+    await this.membership.client.$transaction(async (tx) => {
+      await tx.organizationMembership.delete({ where: { id: existing.id } })
+      await outreachAssignments.deleteAllForMember(
+        organization.slug,
+        targetUserId,
+        tx,
+      )
+    })
 
     void this.analytics
       .track(actingUserId, EVENTS.Team.MemberRemoved, {
