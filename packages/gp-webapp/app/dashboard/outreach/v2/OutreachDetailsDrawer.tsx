@@ -39,7 +39,6 @@ import {
   FileTextIcon,
   HashIcon,
   Loader2Icon,
-  PhoneIcon,
   RadioIcon,
   CircleSlashIcon,
   ReceiptIcon,
@@ -556,11 +555,6 @@ export const OutreachDetailsDrawer = ({
                           ? CONTINUE_LABELS.doorKnocking
                           : CONTINUE_LABELS.phoneBanking,
                         href: continueHref,
-                        icon: isDoorKnocking ? (
-                          <DoorOpenIcon className="size-4" />
-                        ) : (
-                          <PhoneIcon className="size-4" />
-                        ),
                       }
                     : // Both channels' hrefs are ids that ride the detail —
                       // phone banking's list, door knocking's turf — so
@@ -579,11 +573,6 @@ export const OutreachDetailsDrawer = ({
                           label: isDoorKnocking
                             ? CONTINUE_LABELS.doorKnocking
                             : CONTINUE_LABELS.phoneBanking,
-                          icon: isDoorKnocking ? (
-                            <DoorOpenIcon className="size-4" />
-                          ) : (
-                            <PhoneIcon className="size-4" />
-                          ),
                         }
                       : null
               }
