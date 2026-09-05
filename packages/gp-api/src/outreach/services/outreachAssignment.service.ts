@@ -243,13 +243,12 @@ export class OutreachAssignmentService extends createPrismaBase(
 
     return Promise.all(
       rows.map(({ assignment, outreach }) =>
-        this.toMyAssignment(organizationSlug, assignment, outreach),
+        this.toMyAssignment(assignment, outreach),
       ),
     )
   }
 
   private async toMyAssignment(
-    organizationSlug: string,
     assignment: OutreachAssignment,
     outreach: Outreach,
   ): Promise<MyAssignment> {
@@ -260,12 +259,15 @@ export class OutreachAssignmentService extends createPrismaBase(
             outreach.phoneBankingListId,
           )
         : undefined
+    // Same guard + scope as findDetail: the envelope's own org, never the
+    // header's, and a legacy null-org row simply carries no block.
     const doorKnocking =
       outreach.outreachType === OutreachType.nativeDoorKnocking &&
-      outreach.doorKnockingRouteId !== null
+      outreach.doorKnockingRouteId !== null &&
+      outreach.organizationSlug !== null
         ? await this.outreachSocial.computeDoorKnockingDetail(
             outreach.doorKnockingRouteId,
-            organizationSlug,
+            outreach.organizationSlug,
             outreach,
           )
         : undefined

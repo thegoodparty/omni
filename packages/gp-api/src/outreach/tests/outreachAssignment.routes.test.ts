@@ -381,6 +381,25 @@ describe('DELETE /v1/outreach/:id/assignments/:userId', () => {
     expect(mine.data.assignments).toEqual([])
   })
 
+  // deleteMany returns { count: 0 } without throwing, so a DELETE for a user
+  // who was never assigned (or a repeat DELETE) succeeds silently — the same
+  // idempotency contract assign documents. Change to NOT_FOUND if a guard is
+  // ever added.
+  it('204s (idempotent) when the assignment does not exist', async () => {
+    const outreach = await createOutreach()
+    const member = await createMemberUser({
+      email: 'never-assigned-unassign@example.com',
+    })
+    await addMembership(member.id, OrganizationRole.campaignAdmin)
+
+    const result = await service.client.delete(
+      `/v1/outreach/${outreach.id}/assignments/${member.id}`,
+      orgHeaders(),
+    )
+
+    expect(result.status).toBe(HttpStatus.NO_CONTENT)
+  })
+
   it('403s when the caller is a volunteer, not a manager', async () => {
     const outreach = await createOutreach()
     const volunteer = await createMemberUser({
