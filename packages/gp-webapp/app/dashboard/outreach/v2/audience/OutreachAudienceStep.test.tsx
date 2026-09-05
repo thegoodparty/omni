@@ -118,10 +118,10 @@ describe('OutreachAudienceStep — recommended lists', () => {
     expect(screen.getByText('Choose a voter list')).toBeInTheDocument()
   })
 
-  it('shows a loading state while counts resolve', () => {
+  it('shows the unified landing skeleton while lists/recommendations resolve', () => {
     render(<OutreachAudienceStep {...baseProps()} recommendationsLoading />)
 
-    expect(screen.getByTestId('recommended-lists-loading')).toBeInTheDocument()
+    expect(screen.getByTestId('outreach-audience-loading')).toBeInTheDocument()
     expect(screen.queryByTestId('recommended-list-card')).toBeNull()
   })
 
@@ -131,7 +131,7 @@ describe('OutreachAudienceStep — recommended lists', () => {
     render(<OutreachAudienceStep {...baseProps()} recommendationsError />)
 
     expect(screen.getByTestId('recommended-lists-error')).toBeInTheDocument()
-    expect(screen.queryByTestId('recommended-lists-loading')).toBeNull()
+    expect(screen.queryByTestId('outreach-audience-loading')).toBeNull()
     expect(screen.queryByTestId('recommended-list-card')).toBeNull()
   })
 

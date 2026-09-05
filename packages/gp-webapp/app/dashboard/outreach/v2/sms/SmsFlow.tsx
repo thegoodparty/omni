@@ -67,7 +67,7 @@ const STEP_ORDER: StepId[] = [
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
-  audience: 'Who are you texting?',
+  audience: 'Who do you want to reach?',
   schedule: 'When do you want to send?',
   compose: 'What do you want to say?',
   review: 'Review & pay',
@@ -85,7 +85,7 @@ const SMS_COUNT_OVERLAY = { hasCellPhone: true }
 const SMS_AUDIENCE_COPY: OutreachAudienceCopy = {
   pickerTitle: 'Who do you want to reach?',
   pickerBody:
-    'Pick one of your saved voter lists. We only text voters with a mobile number.',
+    'Select a list or create a new one. Lists include all voters with a mobile number.',
   filtersTitle: 'Build a voter list',
   filtersBody: 'Pick filters to define who this campaign reaches.',
   nameTitle: 'Name your list',

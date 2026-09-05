@@ -1,11 +1,17 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Card, cn, Popover, PopoverContent, PopoverTrigger } from '@styleguide'
+import {
+  Card,
+  cn,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Skeleton,
+} from '@styleguide'
 import {
   CheckIcon,
   ChevronDownIcon,
-  FilterIcon,
   Loader2Icon,
   PlusIcon,
 } from '@styleguide/components/ui/icons'
@@ -218,6 +224,43 @@ export const OutreachAudienceStep = ({
     )
   }
 
+  // Unified landing skeleton: keep the initial fetch of saved lists and the
+  // recommendations query behind one silent skeleton rather than two
+  // staggered spinners in different regions. The reachable-count fetch that
+  // fires when a candidate picks a list stays inline on the trigger card —
+  // it is a user-initiated follow-up, not part of the landing.
+  const initialLoading =
+    listsLoading || (recommendedListsEnabled && recommendationsLoading)
+
+  if (initialLoading) {
+    return (
+      <div className="space-y-6">
+        <Intro
+          channel={channel}
+          title={copy.pickerTitle}
+          body={copy.pickerBody}
+        />
+        <div
+          data-testid="outreach-audience-loading"
+          aria-busy="true"
+          aria-live="polite"
+          className="space-y-6"
+        >
+          {recommendedListsEnabled && (
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-32" />
+              <Skeleton className="h-24 w-full rounded-xl" />
+            </div>
+          )}
+          <div className="space-y-2">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-16 w-full rounded-xl" />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div ref={pickerRootRef} className="space-y-6">
       <Intro
@@ -388,13 +431,6 @@ export const OutreachAudienceStep = ({
             </div>
           </PopoverContent>
         </Popover>
-        <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-          <FilterIcon className="mt-0.5 size-3.5 shrink-0" />
-          <span>
-            The number of reachable voters in each list may change based on the
-            mode of outreach you select.
-          </span>
-        </p>
       </div>
       {pricePerContact > 0 && (
         <p className="text-sm text-muted-foreground">

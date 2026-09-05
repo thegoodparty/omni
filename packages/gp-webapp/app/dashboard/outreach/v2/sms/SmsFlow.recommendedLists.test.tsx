@@ -128,7 +128,9 @@ const openToAudience = async () => {
   const onScheduled = vi.fn().mockResolvedValue(undefined)
   render(<SmsFlow open onClose={onClose} onScheduled={onScheduled} />)
   await userEvent.click(screen.getByText('Introduce myself to voters'))
-  expect(await screen.findByText('Who are you texting?')).toBeInTheDocument()
+  expect(
+    (await screen.findAllByText('Who do you want to reach?')).length,
+  ).toBeGreaterThan(0)
 }
 
 describe('SmsFlow — recommended lists', () => {
@@ -320,7 +322,7 @@ describe('SmsFlow — recommended lists', () => {
     await openToAudience()
 
     expect(
-      await screen.findByTestId('recommended-lists-loading'),
+      await screen.findByTestId('outreach-audience-loading'),
     ).toBeInTheDocument()
     expect(screen.queryByTestId('recommended-list-card')).toBeNull()
   })
@@ -340,7 +342,7 @@ describe('SmsFlow — recommended lists', () => {
     expect(
       await screen.findByTestId('recommended-lists-error'),
     ).toBeInTheDocument()
-    expect(screen.queryByTestId('recommended-lists-loading')).toBeNull()
+    expect(screen.queryByTestId('outreach-audience-loading')).toBeNull()
     expect(screen.queryByTestId('recommended-list-card')).toBeNull()
     expect(screen.getByText('Choose a voter list')).toBeInTheDocument()
   })
