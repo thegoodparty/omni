@@ -694,6 +694,46 @@ describe('PostAuthRedirectPage', () => {
     expect(replaceSpy).not.toHaveBeenCalledWith('/volunteer')
   })
 
+  // ENG-11052 (delegate round 3): teamAccountsEnabled is a value the effect
+  // closes over once and never re-reads. If the flag isn't ready yet (e.g.
+  // the SSR seed came back null and FeatureFlagsProvider's async refresh()
+  // hasn't settled), the effect must not run and permanently latch a stale
+  // `false` — it has to wait for `ready` and re-fire once the real value
+  // lands. This reproduces that race: render while unready, confirm nothing
+  // fires, then flip the flag on-and-ready and confirm the redirect only
+  // fires now, to /volunteer.
+  it('does not resolve the redirect before the flag is ready, and re-runs once it is', async () => {
+    mockUseTeamAccountsFlag.mockReturnValue({ ready: false, enabled: false })
+    const volunteerOrg = { ...orgFixture, role: 'volunteer' as const }
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [volunteerOrg] },
+    })
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 200,
+      data: { status: false },
+    })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
+
+    const { rerender } = render(<PostAuthRedirectPage />)
+
+    // Nothing can have fired yet: the effect returns before touching any of
+    // the org/campaign/elected-office calls the redirect depends on.
+    expect(replaceSpy).not.toHaveBeenCalled()
+
+    // FeatureFlagsProvider's refresh() settles (mirrors it winning the race
+    // against Clerk hydration, whichever order they resolve in).
+    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
+    rerender(<PostAuthRedirectPage />)
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/volunteer'))
+  })
+
   it('login (no source param): does not fire trackRegistrationCompleted', async () => {
     api.mock('GET /v1/organizations', {
       status: 200,

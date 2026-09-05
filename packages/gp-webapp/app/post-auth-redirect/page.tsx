@@ -25,7 +25,8 @@ const PostAuthRedirectPage = () => {
   // trackExposure=false: a render-decision read for routing, not the
   // experiment's own treatment surface (mirrors every other nav/routing read
   // of this flag — DashboardMenu, the org picker).
-  const { enabled: teamAccountsEnabled } = useTeamAccountsFlag(false)
+  const { enabled: teamAccountsEnabled, ready: flagReady } =
+    useTeamAccountsFlag(false)
 
   useEffect(() => {
     if (ranRef.current) return
@@ -34,6 +35,18 @@ const PostAuthRedirectPage = () => {
       window.location.replace('/login')
       return
     }
+    // teamAccountsEnabled is a closed-over render value the async body below
+    // reads once and never re-reads. If the SSR flag seed came back null
+    // (gp-api hiccup in PageWrapper), FeatureFlagsProvider's async refresh()
+    // races Clerk hydration — without this guard, a run that fires before
+    // refresh() resolves would permanently close over `false` (ranRef is set
+    // right below) and misroute a volunteer into onboarding for the whole
+    // visit. `flagReady` is guaranteed to flip true once resolution SETTLES,
+    // success or failure (FeatureFlagsProvider's refresh() sets it in a
+    // `finally`, and the synchronous seeded/anonymous paths set it
+    // immediately) — so this can only stall on an unsettled fetch, the same
+    // class of risk every other awaited call below already carries unguarded.
+    if (!flagReady) return
 
     ranRef.current = true
     ;(async () => {
@@ -271,7 +284,7 @@ const PostAuthRedirectPage = () => {
         window.location.replace('/onboarding/office-selection')
       }
     })()
-  }, [isSignedIn, isLoaded])
+  }, [isSignedIn, isLoaded, flagReady])
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center">
