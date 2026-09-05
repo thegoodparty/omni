@@ -340,7 +340,12 @@ import { dirname, join, relative } from 'node:path'
 // and handles retry — the route itself (app/volunteer/page.tsx) stays a
 // server component and renders no directive. AssignmentCard.tsx is a plain
 // presentational child with no hooks of its own, so it carries none.
-const BASELINE = 599
+// 2026-09-05: 599 -> 600 for the volunteer door-knocking walk (ENG-11055,
+// VolunteerWalkPage.tsx). It runs several React Query fetches, a live-location
+// watch and the walk session/completion mutations — the route itself
+// (app/volunteer/door-knocking/[turfId]/page.tsx) stays a server component,
+// validating the id param and rendering no directive of its own.
+const BASELINE = 600
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

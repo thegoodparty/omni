@@ -89,8 +89,19 @@ const gl = vi.hoisted(() => {
     // do is unaffected.
     pickedPin: null as { object: RoutePin } | null,
     lastPick: null as PickParams | null,
-    setProps: (props: { layers: Array<{ props: MockLayerProps }> }) => {
-      overlay.layers = props.layers.map((layer) => layer.props)
+    // Real deck.gl's `LayersList` allows `null`/`false`/`undefined` entries
+    // (a layer that opts itself out for this render) — `voter-dots` is one of
+    // those now that `pack` can be null (ENG-11055), so the mock has to
+    // tolerate it the same way.
+    setProps: (props: {
+      layers: Array<{ props: MockLayerProps } | null | undefined | false>
+    }) => {
+      overlay.layers = props.layers
+        .filter(
+          (layer): layer is { props: MockLayerProps } =>
+            layer != null && layer !== false,
+        )
+        .map((layer) => layer.props)
     },
     pickObject: (params: PickParams) => {
       overlay.lastPick = params
@@ -592,6 +603,41 @@ describe('VoterMapCanvas drawing', () => {
     expect(layerData('voter-dots')).toEqual(
       expect.objectContaining({ length: repainted.manifest.counts.dots }),
     )
+  })
+
+  // ENG-11055: the volunteer walk never reads GET /v1/door-knocking/pack
+  // (403'd server-side for a volunteer), so it mounts this canvas with
+  // `pack` and `filterResult` both null. The district plane has to come off
+  // the map entirely rather than render as zero dots, and the route pins and
+  // path — which read off `routePins`/`routeGeometry` alone — must still draw.
+  it('omits the district dot layer and still draws the route with no pack', () => {
+    const first: RoutePin = {
+      stopId: 11,
+      seq: 1,
+      lat: 41.92,
+      lng: -87.66,
+      status: 'unknown',
+      knockable: true,
+    }
+    const second: RoutePin = { ...first, stopId: 12, seq: 2 }
+    render(
+      <VoterMapCanvas
+        {...baseProps}
+        pack={null}
+        filterResult={null}
+        startDrawToken={0}
+        routePins={[first, second]}
+        onPolygonChange={vi.fn()}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    expect(layer('voter-dots')).toBeUndefined()
+    expect(layerData('route-pins')).toEqual([first, second])
+    expect(layerData('route-path')).toHaveLength(1)
+    // No pack means nothing to frame at mount — the map opens at its bare
+    // default rather than throwing on a null `positions` array.
+    expect(gl.map.remove).not.toHaveBeenCalled()
   })
 
   // A stop where every resident is flagged rolls up over an empty list, so its
