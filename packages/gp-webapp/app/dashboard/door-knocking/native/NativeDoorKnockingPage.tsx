@@ -671,16 +671,18 @@ export default function NativeDoorKnockingPage({
                 walk drawer's own skeleton is the loading UX for that path,
                 and a big captioned loader on the map behind it would compete
                 visually with the surface the candidate is actually watching.
-                Checking BOTH the URL param AND the walk state: the deep-link
-                effect strips `?walkTurfId=` off the URL as soon as it
-                consumes it, so walkTurfId goes back to undefined after
-                ~200ms while the pack is usually still pending and walkTurf
-                is what carries the "we're in a walk" signal from that point
-                on. */}
+                Three-way gate because the deep-link transition has a brief
+                render between router.replace() stripping `?walkTurfId=` and
+                walk.start()'s state update setting walkTurf — without the
+                ref, the loader flashes in that gap. `consumedWalkTurfId` is
+                set INSIDE the deep-link effect before either navigation
+                call, so any render during the transition sees "a walk was
+                initiated" and keeps the loader hidden. */}
               {!isUnresolvable &&
                 packQuery.isPending &&
                 walkTurfId === undefined &&
-                !walkTurf && (
+                !walkTurf &&
+                consumedWalkTurfId.current === undefined && (
                   <div className="flex h-full items-center justify-center">
                     <LoadingAnimation
                       title={
