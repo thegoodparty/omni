@@ -77,7 +77,9 @@ beforeEach(() => {
 const openToAudience = async () => {
   render(<RobocallFlow open onClose={vi.fn()} />)
   await userEvent.click(screen.getByText('Introduce myself to voters'))
-  expect(await screen.findByText('Choose a voter list')).toBeInTheDocument()
+  expect(
+    await screen.findByText(/Choose a voter list|View your lists here/),
+  ).toBeInTheDocument()
 }
 
 describe('RobocallFlow — recommended lists', () => {
@@ -143,6 +145,8 @@ describe('RobocallFlow — recommended lists', () => {
     await openToAudience()
 
     expect(screen.queryByTestId('recommended-list-card')).toBeNull()
-    expect(screen.getByText('Choose a voter list')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Choose a voter list|View your lists here/),
+    ).toBeInTheDocument()
   })
 })

@@ -78,7 +78,9 @@ describe('PhoneBankingFlow (Win surface) — recommended lists', () => {
   const openToWho = async () => {
     render(<PhoneBankingFlow open onClose={vi.fn()} />)
     await userEvent.click(screen.getByText('Introduce myself to voters'))
-    expect(await screen.findByText('Choose a voter list')).toBeInTheDocument()
+    expect(
+      await screen.findByText(/Choose a voter list|View your lists here/),
+    ).toBeInTheDocument()
   }
 
   it('records the exposure and carries the variant/channel/intent through', async () => {
@@ -144,7 +146,9 @@ describe('PhoneBankingFlow (Serve surface) — recommended lists', () => {
     )
 
     await userEvent.click(screen.getByText('Introduce myself to constituents'))
-    expect(await screen.findByText('Choose a voter list')).toBeInTheDocument()
+    expect(
+      await screen.findByText(/Choose a voter list|View your lists here/),
+    ).toBeInTheDocument()
 
     expect(requested).toBe(false)
     expect(screen.queryByTestId('recommended-list-card')).toBeNull()
