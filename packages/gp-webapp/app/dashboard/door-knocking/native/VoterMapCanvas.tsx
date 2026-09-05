@@ -196,6 +196,12 @@ interface VoterMapCanvasProps {
   // so the cluster has to be told where the uncovered map ends; every other
   // surface leaves it at the design's 16px edge.
   controlsBottomPx?: number
+  // Bottom padding to reserve when framing the route with fitBounds — the
+  // canvas re-fits the pins to keep them visible above the walk sheet,
+  // Google Maps pattern for a persistent bottom sheet over a route map.
+  // `null` or absent = use default padding (no sheet, or `full` snap where
+  // the map is covered anyway).
+  routeFrameBottomPx?: number | null
   // Where the canvasser is, when they have asked to be shown. A reading and not
   // a switch: this canvas draws the dot, and the page holds the watch because
   // it is the one thing that outlives every surface. The SWITCH is the third
@@ -455,6 +461,7 @@ export default function VoterMapCanvas({
   frameDrawBottomPct,
   controlsHidden = false,
   controlsBottomPx = 16,
+  routeFrameBottomPx = null,
   location,
   liveLocationEnabled = false,
   onToggleLiveLocation,
@@ -1063,8 +1070,11 @@ export default function VoterMapCanvas({
     if (bounds) mapRef.current.fitBounds(bounds, { padding: 64 })
   }, [focusTurf])
 
-  // Fit once per distinct route: refit when the pin set actually changes,
-  // not on every rerender that passes the same array contents.
+  // Fit the camera around the route. Refits whenever the pin set actually
+  // changes AND whenever the walk sheet snaps (routeFrameBottomPx changes),
+  // so the pins stay visible in the band above the sheet as it opens —
+  // Google Maps pattern. Signature includes the bottom padding so a re-snap
+  // with the same route still refits; otherwise the ref short-circuits.
   const fittedRouteRef = useRef<string | null>(null)
   useEffect(() => {
     if (routePins.length === 0) {
@@ -1073,7 +1083,7 @@ export default function VoterMapCanvas({
     }
     const first = routePins[0]
     const last = routePins[routePins.length - 1]
-    const signature = `${routePins.length}:${first?.lat},${first?.lng}:${last?.lat},${last?.lng}`
+    const signature = `${routePins.length}:${first?.lat},${first?.lng}:${last?.lat},${last?.lng}:${routeFrameBottomPx ?? 'none'}`
     if (fittedRouteRef.current === signature || !mapRef.current) return
     fittedRouteRef.current = signature
     let minX = Infinity
@@ -1086,14 +1096,25 @@ export default function VoterMapCanvas({
       if (pin.lat < minY) minY = pin.lat
       if (pin.lat > maxY) maxY = pin.lat
     }
+    // Cap the bottom padding to what the canvas can actually spare: a sheet
+    // taller than the canvas (or a container that hasn't been measured
+    // yet) would otherwise ask fitBounds for more padding than there's
+    // room for and get no fit at all. 80px top/left/right + at least 240px
+    // clear for the pins themselves.
+    const height = mapRef.current.getCanvas().clientHeight
+    const requestedBottom = (routeFrameBottomPx ?? 0) + 16
+    const bottomPad = Math.max(
+      80,
+      Math.min(requestedBottom, Math.max(80, height - 240)),
+    )
     mapRef.current.fitBounds(
       [
         [minX, minY],
         [maxX, maxY],
       ],
-      { padding: 80 },
+      { padding: { top: 80, bottom: bottomPad, left: 80, right: 80 } },
     )
-  }, [routePins])
+  }, [routePins, routeFrameBottomPx])
 
   useEffect(() => {
     if (startDrawToken === 0) return

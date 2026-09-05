@@ -741,6 +741,13 @@ export default function NativeDoorKnockingPage({
                       ? DRAW_CONTROLS_BOTTOM_PX
                       : (mapControlsOffset ?? 16)
                   }
+                  // Route framing padding — reuses the same sheet-height
+                  // measurement the controls do, so the pins land in the
+                  // visible band above the walk sheet as it snaps between
+                  // peek/half/full. Null on the create-flow (no sheet
+                  // occluding the map's route area) and on `full` snap (map
+                  // fully covered).
+                  routeFrameBottomPx={mapControlsOffset}
                   location={location}
                   // The cluster's third button. The design's draw surface
                   // carries the full cluster — plus, minus, locate — because a
