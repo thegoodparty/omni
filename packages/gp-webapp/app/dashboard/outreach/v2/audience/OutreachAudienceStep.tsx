@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   Card,
   cn,
@@ -172,6 +172,13 @@ export const OutreachAudienceStep = ({
   builderCountErrorMessage,
 }: OutreachAudienceStepProps) => {
   const [open, setOpen] = useState(false)
+  // The picker sits inside OutreachSheet (vaul Drawer), and vaul installs
+  // `react-remove-scroll` on <body>. A popover portalled to document.body
+  // (Radix's default) lands OUTSIDE the drawer's scroll-allowed scope, so
+  // wheel/touch events on the popover content are silently dropped. Portal
+  // into an element inside the drawer's scope instead — this ref, placed on
+  // the picker's own root div — and scroll works.
+  const pickerRootRef = useRef<HTMLDivElement | null>(null)
   // The recommendation whose card the candidate tapped, opening the
   // naming drawer. Cleared on drawer close (cancel) or on a successful
   // submit; either way the picker returns to its default state.
@@ -267,7 +274,7 @@ export const OutreachAudienceStep = ({
   }
 
   return (
-    <div className="space-y-6">
+    <div ref={pickerRootRef} className="space-y-6">
       <Intro
         channel={channel}
         title={copy.pickerTitle}
@@ -381,6 +388,9 @@ export const OutreachAudienceStep = ({
           <PopoverContent
             align="start"
             sideOffset={4}
+            // Portal into the picker's own root — see the ref declaration
+            // above for why the default body portal breaks scroll here.
+            container={pickerRootRef.current}
             className="max-h-80 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-0"
           >
             <div className="divide-y divide-border">
