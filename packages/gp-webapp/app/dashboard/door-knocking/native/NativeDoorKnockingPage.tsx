@@ -667,13 +667,20 @@ export default function NativeDoorKnockingPage({
                 got reported. The create flow says the same two sentences from
                 inside its own sheet — see `CreateListFlow` — since the sheet
                 covers this region for the whole of the wait that matters.
-                Skipped when a walk was carried in (`walkTurfId` set): the
+                Skipped when a walk is being entered or already open — the
                 walk drawer's own skeleton is the loading UX for that path,
                 and a big captioned loader on the map behind it would compete
-                visually with the surface the candidate is actually watching. */}
+                visually with the surface the candidate is actually watching.
+                Checking BOTH the URL param AND the walk state: the deep-link
+                effect strips `?walkTurfId=` off the URL as soon as it
+                consumes it, so walkTurfId goes back to undefined after
+                ~200ms while the pack is usually still pending and walkTurf
+                is what carries the "we're in a walk" signal from that point
+                on. */}
               {!isUnresolvable &&
                 packQuery.isPending &&
-                walkTurfId === undefined && (
+                walkTurfId === undefined &&
+                !walkTurf && (
                   <div className="flex h-full items-center justify-center">
                     <LoadingAnimation
                       title={
