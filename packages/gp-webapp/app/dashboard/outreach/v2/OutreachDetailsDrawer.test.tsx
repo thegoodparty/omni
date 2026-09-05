@@ -459,8 +459,13 @@ describe('OutreachDetailsDrawer — phone banking', () => {
 
 // ENG-11056: the manager assign/remove/invite surface for a self-run list.
 // Gated entirely on win-team-accounts — off renders the drawer exactly as
-// every test above already proves, since the section returns null.
-describe('OutreachDetailsDrawer — assignees (ENG-11056)', () => {
+// every test above already proves, since the section returns null. Full
+// interaction coverage (search, role filter, assign/unassign toggling,
+// invite entry point, retry) lives in OutreachAssigneesSection.test.tsx,
+// which exercises the section directly — these are the integration points
+// unique to mounting it inside this drawer: the flag gate and threading the
+// row's name into the modal's title (ENG-11059).
+describe('OutreachDetailsDrawer — assignees (ENG-11056 / ENG-11059)', () => {
   const mockOutreachDetail = () =>
     api.mock('GET /v1/outreach/:id', {
       status: 200,
@@ -493,6 +498,14 @@ describe('OutreachDetailsDrawer — assignees (ENG-11056)', () => {
   beforeEach(() => {
     teamAccountsFlag = { ready: true, enabled: true }
     mockOutreachDetail()
+    api.mock('GET /v1/outreach/:id/assignments', {
+      status: 200,
+      data: { assignees: [] },
+    })
+    api.mock('GET /v1/organizations/team', {
+      status: 200,
+      data: { members: [], pendingInvites: [] },
+    })
   })
 
   it('does not render the Assignees section when the flag is off', async () => {
@@ -500,61 +513,23 @@ describe('OutreachDetailsDrawer — assignees (ENG-11056)', () => {
     render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
 
     await screen.findByText('92 of 480 reached')
-    expect(screen.queryByText('Assignees')).not.toBeInTheDocument()
+    expect(screen.queryByText('Assigned to')).not.toBeInTheDocument()
+    expect(screen.queryByText('Assign someone')).not.toBeInTheDocument()
   })
 
-  it('lists current assignees and removes one after confirming', async () => {
+  it('opens the assign modal titled with the row name, and lets an owner-inclusive roster be assigned', async () => {
     const user = userEvent.setup()
-    api.mock('GET /v1/outreach/:id/assignments', {
-      status: 200,
-      data: {
-        assignees: [
-          {
-            userId: 2,
-            name: 'Manager Person',
-            role: 'campaignAdmin',
-            createdAt: '2026-08-01T00:00:00.000Z',
-            assignedByUserId: 1,
-            assignedByName: 'Owner Person',
-          },
-        ],
-      },
-    })
-    api.mock('GET /v1/organizations/team', {
-      status: 200,
-      data: { members: [], pendingInvites: [] },
-    })
-    let removedUserId: string | undefined
-    api.mock('DELETE /v1/outreach/:id/assignments/:userId', ({ params }) => {
-      removedUserId = params.userId
-      return { status: 200, data: undefined }
-    })
-
-    render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
-
-    expect(await screen.findByText('Assignees')).toBeInTheDocument()
-    expect(await screen.findByText('Manager Person')).toBeInTheDocument()
-    expect(screen.getByText(/Campaign Manager/)).toBeInTheDocument()
-
-    await user.click(
-      screen.getByRole('button', { name: 'Remove Manager Person' }),
-    )
-    const dialog = await screen.findByRole('alertdialog')
-    await user.click(within(dialog).getByRole('button', { name: 'Remove' }))
-
-    await waitFor(() => expect(removedUserId).toBe('2'))
-  })
-
-  it('assigns an existing team member from the picker', async () => {
-    const user = userEvent.setup()
-    api.mock('GET /v1/outreach/:id/assignments', {
-      status: 200,
-      data: { assignees: [] },
-    })
     api.mock('GET /v1/organizations/team', {
       status: 200,
       data: {
         members: [
+          {
+            userId: 1,
+            name: 'Owner Person',
+            email: 'owner@example.com',
+            role: 'owner',
+            createdAt: '2026-08-01T00:00:00.000Z',
+          },
           {
             userId: 9,
             name: 'Cam Manager',
@@ -574,7 +549,7 @@ describe('OutreachDetailsDrawer — assignees (ENG-11056)', () => {
         data: {
           userId: 9,
           name: 'Cam Manager',
-          role: 'campaignAdmin',
+          role: 'campaignAdmin' as const,
           createdAt: '2026-08-02T00:00:00.000Z',
           assignedByUserId: 1,
           assignedByName: 'Owner Person',
@@ -584,22 +559,59 @@ describe('OutreachDetailsDrawer — assignees (ENG-11056)', () => {
 
     render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
 
-    await user.click(await screen.findByRole('button', { name: 'Assign' }))
-    await user.click(await screen.findByText('Cam Manager'))
+    await user.click(await screen.findByText('Assign someone'))
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Assign to GOTV calls',
+    })
+    // The picker this replaced excluded the owner — ENG-11059's correction.
+    expect(within(dialog).getByText('Owner Person')).toBeInTheDocument()
+    await user.click(within(dialog).getByText('Cam Manager'))
 
     await waitFor(() => expect(assignedBody).toEqual({ assigneeUserId: 9 }))
   })
 
-  it('invites a brand-new volunteer for this outreach', async () => {
+  it('lists a current assignee on the section card and removes it via the overflow menu, after confirming', async () => {
     const user = userEvent.setup()
     api.mock('GET /v1/outreach/:id/assignments', {
       status: 200,
-      data: { assignees: [] },
+      data: {
+        assignees: [
+          {
+            userId: 2,
+            name: 'Manager Person',
+            role: 'campaignAdmin',
+            createdAt: '2026-08-01T00:00:00.000Z',
+            assignedByUserId: 1,
+            assignedByName: 'Owner Person',
+          },
+        ],
+      },
     })
-    api.mock('GET /v1/organizations/team', {
-      status: 200,
-      data: { members: [], pendingInvites: [] },
+    let removedUserId: string | undefined
+    api.mock('DELETE /v1/outreach/:id/assignments/:userId', ({ params }) => {
+      removedUserId = params.userId
+      return { status: 200, data: undefined }
     })
+
+    render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
+
+    expect(await screen.findByText('Manager Person')).toBeInTheDocument()
+    expect(screen.getByText('Campaign Manager')).toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Manage Manager Person' }),
+    )
+    await user.click(await screen.findByText('Remove'))
+    const confirmDialog = await screen.findByRole('alertdialog')
+    await user.click(
+      within(confirmDialog).getByRole('button', { name: 'Remove' }),
+    )
+
+    await waitFor(() => expect(removedUserId).toBe('2'))
+  })
+
+  it('invites a brand-new volunteer for this outreach from the assign modal', async () => {
+    const user = userEvent.setup()
     let inviteBody: unknown
     api.mock('POST /v1/organizations/team/invites', ({ body }) => {
       inviteBody = body
@@ -621,8 +633,9 @@ describe('OutreachDetailsDrawer — assignees (ENG-11056)', () => {
 
     render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
 
-    await user.click(await screen.findByRole('button', { name: 'Assign' }))
-    await user.click(await screen.findByText('Invite a volunteer'))
+    await user.click(await screen.findByText('Assign someone'))
+    await screen.findByRole('dialog', { name: 'Assign to GOTV calls' })
+    await user.click(screen.getByText('Invite a volunteer'))
 
     expect(
       await screen.findByRole('dialog', { name: 'Invite a volunteer' }),
@@ -645,10 +658,6 @@ describe('OutreachDetailsDrawer — assignees (ENG-11056)', () => {
   // so a volunteer invite scoped to a DIFFERENT outreach (here 99) must be
   // filtered out rather than bleeding into this list's section.
   it("shows only this outreach's own pending volunteer invite, not one scoped elsewhere", async () => {
-    api.mock('GET /v1/outreach/:id/assignments', {
-      status: 200,
-      data: { assignees: [] },
-    })
     api.mock('GET /v1/organizations/team', {
       status: 200,
       data: {

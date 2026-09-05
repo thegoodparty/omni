@@ -349,7 +349,10 @@ import { dirname, join, relative } from 'node:path'
 // (ENG-11056, OutreachAssigneesSection.tsx). It holds picker/dialog open
 // state and drives assign/remove/invite mutations against a query cache, so
 // it can't be a server component — same reasoning as TeamPage.tsx above.
-const BASELINE = 601
+// ENG-11059: OutreachAssignModal.tsx is a new client component — it owns
+// interactive dialog state (search/role-filter, assign/unassign clicks) that
+// can't run on the server.
+const BASELINE = 602
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
