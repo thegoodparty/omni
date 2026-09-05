@@ -37,6 +37,7 @@ import { useWalkSession } from './useWalkSession'
 import { useLiveLocation } from './useLiveLocation'
 import { useWalkArchive, useWalkCompletion } from './walkCompletion'
 import { packBounds, type PolygonRing } from './VoterMapCanvas'
+import { geoapifyStaticUrl } from './createFlow/geoapifyStaticUrl'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import { useOrganization } from '@shared/organization-picker'
 
@@ -279,6 +280,21 @@ export default function NativeDoorKnockingPage({
     () => (packQuery.data ? packBounds(packQuery.data.positions) : null),
     [packQuery.data],
   )
+  // Warm the browser cache for the draw step's Geoapify preview the
+  // moment the pack lands, so the image is already fetched by the time
+  // the candidate reaches step 3. Without this, the <img> tag doesn't
+  // start its request until DrawStep mounts, adding a 200-500ms visible
+  // flash on top of the pack wait the who step already covers. Same URL
+  // shape DrawStep builds, so any near-future <img src> hits the cache.
+  useEffect(() => {
+    if (!districtBounds || typeof Image === 'undefined') return
+    const img = new Image()
+    img.src = geoapifyStaticUrl({
+      bounds: districtBounds,
+      width: 608,
+      height: 260,
+    })
+  }, [districtBounds])
   // What the map shades. Only two surfaces can be on screen now, and only one
   // of them scopes the dots: the create flow's draft narrows them as the
   // filters are cut, and the walk leaves the whole district shaded under its
