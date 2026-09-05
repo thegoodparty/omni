@@ -1,8 +1,11 @@
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import {
   Button,
   Card,
   Eyebrow,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   Skeleton,
   ToggleGroup,
   ToggleGroupItem,
@@ -136,7 +139,14 @@ export const WhoStep = ({
   recommendationsError,
   onSelectRecommendation,
 }: WhoStepProps) => {
-  const pickerRef = useRef<HTMLDivElement>(null)
+  // Portal target for the picker's Popover content. The picker sits inside
+  // OutreachSheet (vaul Drawer), and vaul installs `react-remove-scroll`
+  // on <body>. A popover portalled to document.body (Radix's default)
+  // lands OUTSIDE the drawer's scroll-allowed scope, so wheel/touch
+  // events on the popover content are silently dropped. Portalling into
+  // this ref instead — placed on the picker's own root — keeps scroll
+  // working. Same pattern OutreachAudienceStep uses.
+  const pickerRootRef = useRef<HTMLDivElement | null>(null)
   // The picker only commits its selected-state visuals (border, checkmark,
   // trigger text, selected-row tint) when a saved-list row was picked here
   // — never when the audience came from a recommendation card or from
@@ -144,25 +154,6 @@ export const WhoStep = ({
   // gated on `hasPickedAudience`); this is just about what the picker
   // itself claims to hold.
   const showsPickerSelection = hasPickedAudience && !hasActiveRecommendation
-
-  // A panel that overlays the rest of the step has to close on the two
-  // gestures every menu closes on, or it traps the step underneath it.
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (event: PointerEvent) => {
-      if (!pickerRef.current?.contains(event.target as Node))
-        onOpenChange(false)
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onOpenChange(false)
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [open, onOpenChange])
 
   const toggleGroupValues = (
     options: Array<{ key: string; label: string }>,
@@ -311,75 +302,81 @@ export const WhoStep = ({
           </div>
         )}
 
-      <div ref={pickerRef} className="relative flex flex-col gap-2">
+      <div ref={pickerRootRef} className="flex flex-col gap-2">
         <Eyebrow id="create-list-audience-label">All lists</Eyebrow>
 
-        <Card
-          role="combobox"
-          tabIndex={0}
-          aria-expanded={open}
-          aria-haspopup="listbox"
-          aria-labelledby="create-list-audience-label"
-          onClick={() => onOpenChange(!open)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault()
-              onOpenChange(!open)
-            }
-          }}
-          className={cn(
-            'cursor-pointer flex-row items-center justify-between gap-3 rounded-xl p-4 transition-colors',
-            showsPickerSelection ? 'border-primary' : 'hover:border-primary/50',
-          )}
-        >
-          <span className="min-w-0">
-            <span className="block truncate font-medium">
-              {showsPickerSelection
-                ? active.name
-                : // Nothing picked from the picker (either genuinely
-                  // nothing, or the audience came from a recommendation).
-                  // When recommended cards are on screen, the picker's
-                  // role shifts to "here's where your saved lists are";
-                  // otherwise the placeholder invites the choice.
-                  recommendations.length > 0
-                  ? 'View your lists here'
-                  : 'Choose a voter list'}
-            </span>
-            {showsPickerSelection ? (
-              active.sub ? (
-                <span className="block text-sm text-muted-foreground">
-                  {active.sub}
+        <Popover open={open} onOpenChange={onOpenChange}>
+          <PopoverTrigger asChild>
+            <Card
+              role="combobox"
+              tabIndex={0}
+              aria-expanded={open}
+              aria-haspopup="listbox"
+              aria-labelledby="create-list-audience-label"
+              className={cn(
+                'cursor-pointer flex-row items-center justify-between gap-3 rounded-xl p-4 transition-colors',
+                showsPickerSelection
+                  ? 'border-primary'
+                  : 'hover:border-primary/50',
+              )}
+            >
+              <span className="min-w-0">
+                <span className="block truncate font-medium">
+                  {showsPickerSelection
+                    ? active.name
+                    : // Nothing picked from the picker (either genuinely
+                      // nothing, or the audience came from a
+                      // recommendation). When recommended cards are on
+                      // screen, the picker's role shifts to "here's where
+                      // your saved lists are"; otherwise the placeholder
+                      // invites the choice.
+                      recommendations.length > 0
+                      ? 'View your lists here'
+                      : 'Choose a voter list'}
                 </span>
-              ) : (
-                // Pack hasn't landed — skeleton the count so the trigger
-                // still confirms which list is picked.
-                <Skeleton className="mt-1 h-4 w-16" />
-              )
-            ) : null}
-          </span>
-          <ChevronDownIcon
-            className={cn(
-              'size-5 shrink-0 text-muted-foreground transition-transform',
-              open && 'rotate-180',
-            )}
-          />
-        </Card>
-
-        {open && (
-          // The panel is one card but not one listbox. "Create a new list" is an
-          // ACTION and not an audience — it opens the filter pills rather than
-          // choosing anything — so it sits outside the listbox: a listbox's
-          // children have to be options, and a stray button among them is
-          // skipped by some screen readers. That would strand the only route to
-          // the filter face for anyone not using the pointer.
-          <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 overflow-hidden rounded-md border border-border bg-card shadow-md">
+                {showsPickerSelection ? (
+                  active.sub ? (
+                    <span className="block text-sm text-muted-foreground">
+                      {active.sub}
+                    </span>
+                  ) : (
+                    // Pack hasn't landed — skeleton the count so the
+                    // trigger still confirms which list is picked.
+                    <Skeleton className="mt-1 h-4 w-16" />
+                  )
+                ) : null}
+              </span>
+              <ChevronDownIcon
+                className={cn(
+                  'size-5 shrink-0 text-muted-foreground transition-transform',
+                  open && 'rotate-180',
+                )}
+              />
+            </Card>
+          </PopoverTrigger>
+          {/* The panel is one card but not one listbox. "Create a new
+              list" is an ACTION and not an audience — it opens the filter
+              pills rather than choosing anything — so it sits outside the
+              listbox: a listbox's children have to be options, and a
+              stray button among them is skipped by some screen readers.
+              That would strand the only route to the filter face for
+              anyone not using the pointer. */}
+          <PopoverContent
+            align="start"
+            sideOffset={4}
+            // Portal into the picker's own root — see the ref
+            // declaration above for why the default body portal breaks
+            // scroll here.
+            container={pickerRootRef.current}
+            className="max-h-80 w-[var(--radix-popover-trigger-width)] overflow-y-auto rounded-md border border-border bg-card p-0 shadow-md"
+          >
             <button
               type="button"
               onClick={() => {
                 onBuildingChange(true)
                 onOpenChange(false)
               }}
-              className="flex w-full items-center gap-3 border-b border-border p-4 text-left hover:bg-muted/60"
+              className="flex w-full items-center gap-3 border-b border-border p-4 text-left transition-colors hover:bg-muted/60"
             >
               <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
                 <PlusIcon className="size-4 text-primary" />
@@ -400,9 +397,9 @@ export const WhoStep = ({
                 // actually picked from the picker itself. `activeId`
                 // falls through to "All contacts" whenever `savedListId`
                 // is null — including when the audience came from a
-                // recommendation card — so gating on `showsPickerSelection`
-                // is what stops a recommendation pick from lighting up an
-                // unrelated row in this popover.
+                // recommendation card — so gating on
+                // `showsPickerSelection` is what stops a recommendation
+                // pick from lighting up an unrelated row in this popover.
                 const selected = showsPickerSelection && option.id === activeId
                 return (
                   <button
@@ -411,10 +408,11 @@ export const WhoStep = ({
                     role="option"
                     aria-selected={selected}
                     onClick={() => {
-                      // Even a click on "All contacts" (which maps to null
-                      // at the parent) counts as an explicit pick — the
-                      // parent's `selectList` flips `hasPickedAudience`
-                      // true, which flows back and commits the trigger.
+                      // Even a click on "All contacts" (which maps to
+                      // null at the parent) counts as an explicit pick —
+                      // the parent's `selectList` flips
+                      // `hasPickedAudience` true, which flows back and
+                      // commits the trigger.
                       onSelectList(option.listId)
                       onOpenChange(false)
                     }}
@@ -441,8 +439,8 @@ export const WhoStep = ({
                 )
               })}
             </div>
-          </div>
-        )}
+          </PopoverContent>
+        </Popover>
       </div>
     </>
   )
