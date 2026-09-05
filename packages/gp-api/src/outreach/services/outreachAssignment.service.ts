@@ -101,17 +101,24 @@ export class OutreachAssignmentService extends createPrismaBase(
     })
   }
 
-  // The controller-facing entry point for POST /outreach/:id/assignments:
-  // enforces the "assignee must already be an org member" business rule
-  // (422, not assign()'s 400 — a non-member is a valid request pointed at
-  // the wrong person, not a malformed one), then reads back the persisted
-  // row for the response.
+  // The controller-facing entry point for POST /outreach/:id/assignments.
+  // Checks org membership FIRST via assertOutreachInOrg (404) rather than
+  // leaning on assign()'s own guard — that one throws a BadRequestException
+  // carrying the outreach id and org slug in its message, which would leak
+  // that a cross-org id exists at all. assign()'s guard stays as its own
+  // backstop for other callers (e.g. the accept-invite path, ENG-11049).
+  // Then enforces the "assignee must already be an org member" business
+  // rule (422, not a 400 — a non-member is a valid request pointed at the
+  // wrong person, not a malformed one), and finally reads back the
+  // persisted row for the response.
   async assignValidated(
     organizationSlug: string,
     outreachId: number,
     assigneeUserId: number,
     assignedByUserId: number,
   ): Promise<OutreachAssignee> {
+    await this.assertOutreachInOrg(organizationSlug, outreachId)
+
     const resolved = await this.membership.resolveRole(
       organizationSlug,
       assigneeUserId,

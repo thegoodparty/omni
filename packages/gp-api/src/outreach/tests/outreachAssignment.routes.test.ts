@@ -1,12 +1,27 @@
 import { HttpStatus } from '@nestjs/common'
 import jwt from 'jsonwebtoken'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { GeoJsonPolygon } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { Campaign, OrganizationRole } from '../../generated/prisma'
 
 const service = useTestService()
+
+// A minimal placeholder — this suite is about the assignment/mine wiring,
+// not the geometry, and geoPoly is NOT NULL on the turf.
+const GEO_POLY: GeoJsonPolygon = {
+  type: 'Polygon',
+  coordinates: [
+    [
+      [-87.66, 41.89],
+      [-87.64, 41.89],
+      [-87.65, 41.91],
+      [-87.66, 41.89],
+    ],
+  ],
+}
 
 const ORG_SLUG_HEADER = 'X-Organization-Slug'
 const ORG_SLUG = 'assignment-org'
@@ -170,7 +185,7 @@ describe('POST /v1/outreach/:id/assignments', () => {
     ).toBe(0)
   })
 
-  it('never succeeds assigning against an outreach in another organization', async () => {
+  it('404s assigning against an outreach in another organization, without leaking that it exists', async () => {
     const otherOwner = await createMemberUser({
       email: 'other-owner@example.com',
     })
@@ -196,7 +211,14 @@ describe('POST /v1/outreach/:id/assignments', () => {
       orgHeaders(),
     )
 
-    expect(result.status).not.toBe(HttpStatus.CREATED)
+    expect(result.status).toBe(HttpStatus.NOT_FOUND)
+    // A plain "Outreach <id> not found" (assertOutreachInOrg) is fine — it
+    // only echoes the id the caller already sent, same as a truly missing
+    // id. What must never appear is assign()'s own guard message, which
+    // names the OTHER org and confirms the outreach exists there.
+    const body = JSON.stringify(result.data)
+    expect(body).not.toContain(OTHER_ORG_SLUG)
+    expect(body).not.toContain('belong')
     expect(
       await service.prisma.outreachAssignment.count({
         where: { outreachId: foreignOutreach.id },
@@ -605,6 +627,77 @@ describe('GET /v1/outreach/assignments/mine', () => {
         phoneBanking: expect.objectContaining({
           listId: list.id,
           entriesTotal: 0,
+        }),
+      }),
+    ])
+  })
+
+  it('hydrates the turf-id pointer for a nativeDoorKnocking assignment', async () => {
+    const filter = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: ORG_SLUG, name: 'DK audience' },
+    })
+    // No stops needed: DoorKnockingTurfCountsService.forRoutes seeds every
+    // requested route id, so a route with none comes back zeroed rather than
+    // absent — this suite is about the mine/assignment wiring, not counting.
+    const turf = await service.prisma.doorKnockingTurf.create({
+      data: {
+        voterFileFilterId: filter.id,
+        name: 'Elm St walk',
+        color: '#22aa55',
+        geoPoly: GEO_POLY,
+      },
+    })
+    const route = await service.prisma.doorKnockingRoute.create({
+      data: {
+        doorKnockingTurfId: turf.id,
+        mode: 'walk',
+        loop: false,
+        totalSeconds: 0,
+        totalMeters: 0,
+        credits: 0,
+      },
+    })
+    const outreach = await service.prisma.outreach.create({
+      data: {
+        campaignId: campaign.id,
+        organizationSlug: ORG_SLUG,
+        outreachType: 'nativeDoorKnocking',
+        doorKnockingRouteId: route.id,
+        name: 'Elm St walk',
+        status: 'in_progress',
+      },
+    })
+    const volunteer = await createMemberUser({
+      email: 'mine-dk-volunteer@example.com',
+      clerkId: 'user_mine_dk_volunteer',
+    })
+    await addMembership(volunteer.id, OrganizationRole.volunteer)
+    await service.prisma.outreachAssignment.create({
+      data: {
+        organizationSlug: ORG_SLUG,
+        outreachId: outreach.id,
+        assigneeUserId: volunteer.id,
+      },
+    })
+
+    const result = await service.client.get('/v1/outreach/assignments/mine', {
+      headers: {
+        [ORG_SLUG_HEADER]: ORG_SLUG,
+        ...authHeaderFor('user_mine_dk_volunteer'),
+      },
+    })
+
+    expect(result.status).toBe(HttpStatus.OK)
+    expect(result.data.assignments).toEqual([
+      expect.objectContaining({
+        outreachId: outreach.id,
+        outreachType: 'nativeDoorKnocking',
+        doorKnocking: expect.objectContaining({
+          turfId: turf.id,
+          routeId: route.id,
+          doorCount: 0,
+          peopleCount: 0,
+          loggedCount: 0,
         }),
       }),
     ])
