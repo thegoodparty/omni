@@ -534,7 +534,13 @@ export class OutreachRobocallHoldService extends createPrismaBase(
         // invariant: authorized AND callhubCampaignPkStr IS NULL. If the
         // staging sweep COMPLETED between that SELECT and here, the draft is
         // back in `authorized` but now has a pk_str set and is about to dial —
-        // failing it would void a live hold and orphan a staged campaign.
+        // failing it would void a live hold and orphan a staged campaign. This
+        // CAS — NOT the staging-grace date boundary — is what makes the staging
+        // and stranded sweeps disjoint across their separate cron ticks (the
+        // `now - grace` bound only separates them at a single instant, and the
+        // two windows can briefly overlap tick-to-tick). Do NOT drop this guard
+        // believing the grace made it redundant: that reintroduces a
+        // double-void / dial-after-void race.
         ...(reason === 'expired_unstaged'
           ? { callhubCampaignPkStr: null }
           : {}),

@@ -1,11 +1,12 @@
 import { BadGatewayException, Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { addHours, subMinutes } from 'date-fns'
+import { addHours, addMinutes, max, subMinutes } from 'date-fns'
 import { ZodError } from 'zod'
 import { MimeTypes } from 'http-constants-ts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { AudioTranscodeService } from '@/shared/services/audioTranscode.service'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import { ROBOCALL_STAGING_GRACE_MINUTES } from '@/shared/util/robocallHold.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { CallhubMediaService } from '@/vendors/callhub/services/callhubMedia.service'
 import { CALLHUB_MEDIA_MIME_TYPES } from '@/vendors/callhub/schemas/callhubMedia.schema'
@@ -37,6 +38,18 @@ const ROBOCALL_STAGING_LEAD_HOURS = 2
 // campaign. 30 min is many times the observed healthy run and still recovers a
 // stranded hold long before its send.
 const ROBOCALL_STAGING_STALE_MINUTES = 30
+
+// A small future cushion added when clamping the CallHub `scheduledStart`. A
+// grace-rescued draft has a `sendAt` in the past (its send passed during a
+// deploy/restart/missed tick), but createVoiceBroadcast rejects any
+// `scheduledStart` not strictly after now, so a past `sendAt` must be clamped
+// forward. Clamping to exactly `now` still races that guard — CallHub's
+// createVoiceBroadcast re-reads `new Date()` a few ms later, and `now` is not
+// strictly after a slightly-later now — so we clamp to `now + this`. Two
+// minutes clears the guard with room for the intra-request time gap; the dial
+// itself is NOT gated on this value (the send sweep dials on `outreach.date`,
+// not the CallHub schedule), so a late run still dials as soon as it is staged.
+const ROBOCALL_STAGING_START_BUFFER_MINUTES = 2
 
 // Every 10 minutes, offset off :00 so the sweep doesn't join the top-of-hour
 // herd (and off the existing */10 job). Frequent enough that a draft authorized
@@ -114,12 +127,24 @@ export class OutreachRobocallStagingService extends createPrismaBase(
         outreach: { outreachType: OutreachType.robocall },
         OR: [
           // In-window authorized drafts: stage close to send, since the rented
-          // caller-ID number gets spam-flagged if it sits idle too long.
+          // caller-ID number gets spam-flagged if it sits idle too long. The
+          // lower bound reaches ROBOCALL_STAGING_GRACE_MINUTES BEFORE now, not
+          // just now, so a run whose send passed during a deploy/restart/missed
+          // tick still stages (and dials a few minutes late) instead of stranding
+          // — the stranded sweep only fails runs older than this same
+          // `now - grace` boundary. At one instant that split is disjoint;
+          // but the two sweeps fire on separate cron ticks, so their date
+          // windows can briefly overlap on one draft. What actually prevents
+          // double-handling is failSend's pre-existing
+          // `callhubCampaignPkStr: null` (+ `authorized`) CAS: once staging
+          // claims the row, the stranded sweep's failSend matches nothing.
+          // Boundary and CAS are jointly necessary — see
+          // OutreachRobocallHoldService.failSend; do not drop that guard.
           {
             settleState: RobocallSettleState.authorized,
             outreach: {
               date: {
-                gte: now,
+                gte: subMinutes(now, ROBOCALL_STAGING_GRACE_MINUTES),
                 lte: addHours(now, ROBOCALL_STAGING_LEAD_HOURS),
               },
             },
@@ -260,7 +285,14 @@ export class OutreachRobocallStagingService extends createPrismaBase(
         voterFileFilterId,
       )
       created = await this.campaigns.createVoiceBroadcast({
-        scheduledStart: sendAt,
+        // A genuinely-future send passes its real time; a grace-rescued send
+        // (sendAt in the past) clamps to a small future value so it clears
+        // createVoiceBroadcast's strictly-after-now guard. The actual dial is
+        // driven by the send sweep off outreach.date, not this value.
+        scheduledStart: max([
+          sendAt,
+          addMinutes(new Date(), ROBOCALL_STAGING_START_BUFFER_MINUTES),
+        ]),
         name: campaignName,
         phonebookPkStr: phonebook.phonebookPkStr,
         mediaFileId: media.media_file_id,
