@@ -184,6 +184,17 @@ describe('DashboardMenu — Team item in the mobile sidebar (ENG-11061)', () => 
     renderMenu()
     expect(screen.queryByText('Team')).not.toBeInTheDocument()
   })
+
+  it('hides Team for an elected office even while the async elected-office query is still pending', () => {
+    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
+    mockUseElectedOffice.mockReturnValue({ data: undefined, isLoading: true })
+    mockUseOrganization.mockReturnValue({
+      slug: 'eo-1',
+      electedOfficeId: 'eo-1',
+    })
+    renderMenu()
+    expect(screen.queryByText('Team')).not.toBeInTheDocument()
+  })
 })
 
 describe('DashboardMenu — Account Settings visibility x organization role', () => {
