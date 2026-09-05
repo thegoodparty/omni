@@ -158,13 +158,15 @@ export const DrawFullScreen = ({
           <Undo2Icon className="size-[18px]" />
         </IconButton>
       </div>
-      <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-10 border-t border-border bg-background p-4">
-        {/* Row-reverse mirroring `OutreachFlowShell`'s footer: Continue on
-            the right, Back on the left. Back reuses `onClose`, which the
-            caller already wires to `leaveFullScreen` — so the shape's own
-            "Discard this turf?" still guards a drawn boundary. */}
+      {/* Same padding as `OutreachSheet`'s DrawerFooter (`px-6 py-4`), so
+          the drawing surface's Continue/Back land at the same widths and
+          positions as every other step's footer buttons. The button
+          classNames themselves already mirror `OutreachFlowShell` — the
+          gap was the container padding. */}
+      <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-10 border-t border-border bg-background px-6 py-4">
         <div className="mx-auto flex w-full max-w-[608px] flex-row-reverse items-center justify-between gap-3">
           <Button
+            type="button"
             size="large"
             className="min-w-0 flex-1 lg:min-w-[240px] lg:flex-none"
             disabled={continueDisabled}
