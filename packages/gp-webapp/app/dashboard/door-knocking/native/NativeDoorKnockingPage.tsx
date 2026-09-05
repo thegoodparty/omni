@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { DOOR_KNOCK_STATUSES, DoorKnockingTurf } from '@goodparty_org/contracts'
+import { Spinner } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { DoorKnockingDailyLimitDialog } from './DoorKnockingDailyLimitDialog'
@@ -243,7 +244,16 @@ export default function NativeDoorKnockingPage({
   // is the better one because it keeps the hub's scroll position.
   const tileOpened = useRef(Boolean(openCreateFlow))
 
-  const visibleTurfs = useMemo(() => turfsQuery.data ?? [], [turfsQuery.data])
+  // During a walk, scope the map to just this turf's ring — the neighbors'
+  // rings are noise around the route the canvasser is on. The whole saved
+  // list stays on screen everywhere else (the hub view, the create flow's
+  // preview map behind its own sheet), so the filter is walk-scoped and not
+  // a global toggle.
+  const visibleTurfs = useMemo(() => {
+    const all = turfsQuery.data ?? []
+    if (!walkTurf) return all
+    return all.filter((candidate) => candidate.id === walkTurf.id)
+  }, [turfsQuery.data, walkTurf])
   // What the map shades. Only two surfaces can be on screen now, and only one
   // of them scopes the dots: the create flow's draft narrows them as the
   // filters are cut, and the walk leaves the whole district shaded under its
@@ -757,7 +767,7 @@ export default function NativeDoorKnockingPage({
               what gets shown in it. */}
             {leaving && (
               <div className="absolute inset-0 z-40 flex items-center justify-center bg-background">
-                <LoadingAnimation title="Taking you back…" />
+                <Spinner />
               </div>
             )}
             {walkSurface()}
