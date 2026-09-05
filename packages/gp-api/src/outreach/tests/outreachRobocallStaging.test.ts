@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { BadGatewayException } from '@nestjs/common'
-import { addHours, addMinutes, subMinutes } from 'date-fns'
+import { addHours, addMinutes, isAfter, isEqual, subMinutes } from 'date-fns'
 import { MimeTypes } from 'http-constants-ts'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -168,6 +168,45 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     // The computed window is persisted, never null on a successful stage.
     expect(satellite.callhubStartingDate).not.toBeNull()
     expect(satellite.callhubExpirationDate).not.toBeNull()
+  })
+
+  it('stages a grace-rescued (past-send) draft with a future scheduledStart', async () => {
+    // The send passed 10 min ago (deploy/restart/missed tick) but is still
+    // inside the staging grace window — authorized, unstaged. createVoiceBroadcast
+    // rejects any scheduledStart not strictly after now, so a past sendAt must be
+    // clamped forward; without the clamp this bounces back to authorized every
+    // sweep and never stages (grace would be a no-op).
+    const outreachId = await createDraft({ sendInMinutes: -10 })
+
+    await staging.stageCampaign(outreachId)
+    const afterCall = new Date()
+
+    expect(createVbSpy).toHaveBeenCalledTimes(1)
+    const scheduledStart = createVbSpy.mock.calls[0]?.[0]
+      ?.scheduledStart as Date
+    // Strictly after now, so it clears createVoiceBroadcast's isAfter guard.
+    expect(isAfter(scheduledStart, afterCall)).toBe(true)
+
+    // Committed to staged (pk_str persisted), NOT revert-bounced to authorized.
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.callhubCampaignPkStr).toBe('vb_1')
+    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
+  })
+
+  it('passes a genuinely-future sendAt through as scheduledStart unchanged', async () => {
+    const outreachId = await createDraft({ sendInHours: 3 })
+    const sendAt = (
+      await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: outreachId },
+      })
+    ).date
+
+    await staging.stageCampaign(outreachId)
+
+    const scheduledStart = createVbSpy.mock.calls[0]?.[0]
+      ?.scheduledStart as Date
+    // A future send is not clamped: its real time reaches CallHub.
+    expect(isEqual(scheduledStart, sendAt!)).toBe(true)
   })
 
   it('uploads media before creating the phonebook (cheap format failure)', async () => {
