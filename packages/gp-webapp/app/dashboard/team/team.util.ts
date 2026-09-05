@@ -33,6 +33,22 @@ export const formatName = (name: string | null, email: string): string =>
 const INVITE_ERROR_FALLBACK =
   'Something went wrong sending the invite. Please try again.'
 
+// nestjs-zod v5's ZodValidationException 400s carry the static sentinel
+// message "Validation failed" and put the per-field copy in errors[].message
+// (the raw Zod issues) — the field-level text is what a user can act on.
+const firstZodIssueMessage = (data: unknown): string | undefined => {
+  if (!data || typeof data !== 'object') return undefined
+  const errors = (data as { errors?: unknown }).errors
+  if (!Array.isArray(errors)) return undefined
+  const issue = errors.find(
+    (entry): entry is { message: string } =>
+      !!entry &&
+      typeof entry === 'object' &&
+      typeof (entry as { message?: unknown }).message === 'string',
+  )
+  return issue?.message
+}
+
 // Shared by InviteMemberDialog (the outreach drawer's list-scoped entry
 // point) and InviteMemberDrawer (the team page's two-step drawer, ENG-11058)
 // — both hit the same 409 (already a member / already pending) on the same
@@ -40,8 +56,16 @@ const INVITE_ERROR_FALLBACK =
 // covers InviteTeamMemberDto's own validation failures (e.g. an invalid
 // phone number via PhoneSchema) — same reasoning, its message reads better
 // than the generic fallback too.
-export const toInviteErrorMessage = (error: unknown): string =>
-  (error instanceof FetchError &&
-    (error.status === 409 || error.status === 400) &&
-    extractApiErrorInfo(error.data).message) ||
-  INVITE_ERROR_FALLBACK
+export const toInviteErrorMessage = (error: unknown): string => {
+  if (
+    !(error instanceof FetchError) ||
+    (error.status !== 409 && error.status !== 400)
+  ) {
+    return INVITE_ERROR_FALLBACK
+  }
+  const { message } = extractApiErrorInfo(error.data)
+  if (message === 'Validation failed') {
+    return firstZodIssueMessage(error.data) ?? INVITE_ERROR_FALLBACK
+  }
+  return message || INVITE_ERROR_FALLBACK
+}

@@ -339,7 +339,18 @@ describe('TeamPage — invite flow (ENG-11058 two-step drawer)', () => {
     const user = userEvent.setup()
     api.mock('POST /v1/organizations/team/invites', {
       status: 400,
-      data: { message: ['Must be valid phone number'] },
+      // The real nestjs-zod v5 ZodValidationException shape: a static
+      // "Validation failed" message with the field copy in errors[].
+      data: {
+        message: 'Validation failed',
+        errors: [
+          {
+            code: 'custom',
+            message: 'Must be valid phone number',
+            path: ['phone'],
+          },
+        ],
+      },
     })
 
     render(<TeamPage />)
