@@ -853,9 +853,7 @@ export default function CreateListFlow({
   }
 
   const title =
-    stage === 'route'
-      ? `Knock ${name.trim() || 'this'} walk`
-      : STAGE_META[stage].title
+    stage === 'route' ? 'How will you knock?' : STAGE_META[stage].title
   const caption = stage === 'route' ? ROUTE_CAPTION : STAGE_META[stage].caption
   const { currentStep, totalSteps } = stepperPosition(stage)
 
