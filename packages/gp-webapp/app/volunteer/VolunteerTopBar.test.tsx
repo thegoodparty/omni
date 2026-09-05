@@ -1,14 +1,16 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { User, UserRole } from 'helpers/types'
 
 const mockUseUser = vi.fn()
+const mockUseOrganization = vi.fn()
 vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => mockUseUser(),
 }))
 vi.mock('@shared/organization-picker', () => ({
   OrganizationPicker: () => <div data-testid="org-picker" />,
+  useOrganization: () => mockUseOrganization(),
 }))
 vi.mock('@shared/layouts/navigation/ProfileDropdown', () => ({
   default: () => <div data-testid="profile-dropdown" />,
@@ -28,6 +30,13 @@ const user: User = {
 }
 
 describe('VolunteerTopBar', () => {
+  beforeEach(() => {
+    mockUseOrganization.mockReturnValue({
+      slug: 'org-1',
+      name: 'Renee Wells for City Council',
+    })
+  })
+
   it('renders the org picker and profile dropdown, and nothing dashboard-nav-shaped', () => {
     mockUseUser.mockReturnValue([user])
 
@@ -47,5 +56,32 @@ describe('VolunteerTopBar', () => {
 
     expect(screen.getByTestId('org-picker')).toBeInTheDocument()
     expect(screen.queryByTestId('profile-dropdown')).not.toBeInTheDocument()
+  })
+
+  it('renders the Volunteer badge', () => {
+    mockUseUser.mockReturnValue([user])
+
+    render(<VolunteerTopBar />)
+
+    expect(screen.getByText('Volunteer')).toBeInTheDocument()
+  })
+
+  it('renders the campaign banner with the organization name once resolved', () => {
+    mockUseUser.mockReturnValue([user])
+
+    render(<VolunteerTopBar />)
+
+    expect(screen.getByText('Renee Wells for City Council')).toBeInTheDocument()
+  })
+
+  it('renders no banner while the organization has not resolved yet', () => {
+    mockUseUser.mockReturnValue([user])
+    mockUseOrganization.mockReturnValue(undefined)
+
+    render(<VolunteerTopBar />)
+
+    expect(
+      screen.queryByText('Renee Wells for City Council'),
+    ).not.toBeInTheDocument()
   })
 })
