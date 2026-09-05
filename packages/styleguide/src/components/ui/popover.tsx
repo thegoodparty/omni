@@ -21,10 +21,19 @@ function PopoverContent({
   className,
   align = 'center',
   sideOffset = 4,
+  container,
   ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+}: React.ComponentProps<typeof PopoverPrimitive.Content> & {
+  // Portal target for the popover's Content. Pass a ref-resolved element
+  // when the popover lives inside a vaul Drawer (or other overlay that
+  // installs `react-remove-scroll` on <body>) — the default portal target
+  // (document.body) is outside the drawer's scroll-allowed scope, so
+  // scroll inside a portalled popover silently no-ops. Portalling into an
+  // element that's already inside the drawer keeps the popover in scope.
+  container?: React.ComponentProps<typeof PopoverPrimitive.Portal>['container']
+}) {
   return (
-    <PopoverPrimitive.Portal>
+    <PopoverPrimitive.Portal container={container}>
       <PopoverPrimitive.Content
         data-slot="popover-content"
         align={align}
