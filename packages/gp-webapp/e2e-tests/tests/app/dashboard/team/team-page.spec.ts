@@ -6,8 +6,9 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 
-// win-team-accounts (ENG-10816/10827). The flag gates only the Team nav item
-// and the /dashboard/team route itself (FeatureFlagGuard) — GET
+// win-team-accounts (ENG-10816/10827). The flag gates only the Team
+// account-menu item (ENG-11061 moved it out of the primary nav) and the
+// /dashboard/team route itself (FeatureFlagGuard) — GET
 // /v1/organizations/team is otherwise ungated server-side (only invite
 // creation is), so a real dev backend answers it once the route is reached.
 test.describe('Team page — flag off', () => {
@@ -15,7 +16,7 @@ test.describe('Team page — flag off', () => {
     await blockSlowScripts(page)
   })
 
-  test('no nav item, and a direct visit to /dashboard/team redirects away', async ({
+  test('no account-menu item, and a direct visit to /dashboard/team redirects away', async ({
     page,
   }) => {
     test.setTimeout(2 * 60 * 1000)
@@ -32,7 +33,8 @@ test.describe('Team page — flag off', () => {
     await expect(page.locator('#win-contacts-dashboard')).toBeVisible({
       timeout: 30_000,
     })
-    await expect(page.locator('#team-dashboard')).toHaveCount(0)
+    await page.getByText('Manage account').click()
+    await expect(page.locator('#nav-dash-team')).toHaveCount(0)
 
     await page.goto('/dashboard/team', { waitUntil: 'domcontentloaded' })
     await page.waitForURL((url) => url.pathname === '/dashboard', {
@@ -48,7 +50,7 @@ test.describe('Team page — flag forced on', () => {
   // it so the team-list stub below intercepts deterministically.
   test.use({ serviceWorkers: 'block' })
 
-  test('the nav item renders, the page loads the member list, and the invite modal opens', async ({
+  test('the account-menu item renders, the page loads the member list, and the invite modal opens', async ({
     page,
   }) => {
     test.setTimeout(2 * 60 * 1000)
@@ -78,10 +80,16 @@ test.describe('Team page — flag forced on', () => {
     await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
-    await expect(page.locator('#team-dashboard')).toBeVisible({
+    // Same settle guard as the flag-off spec: wait for a sibling nav item to
+    // resolve before opening the account menu and looking for Team.
+    await expect(page.locator('#win-contacts-dashboard')).toBeVisible({
       timeout: 30_000,
     })
-    await page.locator('#team-dashboard').click()
+    await page.getByText('Manage account').click()
+    await expect(page.locator('#nav-dash-team')).toBeVisible({
+      timeout: 30_000,
+    })
+    await page.locator('#nav-dash-team').click()
     await page.waitForURL(/\/dashboard\/team/, { timeout: 30_000 })
 
     await expect(page.getByText('1 person on this campaign')).toBeVisible({

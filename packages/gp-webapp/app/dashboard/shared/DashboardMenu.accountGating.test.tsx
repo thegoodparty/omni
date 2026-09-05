@@ -64,17 +64,48 @@ beforeEach(() => {
   mockUseClerkUser.mockReturnValue({ user: null, isLoaded: true })
 })
 
-describe('DashboardMenu — Team nav item x win-team-accounts flag', () => {
-  it('renders no Team nav item when the flag is off', () => {
+describe('DashboardMenu — Team removed from the primary nav (ENG-11061)', () => {
+  it('never renders a primary-nav Team item, flag on or off', () => {
+    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
+    renderMenu()
+    // The account-menu Team item only exists inside the closed dropdown
+    // below, so an unopened render proves the primary nav has none.
+    expect(screen.queryByText('Team')).not.toBeInTheDocument()
+  })
+})
+
+describe('DashboardMenu — Team item in the account menu (ENG-11061)', () => {
+  // The account-management links render inside the desktop footer's
+  // DropdownMenuContent, which Radix only mounts once its trigger opens —
+  // same reasoning as the Account Settings assertions below.
+  const openAccountMenu = async () => {
+    const user = userEvent.setup()
+    await user.click(screen.getByText('Manage account'))
+  }
+
+  it('is absent when the flag is off', async () => {
     mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: false })
     renderMenu()
+    await openAccountMenu()
     expect(screen.queryByText('Team')).not.toBeInTheDocument()
   })
 
-  it('renders the Team nav item when the flag is on', () => {
+  it('shows Team in the account menu when the flag is on', async () => {
     mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
     renderMenu()
+    await openAccountMenu()
     expect(screen.getByText('Team')).toBeInTheDocument()
+  })
+
+  it('hides Team for an elected office, even when the flag is on', async () => {
+    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
+    mockUseElectedOffice.mockReturnValue({
+      data: { id: 'eo-1' },
+      isLoading: false,
+    })
+    renderMenu()
+    await openAccountMenu()
+    expect(screen.queryByText('Team')).not.toBeInTheDocument()
   })
 
   it('reads the flag without tracking exposure (nav is not the treatment surface)', () => {
