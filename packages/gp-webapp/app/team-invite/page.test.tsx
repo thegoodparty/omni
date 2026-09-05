@@ -201,6 +201,7 @@ describe('TeamInvitePage', () => {
       data: {
         organizationSlug: 'jane-doe-for-congress',
         role: 'campaignAdmin',
+        assignment: null,
       },
     })
 
@@ -228,6 +229,7 @@ describe('TeamInvitePage', () => {
       data: {
         organizationSlug: 'jane-doe-for-congress',
         role: 'volunteer',
+        assignment: null,
       },
     })
 
@@ -354,6 +356,7 @@ describe('TeamInvitePage', () => {
         data: {
           organizationSlug: 'jane-doe-for-congress',
           role: 'campaignAdmin',
+          assignment: null,
         },
       })
 
@@ -401,6 +404,7 @@ describe('TeamInvitePage', () => {
         data: {
           organizationSlug: 'jane-doe-for-congress',
           role: 'campaignAdmin',
+          assignment: null,
         },
       })
 
