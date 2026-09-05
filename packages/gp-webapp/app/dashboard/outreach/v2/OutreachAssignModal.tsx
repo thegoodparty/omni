@@ -48,27 +48,25 @@ const ROLE_FILTERS: { value: RoleFilter; label: string }[] = [
   { value: 'volunteer', label: ROLE_LABELS.volunteer ?? 'Volunteer' },
 ]
 
-// Structural rather than the full UseMutationResult<TData, TError, TVariables>
-// generic — the modal only ever reads these three fields off either mutation,
-// and pinning the wider generic here would tie this file to the exact
-// response/error types the section's two useMutation calls happen to infer.
-interface AssignmentMutation {
-  mutate: (userId: number) => void
-  isPending: boolean
-  variables: number | undefined
-}
-
 interface OutreachAssignModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   outreachName?: string
   members: TeamMember[]
   assignedUserIds: Set<number>
+  // userIds with an assign/unassign call currently in flight — owned by the
+  // section (which owns both useMutation instances behind onToggleAssignment)
+  // rather than derived from either mutation's own isPending/variables here.
+  // Those two fields reflect only the MOST RECENT mutate() call: clicking
+  // row A then, before A's request resolves, clicking row B recomputes A's
+  // pendingForThis to false off B's variables and re-enables A's row, so a
+  // second click on A while its first request is still in flight fires a
+  // duplicate concurrent POST/DELETE for the same user.
+  pendingUserIds: Set<number>
+  onToggleAssignment: (userId: number, currentlyAssigned: boolean) => void
   teamQueryPending: boolean
   teamQueryError: boolean
   onRetryTeamQuery: () => void
-  assignMutation: AssignmentMutation
-  removeMutation: AssignmentMutation
   onInviteVolunteer: () => void
 }
 
@@ -84,11 +82,11 @@ export const OutreachAssignModal = ({
   outreachName,
   members,
   assignedUserIds,
+  pendingUserIds,
+  onToggleAssignment,
   teamQueryPending,
   teamQueryError,
   onRetryTeamQuery,
-  assignMutation,
-  removeMutation,
   onInviteVolunteer,
 }: OutreachAssignModalProps): React.JSX.Element => {
   const [search, setSearch] = useState('')
@@ -165,22 +163,14 @@ export const OutreachAssignModal = ({
           ) : (
             filteredMembers.map((member) => {
               const assigned = assignedUserIds.has(member.userId)
-              const pendingForThis =
-                (assignMutation.isPending &&
-                  assignMutation.variables === member.userId) ||
-                (removeMutation.isPending &&
-                  removeMutation.variables === member.userId)
+              const pendingForThis = pendingUserIds.has(member.userId)
               const displayName = formatName(member.name, member.email)
               return (
                 <button
                   key={member.userId}
                   type="button"
                   disabled={pendingForThis}
-                  onClick={() =>
-                    assigned
-                      ? removeMutation.mutate(member.userId)
-                      : assignMutation.mutate(member.userId)
-                  }
+                  onClick={() => onToggleAssignment(member.userId, assigned)}
                   className={cn(
                     'flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors disabled:opacity-50',
                     assigned

@@ -75,6 +75,11 @@ export const OutreachAssigneesSection = ({
   const [removeTarget, setRemoveTarget] = useState<OutreachAssignee | null>(
     null,
   )
+  // userIds with an assign/unassign call in flight from the modal — tracked
+  // independently of either mutation's own isPending/variables, which only
+  // ever reflect the MOST RECENT mutate() call and so cannot disable two
+  // different rows toggled in quick succession (see OutreachAssignModal.tsx).
+  const [pendingUserIds, setPendingUserIds] = useState<Set<number>>(new Set())
 
   const assigneesQuery = useQuery({
     queryKey: outreachAssigneesQueryKey(outreachId),
@@ -135,6 +140,42 @@ export const OutreachAssigneesSection = ({
     onError: () =>
       errorSnackbar("Couldn't remove this assignee. Please try again."),
   })
+
+  // Single entry point for the modal's row click: marks the userId pending
+  // BEFORE calling the mutation, and clears it once that SPECIFIC call
+  // settles. Deliberately mutateAsync + try/finally, not mutate() with a
+  // per-call onSettled option: MutationObserver.mutate() detaches its
+  // observer from the PREVIOUS mutation before attaching to the new one
+  // (query-core's mutationObserver.js), so a per-call onSettled passed to an
+  // earlier mutate() never fires once a later mutate() on the same shared
+  // instance has been made — exactly the case here, where two different
+  // rows can each start a call before the first settles. mutateAsync's
+  // returned promise is that mutation's own execute() promise, so awaiting
+  // it ties completion to the call that produced it, not to whichever
+  // mutation the observer is currently attached to.
+  const handleToggleAssignment = async (
+    userId: number,
+    currentlyAssigned: boolean,
+  ) => {
+    setPendingUserIds((prev) => new Set(prev).add(userId))
+    try {
+      if (currentlyAssigned) {
+        await removeMutation.mutateAsync(userId)
+      } else {
+        await assignMutation.mutateAsync(userId)
+      }
+    } catch {
+      // Already surfaced via the mutation-level onError's errorSnackbar
+      // above — this catch only stops that rejection from becoming an
+      // unhandled promise rejection now that we await mutateAsync here.
+    } finally {
+      setPendingUserIds((prev) => {
+        const next = new Set(prev)
+        next.delete(userId)
+        return next
+      })
+    }
+  }
 
   if (!flagReady || !flagEnabled) return null
 
@@ -262,11 +303,11 @@ export const OutreachAssigneesSection = ({
         outreachName={outreachName}
         members={members}
         assignedUserIds={assignedUserIds}
+        pendingUserIds={pendingUserIds}
+        onToggleAssignment={handleToggleAssignment}
         teamQueryPending={teamQuery.isPending}
         teamQueryError={teamQuery.isError}
         onRetryTeamQuery={() => teamQuery.refetch()}
-        assignMutation={assignMutation}
-        removeMutation={removeMutation}
         onInviteVolunteer={() => {
           setAssignOpen(false)
           setInviteOpen(true)

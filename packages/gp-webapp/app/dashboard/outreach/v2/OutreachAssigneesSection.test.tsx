@@ -191,6 +191,77 @@ describe('OutreachAssigneesSection — assign modal (ENG-11059)', () => {
     })
   })
 
+  // The reviewer's blocker: pendingForThis must not be derived from the
+  // shared mutation's own isPending/variables, since mutate() only ever
+  // reflects the MOST RECENT call — clicking a second row mid-flight would
+  // otherwise recompute the first row's pending state off the second row's
+  // variables and re-enable it while its own request is still unresolved.
+  it('keeps a clicked row disabled until its OWN request settles, even after a second row is clicked while the first is still in flight', async () => {
+    const user = userEvent.setup()
+    let resolveManagerAssign: (() => void) | undefined
+    let resolveVolunteerAssign: (() => void) | undefined
+    api.mock(
+      'POST /v1/outreach/:id/assignments',
+      ({ body }) =>
+        new Promise((resolve) => {
+          const respond = () =>
+            resolve({
+              status: 200,
+              data: {
+                userId: body.assigneeUserId,
+                name:
+                  body.assigneeUserId === manager.userId
+                    ? manager.name
+                    : volunteer.name,
+                role:
+                  body.assigneeUserId === manager.userId
+                    ? manager.role
+                    : volunteer.role,
+                createdAt: '2026-08-02T00:00:00.000Z',
+                assignedByUserId: owner.userId,
+                assignedByName: owner.name,
+              },
+            })
+          if (body.assigneeUserId === manager.userId) {
+            resolveManagerAssign = respond
+          } else {
+            resolveVolunteerAssign = respond
+          }
+        }),
+    )
+    render(
+      <OutreachAssigneesSection outreachId={30} outreachName="GOTV calls" />,
+    )
+
+    await user.click(await screen.findByText('Assign someone'))
+    const dialog = await screen.findByRole('dialog')
+    const managerRow = within(dialog).getByText('Cam Manager').closest('button')
+    const volunteerRow = within(dialog)
+      .getByText('Val Volunteer')
+      .closest('button')
+    expect(managerRow).not.toBeNull()
+    expect(volunteerRow).not.toBeNull()
+
+    await user.click(managerRow!)
+    await waitFor(() => expect(managerRow).toBeDisabled())
+
+    await user.click(volunteerRow!)
+    // Manager's own request is still unresolved — it must stay disabled even
+    // though a second, different row was clicked in between.
+    expect(managerRow).toBeDisabled()
+    await waitFor(() => expect(volunteerRow).toBeDisabled())
+
+    await waitFor(() => expect(resolveManagerAssign).toBeDefined())
+    resolveManagerAssign?.()
+    await waitFor(() => expect(managerRow).not.toBeDisabled())
+    // Volunteer's own request is still unresolved — resolving manager's must
+    // not re-enable it early either.
+    expect(volunteerRow).toBeDisabled()
+
+    resolveVolunteerAssign?.()
+    await waitFor(() => expect(volunteerRow).not.toBeDisabled())
+  })
+
   it('unassigns an already-assigned member by clicking their row again, showing a checkmark while assigned', async () => {
     assignees = [
       {
