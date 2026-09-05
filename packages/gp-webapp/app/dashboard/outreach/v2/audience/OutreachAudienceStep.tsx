@@ -337,7 +337,17 @@ export const OutreachAudienceStep = ({
                 <p className="truncate font-medium text-foreground">
                   {listsLoading
                     ? 'Loading your lists…'
-                    : (active?.name ?? 'Choose a voter list')}
+                    : (active?.name ??
+                      // When recommendations sit above the picker, the
+                      // picker's role shifts to "here's where your saved
+                      // lists are" — the primary control is the card up
+                      // top. A plain "Choose a voter list" reads as
+                      // instructing the candidate to ignore what they
+                      // were just offered. Same conditional door
+                      // knocking's WhoStep already applies.
+                      (recommendations.length > 0
+                        ? 'View your lists here'
+                        : 'Choose a voter list'))}
                 </p>
                 {active && (
                   <p className="text-sm text-muted-foreground">
