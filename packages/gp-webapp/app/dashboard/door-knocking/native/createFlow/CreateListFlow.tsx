@@ -24,6 +24,7 @@ import {
   useWinRecommendedListsFlag,
   WIN_RECOMMENDED_LISTS_FLAG_KEY,
 } from '@shared/experiments/winRecommendedListsFlag'
+import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
 import { PurposeStep } from 'app/dashboard/outreach/v2/PurposeStep'
 import { Intro } from 'app/dashboard/outreach/v2/social/Intro'
@@ -923,6 +924,7 @@ export default function CreateListFlow({
       open
       onClose={onClose}
       title={title}
+      headerBadge={<ChannelBadge type="nativeDoorKnocking" />}
       currentStep={currentStep}
       totalSteps={totalSteps}
       onBack={previousStage(stage) ? back : undefined}
