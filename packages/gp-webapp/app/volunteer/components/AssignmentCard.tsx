@@ -33,12 +33,26 @@ interface AssignmentAction {
   label: string
 }
 
+// Canceled/denied/failed/completed work must not offer a "Continue" action;
+// the assignments page groups these out of the active list with the same set.
+export const TERMINAL_STATUSES = new Set([
+  'completed',
+  'canceled',
+  'denied',
+  'failed',
+])
+export const isTerminalStatus = (status: MyAssignment['status']) =>
+  TERMINAL_STATUSES.has(status ?? '')
+
 // Only the two native channels carry a channel-pointer to route to (their
 // own future pages, ENG-11053's follow-ons) — every other assignable
 // outreachType has neither block, so it renders with no primary action.
 const resolveAction = (
   assignment: MyAssignment,
 ): { action: AssignmentAction | null; progress: string | null } => {
+  if (isTerminalStatus(assignment.status)) {
+    return { action: null, progress: null }
+  }
   if (
     assignment.outreachType === 'nativePhoneBanking' &&
     assignment.phoneBanking

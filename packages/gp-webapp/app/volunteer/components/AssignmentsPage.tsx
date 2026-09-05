@@ -17,7 +17,7 @@ import {
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import type { MyAssignment } from '@goodparty_org/contracts'
-import AssignmentCard from './AssignmentCard'
+import AssignmentCard, { isTerminalStatus } from './AssignmentCard'
 
 export const volunteerAssignmentsQueryKey = (orgSlug: string | undefined) => [
   'volunteer-assignments',
@@ -42,8 +42,8 @@ const AssignmentsPage = (): React.JSX.Element => {
   })
 
   const assignments: MyAssignment[] = data ?? []
-  const active = assignments.filter((a) => a.status !== 'completed')
-  const completed = assignments.filter((a) => a.status === 'completed')
+  const active = assignments.filter((a) => !isTerminalStatus(a.status))
+  const completed = assignments.filter((a) => isTerminalStatus(a.status))
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6 sm:px-8">

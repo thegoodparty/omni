@@ -128,6 +128,20 @@ describe('AssignmentsPage — rendering assignments', () => {
     expect(screen.getByText('Call list C')).toBeInTheDocument()
     expect(screen.getByText('Done')).toBeInTheDocument()
   })
+
+  it('groups every terminal status out of the active list', async () => {
+    assignments = [
+      phoneBankingAssignment,
+      { ...completedAssignment, status: 'canceled', name: 'Canceled list' },
+    ]
+
+    render(<AssignmentsPage />)
+
+    expect(await screen.findByText('Canceled list')).toBeInTheDocument()
+    expect(screen.getByText('Completed')).toBeInTheDocument()
+    // The canceled card sits in the done group, with no Continue action.
+    expect(screen.getAllByRole('link', { name: /Continue/ })).toHaveLength(1)
+  })
 })
 
 describe('AssignmentsPage — empty / loading / error triad', () => {
