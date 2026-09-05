@@ -149,9 +149,12 @@ interface WalkViewProps {
   // report, and the design's screen has no words for it because the design's
   // switch cannot fail.
   liveLocation: LiveLocation
-  // `Move to archive`, the one button under the stop list.
-  onMoveToArchive: () => void
-  archivePending: boolean
+  // `Move to archive`, the one button under the stop list. Absent on the
+  // volunteer walk (ENG-11055) — a volunteer's turf is never theirs to
+  // shelve — in which case the button below does not render at all, rather
+  // than rendering disabled or calling a no-op.
+  onMoveToArchive?: () => void
+  archivePending?: boolean
 }
 
 export default function WalkView({
@@ -926,15 +929,19 @@ export default function WalkView({
               label. What it does is set out on `TurfLifecycleAction`'s
               `completeAndArchive`: the list is finished AND shelved, because
               the label stands for both halves of a thing this product keeps
-              apart and the design has no second button for the other half. */}
-          <Button
-            variant="outline"
-            className="w-full"
-            loading={archivePending}
-            onClick={onMoveToArchive}
-          >
-            Move to archive
-          </Button>
+              apart and the design has no second button for the other half.
+              Absent on the volunteer walk (ENG-11055), which has no handler
+              for it — a volunteer's turf is never theirs to shelve. */}
+          {onMoveToArchive && (
+            <Button
+              variant="outline"
+              className="w-full"
+              loading={archivePending}
+              onClick={onMoveToArchive}
+            >
+              Move to archive
+            </Button>
+          )}
         </div>
       )}
       {sheetStop && sheet && (

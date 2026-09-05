@@ -303,6 +303,41 @@ export class OutreachAssignmentService extends createPrismaBase(
     return found !== null
   }
 
+  // Volunteer notes-access predicate (ENG-11057): can this user reach
+  // personId in this org through an assigned outreach envelope? Widens
+  // existsFor from "assigned to this one outreach" to "assigned to any
+  // outreach whose phone-banking list or door-knocking route carries this
+  // person" — one nested query over outreachAssignment rather than a query
+  // per candidate outreach.
+  async existsForPerson(
+    organizationSlug: string,
+    personId: string,
+    userId: number,
+  ): Promise<boolean> {
+    const found = await this.model.findFirst({
+      where: {
+        organizationSlug,
+        assigneeUserId: userId,
+        outreach: {
+          OR: [
+            {
+              phoneBankingList: {
+                entries: { some: { persons: { some: { personId } } } },
+              },
+            },
+            {
+              doorKnockingRoute: {
+                stops: { some: { targets: { some: { personId } } } },
+              },
+            },
+          ],
+        },
+      },
+      select: { id: true },
+    })
+    return found !== null
+  }
+
   async deleteAllForMember(
     organizationSlug: string,
     userId: number,

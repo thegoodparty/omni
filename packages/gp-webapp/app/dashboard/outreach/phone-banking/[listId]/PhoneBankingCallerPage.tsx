@@ -37,6 +37,7 @@ import {
   SelectValue,
   StatusText,
   Trash2Icon,
+  UserIcon,
   cn,
 } from '@styleguide'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
@@ -513,7 +514,10 @@ export default function PhoneBankingCallerPage({
                     const singlePerson = single ? entry.persons[0] : undefined
                     const active = activeSelection?.entryId === entry.id
                     return (
-                      <li key={entry.id}>
+                      // globals.css's broad `[data-slot] li { display: flex }`
+                      // would lay the row button and the expanded household
+                      // panel out side by side without this override.
+                      <li key={entry.id} className="flex flex-col">
                         <button
                           type="button"
                           onClick={() => handleRowClick(entry)}
@@ -605,7 +609,7 @@ export default function PhoneBankingCallerPage({
                           </span>
                         </button>
                         {!single && expanded && (
-                          <div className="flex flex-col border-t border-border bg-muted/30">
+                          <div className="flex flex-col divide-y divide-border border-t border-border bg-muted/30">
                             {entry.persons.map((person) => (
                               <button
                                 key={person.personId}
@@ -615,30 +619,28 @@ export default function PhoneBankingCallerPage({
                                 }
                                 className="flex items-center gap-2 px-4 py-2.5 pl-8 text-left text-sm hover:bg-muted/60"
                               >
+                                <UserIcon
+                                  size={16}
+                                  className="shrink-0 text-muted-foreground"
+                                />
                                 <span className="min-w-0 flex-1 truncate">
                                   {person.name}
                                 </span>
-                                <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-                                  {person.interaction ? (
-                                    <>
-                                      <span
-                                        className={cn(
-                                          'size-2 rounded-full',
-                                          OUTCOME_DOT_CLASS[
+                                <Badge variant="outline" shape="pill">
+                                  <span
+                                    className={cn(
+                                      'size-2 rounded-full',
+                                      person.interaction
+                                        ? OUTCOME_DOT_CLASS[
                                             person.interaction.outcome
-                                          ],
-                                        )}
-                                      />
-                                      {
-                                        OUTCOME_LABEL[
-                                          person.interaction.outcome
-                                        ]
-                                      }
-                                    </>
-                                  ) : (
-                                    NOT_CALLED_LABEL
-                                  )}
-                                </span>
+                                          ]
+                                        : 'bg-muted-foreground/40',
+                                    )}
+                                  />
+                                  {person.interaction
+                                    ? OUTCOME_LABEL[person.interaction.outcome]
+                                    : NOT_CALLED_LABEL}
+                                </Badge>
                                 <ChevronRightIcon
                                   size={14}
                                   className="shrink-0 text-muted-foreground"

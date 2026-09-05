@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { FetchError } from 'ofetch'
 import type { InviteMemberResponse } from 'gpApi/api-endpoints'
 import {
   Button,
@@ -15,35 +14,32 @@ import {
   Label,
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
-import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-
-const INVITE_ERROR_FALLBACK =
-  'Something went wrong sending the invite. Please try again.'
-
-// 409 covers both server-side reasons an invite can't go out (already a
-// member, or an invite already pending for this email) — surface gp-api's own
-// message rather than a generic one, since the two read differently.
-const toInviteErrorMessage = (error: unknown): string =>
-  (error instanceof FetchError &&
-    error.status === 409 &&
-    extractApiErrorInfo(error.data).message) ||
-  INVITE_ERROR_FALLBACK
+import { toInviteErrorMessage } from '../team.util'
 
 interface InviteMemberDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onInvited: (response: InviteMemberResponse) => void
+  // List-scoped volunteer invite (ENG-11056): the outreach drawer's Assign
+  // action invites a brand-new volunteer straight onto one list, reusing this
+  // dialog's form + inline-error handling rather than forking it. Omitted
+  // (default 'campaignAdmin') keeps the team page's general invite unchanged.
+  role?: 'campaignAdmin' | 'volunteer'
+  outreachId?: number
 }
 
 const InviteMemberDialog = ({
   open,
   onOpenChange,
   onInvited,
+  role = 'campaignAdmin',
+  outreachId,
 }: InviteMemberDialogProps): React.JSX.Element => {
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const roleLabel = role === 'volunteer' ? 'Volunteer' : 'Campaign Manager'
 
   useEffect(() => {
     if (open) {
@@ -59,7 +55,8 @@ const InviteMemberDialog = ({
       clientRequest('POST /v1/organizations/team/invites', {
         email: email.trim(),
         name: name.trim(),
-        role: 'campaignAdmin',
+        role,
+        ...(outreachId !== undefined ? { outreachId } : {}),
       }).then((res) => res.data),
     onSuccess: (response) => {
       trackEvent(EVENTS.Team.InviteSubmitted, { status: response.status })
@@ -80,7 +77,11 @@ const InviteMemberDialog = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Invite a team member</DialogTitle>
+          <DialogTitle>
+            {role === 'volunteer'
+              ? 'Invite a volunteer'
+              : 'Invite a team member'}
+          </DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
@@ -109,7 +110,7 @@ const InviteMemberDialog = ({
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="invite-member-role">Role</Label>
-            <Input id="invite-member-role" value="Campaign Manager" disabled />
+            <Input id="invite-member-role" value={roleLabel} disabled />
           </div>
 
           {errorMessage && (

@@ -162,8 +162,16 @@ export interface WalkSurfaceProps {
   // orchestrator's because it outlives the walk it shelves (`useWalkArchive`),
   // and because leaving is the orchestrator's gesture — this surface only knows
   // that the button was pressed.
-  onMoveToArchive: () => void
-  archivePending: boolean
+  //
+  // Optional as of ENG-11055: the volunteer walk has no archive affordance at
+  // all — `useWalkArchive` is manager-only, and a volunteer's turf is never
+  // theirs to shelve — so the button renders only where a handler is given
+  // rather than every caller having to hand in a no-op. This is a deliberate
+  // seam extension, not a loosening of the contract: the candidate/manager
+  // orchestrator still passes both, and `WalkView` still renders the same
+  // button for it byte-for-byte.
+  onMoveToArchive?: () => void
+  archivePending?: boolean
   // How far up the map this sheet reaches, so the zoom cluster can clear it.
   // Only the sheet knows, and only at its current snap.
   onMapControlsOffsetChange: (offsetPx: number | null) => void

@@ -404,6 +404,7 @@ describe('ClerkInvitationsService', () => {
           name: null,
           invitedByUserId: null,
           outreachId: null,
+          phone: null,
         },
       })
     })
@@ -439,6 +440,7 @@ describe('ClerkInvitationsService', () => {
           name: null,
           invitedByUserId: null,
           outreachId: null,
+          phone: null,
         },
       })
     })

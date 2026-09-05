@@ -143,8 +143,13 @@ export interface RoutePin {
 }
 
 interface VoterMapCanvasProps {
-  pack: DecodedPack
-  filterResult: FilterResult
+  // Null for the volunteer walk (ENG-11055): a volunteer never reads
+  // GET /v1/door-knocking/pack (403 server-side), so there is no district
+  // plane to draw. Null omits the `voter-dots` layer entirely rather than
+  // rendering it empty, and the opening camera falls back to the route-fit
+  // effect below instead of `packOpeningCenter`.
+  pack: DecodedPack | null
+  filterResult: FilterResult | null
   turfs: DoorKnockingTurf[]
   // Numbered stop pins for the open route's walk view.
   routePins: RoutePin[]
@@ -729,11 +734,15 @@ export default function VoterMapCanvas({
 
     // Read at mount only: this names the opening view, not a controlled
     // zoom — reacting to it later would fight the canvasser's own panning.
+    // A null pack (the volunteer walk) leaves both branches with nothing to
+    // frame; the map opens at its bare default and the route-fit effect below
+    // reframes it onto the pins the moment the served route lands.
     if (initialZoom === undefined) {
-      const bounds = packBounds(packRef.current.positions)
+      const bounds = packRef.current && packBounds(packRef.current.positions)
       if (bounds) map.fitBounds(bounds, { padding: 48, animate: false })
     } else {
-      const center = packOpeningCenter(packRef.current.positions)
+      const center =
+        packRef.current && packOpeningCenter(packRef.current.positions)
       if (center) map.jumpTo({ center, zoom: initialZoom })
     }
 
@@ -752,7 +761,7 @@ export default function VoterMapCanvas({
   useEffect(() => {
     const overlay = overlayRef.current
     if (!overlay) return
-    const dotCount = pack.manifest.counts.dots
+    const dotCount = pack?.manifest.counts.dots ?? 0
     // Only the hue crosses the seam. The strengths stay this canvas's, so the
     // ring being cut can't come out bolder or fainter than the saved ones it is
     // being compared against.
@@ -812,24 +821,29 @@ export default function VoterMapCanvas({
             getLineColor: routePins.length > 0,
           },
         }),
-        new ScatterplotLayer({
-          id: 'voter-dots',
-          ...underLabels,
-          data: {
-            length: dotCount,
-            attributes: {
-              getPosition: { value: pack.positions, size: 2 },
-              getFillColor: {
-                value: buildColors(filterResult, dotCount, drawing),
-                size: 4,
+        // Null on the volunteer walk (ENG-11055), which never reads the pack —
+        // omitted rather than drawn empty, so there is no district plane
+        // underneath a route that has no pack to be scoped against.
+        pack && filterResult
+          ? new ScatterplotLayer({
+              id: 'voter-dots',
+              ...underLabels,
+              data: {
+                length: dotCount,
+                attributes: {
+                  getPosition: { value: pack.positions, size: 2 },
+                  getFillColor: {
+                    value: buildColors(filterResult, dotCount, drawing),
+                    size: 4,
+                  },
+                },
               },
-            },
-          },
-          radiusMinPixels: 1.5,
-          radiusMaxPixels: 6,
-          getRadius: 5,
-          pickable: false,
-        }),
+              radiusMinPixels: 1.5,
+              radiusMaxPixels: 6,
+              getRadius: 5,
+              pickable: false,
+            })
+          : null,
         // Two points are not a polygon yet, so the shape in progress is a bare
         // segment and the PolygonLayer below has nothing to draw. The design
         // still draws the edge, dashed — an unclosed boundary that shows

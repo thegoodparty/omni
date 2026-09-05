@@ -121,14 +121,17 @@ export class OrganizationTeamService {
     name: string
     role: TeamInviteRole
     outreachId?: number
+    phone?: string
   }): Promise<InviteMemberResponse> {
-    const { organization, invitedByUserId, invitedByRole, name, role } = params
+    const { organization, invitedByUserId, invitedByRole, name, role, phone } =
+      params
     const outreachId = params.outreachId
     const email = toLowerAndTrim(params.email)
 
-    // Validated before anything is written or a Clerk invitation is sent —
-    // the DTO refine already guarantees a volunteer invite carries an
-    // outreachId, but never THIS org's outreach until checked here.
+    // outreachId is optional (a general volunteer invite carries none,
+    // ENG-11058); when present, validated before anything is written or a
+    // Clerk invitation is sent — the DTO refine only forbids one on a
+    // campaignAdmin invite, never that it belongs to THIS org's outreach.
     if (outreachId !== undefined) {
       await this.resolveOutreachAssignments().assertOutreachInOrg(
         organization.slug,
@@ -144,6 +147,7 @@ export class OrganizationTeamService {
           invitedByUserId,
           role,
           outreachId,
+          phone,
           existingUser,
         })
       : await this.createPendingInvite({
@@ -153,13 +157,14 @@ export class OrganizationTeamService {
           email,
           name,
           outreachId,
+          phone,
         })
 
     void this.analytics
       .track(invitedByUserId, EVENTS.Team.MemberInvited, {
         role,
         invitedByRole,
-        listScoped: role === 'volunteer',
+        listScoped: role === 'volunteer' && outreachId !== undefined,
       })
       .catch(() => undefined)
 
@@ -224,10 +229,26 @@ export class OrganizationTeamService {
           },
         })
 
-        if (!getUserFullName(user)) {
-          await tx.user.update({
+        // Backfills the invite's name and phone onto a blank profile — never
+        // overwrites either field the invitee already set for themselves.
+        // Re-read inside the transaction: `user` is a pre-transaction
+        // snapshot, and a profile save landing between it and this write
+        // must not be clobbered by a stale blank-field guard.
+        const currentUser = await tx.user.findUnique({
+          where: { id: user.id },
+          select: { phone: true, firstName: true, lastName: true, name: true },
+        })
+        const profileUpdate: Prisma.UserUpdateInput = {}
+        if (!getUserFullName(currentUser ?? user)) {
+          profileUpdate.name = metadata.name
+        }
+        if (metadata.phone && !currentUser?.phone) {
+          profileUpdate.phone = metadata.phone
+        }
+        if (Object.keys(profileUpdate).length > 0) {
+          await tx.user.updateMany({
             where: { id: user.id },
-            data: { name: metadata.name },
+            data: profileUpdate,
           })
         }
 
@@ -521,10 +542,17 @@ export class OrganizationTeamService {
     invitedByUserId: number
     role: TeamInviteRole
     outreachId?: number
+    phone?: string
     existingUser: User
   }): Promise<InviteMemberResponse> {
-    const { organization, invitedByUserId, role, outreachId, existingUser } =
-      params
+    const {
+      organization,
+      invitedByUserId,
+      role,
+      outreachId,
+      phone,
+      existingUser,
+    } = params
 
     const existingMembership =
       existingUser.id === organization.ownerId
@@ -553,7 +581,12 @@ export class OrganizationTeamService {
     // A list-scoped volunteer invite creates the membership and its
     // assignment atomically, the same guarantee accept gives the
     // Clerk-invitation branch — a crash between the two must never leave a
-    // volunteer with a seat but no assigned list.
+    // volunteer with a seat but no assigned list. The optional phone
+    // backfill (only when User.phone is still empty, so a direct-add never
+    // clobbers a number the person already saved) rides the same
+    // transaction as the membership row in both sub-branches — otherwise a
+    // crash after the membership commits silently loses the phone with no
+    // retry (re-inviting the same email 409s).
     const created =
       outreachId !== undefined
         ? await this.membership.client.$transaction(async (tx) => {
@@ -567,9 +600,26 @@ export class OrganizationTeamService {
               invitedByUserId,
               tx,
             )
+            if (phone) {
+              await tx.user.updateMany({
+                where: { id: existingUser.id, phone: null },
+                data: { phone },
+              })
+            }
             return membership
           })
-        : await this.membership.model.create({ data: membershipData })
+        : await this.membership.client.$transaction(async (tx) => {
+            const membership = await tx.organizationMembership.create({
+              data: membershipData,
+            })
+            if (phone) {
+              await tx.user.updateMany({
+                where: { id: existingUser.id, phone: null },
+                data: { phone },
+              })
+            }
+            return membership
+          })
 
     const campaignName =
       (await this.organizations.resolvePositionNameByOrganizationSlug(
@@ -664,9 +714,17 @@ export class OrganizationTeamService {
     email: string
     name: string
     outreachId?: number
+    phone?: string
   }): Promise<InviteMemberResponse> {
-    const { organization, invitedByUserId, role, email, name, outreachId } =
-      params
+    const {
+      organization,
+      invitedByUserId,
+      role,
+      email,
+      name,
+      outreachId,
+      phone,
+    } = params
 
     const pending = await this.clerkInvitations.listPendingTeamInvitations(
       organization.slug,
@@ -686,6 +744,7 @@ export class OrganizationTeamService {
         name,
         invitedByUserId,
         outreachId,
+        phone,
       },
     })
 

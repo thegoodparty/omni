@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -9,8 +9,20 @@ vi.mock('@shared/experiments/voterOutreachV2SmsFlag', () => ({
   useVoterOutreachV2SmsFlag: () => complianceFlag,
 }))
 
+// Off by default so every pre-existing test renders exactly as it did before
+// the Assignees section existed; the section's own tests below flip it on.
+let teamAccountsFlag = { ready: true, enabled: false }
+vi.mock('@shared/experiments/teamAccountsFlag', () => ({
+  useTeamAccountsFlag: () => teamAccountsFlag,
+}))
+
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => ({ slug: 'campaign-1' }),
+}))
+
 beforeEach(() => {
   complianceFlag = { ready: true, enabled: false }
+  teamAccountsFlag = { ready: true, enabled: false }
 })
 import { useSnackbar } from 'helpers/useSnackbar'
 import { OutreachDetailsDrawer } from './OutreachDetailsDrawer'
@@ -442,6 +454,239 @@ describe('OutreachDetailsDrawer — phone banking', () => {
 
     expect(deleteCalled).toBe(true)
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+})
+
+// ENG-11056: the manager assign/remove/invite surface for a self-run list.
+// Gated entirely on win-team-accounts — off renders the drawer exactly as
+// every test above already proves, since the section returns null. Full
+// interaction coverage (search, role filter, assign/unassign toggling,
+// invite entry point, retry) lives in OutreachAssigneesSection.test.tsx,
+// which exercises the section directly — these are the integration points
+// unique to mounting it inside this drawer: the flag gate and threading the
+// row's name into the modal's title (ENG-11059).
+describe('OutreachDetailsDrawer — assignees (ENG-11056 / ENG-11059)', () => {
+  const mockOutreachDetail = () =>
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        status: 'in_progress',
+        phoneBankingListId: 5,
+        phoneBanking: {
+          listId: 5,
+          entriesTotal: 200,
+          entriesCalled: 92,
+          peopleTotal: 480,
+          peopleCalled: 92,
+          byOutcome: {
+            answered: 60,
+            no_answer: 20,
+            voicemail: 8,
+            wrong_number: 3,
+            refused: 1,
+            disconnected: 0,
+            hung_up: 0,
+          },
+          supporters: 30,
+          unsure: 10,
+          nonSupporters: 20,
+        },
+      },
+    })
+
+  beforeEach(() => {
+    teamAccountsFlag = { ready: true, enabled: true }
+    mockOutreachDetail()
+    api.mock('GET /v1/outreach/:id/assignments', {
+      status: 200,
+      data: { assignees: [] },
+    })
+    api.mock('GET /v1/organizations/team', {
+      status: 200,
+      data: { members: [], pendingInvites: [] },
+    })
+  })
+
+  it('does not render the Assignees section when the flag is off', async () => {
+    teamAccountsFlag = { ready: true, enabled: false }
+    render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
+
+    await screen.findByText('92 of 480 reached')
+    expect(screen.queryByText('Assigned to')).not.toBeInTheDocument()
+    expect(screen.queryByText('Assign someone')).not.toBeInTheDocument()
+  })
+
+  it('opens the assign modal titled with the row name, and lets an owner-inclusive roster be assigned', async () => {
+    const user = userEvent.setup()
+    api.mock('GET /v1/organizations/team', {
+      status: 200,
+      data: {
+        members: [
+          {
+            userId: 1,
+            name: 'Owner Person',
+            email: 'owner@example.com',
+            role: 'owner',
+            createdAt: '2026-08-01T00:00:00.000Z',
+          },
+          {
+            userId: 9,
+            name: 'Cam Manager',
+            email: 'cam@example.com',
+            role: 'campaignAdmin',
+            createdAt: '2026-08-01T00:00:00.000Z',
+          },
+        ],
+        pendingInvites: [],
+      },
+    })
+    let assignedBody: unknown
+    api.mock('POST /v1/outreach/:id/assignments', ({ body }) => {
+      assignedBody = body
+      return {
+        status: 200,
+        data: {
+          userId: 9,
+          name: 'Cam Manager',
+          role: 'campaignAdmin' as const,
+          createdAt: '2026-08-02T00:00:00.000Z',
+          assignedByUserId: 1,
+          assignedByName: 'Owner Person',
+        },
+      }
+    })
+
+    render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
+
+    await user.click(await screen.findByText('Assign someone'))
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Assign to GOTV calls',
+    })
+    // The picker this replaced excluded the owner — ENG-11059's correction.
+    expect(within(dialog).getByText('Owner Person')).toBeInTheDocument()
+    await user.click(within(dialog).getByText('Cam Manager'))
+
+    await waitFor(() => expect(assignedBody).toEqual({ assigneeUserId: 9 }))
+  })
+
+  it('lists a current assignee on the section card and removes it via the overflow menu, after confirming', async () => {
+    const user = userEvent.setup()
+    api.mock('GET /v1/outreach/:id/assignments', {
+      status: 200,
+      data: {
+        assignees: [
+          {
+            userId: 2,
+            name: 'Manager Person',
+            role: 'campaignAdmin',
+            createdAt: '2026-08-01T00:00:00.000Z',
+            assignedByUserId: 1,
+            assignedByName: 'Owner Person',
+          },
+        ],
+      },
+    })
+    let removedUserId: string | undefined
+    api.mock('DELETE /v1/outreach/:id/assignments/:userId', ({ params }) => {
+      removedUserId = params.userId
+      return { status: 200, data: undefined }
+    })
+
+    render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
+
+    expect(await screen.findByText('Manager Person')).toBeInTheDocument()
+    expect(screen.getByText('Campaign Manager')).toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Manage Manager Person' }),
+    )
+    await user.click(await screen.findByText('Remove'))
+    const confirmDialog = await screen.findByRole('alertdialog')
+    await user.click(
+      within(confirmDialog).getByRole('button', { name: 'Remove' }),
+    )
+
+    await waitFor(() => expect(removedUserId).toBe('2'))
+  })
+
+  it('invites a brand-new volunteer for this outreach from the assign modal', async () => {
+    const user = userEvent.setup()
+    let inviteBody: unknown
+    api.mock('POST /v1/organizations/team/invites', ({ body }) => {
+      inviteBody = body
+      return {
+        status: 200,
+        data: {
+          status: 'pending',
+          invite: {
+            id: 'invite-9',
+            email: body.email,
+            name: body.name,
+            role: 'volunteer',
+            createdAt: '2026-08-02T00:00:00.000Z',
+            outreachId: 30,
+          },
+        },
+      }
+    })
+
+    render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
+
+    await user.click(await screen.findByText('Assign someone'))
+    await screen.findByRole('dialog', { name: 'Assign to GOTV calls' })
+    await user.click(screen.getByText('Invite a volunteer'))
+
+    expect(
+      await screen.findByRole('dialog', { name: 'Invite a volunteer' }),
+    ).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Name'), 'Val Volunteer')
+    await user.type(screen.getByLabelText('Email'), 'val@example.com')
+    await user.click(screen.getByRole('button', { name: 'Send invite' }))
+
+    await waitFor(() =>
+      expect(inviteBody).toEqual({
+        email: 'val@example.com',
+        name: 'Val Volunteer',
+        role: 'volunteer',
+        outreachId: 30,
+      }),
+    )
+  })
+
+  // inProgressRow.id is 30 — the team endpoint's pendingInvites is org-wide,
+  // so a volunteer invite scoped to a DIFFERENT outreach (here 99) must be
+  // filtered out rather than bleeding into this list's section.
+  it("shows only this outreach's own pending volunteer invite, not one scoped elsewhere", async () => {
+    api.mock('GET /v1/organizations/team', {
+      status: 200,
+      data: {
+        members: [],
+        pendingInvites: [
+          {
+            id: 'invite-a',
+            name: 'Val Volunteer',
+            email: 'val@example.com',
+            role: 'volunteer',
+            createdAt: '2026-08-01T00:00:00.000Z',
+            outreachId: 30,
+          },
+          {
+            id: 'invite-b',
+            name: 'Other Volunteer',
+            email: 'other@example.com',
+            role: 'volunteer',
+            createdAt: '2026-08-01T00:00:00.000Z',
+            outreachId: 99,
+          },
+        ],
+      },
+    })
+
+    render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
+
+    expect(await screen.findByText('Val Volunteer')).toBeInTheDocument()
+    expect(screen.queryByText('Other Volunteer')).not.toBeInTheDocument()
   })
 })
 

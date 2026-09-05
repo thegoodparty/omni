@@ -340,7 +340,24 @@ import { dirname, join, relative } from 'node:path'
 // and handles retry — the route itself (app/volunteer/page.tsx) stays a
 // server component and renders no directive. AssignmentCard.tsx is a plain
 // presentational child with no hooks of its own, so it carries none.
-const BASELINE = 599
+// 2026-09-05: 599 -> 600 for the volunteer door-knocking walk (ENG-11055,
+// VolunteerWalkPage.tsx). It runs several React Query fetches, a live-location
+// watch and the walk session/completion mutations — the route itself
+// (app/volunteer/door-knocking/[turfId]/page.tsx) stays a server component,
+// validating the id param and rendering no directive of its own.
+// 2026-09-05: 600 -> 601 for the outreach drawer's Assignees section
+// (ENG-11056, OutreachAssigneesSection.tsx). It holds picker/dialog open
+// state and drives assign/remove/invite mutations against a query cache, so
+// it can't be a server component — same reasoning as TeamPage.tsx above.
+// ENG-11059: OutreachAssignModal.tsx is a new client component — it owns
+// interactive dialog state (search/role-filter, assign/unassign clicks) that
+// can't run on the server.
+// 2026-09-05: 602 -> 603 for the team page's two-step invite drawer
+// (ENG-11058, InviteMemberDrawer.tsx). It owns the step/form/role state and
+// drives the invite mutation, same reasoning as InviteMemberDialog.tsx —
+// which it replaces on the team page (the outreach entry point keeps using
+// the dialog unchanged, so both files still exist).
+const BASELINE = 603
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

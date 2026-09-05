@@ -199,6 +199,7 @@ const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/dashboard/account', 'Account Settings'],
   ['/dashboard/content', 'Content Builder'],
   ['/dashboard/door-knocking', 'Door Knocking'],
+  ['/dashboard/team', NAV_LABELS.team],
 ]
 
 const isContactsPath = (pathname: string): boolean =>
