@@ -773,7 +773,10 @@ export const OutreachDetailsDrawer = ({
                 this drawer (their whole surface is /volunteer's own
                 assignments page), so there's no second gate here. */}
             {(isPhoneBanking || isDoorKnocking) && (
-              <OutreachAssigneesSection outreachId={row.id} />
+              <OutreachAssigneesSection
+                outreachId={row.id}
+                outreachName={row.name || row.title || undefined}
+              />
             )}
 
             {complianceV2 && isSms && isCompleted && results && statRows && (
