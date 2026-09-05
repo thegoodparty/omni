@@ -48,7 +48,7 @@ test.describe('Team page — flag forced on', () => {
   // it so the team-list stub below intercepts deterministically.
   test.use({ serviceWorkers: 'block' })
 
-  test('the nav item renders, the page loads the member list, and the invite modal opens', async ({
+  test('the nav item renders, the page loads the member list, and the invite drawer opens', async ({
     page,
   }) => {
     test.setTimeout(2 * 60 * 1000)
@@ -90,9 +90,10 @@ test.describe('Team page — flag forced on', () => {
 
     await page.getByRole('button', { name: 'Invite' }).click()
     await expect(
-      page.getByRole('dialog', { name: 'Invite a team member' }),
+      page.getByRole('dialog', { name: 'Who do you want to invite?' }),
     ).toBeVisible()
     await expect(page.getByLabel('Name')).toBeVisible()
+    await expect(page.getByLabel('Phone number')).toBeVisible()
     await expect(page.getByLabel('Email')).toBeVisible()
   })
 })
