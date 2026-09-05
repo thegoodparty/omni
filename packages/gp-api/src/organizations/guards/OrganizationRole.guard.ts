@@ -53,8 +53,7 @@ export class OrganizationRoleGuard implements CanActivate {
 
     // Phase 1.5: UseOrganizationGuard / UseCampaignGuard now resolve and
     // attach any membership, including volunteer, so this branch is
-    // reachable end-to-end on any route carrying @AllowVolunteer(). No
-    // route carries it yet — later tickets open specific surfaces.
+    // reachable end-to-end on any route carrying @AllowVolunteer().
     const allowVolunteer = this.reflector.getAllAndOverride<boolean>(
       ALLOW_VOLUNTEER_KEY,
       [context.getHandler(), context.getClass()],
