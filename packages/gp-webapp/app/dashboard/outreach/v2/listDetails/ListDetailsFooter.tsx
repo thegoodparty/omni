@@ -41,7 +41,7 @@ interface ListDetailsFooterProps {
 const PrimaryAction = ({ action }: { action: ListDetailsFooterAction }) => {
   if (action.kind === 'link') {
     return (
-      <Button asChild className="flex-1">
+      <Button asChild size="large" className="flex-1">
         <Link href={action.href}>
           {action.icon}
           {action.label}
@@ -51,6 +51,7 @@ const PrimaryAction = ({ action }: { action: ListDetailsFooterAction }) => {
   }
   return (
     <Button
+      size="large"
       className="flex-1"
       disabled={action.kind === 'disabled' || action.disabled}
       onClick={action.kind === 'button' ? action.onClick : undefined}
