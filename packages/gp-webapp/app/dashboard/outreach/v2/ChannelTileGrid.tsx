@@ -42,9 +42,6 @@ const TILE_ORDER: OutreachType[] = [
   OUTREACH_TYPES.doorKnocking,
 ]
 
-const formatCost = (cost: number): string =>
-  cost === 0 ? 'Free' : `$${cost.toFixed(3).replace(/^0\./, '.')}/msg`
-
 export const ChannelTileGrid = ({
   tcrCompliance,
   preselectedListId,
@@ -238,7 +235,6 @@ export const ChannelTileGrid = ({
               icon={meta.icon}
               iconClassName={meta.iconTint}
               label={meta.label}
-              subCopy={formatCost(option?.cost ?? 0)}
               locked={Boolean(
                 option?.requiresPro &&
                 (type === OUTREACH_TYPES.phoneBanking
