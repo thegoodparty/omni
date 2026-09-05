@@ -172,6 +172,12 @@ const drawingSurface = (
   props: Partial<ComponentProps<typeof CreateListFlow>> = {},
 ) => <CreateListFlow {...baseProps} step="draw" drawFullScreen {...props} />
 
+// The drawing surface opens with an instructions AlertDialog on every mount.
+// Every test that reaches into the surface's chrome has to dismiss it first,
+// or Radix inerts everything behind the modal and the queries miss it.
+const dismissDrawInstructions = () =>
+  fireEvent.click(screen.getByRole('button', { name: 'Got it' }))
+
 // The step heading is said twice on purpose — once sr-only as the sheet's
 // accessible title, once in the body as the intro block — so a test that
 // means the visible one has to say so.
@@ -445,6 +451,7 @@ describe('CreateListFlow', () => {
     const { rerender } = render(
       drawingSurface({ ring: null, turfStats: null, drawPointCount: 0 }),
     )
+    dismissDrawInstructions()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
 
     rerender(drawingSurface({ turfStats: turfStats(151, 140) }))
@@ -483,6 +490,7 @@ describe('CreateListFlow', () => {
     const unfinished = (drawPointCount: number) =>
       drawingSurface({ ring: null, turfStats: null, drawPointCount })
     const { rerender } = render(unfinished(1))
+    dismissDrawInstructions()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
 
     rerender(unfinished(2))
@@ -529,6 +537,7 @@ describe('CreateListFlow', () => {
   // right above it and counts the same shape, in the unit the cap is stated in.
   it('leaves the count to the pill rather than the drawing surface’s Continue', () => {
     render(drawingSurface({ turfStats: turfStats(14, 9) }))
+    dismissDrawInstructions()
 
     const advance = screen.getByRole('button', { name: 'Continue' })
     expect(advance).toBeEnabled()
@@ -600,6 +609,7 @@ describe('CreateListFlow', () => {
     // Informing is all it does: the shape is still finishable at 101 stops,
     // which is the whole difference between this warning and the cap.
     rerender(drawingSurface({ turfStats: turfStats(101, 80) }))
+    dismissDrawInstructions()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
@@ -845,6 +855,7 @@ describe('CreateListFlow', () => {
         onUndoPoint,
       }),
     )
+    dismissDrawInstructions()
     expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
 
     rerender(
@@ -873,13 +884,14 @@ describe('CreateListFlow', () => {
         onDrawFullScreenChange,
       }),
     )
+    dismissDrawInstructions()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(onDrawFullScreenChange).toHaveBeenCalledWith(false)
     expect(screen.queryByText('Discard this turf?')).toBeNull()
 
     rerender(drawingSurface({ drawPointCount: 2, onDrawFullScreenChange }))
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(onDrawFullScreenChange).toHaveBeenCalledTimes(1)
     expect(screen.getByText('Discard this turf?')).toBeInTheDocument()
     expect(
@@ -901,12 +913,13 @@ describe('CreateListFlow', () => {
   it('throws the boundary away when the discard is confirmed', () => {
     const onRestartDrawing = vi.fn()
     render(drawingSurface({ drawPointCount: 2, onRestartDrawing }))
+    dismissDrawInstructions()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     fireEvent.click(screen.getByRole('button', { name: 'Keep drawing' }))
     expect(onRestartDrawing).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
     expect(onRestartDrawing).toHaveBeenCalledTimes(1)
   })
@@ -959,6 +972,7 @@ describe('CreateListFlow', () => {
   // pressing Undo also drops a boundary point where the button was.
   it('keeps the draw controls from leaking a click through to the map', () => {
     render(drawingSurface({ drawPointCount: 2 }))
+    dismissDrawInstructions()
 
     const undo = screen.getByRole('button', { name: 'Undo' })
     expect(undo).toHaveClass('pointer-events-auto')
