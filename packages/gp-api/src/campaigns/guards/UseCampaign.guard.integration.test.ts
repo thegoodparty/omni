@@ -136,7 +136,12 @@ describe('UseCampaign guard (integration)', () => {
       expect(result.data.slug).toBe(campaign.slug)
     })
 
-    it('returns 404 for a volunteer membership row (fail closed)', async () => {
+    // Phase 1.5: UseCampaignGuard now resolves and attaches a volunteer
+    // membership like any other member — this route carries no
+    // @AllowVolunteer(), so OrganizationRoleGuard (next in the chain) is
+    // what denies the volunteer, with a 403 (they know the org exists),
+    // not the 404 a non-member gets.
+    it('returns 403 for a volunteer membership row (role guard denies, not the scoping guard)', async () => {
       const owner = await service.prisma.user.create({
         data: { email: 'campaign-owner-volunteer-test@goodparty.org' },
       })
@@ -162,7 +167,7 @@ describe('UseCampaign guard (integration)', () => {
         headers: { 'x-organization-slug': org.slug },
       })
 
-      expect(result.status).toBe(404)
+      expect(result.status).toBe(403)
     })
 
     it('returns 404 when org belongs to another user', async () => {

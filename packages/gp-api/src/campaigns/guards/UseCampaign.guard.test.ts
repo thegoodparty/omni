@@ -116,20 +116,30 @@ describe('UseCampaignGuard', () => {
     expect(req.organizationRole).toBe(OrganizationRole.campaignAdmin)
   })
 
-  // Fail closed: this guard backs write routes across most feature
-  // modules, so a volunteer must not get in even though nothing creates
-  // volunteer memberships yet.
-  it('throws NotFoundException for a volunteer membership row', async () => {
+  // Phase 1.5: this guard now only resolves and attaches. A volunteer
+  // membership is a resolved member like any other — OrganizationRoleGuard
+  // (next in the chain) is the one that 403s a volunteer on an
+  // undecorated route, not this guard with a 404.
+  it('admits a volunteer member and attaches their role', async () => {
     mockMetadata()
     vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue({
       role: OrganizationRole.volunteer,
       organization: { slug: 'campaign-100', ownerId: 1 } as never,
     })
+    vi.spyOn(campaignsService, 'findFirst').mockResolvedValue(mockCampaign)
 
     const ctx = buildContext({ 'x-organization-slug': 'campaign-100' }, 2)
+    const result = await guard.canActivate(ctx)
 
-    await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException)
-    expect(campaignsService.findFirst).not.toHaveBeenCalled()
+    expect(result).toBe(true)
+    expect(campaignsService.findFirst).toHaveBeenCalledWith({
+      where: { organizationSlug: 'campaign-100' },
+      include: {},
+    })
+    const req = ctx.switchToHttp().getRequest() as {
+      organizationRole?: OrganizationRole
+    }
+    expect(req.organizationRole).toBe(OrganizationRole.volunteer)
   })
 
   it('throws NotFoundException when role resolution fails (non-member)', async () => {
@@ -165,27 +175,31 @@ describe('UseCampaignGuard', () => {
     expect(result).toBe(true)
   })
 
-  // Symmetric with UseOrganizationGuard: a volunteer under continueIfNotFound
-  // passes through exactly like a non-member — no campaign lookup, no role on
-  // the request, no throw.
-  it('passes a volunteer through unenriched when continueIfNotFound', async () => {
+  // Symmetric with UseOrganizationGuard: continueIfNotFound only changes
+  // behavior when nothing resolves — a resolved volunteer attaches exactly
+  // like any other resolved member.
+  it('attaches a volunteer role under continueIfNotFound too', async () => {
     mockMetadata({ continueIfNotFound: true })
     vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue({
       role: OrganizationRole.volunteer,
       organization: { slug: 'campaign-100', ownerId: 1 } as never,
     })
+    vi.spyOn(campaignsService, 'findFirst').mockResolvedValue(mockCampaign)
 
     const ctx = buildContext({ 'x-organization-slug': 'campaign-100' }, 2)
     const result = await guard.canActivate(ctx)
 
     expect(result).toBe(true)
-    expect(campaignsService.findFirst).not.toHaveBeenCalled()
+    expect(campaignsService.findFirst).toHaveBeenCalledWith({
+      where: { organizationSlug: 'campaign-100' },
+      include: {},
+    })
     const req = ctx.switchToHttp().getRequest() as {
-      campaign?: unknown
+      campaign?: Campaign
       organizationRole?: unknown
     }
-    expect(req.campaign).toBeUndefined()
-    expect(req.organizationRole).toBeUndefined()
+    expect(req.campaign).toEqual(mockCampaign)
+    expect(req.organizationRole).toBe(OrganizationRole.volunteer)
   })
 
   it('throws NotFoundException when no header is present', async () => {

@@ -91,11 +91,10 @@ describe('OrganizationRoleGuard', () => {
     })
   })
 
-  // No route carries @AllowVolunteer() yet, and every scoping guard fails
-  // closed on a volunteer membership before this guard runs — end-to-end,
-  // this branch has no live traffic. Proven here at the guard level so
-  // Phase 1.5 (which admits volunteers on specific routes) lands on an
-  // already-correct admission path.
+  // Phase 1.5: UseOrganizationGuard / UseCampaignGuard now resolve and
+  // attach any membership, including volunteer, so this branch is reachable
+  // end-to-end as soon as a route carries @AllowVolunteer() — no route does
+  // yet (that's later tickets' work to open specific surfaces).
   describe('@AllowVolunteer()', () => {
     const guard = () =>
       new OrganizationRoleGuard(reflectorReturning({ allowVolunteer: true }))
