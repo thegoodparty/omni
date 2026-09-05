@@ -475,11 +475,11 @@ const startWalk = async (
   return screen.findByRole('button', { name: 'tap pin 11' })
 }
 
-// The walk's one way out, which is the "Exit route" button in its own sheet
-// header. PersonSheet's close is labelled "Close person details", so this
-// can only be the walk's.
+// The walk's one way out, which is the "Close route" button in its own
+// sheet header. PersonSheet's close is labelled "Close person details",
+// so this can only be the walk's.
 const leaveWalk = () =>
-  fireEvent.click(walkSurface().getByRole('button', { name: 'Exit route' }))
+  fireEvent.click(walkSurface().getByRole('button', { name: 'Close route' }))
 
 // The hubs door knocking is entered from and every exit from it lands on —
 // one per surface, because one route serves both.

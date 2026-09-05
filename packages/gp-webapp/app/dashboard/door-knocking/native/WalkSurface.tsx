@@ -235,7 +235,7 @@ export default function WalkSurface({
           <h2 className="min-w-0 flex-1 truncate text-xl font-semibold">
             {turfName}
           </h2>
-          {/* Labeled "Exit route" rather than an X: an X on a peek-visible
+          {/* Labeled "Close route" rather than an X: an X on a peek-visible
               bottom sheet reads as "dismiss this sheet" by every vaul/shadcn
               convention, and dragging the grip to peek already does that. An
               X that instead exits the whole walk violates the strongest
@@ -257,7 +257,7 @@ export default function WalkSurface({
             onKeyDown={(event) => event.stopPropagation()}
             onClick={onExit}
           >
-            Exit route
+            Close route
           </Button>
         </div>
       </div>
