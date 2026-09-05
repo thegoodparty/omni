@@ -34,6 +34,12 @@ test.describe('Team page — flag off', () => {
       timeout: 30_000,
     })
     await page.getByText('Manage account').click()
+    // Anchor on an unconditional dropdown item first: with the Radix content
+    // closed, #nav-dash-team is never mounted and toHaveCount(0) would pass
+    // vacuously even if the menu failed to open.
+    await expect(page.locator('#nav-dash-profile')).toBeVisible({
+      timeout: 10_000,
+    })
     await expect(page.locator('#nav-dash-team')).toHaveCount(0)
 
     await page.goto('/dashboard/team', { waitUntil: 'domcontentloaded' })
