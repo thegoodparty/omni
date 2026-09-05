@@ -170,6 +170,30 @@ describe('UseCampaign guard (integration)', () => {
       expect(result.status).toBe(403)
     })
 
+    // The campaign-less-org branch: continueIfNotFound must still attach
+    // the resolved role so the role guard denies the volunteer (7cb260d).
+    it('returns 403 for a volunteer in a campaign-less org on a continueIfNotFound route', async () => {
+      const owner = await service.prisma.user.create({
+        data: { email: 'campaign-less-owner-volunteer@goodparty.org' },
+      })
+      const org = await service.prisma.organization.create({
+        data: { slug: 'campaign-less-org-volunteer', ownerId: owner.id },
+      })
+      await service.prisma.organizationMembership.create({
+        data: {
+          organizationSlug: org.slug,
+          userId: service.user.id,
+          role: OrganizationRole.volunteer,
+        },
+      })
+
+      const result = await service.client.get('/v1/campaigns/mine/status', {
+        headers: { 'x-organization-slug': org.slug },
+      })
+
+      expect(result.status).toBe(403)
+    })
+
     it('returns 404 when org belongs to another user', async () => {
       const otherUser = await service.prisma.user.create({
         data: { email: 'other@goodparty.org' },
