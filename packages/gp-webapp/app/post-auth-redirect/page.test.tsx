@@ -14,6 +14,17 @@ vi.mock('@clerk/nextjs', () => ({
   })),
 }))
 
+// Real `useTeamAccountsFlag` reads through `FeatureFlagsProvider`'s context,
+// which this file's `render()` doesn't wrap — so without this mock every
+// test would silently read the context's off-by-default value. Controlling
+// it directly lets the volunteer-routing tests below assert both the
+// flag-on and flag-off (byte-identical-to-today) branches.
+const mockUseTeamAccountsFlag = vi.fn(() => ({ ready: true, enabled: false }))
+vi.mock('@shared/experiments/teamAccountsFlag', () => ({
+  useTeamAccountsFlag: (...args: unknown[]) =>
+    mockUseTeamAccountsFlag(...(args as [])),
+}))
+
 const mockSetCookie = vi.fn<(name: string, value: string) => void>()
 const mockGetCookie = vi.fn<(name: string) => string | false>(() => false)
 vi.mock('helpers/cookieHelper', () => ({
@@ -46,6 +57,10 @@ beforeEach(() => {
   mockGetCookie.mockClear()
   mockGetCookie.mockImplementation(() => false)
   mockTrackRegistration.mockClear()
+  mockUseTeamAccountsFlag.mockReset().mockReturnValue({
+    ready: true,
+    enabled: false,
+  })
   replaceSpy = vi.fn()
   setLocation('')
   // Zero-org sessions probe gp-api for a pending invite on the invitee's
@@ -623,6 +638,60 @@ describe('PostAuthRedirectPage', () => {
     render(<PostAuthRedirectPage />)
 
     await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+  })
+
+  // ENG-11052: this is the client-side OTP counterpart to
+  // candidateAccess.ts's server-side isActiveOrgVolunteer — a volunteer who
+  // authenticates via /post-auth-redirect (rather than through a
+  // server-rendered page) must land on /volunteer, not be misrouted into
+  // onboarding because campaignStatus reads false for them.
+  it('routes an active-org volunteer to /volunteer when win-team-accounts is on', async () => {
+    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
+    const volunteerOrg = { ...orgFixture, role: 'volunteer' as const }
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [volunteerOrg] },
+    })
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 200,
+      data: { status: false },
+    })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/volunteer'))
+  })
+
+  it('does not route a volunteer-role org to /volunteer when win-team-accounts is off (byte-identical to today)', async () => {
+    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: false })
+    const volunteerOrg = { ...orgFixture, role: 'volunteer' as const }
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [volunteerOrg] },
+    })
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 200,
+      data: { status: false },
+    })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() =>
+      expect(replaceSpy).toHaveBeenCalledWith('/onboarding/office-selection'),
+    )
+    expect(replaceSpy).not.toHaveBeenCalledWith('/volunteer')
   })
 
   it('login (no source param): does not fire trackRegistrationCompleted', async () => {

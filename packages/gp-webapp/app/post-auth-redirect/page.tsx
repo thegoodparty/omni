@@ -16,11 +16,16 @@ import { trackRegistrationCompleted } from 'helpers/analyticsHelper'
 import { getReadyAnalytics } from '@shared/utils/analytics'
 import { isSafeInternalPath } from 'helpers/isSafeInternalPath'
 import { isServeRoutePath } from 'app/dashboard/shared/serveRoutes'
+import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
 import { LoaderCircle } from 'lucide-react'
 
 const PostAuthRedirectPage = () => {
   const { isSignedIn, isLoaded, user: clerkUser } = useClerkUser()
   const ranRef = useRef(false)
+  // trackExposure=false: a render-decision read for routing, not the
+  // experiment's own treatment surface (mirrors every other nav/routing read
+  // of this flag — DashboardMenu, the org picker).
+  const { enabled: teamAccountsEnabled } = useTeamAccountsFlag(false)
 
   useEffect(() => {
     if (ranRef.current) return
@@ -223,12 +228,24 @@ const PostAuthRedirectPage = () => {
           }
         }
 
+        // Mirrors the server-side resolution in
+        // app/shared/organizations/activeOrgVolunteer.server.ts: the active
+        // org is the one `slug` just resolved to (cookie match, else the
+        // first org) — re-matching it here rather than trusting `electedOrg`
+        // or any other org found above, since none of those are guaranteed
+        // to be the one the cookie now points at.
+        const activeOrg =
+          organizations.find((o) => o.slug === slug) ?? organizations[0]
+        const isActiveOrgVolunteer =
+          teamAccountsEnabled && activeOrg?.role === 'volunteer'
+
         const resolvedPath = resolvePostAuthRedirectPath(
           user,
           campaignStatus,
           hasElectedOffice,
           electedOfficeOnboardingComplete,
           hasPendingTeamInvite,
+          isActiveOrgVolunteer,
         )
         // Honor the explicit deep-link destination now that the org slug cookie
         // is set and the session is established — unless a pending team invite
