@@ -415,9 +415,7 @@ describe('ConstituentOutreachPage — Serve outreach history', () => {
     )
     await user.click(await screen.findByText('Choose a voter list'))
     await user.click(await screen.findByText('Downtown constituents'))
-    await user.click(
-      await screen.findByRole('button', { name: /Continue \(10\)/ }),
-    )
+    await user.click(await screen.findByRole('button', { name: 'Continue' }))
     await screen.findAllByText('Write your call script')
     await waitFor(() =>
       expect(screen.getByLabelText('Call script')).not.toHaveValue(''),
