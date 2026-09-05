@@ -596,7 +596,14 @@ export const RobocallFlow = ({
             recommendationsLoading={audience.recommendationsLoading}
             recommendationsError={audience.recommendationsError}
             recommendedListsChannel={audience.recommendedListsChannel}
-            onSelectRecommendation={audience.applyRecommendation}
+            onCreateRecommendedList={async (recommendation, name) => {
+              // Recommendation flow (naming drawer): create the saved
+              // filter and advance to schedule in one atomic gesture.
+              // Throws propagate to the drawer as the inline error the
+              // candidate can retry from.
+              await audience.createRecommendedList(recommendation, name)
+              goToSchedule()
+            }}
             onRecommendationReused={audience.trackRecommendationReused}
             reachableCount={audience.reachableCount}
             reachableLoading={audience.reachableLoading}

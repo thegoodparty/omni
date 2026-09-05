@@ -102,9 +102,9 @@ describe('PhoneBankingFlow (Win surface) — recommended lists', () => {
     expect(screen.queryByText(/to reach them/)).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByTestId('recommended-list-card'))
-    await screen.findByText('Name your list')
+    await screen.findByText('Name this list')
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Create list' }),
+      await screen.findByRole('button', { name: 'Continue' }),
     )
 
     expect(filterCalls).toHaveLength(1)

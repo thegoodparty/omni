@@ -29,6 +29,7 @@ import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/us
 import VoterFileStep from 'app/dashboard/contacts/crm/wizard/VoterFileStep'
 import NameStep from 'app/dashboard/contacts/crm/wizard/NameStep'
 import { Intro } from '../social/Intro'
+import { RecommendedListNameDrawer } from './RecommendedListNameDrawer'
 import { RecommendedListCard } from './RecommendedListCard'
 
 export type OutreachAudienceMode = 'picker' | 'filters' | 'name'
@@ -84,11 +85,15 @@ interface OutreachAudienceStepProps {
   recommendationsLoading: boolean
   recommendationsError: boolean
   recommendedListsChannel: RecommendedListChannel
-  // A recommendation with an existingFilterId selects that list (reusing
-  // this step's own onSelect, with whatever side effects the caller already
-  // attaches to it) rather than creating a duplicate; only a recommendation
-  // with none reaches this.
-  onSelectRecommendation: (recommendation: RecommendedList) => void
+  // A recommendation with no existingFilterId opens the naming drawer;
+  // this fires when the candidate submits the drawer's name input. Seeds
+  // the builder and creates the saved filter atomically, then the caller
+  // advances the step (each flow attaches its own side effects). Throws
+  // → the drawer catches and shows an inline error.
+  onCreateRecommendedList: (
+    recommendation: RecommendedList,
+    name: string,
+  ) => Promise<void>
   // Fired instead, on that same existingFilterId branch, so an accept of a
   // recommendation the candidate has taken before is still measured — it
   // never reaches `createList`, which is where the other kind is counted.
@@ -143,7 +148,7 @@ export const OutreachAudienceStep = ({
   recommendationsLoading,
   recommendationsError,
   recommendedListsChannel,
-  onSelectRecommendation,
+  onCreateRecommendedList,
   onRecommendationReused,
   reachableCount,
   reachableLoading,
@@ -165,6 +170,11 @@ export const OutreachAudienceStep = ({
   builderCountErrorMessage,
 }: OutreachAudienceStepProps) => {
   const [open, setOpen] = useState(false)
+  // The recommendation whose card the candidate tapped, opening the
+  // naming drawer. Cleared on drawer close (cancel) or on a successful
+  // submit; either way the picker returns to its default state.
+  const [pendingRecommendation, setPendingRecommendation] =
+    useState<RecommendedList | null>(null)
   // The picker sits inside OutreachSheet (vaul Drawer), and vaul installs
   // `react-remove-scroll` on <body>. A popover portalled to document.body
   // (Radix's default) lands OUTSIDE the drawer's scroll-allowed scope, so
@@ -301,7 +311,7 @@ export const OutreachAudienceStep = ({
                     channel={recommendedListsChannel}
                     onSelect={() => {
                       if (recommendation.existingFilterId === null) {
-                        onSelectRecommendation(recommendation)
+                        setPendingRecommendation(recommendation)
                         return
                       }
                       onRecommendationReused(recommendation)
@@ -437,6 +447,18 @@ export const OutreachAudienceStep = ({
           {copy.unitCostLabel} ${pricePerContact.toFixed(3)}
         </p>
       )}
+      <RecommendedListNameDrawer
+        open={pendingRecommendation !== null}
+        onOpenChange={(next) => {
+          if (!next) setPendingRecommendation(null)
+        }}
+        defaultName={pendingRecommendation?.copy.title ?? ''}
+        onSubmit={async (name) => {
+          if (!pendingRecommendation) return
+          await onCreateRecommendedList(pendingRecommendation, name)
+          setPendingRecommendation(null)
+        }}
+      />
     </div>
   )
 }

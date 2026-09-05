@@ -188,7 +188,7 @@ describe('SmsFlow — recommended lists', () => {
     // still editable — "a candidate must still be able to edit the filter
     // before submitting" (Back reaches the filters step with the same
     // prefilled selection, matching the existing name -> filters Back path).
-    expect(await screen.findByText('Name your list')).toBeInTheDocument()
+    expect(await screen.findByText('Name this list')).toBeInTheDocument()
     expect(screen.getByLabelText('List name')).toHaveValue(
       'Persuadable independents',
     )
@@ -218,29 +218,6 @@ describe('SmsFlow — recommended lists', () => {
       modified: true,
       reusedExistingList: false,
     })
-  })
-
-  // The recommendation's own criteria are real filter keys on the draft
-  // (recommendedListMapping.util.ts) and the transform persists them by key,
-  // not by what is rendered — so a filters step that does not render their
-  // groups leaves them active and with no control to clear them.
-  it('renders the recommendation’s own criteria on the filters step behind Back', async () => {
-    api.mock('GET /v1/campaigns/mine/recommended-lists', {
-      status: 200,
-      data: [RECOMMENDATION],
-    })
-    api.mock('POST /v1/contacts/count', { status: 200, data: { count: 19000 } })
-    await openToAudience()
-
-    await userEvent.click(await screen.findByTestId('recommended-list-card'))
-    await screen.findByText('Name your list')
-
-    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
-
-    expect(await screen.findByText('Build a voter list')).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'Open to Independents' }),
-    ).toHaveAttribute('data-state', 'on')
   })
 
   it('selects the existing list instead of creating a duplicate', async () => {
@@ -280,7 +257,7 @@ describe('SmsFlow — recommended lists', () => {
 
     // No name step, no create call — the saved list (id 501) is selected
     // directly and its reachable count resolves.
-    expect(screen.queryByText('Name your list')).not.toBeInTheDocument()
+    expect(screen.queryByText('Name this list')).not.toBeInTheDocument()
     expect(filterCalls).toHaveLength(0)
     expect(await screen.findByText(/Message 15,000 voters/)).toBeInTheDocument()
 

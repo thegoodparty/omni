@@ -135,10 +135,16 @@ export interface OutreachAudience {
   // The channel the recommendations were requested for — a recommendation
   // carries no channel of its own (it's the query param, one per request).
   recommendedListsChannel: RecommendedListChannel
-  // Prefills the builder from a recommendation and lands on the name step.
-  // Only for a recommendation with no existingFilterId — a caller with one
-  // should call onSelect(existingFilterId) instead of this.
-  applyRecommendation: (recommendation: RecommendedList) => void
+  // Seeds the builder from a recommendation and creates the saved list in
+  // one call, using the caller's chosen name (the picker's naming drawer
+  // pre-fills it from the recommendation's copy.title and lets the
+  // candidate edit before submit). Only for a recommendation with no
+  // existingFilterId — a caller with one should call
+  // onSelect(existingFilterId) instead of this.
+  createRecommendedList: (
+    recommendation: RecommendedList,
+    name: string,
+  ) => Promise<SegmentResponse>
   // The conversion event for a recommendation that resolved to a list the
   // candidate already has. `applyRecommendation` deliberately does not
   // handle that case (each flow attaches its own side effects to selecting
@@ -418,12 +424,16 @@ export const useOutreachAudience = ({
   // expected to route that case at onSelect(existingFilterId) instead, since
   // that path already carries each flow's own side effects (e.g. SmsFlow
   // clearing a stale phone-list token on audience change).
-  const applyRecommendation = useCallback(
-    (recommendation: RecommendedList) => {
+  // Seeds the builder state that createList (and its recommendedMeta-driven
+  // Accepted event) reads. Kept private — the picker's flow is
+  // createRecommendedList below, which seeds + creates in one atomic call
+  // rather than staging the seed for a separate submit.
+  const seedFromRecommendation = useCallback(
+    (recommendation: RecommendedList, name: string) => {
       setBuilderFilters(builderFiltersFromRecommendation(recommendation.filter))
       setBuilderSupportStatus(recommendation.filter.supportStatus ?? [])
       setBuilderPrecincts(recommendation.filter.precincts ?? [])
-      setBuilderName(recommendation.copy.title)
+      setBuilderName(name)
       setRecommendedMeta({
         variant: recommendation.variant,
         channel: reachabilityKey,
@@ -434,7 +444,6 @@ export const useOutreachAudience = ({
         count: recommendation.count,
         voteGoalShare: recommendation.voteGoalShare,
       })
-      setMode('name')
     },
     [reachabilityKey, recommendedListIntent],
   )
@@ -461,6 +470,65 @@ export const useOutreachAudience = ({
       })
     },
     [reachabilityKey, recommendedListIntent],
+  )
+
+  // Seeds the builder from a recommendation, then POSTs the create with an
+  // explicitly-passed name — the drawer's name input is the source of truth,
+  // so building the payload from arguments (rather than from useState that
+  // may not have flushed) avoids a stale-name race. Fires the same Accepted
+  // event createList's `recommendedMeta` branch does, then does the same
+  // cache invalidation + select-and-reset. Errors bubble; the drawer catches
+  // and shows an inline message.
+  const createRecommendedList = useCallback(
+    async (
+      recommendation: RecommendedList,
+      name: string,
+    ): Promise<SegmentResponse> => {
+      seedFromRecommendation(recommendation, name)
+      const trimmed = name.trim()
+      const filters = builderFiltersFromRecommendation(recommendation.filter)
+      const supportStatus = recommendation.filter.supportStatus ?? []
+      const precincts = recommendation.filter.precincts ?? []
+      const { data } = await clientRequest(
+        'POST /v1/voters/voter-file/filter',
+        {
+          name: trimmed,
+          ...transformVoterFileFiltersForBackend(filters),
+          ...(supportStatus.length ? { supportStatus } : {}),
+          ...(precincts.length ? { precincts } : {}),
+          recommendedVariant: recommendation.variant,
+          recommendedChannel: reachabilityKey,
+          recommendedIntent: recommendedListIntent as RecommendedListIntent,
+          recommendedFilter: recommendation.filter,
+        },
+      )
+      trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
+        variant: recommendation.variant,
+        channel: reachabilityKey,
+        intent: recommendedListIntent as RecommendedListIntent,
+        count: recommendation.count,
+        voteGoalShare: recommendation.voteGoalShare,
+        modified: data.recommendedModified ?? false,
+        reusedExistingList: false,
+      })
+      await queryClient.invalidateQueries({
+        queryKey: outreachAudienceListsKey(orgSlug),
+      })
+      queryClient.invalidateQueries({
+        queryKey: ['custom-segments', orgSlug],
+      })
+      setSelectedListId(data.id)
+      resetBuilder()
+      return data
+    },
+    [
+      seedFromRecommendation,
+      reachabilityKey,
+      recommendedListIntent,
+      queryClient,
+      resetBuilder,
+      orgSlug,
+    ],
   )
 
   const createList = useCallback(async (): Promise<SegmentResponse> => {
@@ -539,7 +607,7 @@ export const useOutreachAudience = ({
     recommendationsLoading: recommendationsQuery.isLoading,
     recommendationsError: recommendationsQuery.isError,
     recommendedListsChannel: reachabilityKey,
-    applyRecommendation,
+    createRecommendedList,
     trackRecommendationReused,
   }
 }

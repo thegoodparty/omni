@@ -814,7 +814,26 @@ export const SmsFlow = ({
             recommendationsLoading={audience.recommendationsLoading}
             recommendationsError={audience.recommendationsError}
             recommendedListsChannel={audience.recommendedListsChannel}
-            onSelectRecommendation={audience.applyRecommendation}
+            onCreateRecommendedList={async (recommendation, name) => {
+              // Recommendation flow (naming drawer): create the saved
+              // filter, derive its phone list, and advance to schedule in
+              // one atomic gesture. Throws propagate to the drawer as
+              // the inline error the candidate can retry from.
+              const created = await audience.createRecommendedList(
+                recommendation,
+                name,
+              )
+              setPhoneList(null)
+              setStopPolling(false)
+              setPhoneListCreating(true)
+              const result = await createP2pPhoneList(created, created.id)
+              setPhoneListCreating(false)
+              if (!result.ok || !result.token) {
+                throw new Error("Couldn't create phone list")
+              }
+              setPhoneListToken(result.token)
+              setStepId('schedule')
+            }}
             onRecommendationReused={audience.trackRecommendationReused}
             reachableCount={reachableCount}
             reachableLoading={audience.reachableLoading}

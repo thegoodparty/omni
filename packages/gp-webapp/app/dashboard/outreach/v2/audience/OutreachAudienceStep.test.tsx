@@ -56,7 +56,7 @@ const baseProps = () => ({
   recommendationsLoading: false,
   recommendationsError: false,
   recommendedListsChannel: 'sms' as const,
-  onSelectRecommendation: vi.fn(),
+  onCreateRecommendedList: vi.fn(async () => undefined),
   onRecommendationReused: vi.fn(),
   reachableCount: null,
   reachableLoading: false,
@@ -135,37 +135,49 @@ describe('OutreachAudienceStep — recommended lists', () => {
     expect(screen.queryByTestId('recommended-list-card')).toBeNull()
   })
 
-  it('calls onSelectRecommendation for a recommendation with no existingFilterId', async () => {
+  it('opens the naming drawer for a recommendation with no existingFilterId', async () => {
     const user = userEvent.setup()
-    const onSelectRecommendation = vi.fn()
+    const onCreateRecommendedList = vi.fn(async () => undefined)
     const onSelect = vi.fn()
     render(
       <OutreachAudienceStep
         {...baseProps()}
         recommendations={[RECOMMENDATION]}
-        onSelectRecommendation={onSelectRecommendation}
+        onCreateRecommendedList={onCreateRecommendedList}
         onSelect={onSelect}
       />,
     )
 
     await user.click(screen.getByTestId('recommended-list-card'))
 
-    expect(onSelectRecommendation).toHaveBeenCalledWith(RECOMMENDATION)
+    // The drawer opens with the recommendation's copy.title pre-filled,
+    // and the create callback only fires once the candidate submits — not
+    // on the card tap alone.
+    expect(
+      await screen.findByRole('textbox', { name: 'List name' }),
+    ).toHaveValue('Persuadable independents')
+    expect(onCreateRecommendedList).not.toHaveBeenCalled()
     expect(onSelect).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(onCreateRecommendedList).toHaveBeenCalledWith(
+      RECOMMENDATION,
+      'Persuadable independents',
+    )
   })
 
   // existingFilterId exists precisely so accepting the same recommendation
   // twice selects the saved list rather than creating a duplicate.
   it('selects the existing list when the recommendation already exists', async () => {
     const user = userEvent.setup()
-    const onSelectRecommendation = vi.fn()
+    const onCreateRecommendedList = vi.fn(async () => undefined)
     const onRecommendationReused = vi.fn()
     const onSelect = vi.fn()
     render(
       <OutreachAudienceStep
         {...baseProps()}
         recommendations={[EXISTING_RECOMMENDATION]}
-        onSelectRecommendation={onSelectRecommendation}
+        onCreateRecommendedList={onCreateRecommendedList}
         onRecommendationReused={onRecommendationReused}
         onSelect={onSelect}
       />,
@@ -174,7 +186,7 @@ describe('OutreachAudienceStep — recommended lists', () => {
     await user.click(screen.getByTestId('recommended-list-card'))
 
     expect(onSelect).toHaveBeenCalledWith(501)
-    expect(onSelectRecommendation).not.toHaveBeenCalled()
+    expect(onCreateRecommendedList).not.toHaveBeenCalled()
     // This branch never reaches createList, so it is where the accept has
     // to be reported from or reuse goes uncounted.
     expect(onRecommendationReused).toHaveBeenCalledWith(EXISTING_RECOMMENDATION)

@@ -118,13 +118,13 @@ describe('RobocallFlow — recommended lists', () => {
 
     await userEvent.click(screen.getByTestId('recommended-list-card'))
 
-    expect(await screen.findByText('Name your list')).toBeInTheDocument()
+    expect(await screen.findByText('Name this list')).toBeInTheDocument()
     expect(screen.getByLabelText('List name')).toHaveValue(
       'Persuadable independents',
     )
 
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Create list' }),
+      await screen.findByRole('button', { name: 'Continue' }),
     )
 
     expect(filterCalls).toHaveLength(1)
