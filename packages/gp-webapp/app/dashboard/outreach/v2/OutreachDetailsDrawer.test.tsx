@@ -640,6 +640,45 @@ describe('OutreachDetailsDrawer — assignees (ENG-11056)', () => {
       }),
     )
   })
+
+  // inProgressRow.id is 30 — the team endpoint's pendingInvites is org-wide,
+  // so a volunteer invite scoped to a DIFFERENT outreach (here 99) must be
+  // filtered out rather than bleeding into this list's section.
+  it("shows only this outreach's own pending volunteer invite, not one scoped elsewhere", async () => {
+    api.mock('GET /v1/outreach/:id/assignments', {
+      status: 200,
+      data: { assignees: [] },
+    })
+    api.mock('GET /v1/organizations/team', {
+      status: 200,
+      data: {
+        members: [],
+        pendingInvites: [
+          {
+            id: 'invite-a',
+            name: 'Val Volunteer',
+            email: 'val@example.com',
+            role: 'volunteer',
+            createdAt: '2026-08-01T00:00:00.000Z',
+            outreachId: 30,
+          },
+          {
+            id: 'invite-b',
+            name: 'Other Volunteer',
+            email: 'other@example.com',
+            role: 'volunteer',
+            createdAt: '2026-08-01T00:00:00.000Z',
+            outreachId: 99,
+          },
+        ],
+      },
+    })
+
+    render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
+
+    expect(await screen.findByText('Val Volunteer')).toBeInTheDocument()
+    expect(screen.queryByText('Other Volunteer')).not.toBeInTheDocument()
+  })
 })
 
 // Door knocking arrived in this table as its own channel in #1374, and its

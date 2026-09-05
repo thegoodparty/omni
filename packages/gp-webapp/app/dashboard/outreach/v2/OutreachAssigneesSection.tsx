@@ -32,21 +32,12 @@ import {
   teamQueryKey,
 } from 'app/dashboard/team/team.util'
 import InviteMemberDialog from 'app/dashboard/team/components/InviteMemberDialog'
+import { volunteerAssignmentsQueryKey } from 'app/volunteer/components/AssignmentsPage'
 import { shortOutreachDate } from './outreachDate.util'
 
 const outreachAssigneesQueryKey = (outreachId: number) => [
   'outreach-assignees',
   outreachId,
-]
-
-// Matches the volunteer assignments home page's key shape (ENG-11053,
-// app/volunteer/components/AssignmentsPage.tsx's volunteerAssignmentsQueryKey)
-// without importing it — that page lives on a sibling branch not yet in this
-// stack — so an assign/remove/invite here also busts a volunteer's own
-// "Your assignments" cache once both land on main.
-const volunteerAssignmentsQueryKey = (orgSlug: string | undefined) => [
-  'volunteer-assignments',
-  orgSlug,
 ]
 
 interface OutreachAssigneesSectionProps {
