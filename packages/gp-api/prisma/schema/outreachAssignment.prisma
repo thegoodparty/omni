@@ -1,0 +1,22 @@
+// One generic table linking a team member to an outreach envelope. Door
+// knocking and phone banking each hang their channel-specific data off
+// Outreach (doorKnockingRouteId / phoneBankingListId), so assignment attaches
+// here rather than to either channel internal.
+model OutreachAssignment {
+  id               Int          @id @default(autoincrement())
+  createdAt        DateTime     @default(now()) @map("created_at")
+  organizationSlug String       @map("organization_slug")
+  organization     Organization @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  outreachId       Int          @map("outreach_id")
+  outreach         Outreach     @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  assigneeUserId   Int          @map("assignee_user_id")
+  assignee         User         @relation(fields: [assigneeUserId], references: [id], onDelete: Cascade)
+  // Nullable + SetNull (mirrors OrganizationMembership.invitedBy): deleting
+  // the assigner must not destroy the volunteer's access to the outreach.
+  assignedByUserId Int?         @map("assigned_by_user_id")
+  assignedBy       User?        @relation("OutreachAssignmentAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([outreachId, assigneeUserId])
+  @@index([assigneeUserId])
+  @@map("outreach_assignment")
+}
