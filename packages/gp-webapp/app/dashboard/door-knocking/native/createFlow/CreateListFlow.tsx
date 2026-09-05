@@ -42,12 +42,7 @@ import {
   unpreviewableDisclosureSentence,
 } from './voterFilterPreview'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
-import {
-  districtUnavailableMessage,
-  packErrorMessage,
-  PACK_LOADING_DURATION,
-  packLoadingTitle,
-} from '../useVoterPack'
+import { districtUnavailableMessage, packErrorMessage } from '../useVoterPack'
 import { suggestTravelMode } from '../travelMode'
 import { useDoorKnockingServeMode } from '../doorKnockingSurface'
 import {
@@ -961,13 +956,24 @@ export default function CreateListFlow({
                 // the opposite of the truth. A failed pack has no answer coming
                 // at all, so it is bare for the same reason; what went wrong is
                 // said in the body, where there is room to say it.
+                // Bare "Continue" until the candidate has actually picked
+                // an audience — otherwise the count in the button reads
+                // as a preselection ("Continue (12,000)" on a fresh who
+                // step implied a list was already chosen, when in fact
+                // nothing was picked and `districtHouseholds` was just
+                // the full district population). Once picked, the count
+                // returns as the honest size of the audience being
+                // advanced. Failed / unavailable / still-pending also
+                // suppress the count for their own reasons above.
                 label:
+                  !hasPickedAudience ||
                   districtHouseholdsPending ||
                   districtHouseholdsFailed ||
                   districtUnavailable
                     ? 'Continue'
                     : `Continue (${districtHouseholds.toLocaleString()})`,
                 disabled:
+                  !hasPickedAudience ||
                   districtHouseholdsPending ||
                   districtHouseholdsFailed ||
                   districtUnavailable ||
@@ -1059,21 +1065,20 @@ export default function CreateListFlow({
               recommendationsError={recommendationsQuery.isError}
               onSelectRecommendation={applyRecommendation}
             />
-            {/* Said HERE and not only on the map. The map region already draws
-                a titled loader for the same download, and this sheet is what
-                covers that region — so for the whole of the wait that actually
-                matters it was painted underneath the surface the candidate is
-                looking at, which is how a half-minute of dead Continue arrived
-                with nothing said about it. Same two sentences as the map's, off
-                the same constants, so the pair cannot drift. */}
-            {districtHouseholdsPending && (
-              <p className="text-xs text-muted-foreground">
-                {packLoadingTitle(serveMode)} {PACK_LOADING_DURATION}
-              </p>
-            )}
-            {/* And the same argument for the failure. `retry: 0` means a failed
-                pack is final, so without this the step is a permanently
-                disabled button with the reason hidden behind it. */}
+            {/* The pack-pending sentence used to sit here ("Loading your
+                voter map…") to explain a Continue that would otherwise sit
+                dead for up to 34s. It was correct when the whole flow
+                covered the map region that carried the same message, but
+                it broke the who step from the candidate's point of view —
+                a step asking "who do you want to reach" that mentioned
+                voter maps read as leaking implementation. The Continue
+                button's own `loading` state (spinner) is now the only
+                pack-pending signal on this step, which is what phone
+                banking and every other channel's audience step already
+                does. */}
+            {/* Failure is different: `retry: 0` means a failed pack is
+                final, so without this the step is a permanently disabled
+                Continue with the reason hidden behind it. */}
             {districtHouseholdsFailed && (
               <p role="alert" className="text-sm text-destructive">
                 {packErrorMessage(serveMode)}

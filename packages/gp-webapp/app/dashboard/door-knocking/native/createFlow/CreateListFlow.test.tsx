@@ -446,6 +446,10 @@ describe('CreateListFlow', () => {
     const onStepChange = vi.fn()
 
     renderAtWho({ filters: { partyDemocrat: true }, onStepChange })
+    // Continue is disabled and unnumbered until an audience is picked;
+    // pick All contacts to commit the hand-cut filter draft as the
+    // audience the step is advancing on.
+    await pickList(/All contacts/)
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
 
     // Waited out rather than read straight back, so a POST that was fired and
@@ -641,9 +645,13 @@ describe('CreateListFlow', () => {
     expect(audiencePicker()).toHaveTextContent('12,000 doors')
   })
 
-  it('refuses to continue from an audience holding nobody', () => {
+  it('refuses to continue from an audience holding nobody', async () => {
     renderAtWho({ districtHouseholds: 0 })
 
+    // Pick All contacts so the count-in-CTA is honestly zero rather than
+    // the pre-pick placeholder state. Continue stays disabled — the
+    // audience holds nobody — and reads the honest `(0)`.
+    await pickList(/All contacts/)
     expect(screen.getByRole('button', { name: 'Continue (0)' })).toBeDisabled()
   })
 
@@ -651,17 +659,16 @@ describe('CreateListFlow', () => {
   // not arrived is 0 here too, and printing it makes "we are still counting"
   // indistinguishable from "this district is empty" — for a wait whose p95 is
   // 34 seconds. Phone banking's identical CTA on this same shell already drops
-  // to the bare word while it counts.
+  // to the bare word while it counts. The button's own `loading` spinner is
+  // the only pack-pending signal on this step; the "Loading your voter map…"
+  // sentence used to sit below it but leaked implementation ("voter map") into
+  // a step whose question is "who do you want to reach".
   it('drops the count from the who step’s Continue while it is still pending', () => {
     renderAtWho({ districtHouseholds: 0, districtHouseholdsPending: true })
 
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     expect(screen.queryByRole('button', { name: /Continue \(/ })).toBeNull()
-    expect(
-      screen.getByText(
-        /Loading your voter map…\s*Large districts can take up to 30 seconds\./,
-      ),
-    ).toBeInTheDocument()
+    expect(screen.queryByText(/Loading your voter map/)).toBeNull()
   })
 
   // And a count that is never arriving. The pack does not retry, so the step is
@@ -696,7 +703,7 @@ describe('CreateListFlow', () => {
   // is the orchestrator's name for the whole pre-draw phase, and reaching the
   // draw step from an unfiltered draft is now two moves — pick a goal, then
   // continue past the audience.
-  it('advances from the goal cards through the audience to the draw step', () => {
+  it('advances from the goal cards through the audience to the draw step', async () => {
     const onStepChange = vi.fn()
     renderAtWho({ onStepChange })
 
@@ -704,6 +711,9 @@ describe('CreateListFlow', () => {
     // nothing about it — it only needs to know when a shape is being cut.
     expect(onStepChange).not.toHaveBeenCalled()
 
+    // The picker now requires an explicit pick before Continue enables and
+    // the count returns in the label.
+    await pickList(/All contacts/)
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
     expect(onStepChange).toHaveBeenCalledWith('draw')
   })
@@ -1787,7 +1797,7 @@ describe('CreateListFlow steps', () => {
   // Back from the draw step returns to the audience, which is the step
   // immediately in front of the map on the only path there is — and the page
   // hears `filters` for it, which is what resets the address panel.
-  it('returns from the draw step to the who step', () => {
+  it('returns from the draw step to the who step', async () => {
     const onStepChange = vi.fn()
     const savedLists = [
       { id: 4, name: 'Precinct 2 homeowners', households: 820, filters: {} },
@@ -1795,6 +1805,8 @@ describe('CreateListFlow steps', () => {
     const props = { ...baseProps, savedLists, onStepChange }
 
     const { rerender } = renderAtWho(props)
+    // Pick a saved list to commit an audience and enable Continue.
+    await pickList(/Precinct 2 homeowners/)
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
     expect(onStepChange).toHaveBeenCalledWith('draw')
 
@@ -2104,18 +2116,19 @@ describe('CreateListFlow on the Serve surface', () => {
     return view
   }
 
-  it('waits on a constituent map rather than a voter map', () => {
+  it('does not leak a "voter/constituent map" sentence into the who step', () => {
     renderServeAtWho({
       districtHouseholds: 0,
       districtHouseholdsPending: true,
     })
 
-    expect(
-      screen.getByText(
-        /Loading your constituent map…\s*Large districts can take up to 30 seconds\./,
-      ),
-    ).toBeInTheDocument()
-    expect(screen.queryByText(/voter map/)).toBeNull()
+    // The pack-pending copy used to sit under the picker on Win as
+    // "Loading your voter map…" and on Serve as "Loading your
+    // constituent map…" — both leak implementation ("map") into a step
+    // whose question is "who do you want to reach". Continue's own
+    // `loading` spinner is the only pack-pending signal now.
+    expect(screen.queryByText(/Loading your voter map/)).toBeNull()
+    expect(screen.queryByText(/Loading your constituent map/)).toBeNull()
   })
 
   it('names the constituent map in both ways the count can be absent', () => {
