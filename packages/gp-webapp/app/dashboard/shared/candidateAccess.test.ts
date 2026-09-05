@@ -277,6 +277,24 @@ describe('candidateAccess', () => {
     expect(mockRedirect).toHaveBeenCalledWith('/volunteer')
   })
 
+  it('does not bounce a volunteer away from a /print/ download route', async () => {
+    mockAuth.mockResolvedValue({
+      userId: 'user_2abc',
+      actor: { sub: 'admin' },
+    })
+    mockHeadersGet.mockImplementation((name) =>
+      name === 'x-pathname'
+        ? '/dashboard/outreach/phone-banking/print/42/pdf'
+        : null,
+    )
+    mockGetCurrentUserOrganizations.mockResolvedValue([minimalOrg])
+    mockIsActiveOrgVolunteer.mockResolvedValue(true)
+
+    await candidateAccess()
+
+    expect(mockRedirect).not.toHaveBeenCalledWith('/volunteer')
+  })
+
   it('does not check the volunteer role for non-dashboard routes', async () => {
     mockAuth.mockResolvedValue({
       userId: 'user_2abc',
