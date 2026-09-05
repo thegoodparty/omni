@@ -345,7 +345,11 @@ import { dirname, join, relative } from 'node:path'
 // watch and the walk session/completion mutations — the route itself
 // (app/volunteer/door-knocking/[turfId]/page.tsx) stays a server component,
 // validating the id param and rendering no directive of its own.
-const BASELINE = 600
+// 2026-09-05: 600 -> 601 for the outreach drawer's Assignees section
+// (ENG-11056, OutreachAssigneesSection.tsx). It holds picker/dialog open
+// state and drives assign/remove/invite mutations against a query cache, so
+// it can't be a server component — same reasoning as TeamPage.tsx above.
+const BASELINE = 601
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -53,6 +53,7 @@ const pendingInvite: PendingInvite = {
   email: 'invitee@example.com',
   role: 'campaignAdmin',
   createdAt: '2024-01-03T00:00:00.000Z',
+  outreachId: null,
 }
 
 const pendingInvite2: PendingInvite = {
@@ -61,6 +62,7 @@ const pendingInvite2: PendingInvite = {
   email: 'second-invitee@example.com',
   role: 'campaignAdmin',
   createdAt: '2024-01-04T00:00:00.000Z',
+  outreachId: null,
 }
 
 // Mutable so DELETE mock handlers can simulate a real backend: a mutation's
@@ -196,6 +198,7 @@ describe('TeamPage — invite flow', () => {
             name: req.body.name,
             role: 'campaignAdmin',
             createdAt: '2024-01-04T00:00:00.000Z',
+            outreachId: null,
           },
         },
       }
@@ -322,6 +325,80 @@ describe('TeamPage — loading and error states (ENG-11039)', () => {
   })
 })
 
+describe('TeamPage — role change (ENG-11049)', () => {
+  it('offers Make Volunteer on a manager row and PATCHes the right value', async () => {
+    const user = userEvent.setup()
+    let patchBody: unknown
+    let patchedUserId: string | undefined
+    api.mock(
+      'PATCH /v1/organizations/team/members/:userId',
+      ({ params, body }) => {
+        patchedUserId = params.userId
+        patchBody = body
+        members = members.map((m) =>
+          m.userId === manager.userId ? { ...m, role: 'volunteer' } : m,
+        )
+        return { status: 200, data: { ...manager, role: 'volunteer' } }
+      },
+    )
+    render(<TeamPage />)
+
+    await screen.findByText('Manager Person')
+    await user.click(
+      screen.getByRole('button', { name: 'Manage Manager Person' }),
+    )
+    await user.click(await screen.findByText('Make Volunteer'))
+
+    await waitFor(() => {
+      expect(patchedUserId).toBe(String(manager.userId))
+      expect(patchBody).toEqual({ role: 'volunteer' })
+    })
+    expect(await screen.findByText('Volunteer')).toBeInTheDocument()
+  })
+
+  it('offers Make Campaign Manager on a volunteer row and PATCHes the right value', async () => {
+    const user = userEvent.setup()
+    const volunteer: TeamMember = {
+      userId: 3,
+      name: 'Val Volunteer',
+      email: 'val@example.com',
+      role: 'volunteer',
+      createdAt: '2024-01-05T00:00:00.000Z',
+    }
+    members = [owner, volunteer]
+    pendingInvites = []
+    let patchBody: unknown
+    api.mock('PATCH /v1/organizations/team/members/:userId', ({ body }) => {
+      patchBody = body
+      members = members.map((m) =>
+        m.userId === volunteer.userId ? { ...m, role: 'campaignAdmin' } : m,
+      )
+      return { status: 200, data: { ...volunteer, role: 'campaignAdmin' } }
+    })
+    render(<TeamPage />)
+
+    await screen.findByText('Val Volunteer')
+    await user.click(
+      screen.getByRole('button', { name: 'Manage Val Volunteer' }),
+    )
+    await user.click(await screen.findByText('Make Campaign Manager'))
+
+    await waitFor(() => {
+      expect(patchBody).toEqual({ role: 'campaignAdmin' })
+    })
+    expect(await screen.findByText('Campaign Manager')).toBeInTheDocument()
+  })
+
+  it('never offers a role-change action to a manager (no Manage menu at all)', async () => {
+    mockUseOrganizationRole.mockReturnValue('campaignAdmin')
+    render(<TeamPage />)
+
+    await screen.findByText('Manager Person')
+    expect(screen.queryByText('Make Volunteer')).not.toBeInTheDocument()
+    expect(screen.queryByText('Make Campaign Manager')).not.toBeInTheDocument()
+  })
+})
+
 describe('TeamPage — revoking a pending invite', () => {
   it('revokes the invite and removes it from the list without a reload', async () => {
     const user = userEvent.setup()
@@ -388,5 +465,40 @@ describe('TeamPage — revoking a pending invite', () => {
       expect(screen.queryByText('Invitee Person')).not.toBeInTheDocument()
     })
     expect(screen.getByText('Second Invitee')).toBeInTheDocument()
+  })
+})
+
+// Delegate review (PR #1736): a list-scoped volunteer invite still belongs
+// in this table (the ticket's own AC), but revoking it here has no outreach
+// context — that action lives with the drawer's Assignees section instead.
+describe('TeamPage — list-scoped pending invites (delegate review, PR #1736)', () => {
+  it('renders a list-scoped invite with a Volunteer + list-scoped label and no Revoke button, while a plain invite keeps its Revoke button', async () => {
+    const listScopedInvite: PendingInvite = {
+      id: 'invite-scoped',
+      name: 'Val Volunteer',
+      email: 'val@example.com',
+      role: 'volunteer',
+      createdAt: '2024-01-06T00:00:00.000Z',
+      outreachId: 30,
+    }
+    pendingInvites = [pendingInvite, listScopedInvite]
+
+    render(<TeamPage />)
+
+    await screen.findByText('Val Volunteer')
+    const scopedRow = screen.getByText('Val Volunteer').closest('tr')
+    expect(scopedRow).not.toBeNull()
+    expect(within(scopedRow!).getByText('Volunteer')).toBeInTheDocument()
+    expect(within(scopedRow!).getByText('List-scoped')).toBeInTheDocument()
+    expect(
+      within(scopedRow!).queryByRole('button', { name: /Revoke invite/ }),
+    ).not.toBeInTheDocument()
+
+    // The plain (non-list-scoped) invite is untouched.
+    expect(
+      screen.getByRole('button', {
+        name: 'Revoke invite for invitee@example.com',
+      }),
+    ).toBeInTheDocument()
   })
 })

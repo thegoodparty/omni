@@ -34,16 +34,25 @@ interface InviteMemberDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onInvited: (response: InviteMemberResponse) => void
+  // List-scoped volunteer invite (ENG-11056): the outreach drawer's Assign
+  // action invites a brand-new volunteer straight onto one list, reusing this
+  // dialog's form + inline-error handling rather than forking it. Omitted
+  // (default 'campaignAdmin') keeps the team page's general invite unchanged.
+  role?: 'campaignAdmin' | 'volunteer'
+  outreachId?: number
 }
 
 const InviteMemberDialog = ({
   open,
   onOpenChange,
   onInvited,
+  role = 'campaignAdmin',
+  outreachId,
 }: InviteMemberDialogProps): React.JSX.Element => {
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const roleLabel = role === 'volunteer' ? 'Volunteer' : 'Campaign Manager'
 
   useEffect(() => {
     if (open) {
@@ -59,7 +68,8 @@ const InviteMemberDialog = ({
       clientRequest('POST /v1/organizations/team/invites', {
         email: email.trim(),
         name: name.trim(),
-        role: 'campaignAdmin',
+        role,
+        ...(outreachId !== undefined ? { outreachId } : {}),
       }).then((res) => res.data),
     onSuccess: (response) => {
       trackEvent(EVENTS.Team.InviteSubmitted, { status: response.status })
@@ -80,7 +90,11 @@ const InviteMemberDialog = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Invite a team member</DialogTitle>
+          <DialogTitle>
+            {role === 'volunteer'
+              ? 'Invite a volunteer'
+              : 'Invite a team member'}
+          </DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
@@ -109,7 +123,7 @@ const InviteMemberDialog = ({
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="invite-member-role">Role</Label>
-            <Input id="invite-member-role" value="Campaign Manager" disabled />
+            <Input id="invite-member-role" value={roleLabel} disabled />
           </div>
 
           {errorMessage && (

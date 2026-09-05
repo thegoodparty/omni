@@ -23,7 +23,9 @@ import {
   CircleHelpIcon,
   MoreHorizontalIcon,
   PlusIcon,
+  ShieldCheckIcon,
   Trash2Icon,
+  UserRoundIcon,
 } from '@styleguide/components/ui/icons'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { NAV_LABELS } from 'app/dashboard/shared/navLabels'
@@ -33,24 +35,8 @@ import {
   useOrganizationRole,
 } from '@shared/organization-picker'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { ROLE_LABELS, formatName, teamQueryKey } from '../team.util'
 import InviteMemberDialog from './InviteMemberDialog'
-
-// Only 'owner' and 'campaignAdmin' can appear today: invites (and therefore
-// every membership row) are pinned to campaignAdmin in Phase 1
-// (InviteTeamMemberDto), and 'owner' is never a membership row, only the
-// synthetic first row listTeam adds. 'volunteer' is kept here anyway — the
-// OrganizationRole/TeamInviteRole types both allow it, and an unmapped role
-// would otherwise render as a raw enum value the moment Phase 1.5 ships it.
-const ROLE_LABELS: Record<string, string> = {
-  owner: 'Owner',
-  campaignAdmin: 'Campaign Manager',
-  volunteer: 'Volunteer',
-}
-
-export const teamQueryKey = (orgSlug: string | undefined) => ['team', orgSlug]
-
-const formatName = (name: string | null, email: string): string =>
-  name && name.trim().length > 0 ? name : email
 
 const TeamPage = (): React.JSX.Element => {
   const organization = useOrganization()
@@ -103,6 +89,28 @@ const TeamPage = (): React.JSX.Element => {
       await invalidateTeam()
     },
     onError: () => errorSnackbar('Failed to remove the member'),
+  })
+
+  // ENG-11049: the owner can move an existing member between Campaign
+  // Manager and Volunteer — a role change never touches an outreach
+  // assignment, so it's a plain PATCH + refetch like remove above.
+  const roleMutation = useMutation({
+    mutationFn: ({
+      userId,
+      role,
+    }: {
+      userId: number
+      role: 'campaignAdmin' | 'volunteer'
+    }) =>
+      clientRequest('PATCH /v1/organizations/team/members/:userId', {
+        userId: String(userId),
+        role,
+      }),
+    onSuccess: async () => {
+      successSnackbar('Role updated')
+      await invalidateTeam()
+    },
+    onError: () => errorSnackbar('Failed to update the role'),
   })
 
   const members: TeamMember[] = data?.members ?? []
@@ -208,6 +216,42 @@ const TeamPage = (): React.JSX.Element => {
                                 </IconButton>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
+                                {member.role !== 'campaignAdmin' && (
+                                  <DropdownMenuItem
+                                    disabled={
+                                      roleMutation.isPending &&
+                                      roleMutation.variables?.userId ===
+                                        member.userId
+                                    }
+                                    onClick={() =>
+                                      roleMutation.mutate({
+                                        userId: member.userId,
+                                        role: 'campaignAdmin',
+                                      })
+                                    }
+                                  >
+                                    <ShieldCheckIcon />
+                                    Make Campaign Manager
+                                  </DropdownMenuItem>
+                                )}
+                                {member.role !== 'volunteer' && (
+                                  <DropdownMenuItem
+                                    disabled={
+                                      roleMutation.isPending &&
+                                      roleMutation.variables?.userId ===
+                                        member.userId
+                                    }
+                                    onClick={() =>
+                                      roleMutation.mutate({
+                                        userId: member.userId,
+                                        role: 'volunteer',
+                                      })
+                                    }
+                                  >
+                                    <UserRoundIcon />
+                                    Make Volunteer
+                                  </DropdownMenuItem>
+                                )}
                                 <DropdownMenuItem
                                   variant="destructive"
                                   disabled={
@@ -270,27 +314,56 @@ const TeamPage = (): React.JSX.Element => {
                         <TableCell>{invite.name}</TableCell>
                         <TableCell>
                           {ROLE_LABELS[invite.role] ?? invite.role}
+                          {/* List-scoped volunteer invites (ENG-11049) are
+                              created from — and only make sense in the
+                              context of — one outreach list, so a bare
+                              "Volunteer" row here would read as a normal
+                              team invite. Name the scope inline rather than
+                              hiding the row: hiding it would violate the
+                              ticket's own AC that these show up here too
+                              (delegate review, PR #1736). */}
+                          {invite.outreachId != null && (
+                            <span className="block text-xs text-muted-foreground">
+                              List-scoped
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell>{invite.email}</TableCell>
                         <TableCell>
-                          <IconButton
-                            variant="ghost"
-                            size="small"
-                            aria-label={`Revoke invite for ${invite.email}`}
-                            // Scoped to THIS row's invite id, not just
-                            // isPending — one shared mutation instance backs
-                            // every row, so isPending alone would disable
-                            // every other pending invite's button while any
-                            // one revoke is in flight (delegate review, PR
-                            // #1688).
-                            disabled={
-                              revokeMutation.isPending &&
-                              revokeMutation.variables === invite.id
-                            }
-                            onClick={() => revokeMutation.mutate(invite.id)}
-                          >
-                            <Trash2Icon />
-                          </IconButton>
+                          {invite.outreachId != null ? (
+                            // No Revoke here: this invite's Cancel lives with
+                            // the outreach that scopes it (the drawer's
+                            // Assignees section), where the context to
+                            // cancel it safely actually is. Revoking it from
+                            // this context-free table would silently cancel
+                            // an outreach-scoped invite the manager can't see
+                            // here (delegate review, PR #1736).
+                            <span
+                              className="text-xs text-muted-foreground"
+                              title="Manage from the outreach's assignees section"
+                            >
+                              Managed in outreach
+                            </span>
+                          ) : (
+                            <IconButton
+                              variant="ghost"
+                              size="small"
+                              aria-label={`Revoke invite for ${invite.email}`}
+                              // Scoped to THIS row's invite id, not just
+                              // isPending — one shared mutation instance backs
+                              // every row, so isPending alone would disable
+                              // every other pending invite's button while any
+                              // one revoke is in flight (delegate review, PR
+                              // #1688).
+                              disabled={
+                                revokeMutation.isPending &&
+                                revokeMutation.variables === invite.id
+                              }
+                              onClick={() => revokeMutation.mutate(invite.id)}
+                            >
+                              <Trash2Icon />
+                            </IconButton>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))

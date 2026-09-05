@@ -328,6 +328,27 @@ export type APIEndpoints = {
     Response: SmsOutreachResults
   }
 
+  // Team-accounts assignments (ENG-11048/ENG-11056), org-scoped, manager+ by
+  // default (the volunteer-only `assignments/mine` sibling isn't consumed
+  // here — see app/volunteer/). The outreach drawer's Assignees section reads
+  // and writes these.
+  'GET /v1/outreach/:id/assignments': {
+    Request: {}
+    Response: OutreachAssigneesResponse
+  }
+
+  'POST /v1/outreach/:id/assignments': {
+    Request: {
+      assigneeUserId: number
+    }
+    Response: OutreachAssignee
+  }
+
+  'DELETE /v1/outreach/:id/assignments/:userId': {
+    Request: {}
+    Response: undefined
+  }
+
   // Synchronous, stateless: one structured LLM call writes the compose-step
   // draft from purpose + tone (candidate name/office come from the session).
   // With currentDraft it polishes that text in place instead (Improve with
@@ -556,12 +577,15 @@ export type APIEndpoints = {
 
   // Gated server-side by the win-team-accounts flag (404 while off) — the
   // only route that can create a membership row, so gating just this one
-  // makes the whole feature inert at 0%.
+  // makes the whole feature inert at 0%. A volunteer invite (ENG-11049) is
+  // list-scoped: it must carry outreachId, and a campaignAdmin invite must
+  // not — gp-api's Zod refine enforces both directions.
   'POST /v1/organizations/team/invites': {
     Request: {
       email: string
       name: string
-      role: 'campaignAdmin'
+      role: 'campaignAdmin' | 'volunteer'
+      outreachId?: number
     }
     Response: InviteMemberResponse
   }
@@ -571,10 +595,12 @@ export type APIEndpoints = {
     Response: undefined
   }
 
-  // Owner-only server-side (OwnerOnly guard); a manager's call 403s.
+  // Owner-only server-side (OwnerOnly guard); a manager's call 403s. Moves an
+  // existing member between Campaign Manager and Volunteer (ENG-11049) — a
+  // role change never creates or touches an OutreachAssignment.
   'PATCH /v1/organizations/team/members/:userId': {
     Request: {
-      role: 'campaignAdmin'
+      role: 'campaignAdmin' | 'volunteer'
     }
     Response: TeamMember
   }
@@ -2142,6 +2168,10 @@ export type PendingInvite = {
   name: string
   role: 'campaignAdmin' | 'volunteer'
   createdAt: string
+  // Set only for a list-scoped volunteer invite (ENG-11049); null for a
+  // campaignAdmin invite. The outreach drawer's Assignees section filters
+  // this list by outreachId to show its own pending volunteer invites.
+  outreachId: number | null
 }
 
 export type TeamResponse = {
@@ -2152,6 +2182,23 @@ export type TeamResponse = {
 export type InviteMemberResponse =
   | { status: 'added'; member: TeamMember }
   | { status: 'pending'; invite: PendingInvite }
+
+// Wire shapes for outreach assignments (win-team-accounts / ENG-11048).
+// Mirrors OutreachAssignment.schema.ts in @goodparty_org/contracts, but
+// createdAt arrives over JSON as an ISO string — same convention as
+// TeamMember above.
+export type OutreachAssignee = {
+  userId: number
+  name: string | null
+  role: OrganizationRole
+  createdAt: string
+  assignedByUserId: number | null
+  assignedByName: string | null
+}
+
+export type OutreachAssigneesResponse = {
+  assignees: OutreachAssignee[]
+}
 
 // Mirrors EligibilitySchema in @goodparty_org/contracts. Derived on read by
 // gp-api's EligibilityService; the webapp has no contracts dependency, so the
