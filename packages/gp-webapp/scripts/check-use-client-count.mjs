@@ -335,7 +335,12 @@ import { dirname, join, relative } from 'node:path'
 // VolunteerTopBar.tsx). It holds the profile-dropdown open/close state and
 // reads useUser()/the org-picker context, same reason app/volunteer/layout.tsx
 // stays a server component and this is its one client leaf.
-const BASELINE = 598
+// 2026-09-05: 598 -> 599 for the volunteer assignments page (ENG-11053,
+// AssignmentsPage.tsx). It runs a React Query fetch, reads useOrganization(),
+// and handles retry — the route itself (app/volunteer/page.tsx) stays a
+// server component and renders no directive. AssignmentCard.tsx is a plain
+// presentational child with no hooks of its own, so it carries none.
+const BASELINE = 599
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
