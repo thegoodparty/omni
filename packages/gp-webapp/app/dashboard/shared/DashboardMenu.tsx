@@ -268,21 +268,6 @@ const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
   v2Category: 'campaign',
 }
 
-// win-team-accounts (ENG-10816/10827). Win-only in Phase 1 (ENG-10816
-// non-goal: Serve staff accounts are out of scope, so this never renders
-// for an elected-office org — see getDashboardMenuItems below and
-// gp-api's matching 400 on POST team/invites for an eo- org slug;
-// delegate review, PR #1688).
-const TEAM_MENU_ITEM: MenuItem = {
-  id: 'team-dashboard',
-  label: NAV_LABELS.team,
-  link: '/dashboard/team',
-  icon: <MdPeople />,
-  v2Icon: UsersRound,
-  v2Category: 'campaign',
-  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignTeam),
-}
-
 const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
   id: 'race-opponent-dashboard',
   label: NAV_LABELS.knowYourOpponent,
@@ -295,7 +280,6 @@ const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
 export const getDashboardMenuItems = (
   isElectedOffice: boolean,
   isElectedOfficeLoading: boolean,
-  showTeamItem = false,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
@@ -370,10 +354,6 @@ export const getDashboardMenuItems = (
     v2Category: 'campaign',
   })
 
-  if (showTeamItem && !isElectedOffice) {
-    menuItems.push(TEAM_MENU_ITEM)
-  }
-
   return menuItems
 }
 
@@ -384,18 +364,14 @@ export default function DashboardMenu({
   const [ecanvasser] = useEcanvasser()
   const { data: electedOffice, isLoading: isElectedOfficeLoading } =
     useElectedOffice()
+  const organization = useOrganization()
   // trackExposure=false: this is a render-decision read, not the experiment's
   // treatment surface (the team page itself tracks exposure).
   const { enabled: teamAccountsEnabled } = useTeamAccountsFlag(false)
 
   const menuItems = useMemo(
-    () =>
-      getDashboardMenuItems(
-        !!electedOffice,
-        isElectedOfficeLoading,
-        teamAccountsEnabled,
-      ),
-    [electedOffice, isElectedOfficeLoading, teamAccountsEnabled],
+    () => getDashboardMenuItems(!!electedOffice, isElectedOfficeLoading),
+    [electedOffice, isElectedOfficeLoading],
   )
 
   useEffect(() => {
@@ -404,7 +380,30 @@ export default function DashboardMenu({
     }
   }, [campaign, ecanvasser])
 
-  return <NewNavMenu menuItems={menuItems} pathname={pathname} />
+  // win-team-accounts (ENG-10816/10827), moved from the primary nav into the
+  // account menu (ENG-11061 design correction). Win-only in Phase 1 (ENG-10816
+  // non-goal: Serve staff accounts are out of scope, so this never renders for
+  // an elected-office org — see gp-api's matching 400 on POST team/invites for
+  // an eo- org slug; delegate review, PR #1688).
+  //
+  // Gated on BOTH signals, not just useElectedOffice: that query is per-org
+  // slug and can still be mid-flight (or holding the previous org's result)
+  // right after the org picker switches the active org — organization
+  // (useOrganization) flips synchronously on that switch, so
+  // organization.electedOfficeId is what every other nav item's v2Category
+  // filter already relies on for the same distinction (bugbot review,
+  // ENG-11061). Belt-and-suspenders here only ever makes the item MORE
+  // restrictive, never less.
+  const showTeamAccountItem =
+    teamAccountsEnabled && !electedOffice && !organization?.electedOfficeId
+
+  return (
+    <NewNavMenu
+      menuItems={menuItems}
+      pathname={pathname}
+      showTeamAccountItem={showTeamAccountItem}
+    />
+  )
 }
 
 type AccountManagementItem = {
@@ -419,9 +418,11 @@ type AccountManagementItem = {
 const NewNavMenu = ({
   menuItems,
   pathname,
+  showTeamAccountItem,
 }: {
   menuItems: MenuItem[]
   pathname: string | null
+  showTeamAccountItem: boolean
 }) => {
   const [user] = useUser()
   const { user: clerkUser, isLoaded: isClerkUserLoaded } = useClerkUser()
@@ -457,6 +458,16 @@ const NewNavMenu = ({
       icon: Settings,
       id: 'nav-dash-account',
       href: '/dashboard/account',
+    },
+    // ENG-11061 design correction: Team moves out of the primary nav and
+    // lives here instead, gated by showTeamAccountItem (win-team-accounts
+    // flag on, not an elected-office org).
+    team: {
+      label: 'Team',
+      icon: UsersRound,
+      id: 'nav-dash-team',
+      href: '/dashboard/team',
+      onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignTeam),
     },
     community: {
       label: 'Community Forum',
@@ -568,6 +579,8 @@ const NewNavMenu = ({
                   {sidebarItem(accountManagementMenuItems.community)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.profile)}
+                  {showTeamAccountItem &&
+                    sidebarItem(accountManagementMenuItems.team)}
                   {!isManager &&
                     sidebarItem(accountManagementMenuItems.account)}
                   <SidebarSeparator />
@@ -610,6 +623,8 @@ const NewNavMenu = ({
                   sideOffset={4}
                 >
                   {dropDownItem(accountManagementMenuItems.profile)}
+                  {showTeamAccountItem &&
+                    dropDownItem(accountManagementMenuItems.team)}
                   {!isManager &&
                     dropDownItem(accountManagementMenuItems.account)}
                   <DropdownMenuSeparator />
