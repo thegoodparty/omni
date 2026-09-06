@@ -61,6 +61,17 @@ export const useOrganization = (): Organization | undefined => {
   return ctx.selected
 }
 
+// The full list, for surfaces that build their own switcher UI instead of
+// rendering `OrganizationPicker` (e.g. the volunteer sidebar's in-sidebar
+// "switch campaign" list, ENG-11068).
+export const useOrganizations = (): Organization[] => {
+  const ctx = useContext(OrganizationContext)
+  if (!ctx) {
+    throw new Error('useOrganizations must be used within OrganizationProvider')
+  }
+  return ctx.organizations
+}
+
 // The viewer's own role in the selected org (owner via ownerId match, else
 // their membership role — see gp-api's OrganizationMembershipService). Only
 // GET /v1/organizations (the list this provider is seeded from) sends role,

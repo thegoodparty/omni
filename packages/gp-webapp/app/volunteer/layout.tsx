@@ -1,18 +1,19 @@
 import type { ReactNode } from 'react'
 import { redirect } from 'next/navigation'
 import { isActiveOrgVolunteer } from '@shared/organizations/activeOrgVolunteer.server'
-import VolunteerTopBar from './VolunteerTopBar'
+import VolunteerSidebar from './VolunteerSidebar'
 
 export const dynamic = 'force-dynamic'
 
 /**
  * Volunteer route group (ENG-11052, Phase 1.5 of the Team accounts TDD): a
  * volunteer gets this reductive shell instead of the campaign dashboard,
- * which assumes a campaign (nav, campaign fetches, tracker widgets). Just a
- * top bar — logo, "Volunteer" badge, org picker, profile dropdown — plus a
- * campaign-name banner underneath (ENG-11065) — no left rail and no
- * `fetchCampaignStatus`/`candidateAccess` dependency, since neither applies
- * to a volunteer.
+ * which assumes a campaign (nav, campaign fetches, tracker widgets). A
+ * left sidebar (logo/wordmark, a user block that switches between campaigns,
+ * logout) plus a slim content-area top bar naming the active campaign
+ * (ENG-11068, the Lovable design's own sidebar shape) — no left rail shared
+ * with the dashboard, and no `fetchCampaignStatus`/`candidateAccess`
+ * dependency, since neither applies to a volunteer.
  *
  * Gated on win-team-accounts AND the viewer's ACTIVE org role: real
  * volunteer memberships aren't creatable yet, so this is a pure safety net
@@ -28,10 +29,5 @@ export default async function VolunteerLayout({
     redirect('/dashboard')
   }
 
-  return (
-    <div className="flex min-h-screen flex-col bg-background">
-      <VolunteerTopBar />
-      <main className="flex-1">{children}</main>
-    </div>
-  )
+  return <VolunteerSidebar>{children}</VolunteerSidebar>
 }
