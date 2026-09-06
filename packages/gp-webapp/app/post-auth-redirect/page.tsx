@@ -26,11 +26,12 @@ const PostAuthRedirectPage = () => {
   // trackExposure=false: a render-decision read for routing, not the
   // experiment's own treatment surface (mirrors every other nav/routing read
   // of this flag — DashboardMenu, the org picker).
-  const {
-    enabled: teamAccountsEnabled,
-    ready: flagReady,
-    failed: teamAccountsFlagFailed,
-  } = useTeamAccountsFlag(false)
+  // `failed` is intentionally not read here anymore (ENG-11073) — the
+  // active-org role, not the client flag read, is what this page's
+  // /dashboard override keys off. The field stays on the hook for other
+  // consumers.
+  const { enabled: teamAccountsEnabled, ready: flagReady } =
+    useTeamAccountsFlag(false)
 
   useEffect(() => {
     if (ranRef.current) return
@@ -284,20 +285,19 @@ const PostAuthRedirectPage = () => {
           hasPendingTeamInvite,
           isActiveOrgVolunteer,
         )
-        // A FAILED flag fetch reads exactly like "off" to the resolver above
-        // (isActiveOrgVolunteer is false either way), but unlike a genuinely
-        // off flag — which is today's accepted status quo for a volunteer-role
-        // org, see page.test.tsx's "byte-identical to today" case — a failed
-        // fetch tells us nothing about whether the flag is really off. Sending
-        // a confirmed volunteer into onboarding is destructive (it creates
-        // them a campaign), so fall back to /dashboard instead: its
-        // server-side candidateAccess() gate re-checks the flag and volunteer
-        // role fresh and still bounces to /volunteer if that's who they are
-        // (ENG-11071).
+        // The client flag read isn't a reliable signal on a cold pass — it can
+        // come back a settled `false` (not just a fetch failure) before
+        // identity has attached, so gating on `teamAccountsFlagFailed` misses
+        // exactly that race (ENG-11073). The org list is reliable: an
+        // active-org role of `volunteer` is a server-confirmed fact regardless
+        // of what the flag read said. Sending a confirmed volunteer into
+        // onboarding is destructive (it creates them a campaign), so fall back
+        // to /dashboard instead: its server-side candidateAccess() gate
+        // re-checks the flag and volunteer role fresh and still bounces to
+        // /volunteer if the flag is really on for them, while a genuinely
+        // flag-off volunteer just gets today's /dashboard landing (ENG-11071).
         const finalResolvedPath =
-          teamAccountsFlagFailed &&
-          activeOrgIsVolunteer &&
-          resolvedPath === WIN_ONBOARDING_PATH
+          activeOrgIsVolunteer && resolvedPath === WIN_ONBOARDING_PATH
             ? '/dashboard'
             : resolvedPath
         // Honor the explicit deep-link destination now that the org slug cookie

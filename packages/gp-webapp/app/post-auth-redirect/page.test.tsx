@@ -678,7 +678,15 @@ describe('PostAuthRedirectPage', () => {
     await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/volunteer'))
   })
 
-  it('does not route a volunteer-role org to /volunteer when win-team-accounts is off (byte-identical to today)', async () => {
+  // ENG-11073: this used to assert byte-identical-to-today behavior (routes
+  // to onboarding) for a volunteer-role org when the flag reads off. That was
+  // wrong: a flag-off user with a volunteer-role org can only exist where
+  // team-accounts membership creation put them there, so candidate
+  // onboarding was never the right destination for them — it's exactly the
+  // "successful-but-wrong evaluation" live repro (flag settles false, not
+  // failed, on a cold pass before identity attaches). The org role alone now
+  // routes them to /dashboard instead, same as the flag-failed case below.
+  it('routes a volunteer-role org to /dashboard even when the flag reads off (not failed) — the live cold-login repro', async () => {
     mockUseTeamAccountsFlag.mockReturnValue({
       ready: true,
       enabled: false,
@@ -702,10 +710,8 @@ describe('PostAuthRedirectPage', () => {
 
     render(<PostAuthRedirectPage />)
 
-    await waitFor(() =>
-      expect(replaceSpy).toHaveBeenCalledWith('/onboarding/office-selection'),
-    )
-    expect(replaceSpy).not.toHaveBeenCalledWith('/volunteer')
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    expect(replaceSpy).not.toHaveBeenCalledWith('/onboarding/office-selection')
   })
 
   // ENG-11052 (delegate round 3): teamAccountsEnabled is a value the effect
@@ -792,11 +798,11 @@ describe('PostAuthRedirectPage', () => {
     expect(replaceSpy).not.toHaveBeenCalledWith('/onboarding/office-selection')
   })
 
-  // ENG-11071 repro (failure mode b): a FAILED flag fetch reads exactly like
-  // "off" to the resolver, so a confirmed volunteer-role org must not fall
-  // through to onboarding just because `enabled` is false — only when the
-  // flag genuinely resolved off (separate test above) does that fallthrough
-  // stand.
+  // ENG-11071/11073: a FAILED flag fetch reads exactly like "off" to the
+  // resolver, so a confirmed volunteer-role org must not fall through to
+  // onboarding just because `enabled` is false. This is now just one instance
+  // of the general rule (ENG-11073): the org role alone decides the
+  // /dashboard override, regardless of why the flag read false.
   it('flag fetch genuinely failed (not evaluated off): volunteer-role org falls back to /dashboard, not onboarding', async () => {
     mockUseTeamAccountsFlag.mockReturnValue({
       ready: true,
@@ -899,6 +905,10 @@ describe('PostAuthRedirectPage', () => {
     expect(statusProbed).toBe(false)
   })
 
+  // ENG-11073: the guard skip is still gated on the org role alone, flag
+  // state aside — that part is unchanged. But the destination it lands on
+  // now also follows the org role alone (see the test above), so a
+  // volunteer-role org resolves to /dashboard here too, not onboarding.
   it('does not request /v1/campaigns/mine/status for a volunteer-role active org when the flag is off (role alone gates it)', async () => {
     mockUseTeamAccountsFlag.mockReturnValue({
       ready: true,
@@ -924,9 +934,7 @@ describe('PostAuthRedirectPage', () => {
 
     render(<PostAuthRedirectPage />)
 
-    await waitFor(() =>
-      expect(replaceSpy).toHaveBeenCalledWith('/onboarding/office-selection'),
-    )
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
     expect(statusProbed).toBe(false)
   })
 
