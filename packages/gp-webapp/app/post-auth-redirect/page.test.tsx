@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { waitFor } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import * as resolverModule from 'helpers/resolvePostAuthRedirectPath.util'
 import PostAuthRedirectPage from './page'
 
 vi.mock('@clerk/nextjs', () => ({
@@ -19,7 +20,11 @@ vi.mock('@clerk/nextjs', () => ({
 // test would silently read the context's off-by-default value. Controlling
 // it directly lets the volunteer-routing tests below assert both the
 // flag-on and flag-off (byte-identical-to-today) branches.
-const mockUseTeamAccountsFlag = vi.fn(() => ({ ready: true, enabled: false }))
+const mockUseTeamAccountsFlag = vi.fn(() => ({
+  ready: true,
+  enabled: false,
+  failed: false,
+}))
 vi.mock('@shared/experiments/teamAccountsFlag', () => ({
   useTeamAccountsFlag: (...args: unknown[]) =>
     mockUseTeamAccountsFlag(...(args as [])),
@@ -60,6 +65,7 @@ beforeEach(() => {
   mockUseTeamAccountsFlag.mockReset().mockReturnValue({
     ready: true,
     enabled: false,
+    failed: false,
   })
   replaceSpy = vi.fn()
   setLocation('')
@@ -134,7 +140,7 @@ describe('PostAuthRedirectPage', () => {
     expect(mockSetCookie).toHaveBeenCalledWith('organization-slug', 'org-one')
   })
 
-  it('double-failure path: both orgs calls fail; falls through to /onboarding/office-selection', async () => {
+  it('exhausted-retries path: orgs call fails on every attempt; falls through to /onboarding/office-selection', async () => {
     api.mock('GET /v1/organizations', {
       status: 500,
       data: { message: 'down' },
@@ -158,7 +164,7 @@ describe('PostAuthRedirectPage', () => {
     await waitFor(
       () =>
         expect(replaceSpy).toHaveBeenCalledWith('/onboarding/office-selection'),
-      { timeout: 3000 },
+      { timeout: 4000 },
     )
     expect(mockSetCookie).not.toHaveBeenCalled()
   })
@@ -646,7 +652,11 @@ describe('PostAuthRedirectPage', () => {
   // server-rendered page) must land on /volunteer, not be misrouted into
   // onboarding because campaignStatus reads false for them.
   it('routes an active-org volunteer to /volunteer when win-team-accounts is on', async () => {
-    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
+    mockUseTeamAccountsFlag.mockReturnValue({
+      ready: true,
+      enabled: true,
+      failed: false,
+    })
     const volunteerOrg = { ...orgFixture, role: 'volunteer' as const }
     api.mock('GET /v1/organizations', {
       status: 200,
@@ -669,7 +679,11 @@ describe('PostAuthRedirectPage', () => {
   })
 
   it('does not route a volunteer-role org to /volunteer when win-team-accounts is off (byte-identical to today)', async () => {
-    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: false })
+    mockUseTeamAccountsFlag.mockReturnValue({
+      ready: true,
+      enabled: false,
+      failed: false,
+    })
     const volunteerOrg = { ...orgFixture, role: 'volunteer' as const }
     api.mock('GET /v1/organizations', {
       status: 200,
@@ -703,7 +717,11 @@ describe('PostAuthRedirectPage', () => {
   // fires, then flip the flag on-and-ready and confirm the redirect only
   // fires now, to /volunteer.
   it('does not resolve the redirect before the flag is ready, and re-runs once it is', async () => {
-    mockUseTeamAccountsFlag.mockReturnValue({ ready: false, enabled: false })
+    mockUseTeamAccountsFlag.mockReturnValue({
+      ready: false,
+      enabled: false,
+      failed: false,
+    })
     const volunteerOrg = { ...orgFixture, role: 'volunteer' as const }
     api.mock('GET /v1/organizations', {
       status: 200,
@@ -728,10 +746,122 @@ describe('PostAuthRedirectPage', () => {
 
     // FeatureFlagsProvider's refresh() settles (mirrors it winning the race
     // against Clerk hydration, whichever order they resolve in).
-    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
+    mockUseTeamAccountsFlag.mockReturnValue({
+      ready: true,
+      enabled: true,
+      failed: false,
+    })
     rerender(<PostAuthRedirectPage />)
 
     await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/volunteer'))
+  })
+
+  // ENG-11071 repro (failure mode a): a cold login can race Clerk's
+  // cookie/JWT propagation, failing the orgs fetch's single retry and
+  // misrouting an established volunteer into candidate onboarding. Two
+  // failures followed by a third, successful attempt exercises exactly the
+  // gap the old single-retry code couldn't cover.
+  it('cold-login race: orgs fetch fails twice, succeeds on a 3rd attempt; volunteer still routes to /volunteer', async () => {
+    mockUseTeamAccountsFlag.mockReturnValue({
+      ready: true,
+      enabled: true,
+      failed: false,
+    })
+    const volunteerOrg = { ...orgFixture, role: 'volunteer' as const }
+    api.mockOrdered('GET /v1/organizations', [
+      { status: 401, data: { message: 'auth not propagated yet' } },
+      { status: 401, data: { message: 'auth not propagated yet' } },
+      { status: 200, data: { organizations: [volunteerOrg] } },
+    ])
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 403,
+      data: { message: 'forbidden for volunteers' },
+    })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/volunteer'), {
+      timeout: 4000,
+    })
+    expect(replaceSpy).not.toHaveBeenCalledWith('/onboarding/office-selection')
+  })
+
+  // ENG-11071 repro (failure mode b): a FAILED flag fetch reads exactly like
+  // "off" to the resolver, so a confirmed volunteer-role org must not fall
+  // through to onboarding just because `enabled` is false — only when the
+  // flag genuinely resolved off (separate test above) does that fallthrough
+  // stand.
+  it('flag fetch genuinely failed (not evaluated off): volunteer-role org falls back to /dashboard, not onboarding', async () => {
+    mockUseTeamAccountsFlag.mockReturnValue({
+      ready: true,
+      enabled: false,
+      failed: true,
+    })
+    const volunteerOrg = { ...orgFixture, role: 'volunteer' as const }
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [volunteerOrg] },
+    })
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 403,
+      data: { message: 'forbidden for volunteers' },
+    })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    expect(replaceSpy).not.toHaveBeenCalledWith('/onboarding/office-selection')
+  })
+
+  // ENG-11071: the outer catch's "onboarding is the safe default" fallback is
+  // wrong for a confirmed volunteer — it would create them a campaign. Force
+  // the resolver to throw after `activeOrgIsVolunteer` has already been
+  // established (organizations resolved successfully) and confirm the catch
+  // lands on /dashboard instead.
+  it('outer catch: resolver throws after a volunteer-role org is confirmed; falls back to /dashboard, not onboarding', async () => {
+    const resolverSpy = vi
+      .spyOn(resolverModule, 'resolvePostAuthRedirectPath')
+      .mockImplementationOnce(() => {
+        throw new Error('boom')
+      })
+    mockUseTeamAccountsFlag.mockReturnValue({
+      ready: true,
+      enabled: true,
+      failed: false,
+    })
+    const volunteerOrg = { ...orgFixture, role: 'volunteer' as const }
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [volunteerOrg] },
+    })
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 403,
+      data: { message: 'forbidden for volunteers' },
+    })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/dashboard'))
+    expect(replaceSpy).not.toHaveBeenCalledWith('/onboarding/office-selection')
+    resolverSpy.mockRestore()
   })
 
   it('login (no source param): does not fire trackRegistrationCompleted', async () => {

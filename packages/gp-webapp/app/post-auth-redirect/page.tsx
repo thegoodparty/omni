@@ -8,6 +8,7 @@ import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
 import {
   resolvePostAuthRedirectPath,
   CampaignStatus,
+  WIN_ONBOARDING_PATH,
 } from 'helpers/resolvePostAuthRedirectPath.util'
 import { getCookie, setCookie } from 'helpers/cookieHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
@@ -25,8 +26,11 @@ const PostAuthRedirectPage = () => {
   // trackExposure=false: a render-decision read for routing, not the
   // experiment's own treatment surface (mirrors every other nav/routing read
   // of this flag — DashboardMenu, the org picker).
-  const { enabled: teamAccountsEnabled, ready: flagReady } =
-    useTeamAccountsFlag(false)
+  const {
+    enabled: teamAccountsEnabled,
+    ready: flagReady,
+    failed: teamAccountsFlagFailed,
+  } = useTeamAccountsFlag(false)
 
   useEffect(() => {
     if (ranRef.current) return
@@ -49,6 +53,12 @@ const PostAuthRedirectPage = () => {
     if (!flagReady) return
 
     ranRef.current = true
+    // Declared outside the try so the catch below can still make a
+    // volunteer-aware decision if something later throws — assigned as soon
+    // as `organizations`/`slug` resolve, well before any of the riskier
+    // Promise.all calls (ENG-11071: onboarding is destructive for a
+    // confirmed volunteer, so this can't stay trapped inside the try block).
+    let activeOrgIsVolunteer = false
     ;(async () => {
       try {
         // An explicit deep-link destination forwarded by the login flow when
@@ -61,24 +71,28 @@ const PostAuthRedirectPage = () => {
         const safeNext = isSafeInternalPath(nextParam) ? nextParam : null
 
         // First authenticated call after a fresh sign-up may race the gp-api
-        // JIT-provisioning of the local user record. Retry once on failure
-        // before falling back to an empty list.
+        // JIT-provisioning of the local user record; a fresh LOGIN of an
+        // EXISTING user (an established volunteer included) can race the same
+        // way while Clerk's cookie/JWT is still propagating. An empty result
+        // here is indistinguishable from a genuinely org-less new user, and
+        // for a volunteer that ambiguity is what misroutes them into
+        // candidate onboarding instead of /volunteer (ENG-11071) — so retry
+        // with backoff a couple of times before giving up.
         let organizations: Organization[] = []
-        const orgsRes = await clientRequest(
-          'GET /v1/organizations',
-          {},
-          { ignoreResponseError: true },
-        )
-        if (orgsRes.ok) {
-          organizations = orgsRes.data.organizations
-        } else {
-          await new Promise((resolve) => setTimeout(resolve, 500))
-          const retry = await clientRequest(
+        const ORG_FETCH_RETRY_DELAYS_MS = [500, 1000]
+        for (let attempt = 0; ; attempt++) {
+          const res = await clientRequest(
             'GET /v1/organizations',
             {},
             { ignoreResponseError: true },
           )
-          if (retry.ok) organizations = retry.data.organizations
+          if (res.ok) {
+            organizations = res.data.organizations
+            break
+          }
+          const delay = ORG_FETCH_RETRY_DELAYS_MS[attempt]
+          if (delay === undefined) break
+          await new Promise((resolve) => setTimeout(resolve, delay))
         }
 
         // The "serve" experience (briefings, polls) is scoped to the org that
@@ -100,6 +114,18 @@ const PostAuthRedirectPage = () => {
         if (slug) {
           setCookie(ORG_SLUG_COOKIE, slug)
         }
+
+        // Mirrors the server-side resolution in
+        // app/shared/organizations/activeOrgVolunteer.server.ts: the active
+        // org is the one `slug` just resolved to (cookie match, else the
+        // first org) — re-matching it here rather than trusting `electedOrg`
+        // or any other org found above, since none of those are guaranteed
+        // to be the one the cookie now points at. This is the raw role fact,
+        // independent of the win-team-accounts flag — the flag gate is
+        // applied below, where `isActiveOrgVolunteer` feeds the resolver.
+        const activeOrg =
+          organizations.find((o) => o.slug === slug) ?? organizations[0]
+        activeOrgIsVolunteer = activeOrg?.role === 'volunteer'
 
         const [userRes, statusRes, electedRes, electedMineRes] =
           await Promise.all([
@@ -241,16 +267,7 @@ const PostAuthRedirectPage = () => {
           }
         }
 
-        // Mirrors the server-side resolution in
-        // app/shared/organizations/activeOrgVolunteer.server.ts: the active
-        // org is the one `slug` just resolved to (cookie match, else the
-        // first org) — re-matching it here rather than trusting `electedOrg`
-        // or any other org found above, since none of those are guaranteed
-        // to be the one the cookie now points at.
-        const activeOrg =
-          organizations.find((o) => o.slug === slug) ?? organizations[0]
-        const isActiveOrgVolunteer =
-          teamAccountsEnabled && activeOrg?.role === 'volunteer'
+        const isActiveOrgVolunteer = teamAccountsEnabled && activeOrgIsVolunteer
 
         const resolvedPath = resolvePostAuthRedirectPath(
           user,
@@ -260,6 +277,22 @@ const PostAuthRedirectPage = () => {
           hasPendingTeamInvite,
           isActiveOrgVolunteer,
         )
+        // A FAILED flag fetch reads exactly like "off" to the resolver above
+        // (isActiveOrgVolunteer is false either way), but unlike a genuinely
+        // off flag — which is today's accepted status quo for a volunteer-role
+        // org, see page.test.tsx's "byte-identical to today" case — a failed
+        // fetch tells us nothing about whether the flag is really off. Sending
+        // a confirmed volunteer into onboarding is destructive (it creates
+        // them a campaign), so fall back to /dashboard instead: its
+        // server-side candidateAccess() gate re-checks the flag and volunteer
+        // role fresh and still bounces to /volunteer if that's who they are
+        // (ENG-11071).
+        const finalResolvedPath =
+          teamAccountsFlagFailed &&
+          activeOrgIsVolunteer &&
+          resolvedPath === WIN_ONBOARDING_PATH
+            ? '/dashboard'
+            : resolvedPath
         // Honor the explicit deep-link destination now that the org slug cookie
         // is set and the session is established — unless a pending team invite
         // demands the acceptance screen: an unaccepted invite must win over any
@@ -269,7 +302,9 @@ const PostAuthRedirectPage = () => {
         // rebuilding from `URL().pathname` strips any host an attacker could
         // smuggle in, keeping the redirect provably same-origin.
         const destination = new URL(
-          hasPendingTeamInvite ? resolvedPath : (safeNext ?? resolvedPath),
+          hasPendingTeamInvite
+            ? finalResolvedPath
+            : (safeNext ?? finalResolvedPath),
           window.location.origin,
         )
         // Hard nav so the destination renders with fresh auth'd server
@@ -279,9 +314,17 @@ const PostAuthRedirectPage = () => {
         )
       } catch (e) {
         console.error('post-auth-redirect error', e)
-        // Don't strand new users on a blank /dashboard if the resolver
-        // throws — onboarding is the safe default for unknown state.
-        window.location.replace('/onboarding/office-selection')
+        // Don't strand new users on a blank /dashboard if something throws —
+        // onboarding is the safe default for unknown state. EXCEPT when
+        // `activeOrgIsVolunteer` was already confirmed true before the
+        // throw: onboarding there is actively destructive (it creates a
+        // campaign for someone who was never meant to have one), while
+        // /dashboard's server-side candidateAccess() gate re-checks the org
+        // role fresh and still bounces a real volunteer to /volunteer
+        // (ENG-11071).
+        window.location.replace(
+          activeOrgIsVolunteer ? '/dashboard' : WIN_ONBOARDING_PATH,
+        )
       }
     })()
   }, [isSignedIn, isLoaded, flagReady])
