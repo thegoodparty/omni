@@ -108,7 +108,7 @@ describe('AssignmentsPage — rendering assignments', () => {
     expect(await screen.findByText('Call list A')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'You have 2 assignments from Renee Wells for City Council.',
+        'You have 2 assignments from Renee Wells for City Council. You have logged 50 contacts.',
       ),
     ).toBeInTheDocument()
     expect(screen.getByText('Turf B')).toBeInTheDocument()
@@ -159,23 +159,24 @@ describe('AssignmentsPage — empty / loading / error triad', () => {
     render(<AssignmentsPage />)
 
     expect(
-      await screen.findByText('You do not have any assignments yet.'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        'Your campaign will send you a list or route when they are ready.',
+      await screen.findByText(
+        'You do not have any assignments yet. Your campaign will send you a list or route when they are ready.',
       ),
     ).toBeInTheDocument()
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
   })
 
-  it('omits the subtext when there are no assignments', async () => {
+  it('still shows the "0 assignments" subtext in the empty state', async () => {
     assignments = []
 
     render(<AssignmentsPage />)
 
-    await screen.findByText('You do not have any assignments yet.')
-    expect(screen.queryByText(/You have/)).not.toBeInTheDocument()
+    await screen.findByText(/You do not have any assignments yet\./)
+    expect(
+      screen.getByText(
+        'You have 0 assignments from Renee Wells for City Council.',
+      ),
+    ).toBeInTheDocument()
   })
 
   it('renders skeletons while the fetch is pending, never the empty state', () => {
@@ -280,7 +281,15 @@ describe('AssignmentsPage — AssignmentCard CTA labels', () => {
 
 describe('AssignmentsPage — assignment-count subtext', () => {
   it('renders the singular form for exactly one assignment', async () => {
-    assignments = [phoneBankingAssignment]
+    assignments = [
+      {
+        ...phoneBankingAssignment,
+        phoneBanking: {
+          ...phoneBankingAssignment.phoneBanking!,
+          peopleCalled: 0,
+        },
+      },
+    ]
 
     render(<AssignmentsPage />)
 
@@ -298,5 +307,72 @@ describe('AssignmentsPage — assignment-count subtext', () => {
 
     expect(await screen.findByText('Call list A')).toBeInTheDocument()
     expect(screen.queryByText(/You have/)).not.toBeInTheDocument()
+  })
+})
+
+describe('AssignmentsPage — logged-contacts subtext', () => {
+  it('omits the logged-contacts sentence when nothing has been logged yet', async () => {
+    assignments = [
+      {
+        ...phoneBankingAssignment,
+        phoneBanking: {
+          ...phoneBankingAssignment.phoneBanking!,
+          peopleCalled: 0,
+        },
+      },
+      {
+        ...doorKnockingAssignment,
+        doorKnocking: {
+          ...doorKnockingAssignment.doorKnocking!,
+          loggedCount: 0,
+        },
+      },
+    ]
+
+    render(<AssignmentsPage />)
+
+    expect(
+      await screen.findByText(
+        'You have 2 assignments from Renee Wells for City Council.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/You have logged/)).not.toBeInTheDocument()
+  })
+
+  it('appends the singular form for exactly one logged contact', async () => {
+    assignments = [
+      {
+        ...phoneBankingAssignment,
+        phoneBanking: {
+          ...phoneBankingAssignment.phoneBanking!,
+          peopleCalled: 1,
+        },
+      },
+      {
+        ...doorKnockingAssignment,
+        doorKnocking: {
+          ...doorKnockingAssignment.doorKnocking!,
+          loggedCount: 0,
+        },
+      },
+    ]
+
+    render(<AssignmentsPage />)
+
+    expect(
+      await screen.findByText(
+        'You have 2 assignments from Renee Wells for City Council. You have logged 1 contact.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('sums logged contacts across phone-banking and door-knocking assignments', async () => {
+    render(<AssignmentsPage />)
+
+    expect(
+      await screen.findByText(
+        'You have 2 assignments from Renee Wells for City Council. You have logged 50 contacts.',
+      ),
+    ).toBeInTheDocument()
   })
 })
