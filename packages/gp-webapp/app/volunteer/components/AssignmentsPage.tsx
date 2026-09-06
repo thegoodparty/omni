@@ -10,10 +10,7 @@ import {
   Card,
   Skeleton,
 } from '@styleguide'
-import {
-  CircleAlertIcon,
-  ClipboardListIcon,
-} from '@styleguide/components/ui/icons'
+import { CircleAlertIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import type { MyAssignment } from '@goodparty_org/contracts'
@@ -45,18 +42,34 @@ const AssignmentsPage = (): React.JSX.Element => {
   const active = assignments.filter((a) => !isTerminalStatus(a.status))
   const completed = assignments.filter((a) => isTerminalStatus(a.status))
 
-  // Only shown once the query has resolved successfully with at least one
-  // assignment — at zero the empty-state card already carries the message,
-  // and "You have 0 assignments" next to it would be redundant.
-  const showSubtext =
-    !isPending && !isError && assignments.length > 0 && !!organization?.name
+  // Shown once the query has resolved successfully, including at zero
+  // assignments — the design always states the count under the H1, even in
+  // the empty state. Still gated on the org name resolving, so we never
+  // render "from ." before useOrganization() has a name.
+  const showSubtext = !isPending && !isError && !!organization?.name
   const assignmentNoun = assignments.length === 1 ? 'assignment' : 'assignments'
-  const subtext = `You have ${assignments.length} ${assignmentNoun} from ${organization?.name}.`
+  // Per-assignment logged-contact counts: peopleCalled (phone banking) and
+  // loggedCount (door knocking) are the only progress fields this payload
+  // carries, so summing them is the only "logged contacts" total available
+  // without a second API call.
+  const contactsLogged = assignments.reduce(
+    (total, a) =>
+      total +
+      (a.phoneBanking?.peopleCalled ?? 0) +
+      (a.doorKnocking?.loggedCount ?? 0),
+    0,
+  )
+  const contactNoun = contactsLogged === 1 ? 'contact' : 'contacts'
+  const subtext = `You have ${assignments.length} ${assignmentNoun} from ${organization?.name}.${
+    contactsLogged >= 1
+      ? ` You have logged ${contactsLogged} ${contactNoun}.`
+      : ''
+  }`
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6 sm:px-8">
       <div className="flex flex-col gap-1">
-        <h1 className="m-0 text-xl font-semibold text-foreground">
+        <h1 className="m-0 text-3xl font-semibold text-foreground">
           Your assignments
         </h1>
         {showSubtext && (
@@ -86,15 +99,10 @@ const AssignmentsPage = (): React.JSX.Element => {
           </AlertAction>
         </Alert>
       ) : assignments.length === 0 ? (
-        <Card className="items-center gap-3 p-8 text-center">
-          <span className="flex size-12 items-center justify-center rounded-full bg-muted">
-            <ClipboardListIcon className="size-6 text-muted-foreground" />
-          </span>
-          <p className="m-0 text-sm font-semibold text-foreground">
-            You do not have any assignments yet.
-          </p>
-          <p className="m-0 max-w-sm text-sm text-muted-foreground">
-            Your campaign will send you a list or route when they are ready.
+        <Card className="items-center p-8 text-center">
+          <p className="m-0 text-sm text-muted-foreground">
+            You do not have any assignments yet. Your campaign will send you a
+            list or route when they are ready.
           </p>
         </Card>
       ) : (
