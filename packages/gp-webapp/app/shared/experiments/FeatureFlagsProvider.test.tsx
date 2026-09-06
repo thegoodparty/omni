@@ -261,6 +261,100 @@ describe('refresh error handling', () => {
   })
 })
 
+// ENG-11071: `ready` alone can't tell a resolved "off" apart from a refresh
+// that never actually got an answer — `failed` is the signal a caller (e.g.
+// post-auth-redirect's volunteer routing) needs to make that distinction.
+describe('failed flag', () => {
+  it('is false once a real answer resolves', async () => {
+    mockUser = fullUser
+    serverVariants = { 'my-feature': { value: 'on' } }
+
+    const { result } = renderHook(() => useFeatureFlags(), { wrapper })
+
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.failed).toBe(false)
+  })
+
+  it('is true on a network-error refresh', async () => {
+    mockUser = fullUser
+    fetchShouldReject = true
+
+    const { result } = renderHook(() => useFeatureFlags(), { wrapper })
+
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.failed).toBe(true)
+  })
+
+  it('is true on a non-ok, non-redirect response (5xx)', async () => {
+    mockUser = fullUser
+    fetchOk = false
+
+    const { result } = renderHook(() => useFeatureFlags(), { wrapper })
+
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.failed).toBe(true)
+  })
+
+  it('is true on a 200 that fails schema validation', async () => {
+    mockUser = fullUser
+    fetchMock.mockImplementationOnce(
+      async () =>
+        ({
+          ok: true,
+          json: async () => ({ variants: 'not-a-record' }),
+        }) as unknown as Response,
+    )
+
+    const { result } = renderHook(() => useFeatureFlags(), { wrapper })
+
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.failed).toBe(true)
+  })
+
+  it('stays false on the routine opaque auth-expiry redirect', async () => {
+    mockUser = fullUser
+    fetchMock.mockImplementationOnce(
+      async () =>
+        ({
+          ok: false,
+          type: 'opaqueredirect',
+          status: 0,
+          json: async () => ({}),
+        }) as unknown as Response,
+    )
+
+    const { result } = renderHook(() => useFeatureFlags(), { wrapper })
+
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.failed).toBe(false)
+  })
+
+  it('resets to false on logout after a failed refresh', async () => {
+    mockUser = fullUser
+    fetchOk = false
+
+    const { result, rerender } = renderHook(() => useFeatureFlags(), {
+      wrapper,
+    })
+    await waitFor(() => expect(result.current.failed).toBe(true))
+
+    mockUser = null
+    rerender()
+
+    await waitFor(() => expect(result.current.failed).toBe(false))
+  })
+
+  it('is seeded false and never fetches, even for a null-seeded anonymous visitor', async () => {
+    mockUser = null
+
+    const { result } = renderHook(() => useFeatureFlags(), { wrapper })
+
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.failed).toBe(false)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
 describe('exposure tracking', () => {
   it('fires $exposure once per flag key via variant() (deduped)', async () => {
     mockUser = fullUser
