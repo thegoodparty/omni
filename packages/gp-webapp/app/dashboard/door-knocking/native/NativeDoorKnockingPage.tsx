@@ -55,12 +55,21 @@ import { useOrganization } from '@shared/organization-picker'
 // create flow and only the walk's route is still fetching, both this
 // loader and VoterMapCanvas satisfy their render gates at once — in a
 // non-flex parent that means two `h-full` siblings pushing each other
-// out of view. The overlay + opaque bg-background lets the loader hide
-// the bare district beneath the canvas while it hydrates.
+// out of view.
+//
+// Background hardcoded to `#f8f4f0` — Geoapify OSM Liberty's land
+// color, the warm off-white the map itself paints under everything
+// else. Matching it means the loader hides the bare district beneath
+// the canvas WITHOUT a visible seam when it clears (both sides of the
+// transition are the same shade). No design token for this because
+// it's a vendor-basemap match, not a design-system color.
 const MapLoader = ({ bottomPadPx }: { bottomPadPx?: number | null } = {}) => (
   <div
-    className="absolute inset-0 z-10 flex items-center justify-center gap-3 bg-background"
-    style={bottomPadPx ? { paddingBottom: bottomPadPx } : undefined}
+    className="absolute inset-0 z-10 flex items-center justify-center gap-3"
+    style={{
+      backgroundColor: '#f8f4f0',
+      ...(bottomPadPx ? { paddingBottom: bottomPadPx } : {}),
+    }}
   >
     <Spinner />
     <p className="text-base text-foreground">Loading your route</p>
