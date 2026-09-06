@@ -161,7 +161,7 @@ describe('VolunteerWalkPage', () => {
     render(<VolunteerWalkPage turfId={7} />)
 
     await screen.findByText('105 Elm St')
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close route' }))
 
     expect(router.push).toHaveBeenCalledWith('/volunteer')
   })
