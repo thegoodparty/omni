@@ -109,6 +109,46 @@ describe('CampaignStatusProvider', () => {
     )
   })
 
+  // Without clearing on the skip branch, a campaign-org → volunteer-org
+  // switch would leave the previous org's status (e.g. 'candidate') in
+  // context for the rest of the session.
+  it('clears a previously loaded status when the active org switches to a volunteer org', async () => {
+    mockUseOrganization.mockReturnValue({ role: 'owner' })
+    mockUseTeamAccountsFlag.mockReturnValue({
+      ready: true,
+      enabled: true,
+      failed: false,
+    })
+    api.mock('GET /v1/campaigns/mine/status', {
+      status: 200,
+      data: { status: 'candidate' },
+    })
+
+    const { rerender } = render(
+      <CampaignStatusProvider>
+        <StatusConsumer />
+      </CampaignStatusProvider>,
+    )
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="status"]'),
+      ).toHaveTextContent('candidate'),
+    )
+
+    mockUseOrganization.mockReturnValue({ role: 'volunteer' })
+    rerender(
+      <CampaignStatusProvider>
+        <StatusConsumer />
+      </CampaignStatusProvider>,
+    )
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="status"]'),
+      ).toHaveTextContent('null'),
+    )
+  })
+
   it('requests GET /v1/campaigns/mine/status for a non-volunteer active org even with the flag on', async () => {
     mockUseOrganization.mockReturnValue({ role: 'owner' })
     mockUseTeamAccountsFlag.mockReturnValue({

@@ -57,6 +57,11 @@ export const CampaignStatusProvider = ({
     }
     if (user && !isActiveOrgVolunteer) {
       getStatus()
+    } else {
+      // A campaign-org → volunteer-org switch re-runs this effect with the
+      // fetch skipped; without clearing, the previous org's status (e.g.
+      // 'candidate') would stick for the rest of the session.
+      setCampaignStatus(null)
     }
   }, [campaign, user, isActiveOrgVolunteer])
 
