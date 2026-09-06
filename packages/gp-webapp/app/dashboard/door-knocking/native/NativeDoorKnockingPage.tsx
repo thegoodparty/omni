@@ -49,9 +49,17 @@ import { useOrganization } from '@shared/organization-picker'
 // middle (which the drawer covers) — dynamic-import fallback below calls
 // it with no arg since it can't reach the page's mapControlsOffset state,
 // which is fine because the chunk load is brief and cached after first.
+//
+// `absolute inset-0` so the loader OVERLAYS the map region instead of
+// stacking beside a rendered canvas. When the pack is warm from the
+// create flow and only the walk's route is still fetching, both this
+// loader and VoterMapCanvas satisfy their render gates at once — in a
+// non-flex parent that means two `h-full` siblings pushing each other
+// out of view. The overlay + opaque bg-background lets the loader hide
+// the bare district beneath the canvas while it hydrates.
 const MapLoader = ({ bottomPadPx }: { bottomPadPx?: number | null } = {}) => (
   <div
-    className="flex h-full w-full items-center justify-center gap-3"
+    className="absolute inset-0 z-10 flex items-center justify-center gap-3 bg-background"
     style={bottomPadPx ? { paddingBottom: bottomPadPx } : undefined}
   >
     <Spinner />
