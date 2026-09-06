@@ -65,11 +65,8 @@ import { useOrganization } from '@shared/organization-picker'
 // it's a vendor-basemap match, not a design-system color.
 const MapLoader = ({ bottomPadPx }: { bottomPadPx?: number | null } = {}) => (
   <div
-    className="absolute inset-0 z-10 flex items-center justify-center gap-3"
-    style={{
-      backgroundColor: '#f8f4f0',
-      ...(bottomPadPx ? { paddingBottom: bottomPadPx } : {}),
-    }}
+    className="absolute inset-0 z-10 flex items-center justify-center gap-3 bg-[#f8f4f0]"
+    style={bottomPadPx ? { paddingBottom: bottomPadPx } : undefined}
   >
     <Spinner />
     <p className="text-base text-foreground">Loading your route</p>
