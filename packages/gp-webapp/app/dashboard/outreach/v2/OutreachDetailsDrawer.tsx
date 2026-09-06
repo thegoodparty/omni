@@ -73,6 +73,7 @@ import { SocialAssetCard } from './SocialAssetCards'
 import { socialPurposeLabel } from './socialPurposes'
 import {
   CONTINUE_LABELS,
+  continueLabel,
   listDetailsFooterMode,
   type ListDetailsLifecycle,
 } from './listDetails/footerMode'
@@ -553,8 +554,14 @@ export const OutreachDetailsDrawer = ({
                     ? {
                         kind: 'link',
                         label: isDoorKnocking
-                          ? CONTINUE_LABELS.doorKnocking
-                          : CONTINUE_LABELS.phoneBanking,
+                          ? continueLabel(
+                              'doorKnocking',
+                              doorKnocking?.loggedCount ?? 0,
+                            )
+                          : continueLabel(
+                              'phoneBanking',
+                              phoneBanking?.peopleCalled ?? 0,
+                            ),
                         href: continueHref,
                         // Close the details drawer before navigating so the
                         // destination surface (door knocking's walk sheet

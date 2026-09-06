@@ -185,6 +185,47 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     ).not.toBeInTheDocument()
   })
 
+  // ENG-11066's zero-progress rule (footerMode.ts's continueLabel): a list
+  // nobody has called yet reads as a fresh CTA rather than "Continue" —
+  // there is nothing to continue.
+  it('reads "Call this list" instead of "Continue calling" when nobody has been called yet', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        status: 'in_progress',
+        phoneBankingListId: 5,
+        phoneBanking: {
+          listId: 5,
+          entriesTotal: 200,
+          entriesCalled: 0,
+          peopleTotal: 480,
+          peopleCalled: 0,
+          byOutcome: {
+            answered: 0,
+            no_answer: 0,
+            voicemail: 0,
+            wrong_number: 0,
+            refused: 0,
+            disconnected: 0,
+            hung_up: 0,
+          },
+          supporters: 0,
+          unsure: 0,
+          nonSupporters: 0,
+        },
+      },
+    })
+
+    render(<OutreachDetailsDrawer row={inProgressRow} onOpenChange={vi.fn()} />)
+
+    const cta = await screen.findByRole('link', { name: 'Call this list' })
+    expect(cta).toHaveAttribute('href', '/dashboard/outreach/phone-banking/5')
+    expect(
+      screen.queryByRole('link', { name: 'Continue calling' }),
+    ).not.toBeInTheDocument()
+  })
+
   // The href is the phone list's id, which rides the detail rather than the
   // history row, so it is unknown for as long as that query is in flight. The
   // footer holds the slot instead of arriving a beat late under a thumb that
@@ -758,6 +799,34 @@ describe('OutreachDetailsDrawer — door knocking', () => {
     )
     expect(
       screen.queryByRole('link', { name: 'Continue calling' }),
+    ).not.toBeInTheDocument()
+  })
+
+  // ENG-11066's zero-progress rule, door knocking's verb: an unwalked list
+  // reads "Walk this route" rather than "Continue knocking".
+  it('reads "Walk this route" instead of "Continue knocking" when nobody has logged a door yet', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: doorKnockingDetail('in_progress', {
+        ...doorKnockingBlock,
+        loggedCount: 0,
+      }),
+    })
+
+    render(
+      <OutreachDetailsDrawer
+        row={doorKnockingRow('in_progress')}
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    const cta = await screen.findByRole('link', { name: 'Walk this route' })
+    expect(cta).toHaveAttribute(
+      'href',
+      '/dashboard/door-knocking?walkTurfId=12&outreachId=30',
+    )
+    expect(
+      screen.queryByRole('link', { name: 'Continue knocking' }),
     ).not.toBeInTheDocument()
   })
 
