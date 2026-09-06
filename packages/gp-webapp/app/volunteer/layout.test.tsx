@@ -8,8 +8,10 @@ vi.mock('next/navigation', () => ({ redirect }))
 vi.mock('@shared/organizations/activeOrgVolunteer.server', () => ({
   isActiveOrgVolunteer,
 }))
-vi.mock('./VolunteerTopBar', () => ({
-  default: () => <div data-testid="volunteer-top-bar" />,
+vi.mock('./VolunteerSidebar', () => ({
+  default: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="volunteer-sidebar">{children}</div>
+  ),
 }))
 
 import VolunteerLayout from './layout'
