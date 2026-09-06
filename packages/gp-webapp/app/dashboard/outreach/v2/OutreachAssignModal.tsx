@@ -107,11 +107,21 @@ export const OutreachAssignModal = ({
     return name.includes(query) || member.email.toLowerCase().includes(query)
   })
 
+  // The modal has no explicit assign-vs-reassign prop — a list with someone
+  // already assigned reopens this same "Assign someone" entry point, so
+  // whether the assignee set is non-empty AT OPEN is the signal: reassign
+  // context names the dialog after the list, assign context after the empty
+  // slot being filled.
+  const isReassign = assignedUserIds.size > 0
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[85vh] flex-col gap-4">
         <DialogHeader>
-          <DialogTitle>Assign to {outreachName || 'this list'}</DialogTitle>
+          <DialogTitle>
+            {isReassign ? 'Reassign' : 'Assign to'}{' '}
+            {outreachName || 'this list'}
+          </DialogTitle>
         </DialogHeader>
 
         <Input
@@ -119,11 +129,12 @@ export const OutreachAssignModal = ({
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search by name, email, or phone"
+          className="rounded-full"
         />
 
         <ToggleGroup
           type="single"
-          variant="outline"
+          variant="pills"
           value={roleFilter}
           onValueChange={(value) => {
             if (value) setRoleFilter(value as RoleFilter)

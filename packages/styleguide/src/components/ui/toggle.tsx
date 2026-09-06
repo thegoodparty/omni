@@ -13,6 +13,15 @@ const toggleVariants = cva(
       variant: {
         default: 'bg-transparent',
         outline: 'border-components-input-border',
+        // Independent pill chips (ENG-11070) — unlike outline's equal-width
+        // segmented control, each item hugs its own label. The rest of the
+        // pill look (rounded-full, selected fill) can't live in this
+        // mutually-exclusive variant map because ToggleGroupItem's base
+        // class string (rounded-md, data-[state=on]:bg-background) is
+        // always present regardless of variant; overriding it needs the
+        // higher-specificity data-[variant=pills]: compound selectors in
+        // toggle-group.tsx, the same mechanism the outline variant uses.
+        pills: 'border-components-input-border bg-transparent',
       },
       size: {
         default: 'h-9 px-2 min-w-9',

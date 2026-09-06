@@ -102,6 +102,64 @@ describe('OutreachAssigneesSection — assign modal (ENG-11059)', () => {
     expect(within(dialog).getByText('Val Volunteer')).toBeInTheDocument()
   })
 
+  // ENG-11070: the modal has no explicit assign/reassign prop, so a list
+  // that already has an assignee reopening this same entry point is the
+  // signal — the title switches to the reassign phrasing rather than
+  // "Assign to", which reads as if nobody were assigned yet.
+  it('titles the dialog "Reassign <name>" when the list already has an assignee', async () => {
+    assignees = [
+      {
+        userId: manager.userId,
+        name: manager.name,
+        role: manager.role,
+        createdAt: '2026-08-02T00:00:00.000Z',
+        assignedByUserId: owner.userId,
+        assignedByName: owner.name,
+      },
+    ]
+    mockAssignees()
+    const user = userEvent.setup()
+    render(
+      <OutreachAssigneesSection
+        outreachId={30}
+        outreachName="Elm Street loop"
+      />,
+    )
+
+    await screen.findByText('Cam Manager')
+    await user.click(screen.getByText('Assign someone'))
+
+    expect(
+      await screen.findByRole('dialog', { name: 'Reassign Elm Street loop' }),
+    ).toBeInTheDocument()
+  })
+
+  // ENG-11070: the role filter must render as independent pill chips (the
+  // styleguide `pills` ToggleGroup variant), not the equal-width `outline`
+  // segmented control whose min-w-0/flex-1 segments clipped "Campaign
+  // Manager" into "Owner" at modal width.
+  it('renders the role filter on the pills ToggleGroup variant, not outline', async () => {
+    const user = userEvent.setup()
+    render(
+      <OutreachAssigneesSection outreachId={30} outreachName="GOTV calls" />,
+    )
+
+    await user.click(await screen.findByText('Assign someone'))
+    const dialog = await screen.findByRole('dialog')
+    const allChip = await within(dialog).findByRole('radio', { name: 'All' })
+
+    expect(allChip).toHaveAttribute('data-variant', 'pills')
+    expect(
+      within(dialog).getByRole('radio', { name: 'Owner' }),
+    ).toHaveAttribute('data-variant', 'pills')
+    expect(
+      within(dialog).getByRole('radio', { name: 'Campaign Manager' }),
+    ).toHaveAttribute('data-variant', 'pills')
+    expect(
+      within(dialog).getByRole('radio', { name: 'Volunteer' }),
+    ).toHaveAttribute('data-variant', 'pills')
+  })
+
   it('falls back to generic copy when no outreach name is given', async () => {
     const user = userEvent.setup()
     render(<OutreachAssigneesSection outreachId={30} />)

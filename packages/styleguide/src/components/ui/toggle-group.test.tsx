@@ -67,6 +67,25 @@ describe('ToggleGroup', () => {
     expect(item).toHaveAttribute('data-size', 'sm')
   })
 
+  // ENG-11070: pills is additive to outline's equal-width segmented
+  // control — each item hugs its own label (no min-w-0/flex-1) via
+  // data-[variant=pills]: compound overrides, the same mechanism outline
+  // uses to beat the base cva string's rounded-md/data-[state=on] classes.
+  it('marks items and the root with the pills variant, not outline', () => {
+    render(
+      <ToggleGroup type="single" variant="pills" aria-label="Roles">
+        <ToggleGroupItem value="a">A</ToggleGroupItem>
+      </ToggleGroup>,
+    )
+
+    const item = screen.getByText('A')
+    expect(item).toHaveAttribute('data-variant', 'pills')
+    expect(item).toHaveClass('data-[variant=pills]:rounded-full')
+    expect(item).toHaveClass(
+      'data-[variant=pills]:data-[state=on]:bg-foreground',
+    )
+  })
+
   it('marks the root and items with data-slot', () => {
     const { container } = render(
       <ToggleGroup type="single" aria-label="Range">
