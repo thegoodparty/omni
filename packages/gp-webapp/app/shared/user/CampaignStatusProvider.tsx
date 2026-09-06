@@ -4,6 +4,8 @@ import { noop } from '@shared/utils/noop'
 import { fetchCampaignStatus } from 'helpers/fetchCampaignStatus'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
+import { useOrganization } from '@shared/organization-picker'
+import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
 
 interface CampaignStatus {
   status: boolean | string
@@ -32,6 +34,17 @@ export const CampaignStatusProvider = ({
   )
   const [campaign] = useCampaign()
   const [user] = useUser()
+  // trackExposure=false: a render-decision read for routing, not the
+  // experiment's own treatment surface (mirrors every other nav/routing read
+  // of this flag — DashboardMenu, the org picker).
+  const { enabled: teamAccountsEnabled } = useTeamAccountsFlag(false)
+  const activeOrg = useOrganization()
+  // gp-api's UseCampaignGuard fails closed on a volunteer membership, so this
+  // fetch 403s every time for a volunteer's active org (ENG-11072) —
+  // fetchCampaignStatus swallows that into `{ status: false }` today, which
+  // is what a volunteer effectively has, so skip the request outright.
+  const isActiveOrgVolunteer =
+    teamAccountsEnabled && activeOrg?.role === 'volunteer'
 
   useEffect(() => {
     const getStatus = async () => {
@@ -42,10 +55,10 @@ export const CampaignStatusProvider = ({
           : (status as CampaignStatus),
       )
     }
-    if (user) {
+    if (user && !isActiveOrgVolunteer) {
       getStatus()
     }
-  }, [campaign, user])
+  }, [campaign, user, isActiveOrgVolunteer])
 
   const contextValue = useMemo<CampaignStatusContextValue>(
     () => [campaignStatus, setCampaignStatus],
