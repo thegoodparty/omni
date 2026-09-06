@@ -19,7 +19,11 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from '@styleguide'
-import { ShieldCheckIcon, UserRoundIcon } from '@styleguide/components/ui/icons'
+import {
+  ArrowLeftIcon,
+  ShieldCheckIcon,
+  UserRoundIcon,
+} from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ROLE_DESCRIPTIONS, toInviteErrorMessage } from '../team.util'
@@ -48,7 +52,7 @@ const ROLE_OPTIONS: {
 ]
 
 const ROLE_CARD_CLASSNAME =
-  'h-auto w-full items-start justify-start gap-3 whitespace-normal rounded-xl border border-border bg-card p-4 text-left data-[state=on]:border-tertiary-dark data-[state=on]:bg-tertiary-light'
+  'h-auto w-full flex-col items-start justify-start gap-3 whitespace-normal rounded-xl border border-border bg-card p-4 text-left data-[state=on]:border-tertiary-dark data-[state=on]:bg-tertiary-light'
 
 interface InviteMemberDrawerProps {
   open: boolean
@@ -134,11 +138,24 @@ const InviteMemberDrawer = ({
       >
         <DrawerHandle />
         <DrawerHeader className="gap-3 px-6 pt-2 pb-4">
-          <DrawerTitle>
-            {step === 1
-              ? 'Who do you want to invite?'
-              : 'What role would you like to assign?'}
-          </DrawerTitle>
+          <div className="flex items-center gap-3">
+            {step === 2 && (
+              <Button
+                variant="outline"
+                size="small"
+                className="rounded-full"
+                onClick={() => setStep(1)}
+              >
+                <ArrowLeftIcon className="size-4" />
+                Back
+              </Button>
+            )}
+            <DrawerTitle>
+              {step === 1
+                ? 'Who do you want to invite?'
+                : 'What role would you like to assign?'}
+            </DrawerTitle>
+          </div>
           <Stepper variant="bar" currentStep={step} totalSteps={2} />
         </DrawerHeader>
 
@@ -190,7 +207,7 @@ const InviteMemberDrawer = ({
                 setRole(value as InviteRole | '')
                 setErrorMessage(null)
               }}
-              className="flex w-full flex-col items-stretch gap-3"
+              className="grid w-full grid-cols-1 items-stretch gap-3 sm:grid-cols-2"
             >
               {ROLE_OPTIONS.map((option) => (
                 <ToggleGroupItem
@@ -198,10 +215,10 @@ const InviteMemberDrawer = ({
                   value={option.role}
                   className={ROLE_CARD_CLASSNAME}
                 >
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-tertiary-light text-tertiary-dark">
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
                     {option.icon}
                   </span>
-                  <span className="flex flex-col gap-0.5">
+                  <span className="flex flex-col gap-1">
                     <span className="font-medium text-foreground">
                       {option.label}
                     </span>
@@ -219,20 +236,18 @@ const InviteMemberDrawer = ({
           )}
         </DrawerBody>
 
-        <DrawerFooter className="flex-row justify-between gap-2 border-t border-border bg-background px-6 py-4">
-          {step === 2 ? (
-            <Button variant="outline" onClick={() => setStep(1)}>
-              Back
-            </Button>
-          ) : (
-            <span />
-          )}
+        <DrawerFooter className="border-t border-border bg-background px-6 py-4">
           {step === 1 ? (
-            <Button disabled={!canContinue} onClick={() => setStep(2)}>
+            <Button
+              className="w-full"
+              disabled={!canContinue}
+              onClick={() => setStep(2)}
+            >
               Continue
             </Button>
           ) : (
             <Button
+              className="w-full"
               disabled={!canSubmit}
               loading={inviteMutation.isPending}
               onClick={() => inviteMutation.mutate()}
