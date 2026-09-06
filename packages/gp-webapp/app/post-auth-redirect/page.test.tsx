@@ -864,6 +864,72 @@ describe('PostAuthRedirectPage', () => {
     resolverSpy.mockRestore()
   })
 
+  // ENG-11072: gp-api's UseCampaignGuard fails closed on a volunteer
+  // membership, so this call always 403s for one — skip it outright rather
+  // than firing a request whose response is thrown away either way. Gated on
+  // the org role alone (not the flag): the null this produces behaves
+  // identically to the `{ status: false }` a real 403/200-false response
+  // would produce, in every branch of resolvePostAuthRedirectPath.
+  it('does not request /v1/campaigns/mine/status for a volunteer-role active org, even with the flag on', async () => {
+    mockUseTeamAccountsFlag.mockReturnValue({
+      ready: true,
+      enabled: true,
+      failed: false,
+    })
+    let statusProbed = false
+    api.mock('GET /v1/campaigns/mine/status', () => {
+      statusProbed = true
+      return { status: 200, data: { status: false } }
+    })
+    const volunteerOrg = { ...orgFixture, role: 'volunteer' as const }
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [volunteerOrg] },
+    })
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalledWith('/volunteer'))
+    expect(statusProbed).toBe(false)
+  })
+
+  it('does not request /v1/campaigns/mine/status for a volunteer-role active org when the flag is off (role alone gates it)', async () => {
+    mockUseTeamAccountsFlag.mockReturnValue({
+      ready: true,
+      enabled: false,
+      failed: false,
+    })
+    let statusProbed = false
+    api.mock('GET /v1/campaigns/mine/status', () => {
+      statusProbed = true
+      return { status: 200, data: { status: false } }
+    })
+    const volunteerOrg = { ...orgFixture, role: 'volunteer' as const }
+    api.mock('GET /v1/organizations', {
+      status: 200,
+      data: { organizations: [volunteerOrg] },
+    })
+    api.mock('GET /v1/users/me', { status: 200, data: { roles: [] } as any })
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'none' },
+    })
+    api.mock('GET /v1/elected-office/mine', { status: 200, data: [] as any })
+
+    render(<PostAuthRedirectPage />)
+
+    await waitFor(() =>
+      expect(replaceSpy).toHaveBeenCalledWith('/onboarding/office-selection'),
+    )
+    expect(statusProbed).toBe(false)
+  })
+
   it('login (no source param): does not fire trackRegistrationCompleted', async () => {
     api.mock('GET /v1/organizations', {
       status: 200,

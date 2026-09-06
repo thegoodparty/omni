@@ -134,11 +134,18 @@ const PostAuthRedirectPage = () => {
               {},
               { ignoreResponseError: true },
             ),
-            clientRequest(
-              'GET /v1/campaigns/mine/status',
-              {},
-              { ignoreResponseError: true },
-            ),
+            // gp-api's UseCampaignGuard fails closed on a volunteer
+            // membership, so this always 403s for one regardless of the
+            // team-accounts flag (ENG-11072) — skip it outright rather than
+            // firing a request whose only possible outcome downstream is the
+            // same `campaignStatus = null` a real 403 already produces below.
+            activeOrgIsVolunteer
+              ? Promise.resolve({ ok: false as const })
+              : clientRequest(
+                  'GET /v1/campaigns/mine/status',
+                  {},
+                  { ignoreResponseError: true },
+                ),
             clientRequest(
               'GET /v1/elected-office/current',
               {},
