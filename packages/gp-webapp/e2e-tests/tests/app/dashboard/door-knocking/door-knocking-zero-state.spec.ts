@@ -51,7 +51,14 @@ test.describe('native door-knocking zero state', () => {
     await expect(
       createFlowStepHeading(page, 'What do you want to do?'),
     ).toBeVisible({ timeout: 60_000 })
-    await expect(page.getByText('Step 1 of 5')).toBeVisible()
+    // Bar stepper's "Step X of Y" text is suppressed on this shell
+    // (OutreachFlowShell passes `showLabel={false}` — the DrawerTitle
+    // carries the flow's identity, the bars carry position). Assert
+    // the same position via the progressbar's aria attributes, which
+    // is what the stepper still exposes with its label hidden.
+    const stepper = page.getByRole('progressbar', { name: 'Progress' })
+    await expect(stepper).toHaveAttribute('aria-valuenow', '1')
+    await expect(stepper).toHaveAttribute('aria-valuemax', '5')
 
     // And the rail's own Create list is not the way in any more — the design
     // disables the empty state's card and lets the flow open instead.
