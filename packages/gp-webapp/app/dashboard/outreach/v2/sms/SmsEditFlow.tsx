@@ -18,6 +18,7 @@ import {
   OUTREACH_OPTIONS,
   OUTREACH_TYPES,
 } from 'app/dashboard/outreach/constants'
+import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { SmsScheduleStep, TIME_OPTIONS } from './SmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
@@ -295,6 +296,7 @@ export const SmsEditFlow = ({
       open={open}
       onClose={onClose}
       title={saved ? 'Done' : STEP_TITLES[stepId]}
+      headerBadge={<ChannelBadge type={OUTREACH_TYPES.text} />}
       currentStep={stepIndex + 1}
       totalSteps={saved ? 0 : STEP_ORDER.length}
       onBack={!saved && stepIndex > 0 ? handleBack : undefined}

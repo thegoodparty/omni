@@ -17,7 +17,7 @@ import { getReadyAnalytics } from '@shared/utils/analytics'
 import { isSafeInternalPath } from 'helpers/isSafeInternalPath'
 import { isServeRoutePath } from 'app/dashboard/shared/serveRoutes'
 import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
-import { LoaderCircle } from 'lucide-react'
+import { Spinner } from '@styleguide'
 
 const PostAuthRedirectPage = () => {
   const { isSignedIn, isLoaded, user: clerkUser } = useClerkUser()
@@ -288,7 +288,7 @@ const PostAuthRedirectPage = () => {
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center">
-      <LoaderCircle className="animate-spin" />
+      <Spinner />
     </div>
   )
 }

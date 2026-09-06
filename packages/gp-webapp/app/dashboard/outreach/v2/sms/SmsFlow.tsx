@@ -36,6 +36,7 @@ import {
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { dollarsToCents } from 'helpers/numberHelper'
 import { hasAnyVoterFileSelection } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import {
   OutreachAudienceStep,
@@ -66,7 +67,7 @@ const STEP_ORDER: StepId[] = [
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
-  audience: 'Who are you texting?',
+  audience: 'Who do you want to reach?',
   schedule: 'When do you want to send?',
   compose: 'What do you want to say?',
   review: 'Review & pay',
@@ -84,7 +85,7 @@ const SMS_COUNT_OVERLAY = { hasCellPhone: true }
 const SMS_AUDIENCE_COPY: OutreachAudienceCopy = {
   pickerTitle: 'Who do you want to reach?',
   pickerBody:
-    'Pick one of your saved voter lists. We only text voters with a mobile number.',
+    'Select a list or create a new one. Lists include all voters with a mobile number.',
   filtersTitle: 'Build a voter list',
   filtersBody: 'Pick filters to define who this campaign reaches.',
   nameTitle: 'Name your list',
@@ -754,6 +755,7 @@ export const SmsFlow = ({
             ? 'Review and send'
             : STEP_TITLES[stepId]
       }
+      headerBadge={<ChannelBadge type={OUTREACH_TYPES.text} />}
       currentStep={stepIndex + 1}
       totalSteps={scheduled ? 0 : STEP_ORDER.length}
       onBack={!scheduled && stepIndex > 0 ? handleBack : undefined}
@@ -812,7 +814,26 @@ export const SmsFlow = ({
             recommendationsLoading={audience.recommendationsLoading}
             recommendationsError={audience.recommendationsError}
             recommendedListsChannel={audience.recommendedListsChannel}
-            onSelectRecommendation={audience.applyRecommendation}
+            onCreateRecommendedList={async (recommendation, name) => {
+              // Recommendation flow (naming drawer): create the saved
+              // filter, derive its phone list, and advance to schedule in
+              // one atomic gesture. Throws propagate to the drawer as
+              // the inline error the candidate can retry from.
+              const created = await audience.createRecommendedList(
+                recommendation,
+                name,
+              )
+              setPhoneList(null)
+              setStopPolling(false)
+              setPhoneListCreating(true)
+              const result = await createP2pPhoneList(created, created.id)
+              setPhoneListCreating(false)
+              if (!result.ok || !result.token) {
+                throw new Error("Couldn't create phone list")
+              }
+              setPhoneListToken(result.token)
+              setStepId('schedule')
+            }}
             onRecommendationReused={audience.trackRecommendationReused}
             reachableCount={reachableCount}
             reachableLoading={audience.reachableLoading}

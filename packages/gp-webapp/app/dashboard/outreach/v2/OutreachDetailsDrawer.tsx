@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   SmsOutreachResults,
@@ -40,7 +39,6 @@ import {
   FileTextIcon,
   HashIcon,
   Loader2Icon,
-  PhoneIcon,
   RadioIcon,
   CircleSlashIcon,
   ReceiptIcon,
@@ -302,9 +300,6 @@ export const OutreachDetailsDrawer = ({
       queryClient.invalidateQueries({
         queryKey: outreachDetailQueryKey(rowId),
       })
-      // Cancel can restore the free-texts offer; refetch the campaign so
-      // the next compose sees the promo without a full reload.
-      queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
       setCancelConfirmOpen(false)
       onOpenChange(false)
       successSnackbar(
@@ -561,11 +556,15 @@ export const OutreachDetailsDrawer = ({
                           ? CONTINUE_LABELS.doorKnocking
                           : CONTINUE_LABELS.phoneBanking,
                         href: continueHref,
-                        icon: isDoorKnocking ? (
-                          <DoorOpenIcon className="size-4" />
-                        ) : (
-                          <PhoneIcon className="size-4" />
-                        ),
+                        // Close the details drawer before navigating so the
+                        // destination surface (door knocking's walk sheet
+                        // intercept, phone banking's call list route) doesn't
+                        // render beneath this vaul drawer's z-50 body portal.
+                        // For door knocking specifically the walk sheet lives
+                        // in a fixed z-40 container per DoorKnockingFlow.tsx —
+                        // it can't win a z-fight with the details drawer, so
+                        // we clear it out of the way.
+                        onClick: () => onOpenChange(false),
                       }
                     : // Both channels' hrefs are ids that ride the detail —
                       // phone banking's list, door knocking's turf — so
@@ -584,11 +583,6 @@ export const OutreachDetailsDrawer = ({
                           label: isDoorKnocking
                             ? CONTINUE_LABELS.doorKnocking
                             : CONTINUE_LABELS.phoneBanking,
-                          icon: isDoorKnocking ? (
-                            <DoorOpenIcon className="size-4" />
-                          ) : (
-                            <PhoneIcon className="size-4" />
-                          ),
                         }
                       : null
               }

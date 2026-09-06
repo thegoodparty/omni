@@ -622,6 +622,17 @@
 
   /* Rotating gradient border (AI chat bar). */
   --animate-spin-gradient: spin-gradient 4s linear infinite;
+
+  /* ==========================================================================
+   * ATTENTION SHAKE
+   * A short left-right nudge for "this control isn't going to do anything"
+   * feedback (a disabled-when-clicked press, an empty required field, an
+   * attempt to remove something that can't be removed). Attach the class,
+   * remove it in `onAnimationEnd`, and force reflow between removes and adds
+   * so a rapid re-trigger restarts the animation instead of skipping.
+   * Use: className="animate-shake"
+   * ========================================================================== */
+  --animate-shake: shake 0.4s ease-in-out;
 }
 
 @property --gradient-angle {
@@ -700,6 +711,25 @@
   }
   100% {
     transform: translateX(300%);
+  }
+}
+
+/* Matches the prototype: 0/20/40/60/80/100% at 0, -3px, 3px, -3px, 3px, 0.
+ * Keep the amplitude at 3px — a smaller nudge reads as a jitter, a larger
+ * one reads as a shove; both take the "no, that control isn't going to
+ * do anything" reading and turn it into a claim the app is broken. */
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20%,
+  60% {
+    transform: translateX(-3px);
+  }
+  40%,
+  80% {
+    transform: translateX(3px);
   }
 }
 

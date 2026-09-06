@@ -357,7 +357,16 @@ import { dirname, join, relative } from 'node:path'
 // drives the invite mutation, same reasoning as InviteMemberDialog.tsx —
 // which it replaces on the team page (the outreach entry point keeps using
 // the dialog unchanged, so both files still exist).
-const BASELINE = 603
+// 2026-09-05: 603 -> 605 for two Radix-based dialog components that
+// landed with the door-knocking design pass:
+//   - DoorKnockingDailyLimitDialog: AlertDialog wrapping the quota-spent
+//     refusal, mounted by both NativeDoorKnockingPage and the outreach
+//     tile (server-side redirect isn't an option — the click that
+//     surfaces it also fires an intent event and starts the pack warm).
+//   - RecommendedListNameDrawer: vaul Drawer for naming a saved list on
+//     recommendation accept, used by OutreachAudienceStep. Vaul is
+//     client-only.
+const BASELINE = 605
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

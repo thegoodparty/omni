@@ -24,7 +24,7 @@ import {
   completeCheckoutSession,
   completeFreePurchase,
 } from 'app/dashboard/purchase/utils/purchaseFetch.utils'
-import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
+import { Spinner } from '@styleguide'
 import { FREE_TEXTS_OFFER } from 'app/dashboard/outreach/constants'
 import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
 import { z } from 'zod'
@@ -156,7 +156,6 @@ export const SmsReviewStep = ({
   return (
     <div className="space-y-6">
       <Intro
-        channel="text"
         title={isFree ? 'Review and send' : 'Review & pay'}
         body={
           isFree
@@ -291,8 +290,8 @@ export const SmsReviewStep = ({
         // session amount is known — mounting earlier flashed "$0.00 due
         // today" while Stripe loaded.
         (!isFree && !checkoutSession && !error) ? (
-        <div className="py-6">
-          <LoadingAnimation title="Preparing your purchase…" />
+        <div className="flex justify-center py-6">
+          <Spinner />
         </div>
       ) : payError || error ? (
         <PurchaseError serverError={payErrorMessage ?? undefined} />

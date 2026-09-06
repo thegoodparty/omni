@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react'
+import { Drawer as VaulDrawer } from 'vaul'
 import {
   Button,
-  Drawer,
   DrawerBody,
   DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
   DrawerHandle,
   DrawerHeader,
   DrawerTitle,
@@ -220,18 +222,14 @@ export default function PrecinctFilter({
         ) : null}
       </ToggleGroup>
 
-      <Drawer open={sheetOpen} onOpenChange={setSheetOpen}>
+      <VaulDrawer.NestedRoot open={sheetOpen} onOpenChange={setSheetOpen}>
         <DrawerContent>
           <DrawerHandle />
           <DrawerHeader>
-            <DrawerTitle className="text-base">
-              Precinct
-              {selected.length > 0 ? (
-                <span className="ml-2 text-sm font-normal text-muted-foreground">
-                  {selected.length} selected
-                </span>
-              ) : null}
-            </DrawerTitle>
+            <DrawerTitle>Precinct</DrawerTitle>
+            {selected.length > 0 ? (
+              <DrawerDescription>{selected.length} selected</DrawerDescription>
+            ) : null}
           </DrawerHeader>
           <DrawerBody className="space-y-3 pb-8">
             <Input
@@ -264,8 +262,18 @@ export default function PrecinctFilter({
               </ToggleGroup>
             )}
           </DrawerBody>
+          <DrawerFooter>
+            <Button
+              type="button"
+              size="large"
+              className="w-full"
+              onClick={() => setSheetOpen(false)}
+            >
+              Save
+            </Button>
+          </DrawerFooter>
         </DrawerContent>
-      </Drawer>
+      </VaulDrawer.NestedRoot>
     </div>
   )
 }

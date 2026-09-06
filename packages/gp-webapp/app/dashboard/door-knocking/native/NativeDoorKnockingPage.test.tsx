@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { DoorKnockingTurf, DoorKnockStatus } from '@goodparty_org/contracts'
 import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
-import type { Campaign } from 'helpers/types'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
@@ -106,6 +105,9 @@ vi.mock('./useVoterPack', async (importOriginal) => ({
 // against whatever the surface over it says about it.
 vi.mock('./VoterMapCanvas', () => ({
   __esModule: true,
+  // Draw step's static-map preview asks for the pack's bounds; the tests
+  // don't exercise the image, so null is fine — the DrawStep omits it.
+  packBounds: () => null,
   default: ({
     filterResult,
     turfs,
@@ -365,21 +367,27 @@ const continueFromWho = () =>
 // has two pre-draw steps — a goal card, then the audience — and both live
 // inside the page's single `filters` step, so the transition these tests are
 // actually about (filters → draw, the one that starts a drawing session) is
-// unchanged. Reaching it is two presses and no opener: arriving here IS asking
-// to build a campaign, so there is no Create list button in front of it.
+// unchanged. Reaching it is a goal card, a picked audience, and Continue.
+// Picking the audience is required because Continue now gates on
+// hasPickedAudience.
 const openFlowAndDraw = async () => {
   fireEvent.click(
     await screen.findByRole('button', { name: /Introduce myself/ }),
   )
+  fireEvent.click(await audiencePicker())
+  fireEvent.click(await screen.findByRole('option', { name: /All contacts/ }))
   fireEvent.click(continueFromWho())
 }
 
 // Cutting a shape and coming back to the step that frames it, which is the way
 // a candidate reaches the counts and the addresses: the drawing surface is the
 // map and the way forward from it and carries neither, and Back off the confirm
-// step returns the draw step exactly as it was left.
+// step returns the draw step exactly as it was left. The drawing surface's
+// instructions AlertDialog opens on every mount and inerts the map behind it,
+// so it has to be dismissed before any tap can reach the canvas.
 const drawRingAndReview = async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Draw boundaries' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Got it' }))
   const tapMap = screen.getByRole('button', { name: 'tap the map' })
   fireEvent.click(tapMap)
   fireEvent.click(tapMap)
@@ -475,10 +483,11 @@ const startWalk = async (
   return screen.findByRole('button', { name: 'tap pin 11' })
 }
 
-// The walk's one way out, which is the X in its own sheet header. PersonSheet's
-// is labelled "Close person details", so this can only be the walk's.
+// The walk's one way out, which is the "Close route" button in its own
+// sheet header. PersonSheet's close is labelled "Close person details",
+// so this can only be the walk's.
 const leaveWalk = () =>
-  fireEvent.click(walkSurface().getByRole('button', { name: 'Close' }))
+  fireEvent.click(walkSurface().getByRole('button', { name: 'Close route' }))
 
 // The hubs door knocking is entered from and every exit from it lands on —
 // one per surface, because one route serves both.
@@ -526,35 +535,9 @@ describe('NativeDoorKnockingPage voter map', () => {
     expect(await mapReady()).toHaveAttribute('data-initial-zoom', '16')
   })
 
-  // The map is handed every row `GET /turfs` returns, archived ones included:
-  // quieting a shelved list is the canvas's own business, off `archivedAt`, and
-  // an outline that vanished from the district the moment it was archived would
-  // read as a delete.
-  it('hands the map every saved list, archived ones included', async () => {
-    api.mock('GET /v1/door-knocking/turfs', {
-      status: 200,
-      data: [
-        turf,
-        {
-          ...turf,
-          id: 2,
-          voterFileFilterId: 8,
-          name: 'Riverside loop',
-          completed: true,
-          archivedAt: new Date('2026-08-22T00:00:00Z'),
-        },
-      ],
-    })
-    api.mock('GET /v1/voters/voter-file/filters', {
-      status: 200,
-      data: [{ id: 7 }, { id: 8 }],
-    })
-    render(page())
-
-    const map = await mapReady()
-    await waitFor(() => expect(map).toHaveAttribute('data-turfs', '2'))
-    expect(map).toHaveAttribute('data-archived-turfs', '2')
-  })
+  // Removed: `visibleTurfs` gate tightened — saved turfs render only during a
+  // walk (only the walked turf), and never during the create flow. The
+  // landing state this test asserted no longer exists.
 
   // The pack and every turf read resolve a district server-side, so without one
   // they can only 400 — and a boundary cannot be drawn against a district we
@@ -577,28 +560,11 @@ describe('NativeDoorKnockingPage voter map', () => {
     expect(screen.queryByText(/Introduce myself/)).toBeNull()
   })
 
-  // Titled, and with the duration in it. The bare `LoadingAnimation` says
-  // "Loading... Something awesome." over a wait whose p95 is 34 seconds, which
-  // is the half of this complaint that was about nothing being communicated.
-  it('names the wait, and how long it can be, while the voter pack decodes', async () => {
-    let release: () => void = () => undefined
-    packSource.held = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    renderPage()
-
-    expect(
-      (await screen.findAllByText('Loading your voter map…')).length,
-    ).toBeGreaterThan(0)
-    expect(screen.queryByText('Loading...')).toBeNull()
-    expect(screen.queryByTestId('voter-map')).toBeNull()
-
-    await act(async () => {
-      release()
-    })
-
-    expect(await mapReady()).toBeInTheDocument()
-  })
+  // The map-region pack loader is gone — the walk drawer's own MapLoader
+  // owns the wait when a walk is being entered, and the create flow's
+  // in-sheet copy owns it otherwise. Pack pending with no walk being
+  // entered now shows nothing behind the surface on top; the wait UX
+  // lives on whichever surface the candidate is actually watching.
 
   // A refresh is the whole remedy, and it is the honest one: the pack is a
   // single decoded blob, so there is no partial map to fall back to.
@@ -639,26 +605,13 @@ describe('NativeDoorKnockingPage create flow while the pack loads', () => {
     }
   }
 
-  // The WORDS follow `serveMode`, not the `eo-` slug `isServeOrg` reads for
-  // party. The two diverge for an elected official still holding a live
-  // campaign, and this is that org: it is drawing its Win rail, so it is
-  // looking at a Win map. Both the sheet and the region under it say so, which
-  // is the drift the shared accessors exist to prevent — they cover each other
-  // for the whole of this wait.
-  it('names the map for the rail on screen, not for the slug', async () => {
-    organization.current = { slug: 'eo-city-council', electedOfficeId: 9 }
-    const release = holdPack()
-    // The live campaign is what makes this the divergent case: `serveMode`
-    // lets a Campaign win, so this org is Win by rail and Serve by slug.
-    renderPage({ campaign: { id: 3 } as Campaign })
-
-    expect(
-      (await screen.findAllByText('Loading your voter map…')).length,
-    ).toBeGreaterThan(0)
-    expect(screen.queryByText('Loading your constituent map…')).toBeNull()
-
-    await release()
-  })
+  // The Win/Serve wording divergence used to be asserted on the map-region
+  // loader's caption. That surface is gone — the walk drawer's MapLoader
+  // says "Loading your route" for both rails (the walk is the surface, not
+  // the map), and the create flow's in-sheet copy still carries the
+  // serveMode-derived wording where it matters. The invariant lives in
+  // the pack-error and district-unavailable messages here and in
+  // CreateListFlow's sheet copy.
 
   // `Continue (0)` is not a pending state. It is a real-looking number, and the
   // only reading available for it — this district has nobody in it — is the
@@ -677,6 +630,11 @@ describe('NativeDoorKnockingPage create flow while the pack loads', () => {
 
     await release()
 
+    // The candidate now picks the audience — Continue gates on
+    // hasPickedAudience — so the count returns as the honest fixture size.
+    fireEvent.click(await screen.findByRole('combobox', { name: 'All lists' }))
+    fireEvent.click(await screen.findByRole('option', { name: /All contacts/ }))
+
     // And the count arrives in it once there is one: the fixture's district is
     // three households.
     expect(
@@ -684,34 +642,9 @@ describe('NativeDoorKnockingPage create flow while the pack loads', () => {
     ).toBeInTheDocument()
   })
 
-  // Inside the sheet, because the sheet is what covers the map region the same
-  // sentence is painted into — so for the whole of the wait that matters the
-  // only explanation on the page was behind the surface being looked at.
-  it('says what the who step is waiting for, inside the sheet', async () => {
-    const release = holdPack()
-    renderPage()
-
-    fireEvent.click(
-      await screen.findByRole('button', { name: /Introduce myself/ }),
-    )
-
-    const sheet = screen.getByRole('dialog')
-    expect(
-      within(sheet).getByText(
-        /Loading your voter map…\s*Large districts can take up to 30 seconds\./,
-      ),
-    ).toBeInTheDocument()
-
-    await release()
-
-    await waitFor(() =>
-      expect(
-        within(screen.getByRole('dialog')).queryByText(
-          /Large districts can take up to 30 seconds\./,
-        ),
-      ).toBeNull(),
-    )
-  })
+  // Removed: "Loading your voter map…" no longer sits inside the who step
+  // sheet (design change — Continue button's own loading spinner is now the
+  // only pack-pending signal on this step).
 
   // `retry: 0` makes a failed pack final, so without this the step is a
   // permanently disabled button with the reason hidden behind it.
@@ -812,7 +745,7 @@ describe('NativeDoorKnockingPage create flow', () => {
     // The limit is quoted from the response rather than a constant this
     // component keeps, so an org raised past five reads its own number.
     expect(
-      screen.getByText(/You've created 5 door knocking campaigns today/),
+      screen.getByText(/You created 5 door knocking campaigns today/),
     ).toBeInTheDocument()
     expect(screen.queryByText(/Introduce myself/)).toBeNull()
   })
@@ -893,7 +826,8 @@ describe('NativeDoorKnockingPage create flow', () => {
 
   // A stale bookmark, a list deleted in the CRM since, or another org's id:
   // the param is not trusted, so all of them are a missed preselection and
-  // nothing else.
+  // nothing else. The picker now reads its placeholder rather than defaulting
+  // to All contacts, so a bad id lands as "nothing picked yet".
   it('opens the ordinary create flow when the carried list is not one of yours', async () => {
     renderPage({ preselectedListId: 12_345 }, [
       { id: 7, name: 'Precinct 2 homeowners' },
@@ -903,7 +837,7 @@ describe('NativeDoorKnockingPage create flow', () => {
       await screen.findByRole('button', { name: /Introduce myself/ }),
     )
 
-    expect(await audiencePicker()).toHaveTextContent('All contacts')
+    expect(await audiencePicker()).toHaveTextContent('Choose a voter list')
     expect(await audiencePicker()).not.toHaveTextContent(
       'Precinct 2 homeowners',
     )
@@ -939,12 +873,19 @@ describe('NativeDoorKnockingPage create flow', () => {
 
     await openFlowAndDraw()
     fireEvent.click(screen.getByRole('button', { name: 'Draw boundaries' }))
+    // The instructions dialog inerts the map behind it on every mount.
+    fireEvent.click(await screen.findByRole('button', { name: 'Got it' }))
     const tapMap = screen.getByRole('button', { name: 'tap the map' })
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
     fireEvent.click(tapMap)
     fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    // Confirm-step CTA is Continue now (renamed from Save). Type the campaign
+    // name so the CTA enables, then press Continue to advance to the route.
+    fireEvent.change(await screen.findByLabelText('Campaign name'), {
+      target: { value: 'Introduction walk' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
 
     // The design hands straight over to the walk: the list was created to be
@@ -1083,36 +1024,6 @@ describe('NativeDoorKnockingPage page chrome', () => {
   })
 })
 
-// A scan of people-db for one shape, so "it only runs when it is asked for"
-// is counted rather than trusted — the ring changes with every vertex, and a
-// request per change is the failure mode this panel is designed around.
-const previewCalls = { count: 0 }
-const mockPreview = () => {
-  previewCalls.count = 0
-  api.mock('POST /v1/door-knocking/address-preview', () => {
-    previewCalls.count += 1
-    return {
-      status: 200,
-      data: {
-        stops: 2,
-        doors: 3,
-        people: 4,
-        // A whole day's allowance left, so the draw step's quota gate never
-        // fires in the tests that only care about when the scan runs.
-        locations: [
-          {
-            doors: [
-              { address: '1200 W Elm St Apt 1', people: 2 },
-              { address: '1200 W Elm St Apt 2', people: 1 },
-            ],
-          },
-          { doors: [{ address: '14 N Oak Ave', people: 1 }] },
-        ],
-      },
-    }
-  })
-}
-
 describe('NativeDoorKnockingPage draw step', () => {
   beforeEach(() => {
     testQueryClient.clear()
@@ -1130,20 +1041,25 @@ describe('NativeDoorKnockingPage draw step', () => {
     // The step frames the map behind a shielded window, so cutting the shape
     // is its own surface: the map with nothing over it but the way forward.
     fireEvent.click(screen.getByRole('button', { name: 'Draw boundaries' }))
+    // Dismiss the instructions AlertDialog seeded open on every drawing-
+    // surface mount, or it inerts the map behind it.
+    fireEvent.click(await screen.findByRole('button', { name: 'Got it' }))
 
     const tapMap = screen.getByRole('button', { name: 'tap the map' })
     const advance = () => screen.getByRole('button', { name: 'Continue' })
     // What the button is waiting for is said by the surface rather than by the
     // button, which keeps the design's one bare word in every state.
     expect(
-      screen.getByText('Tap the map to add boundary points'),
+      screen.getByText('Tap or click to add your first point'),
     ).toBeInTheDocument()
     expect(advance()).toBeDisabled()
 
     fireEvent.click(tapMap)
     // The hint is spent on the first point and the count pill reads the shape
     // from there — at nothing, because one point is not a ring.
-    expect(screen.queryByText('Tap the map to add boundary points')).toBeNull()
+    expect(
+      screen.queryByText('Tap or click to add your first point'),
+    ).toBeNull()
     expect(screen.getByText('0 selected')).toBeInTheDocument()
     expect(advance()).toBeDisabled()
 
@@ -1184,6 +1100,8 @@ describe('NativeDoorKnockingPage draw step', () => {
     expect(map).toHaveAttribute('data-draw-color', '#2563eb')
 
     fireEvent.click(screen.getByRole('button', { name: 'Draw boundaries' }))
+    // Dismiss the instructions AlertDialog, or it inerts everything behind.
+    fireEvent.click(await screen.findByRole('button', { name: 'Got it' }))
 
     // Uncovering the map asks for the shape back in view: the camera has not
     // moved, but a candidate who has been reading a step has no idea where
@@ -1193,8 +1111,8 @@ describe('NativeDoorKnockingPage draw step', () => {
     expect(map).toHaveAttribute('data-frame-bottom', '0')
     expect(map).toHaveAttribute('data-controls-hidden', 'false')
 
-    // And back, with nothing drawn yet to ask about.
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    // And back to the draw step, using the drawing-surface's Back button.
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
 
     expect(map).toHaveAttribute('data-controls-hidden', 'true')
     expect(
@@ -1219,6 +1137,8 @@ describe('NativeDoorKnockingPage draw step', () => {
     expect(map).toHaveAttribute('data-controls-hidden', 'true')
 
     fireEvent.click(screen.getByRole('button', { name: 'Draw boundaries' }))
+    // The instructions AlertDialog inerts everything behind it on every mount.
+    fireEvent.click(await screen.findByRole('button', { name: 'Got it' }))
 
     expect(map).toHaveAttribute('data-controls-hidden', 'false')
     expect(map).toHaveAttribute('data-controls-bottom', '96')
@@ -1241,102 +1161,10 @@ describe('NativeDoorKnockingPage draw step', () => {
     await drawCounts(/3 matching households · 3 selected households/)
   })
 
-  // What the walkthrough asked for: the actual houses, at the one moment the
-  // shape can still be changed. The pack has no addresses in it, so these come
-  // from gp-api's evaluation — and a block of flats reads as the several doors
-  // it is under the single coordinate the router will visit.
-  it('lists the addresses inside the drawn ring, on request', async () => {
-    mockPreview()
-    renderPage()
-    await mapReady()
-
-    await openFlowAndDraw()
-    await drawRingAndReview()
-
-    await drawCounts(/3 matching households · 3 selected households/)
-    // Drawing the shape asks nothing of the server, and a shut panel has no
-    // count to read off.
-    expect(previewCalls.count).toBe(0)
-    expect(document.getElementById('draw-step-doors')).toBeNull()
-
-    fireEvent.click(screen.getByRole('button', { name: 'See the addresses' }))
-    await screen.findByText('1200 W Elm St Apt 1')
-
-    const panel = document.getElementById('draw-step-doors')
-    expect(panel?.querySelectorAll('li li')).toHaveLength(3)
-    expect(screen.getByText('2 doors at one location')).toBeInTheDocument()
-    expect(previewCalls.count).toBe(1)
-  })
-
-  // The rule the create flow has already broken once: one quantity, one
-  // number. The pack's estimate is a superset — it can't shade by every filter
-  // and it can't drop a do-not-knock resident — so once the exact count
-  // exists the estimate is not a second opinion to print beside it. The
-  // fixture's ring holds 3 households by the pack and 2 doors by the server on
-  // purpose: the counts here are deliberately different so the swap is visible.
-  it('reports the server count once it has one', async () => {
-    api.mock('POST /v1/door-knocking/address-preview', () => ({
-      status: 200,
-      data: {
-        stops: 1,
-        doors: 2,
-        people: 2,
-        locations: [
-          {
-            doors: [
-              { address: '1200 W Elm St Apt 1', people: 1 },
-              { address: '1200 W Elm St Apt 2', people: 1 },
-            ],
-          },
-        ],
-      },
-    }))
-    renderPage()
-    await mapReady()
-
-    await openFlowAndDraw()
-    await drawRingAndReview()
-    await drawCounts(/3 matching households · 3 selected households/)
-
-    fireEvent.click(screen.getByRole('button', { name: 'See the addresses' }))
-
-    // The pack's 3 is gone from the count line, not printed next to the
-    // server's 2. The district total beside it is unchanged, because no
-    // polygon was ever what it was measuring.
-    const counts = await drawCounts(
-      /3 matching households · 2 selected households/,
-    )
-    expect(counts.textContent).not.toMatch(/3 selected/)
-  })
-
-  // Backing out to the filters re-cuts the audience, and the step forward from
-  // it wipes the shape — so an address panel left open would spring back over
-  // a list nobody has asked about yet, and spend a scan of people-db to do it.
-  // The request count is asserted and not assumed: "it only runs when it is
-  // asked for" is the whole reason the page owns the flag.
-  it('asks about the addresses again after the filters are re-cut', async () => {
-    mockPreview()
-    renderPage()
-    await mapReady()
-
-    await openFlowAndDraw()
-    await drawRingAndReview()
-    expect(previewCalls.count).toBe(0)
-
-    fireEvent.click(screen.getByRole('button', { name: 'See the addresses' }))
-    await screen.findByText('1200 W Elm St Apt 1')
-
-    // Back lands on the audience step, whose CTA carries the district count.
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    const callsOnLeaving = previewCalls.count
-    fireEvent.click(continueFromWho())
-
-    expect(document.getElementById('draw-step-doors')).toBeNull()
-    expect(
-      screen.getByRole('button', { name: 'See the addresses' }),
-    ).toHaveAttribute('aria-expanded', 'false')
-    expect(previewCalls.count).toBe(callsOnLeaving)
-  })
+  // Removed: DoorsPanel / "See the addresses" toggle and the address-preview
+  // panel are gone from the draw step (design change — draw step body is
+  // counts row + Geoapify preview card only). The preview query is still
+  // wired on the page but nothing on the draw step consumes it.
 })
 
 // `?walkTurfId=` is the outreach hub's "Continue knocking", and now the only
@@ -1410,19 +1238,20 @@ describe('NativeDoorKnockingPage walk map', () => {
     testQueryClient.clear()
   })
 
-  it('opens the door behind a tapped pin', async () => {
+  it('expands the row behind a tapped pin without opening PersonSheet', async () => {
     const pin = await startWalk()
 
     fireEvent.click(pin)
 
+    // The row for the tapped pin expands in place so the candidate can pick
+    // the resident — PersonSheet doesn't cover the drawer's drag handle and
+    // header. The resident's row is a reachable button inside the sheet.
     await waitFor(() =>
-      expect(screen.getByText('Did they answer?')).toBeInTheDocument(),
+      expect(
+        screen.getByRole('button', { name: /Dorian Fen/ }),
+      ).toBeInTheDocument(),
     )
-    // The door, which is what the sheet is headed with and what a pin is: the
-    // stop behind pin 11, not whichever of its residents is selected first.
-    expect(
-      screen.getByRole('heading', { name: '105 Elm St', level: 2 }),
-    ).toBeInTheDocument()
+    expect(screen.queryByText('Did they answer?')).toBeNull()
   })
 
   // The list has marked the stop the walk is on since #1392; the map drew

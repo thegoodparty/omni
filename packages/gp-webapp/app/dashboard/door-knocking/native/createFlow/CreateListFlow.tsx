@@ -3,19 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  Button,
-  Input,
-  Label,
-} from '@styleguide'
+import { Input, Label } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -24,6 +12,7 @@ import {
   useWinRecommendedListsFlag,
   WIN_RECOMMENDED_LISTS_FLAG_KEY,
 } from '@shared/experiments/winRecommendedListsFlag'
+import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
 import { PurposeStep } from 'app/dashboard/outreach/v2/PurposeStep'
 import { Intro } from 'app/dashboard/outreach/v2/social/Intro'
@@ -41,12 +30,7 @@ import {
   unpreviewableDisclosureSentence,
 } from './voterFilterPreview'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
-import {
-  districtUnavailableMessage,
-  packErrorMessage,
-  PACK_LOADING_DURATION,
-  packLoadingTitle,
-} from '../useVoterPack'
+import { districtUnavailableMessage, packErrorMessage } from '../useVoterPack'
 import { suggestTravelMode } from '../travelMode'
 import { useDoorKnockingServeMode } from '../doorKnockingSurface'
 import {
@@ -72,7 +56,6 @@ import {
 import { WhoStep } from './WhoStep'
 import { DrawStep } from './DrawStep'
 import { DrawFullScreen } from './DrawFullScreen'
-import { DoorsPanel } from './DoorsPanel'
 import { RouteStep } from './RouteStep'
 import type { SavedListOption } from './savedListOptions'
 import type {
@@ -89,9 +72,7 @@ import type { PolygonStats } from '../filterEngine'
 
 export type { CreateFlowStep } from './createFlowSteps'
 
-// Informational, not a gate: past this the evening is long enough to be worth
-// saying out loud. The hard cap at 150 is what actually blocks.
-const SOFT_STOP_LIMIT = 100
+// Hard cap on stops per list — anything over this can't route.
 const HARD_STOP_LIMIT = 150
 const CREATE_ERROR_FALLBACK =
   'Building the route failed — nothing was saved. Try again in a moment.'
@@ -113,6 +94,10 @@ interface CreateListFlowProps {
   onFiltersChange: (filters: VoterFileFilters) => void
   onStepChange: (step: CreateFlowStep) => void
   onClose: () => void
+  // The pack's bounding box, framed by the draw step's static-map preview
+  // card. Null while the pack decodes; the preview omits the image in that
+  // window rather than rendering against no rect.
+  districtBounds: [[number, number], [number, number]] | null
   // District-wide households matching the filter draft. Honest only before a
   // polygon exists — once one is drawn, everything the draw step reports comes
   // off turfStats instead.
@@ -258,7 +243,7 @@ const STAGE_META: Record<
   },
   confirm: {
     title: 'Name your campaign',
-    caption: 'Give your campaign a name so you can spot it on the map.',
+    caption: 'Give your campaign a name to find it in your outreach history.',
   },
 }
 
@@ -267,7 +252,7 @@ const STAGE_META: Record<
 type CreateFlowPurpose = DoorKnockingPurpose | ServeDoorKnockingPurpose
 
 const ROUTE_CAPTION =
-  'This builds the route and locks the turf — the list of doors is frozen so ' +
+  'This builds the route and locks the turf. The list of doors is frozen so ' +
   'everyone works from the same plan, and the directions are bought for the ' +
   'travel mode you pick. You only do this once per turf.'
 
@@ -277,6 +262,7 @@ export default function CreateListFlow({
   onFiltersChange,
   onStepChange,
   onClose,
+  districtBounds,
   districtHouseholds,
   districtHouseholdsPending,
   districtHouseholdsFailed,
@@ -286,18 +272,10 @@ export default function CreateListFlow({
   ring,
   turfStats,
   drawnStops,
-  addressPreview,
-  previewPending,
-  previewFailed,
-  previewStale,
-  onShowAddresses,
-  onHideAddresses,
-  onRetryAddresses,
   drawPointCount,
   onUndoPoint,
   drawFullScreen,
   onDrawFullScreenChange,
-  onRestartDrawing,
   color,
   onListCreated,
   isServeOrg,
@@ -348,6 +326,14 @@ export default function CreateListFlow({
       : null
   // Null means the whole contact universe.
   const [savedListId, setSavedListId] = useState<number | null>(null)
+  // Whether the candidate has actively picked an audience yet. Distinct
+  // from `savedListId === null`, which is ambiguous — that could mean
+  // "nothing picked" or "picked All contacts". The who-step trigger and
+  // the Continue button both need to differentiate, so this is flipped
+  // true by every writer of `savedListId` (the picker's own click, the
+  // recommendation accept, the `?listId=` preselect below) through
+  // `selectList`.
+  const [hasPickedAudience, setHasPickedAudience] = useState(false)
   // The who step's two faces and its panel. Held here rather than in the step
   // so that a step back from `draw` returns to the face the candidate left —
   // someone who cut a custom audience and pressed Back means to edit those
@@ -360,13 +346,6 @@ export default function CreateListFlow({
     null,
   )
   const [loop, setLoop] = useState(true)
-  // The design's own confirm, asked only when leaving the drawing surface with
-  // a shape on it. Distinct from the shell's "Discard changes?", which is
-  // about abandoning the whole flow.
-  const [discardShapeOpen, setDiscardShapeOpen] = useState(false)
-  // The shell's "Discard changes?", raised by hand for the draw step only —
-  // see `leaveFlowFromDraw`.
-  const [discardFlowOpen, setDiscardFlowOpen] = useState(false)
 
   // A recommendation accepted as a brand-new list carries clauses the who
   // step's boolean pill draft has no plane for — precincts and support
@@ -403,6 +382,7 @@ export default function CreateListFlow({
   // — and a second copy of the pair is a second chance for them to diverge.
   const selectList = useCallback(
     (listId: number | null) => {
+      setHasPickedAudience(true)
       setSavedListId(listId)
       clearRecommendedDraft()
       onFiltersChange(
@@ -455,6 +435,7 @@ export default function CreateListFlow({
       }
       const precincts = recommendation.filter.precincts ?? []
       const supportStatus = recommendation.filter.supportStatus ?? []
+      setHasPickedAudience(true)
       setSavedListId(null)
       // The boolean MARKS beside the pill draft, exactly as
       // `savedListFilterKeys` leaves them for a picked list: they narrow
@@ -662,18 +643,15 @@ export default function CreateListFlow({
   // understated the evening exactly where buildings are densest.
   //
   // One quantity, one number: the preview REPLACES the estimate rather than
-  // sitting beside it (ADR 0010). Its counts are the ones the route will be
-  // built from — the same evaluation, the same suppressions, the same
-  // unit-level door — so once they exist the pack's superset is not a second
-  // opinion worth printing, it is the thing that was standing in for them.
-  const exactCounts = addressPreview !== null
-  // Four states of one panel — waiting, failed, describing a boundary that
-  // has moved, and answered — so the toggle reads the same in all of them.
-  const panelOpen =
-    exactCounts || previewPending || previewFailed || previewStale
-  const stops = addressPreview?.stops ?? turfStats?.stops ?? 0
-  const doors = addressPreview?.doors ?? turfStats?.households ?? 0
-  const people = addressPreview?.people ?? turfStats?.people ?? 0
+  // The pack's counts drive every reading of the drawn shape now that
+  // the address-preview panel has left the draw step. Once the route
+  // step commits, the paid `POST /door-knocking/turfs` runs its own
+  // exact evaluation server-side and freezes the list; the draw step's
+  // counts stay pack-derived because they are still ephemeral answers
+  // about a boundary the candidate may yet adjust.
+  const stops = turfStats?.stops ?? 0
+  const doors = turfStats?.households ?? 0
+  const people = turfStats?.people ?? 0
 
   // Derived rather than seeded into state: the pack decodes on its own
   // schedule, so a suggestion that arrives after the route step is on screen
@@ -820,7 +798,6 @@ export default function CreateListFlow({
   })
 
   const overCap = stops > HARD_STOP_LIMIT
-  const longWalk = stops > SOFT_STOP_LIMIT && !overCap
   // The per-list stop cap above is the only thing the drawing surface
   // enforces. A daily allowance used to be checked here too: a 500-stop
   // budget rode the address preview, so a shape could be refused for its size
@@ -835,186 +812,48 @@ export default function CreateListFlow({
     savedListId !== null,
   )
 
-  // Leaving the drawing surface. The canvas asks before throwing a shape away
-  // and closes silently when there is nothing to throw.
+  // Leaving the drawing surface. Back is a step-back inside the flow, not a
+  // close — the drawn shape stays and the candidate lands on the draw step
+  // where they can Continue with it or open the drawing surface again to
+  // adjust. The old "Discard this turf?" prompt fired here whenever Back
+  // was pressed with any vertices, which read as "you're about to lose
+  // work" for a gesture that never lost any.
   const leaveFullScreen = () => {
-    if (drawPointCount > 0) {
-      setDiscardShapeOpen(true)
-      return
-    }
     onDrawFullScreenChange(false)
   }
 
-  // Leaving the FLOW from the draw step, which is the one step rendered outside
-  // `OutreachFlowShell` and so the one step whose X is not already wired to the
-  // shell's "Discard changes?". Left as a bare `onClose` it discarded a drawn
-  // boundary silently — on the step where there is most to lose, and where
-  // every sibling step asks. Same dialog, same words, raised from here because
-  // the shell that owns it is not in this branch of the tree.
-  const leaveFlowFromDraw = () => {
-    if (dirty) {
-      setDiscardFlowOpen(true)
-      return
-    }
-    onClose()
-  }
-
-  const discardFlowDialog = (
-    <AlertDialog open={discardFlowOpen} onOpenChange={setDiscardFlowOpen}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Discard changes?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Your draft and selections will be lost.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Keep editing</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => {
-              setDiscardFlowOpen(false)
-              onClose()
-            }}
-          >
-            Discard
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  )
-
-  const discardShapeDialog = (
-    <AlertDialog open={discardShapeOpen} onOpenChange={setDiscardShapeOpen}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Discard this turf?</AlertDialogTitle>
-          <AlertDialogDescription>
-            The boundaries you drew will not be saved.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Keep drawing</AlertDialogCancel>
-          <AlertDialogAction
-            variant="destructive"
-            onClick={() => {
-              setDiscardShapeOpen(false)
-              // The boundary has to actually go. Closing the overlay alone left
-              // the ring on the canvas and still feeding the step's selected
-              // count, which made "will not be saved" a sentence the next
-              // screen contradicted. `onRestartDrawing` empties the shape and
-              // leaves a live session behind the shield, so pressing Draw
-              // boundaries again lands on a map that can be drawn on —
-              // `clearDrawing` would end the session and give a dead map.
-              onRestartDrawing()
-              onDrawFullScreenChange(false)
-            }}
-          >
-            Discard
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  )
-
-  if (stage === 'draw') {
-    const { currentStep, totalSteps } = stepperPosition(stage)
-    if (drawFullScreen) {
-      return (
-        <>
-          <DrawFullScreen
-            pointCount={drawPointCount}
-            onUndoPoint={onUndoPoint}
-            stops={stops}
-            overCap={overCap}
-            // The design's bare word, in every state. What the button is
-            // waiting for is said by the surface rather than by the button:
-            // the centred hint names the gesture until the first point lands,
-            // and the count pill reads the shape from there. A button that
-            // renames itself three times is three controls to read where the
-            // design draws one.
-            continueDisabled={!ring || stops === 0 || overCap}
-            onContinue={() => {
-              onDrawFullScreenChange(false)
-              goToStage('confirm')
-            }}
-            onClose={leaveFullScreen}
-          />
-          {discardShapeDialog}
-        </>
-      )
-    }
+  // The drawing surface is the one thing that renders OUTSIDE the shell:
+  // it takes over the whole map with its own chrome, at a z-index above
+  // the sheet, and only ever appears from the draw stage. Every other
+  // stage — draw included, when the surface is not up — flows through the
+  // shell below with its own body branch.
+  if (stage === 'draw' && drawFullScreen) {
     return (
       <>
-        <DrawStep
-          currentStep={currentStep}
-          totalSteps={totalSteps}
-          onBack={back}
-          onClose={leaveFlowFromDraw}
-          matchingHouseholds={districtHouseholds}
-          selectedHouseholds={doors}
-          onOpenFullScreen={() => onDrawFullScreenChange(true)}
-        >
-          {/* What is left below the canvas's preview is only what the shape
-              can be WRONG about — the cap, the long evening, and the addresses
-              the boundary actually caught. The walk-time estimate and the
-              party-mix breakdown that used to sit here are gone: the canvas
-              draws nothing under its preview, the estimate is now a metric in
-              the details drawer, and a party split of a superset is a second
-              set of numbers on a step whose own count line is the point.
-
-              The disclosure stays because it is not a fact about the audience
-              but a hedge on the count printed above it — a shortfall the exact
-              counts do not have, unsaid, is a count that reads as exact. */}
-          {!exactCounts && unpreviewableDisclosure && (
-            <p className="text-xs text-muted-foreground">
-              {unpreviewableDisclosure}
-            </p>
-          )}
-          {overCap && (
-            <p className="text-sm text-destructive">
-              Over the {HARD_STOP_LIMIT}-stop limit — draw a smaller area.
-            </p>
-          )}
-          {longWalk && (
-            <p className="text-sm text-warning">
-              Over {SOFT_STOP_LIMIT} stops is a long evening. You can still save
-              it, or draw a smaller area.
-            </p>
-          )}
-          {doors > 0 && (
-            <Button
-              size="small"
-              variant="ghost"
-              className="-ml-3 self-start"
-              aria-expanded={panelOpen}
-              aria-controls="draw-step-doors"
-              onClick={panelOpen ? onHideAddresses : onShowAddresses}
-            >
-              {panelOpen ? 'Hide the addresses' : 'See the addresses'}
-            </Button>
-          )}
-          {panelOpen && (
-            <DoorsPanel
-              addressPreview={addressPreview}
-              isServe={serveMode}
-              pending={previewPending}
-              failed={previewFailed}
-              stale={previewStale}
-              onShow={onShowAddresses}
-              onRetry={onRetryAddresses}
-            />
-          )}
-        </DrawStep>
-        {discardShapeDialog}
-        {discardFlowDialog}
+        <DrawFullScreen
+          pointCount={drawPointCount}
+          onUndoPoint={onUndoPoint}
+          stops={stops}
+          overCap={overCap}
+          // The design's bare word, in every state. What the button is
+          // waiting for is said by the surface rather than by the button:
+          // the centred hint names the gesture until the first point lands,
+          // and the count pill reads the shape from there. A button that
+          // renames itself three times is three controls to read where the
+          // design draws one.
+          continueDisabled={!ring || stops === 0 || overCap}
+          onContinue={() => {
+            onDrawFullScreenChange(false)
+            goToStage('confirm')
+          }}
+          onClose={leaveFullScreen}
+        />
       </>
     )
   }
 
   const title =
-    stage === 'route'
-      ? `Knock ${name.trim() || 'this'} walk`
-      : STAGE_META[stage].title
+    stage === 'route' ? 'How will you knock?' : STAGE_META[stage].title
   const caption = stage === 'route' ? ROUTE_CAPTION : STAGE_META[stage].caption
   const { currentStep, totalSteps } = stepperPosition(stage)
 
@@ -1023,6 +862,7 @@ export default function CreateListFlow({
       open
       onClose={onClose}
       title={title}
+      headerBadge={<ChannelBadge type="nativeDoorKnocking" />}
       currentStep={currentStep}
       totalSteps={totalSteps}
       onBack={previousStage(stage) ? back : undefined}
@@ -1049,13 +889,24 @@ export default function CreateListFlow({
                 // the opposite of the truth. A failed pack has no answer coming
                 // at all, so it is bare for the same reason; what went wrong is
                 // said in the body, where there is room to say it.
+                // Bare "Continue" until the candidate has actually picked
+                // an audience — otherwise the count in the button reads
+                // as a preselection ("Continue (12,000)" on a fresh who
+                // step implied a list was already chosen, when in fact
+                // nothing was picked and `districtHouseholds` was just
+                // the full district population). Once picked, the count
+                // returns as the honest size of the audience being
+                // advanced. Failed / unavailable / still-pending also
+                // suppress the count for their own reasons above.
                 label:
+                  !hasPickedAudience ||
                   districtHouseholdsPending ||
                   districtHouseholdsFailed ||
                   districtUnavailable
                     ? 'Continue'
                     : `Continue (${districtHouseholds.toLocaleString()})`,
                 disabled:
+                  !hasPickedAudience ||
                   districtHouseholdsPending ||
                   districtHouseholdsFailed ||
                   districtUnavailable ||
@@ -1066,17 +917,39 @@ export default function CreateListFlow({
                 // there is no door knocking without a boundary and a route.
                 onClick: () => goToStage('draw'),
               }
-            : stage === 'confirm'
+            : stage === 'draw'
               ? {
-                  label: 'Save',
-                  disabled: name.trim().length === 0,
-                  onClick: () => goToStage('route'),
+                  // Bare word — the shape's own count sits on the drawing
+                  // surface, and the disclosure sentence and cap warnings are
+                  // below this step's preview card, so a count in the CTA
+                  // would be the third place saying the same number.
+                  label: 'Continue',
+                  disabled: !ring || stops === 0 || overCap,
+                  onClick: () => goToStage('confirm'),
                 }
-              : {
-                  label: save.isPending ? 'Building route…' : 'Build route',
-                  disabled: save.isPending,
-                  onClick: () => save.mutate(),
-                }
+              : stage === 'confirm'
+                ? {
+                    // "Continue", not "Save" — nothing is written yet at this
+                    // step. The only write in the flow happens on the route
+                    // step's Build route CTA (turf + Geoapify route + outreach
+                    // envelope, in one paid transaction). Calling this "Save"
+                    // read as commit and cost, when it's really just the next
+                    // step.
+                    label: 'Continue',
+                    disabled: name.trim().length === 0,
+                    onClick: () => goToStage('route'),
+                  }
+                : {
+                    // While the mutation runs, the button shows both a
+                    // spinner (via `loading`) and the "Building route"
+                    // label — same treatment the design calls for on the
+                    // one CTA whose click starts a paid multi-second
+                    // request.
+                    label: save.isPending ? 'Building route' : 'Build route',
+                    disabled: save.isPending,
+                    loading: save.isPending,
+                    onClick: () => save.mutate(),
+                  }
       }
     >
       <div className="flex flex-col gap-6">
@@ -1113,6 +986,12 @@ export default function CreateListFlow({
               allContactsHouseholds={allContactsHouseholds}
               selectedListId={savedListId}
               onSelectList={selectList}
+              hasPickedAudience={hasPickedAudience}
+              // True while the draft came from a recommendation card
+              // rather than a picker pick — the who step suppresses its
+              // own selected-state visuals then, so the audience isn't
+              // shown twice.
+              hasActiveRecommendation={recommendedMeta !== null}
               isServeOrg={isServeOrg}
               building={buildingList}
               onBuildingChange={(next) => {
@@ -1131,21 +1010,20 @@ export default function CreateListFlow({
               recommendationsError={recommendationsQuery.isError}
               onSelectRecommendation={applyRecommendation}
             />
-            {/* Said HERE and not only on the map. The map region already draws
-                a titled loader for the same download, and this sheet is what
-                covers that region — so for the whole of the wait that actually
-                matters it was painted underneath the surface the candidate is
-                looking at, which is how a half-minute of dead Continue arrived
-                with nothing said about it. Same two sentences as the map's, off
-                the same constants, so the pair cannot drift. */}
-            {districtHouseholdsPending && (
-              <p className="text-xs text-muted-foreground">
-                {packLoadingTitle(serveMode)} {PACK_LOADING_DURATION}
-              </p>
-            )}
-            {/* And the same argument for the failure. `retry: 0` means a failed
-                pack is final, so without this the step is a permanently
-                disabled button with the reason hidden behind it. */}
+            {/* The pack-pending sentence used to sit here ("Loading your
+                voter map…") to explain a Continue that would otherwise sit
+                dead for up to 34s. It was correct when the whole flow
+                covered the map region that carried the same message, but
+                it broke the who step from the candidate's point of view —
+                a step asking "who do you want to reach" that mentioned
+                voter maps read as leaking implementation. The Continue
+                button's own `loading` state (spinner) is now the only
+                pack-pending signal on this step, which is what phone
+                banking and every other channel's audience step already
+                does. */}
+            {/* Failure is different: `retry: 0` means a failed pack is
+                final, so without this the step is a permanently disabled
+                Continue with the reason hidden behind it. */}
             {districtHouseholdsFailed && (
               <p role="alert" className="text-sm text-destructive">
                 {packErrorMessage(serveMode)}
@@ -1173,6 +1051,15 @@ export default function CreateListFlow({
               </p>
             )}
           </>
+        )}
+
+        {stage === 'draw' && (
+          <DrawStep
+            districtBounds={districtBounds}
+            matchingHouseholds={districtHouseholds}
+            selectedHouseholds={doors}
+            onOpenFullScreen={() => onDrawFullScreenChange(true)}
+          />
         )}
 
         {stage === 'confirm' && (

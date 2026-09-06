@@ -5,24 +5,14 @@ import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { DOOR_KNOCK_STATUSES, DoorKnockingTurf } from '@goodparty_org/contracts'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@styleguide'
-import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
+import { Spinner } from '@styleguide'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
+import { DoorKnockingDailyLimitDialog } from './DoorKnockingDailyLimitDialog'
 import { Campaign } from 'helpers/types'
 import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import {
   districtUnavailableMessage,
   packErrorMessage,
-  PACK_LOADING_DURATION,
-  packLoadingTitle,
   recordLoggedKnocks,
   voterPackQueryOptions,
 } from './useVoterPack'
@@ -46,17 +36,46 @@ import WalkSurface, { useWalkMapSession, WalkMapHint } from './WalkSurface'
 import { useWalkSession } from './useWalkSession'
 import { useLiveLocation } from './useLiveLocation'
 import { useWalkArchive, useWalkCompletion } from './walkCompletion'
-import type { PolygonRing } from './VoterMapCanvas'
+import { packBounds, type PolygonRing } from './VoterMapCanvas'
+import { geoapifyStaticUrl } from './createFlow/geoapifyStaticUrl'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import { useOrganization } from '@shared/organization-picker'
 
+// One loading vocabulary for both waits that show behind the walk drawer:
+// the pack download (4.5s p50 / 34s p95) AND the VoterMapCanvas chunk
+// (~200ms first time, cached after). Spinner + "Loading your route" body
+// text side-by-side. `bottomPadPx` shifts vertical centering above the
+// walk drawer so the loader lands in the visible band, not the viewport
+// middle (which the drawer covers) — dynamic-import fallback below calls
+// it with no arg since it can't reach the page's mapControlsOffset state,
+// which is fine because the chunk load is brief and cached after first.
+//
+// `absolute inset-0` so the loader OVERLAYS the map region instead of
+// stacking beside a rendered canvas. When the pack is warm from the
+// create flow and only the walk's route is still fetching, both this
+// loader and VoterMapCanvas satisfy their render gates at once — in a
+// non-flex parent that means two `h-full` siblings pushing each other
+// out of view.
+//
+// Background hardcoded to `#f8f4f0` — Geoapify OSM Liberty's land
+// color, the warm off-white the map itself paints under everything
+// else. Matching it means the loader hides the bare district beneath
+// the canvas WITHOUT a visible seam when it clears (both sides of the
+// transition are the same shade). No design token for this because
+// it's a vendor-basemap match, not a design-system color.
+const MapLoader = ({ bottomPadPx }: { bottomPadPx?: number | null } = {}) => (
+  <div
+    className="absolute inset-0 z-10 flex items-center justify-center gap-3 bg-[#f8f4f0]"
+    style={bottomPadPx ? { paddingBottom: bottomPadPx } : undefined}
+  >
+    <Spinner />
+    <p className="text-base text-foreground">Loading your route</p>
+  </div>
+)
+
 const VoterMapCanvas = dynamic(() => import('./VoterMapCanvas'), {
   ssr: false,
-  loading: () => (
-    <div className="flex h-full w-full items-center justify-center">
-      <LoadingAnimation title="Loading the map…" />
-    </div>
-  ),
+  loading: () => <MapLoader />,
 })
 
 interface NativeDoorKnockingPageProps {
@@ -251,7 +270,55 @@ export default function NativeDoorKnockingPage({
   // is the better one because it keeps the hub's scroll position.
   const tileOpened = useRef(Boolean(openCreateFlow))
 
-  const visibleTurfs = useMemo(() => turfsQuery.data ?? [], [turfsQuery.data])
+  // During a walk, scope the map to just this turf's ring — the neighbors'
+  // rings are noise around the route the canvasser is on. The whole saved
+  // list stays on screen everywhere else (the hub view, the create flow's
+  // preview map behind its own sheet), so the filter is walk-scoped and not
+  // a global toggle.
+  //
+  // Saved turfs render on this map only during a walk, and only the one
+  // being walked. Every other state — the create flow (all of it), the
+  // brief transition into a walk when handleListCreated batches
+  // flow-close + walk-start, and any window where neither is on screen —
+  // shows a bare map without other rings.
+  //
+  // The design has no landing surface that lists saved turfs on a bare
+  // map, so nothing depends on "show all rings when idle" being real. The
+  // create flow used to show them scoped by the draw preview; the draw
+  // surface then took the whole map for a single-task cut. Both cases
+  // want zero saved rings visible. During a walk, the neighbours' rings
+  // are noise around the route the canvasser is on, so we scope to just
+  // the walked turf. Everything else falls into "hide them" by default,
+  // which is what removes the flash on the sheet-close/walk-open handoff
+  // (there's no window where saved rings can render before the walk
+  // scoping kicks in — they're just always hidden unless a walk is up).
+  const visibleTurfs = useMemo(() => {
+    if (!walkTurf) return []
+    const all = turfsQuery.data ?? []
+    return all.filter((candidate) => candidate.id === walkTurf.id)
+  }, [turfsQuery.data, walkTurf])
+  // The pack's bounding box, framed by the create flow's draw step as a
+  // static-map preview card. Null while the pack decodes; the card omits
+  // the image in that window rather than rendering against no rect.
+  const districtBounds = useMemo(
+    () => (packQuery.data ? packBounds(packQuery.data.positions) : null),
+    [packQuery.data],
+  )
+  // Warm the browser cache for the draw step's Geoapify preview the
+  // moment the pack lands, so the image is already fetched by the time
+  // the candidate reaches step 3. Without this, the <img> tag doesn't
+  // start its request until DrawStep mounts, adding a 200-500ms visible
+  // flash on top of the pack wait the who step already covers. Same URL
+  // shape DrawStep builds, so any near-future <img src> hits the cache.
+  useEffect(() => {
+    if (!districtBounds || typeof Image === 'undefined') return
+    const img = new Image()
+    img.src = geoapifyStaticUrl({
+      bounds: districtBounds,
+      width: 608,
+      height: 260,
+    })
+  }, [districtBounds])
   // What the map shades. Only two surfaces can be on screen now, and only one
   // of them scopes the dots: the create flow's draft narrows them as the
   // filters are cut, and the walk leaves the whole district shaded under its
@@ -660,25 +727,26 @@ export default function NativeDoorKnockingPage({
                   {districtUnavailableMessage(serveMode)}
                 </p>
               )}
-              {/* Titled, because an untitled "Loading... Something awesome."
-                over a wait that runs to half a minute is the part of this that
-                got reported. The create flow says the same two sentences from
-                inside its own sheet — see `CreateListFlow` — since the sheet
-                covers this region for the whole of the wait that matters. */}
-              {!isUnresolvable && packQuery.isPending && (
-                <div className="flex h-full items-center justify-center">
-                  <LoadingAnimation
-                    title={
-                      <>
-                        {packLoadingTitle(serveMode)}
-                        <span className="mt-2 block text-base font-normal text-zinc-600">
-                          {PACK_LOADING_DURATION}
-                        </span>
-                      </>
-                    }
-                  />
-                </div>
-              )}
+              {/* One loader for the walk: MapLoader shows behind the walk
+                drawer while EITHER the pack downloads OR the walk's own
+                route hydrates. The canvas dynamic-import fallback uses
+                the same component, so pack-load → chunk-load → route-
+                fetch → real canvas is one continuous surface, no swap.
+                Gated on walkTurf so the create-flow arrival stays with
+                its own in-sheet loading copy — putting MapLoader behind
+                that sheet would print two competing loaders on one
+                screen.
+
+                The `routePending` half is what makes a fresh Build-route
+                landing look like a "Continue knocking" landing: on Build
+                route the pack is already warm from the create flow, so
+                only the route is left to fetch — without this OR, that
+                second wait sat silently on a bare district. */}
+              {walkTurf &&
+                !isUnresolvable &&
+                (!packQuery.data || walkMap.routePending) && (
+                  <MapLoader bottomPadPx={mapControlsOffset} />
+                )}
               {packQuery.isError && (
                 <p className="p-4 text-sm text-destructive">
                   {packErrorMessage(serveMode)}
@@ -733,6 +801,13 @@ export default function NativeDoorKnockingPage({
                       ? DRAW_CONTROLS_BOTTOM_PX
                       : (mapControlsOffset ?? 16)
                   }
+                  // Route framing padding — reuses the same sheet-height
+                  // measurement the controls do, so the pins land in the
+                  // visible band above the walk sheet as it snaps between
+                  // peek/half/full. Null on the create-flow (no sheet
+                  // occluding the map's route area) and on `full` snap (map
+                  // fully covered).
+                  routeFrameBottomPx={mapControlsOffset}
                   location={location}
                   // The cluster's third button. The design's draw surface
                   // carries the full cluster — plus, minus, locate — because a
@@ -765,7 +840,7 @@ export default function NativeDoorKnockingPage({
               what gets shown in it. */}
             {leaving && (
               <div className="absolute inset-0 z-40 flex items-center justify-center bg-background">
-                <LoadingAnimation title="Taking you back…" />
+                <Spinner />
               </div>
             )}
             {walkSurface()}
@@ -776,6 +851,7 @@ export default function NativeDoorKnockingPage({
                 onFiltersChange={setFilters}
                 onStepChange={changeFlowStep}
                 onClose={closeFlow}
+                districtBounds={districtBounds}
                 districtHouseholds={filterResult?.households ?? 0}
                 // The count above is derived from the pack, so it reads 0 for
                 // the whole of a download the sheet is drawn over. These two
@@ -827,32 +903,14 @@ export default function NativeDoorKnockingPage({
             }}
           />
         )}
-        {/* One action and no cancel: there is nothing to decide here, and
-            nothing the candidate can do to proceed today. The remedy the copy
-            names — go knock what is already mapped — is behind this dialog on
-            the rail it opened over. */}
-        <AlertDialog
-          open={refusedCampaignLimit !== null}
-          onOpenChange={(next) => {
-            if (!next) setRefusedCampaignLimit(null)
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Daily limit reached</AlertDialogTitle>
-              <AlertDialogDescription>
-                You&apos;ve created {refusedCampaignLimit} door knocking
-                campaigns today. Go knock the doors you&apos;ve already mapped,
-                and build more lists tomorrow.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogAction onClick={() => setRefusedCampaignLimit(null)}>
-                Got it
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        {/* Safety net for direct-URL entry, a race between the hub's own
+            gate and the quota refetch, or a limit hit in another tab —
+            the hub intercepts the tile click when it can, but this ensures
+            an org that reaches the page still gets refused cleanly. */}
+        <DoorKnockingDailyLimitDialog
+          limit={refusedCampaignLimit}
+          onDismiss={() => setRefusedCampaignLimit(null)}
+        />
       </DashboardLayout>
     </DoorKnockingSurface>
   )

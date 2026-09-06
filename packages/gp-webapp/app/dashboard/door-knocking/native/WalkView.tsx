@@ -19,10 +19,10 @@ import {
   DoorClosedIcon,
   FootprintsIcon,
   HouseIcon,
+  Skeleton,
   UserIcon,
   UsersIcon,
 } from '@styleguide'
-import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import { countDoors, isKnockable, knockableTargets } from '../routeCounts'
 import { liveLocationMessage, type LiveLocation } from './useLiveLocation'
 import { formatDuration } from './formatDuration'
@@ -424,31 +424,36 @@ export default function WalkView({
     )
   }
 
-  // A map pin tap opens the same `PersonSheet` a stop row opens, through the
-  // same `openSheet` — the pin is a way INTO the door-logging surface, never a
-  // second one, so replay keys and the ADR 0009 feed refresh come along with it.
+  // A map pin tap brings the sheet's list to that stop and expands its row
+  // in place — the same shape as a row tap on a multi-resident stop, and
+  // the same reason: the pin is a way INTO the list, not a shortcut past
+  // it. Opening PersonSheet directly (as it used to) covered the drawer's
+  // drag handle and header, breaking the "the sheet is always the sheet"
+  // rule a bottom sheet lives by, and it took the resident pick away from
+  // the candidate rather than offering it to them.
   //
-  // It goes straight to the sheet even for a multi-resident stop, where the row
-  // expands instead: the row's list is right under the finger that pressed it,
-  // while a pin is on a map band the list is scrolled away from, and the sheet's
-  // own resident switcher is the same picker one step further in.
-  //
-  // Whom it opens is the first resident still worth knocking, so a household
-  // with one flagged member lands on the person there is a conversation to have
-  // with. A hollow pin — `stopIsKnockable` false, nobody left — falls through to
-  // the first resident, deliberately: a tap that does nothing is the bug being
-  // fixed, and a sheet is not a form. `PersonSheet` withholds the script and
-  // `RecordKnockForm` for a flagged resident and renders the flag's own control
-  // and its `STATUS_CHANGE` row instead, so the tap answers "why am I being told
-  // to skip this house?" at the doorstep — the only place a flag set on the
-  // wrong resident gets caught — without offering a knock to log.
-  //
-  // It also brings the list to the tapped stop. The map band and the list are
-  // stacked, so the row for the pin under the thumb is usually scrolled off
-  // screen: without this, closing the sheet returns the canvasser to a list
-  // showing some other part of the street, and the numbered pin has no numbered
-  // row to match. `openSheet` selects; this is the half only a map tap needs.
+  // What this does: marks the stop (so the map's ring and the list's mark
+  // agree), scrolls the row into view, expands it, and clears any prior
+  // door expansion. The candidate reaches PersonSheet from the expanded
+  // row's resident picker, one intentional tap further in — where they
+  // can see whom they're about to log for.
   const openStopFromMap = (stop: RoutePayloadStop) => {
+    onSelectStop(stop.id)
+    setOpenStopId(stop.id)
+    setOpenDoorKey(null)
+    stopRowRefs.current.get(stop.id)?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+    })
+  }
+  // PersonSheet's chevron navigation is a different job: the sheet is
+  // already open, and Next/Previous door move it to the neighbouring stop
+  // without asking the candidate to reopen it. So it still opens
+  // PersonSheet on the first knockable resident (or the first resident if
+  // nobody is knockable — the flag reason is what the sheet then explains),
+  // and it also brings the list along and marks the row so the map ring
+  // and the sheet stay in agreement.
+  const openStopFromChevron = (stop: RoutePayloadStop) => {
     const stopTargets = targetsForStop(stop)
     const target = stopTargets.find(isKnockable) ?? stopTargets[0]
     if (!target) return
@@ -486,9 +491,31 @@ export default function WalkView({
 
   return (
     <div className="mx-auto min-h-0 w-full max-w-[608px] flex-1 overflow-y-auto px-4 pb-6">
+      {/* Mirror the loaded state's vertical rhythm so the transition to
+        real content isn't a layout jump: progress pill at top, PDF button
+        below it, then a run of stop rows (numbered marker + two text
+        lines each). Four rows is enough to fill the sheet at `half`
+        without over-drawing at `peek`. */}
       {routeQuery.isPending && (
-        <div className="flex h-full items-center justify-center">
-          <LoadingAnimation />
+        <div
+          data-testid="walk-view-loading"
+          aria-busy="true"
+          aria-live="polite"
+          className="flex flex-col gap-4 py-4"
+        >
+          <Skeleton className="h-6 w-36 rounded-full" />
+          <Skeleton className="h-10 w-full rounded-md" />
+          <div className="flex flex-col gap-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="flex items-center gap-3">
+                <Skeleton className="size-8 shrink-0 rounded-full" />
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
+                  <Skeleton className="h-3.5 w-3/5" />
+                  <Skeleton className="h-3 w-2/5" />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
       {/* Only when there is no route to walk. A background serve that fails —
@@ -922,15 +949,17 @@ export default function WalkView({
           stop={sheetStop}
           stopSeq={sheetStop.seq}
           isServe={isServe}
-          // Both go through `openStopFromMap`, which is the one entry that also
-          // brings the list to the stop it opens — without it the canvasser
-          // walks four doors from the sheet and closes it onto a list still
-          // showing where they started. It picks the first resident still worth
-          // knocking, the same choice a pin tap makes.
+          // The chevrons use `openStopFromChevron` — the sheet is already
+          // open here, so moving to the neighbouring stop keeps opening
+          // PersonSheet on the first resident worth knocking, and also
+          // brings the list along so the map ring and the row mark stay in
+          // agreement. Not `openStopFromMap` (which expands the row and
+          // stays out of the sheet) — that path is for the pin, where no
+          // sheet is on screen yet.
           onOpenPreviousStop={
-            previousStop ? () => openStopFromMap(previousStop) : null
+            previousStop ? () => openStopFromChevron(previousStop) : null
           }
-          onOpenNextStop={nextStop ? () => openStopFromMap(nextStop) : null}
+          onOpenNextStop={nextStop ? () => openStopFromChevron(nextStop) : null}
           selectedTargetId={sheet.targetId}
           onSelectTarget={(targetId) => {
             setSheet({ stopId: sheet.stopId, targetId })

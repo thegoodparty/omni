@@ -21,6 +21,17 @@ import type { OutreachType } from 'gpApi/types/outreach.types'
 // One meta row per channel, shared by the hub tiles, the history table's
 // channel badge, and the details drawer so the channel reads identically
 // everywhere (prototype: serve-nav-kit outreach data.ts).
+//
+// `badgeTint` and `iconTint` both use BRAND-PALETTE tokens rather than
+// semantic role tokens (`destructive-light`, `info-light`, …) so a retune
+// of `destructive` for error surfaces does not silently recolour phone
+// banking. The two are kept ONE-TO-ONE on the same brand shade — the
+// tile's icon circle and the row's badge must look like the same channel
+// speaking, not two different ones — following one shade pair:
+// `bg-brand-<palette>-100` background, `text-brand-<palette>-800`
+// foreground (700 where 800 tests too dark). Add a new channel by picking
+// an unused brand palette from `tailwind-theme.css` and using the same
+// pair for both fields.
 interface ChannelMeta {
   label: string
   icon: ReactNode
@@ -34,44 +45,47 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
   socialMedia: {
     label: 'Social media',
     icon: <Share2Icon />,
-    iconTint: 'bg-secondary-light',
-    badgeTint: 'border-transparent bg-secondary-light text-foreground',
+    iconTint: 'bg-brand-lavender-100',
+    badgeTint:
+      'border-transparent bg-brand-lavender-100 text-brand-lavender-800',
   },
   text: {
     label: 'SMS',
     icon: <MessageSquareIcon />,
-    iconTint: 'bg-info-light',
-    badgeTint: 'border-transparent bg-info-light text-foreground',
+    iconTint: 'bg-brand-blue-100',
+    badgeTint: 'border-transparent bg-brand-blue-100 text-brand-blue-800',
   },
   p2p: {
     label: 'SMS',
     icon: <MessageSquareIcon />,
-    iconTint: 'bg-info-light',
-    badgeTint: 'border-transparent bg-info-light text-foreground',
+    iconTint: 'bg-brand-blue-100',
+    badgeTint: 'border-transparent bg-brand-blue-100 text-brand-blue-800',
   },
   robocall: {
     label: 'Robocall',
     icon: <PhoneIcon />,
-    iconTint: 'bg-warning-light',
-    badgeTint: 'border-transparent bg-warning-light text-foreground',
+    iconTint: 'bg-brand-waxflower-100',
+    badgeTint:
+      'border-transparent bg-brand-waxflower-100 text-brand-waxflower-700',
   },
   phoneBanking: {
     label: 'Phone banking',
     icon: <HeadphonesIcon />,
-    iconTint: 'bg-destructive-light',
-    badgeTint: 'border-transparent bg-destructive-light text-foreground',
+    iconTint: 'bg-brand-red-100',
+    badgeTint: 'border-transparent bg-brand-red-100 text-brand-red-800',
   },
   nativePhoneBanking: {
     label: 'Phone banking',
     icon: <HeadphonesIcon />,
-    iconTint: 'bg-destructive-light',
-    badgeTint: 'border-transparent bg-destructive-light text-foreground',
+    iconTint: 'bg-brand-red-100',
+    badgeTint: 'border-transparent bg-brand-red-100 text-brand-red-800',
   },
   doorKnocking: {
     label: 'Door knocking',
     icon: <DoorOpenIcon />,
-    iconTint: 'bg-success-light',
-    badgeTint: 'border-transparent bg-success-light text-foreground',
+    iconTint: 'bg-brand-halo-green-100',
+    badgeTint:
+      'border-transparent bg-brand-halo-green-100 text-brand-halo-green-800',
   },
   // Same presentation as the legacy type: a candidate reading the history has
   // no use for the distinction between an eCanvasser draft and a native walk,
@@ -79,8 +93,9 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
   nativeDoorKnocking: {
     label: 'Door knocking',
     icon: <DoorOpenIcon />,
-    iconTint: 'bg-success-light',
-    badgeTint: 'border-transparent bg-success-light text-foreground',
+    iconTint: 'bg-brand-halo-green-100',
+    badgeTint:
+      'border-transparent bg-brand-halo-green-100 text-brand-halo-green-800',
   },
 }
 
@@ -92,9 +107,12 @@ export const getChannelLabel = (type: string | undefined): string => {
   )
 }
 
+// Default badge shape (px-2.5 py-1 + rounded-full since the styleguide's
+// own default) for legible label padding. The `shape="pill"` variant
+// (h-5 px-1.5) is intentionally tight for numeric notification chips and
+// reads as a compressed capsule around channel words like "Phone banking".
 export const ChannelBadge = ({ type }: { type: string | undefined }) => (
   <Badge
-    shape="pill"
     className={
       CHANNEL_META[type as OutreachType]?.badgeTint ??
       'border-transparent bg-muted text-foreground'

@@ -99,7 +99,7 @@ describe('SmsEditFlow', () => {
     expect(
       screen.queryByRole('button', { name: 'Back' }),
     ).not.toBeInTheDocument()
-    expect(screen.queryByText('Who are you texting?')).not.toBeInTheDocument()
+    expect(screen.queryAllByText('Who do you want to reach?')).toHaveLength(0)
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
   })
 
