@@ -68,7 +68,9 @@ test.describe('native door-knocking zero state', () => {
 
     // Backing out with nothing picked is not a question, and it leaves door
     // knocking rather than closing onto a dimmed map with no control on it.
-    await page.getByRole('button', { name: 'Close', exact: true }).click()
+    // OutreachFlowShell's dismiss control is labeled "Exit" (aria-label +
+    // visible text) — not "Close" — since session's chrome pass.
+    await page.getByRole('button', { name: 'Exit', exact: true }).click()
 
     await page.waitForURL(
       (url) => !url.pathname.startsWith('/dashboard/door-knocking'),

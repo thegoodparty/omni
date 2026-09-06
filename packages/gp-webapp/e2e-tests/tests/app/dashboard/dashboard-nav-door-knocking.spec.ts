@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
-import { nativeShellHeading } from 'src/helpers/door-knocking-e2e'
+import { createFlowStepHeading } from 'src/helpers/door-knocking-e2e'
 
 // Door knocking is a channel of Voter Outreach, not a peer of it: the left rail
 // no longer offers it, and the hub's channel tile is how a candidate gets in.
@@ -73,9 +73,17 @@ test.describe('door knocking is entered from Voter Outreach', () => {
       (url) => url.pathname === '/dashboard/door-knocking',
       { timeout: 45_000 },
     )
-    // The native shell's header, which renders as soon as the page's gate picks
-    // the native branch — deliberately not anything that waits on the deck.gl
-    // canvas or the district voter pack.
-    await expect(nativeShellHeading(page)).toBeVisible({ timeout: 60_000 })
+    // The sr-only `h1 "Door knocking"` on the page can't be the anchor any
+    // more: the create flow now opens itself on arrival (an org with no
+    // saved lists lands directly on the purpose step), and Radix's dialog
+    // inerts everything outside the drawer — the h1 lives on the page,
+    // outside the drawer, so it drops out of the accessibility tree the
+    // moment the modal opens. Anchor on the purpose step's own heading
+    // instead: it renders as soon as the gate picks the native branch
+    // AND the create flow mounts, which is the state a candidate lands
+    // on from this tile.
+    await expect(
+      createFlowStepHeading(page, 'What do you want to do?'),
+    ).toBeVisible({ timeout: 60_000 })
   })
 })
