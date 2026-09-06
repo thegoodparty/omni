@@ -4,6 +4,16 @@
 Serve (elected office) — every org-scoped route resolves via the
 `X-Organization-Slug` header, never a campaign/electedOffice id directly.
 
+This module is also the server home of **Team accounts** (feature brief
+ClickUp 86ajk6225; TDD doc `2ky4jq2q-104653`, implementation notes
+`2ky4jq2q-104673`): Phase 1 (ENG-10816) shipped owner + campaignAdmin,
+Phase 1.5 (ENG-11044) the volunteer role and outreach assignments — both
+behind the single `win-team-accounts` flag (no separate volunteer flag;
+ramping it is a deliberate product act, never implied by a merge). Webapp
+counterparts: `app/dashboard/team/` (team page — has its own `AGENTS.md`),
+`app/team-invite/` (acceptance screen), `app/volunteer/` (the reductive
+volunteer shell), `app/dashboard/outreach/` (assign UI).
+
 ## Roles and membership
 
 `OrganizationRole` (Prisma enum): `owner | campaignAdmin | volunteer`. The
@@ -36,21 +46,31 @@ instead of deferring to `OrganizationRoleGuard`; see their own comments.
 attached. Read `@UseOrganization()`'s JSDoc before changing the chain order —
 `OrganizationRoleGuard` only means anything after the scoping guard runs.
 
+**Role vocabulary is locked.** UI labels for the enum keys are `owner` →
+"Owner", `campaignAdmin` → "Campaign Manager", `volunteer` → "Volunteer"
+(the webapp's `app/dashboard/team/team.util.ts` `ROLE_LABELS` is the one
+source). Never "Admin" (reserved for the internal super-admin
+`UserRole.admin` — the collision confuses support conversations) and never
+"Candidate" (the account creator isn't always the candidate); the
+deprecated `UserRole.campaignManager` is never reused for any of this.
+User-facing strings gp-api itself emits (the member-added email) follow the
+same labels.
+
 ## Team endpoints (`team.controller.ts` + `services/organizationTeam.service.ts`)
 
 Membership rows are created in exactly two places: the invite endpoint (for
 an email with an existing account) and the accept endpoint (everyone else,
 via a Clerk invitation). No other code path may create one.
 
-| Method | Path                             | Auth                          |
-| ------ | -------------------------------- | ------------------------------ |
-| GET    | `team`                           | `@UseOrganization()`            |
-| POST   | `team/invites`                   | `@UseOrganization()` + flag gate |
-| DELETE | `team/invites/:id`                | `@UseOrganization()`            |
-| GET    | `team/invites/mine`               | session only, NOT org-scoped   |
-| POST   | `team/invites/accept`             | session only, NOT org-scoped   |
-| PATCH  | `team/members/:userId`            | `@UseOrganization()` + `@OwnerOnly()` |
-| DELETE | `team/members/:userId`            | `@UseOrganization()` + `@OwnerOnly()` |
+| Method | Path                   | Auth                                  |
+| ------ | ---------------------- | ------------------------------------- |
+| GET    | `team`                 | `@UseOrganization()`                  |
+| POST   | `team/invites`         | `@UseOrganization()` + flag gate      |
+| DELETE | `team/invites/:id`     | `@UseOrganization()`                  |
+| GET    | `team/invites/mine`    | session only, NOT org-scoped          |
+| POST   | `team/invites/accept`  | session only, NOT org-scoped          |
+| PATCH  | `team/members/:userId` | `@UseOrganization()` + `@OwnerOnly()` |
+| DELETE | `team/members/:userId` | `@UseOrganization()` + `@OwnerOnly()` |
 
 **Flag gate is scoped to one route.** `win-team-accounts` (via
 `FeaturesService.isFeatureEnabled`) gates only `POST team/invites` — the
@@ -79,9 +99,9 @@ page's Invite drawer sends a general volunteer invite with no `outreachId` —
 legal since the ticket dropped the DTO refine that used to require one; the
 invite still forbids one on a `campaignAdmin` invite. The outreach drawer's
 per-list entry point (ENG-11049, ENG-11056) is a second, still-live way to
-invite a volunteer, and *its* invites still carry an `outreachId`; when
+invite a volunteer, and _its_ invites still carry an `outreachId`; when
 present, `inviteMember` validates it belongs to the inviting org via
-`OutreachAssignmentService.assertOutreachInOrg` *before* anything is written
+`OutreachAssignmentService.assertOutreachInOrg` _before_ anything is written
 or a Clerk invitation is sent. When an `outreachId` is present, the invite
 and the eventual `OutreachAssignment` are created in the same act: the
 direct-add branch creates the membership + assignment in one transaction;
@@ -126,7 +146,7 @@ invitation (`ClerkInvitationsService.createTeamInvitation`) carrying
 at sign-up, which is the entire persistence mechanism for a pending invite
 (nothing is written to Postgres until accept). `GET team` merges Postgres
 membership rows with `listPendingTeamInvitations(slug)`, which pages through
-Clerk's *entire instance-wide* pending-invitation list (it has no
+Clerk's _entire instance-wide_ pending-invitation list (it has no
 server-side org filter) before filtering to this org — a single page would
 silently drop this org's invites once the instance-wide pending count
 exceeds the page size. Each page uses `CLERK_LIST_TIMEOUT_MS` (10s), not the
@@ -157,9 +177,9 @@ resolve to none). A
 fallback-accept also revokes the invitation object after the DB commit,
 best-effort, so it can't be re-consumed or linger as pending.
 `@@unique([organizationSlug, userId])` makes a double-accept a Prisma unique-constraint conflict; that's caught and turned
-into a 200 with the *persisted* row, never the request body — response
+into a 200 with the _persisted_ row, never the request body — response
 source is always the DB, not request input. The Clerk metadata clear runs
-*after* the DB commit; a failed clear just means the next accept retries it.
+_after_ the DB commit; a failed clear just means the next accept retries it.
 
 **Owner has no membership row**, so `:userId === Organization.ownerId` is a
 400 on both member-management routes (ownership transfer is out of scope).
@@ -172,6 +192,62 @@ lingering access. `OrganizationTeamService.removeMember` resolves
 `OutreachModule` imports this module for `@UseOrganization()`, and its own
 import graph closes a multi-module cycle a single `forwardRef` can't break
 (same reasoning as `RaceOpponentService` in `campaignIdeology.service.ts`).
+
+## The owner line and billing
+
+`@OwnerOnly()` draws the explicit line at member management (role change,
+removal). Subscription billing is owner-only by existing scoping rather
+than by decorator: subscription checkout/portal are personally scoped
+(`findActiveByUserId`, the user's own Stripe `customerId`), so a manager
+can't touch the owner's plan — that line is pinned by regression tests
+(ENG-10819), not a guard. One-time purchases (create-checkout-session,
+complete-free-purchase — texts, polls) are deliberately manager-allowed:
+the manager pays on their own card (decision 2026-07-28). Ownership
+transfer is out of scope in-product; recovery is a manual admin runbook
+(ENG-11026). Detail: `src/payments/AGENTS.md`.
+
+## Volunteer surface map (Phase 1.5)
+
+A volunteer's entire read surface is "assignments where assignee = me"
+(`OutreachAssignment` — an ACCESS GRANT, never attribution; attribution is
+the interaction rows' `actorUserId`). The `@AllowVolunteer()` allowlist is
+fail-closed and opened route by route:
+
+- `GET /outreach/assignments/mine` — the whole volunteer read surface
+  (`src/outreach/AGENTS.md`, which also covers assignment mechanics:
+  idempotent assign, assignee-must-already-be-a-member 422, the org
+  invariant, removal cascade).
+- The phone-banking caller (`PhoneBankingAccessService`) and the
+  door-knocking walk (`utils/doorKnockingAccess.util.ts`) — a volunteer is
+  admitted only when `OutreachAssignmentService.existsFor` finds an
+  assignment on the target's outreach envelope; an unassigned volunteer
+  gets **404, not 403** (don't leak existence — ENG-11050 precedent).
+  Never the district voter pack, turf CRUD, or list deletion.
+- Contact-notes CRUD — the one CRM carve-out (ENG-11057):
+  `ContactNoteVolunteerAccessService` (`src/contactNote/services/`) scopes
+  by `existsForPerson` (assigned to any outreach whose list/route reaches
+  that person), same 404-not-403 posture.
+- `GET /onboarding/contacts/stats` — only because that route is
+  `@PublicAccess`; a volunteer sending the org header must not be 403'd on
+  an endpoint anonymous callers can reach.
+
+Everything else fails closed. The CRM (`UseEngagementContext`) and voter
+file (`CanDownloadVoterFile`) deny volunteers permanently by design — the
+PRD's data-protection guarantee is that volunteers log results but never
+read or export the underlying voter file — and `UseElectedOffice` stays
+owner-only (Serve staff is a named follow-on), all asserted by test.
+
+## Analytics
+
+Server events use the PRD vocabulary (`EVENTS.Team` in
+`src/vendors/segment/segment.types.ts`): `Team - Member Invited` (`role`,
+`invitedByRole`, `listScoped`), `Team - Invite Accepted`,
+`Team - Role Changed` (`fromRole`, `toRole`), `Team - Member Removed`,
+`Team - Outreach Assigned` / `Team - Outreach Assignment Removed`.
+`Team - Campaign Switched` fires client-side in the webapp. Every event
+additionally carries `actorUserId`/`actorRole`, enriched centrally by
+`AnalyticsService` from request context (`src/analytics/`) — never add
+per-event actor props.
 
 ## HubSpot contact sync (ENG-10826, ENG-11030)
 
@@ -217,7 +293,7 @@ label.
 `GET /v1/organizations` is owned-or-member
 (`OR: [{ ownerId }, { memberships: { some: { userId } } }]`) and threads the
 viewer's own role onto each entry. This response schema (`APIOrganizationSchema`
-in `organizations.controller.ts`) previously 500'd the *whole list* on a
+in `organizations.controller.ts`) previously 500'd the _whole list_ on a
 null external-sourced leaf under `@ResponseSchema` — keep new/changed leaves
 nullable, and remember `@ResponseSchema` silently no-ops without the
 per-controller `@UseInterceptors(ZodResponseInterceptor)`.
