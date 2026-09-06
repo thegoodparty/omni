@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { useRouter } from 'next/navigation'
 import {
   Avatar,
   Collapsible,
@@ -34,6 +35,7 @@ import {
   useOrganizations,
   useSetOrganizationSlug,
 } from '@shared/organization-picker'
+import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
 
 // The volunteer shell: a left sidebar (logo/wordmark, a bottom user block that
 // expands an in-sidebar "switch campaign" list, and a logout row) plus a slim
@@ -53,6 +55,11 @@ const VolunteerSidebar = ({
   const organizations = useOrganizations()
   const setOrganizationSlug = useSetOrganizationSlug()
   const handleLogOut = useHandleLogOut()
+  const router = useRouter()
+  // trackExposure=false: a render-decision read for switch routing, same as
+  // OrganizationPicker's own read of this flag — not the experiment's own
+  // treatment surface.
+  const { enabled: teamAccountsEnabled } = useTeamAccountsFlag(false)
   const [switcherOpen, setSwitcherOpen] = useState(false)
 
   // A single-campaign volunteer has nothing to switch to — the user block
@@ -60,12 +67,25 @@ const VolunteerSidebar = ({
   // campaign name, but no switch affordance or list).
   const canSwitchCampaigns = organizations.length > 1
 
-  // Closing on pick is the common case, but Radix only fires onValueChange
-  // on an actual change — picking the already-active campaign wouldn't
-  // close it, so the "Switch campaign" label doubles as a manual collapse.
+  // The list isn't filtered to volunteer-role orgs (a volunteer can also own
+  // or manage other campaigns), so picking one can leave the shell that fits
+  // the DESTINATION org's role, not this one — mirrors
+  // OrganizationPicker.handleOrgSwitch's destination rule exactly (this
+  // shell has no SHARED_PATHS-style stay-put case: every /volunteer/* route
+  // is scoped to one org, so always navigating here also clears a stale
+  // deep route like /volunteer/phone-banking/[listId] left over from the
+  // org being switched away from).
   const handleOrgSelect = (slug: string) => {
     setOrganizationSlug(slug)
     setSwitcherOpen(false)
+    const destination = organizations.find((org) => org.slug === slug)
+    router.push(
+      teamAccountsEnabled && destination?.role === 'volunteer'
+        ? '/volunteer'
+        : destination?.electedOfficeId
+          ? '/dashboard/chief-of-staff'
+          : '/dashboard',
+    )
   }
 
   return (

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { router } from 'helpers/test-utils/router-mocking'
 import { Organization } from 'gpApi/api-endpoints'
 import { User, UserRole } from 'helpers/types'
 
@@ -10,6 +11,7 @@ const mockUseOrganization = vi.fn()
 const mockUseOrganizations = vi.fn()
 const mockSetOrganizationSlug = vi.fn()
 const mockHandleLogOut = vi.fn()
+const mockUseTeamAccountsFlag = vi.fn()
 
 vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => mockUseUser(),
@@ -21,6 +23,9 @@ vi.mock('@shared/organization-picker', () => ({
 }))
 vi.mock('@shared/user/handleLogOut', () => ({
   useHandleLogOut: () => mockHandleLogOut,
+}))
+vi.mock('@shared/experiments/teamAccountsFlag', () => ({
+  useTeamAccountsFlag: (...args: unknown[]) => mockUseTeamAccountsFlag(...args),
 }))
 
 import VolunteerSidebar from './VolunteerSidebar'
@@ -62,6 +67,21 @@ const orgTwo: Organization = {
   ownerName: 'Marcus Ortega',
 }
 
+// A campaign the same person owns, distinct from the volunteer orgs above —
+// exercises the destination-org-role branch of handleOrgSelect.
+const orgOwned: Organization = {
+  slug: 'org-3',
+  name: 'Val Unteer for Mayor',
+  positionName: null,
+  position: null,
+  district: null,
+  electedOfficeId: null,
+  campaignId: 3,
+  status: 'active',
+  role: 'owner',
+  ownerName: 'Val Unteer',
+}
+
 const children = <div data-testid="volunteer-children">assignments</div>
 
 describe('VolunteerSidebar', () => {
@@ -70,6 +90,7 @@ describe('VolunteerSidebar', () => {
     mockUseUser.mockReturnValue([user])
     mockUseOrganization.mockReturnValue(orgOne)
     mockUseOrganizations.mockReturnValue([orgOne])
+    mockUseTeamAccountsFlag.mockReturnValue({ ready: true, enabled: true })
   })
 
   it('renders the sidebar user block and a logout row, with the active campaign name and no org picker or profile dropdown', () => {
@@ -146,6 +167,45 @@ describe('VolunteerSidebar', () => {
       )
 
       expect(mockSetOrganizationSlug).toHaveBeenCalledWith('org-2')
+    })
+  })
+
+  // The list isn't filtered to volunteer-role orgs (a volunteer can also own
+  // another campaign), so the destination shell has to follow the org just
+  // picked, not the one being left.
+  describe('with a mixed-role fixture (one volunteer org, one owned org)', () => {
+    it('navigates to /volunteer when the picked org is one the user volunteers for', async () => {
+      mockUseOrganization.mockReturnValue(orgOwned)
+      mockUseOrganizations.mockReturnValue([orgOne, orgOwned])
+      const userEventInstance = userEvent.setup()
+      render(<VolunteerSidebar>{children}</VolunteerSidebar>)
+
+      await userEventInstance.click(
+        screen.getByRole('button', { name: /switch campaign/i }),
+      )
+      await userEventInstance.click(
+        screen.getByRole('radio', { name: /renee wells/i }),
+      )
+
+      expect(mockSetOrganizationSlug).toHaveBeenCalledWith('org-1')
+      expect(router.push).toHaveBeenCalledWith('/volunteer')
+    })
+
+    it('navigates to /dashboard when the picked org is one the user owns', async () => {
+      mockUseOrganization.mockReturnValue(orgOne)
+      mockUseOrganizations.mockReturnValue([orgOne, orgOwned])
+      const userEventInstance = userEvent.setup()
+      render(<VolunteerSidebar>{children}</VolunteerSidebar>)
+
+      await userEventInstance.click(
+        screen.getByRole('button', { name: /switch campaign/i }),
+      )
+      await userEventInstance.click(
+        screen.getByRole('radio', { name: /val unteer/i }),
+      )
+
+      expect(mockSetOrganizationSlug).toHaveBeenCalledWith('org-3')
+      expect(router.push).toHaveBeenCalledWith('/dashboard')
     })
   })
 })
