@@ -169,6 +169,18 @@ const dismissDrawInstructions = () =>
 const heading = (name: string) =>
   screen.getByRole('heading', { level: 3, name })
 
+// The bar stepper's own visible "Step X of Y" text is suppressed on this
+// shell (OutreachFlowShell passes `showLabel={false}` — the DrawerTitle
+// carries the flow's identity, the bars carry position). But the stepper
+// still exposes its position on the progressbar role's aria attributes,
+// which is what these assertions actually mean: "the flow claims it is
+// on step N of a Y-step run".
+const expectStep = (currentStep: number, totalSteps: number) => {
+  const stepper = screen.getByRole('progressbar', { name: 'Progress' })
+  expect(stepper).toHaveAttribute('aria-valuenow', String(currentStep))
+  expect(stepper).toHaveAttribute('aria-valuemax', String(totalSteps))
+}
+
 describe('CreateListFlow', () => {
   beforeEach(() => {
     testQueryClient.clear()
@@ -698,7 +710,7 @@ describe('CreateListFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to lists' }))
 
     expect(audiencePicker()).toBeInTheDocument()
-    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+    expectStep(2, 5)
   })
 
   // The canvas puts Top issue first in the shared filter pool. We hold no
@@ -990,13 +1002,13 @@ describe('CreateListFlow steps', () => {
     // equivalent on a channel that sends a message.
     expect(screen.getByText('Encourage early voting')).toBeInTheDocument()
     expect(screen.getByText('Turn out my supporters')).toBeInTheDocument()
-    expect(screen.getByText('Step 1 of 5')).toBeInTheDocument()
+    expectStep(1, 5)
 
     fireEvent.click(
       screen.getByRole('button', { name: /Encourage early voting/ }),
     )
     expect(heading('Who do you want to reach?')).toBeInTheDocument()
-    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+    expectStep(2, 5)
   })
 
   // The reported defect, walked end to end at the step it was reported from:
@@ -1010,10 +1022,10 @@ describe('CreateListFlow steps', () => {
     const props = { ...baseProps, savedLists, onStepChange }
 
     const { rerender } = renderAtWho(props)
-    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+    expectStep(2, 5)
 
     await pickList(/Super voters/)
-    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+    expectStep(2, 5)
 
     // The other audience: pills cut against the whole contact universe, with
     // no saved list behind them to shorten anything.
@@ -1025,7 +1037,7 @@ describe('CreateListFlow steps', () => {
         filters={{ partyDemocrat: true }}
       />,
     )
-    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+    expectStep(2, 5)
 
     // And it really does continue to the map rather than to an ending of its
     // own — the stepper's promise and the flow's behaviour are the same claim.
@@ -1039,7 +1051,7 @@ describe('CreateListFlow steps', () => {
         filters={{ partyDemocrat: true }}
       />,
     )
-    expect(screen.getByText('Step 3 of 5')).toBeInTheDocument()
+    expectStep(3, 5)
   })
 
   // One name per pass through the flow, and it is the campaign's. A hand-cut
@@ -1066,13 +1078,13 @@ describe('CreateListFlow steps', () => {
     const { rerender } = render(
       <CreateListFlow {...baseProps} step="draw" filters={{}} />,
     )
-    expect(screen.getByText('Step 3 of 5')).toBeInTheDocument()
+    expectStep(3, 5)
 
     rerender(<CreateListFlow {...baseProps} step="confirm" filters={{}} />)
-    expect(screen.getByText('Step 4 of 5')).toBeInTheDocument()
+    expectStep(4, 5)
 
     rerender(<CreateListFlow {...baseProps} step="route" filters={{}} />)
-    expect(screen.getByText('Step 5 of 5')).toBeInTheDocument()
+    expectStep(5, 5)
   })
 
   // The #1385 lesson: a card label doubling as a default title renamed live
@@ -1449,7 +1461,7 @@ describe('CreateListFlow preselected list', () => {
     expect(onFiltersChange).toHaveBeenCalledWith({ partyDemocrat: true })
     // Arriving with the audience already chosen skips no step of the flow:
     // the boundary and the route are still ahead of it.
-    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+    expectStep(2, 5)
   })
 
   // The four ways a query param can be wrong that survive the parser — an id
@@ -1466,12 +1478,15 @@ describe('CreateListFlow preselected list', () => {
     })
 
     const picker = audiencePicker()
-    expect(picker).toHaveTextContent('All contacts')
-    expect(picker).toHaveTextContent('12,000 doors')
+    // A missed preselection lands the candidate on the ordinary who
+    // step with nothing committed — same placeholder text a fresh
+    // arrival reads, not "All contacts" (which would look like a
+    // preselection succeeded on the default row).
+    expect(picker).toHaveTextContent('Choose a voter list')
     expect(onFiltersChange).not.toHaveBeenCalled()
     // A missed preselection is the ordinary flow and nothing else — same
     // audience the flow opens on, same five steps in front of it.
-    expect(screen.getByText('Step 2 of 5')).toBeInTheDocument()
+    expectStep(2, 5)
   })
 
   it('leaves the flow untouched with no list carried in', () => {
