@@ -43,5 +43,6 @@ model ContactInteractionPhoneBanking {
   // the list, and a corrected answer upserts in place rather than forking.
   @@unique([phoneBankingListId, personId])
   @@index([organizationSlug, personId, occurredAt])
+  @@index([organizationSlug, actorUserId])
   @@map("contact_interaction_phone_banking")
 }
