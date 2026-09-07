@@ -2222,6 +2222,10 @@ export type OutreachAssignee = {
   createdAt: string
   assignedByUserId: number | null
   assignedByName: string | null
+  // Per-assignee logged-interaction count on this outreach: a real count for
+  // the two native channels (nativePhoneBanking/nativeDoorKnocking), null for
+  // every other outreachType.
+  loggedCount: number | null
 }
 
 export type OutreachAssigneesResponse = {

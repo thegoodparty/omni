@@ -672,7 +672,9 @@ describe('TeamPage — list-scoped pending invites (delegate review, PR #1736)',
 
 describe('TeamPage — outreach results columns (ENG-11080)', () => {
   it('joins stats to members by userId and renders their counts', async () => {
-    const lastActivityAt = '2024-01-10T15:30:00.000Z'
+    // Evening instant: the dateUsHelper +8h shim would mis-render this as
+    // Jan 11 (in UTC CI and eastern local runs) — the correct formatter must not
+    const lastActivityAt = '2024-01-10T22:00:00.000Z'
     stats = [
       {
         userId: owner.userId,
