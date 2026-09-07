@@ -13,7 +13,9 @@ anything that calls `/v1/organizations/team*`.
 Shipped in phases: Phase 1 = owner + Campaign Manager (ENG-10816),
 Phase 1.5 = volunteer role + outreach assignments (ENG-11044), plus
 design-alignment waves against the Lovable prototype (ENG-11060,
-ENG-11057/58/59/67). Phase 2 (multi-campaign roll-ups) is future work.
+ENG-11057/58/59/67). Phase 2 = per-member results roll-ups (ENG-11074):
+the People table's Doors / Calls / Total / Last active columns, read from
+`GET /v1/organizations/team/stats` and joined to members by `userId`.
 
 ## Role vocabulary (locked)
 
@@ -65,6 +67,20 @@ surface is inert, which is what lets all of this merge to `main` dark.
   loaded-and-empty for that window (ENG-11039). And never derive UI (the
   people count, "No pending invites") from the `?? []` fallback on error —
   error states render their own copy.
+- **Stats are a second, independent query (ENG-11080):**
+  `GET /v1/organizations/team/stats` under `teamStatsQueryKey(orgSlug)`,
+  gated exactly like the team query (`!!orgSlug && !isElectedOffice` — a
+  Serve org must not fetch stats). While it's `isPending` the count cells
+  render skeletons, never fake zeros; on error they render em dashes and
+  member management keeps working untouched. Cells and headers carry
+  `team-stat-*` / `team-stat-header-*` testids — the e2e spec anchors on
+  them, so keep them when restyling.
+- **Never format `lastActivityAt` with `dateUsHelper`:** it's a real
+  instant (max `occurredAt`), and that helper's +8h shim pushes evening
+  timestamps onto the next calendar day (the `outreachDate.util.ts` bug
+  class). The cell uses `format(parseISO(...), 'MMM d, yyyy')` in the
+  viewer's timezone, and its unit test pins a boundary-crossing fixture so
+  the shim can't sneak back in.
 - **Shared-mutation per-row state:** each table mutation is one shared
   `useMutation`, and its `variables` reflect only the LAST `mutate()` call —
   good enough to disable the acting row, insufficient for real concurrency.

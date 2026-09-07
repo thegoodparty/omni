@@ -7,7 +7,8 @@ Serve (elected office) — every org-scoped route resolves via the
 This module is also the server home of **Team accounts** (feature brief
 ClickUp 86ajk6225; TDD doc `2ky4jq2q-104653`, implementation notes
 `2ky4jq2q-104673`): Phase 1 (ENG-10816) shipped owner + campaignAdmin,
-Phase 1.5 (ENG-11044) the volunteer role and outreach assignments — both
+Phase 1.5 (ENG-11044) the volunteer role and outreach assignments, and
+Phase 2 (ENG-11074) per-member results roll-ups — all
 behind the single `win-team-accounts` flag (no separate volunteer flag;
 ramping it is a deliberate product act, never implied by a merge). Webapp
 counterparts: `app/dashboard/team/` (team page — has its own `AGENTS.md`),
@@ -65,6 +66,7 @@ via a Clerk invitation). No other code path may create one.
 | Method | Path                   | Auth                                  |
 | ------ | ---------------------- | ------------------------------------- |
 | GET    | `team`                 | `@UseOrganization()`                  |
+| GET    | `team/stats`           | `@UseOrganization()`                  |
 | POST   | `team/invites`         | `@UseOrganization()` + flag gate      |
 | DELETE | `team/invites/:id`     | `@UseOrganization()`                  |
 | GET    | `team/invites/mine`    | session only, NOT org-scoped          |
@@ -78,6 +80,21 @@ only route that can create a membership row for a brand-new team. Every
 other route is left ungated on purpose: without any membership rows the
 flag being off makes them inert, and gating `accept` would strand an
 in-flight invitee if the flag ramps back down after an invite went out.
+
+**`GET team/stats` is the Phase 2 per-member roll-up (ENG-11074).**
+`TeamStatsService` (`services/teamStats.service.ts`) returns
+`{ userId, doorsKnocked, callsMade, totalLogged, lastActivityAt }` per
+CURRENT member (owner + membership rows, zero-filled) from two
+`groupBy(['actorUserId'])` reads over `ContactInteractionDoorKnock` +
+`ContactInteractionPhoneBanking` (`actorUserId: { not: null }`, both tables
+indexed on `(organizationSlug, actorUserId)`). `lastActivityAt` is max
+`occurredAt` — when the work happened, not when it synced. It never calls
+Clerk (the invite-paging 502 lesson lives on `listTeam` alone), carries no
+name/email/role (the webapp joins by `userId` against `GET team`), and is
+deliberately not flag-gated (additive read reachable only from gated UI).
+Work logged by a since-removed member is invisible by design — their rows
+keep `actorUserId` but no membership row means no output row (open product
+question, tracked on the epic).
 
 **Team accounts are Win-only in Phase 1.** Serve staff accounts are an
 explicit non-goal — every elected-office surface stays owner-only via
