@@ -27,6 +27,14 @@ export const ROLE_DESCRIPTIONS: Record<'campaignAdmin' | 'volunteer', string> =
 
 export const teamQueryKey = (orgSlug: string | undefined) => ['team', orgSlug]
 
+// Separate from teamQueryKey (ENG-11080): stats fail/load independently of
+// the roster, so a stats-only invalidation or error never touches member
+// management state.
+export const teamStatsQueryKey = (orgSlug: string | undefined) => [
+  'teamStats',
+  orgSlug,
+]
+
 export const formatName = (name: string | null, email: string): string =>
   name && name.trim().length > 0 ? name : email
 

@@ -3,7 +3,11 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
-import type { TeamMember, PendingInvite } from 'gpApi/api-endpoints'
+import type {
+  TeamMember,
+  PendingInvite,
+  TeamMemberStats,
+} from 'gpApi/api-endpoints'
 import TeamPage from './TeamPage'
 
 const { mockUseOrganization, mockUseOrganizationRole } = vi.hoisted(() => ({
@@ -71,6 +75,7 @@ const pendingInvite2: PendingInvite = {
 // real assertion — it would pass even if the mutation never fired.
 let members: TeamMember[]
 let pendingInvites: PendingInvite[]
+let stats: TeamMemberStats[]
 
 beforeEach(() => {
   testQueryClient.clear()
@@ -78,9 +83,17 @@ beforeEach(() => {
   mockUseOrganizationRole.mockReturnValue('owner')
   members = [owner, manager]
   pendingInvites = [pendingInvite]
+  stats = []
   api.mock('GET /v1/organizations/team', () => ({
     status: 200,
     data: { members, pendingInvites },
+  }))
+  // Default: empty stats, resolved immediately — every existing test in this
+  // file predates ENG-11080 and asserts nothing about the stats columns, so
+  // this keeps them deterministic rather than hitting an unmocked route.
+  api.mock('GET /v1/organizations/team/stats', () => ({
+    status: 200,
+    data: { stats },
   }))
 })
 
@@ -654,5 +667,127 @@ describe('TeamPage — list-scoped pending invites (delegate review, PR #1736)',
         name: 'Revoke invite for invitee@example.com',
       }),
     ).toBeInTheDocument()
+  })
+})
+
+describe('TeamPage — outreach results columns (ENG-11080)', () => {
+  it('joins stats to members by userId and renders their counts', async () => {
+    // Evening instant: the dateUsHelper +8h shim would mis-render this as
+    // Jan 11 (in UTC CI and eastern local runs) — the correct formatter must not
+    const lastActivityAt = '2024-01-10T22:00:00.000Z'
+    stats = [
+      {
+        userId: owner.userId,
+        doorsKnocked: 12,
+        callsMade: 4,
+        totalLogged: 16,
+        lastActivityAt,
+      },
+      {
+        userId: manager.userId,
+        doorsKnocked: 0,
+        callsMade: 0,
+        totalLogged: 0,
+        lastActivityAt: null,
+      },
+    ]
+
+    render(<TeamPage />)
+
+    const ownerRow = (await screen.findByText('Owner Person')).closest('tr')
+    expect(ownerRow).not.toBeNull()
+    expect(within(ownerRow!).getByText('12')).toBeInTheDocument()
+    expect(within(ownerRow!).getByText('4')).toBeInTheDocument()
+    expect(within(ownerRow!).getByText('16')).toBeInTheDocument()
+    expect(within(ownerRow!).getByText('Jan 10, 2024')).toBeInTheDocument()
+
+    // Owner row (no Manage menu) still gets stats like any other member.
+    expect(
+      within(ownerRow!).queryByRole('button', { name: /^Manage /i }),
+    ).not.toBeInTheDocument()
+
+    // A member with no logged work at all (lastActivityAt null) shows
+    // 0 / 0 / 0 / em dash, not a fabricated blank.
+    const managerRow = (await screen.findByText('Manager Person')).closest('tr')
+    expect(managerRow).not.toBeNull()
+    expect(within(managerRow!).getAllByText('0')).toHaveLength(3)
+    expect(within(managerRow!).getByText('—')).toBeInTheDocument()
+  })
+
+  it('a member absent from the stats response zero-fills rather than erroring', async () => {
+    stats = [] // neither owner nor manager has a stats row
+
+    render(<TeamPage />)
+
+    const ownerRow = (await screen.findByText('Owner Person')).closest('tr')
+    expect(ownerRow).not.toBeNull()
+    expect(within(ownerRow!).getAllByText('0')).toHaveLength(3)
+    expect(within(ownerRow!).getByText('—')).toBeInTheDocument()
+  })
+
+  it('renders placeholders, never zeros, while stats are pending — member rows still render', async () => {
+    let resolveStats: (() => void) | undefined
+    api.mock(
+      'GET /v1/organizations/team/stats',
+      () =>
+        new Promise((resolve) => {
+          resolveStats = () => resolve({ status: 200, data: { stats } })
+        }),
+    )
+
+    render(<TeamPage />)
+
+    // The team roster itself resolves normally (default mock, not delayed),
+    // so member rows are visible while stats are still in flight.
+    expect(await screen.findByText('Owner Person')).toBeInTheDocument()
+    expect(screen.getByText('Manager Person')).toBeInTheDocument()
+
+    const ownerRow = screen.getByText('Owner Person').closest('tr')
+    expect(ownerRow).not.toBeNull()
+    // Never a fabricated 0 while the real count is still unknown.
+    expect(within(ownerRow!).queryByText('0')).not.toBeInTheDocument()
+    expect(
+      ownerRow!.querySelectorAll('[data-slot="skeleton"]').length,
+    ).toBeGreaterThan(0)
+
+    await waitFor(() => expect(resolveStats).toBeDefined())
+    resolveStats?.()
+    await waitFor(() => {
+      expect(ownerRow!.querySelectorAll('[data-slot="skeleton"]').length).toBe(
+        0,
+      )
+    })
+  })
+
+  it('renders em dashes on a stats failure and keeps member management fully working', async () => {
+    api.mock('GET /v1/organizations/team/stats', {
+      status: 500,
+      data: { message: 'upstream error' },
+    })
+    api.mock('DELETE /v1/organizations/team/members/:userId', () => {
+      members = members.filter((m) => m.userId !== manager.userId)
+      return { status: 200, data: undefined }
+    })
+
+    const user = userEvent.setup()
+    render(<TeamPage />)
+
+    const managerRow = (await screen.findByText('Manager Person')).closest('tr')
+    expect(managerRow).not.toBeNull()
+    await waitFor(() => {
+      expect(within(managerRow!).getAllByText('—')).toHaveLength(4)
+    })
+
+    // Invite stays enabled, and remove still works — a stats failure never
+    // degrades member management.
+    expect(screen.getByRole('button', { name: 'Invite' })).toBeEnabled()
+    await user.click(
+      screen.getByRole('button', { name: 'Manage Manager Person' }),
+    )
+    await user.click(await screen.findByText('Remove from team'))
+
+    await waitFor(() => {
+      expect(screen.queryByText('Manager Person')).not.toBeInTheDocument()
+    })
   })
 })
