@@ -87,3 +87,24 @@ export const MyPendingInviteResponseSchema = z.object({
 export type MyPendingInviteResponse = z.infer<
   typeof MyPendingInviteResponseSchema
 >
+
+// GET /organizations/team/stats: per-current-member outreach counts, read
+// from the durable ContactInteraction* actorUserId stamps rather than
+// analytics. No name/email/role here — the webapp joins by userId against
+// GET /organizations/team. lastActivityAt MUST stay nullable: a member with
+// no logged activity yet has none (ENG-10543-class interceptor 500 otherwise).
+export const TeamMemberStatsSchema = z.object({
+  userId: z.number(),
+  doorsKnocked: z.number().int(),
+  callsMade: z.number().int(),
+  totalLogged: z.number().int(),
+  lastActivityAt: zCoerceDate().nullable(),
+})
+
+export type TeamMemberStats = z.infer<typeof TeamMemberStatsSchema>
+
+export const TeamStatsResponseSchema = z.object({
+  stats: z.array(TeamMemberStatsSchema),
+})
+
+export type TeamStatsResponse = z.infer<typeof TeamStatsResponseSchema>
