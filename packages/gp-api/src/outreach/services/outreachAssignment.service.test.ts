@@ -1,10 +1,33 @@
 import { BadRequestException } from '@nestjs/common'
 import { beforeEach, describe, expect, it } from 'vitest'
+import type { GeoJsonPolygon } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
-import { Campaign, Organization } from '../../generated/prisma'
+import {
+  Campaign,
+  DoorKnockingMode,
+  DoorKnockOutcome,
+  Organization,
+  OutreachType,
+  PhoneBankCallOutcome,
+  PhoneBankingPurpose,
+} from '../../generated/prisma'
 import { OutreachAssignmentService } from './outreachAssignment.service'
 
 const service = useTestService()
+
+// A minimal placeholder — these tests are about counting, not the geometry,
+// and geoPoly is NOT NULL on the turf.
+const GEO_POLY: GeoJsonPolygon = {
+  type: 'Polygon',
+  coordinates: [
+    [
+      [-87.66, 41.89],
+      [-87.64, 41.89],
+      [-87.65, 41.91],
+      [-87.66, 41.89],
+    ],
+  ],
+}
 
 let assignmentService: OutreachAssignmentService
 let organization: Organization
@@ -321,6 +344,239 @@ describe('OutreachAssignmentService', () => {
         },
       })
       expect(row).not.toBeNull()
+    })
+  })
+
+  describe('loggedCountsByAssignee', () => {
+    const createPhoneBankingOutreach = async () => {
+      const filter = await service.prisma.voterFileFilter.create({
+        data: { organizationSlug: organization.slug, name: 'PB audience' },
+      })
+      const list = await service.prisma.phoneBankingList.create({
+        data: {
+          organizationSlug: organization.slug,
+          voterFileFilterId: filter.id,
+          name: 'Counts list',
+          script: 'Hi',
+          sheetCount: 1,
+          purpose: PhoneBankingPurpose.persuade_voters,
+        },
+      })
+      const outreach = await service.prisma.outreach.create({
+        data: {
+          campaignId: campaign.id,
+          organizationSlug: organization.slug,
+          outreachType: OutreachType.nativePhoneBanking,
+          phoneBankingListId: list.id,
+        },
+      })
+      return { list, outreach }
+    }
+
+    const createDoorKnockingOutreach = async () => {
+      const filter = await service.prisma.voterFileFilter.create({
+        data: { organizationSlug: organization.slug, name: 'DK audience' },
+      })
+      const turf = await service.prisma.doorKnockingTurf.create({
+        data: {
+          voterFileFilterId: filter.id,
+          name: 'Counts turf',
+          color: '#112233',
+          geoPoly: GEO_POLY,
+        },
+      })
+      const route = await service.prisma.doorKnockingRoute.create({
+        data: {
+          doorKnockingTurfId: turf.id,
+          mode: DoorKnockingMode.walk,
+          loop: false,
+          totalSeconds: 0,
+          totalMeters: 0,
+          credits: 0,
+        },
+      })
+      const outreach = await service.prisma.outreach.create({
+        data: {
+          campaignId: campaign.id,
+          organizationSlug: organization.slug,
+          outreachType: OutreachType.nativeDoorKnocking,
+          doorKnockingRouteId: route.id,
+        },
+      })
+      return { route, outreach }
+    }
+
+    const createStopTarget = async (
+      doorKnockingRouteId: number,
+      seq: number,
+      personId: string,
+    ) => {
+      const stop = await service.prisma.doorKnockingStop.create({
+        data: {
+          doorKnockingRouteId,
+          seq,
+          lat: 0,
+          lng: 0,
+          displayAddress: `${seq} Main St`,
+          legSeconds: 1,
+          legMeters: 1,
+        },
+      })
+      return service.prisma.doorKnockingStopTarget.create({
+        data: {
+          doorKnockingStopId: stop.id,
+          personId,
+          addressKey: `key-${seq}`,
+        },
+      })
+    }
+
+    it('phone banking: counts only calls logged on THIS list', async () => {
+      const { list, outreach } = await createPhoneBankingOutreach()
+      const otherFilter = await service.prisma.voterFileFilter.create({
+        data: { organizationSlug: organization.slug, name: 'other audience' },
+      })
+      const otherList = await service.prisma.phoneBankingList.create({
+        data: {
+          organizationSlug: organization.slug,
+          voterFileFilterId: otherFilter.id,
+          name: 'Other list',
+          script: 'Hi',
+          sheetCount: 1,
+          purpose: PhoneBankingPurpose.persuade_voters,
+        },
+      })
+      const assigneeA = await service.prisma.user.create({
+        data: { email: 'pb-counts-a@goodparty.org' },
+      })
+      const assigneeB = await service.prisma.user.create({
+        data: { email: 'pb-counts-b@goodparty.org' },
+      })
+
+      for (let i = 0; i < 4; i++) {
+        await service.prisma.contactInteractionPhoneBanking.create({
+          data: {
+            organizationSlug: organization.slug,
+            personId: `pb-counts-person-${i}`,
+            occurredAt: new Date(),
+            phoneBankingListId: list.id,
+            outcome: PhoneBankCallOutcome.answered,
+            actorUserId: assigneeA.id,
+          },
+        })
+      }
+      // A's call on a DIFFERENT list must not count toward this outreach.
+      await service.prisma.contactInteractionPhoneBanking.create({
+        data: {
+          organizationSlug: organization.slug,
+          personId: 'pb-counts-person-other-list',
+          occurredAt: new Date(),
+          phoneBankingListId: otherList.id,
+          outcome: PhoneBankCallOutcome.answered,
+          actorUserId: assigneeA.id,
+        },
+      })
+      // A null-actor (legacy/manual) row on this list contributes to no one.
+      await service.prisma.contactInteractionPhoneBanking.create({
+        data: {
+          organizationSlug: organization.slug,
+          personId: 'pb-counts-person-null-actor',
+          occurredAt: new Date(),
+          phoneBankingListId: list.id,
+          outcome: PhoneBankCallOutcome.answered,
+        },
+      })
+
+      const counts = await assignmentService.loggedCountsByAssignee(outreach, [
+        assigneeA.id,
+        assigneeB.id,
+      ])
+
+      expect(counts.get(assigneeA.id)).toBe(4)
+      expect(counts.get(assigneeB.id) ?? 0).toBe(0)
+    })
+
+    it('door knocking: counts distinct on-route people, folding corrected rows', async () => {
+      const { route, outreach } = await createDoorKnockingOutreach()
+      await createStopTarget(route.id, 1, 'dk-counts-person-1')
+      await createStopTarget(route.id, 2, 'dk-counts-person-2')
+      await createStopTarget(route.id, 3, 'dk-counts-person-3')
+
+      const assigneeA = await service.prisma.user.create({
+        data: { email: 'dk-counts-a@goodparty.org' },
+      })
+      const assigneeB = await service.prisma.user.create({
+        data: { email: 'dk-counts-b@goodparty.org' },
+      })
+
+      // A knocks person-1 twice (a corrected outcome) — must fold to one.
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: organization.slug,
+          personId: 'dk-counts-person-1',
+          occurredAt: new Date(),
+          outcome: DoorKnockOutcome.not_home,
+          actorUserId: assigneeA.id,
+          sourceId: 'dk-counts-source-1',
+        },
+      })
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: organization.slug,
+          personId: 'dk-counts-person-1',
+          occurredAt: new Date(),
+          outcome: DoorKnockOutcome.answered,
+          actorUserId: assigneeA.id,
+          sourceId: 'dk-counts-source-1-correction',
+        },
+      })
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: organization.slug,
+          personId: 'dk-counts-person-2',
+          occurredAt: new Date(),
+          outcome: DoorKnockOutcome.answered,
+          actorUserId: assigneeA.id,
+          sourceId: 'dk-counts-source-2',
+        },
+      })
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: organization.slug,
+          personId: 'dk-counts-person-3',
+          occurredAt: new Date(),
+          outcome: DoorKnockOutcome.answered,
+          actorUserId: assigneeA.id,
+          sourceId: 'dk-counts-source-3',
+        },
+      })
+      // A knock off this route by A must not count.
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: organization.slug,
+          personId: 'dk-counts-person-off-route',
+          occurredAt: new Date(),
+          outcome: DoorKnockOutcome.answered,
+          actorUserId: assigneeA.id,
+          sourceId: 'dk-counts-source-off-route',
+        },
+      })
+
+      const counts = await assignmentService.loggedCountsByAssignee(outreach, [
+        assigneeA.id,
+        assigneeB.id,
+      ])
+
+      expect(counts.get(assigneeA.id)).toBe(3)
+      expect(counts.get(assigneeB.id) ?? 0).toBe(0)
+    })
+
+    it('returns an empty map for a non-native outreachType', async () => {
+      const outreach = await createOutreach()
+      const counts = await assignmentService.loggedCountsByAssignee(outreach, [
+        service.user.id,
+      ])
+      expect(counts.size).toBe(0)
     })
   })
 })
