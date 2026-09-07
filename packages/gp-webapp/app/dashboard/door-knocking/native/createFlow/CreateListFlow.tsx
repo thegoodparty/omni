@@ -148,10 +148,6 @@ interface CreateListFlowProps {
   // this is the only thing that knows there is a one- or two-point shape to
   // undo — and it counts adds, not drags, which never change the total.
   drawPointCount: number
-  // Drop the last placed point. The canvas owns the ring, so this is a
-  // request, not an edit made here. The canvas's draw surface has no Clear
-  // beside it, and neither does ours.
-  onUndoPoint: () => void
   // Whether the map is uncovered and being drawn on. It lives on the page
   // beside the draw tokens, not here, because it decides what the CANVAS is
   // doing: the shielded preview window on this step and the live drawing
@@ -273,7 +269,6 @@ export default function CreateListFlow({
   turfStats,
   drawnStops,
   drawPointCount,
-  onUndoPoint,
   drawFullScreen,
   onDrawFullScreenChange,
   color,
@@ -832,15 +827,12 @@ export default function CreateListFlow({
       <>
         <DrawFullScreen
           pointCount={drawPointCount}
-          onUndoPoint={onUndoPoint}
-          stops={stops}
-          overCap={overCap}
           // The design's bare word, in every state. What the button is
           // waiting for is said by the surface rather than by the button:
           // the centred hint names the gesture until the first point lands,
-          // and the count pill reads the shape from there. A button that
-          // renames itself three times is three controls to read where the
-          // design draws one.
+          // and the count pill (in the map's own control cluster) reads
+          // the shape from there. A button that renames itself three
+          // times is three controls to read where the design draws one.
           continueDisabled={!ring || stops === 0 || overCap}
           onContinue={() => {
             onDrawFullScreenChange(false)

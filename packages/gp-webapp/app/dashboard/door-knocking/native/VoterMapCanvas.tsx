@@ -22,6 +22,11 @@ import {
   LocateOffIcon,
   MinusIcon,
   PlusIcon,
+  toast,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  Undo2Icon,
 } from '@styleguide'
 import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
 import { STATUS_RGB } from './statusPresentation'
@@ -214,6 +219,25 @@ interface VoterMapCanvasProps {
   location: LiveLocation
   liveLocationEnabled?: boolean
   onToggleLiveLocation?: (next: boolean) => void
+  // Drops the last placed vertex. Rendered as the fourth (visually
+  // bottom) button of the zoom/locate cluster whenever this callback is
+  // provided — grouped with the map's own controls so all four share
+  // the cluster's flex gap and card styling instead of two clusters
+  // that have to be kept in visual sync by hand. On a zero-point press
+  // the button toasts "There is nothing to undo" and shakes; a real
+  // press fires `onUndoPoint`.
+  onUndoPoint?: () => void
+  // Whether there's a vertex to drop. Zero disables the real path and
+  // routes the click into the toast + shake feedback path.
+  hasPointToUndo?: boolean
+  // Draw-stop count for the pill that sits beside Undo — same cluster,
+  // same flex parent, so the pair reads as one control row and shares
+  // gap-2 with the icon buttons above. Only rendered when Undo is
+  // (i.e., when `onUndoPoint` is provided).
+  drawStopCount?: number
+  // Whether the shape is over the 150-stop cap; the pill turns red and
+  // shakes on a new tap that keeps it over.
+  drawStopsOverCap?: boolean
   // Whether this canvas is the one that has to report the watch's state in
   // words. Off by default: the walk sets it false because its sheet already
   // carries the line, and two copies of "Location is blocked" on one screen is
@@ -470,12 +494,42 @@ export default function VoterMapCanvas({
   location,
   liveLocationEnabled = false,
   onToggleLiveLocation,
+  onUndoPoint,
+  hasPointToUndo = false,
+  drawStopCount = 0,
+  drawStopsOverCap = false,
   locationNotice = false,
   onPolygonChange,
   onDrawPointCount,
   onRoutePinClick,
 }: VoterMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  // The Undo button in the cluster below shakes on a zero-point press.
+  // Ref lives here so the click handler can clear + reapply the class
+  // without React re-render skipping the animation restart.
+  const undoRef = useRef<HTMLButtonElement>(null)
+  // The count pill next to Undo shakes on a new tap that keeps the shape
+  // over the 150-stop cap. The tooltip beside it force-opens over the
+  // cap, so this is attention feedback without a toast (which would
+  // stack a snackbar on top of the tooltip that's already saying it).
+  const pillRef = useRef<HTMLSpanElement>(null)
+  const prevStopsRef = useRef(drawStopCount)
+  useEffect(() => {
+    const previous = prevStopsRef.current
+    prevStopsRef.current = drawStopCount
+    // Only shake on a new tap that KEPT us over — undoing while still
+    // over-cap is progress in the right direction, so the pill should
+    // not scold the very move that's fixing the problem.
+    if (!drawStopsOverCap || drawStopCount <= previous) return
+    const el = pillRef.current
+    if (!el) return
+    el.classList.remove('animate-shake')
+    // Reflow: React seeing the same class on re-render will not restart
+    // the CSS animation, so the class has to go away and come back with
+    // a layout between the two writes.
+    void el.offsetWidth
+    el.classList.add('animate-shake')
+  }, [drawStopCount, drawStopsOverCap])
   const hasTilesKey = NEXT_PUBLIC_GEOAPIFY_TILES_KEY.length > 0
   const overlayRef = useRef<MapboxOverlay | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -1254,7 +1308,7 @@ export default function VoterMapCanvas({
           and the map is this component's. */}
       {!controlsHidden && (
         <div
-          className="absolute left-4 z-20 flex flex-col gap-2 transition-[bottom] duration-200 ease-out"
+          className="absolute left-8 z-20 flex flex-col gap-2 transition-[bottom] duration-200 ease-out"
           style={{ bottom: controlsBottomPx }}
         >
           <IconButton
@@ -1296,6 +1350,73 @@ export default function VoterMapCanvas({
                 <LocateOffIcon className="size-[18px]" />
               )}
             </IconButton>
+          )}
+          {/* The drawing surface's Undo + count pill, slotted in as the
+              fourth (visually bottom) row of the cluster. Undo is on the
+              left, the "N selected" pill sits immediately to its right,
+              same gap-2 the vertical stack uses. Only rendered when a
+              caller provides `onUndoPoint` — every other surface leaves
+              the slot empty. */}
+          {onUndoPoint && (
+            <div className="flex items-center gap-2">
+              <IconButton
+                ref={undoRef}
+                type="button"
+                variant="outline"
+                aria-label="Undo"
+                className="bg-card hover:bg-card"
+                onAnimationEnd={() => {
+                  undoRef.current?.classList.remove('animate-shake')
+                }}
+                onClick={() => {
+                  if (!hasPointToUndo) {
+                    // Same feedback path as the drawing surface's other
+                    // "nothing to act on" gestures: toast says what
+                    // happened, shake says the tap reached the control
+                    // and it deliberately did nothing. Reflow trick so
+                    // React re-render with the same class doesn't
+                    // swallow the restart.
+                    toast('There is nothing to undo')
+                    const el = undoRef.current
+                    if (el) {
+                      el.classList.remove('animate-shake')
+                      void el.offsetWidth
+                      el.classList.add('animate-shake')
+                    }
+                    return
+                  }
+                  onUndoPoint()
+                }}
+              >
+                <Undo2Icon className="size-[18px]" />
+              </IconButton>
+              {/* Forced open over the cap: the pill turning red is the
+                  whole explanation otherwise, and a colour is not a
+                  limit. */}
+              <Tooltip open={drawStopsOverCap ? true : undefined}>
+                <TooltipTrigger asChild>
+                  <span
+                    ref={pillRef}
+                    onAnimationEnd={(e) =>
+                      e.currentTarget.classList.remove('animate-shake')
+                    }
+                    className={`inline-flex h-9 items-center rounded-full border bg-card px-3.5 text-sm font-semibold ${
+                      drawStopsOverCap
+                        ? 'border-destructive text-destructive'
+                        : 'border-border text-foreground'
+                    }`}
+                  >
+                    {drawStopCount.toLocaleString()} selected
+                  </span>
+                </TooltipTrigger>
+                {/* Stops, not doors: the 150 is a cap on the stops the
+                    router visits, and a limit quoted in a unit it is
+                    not measured in is a limit nobody can act on. */}
+                <TooltipContent side="top">
+                  Limit is 150 stops per list
+                </TooltipContent>
+              </Tooltip>
+            </div>
           )}
         </div>
       )}

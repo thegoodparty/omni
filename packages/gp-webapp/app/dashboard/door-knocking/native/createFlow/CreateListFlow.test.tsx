@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps, ReactElement } from 'react'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
-import { toast } from '@styleguide'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
@@ -15,11 +14,6 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('helpers/analyticsHelper')>()
   return { ...actual, trackEvent: vi.fn() }
-})
-
-vi.mock('@styleguide', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@styleguide')>()
-  return { ...actual, toast: vi.fn() }
 })
 
 // mapbox-gl-draw hands back an open ring; save must close it before POSTing.
@@ -456,11 +450,11 @@ describe('CreateListFlow', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
 
     rerender(drawingSurface({ turfStats: turfStats(151, 140) }))
-    // The cap is on stops (the router's unit), so 151 stops holding 140 doors
-    // is over it — and the pill beside the dead button is the only thing on
-    // this surface counting anything.
+    // The cap is on stops (the router's unit), so 151 stops holding 140
+    // doors is over it. The count pill itself lives in VoterMapCanvas's
+    // control cluster now (see VoterMapCanvas for pill assertions); this
+    // suite covers only what DrawFullScreen still renders — Continue.
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
-    expect(screen.getByText('151 selected')).toBeInTheDocument()
 
     rerender(drawingSurface({ turfStats: turfStats(14, 9) }))
     expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled()
@@ -532,7 +526,8 @@ describe('CreateListFlow', () => {
     const advance = screen.getByRole('button', { name: 'Continue' })
     expect(advance).toBeEnabled()
     expect(advance.textContent).not.toMatch(/\d/)
-    expect(screen.getByText('14 selected')).toBeInTheDocument()
+    // Pill text lives on VoterMapCanvas's control cluster now (see that
+    // component's tests for pill assertions).
   })
 
   // The design draws nothing under its preview, so neither do we: the knocking
@@ -731,39 +726,10 @@ describe('CreateListFlow', () => {
   // OutreachFlowShell). The who step still shows the disclosure for a picked
   // list, covered by the "discloses a picked list's unshadeable clauses" test.
 
-  // Undo and the count pill sit on the map from the moment the drawing
-  // surface opens — like the zoom/locate cluster on the left — so a candidate
-  // reading the instructions sees where each will land. Undo stays enabled
-  // and answers a stray click with a toast rather than disappearing or going
-  // grey, which the design's own zoom/locate cluster never does either.
-  it('offers Undo from the start, toasting a stray click', () => {
-    const onUndoPoint = vi.fn()
-    const { rerender } = render(
-      drawingSurface({
-        ring: null,
-        turfStats: null,
-        drawPointCount: 0,
-        onUndoPoint,
-      }),
-    )
-    dismissDrawInstructions()
-
-    vi.mocked(toast).mockClear()
-    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
-    expect(onUndoPoint).not.toHaveBeenCalled()
-    expect(toast).toHaveBeenCalledWith('There is nothing to undo')
-
-    rerender(
-      drawingSurface({
-        ring: null,
-        turfStats: null,
-        drawPointCount: 1,
-        onUndoPoint,
-      }),
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
-    expect(onUndoPoint).toHaveBeenCalledTimes(1)
-  })
+  // Removed: the Undo button lives inside VoterMapCanvas's zoom/locate
+  // cluster now (design change — one flex parent for all four map
+  // controls). Its click behavior belongs to that component's tests,
+  // which is where the mocked-canvas seam here would swallow it anyway.
 
   // Removed: the discard-shape dialog on the drawing surface is gone (design
   // change — Back on DrawFullScreen now closes the surface unconditionally,
@@ -812,19 +778,10 @@ describe('CreateListFlow', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  // The drawing chrome is a pointer-events-none overlay so taps reach the map
-  // underneath. Only the controls themselves re-enable them — miss that and
-  // pressing Undo also drops a boundary point where the button was.
-  it('keeps the draw controls from leaking a click through to the map', () => {
-    render(drawingSurface({ drawPointCount: 2 }))
-    dismissDrawInstructions()
-
-    const undo = screen.getByRole('button', { name: 'Undo' })
-    expect(undo).toHaveClass('pointer-events-auto')
-    // The cluster the controls sit in stays click-through, so the map keeps
-    // the full width of the band it was given.
-    expect(undo.parentElement).not.toHaveClass('pointer-events-auto')
-  })
+  // Removed: Undo (and the count pill) moved out of DrawFullScreen into
+  // VoterMapCanvas's control cluster, so the click-through wrapper is
+  // no longer this component's — see VoterMapCanvas for the map cluster's
+  // own pointer-events semantics.
 
   // Removed: DoorsPanel / address preview left the draw step (design change —
   // draw step body is now the counts row plus the Geoapify preview card
