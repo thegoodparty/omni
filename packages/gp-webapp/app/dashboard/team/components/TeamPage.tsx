@@ -153,16 +153,16 @@ const TeamPage = (): React.JSX.Element => {
     if (isStatsPending) {
       return (
         <>
-          <TableCell>
+          <TableCell data-testid="team-stat-doors">
             <Skeleton className="h-4 w-6" />
           </TableCell>
-          <TableCell>
+          <TableCell data-testid="team-stat-calls">
             <Skeleton className="h-4 w-6" />
           </TableCell>
-          <TableCell>
+          <TableCell data-testid="team-stat-total">
             <Skeleton className="h-4 w-6" />
           </TableCell>
-          <TableCell>
+          <TableCell data-testid="team-stat-last-active">
             <Skeleton className="h-4 w-16" />
           </TableCell>
         </>
@@ -171,20 +171,26 @@ const TeamPage = (): React.JSX.Element => {
     if (isStatsError) {
       return (
         <>
-          <TableCell>—</TableCell>
-          <TableCell>—</TableCell>
-          <TableCell>—</TableCell>
-          <TableCell>—</TableCell>
+          <TableCell data-testid="team-stat-doors">—</TableCell>
+          <TableCell data-testid="team-stat-calls">—</TableCell>
+          <TableCell data-testid="team-stat-total">—</TableCell>
+          <TableCell data-testid="team-stat-last-active">—</TableCell>
         </>
       )
     }
     const stats = statsByUserId.get(member.userId)
     return (
       <>
-        <TableCell>{stats?.doorsKnocked ?? 0}</TableCell>
-        <TableCell>{stats?.callsMade ?? 0}</TableCell>
-        <TableCell>{stats?.totalLogged ?? 0}</TableCell>
-        <TableCell>
+        <TableCell data-testid="team-stat-doors">
+          {stats?.doorsKnocked ?? 0}
+        </TableCell>
+        <TableCell data-testid="team-stat-calls">
+          {stats?.callsMade ?? 0}
+        </TableCell>
+        <TableCell data-testid="team-stat-total">
+          {stats?.totalLogged ?? 0}
+        </TableCell>
+        <TableCell data-testid="team-stat-last-active">
           {/* Not dateUsHelper: its +8h shim mis-renders real instants like
               occurredAt for viewers west of UTC (see outreachDate.util.ts) */}
           {stats?.lastActivityAt
@@ -279,10 +285,18 @@ const TeamPage = (): React.JSX.Element => {
                     <TableHead>Name</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Email</TableHead>
-                    <TableHead>Doors</TableHead>
-                    <TableHead>Calls</TableHead>
-                    <TableHead>Total</TableHead>
-                    <TableHead>Last active</TableHead>
+                    <TableHead data-testid="team-stat-header-doors">
+                      Doors
+                    </TableHead>
+                    <TableHead data-testid="team-stat-header-calls">
+                      Calls
+                    </TableHead>
+                    <TableHead data-testid="team-stat-header-total">
+                      Total
+                    </TableHead>
+                    <TableHead data-testid="team-stat-header-last-active">
+                      Last active
+                    </TableHead>
                     <TableHead className="w-10" />
                   </TableRow>
                 </TableHeader>
