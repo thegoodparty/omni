@@ -2,7 +2,11 @@
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { TeamMember, PendingInvite } from 'gpApi/api-endpoints'
+import type {
+  TeamMember,
+  PendingInvite,
+  TeamMemberStats,
+} from 'gpApi/api-endpoints'
 import {
   Button,
   Card,
@@ -35,11 +39,13 @@ import {
   useOrganizationRole,
 } from '@shared/organization-picker'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { format, parseISO } from 'date-fns'
 import {
   ROLE_DESCRIPTIONS,
   ROLE_LABELS,
   formatName,
   teamQueryKey,
+  teamStatsQueryKey,
 } from '../team.util'
 import InviteMemberDrawer from './InviteMemberDrawer'
 
@@ -68,6 +74,22 @@ const TeamPage = (): React.JSX.Element => {
     queryKey: teamQueryKey(orgSlug),
     queryFn: () =>
       clientRequest('GET /v1/organizations/team', {}).then((res) => res.data),
+    enabled: !!orgSlug && !isElectedOffice,
+  })
+
+  // Independent of the members query (ENG-11080): a stats failure must never
+  // degrade member management, so it gets its own isPending/isError rather
+  // than folding into the query above.
+  const {
+    data: statsData,
+    isPending: isStatsPending,
+    isError: isStatsError,
+  } = useQuery({
+    queryKey: teamStatsQueryKey(orgSlug),
+    queryFn: () =>
+      clientRequest('GET /v1/organizations/team/stats', {}).then(
+        (res) => res.data,
+      ),
     enabled: !!orgSlug && !isElectedOffice,
   })
 
@@ -120,6 +142,58 @@ const TeamPage = (): React.JSX.Element => {
 
   const members: TeamMember[] = data?.members ?? []
   const pendingInvites: PendingInvite[] = data?.pendingInvites ?? []
+  const statsByUserId = new Map<number, TeamMemberStats>(
+    (statsData?.stats ?? []).map((stats) => [stats.userId, stats]),
+  )
+
+  // A member absent from stats renders 0/0/0/— (the API zero-fills, so this
+  // is belt-only) — never confused with the pending/error placeholders
+  // below, which cover "we don't know yet," not "known to be zero."
+  const renderStatCells = (member: TeamMember): React.JSX.Element => {
+    if (isStatsPending) {
+      return (
+        <>
+          <TableCell>
+            <Skeleton className="h-4 w-6" />
+          </TableCell>
+          <TableCell>
+            <Skeleton className="h-4 w-6" />
+          </TableCell>
+          <TableCell>
+            <Skeleton className="h-4 w-6" />
+          </TableCell>
+          <TableCell>
+            <Skeleton className="h-4 w-16" />
+          </TableCell>
+        </>
+      )
+    }
+    if (isStatsError) {
+      return (
+        <>
+          <TableCell>—</TableCell>
+          <TableCell>—</TableCell>
+          <TableCell>—</TableCell>
+          <TableCell>—</TableCell>
+        </>
+      )
+    }
+    const stats = statsByUserId.get(member.userId)
+    return (
+      <>
+        <TableCell>{stats?.doorsKnocked ?? 0}</TableCell>
+        <TableCell>{stats?.callsMade ?? 0}</TableCell>
+        <TableCell>{stats?.totalLogged ?? 0}</TableCell>
+        <TableCell>
+          {/* Not dateUsHelper: its +8h shim mis-renders real instants like
+              occurredAt for viewers west of UTC (see outreachDate.util.ts) */}
+          {stats?.lastActivityAt
+            ? format(parseISO(stats.lastActivityAt), 'MMM d, yyyy')
+            : '—'}
+        </TableCell>
+      </>
+    )
+  }
 
   if (isElectedOffice) {
     return (
@@ -205,13 +279,17 @@ const TeamPage = (): React.JSX.Element => {
                     <TableHead>Name</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Email</TableHead>
+                    <TableHead>Doors</TableHead>
+                    <TableHead>Calls</TableHead>
+                    <TableHead>Total</TableHead>
+                    <TableHead>Last active</TableHead>
                     <TableHead className="w-10" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isPending ? (
                     <TableRow>
-                      <TableCell colSpan={4}>
+                      <TableCell colSpan={8}>
                         <Skeleton className="h-6 w-full" />
                       </TableCell>
                     </TableRow>
@@ -225,6 +303,7 @@ const TeamPage = (): React.JSX.Element => {
                           {ROLE_LABELS[member.role] ?? member.role}
                         </TableCell>
                         <TableCell>{member.email}</TableCell>
+                        {renderStatCells(member)}
                         <TableCell>
                           {isOwner && member.role !== 'owner' && (
                             <DropdownMenu>

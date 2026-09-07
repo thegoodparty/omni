@@ -575,6 +575,15 @@ export type APIEndpoints = {
     Response: TeamResponse
   }
 
+  // Per-current-member outreach counts (ENG-11076/ENG-11080), joined to
+  // GET /v1/organizations/team client-side by userId. Same ISO-over-JSON
+  // convention as TeamResponse above — lastActivityAt is typed as string,
+  // not Date (see TeamStatsResponse below).
+  'GET /v1/organizations/team/stats': {
+    Request: {}
+    Response: TeamStatsResponse
+  }
+
   // Gated server-side by the win-team-accounts flag (404 while off) — the
   // only route that can create a membership row, so gating just this one
   // makes the whole feature inert at 0%. outreachId is optional: the
@@ -2186,6 +2195,21 @@ export type TeamResponse = {
 export type InviteMemberResponse =
   | { status: 'added'; member: TeamMember }
   | { status: 'pending'; invite: PendingInvite }
+
+// Mirrors TeamMemberStatsSchema / TeamStatsResponseSchema in
+// @goodparty_org/contracts, but lastActivityAt arrives over JSON as an ISO
+// string or null — same convention as TeamMember above.
+export type TeamMemberStats = {
+  userId: number
+  doorsKnocked: number
+  callsMade: number
+  totalLogged: number
+  lastActivityAt: string | null
+}
+
+export type TeamStatsResponse = {
+  stats: TeamMemberStats[]
+}
 
 // Wire shapes for outreach assignments (win-team-accounts / ENG-11048).
 // Mirrors OutreachAssignment.schema.ts in @goodparty_org/contracts, but

@@ -83,6 +83,17 @@ test.describe('Team page — flag forced on', () => {
       })
     })
 
+    // ENG-11080: the team page's stats query is a separate request the
+    // above regex doesn't intercept (it only matches .../team itself, not
+    // .../team/stats) — stub it too so the spec stays deterministic instead
+    // of hitting a live stats endpoint.
+    await page.route(/\/api\/v1\/organizations\/team\/stats(\?|$)/, (route) => {
+      if (route.request().method() !== 'GET') {
+        return route.continue()
+      }
+      return route.fulfill({ json: { stats: [] } })
+    })
+
     await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)
 
