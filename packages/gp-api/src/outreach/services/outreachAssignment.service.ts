@@ -23,6 +23,13 @@ type OutreachAssignmentWithUsers = OutreachAssignment & {
   assignedBy: User | null
 }
 
+// The two channels with a per-assignee interaction table to count against
+// (ENG-11078/79) — every other outreachType has no such table, so its
+// assignees carry a null loggedCount rather than a real 0.
+const isNativeOutreachType = (outreachType: OutreachType): boolean =>
+  outreachType === OutreachType.nativePhoneBanking ||
+  outreachType === OutreachType.nativeDoorKnocking
+
 @Injectable()
 export class OutreachAssignmentService extends createPrismaBase(
   MODELS.OutreachAssignment,
@@ -149,7 +156,13 @@ export class OutreachAssignmentService extends createPrismaBase(
       where: { outreachId_assigneeUserId: { outreachId, assigneeUserId } },
       include: { assignee: true, assignedBy: true },
     })
-    return this.toAssigneeResponse(assignment, resolved.role)
+    // A fresh (or re-upserted) assignment never has a real count to run —
+    // the ONLY caller-visible fact here is "native or not", so this never
+    // queries an interaction table. 0, not null, for a native channel: the
+    // detail routes treat 0 and "no such channel" differently.
+    const outreachType = await this.findOutreachTypeOrThrow(outreachId)
+    const loggedCount = isNativeOutreachType(outreachType) ? 0 : null
+    return this.toAssigneeResponse(assignment, resolved.role, loggedCount)
   }
 
   async unassign(
@@ -172,6 +185,7 @@ export class OutreachAssignmentService extends createPrismaBase(
   private toAssigneeResponse(
     assignment: OutreachAssignmentWithUsers,
     role: OrganizationRole,
+    loggedCount: number | null,
   ): OutreachAssignee {
     return {
       userId: assignment.assigneeUserId,
@@ -182,6 +196,7 @@ export class OutreachAssignmentService extends createPrismaBase(
       assignedByName: assignment.assignedBy
         ? getUserFullName(assignment.assignedBy) || null
         : null,
+      loggedCount,
     }
   }
 
@@ -196,13 +211,26 @@ export class OutreachAssignmentService extends createPrismaBase(
     })
     if (!assignments.length) return []
 
-    const memberships = await this.membership.model.findMany({
-      where: {
-        organizationSlug,
-        userId: { in: assignments.map((a) => a.assigneeUserId) },
-      },
-    })
+    const [memberships, outreach] = await Promise.all([
+      this.membership.model.findMany({
+        where: {
+          organizationSlug,
+          userId: { in: assignments.map((a) => a.assigneeUserId) },
+        },
+      }),
+      // assertOutreachInOrg already confirmed this row exists in this org —
+      // re-fetched here (rather than threaded through) because it's the one
+      // caller that needs the full row, not just the org slug.
+      this.client.outreach.findUniqueOrThrow({ where: { id: outreachId } }),
+    ])
     const roleByUserId = new Map(memberships.map((m) => [m.userId, m.role]))
+    const native = isNativeOutreachType(outreach.outreachType)
+    const loggedCountByUserId = native
+      ? await this.loggedCountsByAssignee(
+          outreach,
+          assignments.map((a) => a.assigneeUserId),
+        )
+      : new Map<number, number>()
 
     return assignments.map((assignment) => {
       // A userId absent from memberships is the owner: the owner never gets
@@ -210,8 +238,99 @@ export class OutreachAssignmentService extends createPrismaBase(
       // would already have had this row cascade-deleted on removal.
       const role =
         roleByUserId.get(assignment.assigneeUserId) ?? OrganizationRole.owner
-      return this.toAssigneeResponse(assignment, role)
+      const loggedCount = native
+        ? (loggedCountByUserId.get(assignment.assigneeUserId) ?? 0)
+        : null
+      return this.toAssigneeResponse(assignment, role, loggedCount)
     })
+  }
+
+  // Per-assignee logged-interaction count on one outreach envelope (ENG-11078).
+  // Non-native types return an empty map WITHOUT touching an interaction
+  // table — there is nothing to count for them (contracts null out the field).
+  async loggedCountsByAssignee(
+    outreach: Outreach,
+    assigneeUserIds: number[],
+  ): Promise<Map<number, number>> {
+    if (
+      outreach.outreachType === OutreachType.nativePhoneBanking &&
+      outreach.phoneBankingListId !== null
+    ) {
+      return this.phoneBankingLoggedCounts(
+        outreach.phoneBankingListId,
+        assigneeUserIds,
+      )
+    }
+    if (
+      outreach.outreachType === OutreachType.nativeDoorKnocking &&
+      outreach.doorKnockingRouteId !== null &&
+      outreach.organizationSlug !== null
+    ) {
+      return this.doorKnockingLoggedCounts(
+        outreach.doorKnockingRouteId,
+        outreach.organizationSlug,
+        assigneeUserIds,
+      )
+    }
+    return new Map()
+  }
+
+  private async phoneBankingLoggedCounts(
+    phoneBankingListId: number,
+    assigneeUserIds: number[],
+  ): Promise<Map<number, number>> {
+    const groups = await this.client.contactInteractionPhoneBanking.groupBy({
+      by: ['actorUserId'],
+      where: {
+        phoneBankingListId,
+        actorUserId: { in: assigneeUserIds },
+      },
+      _count: { _all: true },
+    })
+    const counts = new Map<number, number>()
+    for (const group of groups) {
+      // `in: assigneeUserIds` already excludes a null actorUserId at the SQL
+      // level (`IN (...)` never matches NULL) — this only narrows the type.
+      if (group.actorUserId === null) continue
+      counts.set(group.actorUserId, group._count._all)
+    }
+    return counts
+  }
+
+  private async doorKnockingLoggedCounts(
+    doorKnockingRouteId: number,
+    organizationSlug: string,
+    assigneeUserIds: number[],
+  ): Promise<Map<number, number>> {
+    // Door-knock interactions carry no route id — only personId + sourceId
+    // (the phone's replay guid, never parsed). Reach the route's audience
+    // through its stops' targets instead.
+    const targets = await this.client.doorKnockingStopTarget.findMany({
+      where: { stop: { doorKnockingRouteId } },
+      select: { personId: true },
+    })
+    if (!targets.length) return new Map()
+
+    // groupBy(['actorUserId', 'personId']), not ['actorUserId'] with
+    // `_count`: two interaction rows for the same person on this route (a
+    // corrected outcome) must count once, not twice. Grouping on the pair
+    // collapses to one row per distinct person an actor reached, so folding
+    // the group ROWS per actor (not any row's _count) IS the distinct-person
+    // count.
+    const pairs = await this.client.contactInteractionDoorKnock.groupBy({
+      by: ['actorUserId', 'personId'],
+      where: {
+        organizationSlug,
+        personId: { in: targets.map((target) => target.personId) },
+        actorUserId: { in: assigneeUserIds },
+      },
+    })
+    const counts = new Map<number, number>()
+    for (const pair of pairs) {
+      if (pair.actorUserId === null) continue
+      counts.set(pair.actorUserId, (counts.get(pair.actorUserId) ?? 0) + 1)
+    }
+    return counts
   }
 
   listMine(

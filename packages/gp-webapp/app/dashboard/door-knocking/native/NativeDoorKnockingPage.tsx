@@ -24,7 +24,10 @@ import {
 } from './filterEngine'
 import { quotaQueryOptions, turfsQueryOptions } from './turfQueries'
 import { DoorKnockingSurface } from './doorKnockingSurface'
-import type { CreateFlowStep } from './createFlow/CreateListFlow'
+import {
+  HARD_STOP_LIMIT,
+  type CreateFlowStep,
+} from './createFlow/CreateListFlow'
 import {
   filtersToDimSelections,
   unpreviewableFilterKeys,
@@ -821,6 +824,18 @@ export default function NativeDoorKnockingPage({
                       ? undefined
                       : setLocationEnabled
                   }
+                  // Undo is only offered on the drawing surface — nothing
+                  // outside `draw.fullScreen` has an in-progress polygon to
+                  // drop a vertex from. The canvas renders the button as
+                  // the fourth (visually bottom) item of its zoom/locate
+                  // cluster whenever `onUndoPoint` is provided, sharing
+                  // the cluster's flex parent so all four rows keep the
+                  // same gap without any positioning math. The count
+                  // pill sits beside Undo in that same row.
+                  onUndoPoint={draw.fullScreen ? draw.undoPoint : undefined}
+                  hasPointToUndo={draw.pointCount > 0}
+                  drawStopCount={turfStats?.stops ?? 0}
+                  drawStopsOverCap={(turfStats?.stops ?? 0) > HARD_STOP_LIMIT}
                   // Who says so when the watch cannot produce a fix. The walk
                   // has `WalkView`'s line for it; the drawing surface has
                   // nothing, so the canvas speaks for itself there — otherwise
@@ -869,7 +884,6 @@ export default function NativeDoorKnockingPage({
                 ring={ring}
                 turfStats={turfStats}
                 drawPointCount={draw.pointCount}
-                onUndoPoint={draw.undoPoint}
                 drawFullScreen={draw.fullScreen}
                 onDrawFullScreenChange={draw.setFullScreen}
                 onRestartDrawing={draw.startDrawing}

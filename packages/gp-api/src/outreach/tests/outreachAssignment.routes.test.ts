@@ -5,7 +5,14 @@ import { GeoJsonPolygon } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { FeaturesService } from '@/features/services/features.service'
-import { Campaign, OrganizationRole } from '../../generated/prisma'
+import {
+  Campaign,
+  DoorKnockingMode,
+  DoorKnockOutcome,
+  OrganizationRole,
+  PhoneBankCallOutcome,
+  PhoneBankingPurpose,
+} from '../../generated/prisma'
 
 const service = useTestService()
 
@@ -107,6 +114,9 @@ describe('POST /v1/outreach/:id/assignments', () => {
         userId: member.id,
         role: 'volunteer',
         assignedByUserId: service.user.id,
+        // Non-native outreachType ('text', the createOutreach default) has
+        // no interaction table to count against.
+        loggedCount: null,
       }),
     )
 
@@ -462,7 +472,171 @@ describe('GET /v1/outreach/:id/assignments', () => {
         name: 'List Member',
         role: 'campaignAdmin',
         assignedByUserId: service.user.id,
+        // Non-native outreachType ('text') has no interaction table.
+        loggedCount: null,
       }),
+    ])
+  })
+
+  it('returns per-assignee loggedCount for a nativePhoneBanking list', async () => {
+    const filter = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: ORG_SLUG, name: 'assignments PB audience' },
+    })
+    const list = await service.prisma.phoneBankingList.create({
+      data: {
+        organizationSlug: ORG_SLUG,
+        voterFileFilterId: filter.id,
+        name: 'Assignments list',
+        script: 'Hi',
+        sheetCount: 1,
+        purpose: PhoneBankingPurpose.persuade_voters,
+      },
+    })
+    const outreach = await createOutreach({
+      organizationSlug: ORG_SLUG,
+      name: 'Assignments list',
+    })
+    await service.prisma.outreach.update({
+      where: { id: outreach.id },
+      data: { outreachType: 'nativePhoneBanking', phoneBankingListId: list.id },
+    })
+
+    const active = await createMemberUser({ email: 'pb-active@example.com' })
+    const idle = await createMemberUser({ email: 'pb-idle@example.com' })
+    await addMembership(active.id, OrganizationRole.volunteer)
+    await addMembership(idle.id, OrganizationRole.volunteer)
+    await service.prisma.outreachAssignment.create({
+      data: {
+        organizationSlug: ORG_SLUG,
+        outreachId: outreach.id,
+        assigneeUserId: active.id,
+      },
+    })
+    await service.prisma.outreachAssignment.create({
+      data: {
+        organizationSlug: ORG_SLUG,
+        outreachId: outreach.id,
+        assigneeUserId: idle.id,
+      },
+    })
+    for (let i = 0; i < 2; i++) {
+      await service.prisma.contactInteractionPhoneBanking.create({
+        data: {
+          organizationSlug: ORG_SLUG,
+          personId: `pb-assignments-person-${i}`,
+          occurredAt: new Date(),
+          phoneBankingListId: list.id,
+          outcome: PhoneBankCallOutcome.answered,
+          actorUserId: active.id,
+        },
+      })
+    }
+
+    const result = await service.client.get(
+      `/v1/outreach/${outreach.id}/assignments`,
+      orgHeaders(),
+    )
+
+    expect(result.status).toBe(HttpStatus.OK)
+    expect(result.data.assignees).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ userId: active.id, loggedCount: 2 }),
+        expect.objectContaining({ userId: idle.id, loggedCount: 0 }),
+      ]),
+    )
+  })
+
+  it('returns per-assignee loggedCount (distinct people) for a nativeDoorKnocking route', async () => {
+    const filter = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: ORG_SLUG, name: 'assignments DK audience' },
+    })
+    const turf = await service.prisma.doorKnockingTurf.create({
+      data: {
+        voterFileFilterId: filter.id,
+        name: 'Assignments turf',
+        color: '#334455',
+        geoPoly: GEO_POLY,
+      },
+    })
+    const route = await service.prisma.doorKnockingRoute.create({
+      data: {
+        doorKnockingTurfId: turf.id,
+        mode: DoorKnockingMode.walk,
+        loop: false,
+        totalSeconds: 0,
+        totalMeters: 0,
+        credits: 0,
+      },
+    })
+    const stop = await service.prisma.doorKnockingStop.create({
+      data: {
+        doorKnockingRouteId: route.id,
+        seq: 1,
+        lat: 0,
+        lng: 0,
+        displayAddress: '1 Main St',
+        legSeconds: 1,
+        legMeters: 1,
+      },
+    })
+    await service.prisma.doorKnockingStopTarget.create({
+      data: {
+        doorKnockingStopId: stop.id,
+        personId: 'dk-assignments-person-1',
+        addressKey: 'key-1',
+      },
+    })
+    const outreach = await createOutreach({
+      organizationSlug: ORG_SLUG,
+      name: 'Assignments route',
+    })
+    await service.prisma.outreach.update({
+      where: { id: outreach.id },
+      data: {
+        outreachType: 'nativeDoorKnocking',
+        doorKnockingRouteId: route.id,
+      },
+    })
+
+    const active = await createMemberUser({ email: 'dk-active@example.com' })
+    await addMembership(active.id, OrganizationRole.volunteer)
+    await service.prisma.outreachAssignment.create({
+      data: {
+        organizationSlug: ORG_SLUG,
+        outreachId: outreach.id,
+        assigneeUserId: active.id,
+      },
+    })
+    // Two rows on the same on-route person — must fold to one.
+    await service.prisma.contactInteractionDoorKnock.create({
+      data: {
+        organizationSlug: ORG_SLUG,
+        personId: 'dk-assignments-person-1',
+        occurredAt: new Date(),
+        outcome: DoorKnockOutcome.not_home,
+        actorUserId: active.id,
+        sourceId: 'dk-assignments-source-1',
+      },
+    })
+    await service.prisma.contactInteractionDoorKnock.create({
+      data: {
+        organizationSlug: ORG_SLUG,
+        personId: 'dk-assignments-person-1',
+        occurredAt: new Date(),
+        outcome: DoorKnockOutcome.answered,
+        actorUserId: active.id,
+        sourceId: 'dk-assignments-source-1-correction',
+      },
+    })
+
+    const result = await service.client.get(
+      `/v1/outreach/${outreach.id}/assignments`,
+      orgHeaders(),
+    )
+
+    expect(result.status).toBe(HttpStatus.OK)
+    expect(result.data.assignees).toEqual([
+      expect.objectContaining({ userId: active.id, loggedCount: 1 }),
     ])
   })
 

@@ -19,6 +19,10 @@ export const OutreachAssigneeSchema = z.object({
   createdAt: zCoerceDate(),
   assignedByUserId: z.number().nullable(),
   assignedByName: z.string().nullable(),
+  // Per-assignee logged-interaction count on this outreach: a real count for
+  // the two native channels (nativePhoneBanking/nativeDoorKnocking), null for
+  // every other outreachType (no interaction table to count against).
+  loggedCount: z.number().int().nullable(),
 })
 export type OutreachAssignee = z.infer<typeof OutreachAssigneeSchema>
 

@@ -122,6 +122,10 @@ vi.mock('./VoterMapCanvas', () => ({
     location,
     liveLocationEnabled,
     onToggleLiveLocation,
+    onUndoPoint,
+    hasPointToUndo,
+    drawStopCount,
+    drawStopsOverCap,
     onPolygonChange,
     onDrawPointCount,
     onRoutePinClick,
@@ -139,6 +143,10 @@ vi.mock('./VoterMapCanvas', () => ({
     location: { status: string }
     liveLocationEnabled?: boolean
     onToggleLiveLocation?: (next: boolean) => void
+    onUndoPoint?: () => void
+    hasPointToUndo?: boolean
+    drawStopCount?: number
+    drawStopsOverCap?: boolean
     onPolygonChange: (ring: Array<[number, number]> | null) => void
     onDrawPointCount?: (count: number) => void
     onRoutePinClick?: (pin: { stopId: number }) => void
@@ -221,6 +229,24 @@ vi.mock('./VoterMapCanvas', () => ({
           {`tap pin ${pin.stopId}`}
         </button>
       ))}
+      {/* Undo + count pill, only when the drawing surface is up (the
+          page passes `onUndoPoint` there and nowhere else). Match the
+          real cluster's contents so tests can find the button and
+          assert on the pill's text without touching the real canvas
+          module. */}
+      {onUndoPoint && (
+        <div
+          data-testid="draw-undo-cluster"
+          data-can-undo={String(hasPointToUndo ?? false)}
+        >
+          <button type="button" aria-label="Undo" onClick={() => onUndoPoint()}>
+            undo
+          </button>
+          <span data-over-cap={String(drawStopsOverCap ?? false)}>
+            {(drawStopCount ?? 0).toLocaleString()} selected
+          </span>
+        </div>
+      )}
     </div>
   ),
 }))
@@ -1050,7 +1076,7 @@ describe('NativeDoorKnockingPage draw step', () => {
     // What the button is waiting for is said by the surface rather than by the
     // button, which keeps the design's one bare word in every state.
     expect(
-      screen.getByText('Tap or click to add your first point'),
+      screen.getByText('Tap or click the map to add your first point'),
     ).toBeInTheDocument()
     expect(advance()).toBeDisabled()
 
@@ -1058,7 +1084,7 @@ describe('NativeDoorKnockingPage draw step', () => {
     // The hint is spent on the first point and the count pill reads the shape
     // from there — at nothing, because one point is not a ring.
     expect(
-      screen.queryByText('Tap or click to add your first point'),
+      screen.queryByText('Tap or click the map to add your first point'),
     ).toBeNull()
     expect(screen.getByText('0 selected')).toBeInTheDocument()
     expect(advance()).toBeDisabled()
