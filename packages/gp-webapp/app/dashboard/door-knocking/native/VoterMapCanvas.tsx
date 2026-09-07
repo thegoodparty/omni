@@ -70,10 +70,16 @@ const LOCATION_BLUE_APPROX: [number, number, number, number] = [
   19, 81, 216, 120,
 ]
 const LOCATION_HALO: [number, number, number, number] = [19, 81, 216, 38]
-// How far the location notice clears the control cluster it belongs to: the
-// cluster is three 40px buttons and two 8px gaps, so this sits the line just
-// above the topmost one rather than over the button that produced it.
-const LOCATION_NOTICE_GAP_PX = 152
+// How far the location notice clears the control cluster it belongs to.
+// Sizing depends on whether the drawing surface's Undo + count-pill row is
+// present: without it the stack is three ~40px buttons + two 8px gaps
+// (~136px, plus a bit of breathing room = 152); with it there's a fourth
+// ~40px row + one more 8px gap = 200. Overshooting either way stacks the
+// notice on top of the top button — the very case this line exists to
+// avoid — so it's computed at render time from the same signal that
+// renders the fourth row.
+const LOCATION_NOTICE_GAP_BASE_PX = 152
+const LOCATION_NOTICE_GAP_WITH_UNDO_PX = 200
 // Slop in pixels around a route pin's own 11-14px radius. The whole feature is
 // used one-handed on a phone in the street, so the tap target has to clear the
 // ~44px a thumb needs rather than the ~24px the pin is drawn at.
@@ -1411,8 +1417,15 @@ export default function VoterMapCanvas({
                 </TooltipTrigger>
                 {/* Stops, not doors: the 150 is a cap on the stops the
                     router visits, and a limit quoted in a unit it is
-                    not measured in is a limit nobody can act on. */}
-                <TooltipContent side="top">
+                    not measured in is a limit nobody can act on.
+
+                    `align="start"` shifts the tooltip body rightward so
+                    it clears the vertical button stack directly above
+                    the pill (Zoom In / Zoom Out / Locate / Undo).
+                    Radix's Arrow tracks the trigger's center, so it
+                    stays pointing at the pill even as the tooltip
+                    extends to the right. */}
+                <TooltipContent side="top" align="start">
                   Limit is 150 stops per list
                 </TooltipContent>
               </Tooltip>
@@ -1433,7 +1446,13 @@ export default function VoterMapCanvas({
           role="status"
           aria-live="polite"
           className="pointer-events-none absolute left-4 right-4 z-20 mx-auto max-w-xs rounded-md bg-card/95 px-3 py-2 text-center text-sm shadow-md transition-[bottom] duration-200 ease-out"
-          style={{ bottom: controlsBottomPx + LOCATION_NOTICE_GAP_PX }}
+          style={{
+            bottom:
+              controlsBottomPx +
+              (onUndoPoint
+                ? LOCATION_NOTICE_GAP_WITH_UNDO_PX
+                : LOCATION_NOTICE_GAP_BASE_PX),
+          }}
         >
           {locationMessage}
         </div>
