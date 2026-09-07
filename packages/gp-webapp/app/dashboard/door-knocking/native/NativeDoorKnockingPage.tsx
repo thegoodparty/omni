@@ -24,7 +24,10 @@ import {
 } from './filterEngine'
 import { quotaQueryOptions, turfsQueryOptions } from './turfQueries'
 import { DoorKnockingSurface } from './doorKnockingSurface'
-import type { CreateFlowStep } from './createFlow/CreateListFlow'
+import {
+  HARD_STOP_LIMIT,
+  type CreateFlowStep,
+} from './createFlow/CreateListFlow'
 import {
   filtersToDimSelections,
   unpreviewableFilterKeys,
@@ -832,7 +835,7 @@ export default function NativeDoorKnockingPage({
                   onUndoPoint={draw.fullScreen ? draw.undoPoint : undefined}
                   hasPointToUndo={draw.pointCount > 0}
                   drawStopCount={turfStats?.stops ?? 0}
-                  drawStopsOverCap={(turfStats?.stops ?? 0) > 150}
+                  drawStopsOverCap={(turfStats?.stops ?? 0) > HARD_STOP_LIMIT}
                   // Who says so when the watch cannot produce a fix. The walk
                   // has `WalkView`'s line for it; the drawing surface has
                   // nothing, so the canvas speaks for itself there — otherwise

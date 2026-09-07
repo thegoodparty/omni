@@ -73,7 +73,7 @@ import type { PolygonStats } from '../filterEngine'
 export type { CreateFlowStep } from './createFlowSteps'
 
 // Hard cap on stops per list — anything over this can't route.
-const HARD_STOP_LIMIT = 150
+export const HARD_STOP_LIMIT = 150
 const CREATE_ERROR_FALLBACK =
   'Building the route failed — nothing was saved. Try again in a moment.'
 
