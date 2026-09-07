@@ -594,6 +594,7 @@ describe('OutreachDetailsDrawer — assignees (ENG-11056 / ENG-11059)', () => {
           createdAt: '2026-08-02T00:00:00.000Z',
           assignedByUserId: 1,
           assignedByName: 'Owner Person',
+          loggedCount: null,
         },
       }
     })
@@ -624,6 +625,7 @@ describe('OutreachDetailsDrawer — assignees (ENG-11056 / ENG-11059)', () => {
             createdAt: '2026-08-01T00:00:00.000Z',
             assignedByUserId: 1,
             assignedByName: 'Owner Person',
+            loggedCount: null,
           },
         ],
       },

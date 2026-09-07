@@ -254,6 +254,18 @@ export const OutreachAssigneesSection = ({
                         {member.email}
                       </p>
                     )}
+                    {/* null (non-native channels) renders nothing, not a
+                        "0 logged" — that count only exists for
+                        nativePhoneBanking/nativeDoorKnocking. A real 0 IS
+                        rendered: it's the signal an idle assignee needs
+                        acted on. Never "n/denominator" — this is
+                        logged-by-this-assignee, not the turf progress
+                        ratio. */}
+                    {typeof assignee.loggedCount === 'number' && (
+                      <p className="m-0 truncate text-xs text-muted-foreground">
+                        {assignee.loggedCount} logged
+                      </p>
+                    )}
                   </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
