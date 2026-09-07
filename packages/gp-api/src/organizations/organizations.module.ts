@@ -11,6 +11,7 @@ import { TeamController } from './team.controller'
 import { OrganizationMembershipService } from './services/organizationMembership.service'
 import { OrganizationTeamService } from './services/organizationTeam.service'
 import { OrganizationsService } from './services/organizations.service'
+import { TeamStatsService } from './services/teamStats.service'
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { OrganizationsService } from './services/organizations.service'
     OrganizationsService,
     OrganizationMembershipService,
     OrganizationTeamService,
+    TeamStatsService,
     UseOrganizationGuard,
   ],
   controllers: [OrganizationsController, TeamController],

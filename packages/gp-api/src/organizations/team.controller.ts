@@ -20,6 +20,7 @@ import {
   InviteMemberResponseSchema,
   MyPendingInviteResponseSchema,
   TeamResponseSchema,
+  TeamStatsResponseSchema,
 } from '@goodparty_org/contracts'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { FeaturesService } from '@/features/services/features.service'
@@ -35,6 +36,7 @@ import {
   UpdateMemberRoleDto,
 } from './schemas/inviteTeamMember.schema'
 import { OrganizationTeamService } from './services/organizationTeam.service'
+import { TeamStatsService } from './services/teamStats.service'
 
 // gp-api evaluates flags through the project's ANALYTICS key — a flag
 // created only in a dev Amplitude project does nothing here (features.service.ts).
@@ -46,6 +48,7 @@ const WIN_TEAM_ACCOUNTS_FLAG = 'win-team-accounts'
 export class TeamController {
   constructor(
     private readonly team: OrganizationTeamService,
+    private readonly teamStats: TeamStatsService,
     private readonly features: FeaturesService,
   ) {}
 
@@ -54,6 +57,16 @@ export class TeamController {
   @ResponseSchema(TeamResponseSchema)
   getTeam(@ReqOrganization() organization: Organization) {
     return this.team.listTeam(organization)
+  }
+
+  // Default posture (no @OwnerOnly()/@AllowVolunteer()) is exactly right:
+  // owner or campaignAdmin, never a volunteer. No name/email/role in the
+  // payload — the webapp joins by userId against GET /organizations/team.
+  @Get('stats')
+  @UseOrganization()
+  @ResponseSchema(TeamStatsResponseSchema)
+  getTeamStats(@ReqOrganization() organization: Organization) {
+    return this.teamStats.getTeamStats(organization)
   }
 
   // The only route this flag gates: membership rows are created here (or by

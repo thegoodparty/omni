@@ -2331,3 +2331,85 @@ describe('DELETE /v1/organizations/team/members/:userId', () => {
     expect(result.status).toBe(400)
   })
 })
+
+describe('GET /v1/organizations/team/stats', () => {
+  const STATS_PATH = `${TEAM_PATH}/stats`
+
+  it('200s for the owner with per-member stats, response validates against TeamStatsResponseSchema', async () => {
+    await createOrg()
+    const member = await createMemberUser({ email: 'stats-member@x.com' })
+    await addMembership(member.id, OrganizationRole.campaignAdmin)
+    await service.prisma.contactInteractionDoorKnock.create({
+      data: {
+        organizationSlug: ORG_SLUG,
+        personId: 'p1',
+        occurredAt: new Date('2026-03-01T15:00:00.000Z'),
+        outcome: 'answered',
+        actorUserId: member.id,
+      },
+    })
+
+    const result = await service.client.get(STATS_PATH, {
+      headers: { [ORG_SLUG_HEADER]: ORG_SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.stats).toEqual(
+      expect.arrayContaining([
+        {
+          userId: member.id,
+          doorsKnocked: 1,
+          callsMade: 0,
+          totalLogged: 1,
+          lastActivityAt: '2026-03-01T15:00:00.000Z',
+        },
+      ]),
+    )
+  })
+
+  it('200s for a campaignAdmin', async () => {
+    await createOrg()
+    const admin = await createMemberUser({
+      email: 'stats-admin@x.com',
+      clerkId: 'user_stats_admin_1',
+    })
+    await addMembership(admin.id, OrganizationRole.campaignAdmin)
+
+    const result = await service.client.get(STATS_PATH, {
+      headers: {
+        [ORG_SLUG_HEADER]: ORG_SLUG,
+        ...authHeaderFor('user_stats_admin_1'),
+      },
+    })
+
+    expect(result.status).toBe(200)
+  })
+
+  it('403s for a volunteer (fail-closed default posture)', async () => {
+    await createOrg()
+    const volunteer = await createMemberUser({
+      email: 'stats-volunteer@x.com',
+      clerkId: 'user_stats_volunteer_1',
+    })
+    await addMembership(volunteer.id, OrganizationRole.volunteer)
+
+    const result = await service.client.get(STATS_PATH, {
+      headers: {
+        [ORG_SLUG_HEADER]: ORG_SLUG,
+        ...authHeaderFor('user_stats_volunteer_1'),
+      },
+    })
+
+    expect(result.status).toBe(403)
+  })
+
+  it('404s for a non-member', async () => {
+    await createOtherOwnedOrg()
+
+    const result = await service.client.get(STATS_PATH, {
+      headers: { [ORG_SLUG_HEADER]: ORG_SLUG },
+    })
+
+    expect(result.status).toBe(404)
+  })
+})
