@@ -115,6 +115,7 @@ describe('OutreachAssigneesSection — assign modal (ENG-11059)', () => {
         createdAt: '2026-08-02T00:00:00.000Z',
         assignedByUserId: owner.userId,
         assignedByName: owner.name,
+        loggedCount: null,
       },
     ]
     mockAssignees()
@@ -228,6 +229,7 @@ describe('OutreachAssigneesSection — assign modal (ENG-11059)', () => {
           createdAt: '2026-08-02T00:00:00.000Z',
           assignedByUserId: owner.userId,
           assignedByName: owner.name,
+          loggedCount: null,
         },
       ]
       return { status: 200, data: assignees[0]! }
@@ -278,6 +280,7 @@ describe('OutreachAssigneesSection — assign modal (ENG-11059)', () => {
                 createdAt: '2026-08-02T00:00:00.000Z',
                 assignedByUserId: owner.userId,
                 assignedByName: owner.name,
+                loggedCount: null,
               },
             })
           if (body.assigneeUserId === manager.userId) {
@@ -329,6 +332,7 @@ describe('OutreachAssigneesSection — assign modal (ENG-11059)', () => {
         createdAt: '2026-08-02T00:00:00.000Z',
         assignedByUserId: owner.userId,
         assignedByName: owner.name,
+        loggedCount: null,
       },
     ]
     mockAssignees()
@@ -411,6 +415,7 @@ describe('OutreachAssigneesSection — assign modal (ENG-11059)', () => {
         createdAt: '2026-08-02T00:00:00.000Z',
         assignedByUserId: owner.userId,
         assignedByName: owner.name,
+        loggedCount: null,
       },
     ]
     mockAssignees()
@@ -433,5 +438,70 @@ describe('OutreachAssigneesSection — assign modal (ENG-11059)', () => {
     )
 
     await waitFor(() => expect(removedUserId).toBe(String(manager.userId)))
+  })
+})
+
+describe('OutreachAssigneesSection — logged-count progress (ENG-11081)', () => {
+  it('shows the assignee own logged count on the section card', async () => {
+    assignees = [
+      {
+        userId: manager.userId,
+        name: manager.name,
+        role: manager.role,
+        createdAt: '2026-08-02T00:00:00.000Z',
+        assignedByUserId: owner.userId,
+        assignedByName: owner.name,
+        loggedCount: 3,
+      },
+    ]
+    mockAssignees()
+    render(
+      <OutreachAssigneesSection outreachId={30} outreachName="GOTV calls" />,
+    )
+
+    await screen.findByText('Cam Manager')
+    expect(screen.getByText('3 logged')).toBeInTheDocument()
+  })
+
+  it('shows "0 logged" for an idle assignee — the zero is the signal, not an absence', async () => {
+    assignees = [
+      {
+        userId: manager.userId,
+        name: manager.name,
+        role: manager.role,
+        createdAt: '2026-08-02T00:00:00.000Z',
+        assignedByUserId: owner.userId,
+        assignedByName: owner.name,
+        loggedCount: 0,
+      },
+    ]
+    mockAssignees()
+    render(
+      <OutreachAssigneesSection outreachId={30} outreachName="GOTV calls" />,
+    )
+
+    await screen.findByText('Cam Manager')
+    expect(screen.getByText('0 logged')).toBeInTheDocument()
+  })
+
+  it('renders no count text when loggedCount is null (non-native channels)', async () => {
+    assignees = [
+      {
+        userId: manager.userId,
+        name: manager.name,
+        role: manager.role,
+        createdAt: '2026-08-02T00:00:00.000Z',
+        assignedByUserId: owner.userId,
+        assignedByName: owner.name,
+        loggedCount: null,
+      },
+    ]
+    mockAssignees()
+    render(
+      <OutreachAssigneesSection outreachId={30} outreachName="GOTV calls" />,
+    )
+
+    await screen.findByText('Cam Manager')
+    expect(screen.queryByText(/logged/)).not.toBeInTheDocument()
   })
 })
