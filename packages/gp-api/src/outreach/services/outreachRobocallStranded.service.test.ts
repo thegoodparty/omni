@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { addDays } from 'date-fns'
+import { addDays, addMinutes } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
@@ -45,10 +45,12 @@ beforeEach(async () => {
 
 const createDraft = async ({
   sendInDays = -1,
+  sendInMinutes,
   settleState = RobocallSettleState.authorized,
   callhubCampaignPkStr,
 }: {
   sendInDays?: number
+  sendInMinutes?: number
   settleState?: RobocallSettleState
   callhubCampaignPkStr?: string
 } = {}): Promise<number> => {
@@ -58,7 +60,10 @@ const createDraft = async ({
       organizationSlug: orgSlug,
       outreachType: 'robocall',
       status: 'pending',
-      date: addDays(new Date(), sendInDays),
+      date:
+        sendInMinutes !== undefined
+          ? addMinutes(new Date(), sendInMinutes)
+          : addDays(new Date(), sendInDays),
       voterFileFilterId: filterId,
     },
   })
@@ -96,6 +101,33 @@ describe('OutreachRobocallStrandedService.sweepStrandedAuthorized (prod)', () =>
 
     expect(failSendSpy).toHaveBeenCalledTimes(1)
     expect(failSendSpy).toHaveBeenCalledWith(outreachId, 'expired_unstaged')
+  })
+
+  it('fails a run past the grace period (beyond now - grace)', async () => {
+    // Send passed 45 min ago — beyond ROBOCALL_STAGING_GRACE_MINUTES (30), so
+    // staging can no longer rescue it and it is genuinely stranded.
+    const outreachId = await createDraft({ sendInMinutes: -45 })
+
+    await stranded.sweepStrandedAuthorized()
+
+    expect(failSendSpy).toHaveBeenCalledTimes(1)
+    expect(failSendSpy).toHaveBeenCalledWith(outreachId, 'expired_unstaged')
+  })
+
+  it('does NOT fail a run within the grace period (staging rescues it)', async () => {
+    // Send passed only 10 min ago — inside the 30-min grace. This run is still
+    // staging-eligible, so the stranded sweep must leave it `authorized` rather
+    // than fail it. The shared `now - grace` boundary guarantees the two sweeps
+    // never both act on one run.
+    const outreachId = await createDraft({ sendInMinutes: -10 })
+
+    await stranded.sweepStrandedAuthorized()
+
+    expect(failSendSpy).not.toHaveBeenCalled()
+    const row = await service.prisma.outreachRobocall.findUniqueOrThrow({
+      where: { outreachId },
+    })
+    expect(row.settleState).toBe(RobocallSettleState.authorized)
   })
 
   it('skips a staged past-due authorized draft (send sweep owns it)', async () => {

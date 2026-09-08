@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
+import { subMinutes } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
+import { ROBOCALL_STAGING_GRACE_MINUTES } from '@/shared/util/robocallHold.util'
 import { OutreachType, RobocallSettleState } from '../../generated/prisma'
 import { OutreachRobocallHoldService } from './outreachRobocallHold.service'
 
@@ -57,8 +59,17 @@ export class OutreachRobocallStrandedService extends createPrismaBase(
         callhubCampaignPkStr: null,
         outreach: {
           outreachType: OutreachType.robocall,
-          // Send passed with no campaign ever staged.
-          date: { lte: now },
+          // Send passed by MORE than the staging grace with no campaign ever
+          // staged. A run only `now - grace` late is still staging-eligible (the
+          // staging sweep's lower bound reaches back to this same boundary), so
+          // failing it here would kill a run staging is about to rescue. At one
+          // instant that split is disjoint; but this sweep and staging fire on
+          // separate cron ticks, so their date windows can briefly overlap. The
+          // `callhubCampaignPkStr: null` guard in the failSend CAS below is
+          // what actually stops a double-handle: once staging claims the row
+          // this sweep's failSend matches nothing. Keep it — neither alone
+          // suffices.
+          date: { lt: subMinutes(now, ROBOCALL_STAGING_GRACE_MINUTES) },
         },
       },
       select: { outreachId: true },

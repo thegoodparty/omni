@@ -1,11 +1,23 @@
 import { randomUUID } from 'node:crypto'
-import { BadGatewayException } from '@nestjs/common'
-import { addHours, subMinutes } from 'date-fns'
+import { BadGatewayException, BadRequestException } from '@nestjs/common'
+import {
+  addHours,
+  addMinutes,
+  addSeconds,
+  isAfter,
+  isBefore,
+  isEqual,
+  subMinutes,
+  subSeconds,
+} from 'date-fns'
 import { MimeTypes } from 'http-constants-ts'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
-import { OutreachRobocallStagingService } from '@/outreach/services/outreachRobocallStaging.service'
+import {
+  OutreachRobocallStagingService,
+  ROBOCALL_STAGING_START_BUFFER_MINUTES,
+} from '@/outreach/services/outreachRobocallStaging.service'
 import { RobocallPhonebookService } from '@/outreach/services/robocallPhonebook.service'
 import { AudioTranscodeService } from '@/shared/services/audioTranscode.service'
 import { CallhubMediaService } from '@/vendors/callhub/services/callhubMedia.service'
@@ -13,6 +25,7 @@ import { CallhubCampaignService } from '@/vendors/callhub/services/callhubCampai
 import { ZodError } from 'zod'
 import { CallhubPermanentError } from '@/vendors/callhub/services/callhubErrorHandling.service'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
+import { OutreachRobocallStrandedService } from '@/outreach/services/outreachRobocallStranded.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
 
@@ -89,12 +102,14 @@ beforeEach(async () => {
 
 const createDraft = async ({
   sendInHours = 1,
+  sendInMinutes,
   settleState = RobocallSettleState.authorized,
   callhubCampaignPkStr,
   audioExt = 'mp3',
   complianceAudioEtag = STAGE_ETAG,
 }: {
   sendInHours?: number
+  sendInMinutes?: number
   settleState?: RobocallSettleState
   callhubCampaignPkStr?: string
   audioExt?: string
@@ -106,7 +121,10 @@ const createDraft = async ({
       organizationSlug: orgSlug,
       outreachType: 'robocall',
       status: 'pending_payment',
-      date: addHours(new Date(), sendInHours),
+      date:
+        sendInMinutes !== undefined
+          ? addMinutes(new Date(), sendInMinutes)
+          : addHours(new Date(), sendInHours),
       voterFileFilterId: filterId,
     },
   })
@@ -162,6 +180,55 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     // The computed window is persisted, never null on a successful stage.
     expect(satellite.callhubStartingDate).not.toBeNull()
     expect(satellite.callhubExpirationDate).not.toBeNull()
+  })
+
+  it('stages a grace-rescued (past-send) draft with a future scheduledStart', async () => {
+    // The send passed 10 min ago (deploy/restart/missed tick) but is still
+    // inside the staging grace window — authorized, unstaged. createVoiceBroadcast
+    // rejects any scheduledStart not strictly after now, so a past sendAt must be
+    // clamped forward; without the clamp this bounces back to authorized every
+    // sweep and never stages (grace would be a no-op).
+    const outreachId = await createDraft({ sendInMinutes: -10 })
+
+    // Anchor on a `now` captured BEFORE the call: the clamp is now + buffer, so
+    // asserting scheduledStart sits in a tight window around beforeCall + buffer
+    // catches a buffer-magnitude regression (e.g. 2 min → 1 sec), which a plain
+    // "after now" assertion would pass trivially.
+    const beforeCall = new Date()
+    await staging.stageCampaign(outreachId)
+
+    expect(createVbSpy).toHaveBeenCalledTimes(1)
+    const scheduledStart = createVbSpy.mock.calls[0]?.[0]
+      ?.scheduledStart as Date
+    const expectedStart = addMinutes(
+      beforeCall,
+      ROBOCALL_STAGING_START_BUFFER_MINUTES,
+    )
+    // scheduledStart ≈ beforeCall + buffer, allowing only a few seconds for the
+    // intra-call `new Date()` re-read — far tighter than the 2-min buffer.
+    expect(isBefore(scheduledStart, subSeconds(expectedStart, 5))).toBe(false)
+    expect(isAfter(scheduledStart, addSeconds(expectedStart, 30))).toBe(false)
+
+    // Committed to staged (pk_str persisted), NOT revert-bounced to authorized.
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.callhubCampaignPkStr).toBe('vb_1')
+    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
+  })
+
+  it('passes a genuinely-future sendAt through as scheduledStart unchanged', async () => {
+    const outreachId = await createDraft({ sendInHours: 3 })
+    const sendAt = (
+      await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: outreachId },
+      })
+    ).date
+
+    await staging.stageCampaign(outreachId)
+
+    const scheduledStart = createVbSpy.mock.calls[0]?.[0]
+      ?.scheduledStart as Date
+    // A future send is not clamped: its real time reaches CallHub.
+    expect(isEqual(scheduledStart, sendAt!)).toBe(true)
   })
 
   it('uploads media before creating the phonebook (cheap format failure)', async () => {
@@ -517,6 +584,71 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     expect(satellite.settleState).toBe(RobocallSettleState.authorized)
   })
 
+  it('reclaims a BEYOND-grace stale staging row unclamped, reverting it', async () => {
+    // A run whose send passed 45 min ago (beyond the 30-min grace) crashed
+    // mid-staging and is stuck in `staging`. The stale-reclaim arm picks it up,
+    // but the conditional clamp must NOT move its past sendAt forward: it passes
+    // the real past time, createVoiceBroadcast rejects it, and the claim reverts
+    // to `authorized` so the stranded sweep (not staging) fails it and releases
+    // the hold. Clamping instead would commit a pk_str and dial 45+ min late.
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.staging,
+      sendInMinutes: -45,
+    })
+    await ageStagingRow(outreachId, 45)
+    const sendAt = (
+      await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: outreachId },
+      })
+    ).date
+    // Mirror createVoiceBroadcast's real strictly-after-now guard: a past
+    // scheduledStart is rejected (a transient BadRequestException, not a
+    // permanent/ZodError), so the claim reverts rather than failing the send.
+    createVbSpy.mockImplementationOnce(
+      async ({ scheduledStart }: { scheduledStart: Date }) => {
+        if (!isAfter(scheduledStart, new Date())) {
+          throw new BadRequestException('must be scheduled in the future')
+        }
+        return vbResult('vb_1')
+      },
+    )
+
+    await expect(staging.stageCampaign(outreachId)).rejects.toBeInstanceOf(
+      BadRequestException,
+    )
+
+    // The past sendAt reached CallHub unclamped.
+    const scheduledStart = createVbSpy.mock.calls[0]?.[0]
+      ?.scheduledStart as Date
+    expect(isEqual(scheduledStart, sendAt!)).toBe(true)
+    // Not left staged with a campaign: reverted to authorized, no pk_str, so the
+    // stranded sweep can catch it.
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.callhubCampaignPkStr).toBeNull()
+    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
+  })
+
+  it('reclaims a WITHIN-grace stale staging row, clamping and staging it', async () => {
+    // A crash can strand a within-grace run in `staging` too. The stale-reclaim
+    // arm must still rescue it: its send is only 10 min past (inside the 30-min
+    // grace), so the clamp moves scheduledStart forward and it commits staged.
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.staging,
+      sendInMinutes: -10,
+    })
+    await ageStagingRow(outreachId, 45)
+
+    await staging.stageCampaign(outreachId)
+
+    expect(createVbSpy).toHaveBeenCalledTimes(1)
+    const scheduledStart = createVbSpy.mock.calls[0]?.[0]
+      ?.scheduledStart as Date
+    expect(isAfter(scheduledStart, new Date())).toBe(true)
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.callhubCampaignPkStr).toBe('vb_1')
+    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
+  })
+
   it('does not reclaim a fresh (in-flight) staging row', async () => {
     const outreachId = await createDraft({
       settleState: RobocallSettleState.staging,
@@ -556,6 +688,60 @@ describe('OutreachRobocallStagingService.sweepRobocallStaging (prod)', () => {
     expect(createVbSpy).toHaveBeenCalledTimes(1)
     expect((await readSatellite(inWindow)).callhubCampaignPkStr).toBe('vb_1')
     expect((await readSatellite(outOfWindow)).callhubCampaignPkStr).toBeNull()
+  })
+
+  it('stages a run whose send just passed (within the grace period)', async () => {
+    // Send passed 10 min ago — inside ROBOCALL_STAGING_GRACE_MINUTES (30). A
+    // deploy/restart/missed tick can push staging a few minutes past send; the
+    // grace lets the run still stage (and dial a touch late) instead of stranding.
+    const outreachId = await createDraft({ sendInMinutes: -10 })
+
+    await staging.sweepRobocallStaging()
+
+    expect(createVbSpy).toHaveBeenCalledTimes(1)
+    expect((await readSatellite(outreachId)).callhubCampaignPkStr).toBe('vb_1')
+  })
+
+  it('stages a future in-window draft (grace lower bound unchanged upward)', async () => {
+    const outreachId = await createDraft({ sendInMinutes: 30 })
+
+    await staging.sweepRobocallStaging()
+
+    expect(createVbSpy).toHaveBeenCalledTimes(1)
+    expect((await readSatellite(outreachId)).callhubCampaignPkStr).toBe('vb_1')
+  })
+
+  it('does NOT stage a run past the grace period', async () => {
+    // Send passed 45 min ago — beyond the 30-min grace. Staging must leave it for
+    // the stranded sweep to fail; re-staging a genuinely-late run would dial it
+    // meaningfully late.
+    const outreachId = await createDraft({ sendInMinutes: -45 })
+
+    await staging.sweepRobocallStaging()
+
+    expect(createVbSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).callhubCampaignPkStr).toBeNull()
+  })
+
+  it('grace zone is disjoint: staging rescues a just-late run, stranded ignores it', async () => {
+    // A run 10 min past send is in the grace zone. The stranded sweep (past-due
+    // by MORE than the grace) must NOT fail it, and staging MUST rescue it — the
+    // two sweeps share the `now - grace` boundary, so exactly one owns the run.
+    const stranded = service.app.get(OutreachRobocallStrandedService)
+    const failSendSpy = vi
+      .spyOn(service.app.get(OutreachRobocallHoldService), 'failSend')
+      .mockResolvedValue(undefined)
+    const outreachId = await createDraft({ sendInMinutes: -10 })
+
+    await stranded.sweepStrandedAuthorized()
+    expect(failSendSpy).not.toHaveBeenCalled()
+    expect((await readSatellite(outreachId)).settleState).toBe(
+      RobocallSettleState.authorized,
+    )
+
+    await staging.sweepRobocallStaging()
+    expect(createVbSpy).toHaveBeenCalledTimes(1)
+    expect((await readSatellite(outreachId)).callhubCampaignPkStr).toBe('vb_1')
   })
 
   it('reclaims a stranded stale staging row in-window', async () => {
