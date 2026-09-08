@@ -1,8 +1,10 @@
-// Per-run money ceiling for a robocall authorization hold, in cents ($500).
-// TESTING safeguard while real runs are validated — no single robocall we place
-// a hold for should exceed this. Raise or remove once real runs have validated
-// the flow at production volume.
-export const ROBOCALL_PER_RUN_CEILING_CENTS = 50000
+// Per-run money ceiling for a robocall authorization hold, in cents ($10,000).
+// A production sanity cap, not a testing limit: it rejects an anomalous/runaway
+// server-derived estimate (a count or pricing bug) before it can reserve money
+// on a candidate's card. $10,000 clears the largest legitimate run with headroom
+// — the audience caps at 100k contacts, ~$4,500 per run — while still catching a
+// gross runaway.
+export const ROBOCALL_PER_RUN_CEILING_CENTS = 1000000
 
 // How far ahead of now a candidate may schedule a send. Kept in sync with the
 // webapp's RobocallFlow (no shared package reaches both gp-api and gp-webapp

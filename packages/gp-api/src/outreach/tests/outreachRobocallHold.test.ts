@@ -628,8 +628,8 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
 
   it('rejects an estimate over the per-run ceiling and reverts to pending_payment', async () => {
     const outreachId = await createDraft({ sendInDays: 2 })
-    // 11112 landlines → $500.04, just over the $500 ceiling.
-    deriveSpy.mockResolvedValue(11112)
+    // 250000 landlines → $11,252, over the $10,000 sanity cap.
+    deriveSpy.mockResolvedValue(250000)
 
     const res = await postAuthorize(outreachId)
 
@@ -640,6 +640,37 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     // The guard only flips on success — a rejected authorize stays hidden.
     const spine = await readSpine(outreachId)
     expect(spine.status).toBe('pending_payment')
+  })
+
+  it('allows a large run under the per-run ceiling', async () => {
+    const outreachId = await createDraft({ sendInDays: 2 })
+    // 100000 landlines → $4,502, the audience cap and well under $10,000.
+    deriveSpy.mockResolvedValue(100000)
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_1',
+      customer: 'cus_test',
+      type: 'card',
+    })
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_hold_large',
+      status: 'requires_capture',
+      capture_before: captureBeforeUnix(),
+    })
+
+    const res = await postAuthorize(outreachId)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.status).toBe('authorized')
+    expect(paymentIntentsCreate).toHaveBeenCalledTimes(1)
+    expect(paymentIntentsCreate.mock.calls[0]?.[0]).toMatchObject({
+      amount: calcRobocallTotalInCents(100000),
+    })
+
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
+    expect(satellite.authorizedAmountInCents).toBe(
+      calcRobocallTotalInCents(100000),
+    )
   })
 
   it('records hold_failed (not a 502) when the card is declined', async () => {
