@@ -8,11 +8,6 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useFeatureFlags } from '@shared/experiments/FeatureFlagsProvider'
-import {
-  useWinRecommendedListsFlag,
-  WIN_RECOMMENDED_LISTS_FLAG_KEY,
-} from '@shared/experiments/winRecommendedListsFlag'
 import { outreachAudienceListsKey } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
 import { useContactsTable } from '../ContactsTableProvider'
 import { getContactsLabels } from '../../../shared/contactsLabels'
@@ -87,11 +82,6 @@ export default function CreateListWizard({
     customSegments,
     voterDataUnavailable,
   } = useContactsTable()
-  // Read without exposure: this call only computes a prop. The exposure
-  // fires from the effect below, at the step that actually renders the
-  // groups.
-  const recommendedLists = useWinRecommendedListsFlag(false)
-  const { exposure } = useFeatureFlags()
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
   const orgSlug = useOrganization()?.slug
@@ -207,20 +197,6 @@ export default function CreateListWizard({
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openSession, stepName])
-
-  // The recommended-list groups render only on the voter-file filter step, so
-  // that step — not the page load — is the experiment's treatment/control
-  // divergence point. This component never unmounts (CrmContactsPage keeps it
-  // mounted and toggles `open`), so reading the flag with exposure on counted
-  // every contacts page view as exposed, including visits that never opened
-  // the wizard. Keyed on reaching the step rather than on the flag's value, so
-  // it fires for both arms; `ready` gates it because an exposure recorded
-  // before the variants resolve would dedupe away the real one.
-  useEffect(() => {
-    if (!open || !recommendedLists.ready) return
-    if (stepName !== 'conditions' || activeBranch !== 'voterFile') return
-    exposure(WIN_RECOMMENDED_LISTS_FLAG_KEY)
-  }, [open, recommendedLists.ready, stepName, activeBranch, exposure])
 
   // Multi-step flow: reset scroll to the top of the sheet's own scrollable
   // body (not window) on every step change (app/dashboard/CLAUDE.md
@@ -714,9 +690,7 @@ export default function CreateListWizard({
           onPrecinctsChange={setPrecincts}
           precinctOptions={precinctOptions}
           isElectedOfficial={isElectedOfficial}
-          showRecommendedListFilters={
-            recommendedLists.ready && recommendedLists.enabled
-          }
+          showRecommendedListFilters
         />
       )}
       {stepName === 'conditions' && activeBranch === 'activity' && (

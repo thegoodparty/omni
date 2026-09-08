@@ -7,11 +7,6 @@ import { Input, Label } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useFeatureFlags } from '@shared/experiments/FeatureFlagsProvider'
-import {
-  useWinRecommendedListsFlag,
-  WIN_RECOMMENDED_LISTS_FLAG_KEY,
-} from '@shared/experiments/winRecommendedListsFlag'
 import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
 import { PurposeStep } from 'app/dashboard/outreach/v2/PurposeStep'
@@ -306,11 +301,10 @@ export default function CreateListFlow({
   // endpoint 400s an eo- org outright) and door knocking is ONE route serving
   // both rails, so the purpose slug alone cannot tell them apart — an elected
   // official picking "Introduce myself" reads as `introduce` exactly as a
-  // candidate's does. Without this an eo- session records a
-  // win-recommended-lists exposure it can never be treated on, polluting the
-  // experiment's denominator with sessions the feature is unreachable for.
-  // `PhoneBankingFlow` gates the same map on the same reasoning, from its own
-  // Win/Serve discriminator; this is the third surface to need it.
+  // candidate's does. Without this a Serve session fires a call the endpoint
+  // refuses. `PhoneBankingFlow` gates the same map on the same reasoning,
+  // from its own Win/Serve discriminator; this is the third surface to need
+  // it.
   //
   // The cast rides on that same gate: `!serveMode` is what makes this purpose
   // a member of the Win vocabulary, which is the only one an intent exists
@@ -510,21 +504,6 @@ export default function CreateListFlow({
   // same "picker mode, above the saved lists" placement Task 8 used for the
   // other channels' shared audience step.
   const recommendationsVisible = stage === 'who' && !buildingList
-  const recommendedListsFlag = useWinRecommendedListsFlag(false)
-  const { exposure } = useFeatureFlags()
-  useEffect(() => {
-    if (!recommendedListsFlag.ready || !recommendationsVisible) return
-    // Structural eligibility, not the flag's value (fires for both arms) —
-    // matches useOutreachAudience's exposure gate for the same flag: a
-    // `custom` purpose could never show a card regardless of the flag.
-    if (recommendedListIntent === null) return
-    exposure(WIN_RECOMMENDED_LISTS_FLAG_KEY)
-  }, [
-    recommendationsVisible,
-    recommendedListsFlag.ready,
-    recommendedListIntent,
-    exposure,
-  ])
   const recommendationsQuery = useQuery({
     // Keyed on the org even though this flow is unmounted on every org switch
     // (it opens from the current org's outreach hub, per
@@ -544,11 +523,7 @@ export default function CreateListFlow({
       )
       return data
     },
-    enabled:
-      recommendationsVisible &&
-      recommendedListsFlag.ready &&
-      recommendedListsFlag.enabled &&
-      recommendedListIntent !== null,
+    enabled: recommendationsVisible && recommendedListIntent !== null,
     staleTime: 0,
   })
   const recommendations = recommendationsQuery.data ?? []
@@ -994,9 +969,6 @@ export default function CreateListFlow({
               }}
               open={listOpen}
               onOpenChange={setListOpen}
-              recommendedListsEnabled={
-                recommendedListsFlag.ready && recommendedListsFlag.enabled
-              }
               recommendations={recommendations}
               recommendationsLoading={recommendationsQuery.isLoading}
               recommendationsError={recommendationsQuery.isError}

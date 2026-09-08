@@ -47,23 +47,6 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   trackEvent: vi.fn(),
 }))
 
-vi.mock('app/dashboard/components/tasks/flows/TaskFlow', () => ({
-  default: ({
-    type,
-    preselectedListId,
-  }: {
-    type: string
-    preselectedListId?: number
-  }) => (
-    <div
-      data-testid="task-flow"
-      data-preselected-list={String(preselectedListId)}
-    >
-      {type}
-    </div>
-  ),
-}))
-
 vi.mock('app/dashboard/outreach/hooks/useTextOutreachGate', () => ({
   useTextOutreachGate: () => ({ runTextGate: () => true, gateModals: null }),
 }))
@@ -79,16 +62,6 @@ let mockElectedOffice: {
 } = { data: null, isPending: false }
 vi.mock('@shared/hooks/useElectedOffice', () => ({
   useElectedOffice: () => mockElectedOffice,
-}))
-
-const robocallFlag = { ready: true, enabled: true }
-vi.mock('@shared/experiments/voterOutreachV2RobocallFlag', () => ({
-  useVoterOutreachV2RobocallFlag: () => robocallFlag,
-}))
-
-const smsFlag = { ready: true, enabled: false }
-vi.mock('@shared/experiments/voterOutreachV2SmsFlag', () => ({
-  useVoterOutreachV2SmsFlag: () => smsFlag,
 }))
 
 const nativeDoorKnockingFlag = { ready: true, enabled: true }
@@ -123,46 +96,51 @@ describe('ChannelTileGrid — social tile', () => {
     await userEvent.click(screen.getByText('Social media'))
 
     expect(onCreateSocial).toHaveBeenCalledTimes(1)
-    expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
   })
 })
 
-describe('ChannelTileGrid — robocall tile swap flag', () => {
+describe('ChannelTileGrid — robocall tile', () => {
   beforeEach(() => {
-    robocallFlag.ready = true
-    robocallFlag.enabled = true
+    mockCampaign = { id: 9, isPro: true }
   })
 
-  it('opens the new robocall flow when the flag is on', async () => {
+  it('opens the robocall flow', async () => {
     const onCreateRobocall = vi.fn()
     renderGrid({ onCreateRobocall })
 
     await userEvent.click(screen.getByText('Robocall'))
 
     expect(onCreateRobocall).toHaveBeenCalledTimes(1)
-    expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
+  })
+})
+
+describe('ChannelTileGrid — SMS tile', () => {
+  beforeEach(() => {
+    mockCampaign = { id: 9, isPro: true }
+    mockRouterPush.mockClear()
   })
 
-  it('launches the legacy robocall TaskFlow when the flag is off', async () => {
-    robocallFlag.enabled = false
-    const onCreateRobocall = vi.fn()
-    renderGrid({ onCreateRobocall })
+  it('Pro campaign: opens the SMS flow once the text gate passes', async () => {
+    const onCreateSms = vi.fn()
+    renderGrid({ onCreateSms })
 
-    await userEvent.click(screen.getByText('Robocall'))
+    await userEvent.click(screen.getByText('SMS'))
 
-    expect(onCreateRobocall).not.toHaveBeenCalled()
-    expect(screen.getByTestId('task-flow')).toHaveTextContent('robocall')
+    expect(onCreateSms).toHaveBeenCalledTimes(1)
+    expect(mockRouterPush).not.toHaveBeenCalled()
   })
 
-  it('treats an unsettled flag as off (legacy launch)', async () => {
-    robocallFlag.ready = false
-    const onCreateRobocall = vi.fn()
-    renderGrid({ onCreateRobocall })
+  // Upgrade-at-entry: a non-Pro click goes to the wizard, not the legacy
+  // marketing modal — the same pattern the phone-banking tile set.
+  it('non-Pro campaign: redirects to pro-upgrade instead of opening', async () => {
+    mockCampaign = { id: 9, isPro: false }
+    const onCreateSms = vi.fn()
+    renderGrid({ onCreateSms })
 
-    await userEvent.click(screen.getByText('Robocall'))
+    await userEvent.click(screen.getByText('SMS'))
 
-    expect(onCreateRobocall).not.toHaveBeenCalled()
-    expect(screen.getByTestId('task-flow')).toHaveTextContent('robocall')
+    expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/pro-upgrade')
+    expect(onCreateSms).not.toHaveBeenCalled()
   })
 })
 
@@ -184,10 +162,9 @@ describe('ChannelTileGrid — phone-banking tile + Pro redirect', () => {
 
     expect(onCreatePhoneBanking).toHaveBeenCalledTimes(1)
     expect(mockRouterPush).not.toHaveBeenCalled()
-    expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
   })
 
-  it('non-Pro campaign: redirects to pro-upgrade, no modal, no flow flash', async () => {
+  it('non-Pro campaign: redirects to pro-upgrade, no modal', async () => {
     mockCampaign = { id: 9, isPro: false }
     mockElectedOffice = { data: null, isPending: false }
     const onCreatePhoneBanking = vi.fn()
@@ -197,7 +174,6 @@ describe('ChannelTileGrid — phone-banking tile + Pro redirect', () => {
 
     expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/pro-upgrade')
     expect(onCreatePhoneBanking).not.toHaveBeenCalled()
-    expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
   })
 
   it('elected official (no Pro sub): opens the flow', async () => {
@@ -332,15 +308,14 @@ describe('ChannelTileGrid — door-knocking tile carries the selected list', () 
     )
   })
 
-  it('still hands the list to the SMS tile when door knocking was not pressed', async () => {
-    renderGrid({ preselectedListId: 42 })
+  it('leaves the list intact for another tile when door knocking was not pressed', async () => {
+    const onCreatePhoneBanking = vi.fn()
+    renderGrid({ preselectedListId: 42, onCreatePhoneBanking })
 
-    await userEvent.click(screen.getByText('SMS'))
+    await userEvent.click(screen.getByText('Social media'))
+    await userEvent.click(screen.getByText('Phone banking'))
 
-    expect(screen.getByTestId('task-flow')).toHaveAttribute(
-      'data-preselected-list',
-      '42',
-    )
+    expect(onCreatePhoneBanking).toHaveBeenCalledWith(42)
   })
 
   // The instance can outlive the navigation in the App Router's soft-nav
@@ -348,21 +323,19 @@ describe('ChannelTileGrid — door-knocking tile carries the selected list', () 
   // — otherwise a Back to this hub aims the next tile pressed at a list the
   // candidate chose for a walk.
   it('spends the list on the way out, so a later tile opens clean', async () => {
-    renderGrid({ preselectedListId: 42 })
+    const onCreatePhoneBanking = vi.fn()
+    renderGrid({ preselectedListId: 42, onCreatePhoneBanking })
 
     await userEvent.click(screen.getByText('Door knocking'))
     expect(mockRouterPush).toHaveBeenCalledWith(
       '/dashboard/door-knocking?create=1&listId=42',
     )
 
-    // SMS is the tile that always launches the legacy TaskFlow, which is the
-    // one place a leftover id would show up as a real preselection.
-    await userEvent.click(screen.getByText('SMS'))
+    // Phone banking is the one remaining tile that APPLIES a preselect, so
+    // it's where a leftover id would show up as a real preselection.
+    await userEvent.click(screen.getByText('Phone banking'))
 
-    expect(screen.getByTestId('task-flow')).toHaveAttribute(
-      'data-preselected-list',
-      'undefined',
-    )
+    expect(onCreatePhoneBanking).toHaveBeenCalledWith(undefined)
   })
 
   // The tile is Pro-locked, and carrying a list must not become a way past
@@ -452,19 +425,16 @@ describe('ChannelTileGrid — phone-banking tile carries the selected list', () 
     expect(onCreatePhoneBanking).toHaveBeenCalledWith(42)
   })
 
-  it('spends the list on hand-off, so a later tile opens clean', async () => {
-    renderGrid({ preselectedListId: 42 })
+  it('spends the list on hand-off, so a later open starts clean', async () => {
+    const onCreatePhoneBanking = vi.fn()
+    renderGrid({ preselectedListId: 42, onCreatePhoneBanking })
+
+    await userEvent.click(screen.getByText('Phone banking'))
+    expect(onCreatePhoneBanking).toHaveBeenNthCalledWith(1, 42)
 
     await userEvent.click(screen.getByText('Phone banking'))
 
-    // SMS is the tile that always launches the legacy TaskFlow, which is the
-    // one place a leftover id would show up as a real preselection.
-    await userEvent.click(screen.getByText('SMS'))
-
-    expect(screen.getByTestId('task-flow')).toHaveAttribute(
-      'data-preselected-list',
-      'undefined',
-    )
+    expect(onCreatePhoneBanking).toHaveBeenNthCalledWith(2, undefined)
   })
 
   // The Pro redirect happens before the hand-off: the candidate never
@@ -473,17 +443,28 @@ describe('ChannelTileGrid — phone-banking tile carries the selected list', () 
   it('does not spend the list on a non-Pro redirect', async () => {
     mockCampaign = { id: 9, isPro: false }
     const onCreatePhoneBanking = vi.fn()
-    renderGrid({ preselectedListId: 42, onCreatePhoneBanking })
+    const { rerender } = renderGrid({
+      preselectedListId: 42,
+      onCreatePhoneBanking,
+    })
 
     await userEvent.click(screen.getByText('Phone banking'))
     expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/pro-upgrade')
     expect(onCreatePhoneBanking).not.toHaveBeenCalled()
 
-    await userEvent.click(screen.getByText('SMS'))
-
-    expect(screen.getByTestId('task-flow')).toHaveAttribute(
-      'data-preselected-list',
-      '42',
+    // Coming back upgraded: the list the deep link carried is still there.
+    mockCampaign = { id: 9, isPro: true }
+    rerender(
+      <ChannelTileGrid
+        preselectedListId={42}
+        onCreateSocial={vi.fn()}
+        onCreateSms={vi.fn()}
+        onCreateRobocall={vi.fn()}
+        onCreatePhoneBanking={onCreatePhoneBanking}
+      />,
     )
+    await userEvent.click(screen.getByText('Phone banking'))
+
+    expect(onCreatePhoneBanking).toHaveBeenCalledWith(42)
   })
 })

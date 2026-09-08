@@ -40,6 +40,7 @@ const mockOutreachFindUniqueOrThrow = vi.fn()
 const mockGetFileBytes = vi.fn()
 
 const mockTcrFindFirstOrThrow = vi.fn()
+const mockTcrFindFirst = vi.fn()
 const mockPeerlyCreateJob = vi.fn()
 const mockResolveP2pJobGeography = vi.fn()
 const mockNotifySuccess = vi.fn()
@@ -83,7 +84,11 @@ describe('OutreachService', () => {
   const p2pCreateDto: CreateOutreachSchema = {
     ...baseCreateDto,
     outreachType: OutreachType.p2p,
-    script: 'smsKey',
+    // p2p create enforces the CAS compliance list on the resolved script, so
+    // a p2p DTO here has to carry a message that actually passes it.
+    script:
+      'Hello {first_name}, this is Jane Doe. Vote for me. ' +
+      'Paid for by Friends of Jane. Reply STOP to opt out.',
     phoneListId: 100,
     title: 'P2P Title',
   }
@@ -102,6 +107,11 @@ describe('OutreachService', () => {
     mockOutreachFindUniqueOrThrow.mockReset()
     mockGetFileBytes.mockReset()
     mockTcrFindFirstOrThrow.mockReset()
+    mockTcrFindFirst.mockReset()
+    mockTcrFindFirst.mockResolvedValue({
+      candidateName: 'Jane Doe',
+      committeeName: 'Friends of Jane',
+    })
     mockPeerlyCreateJob.mockReset()
     mockResolveP2pJobGeography.mockReset()
     mockNotifySuccess.mockReset()
@@ -124,6 +134,9 @@ describe('OutreachService', () => {
         updateMany: mockOutreachUpdateMany,
         update: mockOutreachUpdate,
       },
+      // requireCompliantScript reads the campaign owner's name as one of the
+      // candidate-name candidates; the TCR record above supplies the other.
+      user: { findUnique: vi.fn().mockResolvedValue(null) },
     }
 
     const module: TestingModule = await Test.createTestingModule({
@@ -134,7 +147,10 @@ describe('OutreachService', () => {
         { provide: AreaCodeFromZipService, useValue: {} },
         {
           provide: CampaignTcrComplianceService,
-          useValue: { findFirstOrThrow: mockTcrFindFirstOrThrow },
+          useValue: {
+            findFirstOrThrow: mockTcrFindFirstOrThrow,
+            findFirst: mockTcrFindFirst,
+          },
         },
         {
           provide: PeerlyP2pJobService,
@@ -539,7 +555,7 @@ describe('OutreachService', () => {
         service.create(
           mockUser,
           campaignWithLongScript,
-          p2pCreateDto,
+          { ...p2pCreateDto, script: 'smsKey' },
           'https://cdn.example.com/p2p.png',
           p2pImage,
         ),

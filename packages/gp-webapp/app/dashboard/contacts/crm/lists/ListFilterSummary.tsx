@@ -72,8 +72,8 @@ export const buildFilterSummary = (
 ): string => {
   const clauses: string[] = []
 
-  // Read side is deliberately UNGATED by win-recommended-lists: a list saved
-  // while the flag was on has to keep describing itself after it flips off.
+  // Read side covers every dimension the wizard can write, including the
+  // recommended-list groups the outreach builders never render.
   const summarizedFields = [
     ...filterSections.flatMap((section) => section.fields),
     ...RECOMMENDED_LIST_FILTER_FIELDS,

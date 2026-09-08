@@ -118,22 +118,19 @@ written twice.
 - **`WalkView`'s progress pill says "reached", and that is the design's word rather than ours.** Ours was "logged", for a reason that is still true: `not_home`, `inaccessible` and `refused` all satisfy the `knockStatus !== 'unknown'` predicate the bar counts, so a canvasser who knocked forty doors and spoke to nobody reads "40/40 reached" — a claim about conversations that never happened. The 2026-09-01 design-adherence pass put the design's wording back (`Door knocking 2.0.dc.html` line 6447), and the plan the product owner approved names it explicitly, so it is a product decision and not drift. **What keeps it survivable is that no second surface repeats it**: `TurfDetailsSheet`'s Progress section states the same figure as a bare `X of Y · Z%` with no verb at all, so the two cannot disagree. If a verb is ever needed there, it is "logged", and this pill is the one exception. The colour is the design's own bubble — `bg-secondary-light` on `text-secondary-dark`, never the near-black `tertiary-dark`, which reads as a filled control rather than as a count.
 - **A flagged resident's marker replaces their status, everywhere they are listed beside other people.** `targetMarker` (`native/statusPresentation.ts`) is the one source: `WalkView`'s collapsed and expanded stop rows, and **both** of `PersonSheet`'s rosters (the resident switcher and the Household section). The sheet's rosters were the gap — the same person read "Do not knock" in the list and "Support unknown" one tap later, two answers to one question. Do-not-knock outranks a not-a-voter reason, because it is an instruction about the door rather than a fact about one of the people behind it. Paper's longer form is `skipInstruction` in the same file, read by `print/WalkSheet.tsx` and `print/pdf/walkListRows.ts` so the two formats cannot word it differently. The short marker reuses `NOT_A_VOTER_LABELS` from contracts — the CRM activity feed's vocabulary — so one flag isn't called two things in one product.
 - **The pre-route walking estimate is local, not the vendor's.** 45 doors/hour (`DOORS_PER_HOUR` in `native/walkEstimate.ts`, from the POC) turns **doors** into a time before any route exists. The real duration only arrives once the route is built server-side — and building it is a billed, irreversible Geoapify call, so the one surface that helps someone decide whether a saved list is a reasonable evening has to answer before it: `TurfDetailsSheet`'s "Estimated time". **The draw step no longer quotes it.** It used to print "About 1 hr 33 min of knocking, at 45 doors an hour" under the map preview, along with a party-mix breakdown; the design draws nothing under its preview, and the estimate belongs on the surface that can state it against a real route. 100 stops warns and 150 blocks — the soft limit must stay non-blocking, and both warnings stay on the draw step because they are things the _shape_ can be wrong about rather than facts about the audience.
-- **The who step offers recommended lists, and everything about them is
-  gated on the Win surface rather than on the purpose.** Behind the
-  `win-recommended-lists` flag the picker face shows cards from
+- **The who step offers recommended lists, and they are gated on the Win
+  surface rather than on the purpose.** The picker face shows cards from
   `GET /v1/campaigns/mine/recommended-lists`, for the intent the purpose maps
   onto through the shared `intentForOutreachPurpose`
   (`outreach/v2/audience/recommendedListMapping.util.ts` — one map for all four
   channels, `custom` maps to null). **Door knocking is ONE route for both
   rails and Serve's purpose cards reuse Win's slug strings**, so the purpose
   alone cannot tell a candidate from an elected official; `serveMode` gates the
-  intent to null, which shuts off the query, the cards AND the exposure at
-  once. Recommended lists are Win-only — gp-api 400s an `eo-` org outright — so
-  an exposure recorded there is a session the experiment can never treat. The
-  exposure otherwise fires for BOTH arms on reaching the picker, and the
-  recommendations query is keyed on the org: the react-query cache is global
-  and outlives this flow's unmount, so an org-less key hands the next org the
-  previous one's cards for a render.
+  intent to null, which shuts off the query and the cards at once. Recommended
+  lists are Win-only — gp-api 400s an `eo-` org outright — so a Serve session
+  must never fire the call. The recommendations query is keyed on the org: the
+  react-query cache is global and outlives this flow's unmount, so an org-less
+  key hands the next org the previous one's cards for a render.
 - **An accepted recommendation carries two clauses the pill draft has no plane
   for, and the surface above needs BOTH of them.** Precincts and support status
   arrive on the recommendation, not on any saved row, and precincts are the

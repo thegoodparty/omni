@@ -71,10 +71,7 @@ interface WhoStepProps {
   onOpenChange: (open: boolean) => void
   // Recommended lists (docs/features/recommended-lists.md), rendered above
   // "All lists" in the picker face only — the same placement Task 8 used for
-  // the shared outreach audience step. `recommendedListsEnabled` reflects
-  // the win-recommended-lists flag; false renders this step with none of
-  // this, byte-identical to before the feature existed.
-  recommendedListsEnabled: boolean
+  // the shared outreach audience step.
   recommendations: RecommendedList[]
   recommendationsLoading: boolean
   // A warehouse outage is a deliberate 502/504 from the endpoint, not an
@@ -133,7 +130,6 @@ export const WhoStep = ({
   onBuildingChange,
   open,
   onOpenChange,
-  recommendedListsEnabled,
   recommendations,
   recommendationsLoading,
   recommendationsError,
@@ -252,7 +248,7 @@ export const WhoStep = ({
   // affects per-list door counts, which skeleton in place inside the rows
   // (see popover render below and the trigger subtitle) rather than
   // holding the whole picker hostage.
-  const initialLoading = recommendedListsEnabled && recommendationsLoading
+  const initialLoading = recommendationsLoading
 
   if (initialLoading) {
     return (
@@ -276,31 +272,30 @@ export const WhoStep = ({
 
   return (
     <>
-      {recommendedListsEnabled &&
-        (recommendationsError || recommendations.length > 0) && (
-          <div className="flex flex-col gap-2">
-            <Eyebrow>Recommended for you</Eyebrow>
-            {recommendationsError ? (
-              <p
-                data-testid="recommended-lists-error"
-                className="text-sm text-destructive"
-              >
-                We couldn&apos;t load recommendations right now.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {recommendations.map((recommendation) => (
-                  <RecommendedListCard
-                    key={recommendation.variant}
-                    recommendation={recommendation}
-                    channel="doorKnocking"
-                    onSelect={() => onSelectRecommendation(recommendation)}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+      {(recommendationsError || recommendations.length > 0) && (
+        <div className="flex flex-col gap-2">
+          <Eyebrow>Recommended for you</Eyebrow>
+          {recommendationsError ? (
+            <p
+              data-testid="recommended-lists-error"
+              className="text-sm text-destructive"
+            >
+              We couldn&apos;t load recommendations right now.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {recommendations.map((recommendation) => (
+                <RecommendedListCard
+                  key={recommendation.variant}
+                  recommendation={recommendation}
+                  channel="doorKnocking"
+                  onSelect={() => onSelectRecommendation(recommendation)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div ref={pickerRootRef} className="flex flex-col gap-2">
         <Eyebrow id="create-list-audience-label">All lists</Eyebrow>

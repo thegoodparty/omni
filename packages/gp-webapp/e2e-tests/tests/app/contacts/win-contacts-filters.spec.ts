@@ -1,6 +1,5 @@
 import { expect, type Locator, type Page, test } from '@playwright/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import {
   closeCrmSheet,
   crmSheet,
@@ -14,10 +13,9 @@ import {
 } from 'src/helpers/crm-contacts-e2e'
 import { setupProCampaignUser } from 'src/helpers/organizations'
 
-// win-recommended-lists: independent affinity and ideology are Win-only
-// (gp-api 400s both for an eo- org via
-// assertNoRecommendedListFilterForElectedOffice), so they can only be
-// exercised against a real Win Pro org — contacts-filters.spec.ts covers the
+// Independent affinity and ideology are Win-only (gp-api 400s both for an
+// eo- org via assertNoRecommendedListFilterForElectedOffice), so they can
+// only be exercised against a real Win Pro org — contacts-filters.spec.ts covers the
 // third new dimension (hasAnyPhone, available to both Win and Serve) and the
 // Win-only gate's negative space (both groups absent from the Serve wizard)
 // against its existing elected-office user. This file is the positive half:
@@ -25,11 +23,6 @@ import { setupProCampaignUser } from 'src/helpers/organizations'
 test.describe('Win contacts filters: independent affinity + ideology', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
-    // Force the flag BEFORE auth/navigation so the first SSR render already
-    // sees it (e2e-tests/CLAUDE.md "Flag-gated surfaces") — no serve-crm
-    // involved here, so setFlagOverrides is called directly rather than
-    // through enableCrmFlags.
-    await setFlagOverrides(page, { 'win-recommended-lists': 'on' })
   })
 
   // Select one pill, read the settled narrowed count, then reset to the

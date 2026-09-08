@@ -657,7 +657,6 @@ export const PhoneBankingFlow = ({
             selectedId={audience.selectedListId}
             onSelect={audience.onSelect}
             onStartBuilder={audience.startBuilder}
-            recommendedListsEnabled={audience.recommendedListsEnabled}
             recommendations={audience.recommendations}
             recommendationsLoading={audience.recommendationsLoading}
             recommendationsError={audience.recommendationsError}
