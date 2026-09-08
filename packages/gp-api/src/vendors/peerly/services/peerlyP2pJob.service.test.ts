@@ -23,6 +23,7 @@ describe('PeerlyP2pJobService', () => {
   let mockHttpService: {
     post: ReturnType<typeof vi.fn>
     get: ReturnType<typeof vi.fn>
+    put: ReturnType<typeof vi.fn>
     delete: ReturnType<typeof vi.fn>
     validateResponse: ReturnType<typeof vi.fn>
     getAuthenticatedUser: ReturnType<typeof vi.fn>
@@ -55,6 +56,7 @@ describe('PeerlyP2pJobService', () => {
     mockHttpService = {
       post: vi.fn(),
       get: vi.fn(),
+      put: vi.fn().mockResolvedValue({ data: {} }),
       delete: vi.fn(),
       validateResponse: vi
         .fn()
@@ -467,6 +469,72 @@ describe('PeerlyP2pJobService', () => {
       )
 
       await expect(service.getJob('job-1')).rejects.toThrow(BadGatewayException)
+    })
+  })
+
+  describe('activateJob', () => {
+    const pausedJob = {
+      id: 'job-1',
+      status: 'paused',
+      leads_remaining: 5,
+      start_date: '2026-09-10',
+      end_date: '2026-09-10',
+      templates: [
+        {
+          id: 't1',
+          title: 'Default Template',
+          text: 'Hello {first_name}',
+          is_default: true,
+          media: { media_id: 'm1', media_type: 'IMAGE', title: 'img' },
+        },
+      ],
+    }
+
+    it('sets status active and echoes the existing templates', async () => {
+      mockHttpService.get.mockResolvedValueOnce({ data: pausedJob })
+
+      await service.activateJob('job-1')
+
+      expect(mockHttpService.put).toHaveBeenCalledWith(
+        '/1to1/jobs/job-1',
+        expect.objectContaining({
+          status: 'active',
+          templates: [
+            {
+              is_default: true,
+              title: 'Default Template',
+              text: 'Hello {first_name}',
+              media: { media_type: 'IMAGE', media_id: 'm1', title: 'img' },
+            },
+          ],
+        }),
+      )
+    })
+
+    it('omits media for a template without one', async () => {
+      mockHttpService.get.mockResolvedValueOnce({
+        data: {
+          ...pausedJob,
+          templates: [{ id: 't1', title: 'T', text: 'Hi', is_default: true }],
+        },
+      })
+
+      await service.activateJob('job-1')
+
+      const [, body] = mockHttpService.put.mock.calls.at(-1) as [
+        string,
+        { templates: Array<Record<string, string>> },
+      ]
+      expect(body.templates[0]).not.toHaveProperty('media')
+    })
+
+    it('routes an activation failure through the shared error handler', async () => {
+      mockHttpService.get.mockResolvedValueOnce({ data: pausedJob })
+      mockHttpService.put.mockRejectedValueOnce(new Error('vendor down'))
+
+      await expect(service.activateJob('job-1')).rejects.toThrow(
+        BadGatewayException,
+      )
     })
   })
 

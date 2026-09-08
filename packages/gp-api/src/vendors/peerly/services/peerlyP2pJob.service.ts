@@ -279,6 +279,43 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
   // team reviews the request; approval lands on the job as
   // canvassers_schedule.approved. One open request per job — reschedules
   // must clearCanvassers first.
+  // A booked job still sends nothing while its status is paused
+  // ("Inactive" in Peerly's UI), and Peerly never flips it — activation is
+  // an explicit update (update-job-details doc; learned live 2026-09-08
+  // when an approved prod job sat inactive). The update endpoint
+  // overwrites the WHOLE templates array with whatever is passed, so this
+  // re-reads the job and echoes its templates (media by reference) rather
+  // than risking a bare status write clearing the message.
+  async activateJob(jobId: string): Promise<void> {
+    const job = await this.getJob(jobId)
+    try {
+      await this.peerlyHttpService.put(`/1to1/jobs/${jobId}`, {
+        account_id: this.accountNumber,
+        status: 'active',
+        templates: job.templates.map((template) => ({
+          is_default: template.is_default,
+          title: template.title,
+          text: template.text,
+          ...(template.media && {
+            media: {
+              media_type: template.media.media_type,
+              media_id: template.media.media_id,
+              title: template.media.title,
+            },
+          }),
+        })),
+      })
+    } catch (error) {
+      await this.peerlyErrorHandling.handleApiError({
+        error,
+        logger: this.logger,
+        context: {
+          customMessage: P2P_ERROR_MESSAGES.ACTIVATE_JOB_FAILED,
+        },
+      })
+    }
+  }
+
   async requestCanvassers(
     jobId: string,
     { date }: { date?: string } = {},
