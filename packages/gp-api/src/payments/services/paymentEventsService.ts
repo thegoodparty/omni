@@ -372,11 +372,32 @@ export class PaymentEventsService {
     // date here would duplicate the shared predicate.
     const { id: campaignId } = campaign
 
+    // Stripe SDK uses broad union types — metadata and IDs are string | null | Stripe.* unions
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    const incomingSubscriptionId = subscriptionId as string
+    const previousSubscriptionId = campaign.details?.subscriptionId
+    if (
+      previousSubscriptionId &&
+      previousSubscriptionId !== incomingSubscriptionId
+    ) {
+      // Overwriting a different stored sub id is the signature of a duplicate
+      // Pro subscription: the previous sub keeps billing invisibly once we
+      // stop tracking it (ENG-11084). Alert loudly, don't block fulfillment.
+      this.logger.error(
+        {
+          campaignId,
+          userId: user.id,
+          previousSubscriptionId,
+          incomingSubscriptionId,
+        },
+        '[WEBHOOK] Subscription checkout is replacing a different stored ' +
+          'subscriptionId — possible duplicate Pro subscription',
+      )
+    }
+
     // These have to happen in serial since setIsPro also mutates the JSONP details column
     await this.campaignsService.patchCampaignDetails(campaignId, {
-      // Stripe SDK uses broad union types — metadata and IDs are string | null | Stripe.* unions
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-      subscriptionId: subscriptionId as string,
+      subscriptionId: incomingSubscriptionId,
     })
     const { becamePro } = await this.campaignsService.setIsPro(campaignId)
 
