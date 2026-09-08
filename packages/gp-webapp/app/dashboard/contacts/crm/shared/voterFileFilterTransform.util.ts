@@ -166,3 +166,21 @@ export const segmentToVoterFileFilters = (
 export const LEGACY_AGE_CLEARED: VoterFileBackendFilters = Object.fromEntries(
   legacyAgeOptions.map((option) => [option.key, false]),
 )
+
+// Every voter-file column the wizard can express, at its empty value. An edit
+// PUT is a partial update, so any key it omits keeps whatever the row already
+// holds — while the live count is keyed on the payload, so an omitted key is a
+// filter that narrows the saved list without appearing in the number on the
+// Save button. A list can carry both kinds of criteria (the assistant's
+// crud_saved_filters tool takes the whole filter schema flat, with no
+// mutual-exclusion constraint), so the activity branch sends this entire
+// baseline and the voter-file branch overlays its own selection on top.
+// Deliberately limited to what the wizard renders: `voterStatus` and the
+// legacy registration keys belong to other surfaces, and clearing a filter no
+// one here can see would be its own silent edit.
+export const CLEARED_VOTER_FILE_FILTERS: VoterFileBackendFilters = {
+  ...transformVoterFileFiltersForBackend({}),
+  ...LEGACY_AGE_CLEARED,
+  supportStatus: [],
+  precincts: [],
+}

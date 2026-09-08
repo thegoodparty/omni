@@ -27,7 +27,7 @@ import {
   countSelectedFilterCategories,
   hasAnyVoterFileSelection,
   hasPartyFilterSelection,
-  LEGACY_AGE_CLEARED,
+  CLEARED_VOTER_FILE_FILTERS,
   segmentToVoterFileFilters,
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
@@ -244,8 +244,13 @@ export default function CreateListWizard({
   const backendPayload = useMemo(() => {
     if (activeBranch === 'voterFile') {
       return {
+        // Baseline first so the selection overlays it: the two conditional
+        // spreads below drop out when their selection is empty, and without
+        // the baseline's explicit `[]` under them, clearing every support
+        // status or precinct pill would omit the key and leave the saved
+        // list filtering on the old value.
+        ...(isEditing ? CLEARED_VOTER_FILE_FILTERS : {}),
         ...transformVoterFileFiltersForBackend(demographicFilters),
-        ...(isEditing ? LEGACY_AGE_CLEARED : {}),
         ...(supportStatus.length ? { supportStatus } : {}),
         ...(precincts.length ? { precincts } : {}),
         ...(editingSearch ? { search: editingSearch } : {}),
@@ -253,6 +258,11 @@ export default function CreateListWizard({
     }
     if (activeBranch === 'activity') {
       return {
+        // The cleared baseline, not just the conditions: a list can hold
+        // voter-file columns alongside its activity conditions, and this
+        // branch renders none of them, so leaving them set would persist a
+        // filter the user never saw and the count never included.
+        ...(isEditing ? CLEARED_VOTER_FILE_FILTERS : {}),
         activityConditions: toActivityConditionPayload(activityConditions),
         ...(editingSearch ? { search: editingSearch } : {}),
       }

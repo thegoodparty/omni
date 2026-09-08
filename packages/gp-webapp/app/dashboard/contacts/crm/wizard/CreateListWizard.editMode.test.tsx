@@ -339,6 +339,104 @@ describe('CreateListWizard — edit mode save', () => {
     expect(sentBody).toMatchObject({ partyDemocrat: false })
   })
 
+  it('round-trips a precinct filter through the edit', async () => {
+    const user = userEvent.setup()
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('PUT /v1/voters/voter-file/filter/:id', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 47 } }
+    })
+
+    render(
+      <CreateListWizard
+        open
+        onOpenChange={vi.fn()}
+        editingSegment={{
+          id: 47,
+          name: 'Ward 3',
+          precincts: ['TRAVIS|0031'],
+        }}
+      />,
+    )
+
+    await screen.findByRole('heading', { name: 'Filters' })
+    await clickSaveChanges(user)
+
+    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    expect(sentBody).toMatchObject({ precincts: ['TRAVIS|0031'] })
+  })
+
+  // An edit PUT is a partial update, so an omitted key keeps whatever the row
+  // holds — and the count is keyed on the payload, so an omitted key filters
+  // the saved list without appearing in the number on the Save button.
+  it('clears support status when every status pill is deselected', async () => {
+    const user = userEvent.setup()
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('PUT /v1/voters/voter-file/filter/:id', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 42 } }
+    })
+
+    render(
+      <CreateListWizard
+        open
+        onOpenChange={vi.fn()}
+        editingSegment={voterFileSegment}
+      />,
+    )
+
+    await screen.findByRole('heading', { name: 'Filters' })
+    await user.click(pillForOption('Supporter'))
+    await clickSaveChanges(user)
+
+    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    expect(sentBody).toMatchObject({ supportStatus: [] })
+  })
+
+  // A list can hold voter-file columns alongside activity conditions (the
+  // assistant's crud_saved_filters tool takes the whole filter schema flat),
+  // and this branch renders none of them.
+  it('clears the voter-file columns a mixed activity list carries', async () => {
+    const user = userEvent.setup()
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('PUT /v1/voters/voter-file/filter/:id', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 48 } }
+    })
+
+    render(
+      <CreateListWizard
+        open
+        onOpenChange={vi.fn()}
+        editingSegment={{
+          id: 48,
+          name: 'Texted Democrats',
+          partyDemocrat: true,
+          age18_25: true,
+          supportStatus: ['supporter'],
+          precincts: ['TRAVIS|0031'],
+          activityConditions: [
+            { outreachType: 'text', outreachId: null, actions: [] },
+          ],
+        }}
+      />,
+    )
+
+    await screen.findByText('Previous activity')
+    await clickSaveChanges(user)
+
+    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    expect(sentBody).toMatchObject({
+      partyDemocrat: false,
+      age18_25: false,
+      supportStatus: [],
+      precincts: [],
+      activityConditions: [
+        { outreachType: 'text', outreachId: null, actions: [] },
+      ],
+    })
+  })
+
   // ENG-10752's retired age buckets can't be rendered or counted, so an edit
   // that left them set would save a list narrower than the count on its own
   // Save button.
