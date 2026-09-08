@@ -71,8 +71,33 @@ describe('POST /v1/outreach/sms/draft', () => {
       (m: { role: string }) => m.role === 'user',
     )?.content
     expect(userPrompt).toContain('introduce the candidate to voters')
+    expect(userPrompt).toContain("Here's how")
     expect(userPrompt).toContain('Warm:')
     expect(userPrompt).toContain('City Council')
+  })
+
+  it('includes the campaign website in the prompt when on file', async () => {
+    await service.prisma.campaign.update({
+      where: { id: 998 },
+      data: {
+        details: {
+          state: 'TX',
+          zip: '78634',
+          normalizedOffice: 'City Council',
+          website: 'https://janedoe.com',
+        },
+      },
+    })
+    jsonCompletion.mockResolvedValue(llmDraft('A note.'))
+
+    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain("The campaign's website: https://janedoe.com")
   })
 
   it('feeds campaign story, issues, and plan sections into the prompt', async () => {
@@ -150,6 +175,24 @@ describe('POST /v1/outreach/sms/draft', () => {
     expect(userPrompt).toContain(
       'Town hall is Saturday at noon at the library.',
     )
+  })
+
+  it('never injects a purpose structure into a polish', async () => {
+    jsonCompletion.mockResolvedValue(llmDraft('A tighter version.'))
+
+    const res = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      currentDraft: 'I wrote this myself, in my own shape.',
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).not.toContain("Here's how")
+    expect(userPrompt).not.toContain('three short bullet points')
   })
 
   it('rejects custom purpose without currentDraft, and bad input', async () => {

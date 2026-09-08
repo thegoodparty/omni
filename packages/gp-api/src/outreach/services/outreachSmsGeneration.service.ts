@@ -115,7 +115,7 @@ const IMPROVE_SYSTEM_PROMPT = [
   '  Dropping one is a failure. Do not paraphrase specifics away.',
   '- Fix grammar, punctuation, capitalization, and awkward phrasing;',
   "  keep the author's meaning, structure, and voice.",
-  '- Keep roughly the same length; never exceed 900 characters. Keep',
+  '- Keep roughly the same length; never exceed 800 characters. Keep',
   "  the author's line breaks and bullets. No hashtags or emojis; keep",
   '  any website the author included, unchanged.',
   "- The message opens with the candidate's identification; keep it",
@@ -134,10 +134,11 @@ const IMPROVE_SYSTEM_PROMPT = [
 // limit. Fresh drafts get the intro prepended client-side, so they reserve
 // headroom for it plus the fixed chrome (greeting, intro, blank lines,
 // paid-for-by + opt-out footer ≈ 200 chars); improve outputs already
-// contain the intro and reserve only the chrome (≈ 50 chars). The schema
+// contain the intro and reserve only the chrome — greeting, blank line,
+// and a footer whose committee name can run long (≈ 150 chars). The schema
 // is what makes the limit real: jsonCompletion retries on mismatch.
 const FRESH_DRAFT_MAX_LENGTH = 800
-const IMPROVE_DRAFT_MAX_LENGTH = SMS_COMPOSED_MAX_LENGTH - 50
+const IMPROVE_DRAFT_MAX_LENGTH = SMS_COMPOSED_MAX_LENGTH - 150
 
 const FreshDraftSchema = z.object({
   draft: z.string().min(1).max(FRESH_DRAFT_MAX_LENGTH),
@@ -173,7 +174,10 @@ export class OutreachSmsGenerationService {
       `Candidate name: ${candidateName || 'The candidate'}.`,
       `Office sought: ${office || 'local office'}.`,
       `Goal of this message: ${PURPOSE_GOALS[input.purpose]}.`,
-      ...(PURPOSE_STRUCTURES[input.purpose]
+      // Fresh drafts only: improve is a polish that keeps the author's
+      // structure, and a prescriptive shape in the user turn would
+      // override the improve prompt's keep-their-structure rule.
+      ...(!input.currentDraft && PURPOSE_STRUCTURES[input.purpose]
         ? [PURPOSE_STRUCTURES[input.purpose]]
         : []),
       `Tone: ${TONE_STYLES[input.tone]}`,
