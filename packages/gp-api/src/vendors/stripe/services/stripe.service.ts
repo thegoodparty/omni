@@ -548,13 +548,15 @@ export class StripeService {
   //  (checkout.session.completed) identifies the campaign and sets isPro from
   //  metadata.userId, so both flows must carry it identically.
   private getProSubscriptionSessionParams = async (
-    userId: number,
-    email: string | null,
+    user: User,
   ): Promise<Stripe.Checkout.SessionCreateParams> => ({
     metadata: {
-      userId,
+      userId: user.id,
     },
-    ...(email ? { customer_email: email } : {}),
+    // Pin the stored customer instead of customer_email: an email-only
+    // session mints a NEW Stripe customer per completed checkout, so Stripe
+    // cannot dedupe duplicate Pro subscriptions itself (ENG-11084).
+    customer: await this.ensureCustomer(user),
     billing_address_collection: 'auto',
     line_items: [
       {
@@ -576,9 +578,9 @@ export class StripeService {
     ],
   })
 
-  async createCheckoutSession(userId: number, email: string | null = null) {
+  async createCheckoutSession(user: User) {
     const session = await this.stripe.checkout.sessions.create({
-      ...(await this.getProSubscriptionSessionParams(userId, email)),
+      ...(await this.getProSubscriptionSessionParams(user)),
       success_url: `${WEBAPP_ROOT_URL}/dashboard/pro-upgrade/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${WEBAPP_ROOT_URL}/dashboard`,
     })
@@ -592,12 +594,11 @@ export class StripeService {
   //  return_url, returns a client_secret instead of a redirect url. isPro is
   //  still flipped only by the checkout.session.completed webhook.
   async createEmbeddedProSubscriptionCheckoutSession(
-    userId: number,
-    email: string | null = null,
+    user: User,
     returnUrl: string = `${WEBAPP_ROOT_URL}/dashboard/pro-upgrade?session_id={CHECKOUT_SESSION_ID}`,
   ) {
     const session = await this.stripe.checkout.sessions.create({
-      ...(await this.getProSubscriptionSessionParams(userId, email)),
+      ...(await this.getProSubscriptionSessionParams(user)),
       ui_mode: 'custom',
       return_url: returnUrl,
     })

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { UsersService } from 'src/users/services/users.service'
+import { User } from 'src/generated/prisma'
 import { StripeService } from './stripe.service'
 
 const {
@@ -14,6 +15,8 @@ const {
   productsRetrieve,
   paymentIntentsCreate,
   paymentIntentsSearch,
+  customersCreate,
+  customersDel,
   MockStripeError,
   MockStripeCardError,
 } = vi.hoisted(() => ({
@@ -23,6 +26,8 @@ const {
   productsRetrieve: vi.fn(),
   paymentIntentsCreate: vi.fn(),
   paymentIntentsSearch: vi.fn(),
+  customersCreate: vi.fn(),
+  customersDel: vi.fn(),
   MockStripeError: class StripeInvalidRequestError extends Error {},
   MockStripeCardError: class StripeCardError extends Error {
     payment_intent?: { id: string }
@@ -51,21 +56,33 @@ vi.mock('stripe', () => ({
       create: paymentIntentsCreate,
       search: paymentIntentsSearch,
     }
+    customers = { create: customersCreate, del: customersDel }
   },
 }))
 
 const userId = 7
 const email = 'buyer@example.com'
 const priceId = 'price_test_pro'
+const storedCustomerId = 'cus_stored_123'
+
+const proUser = {
+  id: userId,
+  email,
+  firstName: 'Test',
+  lastName: 'Buyer',
+  metaData: { customerId: storedCustomerId },
+} as unknown as User
 
 describe('StripeService Pro subscription checkout', () => {
   let service: StripeService
+  let setCustomerIdIfAbsent: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     productsRetrieve.mockResolvedValue({ default_price: priceId })
+    setCustomerIdIfAbsent = vi.fn()
     service = new StripeService(
       {} as unknown as SlackService,
-      {} as unknown as UsersService,
+      { setCustomerIdIfAbsent } as unknown as UsersService,
       createMockLogger(),
     )
   })
@@ -78,8 +95,7 @@ describe('StripeService Pro subscription checkout', () => {
       })
 
       const result = await service.createEmbeddedProSubscriptionCheckoutSession(
-        userId,
-        email,
+        proUser,
         'https://app.test/dashboard/pro-upgrade?session_id={CHECKOUT_SESSION_ID}',
       )
 
@@ -106,7 +122,7 @@ describe('StripeService Pro subscription checkout', () => {
       })
 
       await expect(
-        service.createEmbeddedProSubscriptionCheckoutSession(userId, email),
+        service.createEmbeddedProSubscriptionCheckoutSession(proUser),
       ).rejects.toThrow(BadGatewayException)
     })
 
@@ -117,15 +133,48 @@ describe('StripeService Pro subscription checkout', () => {
         url: 'https://stripe.test/checkout',
       })
 
-      await service.createCheckoutSession(userId, email)
+      await service.createCheckoutSession(proUser)
       const redirectArgs = firstOrThrow(sessionsCreate.mock.calls)[0]
 
-      await service.createEmbeddedProSubscriptionCheckoutSession(userId, email)
+      await service.createEmbeddedProSubscriptionCheckoutSession(proUser)
       const embeddedArgs = nthOrThrow(sessionsCreate.mock.calls, 1)[0]
 
       expect(embeddedArgs.metadata).toEqual(redirectArgs.metadata)
       expect(embeddedArgs.mode).toBe(redirectArgs.mode)
       expect(embeddedArgs.line_items).toEqual(redirectArgs.line_items)
+    })
+  })
+
+  describe('Pro session customer pinning', () => {
+    it('pins the stored Stripe customer instead of customer_email', async () => {
+      sessionsCreate.mockResolvedValue({
+        id: 'cs_test',
+        url: 'https://stripe.test/checkout',
+      })
+
+      await service.createCheckoutSession(proUser)
+
+      const args = firstOrThrow(sessionsCreate.mock.calls)[0]
+      expect(args.customer).toBe(storedCustomerId)
+      expect(args.customer_email).toBeUndefined()
+      expect(customersCreate).not.toHaveBeenCalled()
+    })
+
+    it('creates and persists a customer for a user without one', async () => {
+      customersCreate.mockResolvedValue({ id: 'cus_new_456' })
+      setCustomerIdIfAbsent.mockResolvedValue(true)
+      sessionsCreate.mockResolvedValue({
+        id: 'cs_test',
+        url: 'https://stripe.test/checkout',
+      })
+
+      const newUser = { ...proUser, metaData: null } as unknown as User
+      await service.createCheckoutSession(newUser)
+
+      expect(setCustomerIdIfAbsent).toHaveBeenCalledWith(userId, 'cus_new_456')
+      const args = firstOrThrow(sessionsCreate.mock.calls)[0]
+      expect(args.customer).toBe('cus_new_456')
+      expect(args.customer_email).toBeUndefined()
     })
   })
 
