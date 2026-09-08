@@ -76,13 +76,15 @@ const proUser = {
 describe('StripeService Pro subscription checkout', () => {
   let service: StripeService
   let setCustomerIdIfAbsent: ReturnType<typeof vi.fn>
+  let findUser: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     productsRetrieve.mockResolvedValue({ default_price: priceId })
     setCustomerIdIfAbsent = vi.fn()
+    findUser = vi.fn()
     service = new StripeService(
       {} as unknown as SlackService,
-      { setCustomerIdIfAbsent } as unknown as UsersService,
+      { setCustomerIdIfAbsent, findUser } as unknown as UsersService,
       createMockLogger(),
     )
   })
@@ -175,6 +177,39 @@ describe('StripeService Pro subscription checkout', () => {
       const args = firstOrThrow(sessionsCreate.mock.calls)[0]
       expect(args.customer).toBe('cus_new_456')
       expect(args.customer_email).toBeUndefined()
+    })
+
+    it('drops the orphan and uses the winning customerId on a lost race', async () => {
+      customersCreate.mockResolvedValue({ id: 'cus_orphan' })
+      setCustomerIdIfAbsent.mockResolvedValue(false)
+      findUser.mockResolvedValue({
+        ...proUser,
+        metaData: { customerId: 'cus_winner' },
+      })
+      sessionsCreate.mockResolvedValue({
+        id: 'cs_test',
+        url: 'https://stripe.test/checkout',
+      })
+
+      const newUser = { ...proUser, metaData: null } as unknown as User
+      await service.createCheckoutSession(newUser)
+
+      expect(customersDel).toHaveBeenCalledWith('cus_orphan')
+      const args = firstOrThrow(sessionsCreate.mock.calls)[0]
+      expect(args.customer).toBe('cus_winner')
+    })
+
+    it('502s when a lost race finds no stored winner customerId', async () => {
+      customersCreate.mockResolvedValue({ id: 'cus_orphan' })
+      setCustomerIdIfAbsent.mockResolvedValue(false)
+      findUser.mockResolvedValue(null)
+
+      const newUser = { ...proUser, metaData: null } as unknown as User
+      await expect(service.createCheckoutSession(newUser)).rejects.toThrow(
+        BadGatewayException,
+      )
+      expect(customersDel).toHaveBeenCalledWith('cus_orphan')
+      expect(sessionsCreate).not.toHaveBeenCalled()
     })
   })
 
