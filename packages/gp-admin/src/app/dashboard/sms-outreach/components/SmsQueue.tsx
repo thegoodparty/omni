@@ -13,7 +13,10 @@ import {
   Text,
   TextField,
 } from '@radix-ui/themes'
-import type { SmsApprovalQueueItem } from '@goodparty_org/contracts'
+import type {
+  SmsApprovalQueueItem,
+  SmsApprovalStatus,
+} from '@goodparty_org/contracts'
 import { formatDate } from '@/lib/utils/date'
 import {
   STATUS_COLORS,
@@ -38,6 +41,11 @@ const TAB_LABELS: Record<QueueTab, string> = {
 
 const tabLabel = (tab: QueueTab, count: number) =>
   `${TAB_LABELS[tab]} (${count})`
+
+// Pre-approval, a paused vendor job is the normal resting state; once the
+// send is booked, anything but active means it will not go out.
+const isBooked = (status: SmsApprovalStatus) =>
+  status === 'canvass_requested' || status === 'peerly_approved'
 
 const compareItems = (
   a: SmsApprovalQueueItem,
@@ -262,6 +270,13 @@ export function SmsQueue({ items }: SmsQueueProps) {
                     <Badge color="gray">Vendor read failed</Badge>
                   ) : item.job.deliverabilityCheckError ? (
                     <Badge color="red">Deliverability error</Badge>
+                  ) : isBooked(item.approvalStatus) &&
+                    item.job.status !== 'active' ? (
+                    // A booked job that is not active will sit idle on send
+                    // day — the one state CAS must act on from here.
+                    <Badge color="amber">Needs activation</Badge>
+                  ) : isBooked(item.approvalStatus) ? (
+                    <Badge color="green">Active</Badge>
                   ) : (
                     <Badge color="green">Ready</Badge>
                   )}
