@@ -144,6 +144,9 @@ describe('StripeService Pro subscription checkout', () => {
       expect(embeddedArgs.metadata).toEqual(redirectArgs.metadata)
       expect(embeddedArgs.mode).toBe(redirectArgs.mode)
       expect(embeddedArgs.line_items).toEqual(redirectArgs.line_items)
+      expect(embeddedArgs.customer).toBe(redirectArgs.customer)
+      expect(embeddedArgs.customer).toBe(storedCustomerId)
+      expect(embeddedArgs.customer_email).toBeUndefined()
     })
   })
 
