@@ -327,8 +327,7 @@ describe('Outreach submission flow — single API call contract', () => {
   })
 
   describe('failure cases — Slack still fires', () => {
-    it('launch switch on: a non-compliant script is rejected at scheduling', async () => {
-      vi.stubEnv('SMS_COMPLIANCE_V2_ENABLED', 'true')
+    it('a non-compliant script is rejected at scheduling', async () => {
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
         script: 'Vote for me. Reply STOP to opt out.',
@@ -343,7 +342,6 @@ describe('Outreach submission flow — single API call contract', () => {
         where: { campaignId: campaign.id },
       })
       expect(outreachRows.length).toBe(0)
-      vi.unstubAllEnvs()
     })
 
     it('invalid image MIME (HEIC) → 400, no DB row, FAILURE Slack with step=validation', async () => {

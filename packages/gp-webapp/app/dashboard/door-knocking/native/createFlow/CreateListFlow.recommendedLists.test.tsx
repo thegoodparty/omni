@@ -4,35 +4,9 @@ import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { WIN_RECOMMENDED_LISTS_FLAG_KEY } from '@shared/experiments/winRecommendedListsFlag'
 import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
 import CreateListFlow from './CreateListFlow'
 import type { PolygonRing } from '../VoterMapCanvas'
-
-// The recommendations query and its exposure both read
-// useWinRecommendedListsFlag, which reads useFlagOn/useFeatureFlags —
-// module-mocked the same way SmsFlow.recommendedLists.test.tsx pins the same
-// flag/seam.
-vi.mock('@shared/experiments/FeatureFlagsProvider', () => ({
-  useFlagOn: vi.fn(),
-  useFeatureFlags: vi.fn(),
-}))
-
-const { useFlagOn, useFeatureFlags } =
-  await import('@shared/experiments/FeatureFlagsProvider')
-const mockedUseFlagOn = vi.mocked(useFlagOn)
-const mockedUseFeatureFlags = vi.mocked(useFeatureFlags)
-const exposure = vi.fn()
-
-const setFlag = ({
-  ready = true,
-  on = true,
-}: {
-  ready?: boolean
-  on?: boolean
-}) => {
-  mockedUseFlagOn.mockReturnValue({ ready, on })
-}
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -159,19 +133,7 @@ beforeEach(() => {
   testQueryClient.clear()
   api.reset()
   vi.clearAllMocks()
-  mockedUseFeatureFlags.mockReturnValue({
-    ready: true,
-    variant: () => ({ value: undefined }),
-    all: () => ({}),
-    exposure,
-    refresh: vi.fn(),
-    clear: vi.fn(),
-  } as ReturnType<typeof useFeatureFlags>)
-  setFlag({ ready: true, on: true })
 })
-
-const exposureCalls = () =>
-  exposure.mock.calls.filter(([key]) => key === WIN_RECOMMENDED_LISTS_FLAG_KEY)
 
 const acceptedCalls = () =>
   vi
@@ -181,30 +143,12 @@ const acceptedCalls = () =>
     )
 
 describe('CreateListFlow — recommended lists', () => {
-  it('records the exposure once the who step renders', () => {
-    api.mock('GET /v1/campaigns/mine/recommended-lists', {
-      status: 200,
-      data: [],
-    })
-    renderAtWho()
-
-    expect(exposureCalls()).toHaveLength(1)
-  })
-
-  it('records the exposure for the control arm too', () => {
-    setFlag({ ready: true, on: false })
-    renderAtWho()
-
-    expect(exposureCalls()).toHaveLength(1)
-  })
-
   // Door knocking is ONE route for both rails, and Serve's purpose cards
   // reuse the same slug strings for a non-electoral meaning, so the purpose
   // alone cannot tell a candidate from an elected official. Recommended
   // lists are Win-only — gp-api 400s an eo- org — so a Serve session must
-  // neither record an exposure it can never be treated on nor ask for
-  // recommendations it cannot have.
-  it('records no exposure and asks for nothing on the Serve surface', async () => {
+  // not ask for recommendations it cannot have.
+  it('asks for nothing on the Serve surface', async () => {
     let requested = false
     api.mock('GET /v1/campaigns/mine/recommended-lists', () => {
       requested = true
@@ -213,34 +157,8 @@ describe('CreateListFlow — recommended lists', () => {
     renderAtWho({}, { serveMode: true })
 
     await new Promise((resolve) => setTimeout(resolve, 10))
-    expect(exposureCalls()).toHaveLength(0)
     expect(requested).toBe(false)
     expect(screen.queryByTestId('recommended-list-card')).toBeNull()
-  })
-
-  // End to end: the flag being off means the recommendations query itself
-  // never fires (this file's own gate), so this pins the request-level
-  // guard. WhoStep.recommendedLists.test.tsx pins the component's own
-  // `recommendedListsEnabled` render gate directly — a mutation to that gate
-  // alone can't surface here, because the query would still return no data
-  // with the flag off regardless.
-  it('shows nothing extra when the flag is off', async () => {
-    let requested = false
-    setFlag({ ready: true, on: false })
-    api.mock('GET /v1/campaigns/mine/recommended-lists', () => {
-      requested = true
-      return { status: 200, data: [RECOMMENDATION] }
-    })
-    renderAtWho()
-
-    // A settled query the picker never renders — off-flag has to prove the
-    // card stays absent, not merely that it hasn't appeared yet.
-    await new Promise((resolve) => setTimeout(resolve, 10))
-    expect(requested).toBe(false)
-    expect(screen.queryByTestId('recommended-list-card')).toBeNull()
-    expect(
-      screen.getByRole('combobox', { name: 'All lists' }),
-    ).toBeInTheDocument()
   })
 
   it('renders the who step unchanged when there are no recommendations', async () => {

@@ -631,7 +631,7 @@ export const EVENTS = {
       ContactViewed: 'Outreach - Phone Banking: Contact Viewed',
       CallLogged: 'Outreach - Phone Banking: Call Logged',
     },
-    // The audience step's recommended-lists cards (win-recommended-lists).
+    // The audience step's recommended-lists cards.
     // Fires once the recommendation is accepted (the saved list is created),
     // not on card selection — modified vs as-is is only knowable at that
     // point (useOutreachAudience.ts).

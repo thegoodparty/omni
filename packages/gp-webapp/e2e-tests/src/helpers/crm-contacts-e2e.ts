@@ -14,8 +14,7 @@ import { personContactPanel } from 'src/helpers/contacts-e2e'
 // BEFORE auth/navigation so the first SSR render already sees it — flag
 // resolution is server-side and this cookie is the only deterministic lever
 // (e2e-tests/CLAUDE.md "Flag-gated surfaces"). `overrides` merges in
-// additional flags (e.g. `{ 'win-recommended-lists': 'on' }` for the
-// recommended-list filter dimensions) without disturbing serve-crm.
+// additional flags without disturbing serve-crm.
 export const enableCrmFlags = async (
   page: Page,
   overrides: Record<string, string> = {},

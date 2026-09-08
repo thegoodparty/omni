@@ -7,17 +7,6 @@ import type { SmsDraftRequest } from '@goodparty_org/contracts'
 import { SmsFlow, SuccessScreen } from './SmsFlow'
 import type { TcrCompliance } from 'helpers/types'
 
-// Launch-switch mock: defaults off (pre-launch behavior); individual tests
-// flip it on to exercise the compliance composer.
-let complianceFlag = { ready: true, enabled: false }
-vi.mock('@shared/experiments/voterOutreachV2SmsFlag', () => ({
-  useVoterOutreachV2SmsFlag: () => complianceFlag,
-}))
-
-beforeEach(() => {
-  complianceFlag = { ready: true, enabled: false }
-})
-
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
@@ -202,6 +191,12 @@ describe('SmsFlow', () => {
       status: 404,
       data: { message: 'No elected office' },
     })
+    // The picker always asks for recommendations now; this file's cases are
+    // about the flow, not the cards, so answer with none.
+    api.mock('GET /v1/campaigns/mine/recommended-lists', {
+      status: 200,
+      data: [],
+    })
     mockOutreachList()
   })
 
@@ -210,7 +205,6 @@ describe('SmsFlow', () => {
   })
 
   it('runs purpose → audience → schedule → compose → review and schedules free', async () => {
-    complianceFlag = { ready: true, enabled: true }
     const draftCalls = mockDraft()
     let receiptCalls = 0
     api.mock('GET /v1/outreach/:id/receipt', () => {
@@ -299,7 +293,6 @@ describe('SmsFlow', () => {
   })
 
   it('shows the server message when the free purchase is rejected as a 400', async () => {
-    complianceFlag = { ready: true, enabled: true }
     mockDraft()
     const rejectionMessage =
       'Message cannot contain tinyurl.com links. Please correct your message.'

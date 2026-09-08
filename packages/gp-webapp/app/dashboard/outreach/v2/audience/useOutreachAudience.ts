@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   ListDetailReachability,
@@ -12,11 +12,6 @@ import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { useOrganization } from '@shared/organization-picker'
-import { useFeatureFlags } from '@shared/experiments/FeatureFlagsProvider'
-import {
-  useWinRecommendedListsFlag,
-  WIN_RECOMMENDED_LISTS_FLAG_KEY,
-} from '@shared/experiments/winRecommendedListsFlag'
 import { fetchListDetailThrottled } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
 import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/components/tasks/flows/util/flowHandlers.util'
 import type {
@@ -126,9 +121,6 @@ export interface OutreachAudience {
   resetBuilder: () => void
   // Full reset for flow open.
   reset: () => void
-  // Ready+on: whether the picker should render the recommendations block at
-  // all. False renders the picker byte-identical to pre-recommendations.
-  recommendedListsEnabled: boolean
   recommendations: RecommendedList[]
   recommendationsLoading: boolean
   recommendationsError: boolean
@@ -198,32 +190,6 @@ export const useOutreachAudience = ({
   const orgSlug = useOrganization()?.slug
   const queryClient = useQueryClient()
 
-  // Read without exposure: the picker branch below is the actual treatment
-  // surface, not this hook's mount — the flow host stays mounted and toggles
-  // `open`/`active`, so an exposure read here would count every step render.
-  const recommendedListsFlag = useWinRecommendedListsFlag(false)
-  const { exposure } = useFeatureFlags()
-  useEffect(() => {
-    if (!open || !active || !recommendedListsFlag.ready) return
-    if (mode !== 'picker') return
-    // Structural eligibility, not the flag's value (fires for both arms) and
-    // not whether any variant ends up qualifying (a real recommendation call
-    // can still return zero rows). A null intent means this purpose/channel
-    // pairing could never show a card regardless of the flag — a Serve
-    // phone-banking session on a purpose slug it shares with Win
-    // (introduce_myself, event_invite) is exactly this case, and counting it
-    // would dilute the experiment with sessions that were never eligible.
-    if (recommendedListIntent === null) return
-    exposure(WIN_RECOMMENDED_LISTS_FLAG_KEY)
-  }, [
-    open,
-    active,
-    mode,
-    recommendedListsFlag.ready,
-    recommendedListIntent,
-    exposure,
-  ])
-
   const recommendationsQuery = useQuery({
     queryKey: [
       'outreach-audience-recommendations',
@@ -248,12 +214,7 @@ export const useOutreachAudience = ({
     // warehouse-backed call on window-focus for schedule/compose/review —
     // steps that don't show it.
     enabled:
-      open &&
-      active &&
-      mode === 'picker' &&
-      recommendedListsFlag.ready &&
-      recommendedListsFlag.enabled &&
-      recommendedListIntent !== null,
+      open && active && mode === 'picker' && recommendedListIntent !== null,
     staleTime: 0,
   })
 
@@ -601,8 +562,6 @@ export const useOutreachAudience = ({
     clearCreateError: resetCreateMutation,
     resetBuilder,
     reset,
-    recommendedListsEnabled:
-      recommendedListsFlag.ready && recommendedListsFlag.enabled,
     recommendations: recommendationsQuery.data ?? [],
     recommendationsLoading: recommendationsQuery.isLoading,
     recommendationsError: recommendationsQuery.isError,

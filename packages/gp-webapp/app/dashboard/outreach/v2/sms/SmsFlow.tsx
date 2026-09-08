@@ -10,7 +10,6 @@ import type {
   SocialTone,
 } from '@goodparty_org/contracts'
 import type { TcrCompliance } from 'helpers/types'
-import { useVoterOutreachV2SmsFlag } from '@shared/experiments/voterOutreachV2SmsFlag'
 import {
   checkSmsStandards,
   SMS_COMPOSED_MAX_LENGTH,
@@ -50,11 +49,7 @@ import { SmsPurposeStep } from './SmsPurposeStep'
 import { SmsScheduleStep, TIME_OPTIONS } from './SmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
 import { SmsReviewStep } from './SmsReviewStep'
-import {
-  composeScript,
-  hasIdentification,
-  identificationIntro,
-} from './smsCompose.util'
+import { composeScript, identificationIntro } from './smsCompose.util'
 
 type StepId = 'purpose' | 'audience' | 'schedule' | 'compose' | 'review'
 const STEP_ORDER: StepId[] = [
@@ -356,29 +351,16 @@ export const SmsFlow = ({
       user?.firstName ?? '',
       campaign?.details?.normalizedOffice ?? '',
     )
-  // Launch switch (the voter-outreach-v2-sms flag — the compliance
-  // behavior ships with the v2 flow itself): off keeps the exact
-  // pre-launch composer — opt-out-only footer and the prototype's
-  // identification warning; on adds the paid-for-by line and the
-  // five-rule blocking check. gp-api mirrors it with
-  // SMS_COMPLIANCE_V2_ENABLED; flip both together.
-  const { enabled: complianceV2 } = useVoterOutreachV2SmsFlag(false)
-  const committeeName = complianceV2
-    ? (tcrCompliance?.committeeName ?? null)
-    : null
+  const committeeName = tcrCompliance?.committeeName ?? null
   const composedMessage = composeScript(body, committeeName)
   const composedLength = composedMessage.length
   const accountName = `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
-  const standards = complianceV2
-    ? checkSmsStandards(composedMessage, {
-        candidateNames: [accountName, tcrCompliance?.candidateName].filter(
-          (name): name is string => !!name,
-        ),
-        committeeName,
-      })
-    : hasIdentification(body, user?.firstName ?? '')
-      ? { passed: true, failures: [] }
-      : { passed: false, failures: ['candidate_name' as const] }
+  const standards = checkSmsStandards(composedMessage, {
+    candidateNames: [accountName, tcrCompliance?.candidateName].filter(
+      (name): name is string => !!name,
+    ),
+    committeeName,
+  })
 
   // Only fully verified campaigns can reach this flow (the 2026-08-28 full
   // gate), so the send floor is the hard 48-hour scheduling window.
@@ -809,7 +791,6 @@ export const SmsFlow = ({
               setPhoneListError(false)
               audience.startBuilder()
             }}
-            recommendedListsEnabled={audience.recommendedListsEnabled}
             recommendations={audience.recommendations}
             recommendationsLoading={audience.recommendationsLoading}
             recommendationsError={audience.recommendationsError}

@@ -2,19 +2,14 @@ import { expect, test } from '@playwright/test'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 
-// The Voter Outreach 2.0 hub is the unconditional outreach page (ENG-11007
-// removed voter-outreach-v2/-social/-phone-banking, all at 100% prod default
-// since Aug 27-28): every candidate lands on the hub, and the social and
-// phone-banking tiles always use their new flows. Robocall and SMS are still
-// dark (voter-outreach-v2-robocall/-sms) and keep their own tile-swap gating.
+// The Voter Outreach 2.0 hub is the unconditional outreach page: every
+// candidate lands on the hub and every channel tile opens its new flow.
 //
 // The door-knocking tile's handoff into the native surface is pinned
 // separately in dashboard-nav-door-knocking.spec.ts and
 // outreach-list-to-door-knocking.spec.ts — this spec covers the rest of the
-// hub contract and, in its own describe block, regression-guards that the
-// surviving dark swaps still gate.
+// hub contract.
 test.describe('outreach hub — default-on channel tiles', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
@@ -114,24 +109,17 @@ test.describe('outreach hub — default-on channel tiles', () => {
   })
 })
 
-// Regression guard: task 06 (ENG-11007) removed voter-outreach-v2/-social/
-// -phone-banking but must not have disturbed the surviving dark swaps.
-//
-// Non-Pro on purpose: `useTextOutreachGate.runTextGate` opens the legacy
-// P2PUpgradeModal for a non-Pro click before it would ever reach a 10DLC
-// compliance check, so this is the cleanest way to observe the flag's two
-// arms without provisioning TCR-approved compliance in a Pro campaign.
-test.describe('outreach hub — sms tile is still flag-controlled (dark flag)', () => {
+// Non-Pro on purpose: `useTextOutreachGate.runTextGate` would open the legacy
+// P2PUpgradeModal for a non-Pro click, so this pins that upgrade-at-entry
+// beats the gate and the candidate reaches the wizard instead.
+test.describe('outreach hub — sms tile upgrade-at-entry', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })
 
-  test('voter-outreach-v2-sms off: Text tile shows the legacy upgrade modal', async ({
+  test('non-Pro: Text tile redirects straight to pro-upgrade', async ({
     page,
   }) => {
-    // setFlagOverrides REPLACES the whole cookie, so this is the only key —
-    // before auth and navigation, so the first SSR render already sees it.
-    await setFlagOverrides(page, { 'voter-outreach-v2-sms': 'off' })
     await authenticateTestUser(page)
 
     await page.goto('/dashboard/outreach')
@@ -140,26 +128,10 @@ test.describe('outreach hub — sms tile is still flag-controlled (dark flag)', 
     ).toBeVisible({ timeout: 30_000 })
     await page.getByRole('button', { name: /^SMS/ }).click()
 
-    // P2PUpgradeModal's NonProUpgrade variant copy.
+    await page.waitForURL(/\/dashboard\/pro-upgrade/, { timeout: 30_000 })
+    // The legacy marketing modal must not be what a non-Pro click gets.
     await expect(
       page.getByRole('heading', { name: 'Level the playing field for less' }),
-    ).toBeVisible({ timeout: 15_000 })
-    expect(page.url()).not.toMatch(/\/dashboard\/pro-upgrade/)
-  })
-
-  test('voter-outreach-v2-sms on: Text tile redirects straight to pro-upgrade', async ({
-    page,
-  }) => {
-    await setFlagOverrides(page, { 'voter-outreach-v2-sms': 'on' })
-    await authenticateTestUser(page)
-
-    await page.goto('/dashboard/outreach')
-    await expect(
-      page.getByRole('heading', { name: 'Create an outreach campaign' }),
-    ).toBeVisible({ timeout: 30_000 })
-    await page.getByRole('button', { name: /^SMS/ }).click()
-
-    // Upgrade-at-entry: on, a non-Pro click skips the legacy modal entirely.
-    await page.waitForURL(/\/dashboard\/pro-upgrade/, { timeout: 30_000 })
+    ).toBeHidden()
   })
 })

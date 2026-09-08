@@ -1,12 +1,8 @@
-// The filter dimensions added as groundwork for recommended lists, kept out
-// of filters.config.ts on purpose. That config is rendered by five other
-// surfaces (the legacy flag-off FiltersSheet, door-knocking's WhoStep and
-// TurfDetailsSheet, the outreach v2 builders) which must not gain these
-// groups, and the wizard shows them only behind win-recommended-lists.
-//
-// Serialization is NOT gated: voterFileFilterTransform.util.ts merges these
-// keys in unconditionally, so a list saved while the flag was on keeps
-// round-tripping after it flips off.
+// The filter dimensions for recommended lists, kept out of filters.config.ts
+// on purpose. That config is rendered by other surfaces (the legacy
+// FiltersSheet, door-knocking's WhoStep and TurfDetailsSheet) which must not
+// gain these groups; the surfaces that do render them pass
+// VoterFileStep's `showRecommendedListFilters`.
 //
 // Labels are title case to match filters.config.ts — CRM surfaces
 // sentence-case group labels at render time (labels.util.ts). Keep them in
@@ -17,8 +13,7 @@ export const AFFINITY_FIELD_KEY = 'independent_affinity'
 // Win-only field keys. The recommended-list dimensions are a Win product
 // surface and gp-api 400s them for an eo- org, so they are stripped at both
 // the write side (VoterFileStep) and the read side (ListFilterSummary).
-// This is a permanent PRODUCT rule and has nothing to do with
-// win-recommended-lists, which only decides whether the wizard shows the
+// This is a permanent PRODUCT rule, independent of which surfaces render the
 // groups at all. hasAnyPhone is deliberately absent: plain contactability,
 // and Serve runs phone banking and robocall too.
 export const WIN_ONLY_RECOMMENDED_FIELD_KEYS = [AFFINITY_FIELD_KEY, 'ideology']

@@ -35,10 +35,10 @@ interface VoterFileStepProps {
   // React Query context that a bare render of this component does not.
   precinctOptions: PrecinctOptionsResult
   isElectedOfficial: boolean
-  // win-recommended-lists. Visibility only: the keys serialize either way
-  // (voterFileFilterTransform.util.ts), so a list saved with them keeps
-  // resolving after the flag flips off. Defaults false so the outreach v2
-  // builders, which share this step, stay unchanged.
+  // Whether to render the recommended-list groups. Visibility only: the keys
+  // serialize either way (voterFileFilterTransform.util.ts). Defaults false
+  // so the surfaces that share this step and must NOT gain these groups
+  // (door-knocking's WhoStep, TurfDetailsSheet) stay unchanged.
   showRecommendedListFilters?: boolean
 }
 
