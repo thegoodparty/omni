@@ -292,6 +292,7 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
       await this.peerlyHttpService.put(`/1to1/jobs/${jobId}`, {
         account_id: this.accountNumber,
         status: 'active',
+        can_use_mms: job.can_use_mms,
         templates: job.templates.map((template) => ({
           is_default: template.is_default,
           title: template.title,

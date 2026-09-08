@@ -477,6 +477,7 @@ describe('PeerlyP2pJobService', () => {
       id: 'job-1',
       status: 'paused',
       leads_remaining: 5,
+      can_use_mms: true,
       start_date: '2026-09-10',
       end_date: '2026-09-10',
       templates: [
@@ -499,6 +500,7 @@ describe('PeerlyP2pJobService', () => {
         '/1to1/jobs/job-1',
         expect.objectContaining({
           status: 'active',
+          can_use_mms: true,
           templates: [
             {
               is_default: true,
