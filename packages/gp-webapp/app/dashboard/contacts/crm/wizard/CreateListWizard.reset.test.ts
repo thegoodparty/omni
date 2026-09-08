@@ -20,7 +20,12 @@ const SOURCE = readFileSync(join(__dirname, 'CreateListWizard.tsx'), 'utf8')
 const OPEN_EFFECT = (() => {
   const start = SOURCE.indexOf('    if (!open) return')
   expect(start, 'open-reset effect not found').toBeGreaterThan(-1)
-  return SOURCE.slice(start, SOURCE.indexOf('}, [open])', start))
+  // The effect's own closing line, not a literal dep array — the deps have
+  // changed once already (adding editingSegment?.id) and an anchor that goes
+  // stale silently slices past the effect and swallows the count assertion.
+  const end = SOURCE.indexOf('\n  }, [', start)
+  expect(end, 'open-reset effect end not found').toBeGreaterThan(start)
+  return SOURCE.slice(start, end)
 })()
 
 describe('CreateListWizard open-reset effect', () => {

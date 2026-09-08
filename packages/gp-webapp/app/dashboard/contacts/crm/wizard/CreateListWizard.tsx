@@ -174,11 +174,17 @@ export default function CreateListWizard({
     )
     setName(editingSegment?.name ?? '')
     setOpenSession((session) => session + 1)
-    // editingSegment is intentionally not a dependency: it's read once per
-    // open, and re-seeding mid-edit (the segments query refetching underneath
-    // the sheet) would throw away the user's in-progress changes.
+    // Keyed on the edited list's ID, not on `open` alone: `open` is a derived
+    // OR of two independent sources (the page's create button and the
+    // provider's editingSegment), so a switch straight from editing one list
+    // to another — or to a create — never passes through `false`, and an
+    // effect that only watched `open` would leave the previous list's name,
+    // pills, and conditions seeded under create-mode chrome. The ID rather
+    // than the object: the segments query refetching underneath the sheet
+    // hands back a new object for the same list, and re-seeding mid-edit
+    // would throw away the user's in-progress changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  }, [open, editingSegment?.id])
 
   // ENG-10767: stage Viewed fires on every stage entry — including Back
   // re-entry — keyed on the open session + active-stage identifier ONLY
@@ -483,9 +489,16 @@ export default function CreateListWizard({
         })
       }
       successSnackbar('List updated')
-      await refreshCustomSegments().catch((error) =>
-        console.log('Error refreshing segments after update', error),
-      )
+      // refreshCustomSegments refetches the segments query directly rather
+      // than invalidating it, so a failed refetch leaves the cache holding the
+      // pre-edit name and criteria — the lists index would keep showing them
+      // until a full reload. Marking it stale is the floor.
+      await refreshCustomSegments().catch((error) => {
+        console.log('Error refreshing segments after update', error)
+        queryClient.invalidateQueries({
+          queryKey: ['custom-segments', orgSlug],
+        })
+      })
       await invalidateEditedList()
       onOpenChange(false)
       // Back to the list's own detail sheet, the surface the edit was

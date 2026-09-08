@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
+import { QueryClient } from '@tanstack/react-query'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { render } from 'helpers/test-utils/render'
@@ -62,6 +63,10 @@ const clickSaveChanges = async (
   await user.click(save)
 }
 
+// The render helper owns its QueryClient, so observe invalidation on the
+// prototype rather than reaching for the instance.
+const invalidatedKeys: unknown[] = []
+
 const eventCalls = (event: string) =>
   vi.mocked(trackEvent).mock.calls.filter(([name]) => name === event)
 
@@ -83,6 +88,13 @@ const voterFileSegment: SegmentResponse = {
 beforeEach(() => {
   api.reset()
   vi.clearAllMocks()
+  invalidatedKeys.length = 0
+  vi.spyOn(QueryClient.prototype, 'invalidateQueries').mockImplementation(
+    (filters?: { queryKey?: unknown }) => {
+      if (filters?.queryKey) invalidatedKeys.push(filters.queryKey)
+      return Promise.resolve()
+    },
+  )
   refreshCustomSegments.mockClear()
   successSnackbar.mockClear()
   errorSnackbar.mockClear()
@@ -181,6 +193,59 @@ describe('CreateListWizard — edit mode chrome', () => {
     expect(
       screen.queryByRole('button', { name: 'Democrat' }),
     ).not.toBeInTheDocument()
+  })
+
+  // `open` is a derived OR of the page's create button and the provider's
+  // editingSegment, so a switch between them never passes through `false` —
+  // an effect watching `open` alone would leave the previous list seeded under
+  // create-mode chrome.
+  it('reseeds when the wizard switches from editing to creating without closing', async () => {
+    const { rerender } = render(
+      <CreateListWizard
+        open
+        onOpenChange={vi.fn()}
+        editingSegment={voterFileSegment}
+      />,
+    )
+
+    await screen.findByRole('heading', { name: 'Filters' })
+    expect(pillForOption('Democrat')).toHaveAttribute('data-state', 'on')
+
+    rerender(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('radio', {
+        name: /build a list using voter demographics and data/i,
+      }),
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText('List name')).not.toBeInTheDocument()
+  })
+
+  it('reseeds when the wizard switches straight from one list to another', async () => {
+    const { rerender } = render(
+      <CreateListWizard
+        open
+        onOpenChange={vi.fn()}
+        editingSegment={voterFileSegment}
+      />,
+    )
+
+    await screen.findByRole('heading', { name: 'Filters' })
+    expect(pillForOption('Democrat')).toHaveAttribute('data-state', 'on')
+
+    rerender(
+      <CreateListWizard
+        open
+        onOpenChange={vi.fn()}
+        editingSegment={{ id: 99, name: 'Republicans', partyRepublican: true }}
+      />,
+    )
+
+    await vi.waitFor(() =>
+      expect(screen.getByLabelText('List name')).toHaveValue('Republicans'),
+    )
+    expect(pillForOption('Republican')).toHaveAttribute('data-state', 'on')
+    expect(pillForOption('Democrat')).toHaveAttribute('data-state', 'off')
   })
 
   // The overlap union counts the list being edited among the org's saved
@@ -410,6 +475,33 @@ describe('CreateListWizard — edit mode save', () => {
 
     await user.click(pillForOption('Democrat'))
     await vi.waitFor(() => expect(save).toBeDisabled())
+  })
+
+  // refreshCustomSegments refetches rather than invalidating, so a failed
+  // refetch would otherwise leave the index showing the pre-edit list.
+  it('marks the segments cache stale when the post-save refresh fails', async () => {
+    const user = userEvent.setup()
+    refreshCustomSegments.mockRejectedValueOnce(new Error('network'))
+    api.mock('PUT /v1/voters/voter-file/filter/:id', {
+      status: 200,
+      data: { id: 42 },
+    })
+
+    render(
+      <CreateListWizard
+        open
+        onOpenChange={vi.fn()}
+        editingSegment={voterFileSegment}
+      />,
+    )
+
+    await screen.findByRole('heading', { name: 'Filters' })
+    await clickSaveChanges(user)
+
+    await vi.waitFor(() =>
+      expect(successSnackbar).toHaveBeenCalledWith('List updated'),
+    )
+    expect(invalidatedKeys).toContainEqual(['custom-segments', 'test-org'])
   })
 
   it('fires Segment Updated with action filters on a successful save only', async () => {
