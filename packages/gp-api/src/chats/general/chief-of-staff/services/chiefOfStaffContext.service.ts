@@ -28,8 +28,9 @@ export interface ChiefOfStaffContext {
   // table configured). The context service defaults it false; the handler
   // resolves the real value from the provider + table allowlist.
   constituentToolEnabled: boolean
-  // Whether the serve-crm flag enables the contact describe/count tools.
-  // Defaults false here; the handler resolves it from FeaturesService.
+  // True only when the contacts service is injected, so the prompt block
+  // and tool registration can't diverge. Defaults false here; the handler
+  // resolves the real value.
   crmToolsEnabled: boolean
 }
 

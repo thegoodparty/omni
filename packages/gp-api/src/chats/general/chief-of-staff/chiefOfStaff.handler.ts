@@ -6,7 +6,6 @@ import {
   buildDescribeConstituentDataTool,
   buildQueryConstituentDataTool,
 } from '@/llm/tools/queryConstituentData.tool'
-import { FeaturesService } from '@/features/services/features.service'
 import {
   ChatScopeHandler,
   ResolveConversationParams,
@@ -59,11 +58,6 @@ export const CONSTITUENT_DATA_PROVIDER = 'CONSTITUENT_DATA_PROVIDER'
 // uses the in-code CONSTITUENT_TABLES const while tests can supply a fixture.
 export const CONSTITUENT_TABLES_CONFIG = 'CONSTITUENT_TABLES_CONFIG'
 
-// Serve's CRM rollout flag (same key the webapp's contacts page reads). It
-// gates the contact describe/count tools so the assistant capability ramps
-// with the same cohorts as the CRM UI.
-export const SERVE_CRM_FLAG = 'serve-crm'
-
 @Injectable()
 export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext> {
   readonly scope = ChatScope.chief_of_staff
@@ -83,8 +77,6 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly constituentProvider?: DatabricksProvider,
     @Optional()
     private readonly districtResolver?: DistrictResolverService,
-    @Optional()
-    private readonly features?: FeaturesService,
     @Optional()
     @Inject(COMMUNITY_ISSUE_READ_PORT)
     private readonly communityIssueRead?: CommunityIssueReadPort,
@@ -124,11 +116,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       userId,
       this.priorities,
     )
-    // Resolved independently of district resolution: the contact tools go
-    // through ContactsService, which does its own district lookup. Only hit
-    // Amplitude when the tools could otherwise register (service injected).
-    const crmToolsEnabled =
-      !!this.contacts && (await this.isFlagOn(userId, SERVE_CRM_FLAG))
+    const crmToolsEnabled = !!this.contacts
     const resolved = await this.districtResolver?.resolveByUserId(userId)
     if (!resolved) return { ...ctx, crmToolsEnabled }
     const districtFilters = this.districtResolver
@@ -142,18 +130,6 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       districtFilters,
       constituentToolEnabled,
       crmToolsEnabled,
-    }
-  }
-
-  // FeaturesService.isFeatureEnabled throws if Amplitude fails to return a
-  // value. Resolving a flag is on the critical path of every CoS message, so
-  // a flag-service outage must degrade to "tool off", never take down the chat.
-  private async isFlagOn(userId: number, feature: string): Promise<boolean> {
-    if (!this.features) return false
-    try {
-      return await this.features.isFeatureEnabled({ user: userId, feature })
-    } catch {
-      return false
     }
   }
 
@@ -231,10 +207,10 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       })
     }
 
-    // Aggregate-only CRM reads (describe dimensions + count), gated on the
-    // serve-crm flag so the assistant capability ramps with the CRM UI. The
-    // org is bound from the resolved context; ContactsService enforces the
-    // Serve party rejection and every other filter rule.
+    // Aggregate-only CRM reads (describe dimensions + count), unconditional
+    // for Serve once the contacts service resolves. The org is bound from
+    // the resolved context; ContactsService enforces the Serve party
+    // rejection and every other filter rule.
     if (this.contacts && ctx.crmToolsEnabled) {
       tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
         contacts: this.contacts,
@@ -246,8 +222,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       })
       // Saved-filter CRUD goes through the same VoterFileFilterService paths
       // as the voter-file routes (completed-outreach validation, org scoping,
-      // locked-filter conflict all inherited). Registered under the same
-      // serve-crm gate; the prompt rules key off the registered tool name.
+      // locked-filter conflict all inherited). The prompt rules key off the
+      // registered tool name.
       if (this.voterFileFilters) {
         tools.crud_saved_filters = buildCrudSavedFiltersTool({
           voterFileFilters: this.voterFileFilters,

@@ -144,9 +144,9 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   for `eo-` orgs); `count` takes the same `voterFilterBaseSchema` shape as
   `POST /v1/contacts/count` and calls the same `ContactsService.countContacts`,
   inheriting the Win pro gate and the Serve party-filter rejection (surfaced as
-  structured tool errors). Registration is unconditional for Campaign Manager
-  (Win); Chief of Staff (Serve) gates on the org's `serve-crm` flag via
-  `FeaturesService`. The prompt advertises them only when registered.
+  structured tool errors). Registration is unconditional for both Campaign
+  Manager (Win) and Chief of Staff (Serve). The prompt advertises them only
+  when registered.
 - **`crud_saved_filters`** — saved-filter (contact list) **write** tool shared by
   the same two handlers under the same registration rules, mirroring
   `crud_priorities`' single-tool-with-`action` shape (`list`/`create`/`update`/

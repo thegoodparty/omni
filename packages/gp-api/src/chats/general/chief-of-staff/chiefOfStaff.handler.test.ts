@@ -9,22 +9,10 @@ import { ChiefOfStaffContextService } from './services/chiefOfStaffContext.servi
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
 import { PrioritiesToolPort } from './services/prioritiesPort'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
-import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
-import type { LlmTool } from '@/llm/services/llm.service'
 import { InMemoryDatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
-import { FeaturesService } from '@/features/services/features.service'
 import type { CommunityIssueReadPort } from './services/communityIssueRead.port'
 import type { Organization } from '../../../generated/prisma'
 import type { ContactsService } from '@/contacts/services/contacts.service'
-import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
-
-// Native web search has no description; every other registered tool does.
-const descriptionOf = (tool: LlmTool | undefined): string => {
-  if (!tool || !('description' in tool)) {
-    throw new Error('expected a tool with a description')
-  }
-  return tool.description
-}
 
 const USER_ID = 7
 const ORG = 'eo-123'
@@ -47,16 +35,6 @@ const buildBriefings = (): ChiefOfStaffBriefingsService =>
 const TEST_TABLES = [
   { table: 'constituent_aggregates', dimensions: ['age_band', 'gender'] },
 ]
-
-const buildFeatures = (enabled: boolean): FeaturesService =>
-  ({
-    isFeatureEnabled: vi.fn(() => Promise.resolve(enabled)),
-  }) as unknown as FeaturesService
-
-const buildThrowingFeatures = (): FeaturesService =>
-  ({
-    isFeatureEnabled: vi.fn(() => Promise.reject(new Error('amplitude down'))),
-  }) as unknown as FeaturesService
 
 describe('ChiefOfStaffHandler', () => {
   let store: GeneralChatStoreService
@@ -200,8 +178,7 @@ describe('ChiefOfStaffHandler', () => {
     expect(prompt).toContain('Council Member')
   })
 
-  it('registers constituent-data tools when provider + filters + table are present, without consulting Amplitude', async () => {
-    const features = buildFeatures(true)
+  it('registers constituent-data tools when provider + filters + table are present', async () => {
     const handler = new ChiefOfStaffHandler(
       store,
       context,
@@ -210,11 +187,9 @@ describe('ChiefOfStaffHandler', () => {
       TEST_TABLES,
       new InMemoryDatabricksProvider(new Map()),
       buildResolver(),
-      features,
     )
     const ctx = await handler.loadContext('c1', USER_ID)
     expect(ctx.constituentToolEnabled).toBe(true)
-    expect(features.isFeatureEnabled).not.toHaveBeenCalled()
     const tools = handler.buildTools(ctx)
     expect(Object.keys(tools)).toContain('query_constituent_data')
     expect(Object.keys(tools)).toContain('describe_constituent_data')
@@ -394,7 +369,6 @@ describe('ChiefOfStaffHandler', () => {
         [],
         undefined,
         undefined,
-        undefined,
         communityPort,
       )
       const ctx = await handler.loadContext('c1', USER_ID)
@@ -418,19 +392,13 @@ describe('ChiefOfStaffHandler', () => {
     })
   })
 
-  describe('CRM contact tools (serve-crm gating)', () => {
-    const buildContacts = (): ContactsService =>
-      ({
+  describe('CRM contact tools', () => {
+    it('registers describe_filter_dimensions and count_contacts whenever contacts + organization resolve', async () => {
+      const contacts = {
         getFilterDimensions: vi.fn(() => []),
         countContacts: vi.fn(),
-      }) as unknown as ContactsService
-
-    const buildCrmHandler = (deps: {
-      features?: FeaturesService
-      contacts?: ContactsService
-      voterFileFilters?: VoterFileFilterService
-    }) =>
-      new ChiefOfStaffHandler(
+      } as unknown as ContactsService
+      const handler = new ChiefOfStaffHandler(
         store,
         context,
         buildBriefings(),
@@ -438,140 +406,15 @@ describe('ChiefOfStaffHandler', () => {
         [],
         undefined,
         undefined,
-        deps.features,
         undefined,
-        deps.contacts,
-        deps.voterFileFilters,
+        contacts,
       )
-
-    it('registers both tools when contacts service present and serve-crm on', async () => {
-      const features = buildFeatures(true)
-      const handler = buildCrmHandler({ features, contacts: buildContacts() })
       const ctx = await handler.loadContext('c1', USER_ID)
       expect(ctx.crmToolsEnabled).toBe(true)
-      expect(features.isFeatureEnabled).toHaveBeenCalledWith({
-        user: USER_ID,
-        feature: 'serve-crm',
-      })
+      expect(ctx.organization).toEqual({ slug: ORG })
       const toolNames = Object.keys(handler.buildTools(ctx))
       expect(toolNames).toContain('describe_filter_dimensions')
       expect(toolNames).toContain('count_contacts')
-    })
-
-    it('registers CRM tools whose descriptions carry the shared routing rules', async () => {
-      const features = buildFeatures(true)
-      const handler = buildCrmHandler({ features, contacts: buildContacts() })
-      const ctx = await handler.loadContext('c1', USER_ID)
-      const tools = handler.buildTools(ctx)
-      expect(descriptionOf(tools.describe_filter_dimensions)).toContain(
-        DATA_SOURCE_ROUTING_RULES,
-      )
-      expect(descriptionOf(tools.count_contacts)).toContain(
-        DATA_SOURCE_ROUTING_RULES,
-      )
-    })
-
-    it('omits both tools when the serve-crm flag is off', async () => {
-      const handler = buildCrmHandler({
-        features: buildFeatures(false),
-        contacts: buildContacts(),
-      })
-      const ctx = await handler.loadContext('c1', USER_ID)
-      expect(ctx.crmToolsEnabled).toBe(false)
-      const toolNames = Object.keys(handler.buildTools(ctx))
-      expect(toolNames).not.toContain('describe_filter_dimensions')
-      expect(toolNames).not.toContain('count_contacts')
-    })
-
-    it('omits both tools (and never hits Amplitude) without the contacts service', async () => {
-      const features = buildFeatures(true)
-      const handler = buildCrmHandler({ features })
-      const ctx = await handler.loadContext('c1', USER_ID)
-      expect(ctx.crmToolsEnabled).toBe(false)
-      expect(features.isFeatureEnabled).not.toHaveBeenCalled()
-      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
-        'count_contacts',
-      )
-    })
-
-    it('keeps the chat working (tools off) when the flag service throws', async () => {
-      const handler = buildCrmHandler({
-        features: buildThrowingFeatures(),
-        contacts: buildContacts(),
-      })
-      const ctx = await handler.loadContext('c1', USER_ID)
-      expect(ctx.crmToolsEnabled).toBe(false)
-      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
-        'count_contacts',
-      )
-    })
-
-    it('advertises the tools and rules in the prompt only when registered', async () => {
-      const onHandler = buildCrmHandler({
-        features: buildFeatures(true),
-        contacts: buildContacts(),
-      })
-      const onPrompt = onHandler.buildSystemPrompt(
-        await onHandler.loadContext('c1', USER_ID),
-      )
-      expect(onPrompt).toContain('count_contacts')
-      expect(onPrompt).toContain('describe_filter_dimensions')
-      expect(onPrompt).toContain('CONTACT LIST RULES')
-
-      const offHandler = buildCrmHandler({
-        features: buildFeatures(false),
-        contacts: buildContacts(),
-      })
-      const offPrompt = offHandler.buildSystemPrompt(
-        await offHandler.loadContext('c1', USER_ID),
-      )
-      expect(offPrompt).not.toContain('count_contacts')
-      expect(offPrompt).not.toContain('CONTACT LIST RULES')
-    })
-
-    const buildVoterFileFilters = (): VoterFileFilterService =>
-      ({
-        findByOrganizationSlug: vi.fn(() => Promise.resolve([])),
-      }) as unknown as VoterFileFilterService
-
-    it('registers crud_saved_filters under the same serve-crm gate', async () => {
-      const handler = buildCrmHandler({
-        features: buildFeatures(true),
-        contacts: buildContacts(),
-        voterFileFilters: buildVoterFileFilters(),
-      })
-      const ctx = await handler.loadContext('c1', USER_ID)
-      expect(Object.keys(handler.buildTools(ctx))).toContain(
-        'crud_saved_filters',
-      )
-      const prompt = handler.buildSystemPrompt(ctx)
-      expect(prompt).toContain('crud_saved_filters')
-      expect(prompt).toContain('SAVED LIST RULES')
-
-      const offHandler = buildCrmHandler({
-        features: buildFeatures(false),
-        contacts: buildContacts(),
-        voterFileFilters: buildVoterFileFilters(),
-      })
-      const offCtx = await offHandler.loadContext('c1', USER_ID)
-      expect(Object.keys(offHandler.buildTools(offCtx))).not.toContain(
-        'crud_saved_filters',
-      )
-      expect(offHandler.buildSystemPrompt(offCtx)).not.toContain(
-        'crud_saved_filters',
-      )
-    })
-
-    it('keeps the read tools but omits crud without the filter service', async () => {
-      const handler = buildCrmHandler({
-        features: buildFeatures(true),
-        contacts: buildContacts(),
-      })
-      const ctx = await handler.loadContext('c1', USER_ID)
-      const toolNames = Object.keys(handler.buildTools(ctx))
-      expect(toolNames).toContain('count_contacts')
-      expect(toolNames).not.toContain('crud_saved_filters')
-      expect(handler.buildSystemPrompt(ctx)).not.toContain('crud_saved_filters')
     })
   })
 
