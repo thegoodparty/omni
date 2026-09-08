@@ -163,6 +163,12 @@ describe('PhoneBankingFlow', () => {
       status: 404,
       data: { message: 'No elected office' },
     })
+    // The who step's picker always asks for recommendations; these cases are
+    // about the rest of the flow, so answer with none.
+    api.mock('GET /v1/campaigns/mine/recommended-lists', {
+      status: 200,
+      data: [],
+    })
   })
 
   it('opens the who step with no default audience — Continue is disabled until a list is picked or built', async () => {

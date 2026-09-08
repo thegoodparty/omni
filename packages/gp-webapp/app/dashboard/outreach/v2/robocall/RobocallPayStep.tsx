@@ -106,6 +106,9 @@ interface RobocallPayStepProps {
   timeZone: string
   script: string
   campaignName: string
+  // A tracker/manager task's due date, persisted on the draft this step
+  // creates so a robocall started from a task carries it like p2p does.
+  campaignPlanDueDate?: string
   // Read back on the success screen (never sent — the summary mirrors the
   // pre-pay review the candidate just saw).
   audienceName: string
@@ -137,6 +140,7 @@ export const RobocallPayStep = ({
   timeZone,
   script,
   campaignName,
+  campaignPlanDueDate,
   audienceName,
   reachCount,
   outcome,
@@ -174,6 +178,7 @@ export const RobocallPayStep = ({
         ),
         ...(script.trim() ? { script } : {}),
         ...(campaignName.trim() ? { name: campaignName } : {}),
+        ...(campaignPlanDueDate ? { campaignPlanDueDate } : {}),
       })
       return data
     },

@@ -1,11 +1,36 @@
-import type { AudienceFilterKey } from 'app/dashboard/components/tasks/flows/CustomVoterAudienceFilters'
 import type { VoterFileFilters } from 'helpers/types'
 
-// The audience form (CustomVoterAudienceFilters / AudienceState) keys its checkbox
-// state with underscore snake_case names, while VoterFileFilters — the API/persistence
-// shape — uses camelCase. These two vocabularies must be kept in lockstep, so the
+// The audience vocabulary keys its state with underscore snake_case names,
+// while VoterFileFilters — the API/persistence shape — uses camelCase. These two vocabularies must be kept in lockstep, so the
 // single source of truth for that translation lives here (WEB-4277 previously required
 // hand-syncing the same mapping across ~6 files).
+
+// The snake_case audience vocabulary. Named for the audience form that
+// introduced it; it outlived that form because the keys are what saved
+// outreach rows and their labels are written in.
+export type AudienceFilterKey =
+  | 'audience_superVoters'
+  | 'audience_likelyVoters'
+  | 'audience_unreliableVoters'
+  | 'audience_unlikelyVoters'
+  | 'audience_unknown'
+  | 'party_independent'
+  | 'party_democrat'
+  | 'party_republican'
+  | 'party_other'
+  | 'age_18_25'
+  | 'age_25_35'
+  | 'age_35_50'
+  | 'age_50_plus'
+  | 'age_18_24'
+  | 'age_25_34'
+  | 'age_35_49'
+  | 'age_50_64'
+  | 'age_65_plus'
+  | 'gender_male'
+  | 'gender_female'
+  | 'gender_unknown'
+  | 'audience_request'
 
 // Snake_case audience keys, excluding `audience_request` which is free text with no
 // camelCase VoterFileFilters counterpart.

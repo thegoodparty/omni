@@ -77,10 +77,7 @@ interface OutreachAudienceStepProps {
   onSelect: (id: number) => void
   onStartBuilder: () => void
   // Recommended lists (docs/features/recommended-lists.md), rendered above
-  // "All lists" in picker mode only. `recommendedListsEnabled` reflects the
-  // win-recommended-lists flag — false renders the picker with none of this,
-  // byte-identical to before the feature existed.
-  recommendedListsEnabled: boolean
+  // "All lists" in picker mode only.
   recommendations: RecommendedList[]
   recommendationsLoading: boolean
   recommendationsError: boolean
@@ -143,7 +140,6 @@ export const OutreachAudienceStep = ({
   selectedId,
   onSelect,
   onStartBuilder,
-  recommendedListsEnabled,
   recommendations,
   recommendationsLoading,
   recommendationsError,
@@ -226,9 +222,8 @@ export const OutreachAudienceStep = ({
           // hasAnyPhone into the draft. Without this those criteria are
           // active and invisible — the transform is key-driven, not
           // render-driven, so they persist onto the created list and the
-          // candidate has no control to clear them with. Same flag the cards
-          // above are gated on.
-          showRecommendedListFilters={recommendedListsEnabled}
+          // candidate has no control to clear them with.
+          showRecommendedListFilters
         />
       </div>
     )
@@ -239,8 +234,7 @@ export const OutreachAudienceStep = ({
   // staggered spinners in different regions. The reachable-count fetch that
   // fires when a candidate picks a list stays inline on the trigger card —
   // it is a user-initiated follow-up, not part of the landing.
-  const initialLoading =
-    listsLoading || (recommendedListsEnabled && recommendationsLoading)
+  const initialLoading = listsLoading || recommendationsLoading
 
   if (initialLoading) {
     return (
@@ -256,12 +250,10 @@ export const OutreachAudienceStep = ({
           aria-live="polite"
           className="space-y-6"
         >
-          {recommendedListsEnabled && (
-            <div className="space-y-2">
-              <Skeleton className="h-3 w-32" />
-              <Skeleton className="h-24 w-full rounded-xl" />
-            </div>
-          )}
+          <div className="space-y-2">
+            <Skeleton className="h-3 w-32" />
+            <Skeleton className="h-24 w-full rounded-xl" />
+          </div>
           <div className="space-y-2">
             <Skeleton className="h-3 w-20" />
             <Skeleton className="h-16 w-full rounded-xl" />
@@ -279,50 +271,49 @@ export const OutreachAudienceStep = ({
         body={copy.pickerBody}
       />
 
-      {recommendedListsEnabled &&
-        (recommendationsLoading ||
-          recommendationsError ||
-          recommendations.length > 0) && (
-          <div className="space-y-2">
-            <p className="text-xs font-bold uppercase text-primary">
-              Recommended for you
+      {(recommendationsLoading ||
+        recommendationsError ||
+        recommendations.length > 0) && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold uppercase text-primary">
+            Recommended for you
+          </p>
+          {recommendationsLoading ? (
+            <div
+              data-testid="recommended-lists-loading"
+              className="flex items-center gap-1.5 text-sm text-muted-foreground"
+            >
+              <Loader2Icon className="size-3.5 animate-spin" />
+              Finding your best audiences…
+            </div>
+          ) : recommendationsError ? (
+            <p
+              data-testid="recommended-lists-error"
+              className="text-sm text-destructive"
+            >
+              We couldn&apos;t load recommendations right now.
             </p>
-            {recommendationsLoading ? (
-              <div
-                data-testid="recommended-lists-loading"
-                className="flex items-center gap-1.5 text-sm text-muted-foreground"
-              >
-                <Loader2Icon className="size-3.5 animate-spin" />
-                Finding your best audiences…
-              </div>
-            ) : recommendationsError ? (
-              <p
-                data-testid="recommended-lists-error"
-                className="text-sm text-destructive"
-              >
-                We couldn&apos;t load recommendations right now.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {recommendations.map((recommendation) => (
-                  <RecommendedListCard
-                    key={recommendation.variant}
-                    recommendation={recommendation}
-                    channel={recommendedListsChannel}
-                    onSelect={() => {
-                      if (recommendation.existingFilterId === null) {
-                        setPendingRecommendation(recommendation)
-                        return
-                      }
-                      onRecommendationReused(recommendation)
-                      onSelect(recommendation.existingFilterId)
-                    }}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+          ) : (
+            <div className="space-y-2">
+              {recommendations.map((recommendation) => (
+                <RecommendedListCard
+                  key={recommendation.variant}
+                  recommendation={recommendation}
+                  channel={recommendedListsChannel}
+                  onSelect={() => {
+                    if (recommendation.existingFilterId === null) {
+                      setPendingRecommendation(recommendation)
+                      return
+                    }
+                    onRecommendationReused(recommendation)
+                    onSelect(recommendation.existingFilterId)
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="space-y-2">
         <p className="text-xs font-bold uppercase text-primary">All lists</p>

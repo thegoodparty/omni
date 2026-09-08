@@ -311,9 +311,8 @@ export class ContactsService {
   // has no meaning for an office holder who serves everyone in the district.
   // Gated the same way party is — both keys reach the converted
   // FilterObject, so the key check mirrors the party one exactly. This is a
-  // permanent PRODUCT rule, not the `win-recommended-lists` flag's doing:
-  // the flag only decides whether the wizard renders the groups, and this
-  // holds whatever the flag says. hasAnyPhone is deliberately NOT here —
+  // permanent PRODUCT rule, independent of which webapp surfaces render the
+  // groups at all. hasAnyPhone is deliberately NOT here —
   // plain contactability, and Serve runs phone banking and robocall too.
   private assertNoRecommendedListFilterForElectedOffice(
     organization: Organization,

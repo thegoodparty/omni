@@ -4,11 +4,6 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 
-let complianceFlag = { ready: true, enabled: false }
-vi.mock('@shared/experiments/voterOutreachV2SmsFlag', () => ({
-  useVoterOutreachV2SmsFlag: () => complianceFlag,
-}))
-
 // Off by default so every pre-existing test renders exactly as it did before
 // the Assignees section existed; the section's own tests below flip it on.
 let teamAccountsFlag = { ready: true, enabled: false }
@@ -21,7 +16,6 @@ vi.mock('@shared/organization-picker', () => ({
 }))
 
 beforeEach(() => {
-  complianceFlag = { ready: true, enabled: false }
   teamAccountsFlag = { ready: true, enabled: false }
 })
 import { useSnackbar } from 'helpers/useSnackbar'
@@ -1066,7 +1060,6 @@ describe('OutreachDetailsDrawer — automatic campaigns', () => {
 
 describe('OutreachDetailsDrawer — SMS statistics', () => {
   it('renders the Statistics card for a completed text campaign', async () => {
-    complianceFlag = { ready: true, enabled: true }
     const completedSmsRow: HistoryRow = {
       id: 51,
       createdAt: '2026-08-20T00:00:00Z',
@@ -1134,51 +1127,9 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
       data: { message: 'No receipt' },
     })
 
-  it('offers Edit campaign on a cancelable row (launch switch off) and hands the hub the detail', async () => {
-    mockNoReceipt()
-    api.mock('GET /v1/outreach/:id', {
-      status: 200,
-      data: {
-        ...smsDetail,
-        script: 'Hello {first_name}, hi.\n\nReply STOP to opt out.',
-        date: new Date('2026-09-06T14:00:00Z'),
-        imageUrl: 'https://assets.example.org/img.png',
-        textCount: 1200,
-      },
-    })
-    const onEdit = vi.fn()
-    const onOpenChange = vi.fn()
-    render(
-      <OutreachDetailsDrawer
-        row={
-          {
-            ...scheduledSmsRow,
-            voterFileFilter: { name: 'Likely voters' },
-          } as HistoryRow
-        }
-        onOpenChange={onOpenChange}
-        onEdit={onEdit}
-      />,
-    )
-
-    await userEvent.click(
-      await screen.findByRole('button', { name: 'Edit campaign' }),
-    )
-
-    expect(onEdit).toHaveBeenCalledWith({
-      id: 41,
-      name: 'Likely voters — SMS',
-      date: new Date('2026-09-06T14:00:00Z'),
-      script: 'Hello {first_name}, hi.\n\nReply STOP to opt out.',
-      imageUrl: 'https://assets.example.org/img.png',
-      contactCount: 1200,
-      audienceName: 'Likely voters',
-    })
-    expect(onOpenChange).toHaveBeenCalledWith(false)
-  })
-
-  it('hides Edit campaign when the launch switch is on', async () => {
-    complianceFlag = { ready: true, enabled: true }
+  // Candidate editing was removed (product decision 2026-09-02): a
+  // cancel-window row offers Cancel and nothing else.
+  it('offers Cancel campaign only — never Edit — on a cancelable row', async () => {
     mockNoReceipt()
     api.mock('GET /v1/outreach/:id', {
       status: 200,
@@ -1190,11 +1141,7 @@ describe('OutreachDetailsDrawer — cancel before send', () => {
       },
     })
     render(
-      <OutreachDetailsDrawer
-        row={scheduledSmsRow}
-        onOpenChange={vi.fn()}
-        onEdit={vi.fn()}
-      />,
+      <OutreachDetailsDrawer row={scheduledSmsRow} onOpenChange={vi.fn()} />,
     )
     expect(
       await screen.findByRole('button', { name: 'Cancel campaign' }),

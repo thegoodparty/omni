@@ -4,38 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { WIN_RECOMMENDED_LISTS_FLAG_KEY } from '@shared/experiments/winRecommendedListsFlag'
 import { SmsFlow } from './SmsFlow'
-
-// The recommended-lists query lives inside useOutreachAudience, whose
-// exposure/gating both read useWinRecommendedListsFlag — module-mocked here
-// the same way CreateListWizard.flagExposure.test.tsx pins its own exposure
-// contract, since it's the same flag and the same useFlagOn/useFeatureFlags
-// seam.
-vi.mock('@shared/experiments/FeatureFlagsProvider', () => ({
-  useFlagOn: vi.fn(),
-  useFeatureFlags: vi.fn(),
-}))
-
-const { useFlagOn, useFeatureFlags } =
-  await import('@shared/experiments/FeatureFlagsProvider')
-const mockedUseFlagOn = vi.mocked(useFlagOn)
-const mockedUseFeatureFlags = vi.mocked(useFeatureFlags)
-const exposure = vi.fn()
-
-const setFlag = ({
-  ready = true,
-  on = true,
-}: {
-  ready?: boolean
-  on?: boolean
-}) => {
-  mockedUseFlagOn.mockReturnValue({ ready, on })
-}
-
-vi.mock('@shared/experiments/voterOutreachV2SmsFlag', () => ({
-  useVoterOutreachV2SmsFlag: () => ({ ready: true, enabled: false }),
-}))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -96,15 +65,6 @@ const EXISTING_RECOMMENDATION = {
 beforeEach(() => {
   api.reset()
   vi.clearAllMocks()
-  mockedUseFeatureFlags.mockReturnValue({
-    ready: true,
-    variant: () => ({ value: undefined }),
-    all: () => ({}),
-    exposure,
-    refresh: vi.fn(),
-    clear: vi.fn(),
-  } as ReturnType<typeof useFeatureFlags>)
-  setFlag({ ready: true, on: true })
   api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
   api.mock('GET /v1/elected-office/current', {
     status: 404,
@@ -112,9 +72,6 @@ beforeEach(() => {
   })
   api.mock('GET /v1/outreach', { status: 200, data: [] })
 })
-
-const exposureCalls = () =>
-  exposure.mock.calls.filter(([key]) => key === WIN_RECOMMENDED_LISTS_FLAG_KEY)
 
 const acceptedCalls = () =>
   vi
@@ -134,30 +91,6 @@ const openToAudience = async () => {
 }
 
 describe('SmsFlow — recommended lists', () => {
-  it('records the exposure once the audience picker renders', async () => {
-    api.mock('GET /v1/campaigns/mine/recommended-lists', {
-      status: 200,
-      data: [],
-    })
-    await openToAudience()
-
-    expect(exposureCalls()).toHaveLength(1)
-  })
-
-  it('records the exposure for the control arm too', async () => {
-    setFlag({ ready: true, on: false })
-    await openToAudience()
-
-    expect(exposureCalls()).toHaveLength(1)
-  })
-
-  it('shows nothing extra when the flag is off', async () => {
-    setFlag({ ready: true, on: false })
-    await openToAudience()
-
-    expect(screen.queryByTestId('recommended-list-card')).toBeNull()
-  })
-
   it('shows a card and carries its variant through to the created filter', async () => {
     api.mock('GET /v1/campaigns/mine/recommended-lists', {
       status: 200,
@@ -204,10 +137,9 @@ describe('SmsFlow — recommended lists', () => {
       recommendedIntent: 'introduce',
     })
 
-    // The experiment's numerator. It can only be fired here, after the
-    // create response carries gp-api's `recommendedModified` — and it
-    // reads state the create callback closes over, so a missing dependency
-    // silently leaves the exposures with no conversions at all.
+    // Fires only here, after the create response carries gp-api's
+    // `recommendedModified` — and it reads state the create callback closes
+    // over, so a missing dependency silently drops the event entirely.
     await waitFor(() => expect(acceptedCalls()).toHaveLength(1))
     expect(acceptedCalls()[0]?.[1]).toEqual({
       variant: 'persuadeAffinity',

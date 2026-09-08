@@ -263,9 +263,9 @@ describe('buildFilterSummary — precinct clause', () => {
   })
 })
 
-// Read side is deliberately UNGATED by win-recommended-lists: a list saved
-// while the flag was on has to keep describing itself if the flag flips off,
-// or the person who saved it can no longer tell what it holds.
+// The read side describes every dimension the wizard can write, including
+// the recommended-list groups the outreach builders never render — otherwise
+// the person who saved a list can no longer tell what it holds.
 describe('buildFilterSummary — recommended-list dimensions', () => {
   it('names the affinity and any-phone selections', () => {
     const summary = buildFilterSummary(

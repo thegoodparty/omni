@@ -7,17 +7,6 @@ import type { SmsDraftRequest } from '@goodparty_org/contracts'
 import { SmsFlow, SuccessScreen } from './SmsFlow'
 import type { TcrCompliance } from 'helpers/types'
 
-// Launch-switch mock: defaults off (pre-launch behavior); individual tests
-// flip it on to exercise the compliance composer.
-let complianceFlag = { ready: true, enabled: false }
-vi.mock('@shared/experiments/voterOutreachV2SmsFlag', () => ({
-  useVoterOutreachV2SmsFlag: () => complianceFlag,
-}))
-
-beforeEach(() => {
-  complianceFlag = { ready: true, enabled: false }
-})
-
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
@@ -202,6 +191,12 @@ describe('SmsFlow', () => {
       status: 404,
       data: { message: 'No elected office' },
     })
+    // The picker always asks for recommendations now; this file's cases are
+    // about the flow, not the cards, so answer with none.
+    api.mock('GET /v1/campaigns/mine/recommended-lists', {
+      status: 200,
+      data: [],
+    })
     mockOutreachList()
   })
 
@@ -210,7 +205,6 @@ describe('SmsFlow', () => {
   })
 
   it('runs purpose → audience → schedule → compose → review and schedules free', async () => {
-    complianceFlag = { ready: true, enabled: true }
     const draftCalls = mockDraft()
     let receiptCalls = 0
     api.mock('GET /v1/outreach/:id/receipt', () => {
@@ -298,8 +292,69 @@ describe('SmsFlow', () => {
     expect(receiptCalls).toBe(0)
   })
 
+  // The hub's `?compose=text` deep link seeds these. A preset message is one
+  // the candidate is meant to send as written (Know Your Opponent), so the
+  // flow opens on `custom` — the purpose that never AI-drafts — past the
+  // picker, rather than asking a question whose answer would draft over it.
+  describe('deep-link seeds', () => {
+    const openSeeded = (
+      props: Partial<{
+        initialScript: string
+        preselectedListId: number
+        campaignPlanDueDate: string
+      }>,
+    ) =>
+      render(
+        <SmsFlow
+          open
+          onClose={vi.fn()}
+          onScheduled={vi.fn().mockResolvedValue(undefined)}
+          tcrCompliance={TCR_FIXTURE}
+          {...props}
+        />,
+      )
+
+    it('opens past the purpose picker with a seeded message', async () => {
+      openSeeded({ initialScript: 'Hello {first_name}, vote Tuesday.' })
+
+      expect(
+        (await screen.findAllByText('Who do you want to reach?')).length,
+      ).toBeGreaterThan(0)
+      expect(
+        screen.queryByText('Introduce myself to voters'),
+      ).not.toBeInTheDocument()
+    })
+
+    it('opens on the purpose picker with no seed', async () => {
+      openSeeded({})
+
+      expect(
+        await screen.findByText('Introduce myself to voters'),
+      ).toBeInTheDocument()
+    })
+
+    it('selects a preselected list once the picker rows arrive', async () => {
+      openSeeded({
+        initialScript: 'Hello {first_name}, vote Tuesday.',
+        preselectedListId: 41,
+      })
+
+      // The audience step reads back the selected list by name rather than
+      // leaving the picker on its placeholder.
+      expect(await screen.findByText(/Likely voters/)).toBeInTheDocument()
+    })
+
+    it('ignores a preselected list that names no row of yours', async () => {
+      openSeeded({
+        initialScript: 'Hello {first_name}, vote Tuesday.',
+        preselectedListId: 9999,
+      })
+
+      expect(await screen.findByText('Choose a voter list')).toBeInTheDocument()
+    })
+  })
+
   it('shows the server message when the free purchase is rejected as a 400', async () => {
-    complianceFlag = { ready: true, enabled: true }
     mockDraft()
     const rejectionMessage =
       'Message cannot contain tinyurl.com links. Please correct your message.'

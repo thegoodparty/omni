@@ -6,14 +6,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChannelCard } from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
-import TaskFlow from 'app/dashboard/components/tasks/flows/TaskFlow'
 import {
   OUTREACH_OPTIONS,
   OUTREACH_TYPES,
 } from 'app/dashboard/outreach/constants'
 import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
-import { useVoterOutreachV2RobocallFlag } from '@shared/experiments/voterOutreachV2RobocallFlag'
-import { useVoterOutreachV2SmsFlag } from '@shared/experiments/voterOutreachV2SmsFlag'
 import { useNativeDoorKnockingFlag } from '@shared/experiments/nativeDoorKnockingFlag'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -56,13 +53,8 @@ export const ChannelTileGrid = ({
   const queryClient = useQueryClient()
   const [campaign] = useCampaign()
   const { isPro } = campaign || {}
-  const [flowType, setFlowType] = useState<OutreachType | null>(null)
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
   const { runTextGate, gateModals } = useTextOutreachGate(tcrCompliance)
-  // The robocall tile's own swap: flag on opens the new robocall flow, off
-  // (or unsettled) falls through to the legacy robocall TaskFlow — checked
-  // after the Pro gate since robocall is Pro-locked.
-  const robocallV2 = useVoterOutreachV2RobocallFlag()
   // Read only to decide whether the district download below is worth starting.
   // The door-knocking page gate is the treatment surface, so no exposure here.
   const nativeDoorKnocking = useNativeDoorKnockingFlag(false)
@@ -90,18 +82,16 @@ export const ChannelTileGrid = ({
   const { data: electedOffice, isPending: electedOfficePending } =
     useElectedOffice()
   const canUseProFeatures = !!isPro || !!electedOffice
-  // The SMS tile's own swap, checked after the text gate passes.
-  const smsV2 = useVoterOutreachV2SmsFlag()
 
   // Consume-once preselected list (ENG-10762 conventions): the deep-link
-  // strip's router.replace re-runs the
-  // force-dynamic page's server render without ?listId, reverting the prop to
-  // undefined — state on this instance survives that pass. Cleared as soon as
-  // a consuming flow has taken it, so a later-opened flow starts clean: on
-  // close for the flows that open here, on navigation for door knocking,
-  // which applies it on the page it goes to. The ref tracks the last PROP
-  // value already pulled in so clearing can't get re-synced back from an
-  // unchanged prop.
+  // strip's router.replace re-runs the force-dynamic page's server render
+  // without ?listId, reverting the prop to undefined — state on this
+  // instance survives that pass. Cleared as soon as a consuming channel has
+  // taken it, so a later-opened flow starts clean: on hand-off for phone
+  // banking, on navigation for door knocking, which applies it on the page
+  // it goes to. The two channels that apply a preselect are the only ones
+  // that spend it. The ref tracks the last PROP value already pulled in so
+  // clearing can't get re-synced back from an unchanged prop.
   const [pendingPreselectedListId, setPendingPreselectedListId] =
     useState(preselectedListId)
   const lastSyncedPropListIdRef = useRef(preselectedListId)
@@ -123,23 +113,18 @@ export const ChannelTileGrid = ({
       return
     }
     if (type === OUTREACH_TYPES.text) {
-      if (smsV2.ready && smsV2.enabled) {
-        // Upgrade-at-entry (2026-08-28): a non-Pro click goes straight to
-        // the Pro upgrade wizard instead of the legacy marketing modal, the
-        // same pattern the phone-banking tile set. Pro candidates with an
-        // unfinished registration run through the gate's status-aware
-        // ComplianceModal below (legacy semantics: approved passes).
-        if (!isPro) {
-          trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, { type })
-          router.push('/dashboard/pro-upgrade')
-          return
-        }
-        if (!runTextGate()) return
-        onCreateSms()
+      // Upgrade-at-entry (2026-08-28): a non-Pro click goes straight to the
+      // Pro upgrade wizard instead of the legacy marketing modal, the same
+      // pattern the phone-banking tile set. Pro candidates with an
+      // unfinished registration run through the gate's status-aware
+      // ComplianceModal below (legacy semantics: approved passes).
+      if (!isPro) {
+        trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, { type })
+        router.push('/dashboard/pro-upgrade')
         return
       }
       if (!runTextGate()) return
-      setFlowType(type)
+      onCreateSms()
       return
     }
     if (type === OUTREACH_TYPES.phoneBanking) {
@@ -171,11 +156,7 @@ export const ChannelTileGrid = ({
       setShowProUpgradeModal(true)
       return
     }
-    if (
-      type === OUTREACH_TYPES.robocall &&
-      robocallV2.ready &&
-      robocallV2.enabled
-    ) {
+    if (type === OUTREACH_TYPES.robocall) {
       onCreateRobocall()
       return
     }
@@ -240,7 +221,6 @@ export const ChannelTileGrid = ({
       )
       return
     }
-    setFlowType(type)
   }
 
   return (
@@ -282,28 +262,6 @@ export const ChannelTileGrid = ({
         }}
       />
       {gateModals}
-      {flowType && campaign && (
-        <TaskFlow
-          forceOpen
-          type={flowType}
-          campaign={campaign}
-          preselectedListId={pendingPreselectedListId}
-          onClose={() => {
-            // Only flows whose audience step applies the preselect consume
-            // it on close (text/robocall — door knocking carries it away in
-            // the URL instead of opening TaskFlow here; social and phone
-            // banking never reach this legacy TaskFlow at all).
-            const isConsumingFlow =
-              flowType === OUTREACH_TYPES.text ||
-              flowType === OUTREACH_TYPES.robocall
-            setFlowType(null)
-            if (isConsumingFlow) {
-              setPendingPreselectedListId(undefined)
-              lastSyncedPropListIdRef.current = undefined
-            }
-          }}
-        />
-      )}
       <DoorKnockingDailyLimitDialog
         limit={refusedCampaignLimit}
         onDismiss={() => setRefusedCampaignLimit(null)}

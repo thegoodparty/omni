@@ -30,8 +30,8 @@ export const SMS_GREETING = 'Hello {first_name},'
 
 // Compliance: every SMS opens with a candidate identification. Per the
 // design, it is the first sentence of the EDITABLE message: fresh AI drafts
-// are prepended with it, and hasIdentification warns (and the CTA blocks)
-// when an edit removes it. Tone-flavored per the design prototype's
+// are prepended with it, and checkSmsStandards blocks the CTA when an edit
+// removes it. Tone-flavored per the design prototype's
 // introFor; reads as the continuation of SMS_GREETING, so no variant
 // carries its own greeting word. The CS compose-rules pass may replace
 // this wording.
@@ -68,30 +68,3 @@ export const composeScript = (
 
 export const IMAGE_MAX_BYTES = 500000
 export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/gif'
-
-// Pre-compliance-launch identification check (prototype's hasIntro), used
-// while the voter-outreach-v2-sms flag is off: the message head
-// must read as an identification. With no first name on file the name
-// check is vacuous, so only the candidacy phrasing is required.
-export const hasIdentification = (body: string, firstName: string): boolean => {
-  const head = body.slice(0, 140).toLowerCase()
-  const nameOk =
-    firstName.trim().length === 0 ||
-    head.includes(firstName.trim().toLowerCase())
-  return nameOk && (head.includes('candidate') || head.includes('running for'))
-}
-
-// Inverse of composeScript, for edit-before-send (pre-launch only):
-// recover the editable body from a stored script by peeling the known
-// system regions. Tolerant of legacy rows that predate the region model —
-// whatever doesn't match is simply kept as body text.
-export const stripComposedScript = (script: string): string => {
-  let body = script
-  if (body.endsWith(`\n\n${OPT_OUT_FOOTER}`)) {
-    body = body.slice(0, -`\n\n${OPT_OUT_FOOTER}`.length)
-  }
-  if (body.startsWith(`${SMS_GREETING} `)) {
-    body = body.slice(SMS_GREETING.length + 1)
-  }
-  return body.trim()
-}

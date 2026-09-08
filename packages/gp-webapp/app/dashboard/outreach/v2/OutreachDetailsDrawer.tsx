@@ -31,7 +31,6 @@ import {
   ArchiveIcon,
   CalendarIcon,
   ChartColumnIcon,
-  PencilIcon,
   CheckCircleIcon,
   ClockIcon,
   DollarSignIcon,
@@ -47,8 +46,6 @@ import {
   UsersRoundIcon,
 } from '@styleguide/components/ui/icons'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { useVoterOutreachV2SmsFlag } from '@shared/experiments/voterOutreachV2SmsFlag'
-import type { SmsEditTarget } from './sms/SmsEditFlow'
 import type { VoterFileFilters } from 'helpers/types'
 import { FetchError } from 'ofetch'
 import { clientRequest } from 'gpApi/typed-request'
@@ -148,9 +145,6 @@ interface OutreachDetailsDrawerProps {
   // Serve caller threads its org-scoped sibling the same bound-function way
   // SocialFlow's `surface` does, so this drawer never forks per surface.
   detailFetcher?: OutreachDetailFetcher
-  // Pre-launch only: cancel-window SMS rows offer Edit campaign; the hub
-  // opens SmsEditFlow with this. Unused once the compliance flag is on.
-  onEdit?: (target: SmsEditTarget) => void
 }
 
 interface DetailRow extends HistoryRow {
@@ -163,7 +157,6 @@ export const OutreachDetailsDrawer = ({
   row,
   onOpenChange,
   detailFetcher = fetchOutreachDetail,
-  onEdit,
 }: OutreachDetailsDrawerProps) => {
   const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
   const isPhoneBanking = row?.outreachType === OUTREACH_TYPES.nativePhoneBanking
@@ -186,9 +179,6 @@ export const OutreachDetailsDrawer = ({
   // Only rows created through the paid P2P flow carry a phone list — the
   // set that has payment details (and possibly a receipt) to show.
   const isPaidFlowSms = isSms && row?.phoneListId != null
-  // Launch switch: on, candidate editing is gone and the Statistics card
-  // appears; off is exactly the pre-launch drawer.
-  const { enabled: complianceV2 } = useVoterOutreachV2SmsFlag(false)
 
   const [outreaches, setOutreaches] = useOutreach()
   const queryClient = useQueryClient()
@@ -264,7 +254,7 @@ export const OutreachDetailsDrawer = ({
       })
       return data
     },
-    enabled: row !== null && isSms && isCompleted && complianceV2,
+    enabled: row !== null && isSms && isCompleted,
     retry: false,
     staleTime: 5 * 60 * 1000,
   })
@@ -420,28 +410,6 @@ export const OutreachDetailsDrawer = ({
       ? `/dashboard/door-knocking?walkTurfId=${doorKnocking.turfId}&outreachId=${row?.id}`
       : null
 
-  const editDetail = detailQuery.data
-  const canEditSms =
-    !complianceV2 &&
-    isCancelableSms &&
-    onEdit !== undefined &&
-    editDetail !== undefined &&
-    editDetail.script !== null &&
-    editDetail.date !== null
-  const handleEdit = () => {
-    if (!canEditSms || !editDetail) return
-    onEdit({
-      id: editDetail.id,
-      name: editDetail.name ?? row?.name ?? '',
-      date: new Date(editDetail.date as Date),
-      script: editDetail.script as string,
-      imageUrl: editDetail.imageUrl,
-      contactCount: editDetail.textCount ?? editDetail.billableTextCount ?? 0,
-      audienceName: voterFileFilter?.name ?? null,
-    })
-    onOpenChange(false)
-  }
-
   // The SMS lifecycle actions this branch added have no mode in the canvas's
   // footer vocabulary (its `automatic` predates cancel/delete existing for a
   // paid send), so these rows render their own footer node in the shared
@@ -449,28 +417,17 @@ export const OutreachDetailsDrawer = ({
   const smsFooter = isCancelableSms ? (
     <div className="shrink-0 border-t border-border bg-background px-4 py-4 lg:px-6">
       <div className="mx-auto flex w-full max-w-[608px] gap-3">
-        {/* Launch switch on: editing is gone (the campaign success team
-            fixes messages) and Cancel keeps the full-width treatment. Off:
-            the pre-launch Cancel + Edit pair. */}
+        {/* Candidate editing is gone (the campaign success team fixes
+            messages), so Cancel takes the full width. */}
         <Button
-          variant={canEditSms ? 'ghost' : 'outline'}
-          className={
-            canEditSms
-              ? 'shrink-0 text-destructive hover:bg-destructive/10'
-              : 'flex-1 border-destructive text-destructive hover:bg-destructive/10'
-          }
+          variant="outline"
+          className="flex-1 border-destructive text-destructive hover:bg-destructive/10"
           disabled={cancelMutation.isPending}
           onClick={() => setCancelConfirmOpen(true)}
         >
           <CircleSlashIcon className="size-4" />
           Cancel campaign
         </Button>
-        {canEditSms && (
-          <Button className="flex-1" onClick={handleEdit}>
-            <PencilIcon className="size-4" />
-            Edit campaign
-          </Button>
-        )}
       </div>
     </div>
   ) : isCanceled ? (
@@ -780,7 +737,7 @@ export const OutreachDetailsDrawer = ({
               />
             )}
 
-            {complianceV2 && isSms && isCompleted && results && statRows && (
+            {isSms && isCompleted && results && statRows && (
               <DetailsSection title="Statistics">
                 <div className="overflow-hidden rounded-lg border border-border">
                   <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">

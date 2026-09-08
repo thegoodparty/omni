@@ -113,13 +113,17 @@ const advanceToRoute = (
 // The flow opens on the goal cards, and both pre-draw stages live inside the
 // orchestrator's single `filters` step — so a test about the audience walks
 // through a goal card to reach it, exactly as a candidate does.
-const renderAtWho = (
+// Async because the picker face lands behind the recommendations skeleton:
+// the who step holds both the saved lists and the recommendations query
+// behind one landing skeleton, so the picker only exists once that settles.
+const renderAtWho = async (
   props: Partial<ComponentProps<typeof CreateListFlow>> = {},
 ) => {
   const view = render(
     <CreateListFlow {...baseProps} step="filters" {...props} />,
   )
   fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
+  await screen.findByRole('combobox', { name: 'All lists' })
   return view
 }
 
@@ -174,6 +178,16 @@ const expectStep = (currentStep: number, totalSteps: number) => {
   expect(stepper).toHaveAttribute('aria-valuenow', String(currentStep))
   expect(stepper).toHaveAttribute('aria-valuemax', String(totalSteps))
 }
+
+// The who step's picker always asks for recommendations. Every describe here
+// is about the rest of the flow, so answer with none; the cards themselves are
+// covered in CreateListFlow.recommendedLists.test.tsx.
+beforeEach(() => {
+  api.mock('GET /v1/campaigns/mine/recommended-lists', {
+    status: 200,
+    data: [],
+  })
+})
 
 describe('CreateListFlow', () => {
   beforeEach(() => {
@@ -429,7 +443,7 @@ describe('CreateListFlow', () => {
     })
     const onStepChange = vi.fn()
 
-    renderAtWho({ filters: { partyDemocrat: true }, onStepChange })
+    await renderAtWho({ filters: { partyDemocrat: true }, onStepChange })
     // Continue is disabled and unnumbered until an audience is picked;
     // pick All contacts to commit the hand-cut filter draft as the
     // audience the step is advancing on.
@@ -567,7 +581,10 @@ describe('CreateListFlow', () => {
   // reading the CTA as the picker's count would be reading the district as the
   // list.
   it('counts the filtered audience in the who step’s Continue, not the whole universe', async () => {
-    renderAtWho({ districtHouseholds: 1500, allContactsHouseholds: 12000 })
+    await renderAtWho({
+      districtHouseholds: 1500,
+      allContactsHouseholds: 12000,
+    })
 
     // Pick All contacts so the trigger commits to a selection — the
     // picker now shows a placeholder until the candidate has actively
@@ -583,7 +600,7 @@ describe('CreateListFlow', () => {
   })
 
   it('refuses to continue from an audience holding nobody', async () => {
-    renderAtWho({ districtHouseholds: 0 })
+    await renderAtWho({ districtHouseholds: 0 })
 
     // Pick All contacts so the count-in-CTA is honestly zero rather than
     // the pre-pick placeholder state. Continue stays disabled — the
@@ -600,8 +617,11 @@ describe('CreateListFlow', () => {
   // the only pack-pending signal on this step; the "Loading your voter map…"
   // sentence used to sit below it but leaked implementation ("voter map") into
   // a step whose question is "who do you want to reach".
-  it('drops the count from the who step’s Continue while it is still pending', () => {
-    renderAtWho({ districtHouseholds: 0, districtHouseholdsPending: true })
+  it('drops the count from the who step’s Continue while it is still pending', async () => {
+    await renderAtWho({
+      districtHouseholds: 0,
+      districtHouseholdsPending: true,
+    })
 
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     expect(screen.queryByRole('button', { name: /Continue \(/ })).toBeNull()
@@ -611,8 +631,8 @@ describe('CreateListFlow', () => {
   // And a count that is never arriving. The pack does not retry, so the step is
   // otherwise a permanently disabled button with nothing on screen saying why —
   // the map region that carries this sentence is underneath this sheet.
-  it('says why the who step is stuck when the pack failed', () => {
-    renderAtWho({ districtHouseholds: 0, districtHouseholdsFailed: true })
+  it('says why the who step is stuck when the pack failed', async () => {
+    await renderAtWho({ districtHouseholds: 0, districtHouseholdsFailed: true })
 
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     expect(screen.queryByRole('button', { name: /Continue \(/ })).toBeNull()
@@ -625,8 +645,8 @@ describe('CreateListFlow', () => {
   // wrong: no pack was ever requested, so it is neither arriving nor failed.
   // Told it was pending, this step promises a download that will never happen;
   // told it failed, it asks for a refresh that cannot help.
-  it('says the office has no voter data rather than promising a download', () => {
-    renderAtWho({ districtHouseholds: 0, districtUnavailable: true })
+  it('says the office has no voter data rather than promising a download', async () => {
+    await renderAtWho({ districtHouseholds: 0, districtUnavailable: true })
 
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     expect(
@@ -642,7 +662,7 @@ describe('CreateListFlow', () => {
   // continue past the audience.
   it('advances from the goal cards through the audience to the draw step', async () => {
     const onStepChange = vi.fn()
-    renderAtWho({ onStepChange })
+    await renderAtWho({ onStepChange })
 
     // Choosing a goal is a stage inside `filters`, so the orchestrator hears
     // nothing about it — it only needs to know when a shape is being cut.
@@ -663,13 +683,13 @@ describe('CreateListFlow', () => {
       .flatMap((section) => section.fields)
       .find((field) => field.key === key)?.label
 
-  it('offers the contacts-made group to a campaign', () => {
+  it('offers the contacts-made group to a campaign', async () => {
     const contactsMadeLabel = fieldLabel('contacts_made')
     const partyLabel = fieldLabel('political_party')
     expect(contactsMadeLabel).toBeTruthy()
     expect(partyLabel).toBeTruthy()
 
-    renderAtWho()
+    await renderAtWho()
     buildNewList()
 
     expect(screen.getByLabelText(contactsMadeLabel as string)).toBeTruthy()
@@ -681,8 +701,8 @@ describe('CreateListFlow', () => {
   // no "Add condition" button in front of pills that are already on screen.
   // The one press in front of them chooses between two audiences rather than
   // revealing a group — it is how a candidate says "none of my lists".
-  it('shows every filter group at once, with nothing to press to reveal them', () => {
-    renderAtWho()
+  it('shows every filter group at once, with nothing to press to reveal them', async () => {
+    await renderAtWho()
     buildNewList()
 
     for (const field of filterSections.flatMap((section) => section.fields)) {
@@ -695,8 +715,8 @@ describe('CreateListFlow', () => {
   // them puts the picker back with the flow still on step two, so a candidate
   // who opened them by mistake is one press from the lists rather than one
   // press from the start of the flow.
-  it('returns from the filter pills to the list picker without leaving the step', () => {
-    renderAtWho()
+  it('returns from the filter pills to the list picker without leaving the step', async () => {
+    await renderAtWho()
     buildNewList()
     expect(
       screen.getByLabelText(fieldLabel('political_party') as string),
@@ -714,8 +734,8 @@ describe('CreateListFlow', () => {
   // dimension — so the group is omitted rather than faked. Asserted here
   // because the day someone adds it to the shared config is the day it appears
   // in this flow by accident.
-  it('offers no top-issue filter', () => {
-    renderAtWho()
+  it('offers no top-issue filter', async () => {
+    await renderAtWho()
     buildNewList()
 
     expect(screen.queryByLabelText(/top issue/i)).toBeNull()
@@ -920,10 +940,10 @@ describe('CreateListFlow', () => {
   // Voter likelihood joins them for the product reason rather than a licensing
   // one: it is turnout propensity for a contested election, which is not a
   // question an office holder has.
-  it('hides the Win-only groups from an elected official', () => {
+  it('hides the Win-only groups from an elected official', async () => {
     const genderLabel = fieldLabel('gender')
 
-    renderAtWho({ isServeOrg: true })
+    await renderAtWho({ isServeOrg: true })
     buildNewList()
 
     for (const key of ['contacts_made', 'political_party', 'voter_likely']) {
@@ -978,7 +998,7 @@ describe('CreateListFlow steps', () => {
     const onStepChange = vi.fn()
     const props = { ...baseProps, savedLists, onStepChange }
 
-    const { rerender } = renderAtWho(props)
+    const { rerender } = await renderAtWho(props)
     expectStep(2, 5)
 
     await pickList(/Super voters/)
@@ -1015,8 +1035,8 @@ describe('CreateListFlow steps', () => {
   // audience used to be named on a step of its own between the who step and
   // the map; it is now filed by the create transaction under the campaign
   // name, so nothing before the confirm step asks for one.
-  it('asks for the campaign’s name and no other, however the audience was cut', () => {
-    const { rerender } = renderAtWho({ filters: { partyDemocrat: true } })
+  it('asks for the campaign’s name and no other, however the audience was cut', async () => {
+    const { rerender } = await renderAtWho({ filters: { partyDemocrat: true } })
 
     expect(screen.queryByLabelText('List name')).toBeNull()
 
@@ -1064,7 +1084,7 @@ describe('CreateListFlow steps', () => {
   // The whole contact universe leads, because it is what the flow starts on.
   it('counts every list in the picker, in doors, under its name', async () => {
     const onFiltersChange = vi.fn()
-    renderAtWho({
+    await renderAtWho({
       savedLists,
       allContactsHouseholds: 12_000,
       onFiltersChange,
@@ -1099,7 +1119,7 @@ describe('CreateListFlow steps', () => {
   // waiting for one is the ordinary first frame rather than a broken list. It
   // is still pickable — the count is what the audience is, not whether it is.
   it('renders a list with no count yet rather than hiding it', async () => {
-    renderAtWho({
+    await renderAtWho({
       savedLists: [
         { id: 4, name: 'Precinct 2', households: null, filters: {} },
       ],
@@ -1120,7 +1140,7 @@ describe('CreateListFlow steps', () => {
   // (the map genuinely cannot shade that clause), so the step has to say so:
   // an undisclosed superset is what made this read as the list being ignored.
   it('discloses, on the who step, a picked list’s unshadeable clauses', async () => {
-    const { rerender } = renderAtWho({
+    const { rerender } = await renderAtWho({
       savedLists,
       districtHouseholds: 12_000,
       unpreviewableKeys: [],
@@ -1161,8 +1181,8 @@ describe('CreateListFlow steps', () => {
   // sentence on "that filter will exclude", which reads as the filter being
   // ignored. Both halves are checked because fixing either one alone is a
   // regression in the other.
-  it('does not cite a saved list on the who step when none is picked', () => {
-    renderAtWho({
+  it('does not cite a saved list on the who step when none is picked', async () => {
+    await renderAtWho({
       savedLists,
       districtHouseholds: 12_000,
       filters: { age65Plus: true },
@@ -1180,7 +1200,7 @@ describe('CreateListFlow steps', () => {
   // disclose and the map shades the district.
   it('lifts a picked list’s whole draft, marks and all', async () => {
     const onFiltersChange = vi.fn()
-    renderAtWho({
+    await renderAtWho({
       savedLists: [
         {
           id: 4,
@@ -1201,9 +1221,9 @@ describe('CreateListFlow steps', () => {
   // it: nothing can carry them onto the new list the flow is now offering to
   // save, and a disclosure about a filter that list will not apply is a lie in
   // the other direction.
-  it('drops the marks when a pill edit leaves the named list behind', () => {
+  it('drops the marks when a pill edit leaves the named list behind', async () => {
     const onFiltersChange = vi.fn()
-    renderAtWho({
+    await renderAtWho({
       savedLists,
       filters: { supportStatus: true, partyDemocrat: true },
       onFiltersChange,
@@ -1284,7 +1304,7 @@ describe('CreateListFlow steps', () => {
     const onListCreated = vi.fn()
     const props = { ...baseProps, savedLists, onListCreated }
 
-    const { rerender } = renderAtWho(props)
+    const { rerender } = await renderAtWho(props)
     await pickList(/Super voters/)
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
 
@@ -1350,7 +1370,7 @@ describe('CreateListFlow steps', () => {
     ]
     const props = { ...baseProps, savedLists, onStepChange }
 
-    const { rerender } = renderAtWho(props)
+    const { rerender } = await renderAtWho(props)
     // Pick a saved list to commit an audience and enable Continue.
     await pickList(/Precinct 2 homeowners/)
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
@@ -1406,9 +1426,9 @@ describe('CreateListFlow preselected list', () => {
     },
   ]
 
-  it('opens the who step on the carried list, with its filters in the draft', () => {
+  it('opens the who step on the carried list, with its filters in the draft', async () => {
     const onFiltersChange = vi.fn()
-    renderAtWho({ savedLists, preselectedListId: 9, onFiltersChange })
+    await renderAtWho({ savedLists, preselectedListId: 9, onFiltersChange })
 
     const picker = audiencePicker()
     expect(picker).toHaveTextContent('Super voters')
@@ -1425,9 +1445,9 @@ describe('CreateListFlow preselected list', () => {
   // that is simply not one of this org's lists (deleted, archived, another
   // org's, or invented) — all land here, and all of them must be nothing more
   // than a missed preselection.
-  it('falls back to the ordinary flow when the id names no list of yours', () => {
+  it('falls back to the ordinary flow when the id names no list of yours', async () => {
     const onFiltersChange = vi.fn()
-    renderAtWho({
+    await renderAtWho({
       savedLists,
       preselectedListId: 12_345,
       filters: { partyDemocrat: true },
@@ -1446,9 +1466,9 @@ describe('CreateListFlow preselected list', () => {
     expectStep(2, 5)
   })
 
-  it('leaves the flow untouched with no list carried in', () => {
+  it('leaves the flow untouched with no list carried in', async () => {
     const onFiltersChange = vi.fn()
-    renderAtWho({ savedLists, onFiltersChange })
+    await renderAtWho({ savedLists, onFiltersChange })
 
     // No pick, no preselect → the picker reads its placeholder rather
     // than defaulting to "All contacts" (which would falsely commit the
@@ -1462,16 +1482,20 @@ describe('CreateListFlow preselected list', () => {
   // lets the page above stop offering it back — and it is reported only when
   // the id really was applied, so a bad one leaves the page still holding it
   // for the rows that may yet arrive.
-  it('reports the carried list the moment it is applied, and not before', () => {
+  it('reports the carried list the moment it is applied, and not before', async () => {
     const onPreselectApplied = vi.fn()
-    renderAtWho({ savedLists, preselectedListId: 9, onPreselectApplied })
+    await renderAtWho({ savedLists, preselectedListId: 9, onPreselectApplied })
 
     expect(onPreselectApplied).toHaveBeenCalledTimes(1)
   })
 
-  it('reports nothing when the carried list names no list of yours', () => {
+  it('reports nothing when the carried list names no list of yours', async () => {
     const onPreselectApplied = vi.fn()
-    renderAtWho({ savedLists, preselectedListId: 12_345, onPreselectApplied })
+    await renderAtWho({
+      savedLists,
+      preselectedListId: 12_345,
+      onPreselectApplied,
+    })
 
     expect(onPreselectApplied).not.toHaveBeenCalled()
   })
@@ -1479,7 +1503,7 @@ describe('CreateListFlow preselected list', () => {
   // The picker is populated by a query, so an empty first render is the
   // ordinary case rather than a refusal — the preselect has to wait for it
   // instead of deciding the id is bad.
-  it('applies the carried list once the picker’s rows arrive', () => {
+  it('applies the carried list once the picker’s rows arrive', async () => {
     const onFiltersChange = vi.fn()
     const props = { ...baseProps, preselectedListId: 9, onFiltersChange }
 
@@ -1489,7 +1513,9 @@ describe('CreateListFlow preselected list', () => {
     fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
     // Rows haven't arrived, preselect is still waiting → the picker
     // reads its placeholder rather than committing to a default.
-    expect(audiencePicker()).toHaveTextContent('Choose a voter list')
+    expect(
+      await screen.findByRole('combobox', { name: 'All lists' }),
+    ).toHaveTextContent('Choose a voter list')
 
     rerender(
       <CreateListFlow {...props} step="filters" savedLists={savedLists} />,
@@ -1505,6 +1531,7 @@ describe('CreateListFlow preselected list', () => {
     const props = { ...baseProps, savedLists, preselectedListId: 9 }
     const { rerender } = render(<CreateListFlow {...props} step="filters" />)
     fireEvent.click(screen.getByRole('button', { name: /Introduce myself/ }))
+    await screen.findByRole('combobox', { name: 'All lists' })
 
     await pickList(/Precinct 2 homeowners/)
     expect(audiencePicker()).toHaveTextContent('Precinct 2 homeowners')
@@ -1542,7 +1569,7 @@ describe('CreateListFlow preselected list', () => {
       onListCreated,
     }
 
-    const { rerender } = renderAtWho(props)
+    const { rerender } = await renderAtWho(props)
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
 
     rerender(<CreateListFlow {...props} step="confirm" />)
