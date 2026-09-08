@@ -135,8 +135,8 @@ export class OutreachRobocallController {
       areaCodePrefix,
     })
 
-    // CallHub never errors when the requested prefix has no inventory — it
-    // silently substitutes a national number (see callhubNumber.schema.ts).
+    // CallHub 400s for an unserved prefix, so CallhubNumbersService retries
+    // without the prefix to get a national number (see callhubNumber.schema.ts).
     // Detect and log that fallback rather than asserting on it; the rental
     // itself already succeeded.
     if (

@@ -80,6 +80,95 @@ describe('CallhubNumbersService', () => {
         service.rentNumber({ countryIso: 'US', areaCodePrefix: '512' }),
       ).rejects.toBeInstanceOf(BadGatewayException)
     })
+
+    it('retries without the prefix for a national number when CallHub has no inventory for the area code', async () => {
+      http.post
+        .mockRejectedValueOnce(
+          createAxiosError(
+            {
+              data: {
+                error:
+                  'We are currently unable to offer your requested numbers',
+              },
+            },
+            400,
+          ),
+        )
+        .mockResolvedValueOnce({
+          phone_number: '+12025550147',
+          country: 'US',
+          region: 'DC',
+          is_active: true,
+        })
+
+      const result = await service.rentNumber({
+        countryIso: 'US',
+        areaCodePrefix: '212',
+      })
+
+      expect(http.post).toHaveBeenCalledTimes(2)
+      expect(http.post).toHaveBeenNthCalledWith(1, '/v1/numbers/rent/', {
+        country_iso: 'US',
+        phone_number_prefix: '212',
+        campaign_type: 'VOICE_BROADCAST',
+      })
+      expect(http.post).toHaveBeenNthCalledWith(2, '/v1/numbers/rent/', {
+        country_iso: 'US',
+        phone_number_prefix: undefined,
+        campaign_type: 'VOICE_BROADCAST',
+      })
+      expect(result.phone_number).toBe('+12025550147')
+    })
+
+    it('surfaces a 502 when the national retry also fails, retrying only once', async () => {
+      http.post
+        .mockRejectedValueOnce(
+          createAxiosError(
+            {
+              data: {
+                error:
+                  'We are currently unable to offer your requested numbers',
+              },
+            },
+            400,
+          ),
+        )
+        .mockRejectedValueOnce(createAxiosError({ detail: 'boom' }, 500))
+
+      await expect(
+        service.rentNumber({ countryIso: 'US', areaCodePrefix: '212' }),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+      expect(http.post).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not retry on a different 400 (a genuine bad request)', async () => {
+      http.post.mockRejectedValue(
+        createAxiosError({ data: { error: 'Invalid country_iso' } }, 400),
+      )
+
+      await expect(
+        service.rentNumber({ countryIso: 'US', areaCodePrefix: '212' }),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+      expect(http.post).toHaveBeenCalledTimes(1)
+    })
+
+    it('surfaces a national (no-prefix) rental failure without retrying', async () => {
+      http.post.mockRejectedValue(
+        createAxiosError(
+          {
+            data: {
+              error: 'We are currently unable to offer your requested numbers',
+            },
+          },
+          400,
+        ),
+      )
+
+      await expect(
+        service.rentNumber({ countryIso: 'US' }),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+      expect(http.post).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('listRentedNumbers', () => {
