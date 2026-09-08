@@ -165,7 +165,7 @@ describe('POST /v1/outreach/sms/draft', () => {
     const oversized = await postDraft({
       purpose: 'introduce_myself',
       tone: 'warm',
-      currentDraft: 'x'.repeat(481),
+      currentDraft: 'x'.repeat(1001),
     })
     expect(oversized.status).toBe(HttpStatus.BAD_REQUEST)
 

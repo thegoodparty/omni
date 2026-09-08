@@ -11,7 +11,11 @@ export type SmsPurpose = z.infer<typeof SmsPurposeSchema>
 // The UI cap is 480 chars for the composed message (intro + body +
 // footer); the body cap leaves headroom for the system regions. Both sit
 // far inside the backend's 2000-char script cap.
-export const SMS_COMPOSED_MAX_LENGTH = 480
+// Raised from the prototype's 480 when Candidate Success delivered the
+// message templates (2026-09-08, the "intro texts" structures): the
+// recommended three-bullet intro runs 500-800 characters composed. Peerly's
+// own MMS cap is 2000; this stays comfortably inside it.
+export const SMS_COMPOSED_MAX_LENGTH = 1000
 export const SMS_BODY_MAX_LENGTH = 360
 
 export const SmsDraftRequestSchema = z.object({
