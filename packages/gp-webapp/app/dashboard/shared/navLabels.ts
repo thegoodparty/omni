@@ -45,5 +45,8 @@ export const NAV_LABELS = {
   publicProfile: 'Public Profile',
   voterOutreach: 'Voter Outreach',
   constituentOutreach: 'Constituent Outreach',
-  team: 'Team',
+  // The Team page's H1 (ENG-11061: the sidebar account-menu item that links
+  // here reads plain "Team", matching Profile / Account Settings — this is
+  // the page-title-only half of the pair, not shared with a nav item anymore).
+  team: 'Team Settings',
 } as const

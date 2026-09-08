@@ -32,6 +32,7 @@ const buildManualDetails = (
   city: form.city,
   district: form.district,
   officeTermLength: form.officeTermLength,
+  ballotLevel: form.level,
   electionDate: form.electionDate,
 })
 

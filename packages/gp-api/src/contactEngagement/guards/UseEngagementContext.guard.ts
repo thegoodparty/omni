@@ -48,9 +48,11 @@ export class UseEngagementContextGuard implements CanActivate {
 
     const resolved = await this.organizationMembership.resolveRole(slug, userId)
     // Fail closed regardless of surface: a volunteer gets neither the Serve
-    // poll path nor the Win CRM engagement context, even though nothing
-    // creates volunteer memberships yet (Phase 1.5 guarantee written down
-    // now while the context is loaded).
+    // poll path nor the Win CRM engagement context. This is permanent
+    // posture for the CRM, not a Phase 1.5 stopgap — unlike the scoping
+    // guards (UseOrganizationGuard / UseCampaignGuard), which now resolve
+    // and attach any member and leave role enforcement to
+    // OrganizationRoleGuard, this guard keeps its own volunteer denial.
     if (!resolved || resolved.role === OrganizationRole.volunteer) {
       throw new NotFoundException()
     }

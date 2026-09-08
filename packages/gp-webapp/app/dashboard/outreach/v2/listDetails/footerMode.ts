@@ -40,6 +40,23 @@ export const CONTINUE_LABELS = {
   doorKnocking: 'Continue knocking',
 } as const
 
+// ENG-11066's zero-progress rule: a list nobody has worked yet reads as a
+// fresh call to action rather than "Continue" — there is nothing to
+// continue. Same closed-set discipline as CONTINUE_LABELS, and the same
+// per-channel pairing, so the two maps can't drift into a third verb between
+// them. Mirrors AssignmentCard.tsx's resolveAction, the shipped precedent for
+// this exact rule (PR #1742).
+export const ZERO_PROGRESS_LABELS = {
+  phoneBanking: 'Call this list',
+  doorKnocking: 'Walk this route',
+} as const
+
+export const continueLabel = (
+  channel: keyof typeof CONTINUE_LABELS,
+  progressCount: number,
+): string =>
+  progressCount === 0 ? ZERO_PROGRESS_LABELS[channel] : CONTINUE_LABELS[channel]
+
 export const AUTOMATIC_NOTE =
   'This campaign is sending automatically. No action needed.'
 

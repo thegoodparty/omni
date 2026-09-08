@@ -19,7 +19,7 @@ const walkViewProps: {
     openStopRequest: OpenStopRequest | null
     selectedStopId: number | null
     liveLocation: LiveLocation
-    archivePending: boolean
+    archivePending: boolean | undefined
   } | null
 } = { current: null }
 vi.mock('./WalkView', () => ({
@@ -31,8 +31,8 @@ vi.mock('./WalkView', () => ({
     onSelectStop: (stopId: number) => void
     onKnockRecorded?: () => void
     liveLocation: LiveLocation
-    onMoveToArchive: () => void
-    archivePending: boolean
+    onMoveToArchive?: () => void
+    archivePending?: boolean
   }) => {
     walkViewProps.current = {
       turfId: props.turfId,
@@ -49,9 +49,14 @@ vi.mock('./WalkView', () => ({
         <button type="button" onClick={() => props.onSelectStop(12)}>
           mark stop 12
         </button>
-        <button type="button" onClick={props.onMoveToArchive}>
-          move to archive
-        </button>
+        {/* Mirrors WalkView's own gate (ENG-11055): the volunteer walk hands
+            in no archive handler at all, and the button is absent rather than
+            wired to a no-op. */}
+        {props.onMoveToArchive && (
+          <button type="button" onClick={props.onMoveToArchive}>
+            move to archive
+          </button>
+        )}
       </div>
     )
   },
@@ -366,6 +371,16 @@ describe('WalkSurface seam', () => {
     expect(onMoveToArchive).toHaveBeenCalled()
   })
 
+  // ENG-11055: the volunteer walk has no archive affordance at all —
+  // `useWalkArchive` is manager-only, and a volunteer's turf is never theirs
+  // to shelve — so the seam has to carry `undefined` through rather than
+  // WalkSurface substituting a default handler of its own.
+  it('carries no archive handler through when the walk has none', () => {
+    render(surface({ onMoveToArchive: undefined, archivePending: undefined }))
+
+    expect(screen.queryByRole('button', { name: 'move to archive' })).toBeNull()
+  })
+
   // The list being walked is named on the sheet rather than in the page's
   // title row, which is what makes the header readable at `peek` — the snap
   // where the sheet is all there is of the walk.
@@ -375,7 +390,7 @@ describe('WalkSurface seam', () => {
 
     expect(screen.getByText('Riverside loop')).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Close' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Close route' }))
 
     expect(onExit).toHaveBeenCalled()
   })
@@ -392,7 +407,7 @@ describe('WalkSurface seam', () => {
     const sheet = screen.getByRole('complementary')
     expect(sheet).toHaveAttribute('data-snap', 'half')
 
-    screen.getByRole('button', { name: 'Close' }).focus()
+    screen.getByRole('button', { name: 'Close route' }).focus()
     await userEvent.keyboard('{Enter}')
 
     expect(onExit).toHaveBeenCalledTimes(1)

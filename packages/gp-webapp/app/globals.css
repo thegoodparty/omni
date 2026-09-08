@@ -260,8 +260,17 @@ body {
   font-family: var(--open-sans-font);
 }
 
-a:hover {
-  text-decoration: underline;
+@layer base {
+  /*
+   * Anchor hover underline in @layer base, not unlayered — otherwise the
+   * unlayered rule beats every Tailwind utility (v4 cascade order) and any
+   * component that wraps a Link (`Button asChild`, `Card asChild`) inherits
+   * the browser-default underline on hover, which reads as an inline link
+   * rather than the styled control.
+   */
+  a:hover {
+    text-decoration: underline;
+  }
 }
 
 [data-slot='sidebar-wrapper'] a,

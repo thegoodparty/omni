@@ -59,7 +59,7 @@ export const ListDetailsSheetShell = ({
         `h2` Radix renders by default: `header` below already carries the
         visible heading with the same words, and two headings reading "Elm St
         & 5th" is one more than the sheet has sections to head. */}
-      <DrawerHeader className="sr-only">
+      <DrawerHeader className="sr-only" hideClose>
         <DrawerTitle asChild>
           <span>{title}</span>
         </DrawerTitle>

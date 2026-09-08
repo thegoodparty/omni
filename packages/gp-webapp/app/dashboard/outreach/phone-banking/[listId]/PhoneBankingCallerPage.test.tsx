@@ -883,6 +883,69 @@ describe('<PhoneBankingCallerPage>', () => {
     )
   })
 
+  it('a volunteer surface hides the delete affordance and exits to the assignments list', async () => {
+    mockGetList(buildList())
+
+    render(
+      <PhoneBankingCallerPage
+        listId={LIST_ID}
+        surface={{
+          exitHref: '/volunteer',
+          exitLabel: 'Assignments',
+          showDeleteAction: false,
+        }}
+      />,
+    )
+    await screen.findByText('August GOTV')
+
+    expect(
+      screen.queryByRole('button', { name: 'More actions' }),
+    ).not.toBeInTheDocument()
+
+    const link = screen.getByRole('link', { name: 'Back to Assignments' })
+    expect(link).toHaveAttribute('href', '/volunteer')
+  })
+
+  it('a volunteer surface renders the not-assigned state on a 404, not a crash', async () => {
+    api.mock('GET /v1/phone-banking/lists/:id', {
+      status: 404,
+      data: undefined,
+    })
+
+    render(
+      <PhoneBankingCallerPage
+        listId={LIST_ID}
+        surface={{
+          exitHref: '/volunteer',
+          exitLabel: 'Assignments',
+          showDeleteAction: false,
+        }}
+      />,
+    )
+
+    expect(
+      await screen.findByText('This list is no longer assigned to you.'),
+    ).toBeInTheDocument()
+    const link = screen.getByRole('link', { name: 'Go to Assignments' })
+    expect(link).toHaveAttribute('href', '/volunteer')
+  })
+
+  it('the manager caller keeps the generic error copy on a 404 (no surface)', async () => {
+    api.mock('GET /v1/phone-banking/lists/:id', {
+      status: 404,
+      data: undefined,
+    })
+
+    render(<PhoneBankingCallerPage listId={LIST_ID} />)
+
+    expect(
+      await screen.findByText('The list could not load. Refresh to try again.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('This list is no longer assigned to you.'),
+    ).not.toBeInTheDocument()
+  })
+
   it('confines entry-panel Prev/Next to the selected sheet, not the full list', async () => {
     const user = userEvent.setup()
     mockGetList(buildMultiSheetList())

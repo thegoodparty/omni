@@ -20,6 +20,8 @@ import { excludedSocialPlatformsForPurpose } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { CheckCircleIcon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
+import { ChannelBadge } from '../channelMeta'
+import { OUTREACH_TYPES } from '../../constants'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { ALL_SOCIAL_PLATFORM_IDS } from '../socialPlatforms'
 import { SOCIAL_PURPOSES, socialPurposeNameSuggestion } from '../socialPurposes'
@@ -476,6 +478,7 @@ export const SocialFlow = ({
       open={open}
       onClose={onClose}
       title={saved ? 'Done' : STEP_TITLES[stepId]}
+      headerBadge={<ChannelBadge type={OUTREACH_TYPES.socialMedia} />}
       currentStep={stepIndex + 1}
       totalSteps={saved ? 0 : STEP_ORDER.length}
       onBack={!saved && stepIndex > 0 ? handleBack : undefined}

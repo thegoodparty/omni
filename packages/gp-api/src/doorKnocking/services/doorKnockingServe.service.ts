@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import {
   DoorKnockingDemographicsShape,
   DoorKnockingResidentsResponse,
@@ -15,8 +16,10 @@ import { ContactsService } from '@/contacts/services/contacts.service'
 import {
   DoorKnockingStopTarget,
   Organization,
+  OrganizationRole,
   Prisma,
 } from '../../generated/prisma'
+import { assertVolunteerAssignedToOutreach } from '../utils/doorKnockingAccess.util'
 import { DoorKnockingActivityService } from './doorKnockingActivity.service'
 import { DoorKnockingNotesService } from './doorKnockingNotes.service'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
@@ -33,6 +36,10 @@ const ROUTE_INCLUDE = {
     orderBy: { seq: Prisma.SortOrder.asc },
     include: { targets: true },
   },
+  // Just the id, to resolve a volunteer's OutreachAssignment (ENG-11051) —
+  // every route has exactly one envelope (the 1:1:1 invariant), so this
+  // never widens the response payload.
+  outreach: { select: { id: true } },
 } as const satisfies Prisma.DoorKnockingRouteInclude
 
 type LiveAddress = DoorKnockingResidentsResponse['addresses'][number]
@@ -84,6 +91,7 @@ export class DoorKnockingServeService extends createPrismaBase(
     private readonly status: DoorKnockingStatusService,
     private readonly activity: DoorKnockingActivityService,
     private readonly notes: DoorKnockingNotesService,
+    private readonly moduleRef: ModuleRef,
   ) {
     super()
   }
@@ -95,6 +103,8 @@ export class DoorKnockingServeService extends createPrismaBase(
   async serve(
     turfId: number,
     organization: Organization,
+    userId: number,
+    role: OrganizationRole | undefined,
   ): Promise<DoorKnockingRoutePayload> {
     const turf = await this.client.doorKnockingTurf.findFirst({
       where: { id: turfId, ...activeTurfScope(organization.slug) },
@@ -107,6 +117,19 @@ export class DoorKnockingServeService extends createPrismaBase(
       throw new NotFoundException('This turf has not been knocked yet')
     }
     const route = turf.route
+    if (!route.outreach) {
+      throw new Error(
+        `Door-knocking route ${route.id} has no outreach envelope; every ` +
+          'route is created with one in the same transaction',
+      )
+    }
+    await assertVolunteerAssignedToOutreach(
+      this.moduleRef,
+      role,
+      route.outreach.id,
+      userId,
+      'Turf not found',
+    )
 
     const targets = route.stops.flatMap((stop) => stop.targets)
     const addressKeys = [...new Set(targets.map((t) => t.addressKey))]

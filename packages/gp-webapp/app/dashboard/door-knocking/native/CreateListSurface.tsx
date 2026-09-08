@@ -133,6 +133,10 @@ export interface CreateListSurfaceProps {
   onFiltersChange: (filters: VoterFileFilters) => void
   onStepChange: (step: CreateFlowStep) => void
   onClose: () => void
+  // The pack's bounding box, threaded to the draw step's static-map
+  // preview card. Null while the pack decodes; the preview omits the image
+  // in that window rather than rendering against no rect.
+  districtBounds: [[number, number], [number, number]] | null
   // District-wide households matching the filter draft. Honest only on the
   // filters step, where no polygon exists yet.
   districtHouseholds: number
@@ -158,10 +162,6 @@ export interface CreateListSurfaceProps {
   // from three points, so this is the only thing that knows there is a one- or
   // two-point shape to undo.
   drawPointCount: number
-  // Undo is a request to the canvas, which owns the in-progress ring. There is
-  // no Clear beside it: the canvas's drawing surface offers one control, and
-  // repeated Undo is what empties a shape.
-  onUndoPoint: () => void
   // Whether the map is uncovered and live. Owned by `useCreateListDraw` above
   // — it is a fact about the canvas, which outlives this surface.
   drawFullScreen: boolean
@@ -207,6 +207,7 @@ export default function CreateListSurface({
   onFiltersChange,
   onStepChange,
   onClose,
+  districtBounds,
   districtHouseholds,
   districtHouseholdsPending,
   districtHouseholdsFailed,
@@ -214,7 +215,6 @@ export default function CreateListSurface({
   ring,
   turfStats,
   drawPointCount,
-  onUndoPoint,
   drawFullScreen,
   onDrawFullScreenChange,
   onRestartDrawing,
@@ -352,6 +352,7 @@ export default function CreateListSurface({
         onStepChange(next)
       }}
       onClose={onClose}
+      districtBounds={districtBounds}
       districtHouseholds={districtHouseholds}
       districtHouseholdsPending={districtHouseholdsPending}
       districtHouseholdsFailed={districtHouseholdsFailed}
@@ -374,7 +375,6 @@ export default function CreateListSurface({
       // nothing would go out.
       onRetryAddresses={() => void previewQuery.refetch()}
       drawPointCount={drawPointCount}
-      onUndoPoint={onUndoPoint}
       drawFullScreen={drawFullScreen}
       onDrawFullScreenChange={onDrawFullScreenChange}
       onRestartDrawing={onRestartDrawing}

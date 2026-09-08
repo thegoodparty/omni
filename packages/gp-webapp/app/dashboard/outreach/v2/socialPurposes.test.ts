@@ -8,7 +8,9 @@ import {
 
 describe('socialPurposeLabel', () => {
   it('falls back for a slug it does not know', () => {
-    expect(socialPurposeLabel('introduce_myself')).toBe('Introduce myself')
+    expect(socialPurposeLabel('introduce_myself')).toBe(
+      'Introduce myself to voters',
+    )
     expect(socialPurposeLabel('not-a-purpose')).toBe('Social post')
   })
 })

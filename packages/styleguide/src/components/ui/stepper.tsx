@@ -11,6 +11,10 @@ interface BarStepperProps {
   showLabel?: boolean
   className?: string
   labelClassName?: string
+  // Optional override for each segment's classes — a caller that needs
+  // taller/paddier bars than the default `h-1.5 rounded-full` can pass
+  // its own here without forking the component.
+  barClassName?: string
 }
 
 interface VerticalStepperProps {
@@ -72,6 +76,7 @@ function Stepper(props: StepperProps) {
     showLabel = true,
     className,
     labelClassName,
+    barClassName,
   } = props
   return (
     <div
@@ -103,6 +108,7 @@ function Stepper(props: StepperProps) {
             key={index}
             className={cn(
               'h-1.5 rounded-full',
+              barClassName,
               index < currentStep
                 ? 'bg-components-input-active'
                 : 'bg-slate-200',

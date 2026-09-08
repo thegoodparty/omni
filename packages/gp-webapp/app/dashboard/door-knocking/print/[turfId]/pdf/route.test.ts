@@ -17,7 +17,10 @@ vi.mock('gpApi/server-request', () => ({
 import { GET } from './route'
 
 const ROUTE = 'GET /v1/door-knocking/turfs/:id/route'
-const TURFS = 'GET /v1/door-knocking/turfs'
+// By id, not the rail: the rail is scoped by surface and hides an elected
+// official's own list from them, which is what left every Serve sheet titled
+// with the fallback.
+const TURF = 'GET /v1/door-knocking/turfs/:id'
 
 const routePayload = {
   route: {
@@ -50,8 +53,8 @@ beforeEach(() => {
   mockCandidateAccess.mockResolvedValue(undefined)
   mockServerRequest.mockImplementation((route: string) => {
     if (route === ROUTE) return Promise.resolve({ data: routePayload })
-    if (route === TURFS) {
-      return Promise.resolve({ data: [{ id: 7, name: 'Elm & Cedar' }] })
+    if (route === TURF) {
+      return Promise.resolve({ data: { id: 7, name: 'Elm & Cedar' } })
     }
     return Promise.reject(new Error(`unexpected route ${route}`))
   })

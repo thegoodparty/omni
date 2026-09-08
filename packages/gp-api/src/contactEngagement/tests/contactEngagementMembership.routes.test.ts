@@ -72,6 +72,10 @@ describe('ContactEngagement guard membership matrix', () => {
     expect(result.status).toBe(200)
   })
 
+  // Unlike UseOrganization/UseCampaign (which now attach a volunteer's role
+  // and defer to OrganizationRoleGuard), UseEngagementContextGuard keeps its
+  // own volunteer denial — the CRM stays volunteer-denying permanently, not
+  // as a Phase 1.5 stopgap.
   it('denies a volunteer the Win CRM engagement context', async () => {
     const owner = await service.prisma.user.create({
       data: { email: 'engagement-owner-volunteer@goodparty.org' },

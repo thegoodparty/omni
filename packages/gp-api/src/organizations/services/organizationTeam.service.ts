@@ -7,8 +7,10 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import { PinoLogger } from 'nestjs-pino'
 import {
+  AcceptedAssignment,
   AcceptInviteResponse,
   InviteMemberResponse,
   MyPendingInviteResponse,
@@ -29,11 +31,13 @@ import { toLowerAndTrim } from '@/shared/util/strings.util'
 import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
 import { CrmTeamMembersService } from '@/crm/crmTeamMembers.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
+import { OutreachAssignmentService } from '@/outreach/services/outreachAssignment.service'
 import { WrapperType } from '@/shared/types/utility.types'
 import {
   Organization,
   OrganizationMembership,
   OrganizationRole,
+  Prisma,
   User,
 } from '../../generated/prisma'
 import { getUserFullName } from '../../users/util/users.util'
@@ -52,6 +56,7 @@ export class OrganizationTeamService {
     private readonly crmTeamMembers: CrmTeamMembersService,
     @Inject(forwardRef(() => CampaignsService))
     private readonly campaigns: WrapperType<CampaignsService>,
+    private readonly moduleRef: ModuleRef,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OrganizationTeamService.name)
@@ -101,6 +106,7 @@ export class OrganizationTeamService {
         name: metadata.name,
         role: metadata.role,
         createdAt: new Date(invitation.createdAt),
+        outreachId: metadata.outreachId ?? null,
       }
     })
 
@@ -114,9 +120,25 @@ export class OrganizationTeamService {
     email: string
     name: string
     role: TeamInviteRole
+    outreachId?: number
+    phone?: string
   }): Promise<InviteMemberResponse> {
-    const { organization, invitedByUserId, invitedByRole, name, role } = params
+    const { organization, invitedByUserId, invitedByRole, name, role, phone } =
+      params
+    const outreachId = params.outreachId
     const email = toLowerAndTrim(params.email)
+
+    // outreachId is optional (a general volunteer invite carries none,
+    // ENG-11058); when present, validated before anything is written or a
+    // Clerk invitation is sent — the DTO refine only forbids one on a
+    // campaignAdmin invite, never that it belongs to THIS org's outreach.
+    if (outreachId !== undefined) {
+      await this.resolveOutreachAssignments().assertOutreachInOrg(
+        organization.slug,
+        outreachId,
+      )
+    }
+
     const existingUser = await this.users.findUserByEmail(email)
 
     const response = existingUser
@@ -124,6 +146,8 @@ export class OrganizationTeamService {
           organization,
           invitedByUserId,
           role,
+          outreachId,
+          phone,
           existingUser,
         })
       : await this.createPendingInvite({
@@ -132,13 +156,15 @@ export class OrganizationTeamService {
           role,
           email,
           name,
+          outreachId,
+          phone,
         })
 
     void this.analytics
       .track(invitedByUserId, EVENTS.Team.MemberInvited, {
         role,
         invitedByRole,
-        listScoped: false,
+        listScoped: role === 'volunteer' && outreachId !== undefined,
       })
       .catch(() => undefined)
 
@@ -191,6 +217,7 @@ export class OrganizationTeamService {
     const { metadata, invitationId } = resolved
 
     let membership: OrganizationMembership
+    let assignedOutreachId: number | null = null
     try {
       membership = await this.membership.client.$transaction(async (tx) => {
         const created = await tx.organizationMembership.create({
@@ -202,11 +229,36 @@ export class OrganizationTeamService {
           },
         })
 
-        if (!getUserFullName(user)) {
-          await tx.user.update({
+        // Backfills the invite's name and phone onto a blank profile — never
+        // overwrites either field the invitee already set for themselves.
+        // Re-read inside the transaction: `user` is a pre-transaction
+        // snapshot, and a profile save landing between it and this write
+        // must not be clobbered by a stale blank-field guard.
+        const currentUser = await tx.user.findUnique({
+          where: { id: user.id },
+          select: { phone: true, firstName: true, lastName: true, name: true },
+        })
+        const profileUpdate: Prisma.UserUpdateInput = {}
+        if (!getUserFullName(currentUser ?? user)) {
+          profileUpdate.name = metadata.name
+        }
+        if (metadata.phone && !currentUser?.phone) {
+          profileUpdate.phone = metadata.phone
+        }
+        if (Object.keys(profileUpdate).length > 0) {
+          await tx.user.updateMany({
             where: { id: user.id },
-            data: { name: metadata.name },
+            data: profileUpdate,
           })
+        }
+
+        if (metadata.outreachId !== undefined) {
+          const assigned = await this.tryAssignOutreachInTx(
+            tx,
+            metadata,
+            user.id,
+          )
+          if (assigned) assignedOutreachId = metadata.outreachId
         }
 
         return created
@@ -235,6 +287,20 @@ export class OrganizationTeamService {
         throw err
       }
       membership = existing
+
+      // The retried call's own transaction throws on the membership
+      // create BEFORE tryAssignOutreachInTx ever runs, so this branch
+      // can't rely on assignedOutreachId being set by this call — consult
+      // the persisted row the WINNING call created instead. Response
+      // source is always the DB, never re-derived from request state.
+      if (metadata.outreachId !== undefined) {
+        const alreadyAssigned =
+          await this.resolveOutreachAssignments().existsFor(
+            metadata.outreachId,
+            user.id,
+          )
+        if (alreadyAssigned) assignedOutreachId = metadata.outreachId
+      }
     }
 
     await this.clearInviteMetadata(user.clerkId)
@@ -266,6 +332,10 @@ export class OrganizationTeamService {
     return {
       organizationSlug: membership.organizationSlug,
       role: membership.role,
+      assignment:
+        assignedOutreachId !== null
+          ? await this.buildAcceptedAssignment(assignedOutreachId)
+          : null,
     }
   }
 
@@ -350,7 +420,19 @@ export class OrganizationTeamService {
     )
     const targetUser = await this.users.findUser({ id: targetUserId })
 
-    await this.membership.model.delete({ where: { id: existing.id } })
+    // Assignments are access grants, not attribution (attribution lives on
+    // the interaction rows' actorUserId) — removing a member deletes them
+    // outright, in the same transaction as the membership row so a crash
+    // between the two can never strand a former member's access.
+    const outreachAssignments = this.resolveOutreachAssignments()
+    await this.membership.client.$transaction(async (tx) => {
+      await tx.organizationMembership.delete({ where: { id: existing.id } })
+      await outreachAssignments.deleteAllForMember(
+        organization.slug,
+        targetUserId,
+        tx,
+      )
+    })
 
     void this.analytics
       .track(actingUserId, EVENTS.Team.MemberRemoved, {
@@ -365,6 +447,80 @@ export class OrganizationTeamService {
         role: existing.role,
         userId: targetUserId,
       })
+    }
+  }
+
+  // Resolved lazily via ModuleRef rather than injected: OutreachModule
+  // imports OrganizationsModule (for @UseOrganization()), and OutreachModule's
+  // own import graph (Payments -> Campaigns -> CampaignsAi, etc.) closes a
+  // multi-module cycle a single forwardRef can't break — same reasoning as
+  // RaceOpponentService in campaignIdeology.service.ts and
+  // paymentEventsService.ts. Shared by removeMember (assignment cascade),
+  // inviteMember (org-membership check on a list-scoped volunteer invite),
+  // and acceptInvite (creating the assignment atomically with the
+  // membership, ENG-11049).
+  private resolveOutreachAssignments(): OutreachAssignmentService {
+    return this.moduleRef.get(OutreachAssignmentService, { strict: false })
+  }
+
+  // Creates the volunteer's OutreachAssignment inside the same transaction as
+  // the membership row it accompanies. Two known-shape failures are
+  // tolerated — the membership still commits, there's just no assignment to
+  // route the volunteer to — because both can legitimately happen in the
+  // gap between invite and accept: NotFoundException (the outreach was
+  // deleted) and BadRequestException (assign()'s own cross-org guard, if the
+  // outreach's org changed) — the latter also carries the org slug/outreach
+  // id in its message, which must never reach the accept response uncaught.
+  // Any OTHER failure (a genuine DB error) propagates and rolls the whole
+  // accept back.
+  private async tryAssignOutreachInTx(
+    tx: Prisma.TransactionClient,
+    metadata: TeamInviteMetadata,
+    userId: number,
+  ): Promise<boolean> {
+    if (metadata.outreachId === undefined) return false
+    try {
+      await this.resolveOutreachAssignments().assign(
+        metadata.organizationSlug,
+        metadata.outreachId,
+        userId,
+        metadata.invitedByUserId,
+        tx,
+      )
+      return true
+    } catch (err) {
+      if (
+        !(err instanceof NotFoundException) &&
+        !(err instanceof BadRequestException)
+      ) {
+        throw err
+      }
+      this.logger.warn(
+        { err, outreachId: metadata.outreachId },
+        'Outreach for a volunteer invite was gone or cross-org at accept; membership created without an assignment',
+      )
+      return false
+    }
+  }
+
+  private async buildAcceptedAssignment(
+    outreachId: number,
+  ): Promise<AcceptedAssignment | null> {
+    const outreach = await this.membership.client.outreach.findUnique({
+      where: { id: outreachId },
+      select: {
+        id: true,
+        outreachType: true,
+        phoneBankingListId: true,
+        doorKnockingRouteId: true,
+      },
+    })
+    if (!outreach) return null
+    return {
+      outreachId: outreach.id,
+      outreachType: outreach.outreachType,
+      phoneBankingListId: outreach.phoneBankingListId,
+      doorKnockingRouteId: outreach.doorKnockingRouteId,
     }
   }
 
@@ -385,9 +541,18 @@ export class OrganizationTeamService {
     organization: Organization
     invitedByUserId: number
     role: TeamInviteRole
+    outreachId?: number
+    phone?: string
     existingUser: User
   }): Promise<InviteMemberResponse> {
-    const { organization, invitedByUserId, role, existingUser } = params
+    const {
+      organization,
+      invitedByUserId,
+      role,
+      outreachId,
+      phone,
+      existingUser,
+    } = params
 
     const existingMembership =
       existingUser.id === organization.ownerId
@@ -407,14 +572,54 @@ export class OrganizationTeamService {
       )
     }
 
-    const created = await this.membership.model.create({
-      data: {
-        organizationSlug: organization.slug,
-        userId: existingUser.id,
-        role,
-        invitedByUserId,
-      },
-    })
+    const membershipData = {
+      organizationSlug: organization.slug,
+      userId: existingUser.id,
+      role,
+      invitedByUserId,
+    }
+    // A list-scoped volunteer invite creates the membership and its
+    // assignment atomically, the same guarantee accept gives the
+    // Clerk-invitation branch — a crash between the two must never leave a
+    // volunteer with a seat but no assigned list. The optional phone
+    // backfill (only when User.phone is still empty, so a direct-add never
+    // clobbers a number the person already saved) rides the same
+    // transaction as the membership row in both sub-branches — otherwise a
+    // crash after the membership commits silently loses the phone with no
+    // retry (re-inviting the same email 409s).
+    const created =
+      outreachId !== undefined
+        ? await this.membership.client.$transaction(async (tx) => {
+            const membership = await tx.organizationMembership.create({
+              data: membershipData,
+            })
+            await this.resolveOutreachAssignments().assign(
+              organization.slug,
+              outreachId,
+              existingUser.id,
+              invitedByUserId,
+              tx,
+            )
+            if (phone) {
+              await tx.user.updateMany({
+                where: { id: existingUser.id, phone: null },
+                data: { phone },
+              })
+            }
+            return membership
+          })
+        : await this.membership.client.$transaction(async (tx) => {
+            const membership = await tx.organizationMembership.create({
+              data: membershipData,
+            })
+            if (phone) {
+              await tx.user.updateMany({
+                where: { id: existingUser.id, phone: null },
+                data: { phone },
+              })
+            }
+            return membership
+          })
 
     const campaignName =
       (await this.organizations.resolvePositionNameByOrganizationSlug(
@@ -508,8 +713,18 @@ export class OrganizationTeamService {
     role: TeamInviteRole
     email: string
     name: string
+    outreachId?: number
+    phone?: string
   }): Promise<InviteMemberResponse> {
-    const { organization, invitedByUserId, role, email, name } = params
+    const {
+      organization,
+      invitedByUserId,
+      role,
+      email,
+      name,
+      outreachId,
+      phone,
+    } = params
 
     const pending = await this.clerkInvitations.listPendingTeamInvitations(
       organization.slug,
@@ -528,6 +743,8 @@ export class OrganizationTeamService {
         role,
         name,
         invitedByUserId,
+        outreachId,
+        phone,
       },
     })
 
@@ -539,6 +756,7 @@ export class OrganizationTeamService {
         name,
         role,
         createdAt: new Date(invitation.createdAt),
+        outreachId: outreachId ?? null,
       },
     }
   }

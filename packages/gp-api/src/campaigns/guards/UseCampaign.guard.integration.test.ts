@@ -136,7 +136,12 @@ describe('UseCampaign guard (integration)', () => {
       expect(result.data.slug).toBe(campaign.slug)
     })
 
-    it('returns 404 for a volunteer membership row (fail closed)', async () => {
+    // Phase 1.5: UseCampaignGuard now resolves and attaches a volunteer
+    // membership like any other member — this route carries no
+    // @AllowVolunteer(), so OrganizationRoleGuard (next in the chain) is
+    // what denies the volunteer, with a 403 (they know the org exists),
+    // not the 404 a non-member gets.
+    it('returns 403 for a volunteer membership row (role guard denies, not the scoping guard)', async () => {
       const owner = await service.prisma.user.create({
         data: { email: 'campaign-owner-volunteer-test@goodparty.org' },
       })
@@ -162,7 +167,31 @@ describe('UseCampaign guard (integration)', () => {
         headers: { 'x-organization-slug': org.slug },
       })
 
-      expect(result.status).toBe(404)
+      expect(result.status).toBe(403)
+    })
+
+    // The campaign-less-org branch: continueIfNotFound must still attach
+    // the resolved role so the role guard denies the volunteer (7cb260d).
+    it('returns 403 for a volunteer in a campaign-less org on a continueIfNotFound route', async () => {
+      const owner = await service.prisma.user.create({
+        data: { email: 'campaign-less-owner-volunteer@goodparty.org' },
+      })
+      const org = await service.prisma.organization.create({
+        data: { slug: 'campaign-less-org-volunteer', ownerId: owner.id },
+      })
+      await service.prisma.organizationMembership.create({
+        data: {
+          organizationSlug: org.slug,
+          userId: service.user.id,
+          role: OrganizationRole.volunteer,
+        },
+      })
+
+      const result = await service.client.get('/v1/campaigns/mine/status', {
+        headers: { 'x-organization-slug': org.slug },
+      })
+
+      expect(result.status).toBe(403)
     })
 
     it('returns 404 when org belongs to another user', async () => {

@@ -35,25 +35,28 @@ Auth state is enforced globally via three guards registered in order. Most route
   role for the org through `OrganizationMembershipService.resolveRole`:
   owner fallback (`organization.ownerId === user.id`) first, else an
   `OrganizationMembership` row, else 404/deny with no org-existence leak.
-  Every one of them denies a `volunteer` role (fail-closed; Phase 1.5 opens
-  specific surfaces deliberately via a later guard, not by loosening these).
-  `UseElectedOffice` is untouched — it still does the old ownerId-only
-  lookup and never calls `resolveRole`, so Serve stays owner-only regardless
-  of any membership row. Switching resolution to `effectiveUser` would
-  authorize the impersonating admin instead of the impersonated subject,
-  404ing every org-scoped route for admins mid-impersonation — `RolesGuard`/
-  `AdminOrM2MGuard` use `effectiveUser` deliberately because they check the
-  acting human's *global* roles, a different question from org membership.
+  `UseOrganization` and `UseCampaign` attach any resolved role, including
+  `volunteer`, and leave the team-role decision to `OrganizationRoleGuard`;
+  `UseEngagementContext` and `CanDownloadVoterFile` still deny a `volunteer`
+  themselves, permanently (CRM and voter-file download are not part of the
+  team-role rollout). `UseElectedOffice` is untouched — it still does the
+  old ownerId-only lookup and never calls `resolveRole`, so Serve stays
+  owner-only regardless of any membership row. Switching resolution to
+  `effectiveUser` would authorize the impersonating admin instead of the
+  impersonated subject, 404ing every org-scoped route for admins
+  mid-impersonation — `RolesGuard`/`AdminOrM2MGuard` use `effectiveUser`
+  deliberately because they check the acting human's *global* roles, a
+  different question from org membership.
 - **The team-role line is `OrganizationRoleGuard`
   (`src/organizations/guards/OrganizationRole.guard.ts`)**, appended to
   `UseOrganization`'s and `UseCampaign`'s own `UseGuards(...)` list so it
   always runs after the scoping guard has attached
   `request.organizationRole`. Default (no decorator): owner or
   `campaignAdmin`. `@OwnerOnly()` narrows to owner. `@AllowVolunteer()`
-  admits any resolved member — currently unreachable in practice, since the
-  scoping guards above still fail closed on a volunteer membership before
-  this guard ever runs; Phase 1.5 opens specific surfaces by loosening those.
-  Deny is `ForbiddenException` (403), not 404 — the caller already proved
+  admits any resolved member, including volunteer — reachable end-to-end on
+  any route that carries it, now that the scoping guards above attach a
+  volunteer's role instead of failing closed on it. Deny is
+  `ForbiddenException` (403), not 404 — the caller already proved
   membership, so org existence isn't a secret from them. When
   `request.organizationRole` is unset (no scoping guard ran, or it ran with
   `continueIfNotFound` and found nothing), this guard passes through.

@@ -8,6 +8,7 @@ import {
   onTestFinished,
   vi,
 } from 'vitest'
+import jwt from 'jsonwebtoken'
 import {
   DoorKnockingPackRequest,
   GeoJsonPolygon,
@@ -30,6 +31,7 @@ import { DoorKnockingStatsService } from '../services/doorKnockingStats.service'
 import { DoorKnockingTurfCountsService } from '../services/doorKnockingTurfCounts.service'
 import {
   Campaign,
+  OrganizationRole,
   OutreachStatus,
   OutreachType,
   VoterFileFilter,
@@ -4434,6 +4436,300 @@ describe('door-knocking routes', () => {
       expect(res.status).toBe(200)
       expect(res.data).toEqual([])
     })
+  })
+
+  describe('volunteer access (ENG-11051)', () => {
+    const authHeaderFor = (clerkId: string) => ({
+      Authorization: `Bearer ${jwt.sign(
+        { sub: clerkId },
+        process.env.AUTH_SECRET!,
+        { expiresIn: '1h' },
+      )}`,
+    })
+
+    const createVolunteer = (label: string, organizationSlug = orgSlug) =>
+      service.prisma.user
+        .create({
+          data: { email: `${label}@example.com`, clerkId: `user_${label}` },
+        })
+        .then(async (user) => {
+          await service.prisma.organizationMembership.create({
+            data: {
+              organizationSlug,
+              userId: user.id,
+              role: OrganizationRole.volunteer,
+            },
+          })
+          return user
+        })
+
+    const configFor = (clerkId: string) => ({
+      headers: { 'x-organization-slug': orgSlug, ...authHeaderFor(clerkId) },
+      validateStatus: () => true,
+    })
+
+    const outreachIdForTurf = async (turfId: number) => {
+      const routeId = await routeIdFor(turfId)
+      return (
+        await service.prisma.outreach.findFirstOrThrow({
+          where: { doorKnockingRouteId: routeId },
+        })
+      ).id
+    }
+
+    const assign = (outreachId: number, assigneeUserId: number) =>
+      service.prisma.outreachAssignment.create({
+        data: { organizationSlug: orgSlug, outreachId, assigneeUserId },
+      })
+
+    it('lets an assigned volunteer walk their turf end to end', async () => {
+      const turf = await createTurf()
+      const target =
+        await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+          orderBy: { id: 'asc' },
+        })
+      const outreachId = await outreachIdForTurf(turf.id)
+      const volunteer = await createVolunteer('walk-volunteer')
+      await assign(outreachId, volunteer.id)
+      const cfg = configFor('user_walk-volunteer')
+
+      expect(
+        (await service.client.get(`/v1/door-knocking/turfs/${turf.id}`, cfg))
+          .status,
+      ).toBe(200)
+      expect(
+        (
+          await service.client.get(
+            `/v1/door-knocking/turfs/${turf.id}/route`,
+            cfg,
+          )
+        ).status,
+      ).toBe(200)
+
+      const interaction = await service.client.post(
+        '/v1/door-knocking/interactions',
+        {
+          stopTargetId: target.id,
+          clientKey: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+          outcome: 'answered',
+        },
+        cfg,
+      )
+      expect(interaction.status).toBe(201)
+      const row =
+        await service.prisma.contactInteractionDoorKnock.findFirstOrThrow({
+          where: { organizationSlug: orgSlug, personId: target.personId },
+        })
+      // The row is attributed to the volunteer who actually knocked, not the
+      // org owner (ENG-10824's existing stamp, now exercised by a non-owner).
+      expect(row.actorUserId).toBe(volunteer.id)
+
+      expect(
+        (
+          await service.client.post(
+            '/v1/door-knocking/do-not-knock',
+            { stopTargetId: target.id, value: 'active' },
+            cfg,
+          )
+        ).status,
+      ).toBe(201)
+      expect(
+        (
+          await service.client.post(
+            '/v1/door-knocking/not-a-voter',
+            { stopTargetId: target.id, value: 'moved' },
+            cfg,
+          )
+        ).status,
+      ).toBe(201)
+
+      const complete = await service.client.post(
+        `/v1/door-knocking/turfs/${turf.id}/complete`,
+        {},
+        cfg,
+      )
+      expect(complete.status).toBe(201)
+      expect(complete.data.completed).toBe(true)
+      // Exactly the transition a manager's own complete makes — one envelope,
+      // one lifecycle, whoever pressed the button.
+      expect(
+        (
+          await service.prisma.outreach.findUniqueOrThrow({
+            where: { id: outreachId },
+          })
+        ).status,
+      ).toBe(OutreachStatus.completed)
+    })
+
+    it('404s an unassigned volunteer on all six opened routes', async () => {
+      const turf = await createTurf()
+      const target =
+        await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+          orderBy: { id: 'asc' },
+        })
+      await createVolunteer('unassigned-volunteer')
+      const cfg = configFor('user_unassigned-volunteer')
+
+      expect(
+        (await service.client.get(`/v1/door-knocking/turfs/${turf.id}`, cfg))
+          .status,
+      ).toBe(404)
+      expect(
+        (
+          await service.client.get(
+            `/v1/door-knocking/turfs/${turf.id}/route`,
+            cfg,
+          )
+        ).status,
+      ).toBe(404)
+      expect(
+        (
+          await service.client.post(
+            `/v1/door-knocking/turfs/${turf.id}/complete`,
+            {},
+            cfg,
+          )
+        ).status,
+      ).toBe(404)
+      expect(
+        (
+          await service.client.post(
+            '/v1/door-knocking/interactions',
+            {
+              stopTargetId: target.id,
+              clientKey: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+              outcome: 'answered',
+            },
+            cfg,
+          )
+        ).status,
+      ).toBe(404)
+      expect(
+        (
+          await service.client.post(
+            '/v1/door-knocking/do-not-knock',
+            { stopTargetId: target.id, value: 'active' },
+            cfg,
+          )
+        ).status,
+      ).toBe(404)
+      expect(
+        (
+          await service.client.post(
+            '/v1/door-knocking/not-a-voter',
+            { stopTargetId: target.id, value: 'moved' },
+            cfg,
+          )
+        ).status,
+      ).toBe(404)
+      expect(
+        await service.prisma.contactInteractionDoorKnock.count({
+          where: { organizationSlug: orgSlug },
+        }),
+      ).toBe(0)
+    })
+
+    // The load-bearing one: `pack` answers for the whole district, not one
+    // turf, so there is no assignment to scope it by — it must stay
+    // manager+ no matter what the volunteer is assigned.
+    it('403s a volunteer on GET pack', async () => {
+      await createVolunteer('pack-volunteer')
+
+      const res = await service.client.get(
+        '/v1/door-knocking/pack',
+        configFor('user_pack-volunteer'),
+      )
+
+      expect(res.status).toBe(403)
+    })
+
+    it('403s a volunteer on every other manager+ route', async () => {
+      const turf = await createTurf()
+      await createVolunteer('closed-routes-volunteer')
+      const cfg = configFor('user_closed-routes-volunteer')
+
+      const closedRoutes = [
+        [
+          'post',
+          '/v1/door-knocking/turfs',
+          {
+            voterFileFilterId: filter.id,
+            name: 'Nope',
+            color: '#22aa55',
+            geoPoly: GEO_POLY,
+            mode: 'walk',
+            loop: false,
+          },
+        ],
+        ['get', '/v1/door-knocking/turfs', undefined],
+        ['put', `/v1/door-knocking/turfs/${turf.id}`, { name: 'Nope' }],
+        [
+          'post',
+          `/v1/door-knocking/turfs/${turf.id}/archive`,
+          { archived: true },
+        ],
+        ['get', '/v1/door-knocking/quota', undefined],
+        [
+          'post',
+          '/v1/door-knocking/address-preview',
+          { geoPoly: GEO_POLY, filters: {} },
+        ],
+        // Last: a delete would leave nothing for a later row in this list
+        // to act on.
+        ['delete', `/v1/door-knocking/turfs/${turf.id}`, undefined],
+      ] as const
+
+      for (const [method, path, body] of closedRoutes) {
+        const res =
+          body === undefined
+            ? await service.client[method](path, cfg)
+            : await service.client[method](path, body, cfg)
+        expect(res.status, `${method.toUpperCase()} ${path}`).toBe(403)
+      }
+    })
+
+    // Serve is out of scope for ENG-11051 — neither serve route carries
+    // @AllowVolunteer(), so a volunteer membership on the eo- org (which the
+    // product's own invite flow refuses to create, but a direct DB row can)
+    // still 403s at OrganizationRoleGuard's default manager+ posture. Its
+    // guards run ahead of UseElectedOfficeGuard on this decorator ordering,
+    // so this never even reaches the elected-office lookup.
+    it('keeps Serve turf routes closed to a volunteer', async () => {
+      const serve = await serveOrg('volunteer-closed')
+      await createVolunteer('serve-closed-volunteer', serve.slug)
+      const cfg = {
+        headers: {
+          'x-organization-slug': serve.slug,
+          ...authHeaderFor('user_serve-closed-volunteer'),
+        },
+        validateStatus: () => true,
+      }
+
+      expect(
+        (
+          await service.client.post(
+            '/v1/door-knocking/serve/turfs',
+            {
+              voterFileFilterId: serve.filterId,
+              name: 'Nope',
+              color: '#22aa55',
+              geoPoly: GEO_POLY,
+              mode: 'walk',
+              loop: false,
+            },
+            cfg,
+          )
+        ).status,
+      ).toBe(403)
+      expect(
+        (await service.client.get('/v1/door-knocking/serve/turfs', cfg)).status,
+      ).toBe(403)
+    })
+
+    // Existing manager/owner behavior on every route is covered by the rest
+    // of this file's suite (129 assertions, all still driven by
+    // service.user, an owner) — this describe block only adds the new
+    // volunteer surface.
   })
 
   // The rollup's two list-lifecycle firing points. What each event CARRIES is

@@ -49,8 +49,11 @@ const ProfileDropdown = ({
 }: ProfileDropdownProps): React.JSX.Element => {
   const handleLogOut = useHandleLogOut()
   const organizationRole = useOrganizationRole()
-  const isManager = organizationRole === 'campaignAdmin'
-  const links: NavLink[] = isManager
+  // ENG-11052: a volunteer gets the same reduced menu as a manager — profile
+  // + sign out only, no billing/account-settings.
+  const hidesAccountSettings =
+    organizationRole === 'campaignAdmin' || organizationRole === 'volunteer'
+  const links: NavLink[] = hidesAccountSettings
     ? [PROFILE_LINK]
     : [PROFILE_LINK, ACCOUNT_LINK]
 

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { FetchError } from 'ofetch'
 import type { PhoneBankingListEntry } from '@goodparty_org/contracts'
 import {
   AlertDialog,
@@ -36,6 +37,7 @@ import {
   SelectValue,
   StatusText,
   Trash2Icon,
+  UserIcon,
   cn,
 } from '@styleguide'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
@@ -56,8 +58,21 @@ import {
   totalPeopleCount,
 } from './phoneBankingOutcome.util'
 
+// The role-divergent bits of this shared caller, parametrized behind an
+// optional prop the same way PhoneBankingFlow's `surface` prop splits Win
+// from Serve — omitting it stays byte-identical to the manager/owner
+// dashboard experience. A volunteer has no delete affordance (gp-api 403s it
+// anyway; don't render a dead button) and exits to the assignments list, not
+// an outreach hub they can't see.
+export interface PhoneBankingCallerSurface {
+  exitHref: string
+  exitLabel: string
+  showDeleteAction: boolean
+}
+
 interface PhoneBankingCallerPageProps {
   listId: number
+  surface?: PhoneBankingCallerSurface
 }
 
 const phoneBankingListQueryKey = (listId: number) => [
@@ -67,6 +82,7 @@ const phoneBankingListQueryKey = (listId: number) => [
 
 export default function PhoneBankingCallerPage({
   listId,
+  surface,
 }: PhoneBankingCallerPageProps): React.JSX.Element {
   const router = useRouter()
   const pathname = usePathname()
@@ -107,12 +123,28 @@ export default function PhoneBankingCallerPage({
   // surfaces navigate to the same /dashboard/outreach/phone-banking/[id]) —
   // the signal has to come from the loaded list. `list` is undefined while
   // still loading, and undefined !== true, so a not-yet-loaded page defaults
-  // to the Win hub rather than flashing the wrong surface.
+  // to the Win hub rather than flashing the wrong surface. A volunteer
+  // surface overrides this entirely — it always exits to the assignments
+  // list, regardless of whether the underlying list is Win or Serve.
   const isServe = list?.isServe === true
-  const hubPathname = isServe
-    ? '/dashboard/constituent-outreach'
-    : '/dashboard/outreach'
-  const hubLabel = isServe ? 'Constituent Outreach' : 'Voter Outreach'
+  const hubPathname =
+    surface?.exitHref ??
+    (isServe ? '/dashboard/constituent-outreach' : '/dashboard/outreach')
+  const hubLabel =
+    surface?.exitLabel ?? (isServe ? 'Constituent Outreach' : 'Voter Outreach')
+  const showDeleteAction = surface?.showDeleteAction ?? true
+
+  // Removal-mid-session is an expected flow for a volunteer (a manager can
+  // unassign them at any point) — gp-api 404s the now-unassigned list, and
+  // that reads as "no longer assigned" rather than the generic load failure
+  // below. Scoped to the volunteer surface: a manager/owner hitting a 404
+  // here means something else (the list itself is gone), so their copy is
+  // unchanged.
+  const isRevokedAssignment =
+    !!surface &&
+    listQuery.isError &&
+    listQuery.error instanceof FetchError &&
+    listQuery.error.status === 404
 
   const deleteMutation = useMutation({
     mutationFn: () =>
@@ -215,12 +247,18 @@ export default function PhoneBankingCallerPage({
       })
     : []
 
-  return (
-    <DashboardLayout
-      pathname={hubPathname}
-      wrapperClassName="!p-0 flex flex-col"
-    >
-      <div className="flex h-[calc(100dvh-4rem)] w-full flex-col">
+  // A volunteer surface renders inside VolunteerLayout's own shell (a plain
+  // h-14 top bar), never DashboardLayout's sidebar chrome — so the height
+  // calc below subtracts that bar's height instead of the dashboard mobile
+  // top bar's.
+  const content = (
+    <>
+      <div
+        className={cn(
+          'flex w-full flex-col',
+          surface ? 'h-[calc(100dvh-3.5rem)]' : 'h-[calc(100dvh-4rem)]',
+        )}
+      >
         <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
             <IconButton
@@ -306,53 +344,57 @@ export default function PhoneBankingCallerPage({
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <IconButton
-                  variant="ghost"
-                  size="small"
-                  aria-label="More actions"
-                >
-                  <EllipsisVerticalIcon size={18} />
-                </IconButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  variant="destructive"
-                  onClick={() => setDeleteConfirmOpen(true)}
-                >
-                  <Trash2Icon size={16} />
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {showDeleteAction && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <IconButton
+                    variant="ghost"
+                    size="small"
+                    aria-label="More actions"
+                  >
+                    <EllipsisVerticalIcon size={18} />
+                  </IconButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => setDeleteConfirmOpen(true)}
+                  >
+                    <Trash2Icon size={16} />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
 
-        <AlertDialog
-          open={deleteConfirmOpen}
-          onOpenChange={setDeleteConfirmOpen}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete this list?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This deletes the list and every logged call. This can not be
-                undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                disabled={deleteMutation.isPending}
-                onClick={() => deleteMutation.mutate()}
-              >
-                Delete
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        {showDeleteAction && (
+          <AlertDialog
+            open={deleteConfirmOpen}
+            onOpenChange={setDeleteConfirmOpen}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete this list?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This deletes the list and every logged call. This can not be
+                  undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  disabled={deleteMutation.isPending}
+                  onClick={() => deleteMutation.mutate()}
+                >
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
 
         <div className="min-h-0 flex-1 overflow-y-auto bg-background px-4 py-4">
           {listQuery.isPending && (
@@ -362,10 +404,24 @@ export default function PhoneBankingCallerPage({
               </StatusText>
             </div>
           )}
-          {listQuery.isError && (
+          {listQuery.isError && !isRevokedAssignment && (
             <p className="text-sm text-destructive">
               The list could not load. Refresh to try again.
             </p>
+          )}
+          {isRevokedAssignment && (
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+              <p className="text-sm text-muted-foreground">
+                This list is no longer assigned to you.
+              </p>
+              {/* Distinct copy from the header's "Back to {hubLabel}" arrow
+                  (also on screen here, since `list` never loaded) — sharing
+                  the same accessible name would leave two identically-named
+                  links on the page. */}
+              <Button asChild variant="outline" size="small">
+                <Link href={hubPathname}>Go to {hubLabel}</Link>
+              </Button>
+            </div>
           )}
           {list && counts && (
             <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
@@ -458,7 +514,10 @@ export default function PhoneBankingCallerPage({
                     const singlePerson = single ? entry.persons[0] : undefined
                     const active = activeSelection?.entryId === entry.id
                     return (
-                      <li key={entry.id}>
+                      // globals.css's broad `[data-slot] li { display: flex }`
+                      // would lay the row button and the expanded household
+                      // panel out side by side without this override.
+                      <li key={entry.id} className="flex flex-col">
                         <button
                           type="button"
                           onClick={() => handleRowClick(entry)}
@@ -550,7 +609,7 @@ export default function PhoneBankingCallerPage({
                           </span>
                         </button>
                         {!single && expanded && (
-                          <div className="flex flex-col border-t border-border bg-muted/30">
+                          <div className="flex flex-col divide-y divide-border border-t border-border bg-muted/30">
                             {entry.persons.map((person) => (
                               <button
                                 key={person.personId}
@@ -560,30 +619,28 @@ export default function PhoneBankingCallerPage({
                                 }
                                 className="flex items-center gap-2 px-4 py-2.5 pl-8 text-left text-sm hover:bg-muted/60"
                               >
+                                <UserIcon
+                                  size={16}
+                                  className="shrink-0 text-muted-foreground"
+                                />
                                 <span className="min-w-0 flex-1 truncate">
                                   {person.name}
                                 </span>
-                                <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-                                  {person.interaction ? (
-                                    <>
-                                      <span
-                                        className={cn(
-                                          'size-2 rounded-full',
-                                          OUTCOME_DOT_CLASS[
+                                <Badge variant="outline" shape="pill">
+                                  <span
+                                    className={cn(
+                                      'size-2 rounded-full',
+                                      person.interaction
+                                        ? OUTCOME_DOT_CLASS[
                                             person.interaction.outcome
-                                          ],
-                                        )}
-                                      />
-                                      {
-                                        OUTCOME_LABEL[
-                                          person.interaction.outcome
-                                        ]
-                                      }
-                                    </>
-                                  ) : (
-                                    NOT_CALLED_LABEL
-                                  )}
-                                </span>
+                                          ]
+                                        : 'bg-muted-foreground/40',
+                                    )}
+                                  />
+                                  {person.interaction
+                                    ? OUTCOME_LABEL[person.interaction.outcome]
+                                    : NOT_CALLED_LABEL}
+                                </Badge>
                                 <ChevronRightIcon
                                   size={14}
                                   className="shrink-0 text-muted-foreground"
@@ -637,6 +694,17 @@ export default function PhoneBankingCallerPage({
           }}
         />
       )}
+    </>
+  )
+
+  if (surface) return content
+
+  return (
+    <DashboardLayout
+      pathname={hubPathname}
+      wrapperClassName="!p-0 flex flex-col"
+    >
+      {content}
     </DashboardLayout>
   )
 }

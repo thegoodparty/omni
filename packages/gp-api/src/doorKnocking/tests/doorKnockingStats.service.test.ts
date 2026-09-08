@@ -692,8 +692,8 @@ describe('DoorKnockingStatsService', () => {
         .mockResolvedValue(undefined)
       const turfs = service.app.get(DoorKnockingTurfService)
 
-      await turfs.complete(turfId, orgSlug, service.user.id)
-      await turfs.complete(turfId, orgSlug, service.user.id)
+      await turfs.complete(turfId, orgSlug, service.user.id, undefined)
+      await turfs.complete(turfId, orgSlug, service.user.id, undefined)
 
       // The second call returns early on the idempotence guard, so the event
       // is behind it: a stray tap on a finished list must not teach HubSpot

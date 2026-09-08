@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { CampaignIssuePosition } from 'gpApi/api-endpoints'
 import type { Campaign, User } from 'helpers/types'
-import { buildIntro, buildScriptIssues } from './doorScriptContent'
+import {
+  buildIntro,
+  buildScriptIssues,
+  buildServeIntro,
+} from './doorScriptContent'
 
 const position = (
   overrides: Partial<CampaignIssuePosition> = {},
@@ -188,5 +192,45 @@ describe('buildIntro', () => {
 
   it('is empty without a campaign', () => {
     expect(buildIntro(null, null)).toBe('')
+  })
+})
+
+describe('buildServeIntro', () => {
+  // The seat is not a person, so a bare possessive of it does not parse:
+  // `grammarizeOfficeName` is what turns the collective offices into the
+  // member of them.
+  it.each([
+    ['City Council', "Hi, I'm Jane Doe, your City Council Member."],
+    ['School Board', "Hi, I'm Jane Doe, your School Board Member."],
+    ['Planning Commission', "Hi, I'm Jane Doe, your Planning Commissioner."],
+    // Already a person, and left alone.
+    ['Mayor', "Hi, I'm Jane Doe, your Mayor."],
+  ])('speaks the office as a person: %s', (office, expected) => {
+    expect(buildServeIntro(user(), office)).toBe(expected)
+  })
+
+  // The one word this sentence exists to avoid. An elected official knocking
+  // their own constituents is not running for the seat they hold.
+  it('never says running for', () => {
+    expect(buildServeIntro(user(), 'City Council')).not.toContain('running')
+  })
+
+  // Same clause-dropping rule as the Win intro, for the same reason: a
+  // placeholder is something the canvasser has to read around out loud.
+  it('drops the office when there is none', () => {
+    expect(buildServeIntro(user(), null)).toBe("Hi, I'm Jane Doe.")
+  })
+
+  it('drops the name when there is none', () => {
+    expect(
+      buildServeIntro(
+        user({ firstName: undefined, lastName: undefined }),
+        'City Council',
+      ),
+    ).toBe("Hi, I'm your City Council Member.")
+  })
+
+  it('is empty with neither', () => {
+    expect(buildServeIntro(null, null)).toBe('')
   })
 })

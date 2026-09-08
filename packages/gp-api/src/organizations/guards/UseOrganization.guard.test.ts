@@ -121,10 +121,11 @@ describe('UseOrganizationGuard', () => {
       await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException)
     })
 
-    // Fail closed: this guard backs write routes across most feature
-    // modules, so a volunteer must not get in even though nothing creates
-    // volunteer memberships yet.
-    it('throws NotFoundException for a volunteer membership row', async () => {
+    // Phase 1.5: this guard now only resolves and attaches. A volunteer
+    // membership is a resolved member like any other — OrganizationRoleGuard
+    // (next in the chain) is the one that 403s a volunteer on an
+    // undecorated route, not this guard with a 404.
+    it('attaches org and volunteer role and returns true when resolved', async () => {
       mockMetadata()
       vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue({
         role: OrganizationRole.volunteer,
@@ -132,21 +133,20 @@ describe('UseOrganizationGuard', () => {
       })
 
       const ctx = buildContext({ 'x-organization-slug': 'campaign-100' }, 2)
+      const result = await guard.canActivate(ctx)
 
-      await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException)
+      expect(result).toBe(true)
       const req = ctx.switchToHttp().getRequest() as {
         organization?: Organization
         organizationRole?: OrganizationRole
       }
-      expect(req.organization).toBeUndefined()
-      expect(req.organizationRole).toBeUndefined()
+      expect(req.organization).toEqual(mockOrg)
+      expect(req.organizationRole).toBe(OrganizationRole.volunteer)
     })
 
-    // A volunteer row under continueIfNotFound deliberately behaves exactly
-    // like a non-member: pass through unenriched (no organization, no role on
-    // the request), never throw. Pinned so a Phase 1.5 change to volunteer
-    // admission has to change this test consciously.
-    it('passes a volunteer through unenriched when continueIfNotFound', async () => {
+    // continueIfNotFound only changes behavior when nothing resolves — a
+    // resolved volunteer attaches exactly like any other resolved member.
+    it('attaches a volunteer role under continueIfNotFound too', async () => {
       mockMetadata({ continueIfNotFound: true })
       vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue({
         role: OrganizationRole.volunteer,
@@ -161,8 +161,8 @@ describe('UseOrganizationGuard', () => {
         organization?: Organization
         organizationRole?: OrganizationRole
       }
-      expect(req.organization).toBeUndefined()
-      expect(req.organizationRole).toBeUndefined()
+      expect(req.organization).toEqual(mockOrg)
+      expect(req.organizationRole).toBe(OrganizationRole.volunteer)
     })
 
     it('returns true without org when continueIfNotFound', async () => {
@@ -222,6 +222,36 @@ describe('UseOrganizationGuard', () => {
         organizationRole?: OrganizationRole
       }
       expect(req.organizationRole).toBe(OrganizationRole.campaignAdmin)
+    })
+
+    // Same correction, for a volunteer: an admin impersonating a volunteer
+    // must be treated as that volunteer (403 downstream at
+    // OrganizationRoleGuard), not as whatever the admin's own role would be.
+    it('resolves the impersonated user as a volunteer, not the admin actor', async () => {
+      mockMetadata()
+      vi.spyOn(organizationMembership, 'resolveRole').mockResolvedValue({
+        role: OrganizationRole.volunteer,
+        organization: mockOrg,
+      })
+
+      const memberId = 2
+      const adminActorId = 999
+      const ctx = buildContext(
+        { 'x-organization-slug': 'campaign-100' },
+        memberId,
+        adminActorId,
+      )
+      const result = await guard.canActivate(ctx)
+
+      expect(result).toBe(true)
+      expect(organizationMembership.resolveRole).toHaveBeenCalledWith(
+        'campaign-100',
+        memberId,
+      )
+      const req = ctx.switchToHttp().getRequest() as {
+        organizationRole?: OrganizationRole
+      }
+      expect(req.organizationRole).toBe(OrganizationRole.volunteer)
     })
   })
 

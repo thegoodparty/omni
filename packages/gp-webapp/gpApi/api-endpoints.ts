@@ -71,6 +71,7 @@ import type {
   RecommendedListChannel,
   RecommendedListIntent,
   RecommendedListsResponse,
+  MyAssignmentsResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -327,6 +328,27 @@ export type APIEndpoints = {
     Response: SmsOutreachResults
   }
 
+  // Team-accounts assignments (ENG-11048/ENG-11056), org-scoped, manager+ by
+  // default (the volunteer-only `assignments/mine` sibling isn't consumed
+  // here — see app/volunteer/). The outreach drawer's Assignees section reads
+  // and writes these.
+  'GET /v1/outreach/:id/assignments': {
+    Request: {}
+    Response: OutreachAssigneesResponse
+  }
+
+  'POST /v1/outreach/:id/assignments': {
+    Request: {
+      assigneeUserId: number
+    }
+    Response: OutreachAssignee
+  }
+
+  'DELETE /v1/outreach/:id/assignments/:userId': {
+    Request: {}
+    Response: undefined
+  }
+
   // Synchronous, stateless: one structured LLM call writes the compose-step
   // draft from purpose + tone (candidate name/office come from the session).
   // With currentDraft it polishes that text in place instead (Improve with
@@ -392,6 +414,16 @@ export type APIEndpoints = {
   'GET /v1/outreach/serve/:id': {
     Request: {}
     Response: OutreachDetail
+  }
+
+  // Team-accounts (ENG-11048/ENG-11053): the caller's own assignment rows
+  // across every org they're assigned in (org-scoped via the header), each
+  // hydrated with the phoneBanking/doorKnocking channel-pointer + progress
+  // block for the two native channels only — every other outreachType
+  // carries neither. Manager+ callers can hit this too, not volunteer-only.
+  'GET /v1/outreach/assignments/mine': {
+    Request: {}
+    Response: MyAssignmentsResponse
   }
 
   // Stateless script draft/improve for the phone-banking create flow —
@@ -543,14 +575,30 @@ export type APIEndpoints = {
     Response: TeamResponse
   }
 
+  // Per-current-member outreach counts (ENG-11076/ENG-11080), joined to
+  // GET /v1/organizations/team client-side by userId. Same ISO-over-JSON
+  // convention as TeamResponse above — lastActivityAt is typed as string,
+  // not Date (see TeamStatsResponse below).
+  'GET /v1/organizations/team/stats': {
+    Request: {}
+    Response: TeamStatsResponse
+  }
+
   // Gated server-side by the win-team-accounts flag (404 while off) — the
   // only route that can create a membership row, so gating just this one
-  // makes the whole feature inert at 0%.
+  // makes the whole feature inert at 0%. outreachId is optional: the
+  // outreach drawer's list-scoped volunteer invite (ENG-11049) still sends
+  // one, but a general volunteer invite from the team page's drawer
+  // (ENG-11058) legally omits it; a campaignAdmin invite must never carry
+  // one — gp-api's Zod refine enforces that direction. phone (ENG-11058) is
+  // optional on either role and only ever backfills a blank profile field.
   'POST /v1/organizations/team/invites': {
     Request: {
       email: string
       name: string
-      role: 'campaignAdmin'
+      role: 'campaignAdmin' | 'volunteer'
+      outreachId?: number
+      phone?: string
     }
     Response: InviteMemberResponse
   }
@@ -560,10 +608,12 @@ export type APIEndpoints = {
     Response: undefined
   }
 
-  // Owner-only server-side (OwnerOnly guard); a manager's call 403s.
+  // Owner-only server-side (OwnerOnly guard); a manager's call 403s. Moves an
+  // existing member between Campaign Manager and Volunteer (ENG-11049) — a
+  // role change never creates or touches an OutreachAssignment.
   'PATCH /v1/organizations/team/members/:userId': {
     Request: {
-      role: 'campaignAdmin'
+      role: 'campaignAdmin' | 'volunteer'
     }
     Response: TeamMember
   }
@@ -1093,6 +1143,16 @@ export type APIEndpoints = {
   // envelope it writes is scoped by organization with no campaign.
   'POST /v1/door-knocking/serve/turfs': {
     Request: CreateDoorKnockingTurf
+    Response: DoorKnockingTurf
+  }
+  // One turf, org-scoped and NOT surface-scoped — which is what the two print
+  // surfaces need it for. They hold an id they already fetched a route with,
+  // so the rail's surface filter would only be able to hide a list they are
+  // demonstrably entitled to, and did: a Serve turf is absent from the Win
+  // rail, so both paper formats titled every elected official's sheet with
+  // their fallback.
+  'GET /v1/door-knocking/turfs/:id': {
+    Request: {}
     Response: DoorKnockingTurf
   }
   // Name and colour only. The polygon is what the frozen route was computed
@@ -2121,6 +2181,10 @@ export type PendingInvite = {
   name: string
   role: 'campaignAdmin' | 'volunteer'
   createdAt: string
+  // Set only for a list-scoped volunteer invite (ENG-11049); null for a
+  // campaignAdmin invite. The outreach drawer's Assignees section filters
+  // this list by outreachId to show its own pending volunteer invites.
+  outreachId: number | null
 }
 
 export type TeamResponse = {
@@ -2131,6 +2195,42 @@ export type TeamResponse = {
 export type InviteMemberResponse =
   | { status: 'added'; member: TeamMember }
   | { status: 'pending'; invite: PendingInvite }
+
+// Mirrors TeamMemberStatsSchema / TeamStatsResponseSchema in
+// @goodparty_org/contracts, but lastActivityAt arrives over JSON as an ISO
+// string or null — same convention as TeamMember above.
+export type TeamMemberStats = {
+  userId: number
+  doorsKnocked: number
+  callsMade: number
+  totalLogged: number
+  lastActivityAt: string | null
+}
+
+export type TeamStatsResponse = {
+  stats: TeamMemberStats[]
+}
+
+// Wire shapes for outreach assignments (win-team-accounts / ENG-11048).
+// Mirrors OutreachAssignment.schema.ts in @goodparty_org/contracts, but
+// createdAt arrives over JSON as an ISO string — same convention as
+// TeamMember above.
+export type OutreachAssignee = {
+  userId: number
+  name: string | null
+  role: OrganizationRole
+  createdAt: string
+  assignedByUserId: number | null
+  assignedByName: string | null
+  // Per-assignee logged-interaction count on this outreach: a real count for
+  // the two native channels (nativePhoneBanking/nativeDoorKnocking), null for
+  // every other outreachType.
+  loggedCount: number | null
+}
+
+export type OutreachAssigneesResponse = {
+  assignees: OutreachAssignee[]
+}
 
 // Mirrors EligibilitySchema in @goodparty_org/contracts. Derived on read by
 // gp-api's EligibilityService; the webapp has no contracts dependency, so the

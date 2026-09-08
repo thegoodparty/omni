@@ -1,11 +1,17 @@
 'use client'
 
-import { useState } from 'react'
-import { Card, cn, Popover, PopoverContent, PopoverTrigger } from '@styleguide'
+import { useRef, useState } from 'react'
+import {
+  Card,
+  cn,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Skeleton,
+} from '@styleguide'
 import {
   CheckIcon,
   ChevronDownIcon,
-  FilterIcon,
   Loader2Icon,
   PlusIcon,
 } from '@styleguide/components/ui/icons'
@@ -23,6 +29,7 @@ import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/us
 import VoterFileStep from 'app/dashboard/contacts/crm/wizard/VoterFileStep'
 import NameStep from 'app/dashboard/contacts/crm/wizard/NameStep'
 import { Intro } from '../social/Intro'
+import { RecommendedListNameDrawer } from './RecommendedListNameDrawer'
 import { RecommendedListCard } from './RecommendedListCard'
 
 export type OutreachAudienceMode = 'picker' | 'filters' | 'name'
@@ -78,11 +85,15 @@ interface OutreachAudienceStepProps {
   recommendationsLoading: boolean
   recommendationsError: boolean
   recommendedListsChannel: RecommendedListChannel
-  // A recommendation with an existingFilterId selects that list (reusing
-  // this step's own onSelect, with whatever side effects the caller already
-  // attaches to it) rather than creating a duplicate; only a recommendation
-  // with none reaches this.
-  onSelectRecommendation: (recommendation: RecommendedList) => void
+  // A recommendation with no existingFilterId opens the naming drawer;
+  // this fires when the candidate submits the drawer's name input. Seeds
+  // the builder and creates the saved filter atomically, then the caller
+  // advances the step (each flow attaches its own side effects). Throws
+  // → the drawer catches and shows an inline error.
+  onCreateRecommendedList: (
+    recommendation: RecommendedList,
+    name: string,
+  ) => Promise<void>
   // Fired instead, on that same existingFilterId branch, so an accept of a
   // recommendation the candidate has taken before is still measured — it
   // never reaches `createList`, which is where the other kind is counted.
@@ -137,7 +148,7 @@ export const OutreachAudienceStep = ({
   recommendationsLoading,
   recommendationsError,
   recommendedListsChannel,
-  onSelectRecommendation,
+  onCreateRecommendedList,
   onRecommendationReused,
   reachableCount,
   reachableLoading,
@@ -159,6 +170,18 @@ export const OutreachAudienceStep = ({
   builderCountErrorMessage,
 }: OutreachAudienceStepProps) => {
   const [open, setOpen] = useState(false)
+  // The recommendation whose card the candidate tapped, opening the
+  // naming drawer. Cleared on drawer close (cancel) or on a successful
+  // submit; either way the picker returns to its default state.
+  const [pendingRecommendation, setPendingRecommendation] =
+    useState<RecommendedList | null>(null)
+  // The picker sits inside OutreachSheet (vaul Drawer), and vaul installs
+  // `react-remove-scroll` on <body>. A popover portalled to document.body
+  // (Radix's default) lands OUTSIDE the drawer's scroll-allowed scope, so
+  // wheel/touch events on the popover content are silently dropped. Portal
+  // into an element inside the drawer's scope instead — this ref, placed on
+  // the picker's own root div — and scroll works.
+  const pickerRootRef = useRef<HTMLDivElement | null>(null)
   const active = lists.find((l) => l.id === selectedId) ?? null
 
   if (mode === 'name') {
@@ -211,8 +234,45 @@ export const OutreachAudienceStep = ({
     )
   }
 
+  // Unified landing skeleton: keep the initial fetch of saved lists and the
+  // recommendations query behind one silent skeleton rather than two
+  // staggered spinners in different regions. The reachable-count fetch that
+  // fires when a candidate picks a list stays inline on the trigger card —
+  // it is a user-initiated follow-up, not part of the landing.
+  const initialLoading =
+    listsLoading || (recommendedListsEnabled && recommendationsLoading)
+
+  if (initialLoading) {
+    return (
+      <div className="space-y-6">
+        <Intro
+          channel={channel}
+          title={copy.pickerTitle}
+          body={copy.pickerBody}
+        />
+        <div
+          data-testid="outreach-audience-loading"
+          aria-busy="true"
+          aria-live="polite"
+          className="space-y-6"
+        >
+          {recommendedListsEnabled && (
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-32" />
+              <Skeleton className="h-24 w-full rounded-xl" />
+            </div>
+          )}
+          <div className="space-y-2">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-16 w-full rounded-xl" />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="space-y-6">
+    <div ref={pickerRootRef} className="space-y-6">
       <Intro
         channel={channel}
         title={copy.pickerTitle}
@@ -251,7 +311,7 @@ export const OutreachAudienceStep = ({
                     channel={recommendedListsChannel}
                     onSelect={() => {
                       if (recommendation.existingFilterId === null) {
-                        onSelectRecommendation(recommendation)
+                        setPendingRecommendation(recommendation)
                         return
                       }
                       onRecommendationReused(recommendation)
@@ -277,7 +337,17 @@ export const OutreachAudienceStep = ({
                 <p className="truncate font-medium text-foreground">
                   {listsLoading
                     ? 'Loading your lists…'
-                    : (active?.name ?? 'Choose a voter list')}
+                    : (active?.name ??
+                      // When recommendations sit above the picker, the
+                      // picker's role shifts to "here's where your saved
+                      // lists are" — the primary control is the card up
+                      // top. A plain "Choose a voter list" reads as
+                      // instructing the candidate to ignore what they
+                      // were just offered. Same conditional door
+                      // knocking's WhoStep already applies.
+                      (recommendations.length > 0
+                        ? 'View your lists here'
+                        : 'Choose a voter list'))}
                 </p>
                 {active && (
                   <p className="text-sm text-muted-foreground">
@@ -323,6 +393,9 @@ export const OutreachAudienceStep = ({
           <PopoverContent
             align="start"
             sideOffset={4}
+            // Portal into the picker's own root — see the ref declaration
+            // above for why the default body portal breaks scroll here.
+            container={pickerRootRef.current}
             className="max-h-80 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-0"
           >
             <div className="divide-y divide-border">
@@ -378,19 +451,24 @@ export const OutreachAudienceStep = ({
             </div>
           </PopoverContent>
         </Popover>
-        <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-          <FilterIcon className="mt-0.5 size-3.5 shrink-0" />
-          <span>
-            The number of reachable voters in each list may change based on the
-            mode of outreach you select.
-          </span>
-        </p>
       </div>
       {pricePerContact > 0 && (
         <p className="text-sm text-muted-foreground">
           {copy.unitCostLabel} ${pricePerContact.toFixed(3)}
         </p>
       )}
+      <RecommendedListNameDrawer
+        open={pendingRecommendation !== null}
+        onOpenChange={(next) => {
+          if (!next) setPendingRecommendation(null)
+        }}
+        defaultName={pendingRecommendation?.copy.title ?? ''}
+        onSubmit={async (name) => {
+          if (!pendingRecommendation) return
+          await onCreateRecommendedList(pendingRecommendation, name)
+          setPendingRecommendation(null)
+        }}
+      />
     </div>
   )
 }

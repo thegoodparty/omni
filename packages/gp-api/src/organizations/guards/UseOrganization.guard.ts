@@ -67,12 +67,11 @@ export class UseOrganizationGuard implements CanActivate {
 
     const resolved = await this.organizationMembership.resolveRole(slug, userId)
 
-    // Fail closed: volunteer memberships don't exist yet, but this guard
-    // backs write routes across most feature modules (door-knocking turf
-    // CRUD, contact notes, phone banking, outreach), so a future volunteer
-    // row must not get in here by default (Phase 1.5 grants specific
-    // surfaces deliberately).
-    if (resolved && resolved.role !== OrganizationRole.volunteer) {
+    // This guard only resolves and attaches — it doesn't gate on role.
+    // OrganizationRoleGuard (next in @UseOrganization()'s guard chain)
+    // enforces the team-role line, so a volunteer reaches it as a resolved
+    // member and gets a 403 there, not a 404 here.
+    if (resolved) {
       request.organization = resolved.organization
       request.organizationRole = resolved.role
       return true

@@ -138,6 +138,7 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     onFiltersChange={vi.fn()}
     onStepChange={onStepChange}
     onClose={vi.fn()}
+    districtBounds={null}
     districtHouseholds={0}
     districtHouseholdsPending={false}
     districtHouseholdsFailed={false}
@@ -148,7 +149,6 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     onDrawFullScreenChange={vi.fn()}
     onRestartDrawing={vi.fn()}
     drawPointCount={3}
-    onUndoPoint={vi.fn()}
     color="#2563eb"
     drawnStops={null}
     onListCreated={onListCreated}

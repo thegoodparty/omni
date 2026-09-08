@@ -12,6 +12,7 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { AllowVolunteer } from '@/organizations/decorators/AllowVolunteer.decorator'
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
 import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
 import { Organization } from '../generated/prisma'
@@ -32,6 +33,9 @@ export class OnboardingContactsController {
 
   @Get('stats')
   @UseOrganization({ continueIfNotFound: true })
+  // @PublicAccess route: a volunteer sending the org header must not be
+  // 403'd by the role guard on an endpoint anonymous callers can reach.
+  @AllowVolunteer()
   @ResponseSchema(onboardingStatsResponseSchema)
   async getOnboardingStats(
     @Query() query: GetOnboardingStatsQueryDTO,

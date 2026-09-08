@@ -29,8 +29,9 @@ vi.mock('next/navigation', async (importOriginal) => {
   }
 })
 
+const mockUseFlagOn = vi.fn(() => ({ ready: true, on: true }))
 vi.mock('./experiments/FeatureFlagsProvider', () => ({
-  useFlagOn: vi.fn(() => ({ on: true })),
+  useFlagOn: (...args: unknown[]) => mockUseFlagOn(...(args as [])),
 }))
 
 vi.mock('@styleguide/hooks/use-mobile', () => ({
@@ -97,6 +98,7 @@ beforeEach(() => {
   mockRouterPush.mockClear()
   mockRouterReplace.mockClear()
   vi.mocked(trackEvent).mockClear()
+  mockUseFlagOn.mockReset().mockReturnValue({ ready: true, on: true })
 })
 
 describe('OrganizationProvider', () => {
@@ -364,6 +366,47 @@ describe('OrganizationPicker', () => {
       expect(mockRouterPush).toHaveBeenCalledWith('/dashboard')
     })
     expect(mockRouterPush).not.toHaveBeenCalledWith('/dashboard/briefings')
+  })
+
+  // ENG-11052: a switch onto an org where the viewer is a volunteer lands on
+  // the reductive /volunteer shell, not the campaign dashboard.
+  it('routes to /volunteer when switching to an org where the viewer is a volunteer', async () => {
+    const user = userEvent.setup()
+    renderPicker(
+      orgs.map((org, i) => ({
+        ...org,
+        role: i === 1 ? ('volunteer' as const) : ('owner' as const),
+      })),
+    )
+
+    await user.click(screen.getByText('Organization One'))
+    // Organization Two (index 1) is the volunteer-role destination.
+    await user.click(screen.getByText('Organization Two'))
+
+    await waitFor(() => {
+      expect(mockRouterPush).toHaveBeenCalledWith('/volunteer')
+    })
+  })
+
+  // Flag off keeps routing byte-identical to today even for a role that
+  // (per gp-api) can't really exist yet outside the pilot.
+  it('routes to /dashboard/chief-of-staff for a volunteer-role org when win-team-accounts is off', async () => {
+    mockUseFlagOn.mockReturnValue({ ready: true, on: false })
+    const user = userEvent.setup()
+    renderPicker(
+      orgs.map((org, i) => ({
+        ...org,
+        role: i === 1 ? ('volunteer' as const) : ('owner' as const),
+      })),
+    )
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(screen.getByText('Organization Two'))
+
+    await waitFor(() => {
+      expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/chief-of-staff')
+    })
+    expect(mockRouterPush).not.toHaveBeenCalledWith('/volunteer')
   })
 
   it('fetches organizations from the API', async () => {

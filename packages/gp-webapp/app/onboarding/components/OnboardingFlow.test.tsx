@@ -114,6 +114,7 @@ vi.mock('./ManualOfficeEntryStep', () => ({
   }: {
     onChange: (form: {
       office: string
+      level: string
       state: string
       city: string
       district: string
@@ -126,6 +127,7 @@ vi.mock('./ManualOfficeEntryStep', () => ({
       onClick={() =>
         onChange({
           office: 'Mayor',
+          level: 'LOCAL',
           state: 'CA',
           city: 'Springfield',
           district: '',

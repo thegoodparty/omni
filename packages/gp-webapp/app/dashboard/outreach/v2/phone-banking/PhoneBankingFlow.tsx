@@ -23,6 +23,7 @@ import {
   OUTREACH_OPTIONS,
   OUTREACH_TYPES,
 } from 'app/dashboard/outreach/constants'
+import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import { PurposeStep } from '../PurposeStep'
 // Intro is a channel-generic v2 component that currently lives under
@@ -53,7 +54,7 @@ const STEP_ORDER: StepId[] = ['purpose', 'who', 'script', 'sheets', 'download']
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
-  who: 'Who are you calling?',
+  who: 'Who do you want to reach?',
   script: 'Write your call script',
   sheets: 'How many call sheets would you like me to create?',
   // Deliberately distinct from DownloadStep's own dynamic (singular/plural)
@@ -78,8 +79,9 @@ const PRICE_PER_CONTACT =
 // dimension (VoterFileStep) instead of the four PhoneBankingFiltersSchema
 // used to restrict it to.
 const WIN_PHONE_BANKING_AUDIENCE_COPY: OutreachAudienceCopy = {
-  pickerTitle: 'Who are you calling?',
-  pickerBody: 'We recommend reaching all voters to increase awareness.',
+  pickerTitle: 'Who do you want to reach?',
+  pickerBody:
+    'Select a list or create a new one. Lists include all voters with a phone number.',
   filtersTitle: 'Build a voter list',
   filtersBody: 'Pick filters to define who this campaign reaches.',
   // ENG-10948: phone banking dials whichever number a voter has (cell first,
@@ -108,7 +110,8 @@ const WIN_PHONE_BANKING_AUDIENCE_COPY: OutreachAudienceCopy = {
 // pins the serve overrides to the five voter/campaign-framed strings).
 const SERVE_PHONE_BANKING_AUDIENCE_COPY: OutreachAudienceCopy = {
   ...WIN_PHONE_BANKING_AUDIENCE_COPY,
-  pickerBody: 'We recommend reaching all constituents to increase awareness.',
+  pickerBody:
+    'Select a list or create a new one. Lists include all constituents with a phone number.',
   filtersTitle: 'Build a constituent list',
   filtersBody: 'Pick filters to define who this list reaches.',
   filtersHint:
@@ -623,6 +626,7 @@ export const PhoneBankingFlow = ({
       open={open}
       onClose={onClose}
       title={STEP_TITLES[stepId]}
+      headerBadge={<ChannelBadge type={OUTREACH_TYPES.nativePhoneBanking} />}
       currentStep={stepIndex + 1}
       totalSteps={STEP_ORDER.length}
       onBack={stepIndex > 0 && !saved ? handleBack : undefined}
@@ -658,7 +662,14 @@ export const PhoneBankingFlow = ({
             recommendationsLoading={audience.recommendationsLoading}
             recommendationsError={audience.recommendationsError}
             recommendedListsChannel={audience.recommendedListsChannel}
-            onSelectRecommendation={audience.applyRecommendation}
+            onCreateRecommendedList={async (recommendation, name) => {
+              // Recommendation flow (naming drawer): create the saved
+              // filter and advance to the script step in one atomic
+              // gesture. Throws propagate to the drawer as the inline
+              // error the candidate can retry from.
+              await audience.createRecommendedList(recommendation, name)
+              setStepId('script')
+            }}
             onRecommendationReused={audience.trackRecommendationReused}
             reachableCount={audience.reachableCount}
             reachableLoading={audience.reachableLoading}

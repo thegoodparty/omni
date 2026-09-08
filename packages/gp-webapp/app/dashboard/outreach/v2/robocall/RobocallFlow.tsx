@@ -10,6 +10,7 @@ import {
   type SocialTone,
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
+import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import {
   OUTREACH_OPTIONS,
@@ -54,7 +55,7 @@ const STEP_ORDER: StepId[] = [
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
-  audience: 'Who are you calling?',
+  audience: 'Who do you want to reach?',
   schedule: 'When should it go out?',
   compose: 'What do you want to say?',
   review: 'Review your campaign',
@@ -70,9 +71,9 @@ const MAX_RECORDING_SECONDS = 60
 // list, and a { hasLandline: true } overlay on the builder count. The overlay
 // is count-only — the saved list itself stays general (see useOutreachAudience).
 const ROBOCALL_AUDIENCE_COPY: OutreachAudienceCopy = {
-  pickerTitle: 'Who are you calling?',
+  pickerTitle: 'Who do you want to reach?',
   pickerBody:
-    'We recommend reaching all your supporters to increase awareness.',
+    'Select a list or create a new one. Lists include all voters with a landline.',
   filtersTitle: 'Build a voter list',
   filtersBody: 'Pick filters to define who this campaign reaches.',
   nameTitle: 'Name your list',
@@ -567,6 +568,7 @@ export const RobocallFlow = ({
       open={open}
       onClose={onClose}
       title={STEP_TITLES[stepId]}
+      headerBadge={<ChannelBadge type={OUTREACH_TYPES.robocall} />}
       currentStep={stepIndex + 1}
       totalSteps={STEP_ORDER.length}
       onBack={stepIndex > 0 ? handleBack : undefined}
@@ -594,7 +596,14 @@ export const RobocallFlow = ({
             recommendationsLoading={audience.recommendationsLoading}
             recommendationsError={audience.recommendationsError}
             recommendedListsChannel={audience.recommendedListsChannel}
-            onSelectRecommendation={audience.applyRecommendation}
+            onCreateRecommendedList={async (recommendation, name) => {
+              // Recommendation flow (naming drawer): create the saved
+              // filter and advance to schedule in one atomic gesture.
+              // Throws propagate to the drawer as the inline error the
+              // candidate can retry from.
+              await audience.createRecommendedList(recommendation, name)
+              goToSchedule()
+            }}
             onRecommendationReused={audience.trackRecommendationReused}
             reachableCount={audience.reachableCount}
             reachableLoading={audience.reachableLoading}

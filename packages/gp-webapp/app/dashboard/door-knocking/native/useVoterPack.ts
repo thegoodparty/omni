@@ -20,11 +20,25 @@ export const PACK_FETCH_TIMEOUT_MS = 90_000
 // the same wait. `LoadingAnimation`'s bar LOOKS determinate and is a fixed-width
 // indeterminate animation, so nothing here may imply progress: a duration is the
 // only honest promise this wait can make.
+//
+// Serve says "constituent map" for the same map: an elected official has no
+// election on the calendar and the people on it are already theirs, so the
+// word is about who is being represented rather than about a ballot. The
+// duration sentence is about the download and is shared unchanged.
 export const PACK_LOADING_TITLE = 'Loading your voter map…'
+export const SERVE_PACK_LOADING_TITLE = 'Loading your constituent map…'
 export const PACK_LOADING_DURATION =
   'Large districts can take up to 30 seconds.'
 export const PACK_ERROR_MESSAGE =
   'The voter map could not load. Refresh to try again.'
+export const SERVE_PACK_ERROR_MESSAGE =
+  'The constituent map could not load. Refresh to try again.'
+
+export const packLoadingTitle = (isServe: boolean): string =>
+  isServe ? SERVE_PACK_LOADING_TITLE : PACK_LOADING_TITLE
+
+export const packErrorMessage = (isServe: boolean): string =>
+  isServe ? SERVE_PACK_ERROR_MESSAGE : PACK_ERROR_MESSAGE
 
 // A district this org cannot resolve is not a slow pack or a failed one: there
 // is no request to wait on and refreshing changes nothing, so it needs its own
@@ -33,6 +47,13 @@ export const DISTRICT_UNAVAILABLE_MESSAGE =
   'Voter data is not available for this office yet, so there is no map to ' +
   'draw turfs on. Contact support at help@goodparty.org and our team can ' +
   'set this up for you.'
+export const SERVE_DISTRICT_UNAVAILABLE_MESSAGE =
+  'Constituent data is not available for this office yet, so there is no map ' +
+  'to draw turfs on. Contact support at help@goodparty.org and our team can ' +
+  'set this up for you.'
+
+export const districtUnavailableMessage = (isServe: boolean): string =>
+  isServe ? SERVE_DISTRICT_UNAVAILABLE_MESSAGE : DISTRICT_UNAVAILABLE_MESSAGE
 
 // Raw fetch, not clientRequest: the pack is a binary ArrayBuffer and
 // clientRequest is JSON-only. The /api/v1 middleware rewrite attaches the

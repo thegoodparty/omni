@@ -3,10 +3,7 @@ import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { gotoCrmContacts, listCard } from 'src/helpers/crm-contacts-e2e'
-import {
-  createFlowStepHeading,
-  nativeShellHeading,
-} from 'src/helpers/door-knocking-e2e'
+import { createFlowStepHeading } from 'src/helpers/door-knocking-e2e'
 import { withGatewayRetry } from 'tests/utils/headless-user'
 
 // The cross-feature journey a candidate takes when they press "Send outreach"
@@ -122,7 +119,11 @@ test.describe('outreach list handoff to door knocking', () => {
         url.searchParams.get('listId') === String(list.id),
       { timeout: 45_000 },
     )
-    await expect(nativeShellHeading(page)).toBeVisible({ timeout: 60_000 })
+    // Anchor moved from the page's sr-only h1 to the create flow's own
+    // purpose-step heading: the flow auto-opens on arrival now, and
+    // Radix inerts everything outside the dialog — so the page-level h1
+    // is unreachable while the modal is up. The purpose heading below
+    // is the honest signal that the page mounted AND the flow opened.
 
     // --- The answer to the question. Arriving from Send outreach has created
     // no door-knocking saved list, which since 3.0 is visible in the surface

@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
-import type { TeamMember, PendingInvite } from 'gpApi/api-endpoints'
+import type {
+  TeamMember,
+  PendingInvite,
+  TeamMemberStats,
+} from 'gpApi/api-endpoints'
 import TeamPage from './TeamPage'
 
 const { mockUseOrganization, mockUseOrganizationRole } = vi.hoisted(() => ({
@@ -53,6 +57,7 @@ const pendingInvite: PendingInvite = {
   email: 'invitee@example.com',
   role: 'campaignAdmin',
   createdAt: '2024-01-03T00:00:00.000Z',
+  outreachId: null,
 }
 
 const pendingInvite2: PendingInvite = {
@@ -61,6 +66,7 @@ const pendingInvite2: PendingInvite = {
   email: 'second-invitee@example.com',
   role: 'campaignAdmin',
   createdAt: '2024-01-04T00:00:00.000Z',
+  outreachId: null,
 }
 
 // Mutable so DELETE mock handlers can simulate a real backend: a mutation's
@@ -69,6 +75,7 @@ const pendingInvite2: PendingInvite = {
 // real assertion — it would pass even if the mutation never fired.
 let members: TeamMember[]
 let pendingInvites: PendingInvite[]
+let stats: TeamMemberStats[]
 
 beforeEach(() => {
   testQueryClient.clear()
@@ -76,9 +83,17 @@ beforeEach(() => {
   mockUseOrganizationRole.mockReturnValue('owner')
   members = [owner, manager]
   pendingInvites = [pendingInvite]
+  stats = []
   api.mock('GET /v1/organizations/team', () => ({
     status: 200,
     data: { members, pendingInvites },
+  }))
+  // Default: empty stats, resolved immediately — every existing test in this
+  // file predates ENG-11080 and asserts nothing about the stats columns, so
+  // this keeps them deterministic rather than hitting an unmocked route.
+  api.mock('GET /v1/organizations/team/stats', () => ({
+    status: 200,
+    data: { stats },
   }))
 })
 
@@ -90,9 +105,11 @@ describe('TeamPage — members and pending invites', () => {
     expect(screen.getByText('Manager Person')).toBeInTheDocument()
     expect(screen.getByText('Owner')).toBeInTheDocument()
     // The manager row and the pending invite both carry the campaignAdmin
-    // role in this fixture, so both render the same label.
-    expect(screen.getAllByText('Campaign Manager').length).toBe(2)
+    // role in this fixture, so both render the same label — plus one more
+    // from the "How roles work" card's own "Campaign Manager" (ENG-11058).
+    expect(screen.getAllByText('Campaign Manager').length).toBe(3)
     expect(screen.getByText('Invitee Person')).toBeInTheDocument()
+    expect(screen.getByText('People')).toBeInTheDocument()
     expect(screen.getByText('2 people on this campaign')).toBeInTheDocument()
   })
 
@@ -180,8 +197,8 @@ describe('TeamPage — owner vs manager affordances', () => {
   })
 })
 
-describe('TeamPage — invite flow', () => {
-  it('opens the invite modal and posts the entered email/name with the fixed role', async () => {
+describe('TeamPage — invite flow (ENG-11058 two-step drawer)', () => {
+  it('walks step 1 -> step 2, posts the picked role, phone omitted when blank', async () => {
     const user = userEvent.setup()
     let capturedBody: unknown
     api.mock('POST /v1/organizations/team/invites', (req) => {
@@ -194,8 +211,64 @@ describe('TeamPage — invite flow', () => {
             id: 'new-invite',
             email: req.body.email,
             name: req.body.name,
-            role: 'campaignAdmin',
+            role: req.body.role,
             createdAt: '2024-01-04T00:00:00.000Z',
+            outreachId: null,
+          },
+        },
+      }
+    })
+
+    render(<TeamPage />)
+    await screen.findByText('Owner Person')
+
+    await user.click(screen.getByRole('button', { name: 'Invite' }))
+    expect(
+      await screen.findByText('Who do you want to invite?'),
+    ).toBeInTheDocument()
+    // Continue is disabled until both required fields are filled.
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    await user.type(screen.getByLabelText('Name'), 'New Person')
+    await user.type(screen.getByLabelText('Email'), 'new@example.com')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText('What role would you like to assign?'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Send invite' })).toBeDisabled()
+    await user.click(screen.getByRole('radio', { name: /Volunteer/ }))
+    await user.click(screen.getByRole('button', { name: 'Send invite' }))
+
+    await waitFor(() => {
+      expect(capturedBody).toEqual({
+        email: 'new@example.com',
+        name: 'New Person',
+        role: 'volunteer',
+      })
+    })
+    await waitFor(() => {
+      expect(
+        screen.queryByText('Who do you want to invite?'),
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  it('carries an entered phone number through to the request', async () => {
+    const user = userEvent.setup()
+    let capturedBody: unknown
+    api.mock('POST /v1/organizations/team/invites', (req) => {
+      capturedBody = req.body
+      return {
+        status: 200,
+        data: {
+          status: 'pending',
+          invite: {
+            id: 'new-invite',
+            email: req.body.email,
+            name: req.body.name,
+            role: req.body.role,
+            createdAt: '2024-01-04T00:00:00.000Z',
+            outreachId: null,
           },
         },
       }
@@ -206,7 +279,10 @@ describe('TeamPage — invite flow', () => {
 
     await user.click(screen.getByRole('button', { name: 'Invite' }))
     await user.type(screen.getByLabelText('Name'), 'New Person')
+    await user.type(screen.getByLabelText('Phone number'), '2025551234')
     await user.type(screen.getByLabelText('Email'), 'new@example.com')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('radio', { name: /Campaign Manager/ }))
     await user.click(screen.getByRole('button', { name: 'Send invite' }))
 
     await waitFor(() => {
@@ -214,16 +290,32 @@ describe('TeamPage — invite flow', () => {
         email: 'new@example.com',
         name: 'New Person',
         role: 'campaignAdmin',
+        phone: '2025551234',
       })
-    })
-    await waitFor(() => {
-      expect(
-        screen.queryByRole('dialog', { name: 'Invite a team member' }),
-      ).not.toBeInTheDocument()
     })
   })
 
-  it('shows the 409 message inline instead of closing the modal', async () => {
+  it('Back from step 2 returns to step 1 with the entered values intact', async () => {
+    const user = userEvent.setup()
+    render(<TeamPage />)
+    await screen.findByText('Owner Person')
+
+    await user.click(screen.getByRole('button', { name: 'Invite' }))
+    await user.type(screen.getByLabelText('Name'), 'New Person')
+    await user.type(screen.getByLabelText('Email'), 'new@example.com')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('What role would you like to assign?')
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    expect(
+      await screen.findByText('Who do you want to invite?'),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Name')).toHaveValue('New Person')
+    expect(screen.getByLabelText('Email')).toHaveValue('new@example.com')
+  })
+
+  it('shows the 409 message inline instead of closing the drawer', async () => {
     const user = userEvent.setup()
     api.mock('POST /v1/organizations/team/invites', {
       status: 409,
@@ -236,6 +328,8 @@ describe('TeamPage — invite flow', () => {
     await user.click(screen.getByRole('button', { name: 'Invite' }))
     await user.type(screen.getByLabelText('Name'), 'New Person')
     await user.type(screen.getByLabelText('Email'), 'new@example.com')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('radio', { name: /Campaign Manager/ }))
     await user.click(screen.getByRole('button', { name: 'Send invite' }))
 
     expect(
@@ -244,7 +338,74 @@ describe('TeamPage — invite flow', () => {
       ),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('dialog', { name: 'Invite a team member' }),
+      screen.getByText('What role would you like to assign?'),
+    ).toBeInTheDocument()
+  })
+
+  // ENG-11058 delegate fix: an invalid phone 400s via PhoneSchema server-side
+  // (InviteTeamMemberDto) — that message must surface inline too, not just
+  // the generic fallback the 409-only check used to leave it with.
+  // ENG-11058 delegate fix (round 2): a 400 is InviteTeamMemberDto's own
+  // validation (e.g. an invalid phone via PhoneSchema) — the field it's
+  // about lives on step 1, so the message has to navigate back there rather
+  // than render on step 2 with no phone field in sight.
+  it('shows the 400 message and navigates back to step 1, where the phone field lives', async () => {
+    const user = userEvent.setup()
+    api.mock('POST /v1/organizations/team/invites', {
+      status: 400,
+      // The real nestjs-zod v5 ZodValidationException shape: a static
+      // "Validation failed" message with the field copy in errors[].
+      data: {
+        message: 'Validation failed',
+        errors: [
+          {
+            code: 'custom',
+            message: 'Must be valid phone number',
+            path: ['phone'],
+          },
+        ],
+      },
+    })
+
+    render(<TeamPage />)
+    await screen.findByText('Owner Person')
+
+    await user.click(screen.getByRole('button', { name: 'Invite' }))
+    await user.type(screen.getByLabelText('Name'), 'New Person')
+    await user.type(screen.getByLabelText('Phone number'), 'abc')
+    await user.type(screen.getByLabelText('Email'), 'new@example.com')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('radio', { name: /Campaign Manager/ }))
+    await user.click(screen.getByRole('button', { name: 'Send invite' }))
+
+    expect(
+      await screen.findByText('Must be valid phone number'),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByText('Who do you want to invite?'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('What role would you like to assign?'),
+    ).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Phone number')).toHaveValue('abc')
+  })
+})
+
+describe('TeamPage — "How roles work" card (ENG-11058)', () => {
+  it('states both locked role descriptions', async () => {
+    render(<TeamPage />)
+    await screen.findByText('Owner Person')
+
+    expect(screen.getByText('How roles work')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /Runs everything on the campaign except billing and account settings\./,
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /Runs door knocking or phone banking outreach campaigns only\./,
+      ),
     ).toBeInTheDocument()
   })
 })
@@ -311,7 +472,7 @@ describe('TeamPage — loading and error states (ENG-11039)', () => {
     expect(
       screen.queryByText(/people on this campaign|person on this campaign/),
     ).not.toBeInTheDocument()
-    expect(screen.getByText('Your team')).toBeInTheDocument()
+    expect(screen.getByText('People')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
     expect(screen.queryByText('No pending invites.')).not.toBeInTheDocument()
     expect(
@@ -319,6 +480,89 @@ describe('TeamPage — loading and error states (ENG-11039)', () => {
         'Couldn’t load pending invites. Try refreshing the page.',
       ),
     ).toBeInTheDocument()
+  })
+})
+
+describe('TeamPage — role change (ENG-11049)', () => {
+  it('offers Make Volunteer on a manager row and PATCHes the right value', async () => {
+    const user = userEvent.setup()
+    let patchBody: unknown
+    let patchedUserId: string | undefined
+    api.mock(
+      'PATCH /v1/organizations/team/members/:userId',
+      ({ params, body }) => {
+        patchedUserId = params.userId
+        patchBody = body
+        members = members.map((m) =>
+          m.userId === manager.userId ? { ...m, role: 'volunteer' } : m,
+        )
+        return { status: 200, data: { ...manager, role: 'volunteer' } }
+      },
+    )
+    render(<TeamPage />)
+
+    await screen.findByText('Manager Person')
+    await user.click(
+      screen.getByRole('button', { name: 'Manage Manager Person' }),
+    )
+    await user.click(await screen.findByText('Make Volunteer'))
+
+    await waitFor(() => {
+      expect(patchedUserId).toBe(String(manager.userId))
+      expect(patchBody).toEqual({ role: 'volunteer' })
+    })
+    // Scoped to the row: the "How roles work" card (ENG-11058) also reads
+    // "Volunteer" verbatim, so an unscoped findByText now matches twice.
+    const row = (await screen.findByText('Manager Person')).closest('tr')
+    expect(row).not.toBeNull()
+    expect(within(row!).getByText('Volunteer')).toBeInTheDocument()
+  })
+
+  it('offers Make Campaign Manager on a volunteer row and PATCHes the right value', async () => {
+    const user = userEvent.setup()
+    const volunteer: TeamMember = {
+      userId: 3,
+      name: 'Val Volunteer',
+      email: 'val@example.com',
+      role: 'volunteer',
+      createdAt: '2024-01-05T00:00:00.000Z',
+    }
+    members = [owner, volunteer]
+    pendingInvites = []
+    let patchBody: unknown
+    api.mock('PATCH /v1/organizations/team/members/:userId', ({ body }) => {
+      patchBody = body
+      members = members.map((m) =>
+        m.userId === volunteer.userId ? { ...m, role: 'campaignAdmin' } : m,
+      )
+      return { status: 200, data: { ...volunteer, role: 'campaignAdmin' } }
+    })
+    render(<TeamPage />)
+
+    await screen.findByText('Val Volunteer')
+    await user.click(
+      screen.getByRole('button', { name: 'Manage Val Volunteer' }),
+    )
+    await user.click(await screen.findByText('Make Campaign Manager'))
+
+    await waitFor(() => {
+      expect(patchBody).toEqual({ role: 'campaignAdmin' })
+    })
+    // Scoped to the row: the "How roles work" card (ENG-11058) also reads
+    // "Campaign Manager" verbatim, so an unscoped findByText now matches
+    // more than once.
+    const row = (await screen.findByText('Val Volunteer')).closest('tr')
+    expect(row).not.toBeNull()
+    expect(within(row!).getByText('Campaign Manager')).toBeInTheDocument()
+  })
+
+  it('never offers a role-change action to a manager (no Manage menu at all)', async () => {
+    mockUseOrganizationRole.mockReturnValue('campaignAdmin')
+    render(<TeamPage />)
+
+    await screen.findByText('Manager Person')
+    expect(screen.queryByText('Make Volunteer')).not.toBeInTheDocument()
+    expect(screen.queryByText('Make Campaign Manager')).not.toBeInTheDocument()
   })
 })
 
@@ -388,5 +632,162 @@ describe('TeamPage — revoking a pending invite', () => {
       expect(screen.queryByText('Invitee Person')).not.toBeInTheDocument()
     })
     expect(screen.getByText('Second Invitee')).toBeInTheDocument()
+  })
+})
+
+// Delegate review (PR #1736): a list-scoped volunteer invite still belongs
+// in this table (the ticket's own AC), but revoking it here has no outreach
+// context — that action lives with the drawer's Assignees section instead.
+describe('TeamPage — list-scoped pending invites (delegate review, PR #1736)', () => {
+  it('renders a list-scoped invite with a Volunteer + list-scoped label and no Revoke button, while a plain invite keeps its Revoke button', async () => {
+    const listScopedInvite: PendingInvite = {
+      id: 'invite-scoped',
+      name: 'Val Volunteer',
+      email: 'val@example.com',
+      role: 'volunteer',
+      createdAt: '2024-01-06T00:00:00.000Z',
+      outreachId: 30,
+    }
+    pendingInvites = [pendingInvite, listScopedInvite]
+
+    render(<TeamPage />)
+
+    await screen.findByText('Val Volunteer')
+    const scopedRow = screen.getByText('Val Volunteer').closest('tr')
+    expect(scopedRow).not.toBeNull()
+    expect(within(scopedRow!).getByText('Volunteer')).toBeInTheDocument()
+    expect(within(scopedRow!).getByText('List-scoped')).toBeInTheDocument()
+    expect(
+      within(scopedRow!).queryByRole('button', { name: /Revoke invite/ }),
+    ).not.toBeInTheDocument()
+
+    // The plain (non-list-scoped) invite is untouched.
+    expect(
+      screen.getByRole('button', {
+        name: 'Revoke invite for invitee@example.com',
+      }),
+    ).toBeInTheDocument()
+  })
+})
+
+describe('TeamPage — outreach results columns (ENG-11080)', () => {
+  it('joins stats to members by userId and renders their counts', async () => {
+    // Evening instant: the dateUsHelper +8h shim would mis-render this as
+    // Jan 11 (in UTC CI and eastern local runs) — the correct formatter must not
+    const lastActivityAt = '2024-01-10T22:00:00.000Z'
+    stats = [
+      {
+        userId: owner.userId,
+        doorsKnocked: 12,
+        callsMade: 4,
+        totalLogged: 16,
+        lastActivityAt,
+      },
+      {
+        userId: manager.userId,
+        doorsKnocked: 0,
+        callsMade: 0,
+        totalLogged: 0,
+        lastActivityAt: null,
+      },
+    ]
+
+    render(<TeamPage />)
+
+    const ownerRow = (await screen.findByText('Owner Person')).closest('tr')
+    expect(ownerRow).not.toBeNull()
+    expect(within(ownerRow!).getByText('12')).toBeInTheDocument()
+    expect(within(ownerRow!).getByText('4')).toBeInTheDocument()
+    expect(within(ownerRow!).getByText('16')).toBeInTheDocument()
+    expect(within(ownerRow!).getByText('Jan 10, 2024')).toBeInTheDocument()
+
+    // Owner row (no Manage menu) still gets stats like any other member.
+    expect(
+      within(ownerRow!).queryByRole('button', { name: /^Manage /i }),
+    ).not.toBeInTheDocument()
+
+    // A member with no logged work at all (lastActivityAt null) shows
+    // 0 / 0 / 0 / em dash, not a fabricated blank.
+    const managerRow = (await screen.findByText('Manager Person')).closest('tr')
+    expect(managerRow).not.toBeNull()
+    expect(within(managerRow!).getAllByText('0')).toHaveLength(3)
+    expect(within(managerRow!).getByText('—')).toBeInTheDocument()
+  })
+
+  it('a member absent from the stats response zero-fills rather than erroring', async () => {
+    stats = [] // neither owner nor manager has a stats row
+
+    render(<TeamPage />)
+
+    const ownerRow = (await screen.findByText('Owner Person')).closest('tr')
+    expect(ownerRow).not.toBeNull()
+    expect(within(ownerRow!).getAllByText('0')).toHaveLength(3)
+    expect(within(ownerRow!).getByText('—')).toBeInTheDocument()
+  })
+
+  it('renders placeholders, never zeros, while stats are pending — member rows still render', async () => {
+    let resolveStats: (() => void) | undefined
+    api.mock(
+      'GET /v1/organizations/team/stats',
+      () =>
+        new Promise((resolve) => {
+          resolveStats = () => resolve({ status: 200, data: { stats } })
+        }),
+    )
+
+    render(<TeamPage />)
+
+    // The team roster itself resolves normally (default mock, not delayed),
+    // so member rows are visible while stats are still in flight.
+    expect(await screen.findByText('Owner Person')).toBeInTheDocument()
+    expect(screen.getByText('Manager Person')).toBeInTheDocument()
+
+    const ownerRow = screen.getByText('Owner Person').closest('tr')
+    expect(ownerRow).not.toBeNull()
+    // Never a fabricated 0 while the real count is still unknown.
+    expect(within(ownerRow!).queryByText('0')).not.toBeInTheDocument()
+    expect(
+      ownerRow!.querySelectorAll('[data-slot="skeleton"]').length,
+    ).toBeGreaterThan(0)
+
+    await waitFor(() => expect(resolveStats).toBeDefined())
+    resolveStats?.()
+    await waitFor(() => {
+      expect(ownerRow!.querySelectorAll('[data-slot="skeleton"]').length).toBe(
+        0,
+      )
+    })
+  })
+
+  it('renders em dashes on a stats failure and keeps member management fully working', async () => {
+    api.mock('GET /v1/organizations/team/stats', {
+      status: 500,
+      data: { message: 'upstream error' },
+    })
+    api.mock('DELETE /v1/organizations/team/members/:userId', () => {
+      members = members.filter((m) => m.userId !== manager.userId)
+      return { status: 200, data: undefined }
+    })
+
+    const user = userEvent.setup()
+    render(<TeamPage />)
+
+    const managerRow = (await screen.findByText('Manager Person')).closest('tr')
+    expect(managerRow).not.toBeNull()
+    await waitFor(() => {
+      expect(within(managerRow!).getAllByText('—')).toHaveLength(4)
+    })
+
+    // Invite stays enabled, and remove still works — a stats failure never
+    // degrades member management.
+    expect(screen.getByRole('button', { name: 'Invite' })).toBeEnabled()
+    await user.click(
+      screen.getByRole('button', { name: 'Manage Manager Person' }),
+    )
+    await user.click(await screen.findByText('Remove from team'))
+
+    await waitFor(() => {
+      expect(screen.queryByText('Manager Person')).not.toBeInTheDocument()
+    })
   })
 })

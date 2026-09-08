@@ -436,10 +436,16 @@ export {
   type TeamResponse,
   InviteMemberResponseSchema,
   type InviteMemberResponse,
+  AcceptedAssignmentSchema,
+  type AcceptedAssignment,
   AcceptInviteResponseSchema,
   type AcceptInviteResponse,
   MyPendingInviteResponseSchema,
   type MyPendingInviteResponse,
+  TeamMemberStatsSchema,
+  type TeamMemberStats,
+  TeamStatsResponseSchema,
+  type TeamStatsResponse,
 } from './campaigns/Team.schema'
 
 export * from './campaigns/compliance'
@@ -795,6 +801,16 @@ export {
   OutreachDetailSchema,
   type OutreachDetail,
 } from './outreach/OutreachSocial.schema'
+export {
+  OutreachAssigneeSchema,
+  type OutreachAssignee,
+  OutreachAssigneesResponseSchema,
+  type OutreachAssigneesResponse,
+  MyAssignmentSchema,
+  type MyAssignment,
+  MyAssignmentsResponseSchema,
+  type MyAssignmentsResponse,
+} from './outreach/OutreachAssignment.schema'
 export {
   PhoneBankingScriptPurposeSchema,
   type PhoneBankingScriptPurpose,

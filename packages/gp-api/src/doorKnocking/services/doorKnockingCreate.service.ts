@@ -302,7 +302,10 @@ export class DoorKnockingCreateService extends createPrismaBase(
     // Read back outside the transaction so the response is built by the one
     // function that builds every turf response, counts included — the new
     // list appears on the rail with the same shape it will have on reload.
-    return this.turfs.get(turfId, organization.slug)
+    // No role to check here: creating a turf is manager+ only, and the
+    // creator reading back their own just-created turf needs no assignment
+    // gate — an undefined role is the guard's own "unrestricted" no-op.
+    return this.turfs.get(turfId, organization.slug, actorUserId, undefined)
   }
 
   // A failed ledger write must not fail a purchase the vendor already billed,

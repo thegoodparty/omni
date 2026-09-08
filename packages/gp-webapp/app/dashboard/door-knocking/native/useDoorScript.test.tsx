@@ -8,6 +8,7 @@ const clientRequestMock = vi.fn()
 const useCampaignMock = vi.fn()
 const useUserMock = vi.fn()
 const useDoorKnockingServeModeMock = vi.fn()
+const useDoorKnockingOfficeNameMock = vi.fn()
 
 vi.mock('gpApi/typed-request', () => ({
   clientRequest: (...args: unknown[]) => clientRequestMock(...args),
@@ -23,6 +24,7 @@ vi.mock('@shared/hooks/useUser', () => ({
 
 vi.mock('./doorKnockingSurface', () => ({
   useDoorKnockingServeMode: () => useDoorKnockingServeModeMock(),
+  useDoorKnockingOfficeName: () => useDoorKnockingOfficeNameMock(),
 }))
 
 import { useDoorScript } from './useDoorScript'
@@ -58,6 +60,8 @@ beforeEach(() => {
   useUserMock.mockReturnValue([user()])
   useDoorKnockingServeModeMock.mockReset()
   useDoorKnockingServeModeMock.mockReturnValue(false)
+  useDoorKnockingOfficeNameMock.mockReset()
+  useDoorKnockingOfficeNameMock.mockReturnValue('City Council')
   clientRequestMock.mockResolvedValue({ data: [] })
 })
 
@@ -130,6 +134,44 @@ describe('useDoorScript', () => {
 
     expect(clientRequestMock).not.toHaveBeenCalled()
     expect(result.current.issues).toEqual([])
+  })
+
+  // The half that was missing: not fetching left serve mode with the WIN
+  // intro, built from whatever campaign row a dual-role org happened to hold,
+  // so an official either introduced themselves as a candidate for their own
+  // seat or said nothing at all.
+  it('introduces an official by the office they hold', () => {
+    useDoorKnockingServeModeMock.mockReturnValue(true)
+
+    const { result } = renderHook(() => useDoorScript(), { wrapper })
+
+    expect(result.current.intro).toBe(
+      "Hi, I'm Jane Doe, your City Council Member.",
+    )
+  })
+
+  // The word "running" is the Win rail's, and an elected official is not on a
+  // ballot — asserted against the whole sentence rather than the office clause
+  // so a future rewording cannot reintroduce it.
+  it('never says running for in serve mode', () => {
+    useDoorKnockingServeModeMock.mockReturnValue(true)
+    useCampaignMock.mockReturnValue([campaign()])
+
+    const { result } = renderHook(() => useDoorScript(), { wrapper })
+
+    expect(result.current.intro).not.toContain('running')
+  })
+
+  // A Serve org whose office title has not resolved yet still has a person to
+  // introduce, and the opener is worth more than the office clause it is
+  // missing.
+  it('introduces the official alone when the office is unknown', () => {
+    useDoorKnockingServeModeMock.mockReturnValue(true)
+    useDoorKnockingOfficeNameMock.mockReturnValue('')
+
+    const { result } = renderHook(() => useDoorScript(), { wrapper })
+
+    expect(result.current.intro).toBe("Hi, I'm Jane Doe.")
   })
 
   it('still fetches positions in win mode', async () => {

@@ -131,7 +131,7 @@ const DashboardLayout = ({
   }, [currentPath, details?.wonGeneral, electionDate, router, isImpersonating])
 
   const pageBody = (
-    <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
+    <div className={`flex flex-1 flex-col p-2 md:p-4 ${wrapperClassName}`}>
       <ProUpgradePrompt
         campaign={activeCampaign}
         user={user}
@@ -199,6 +199,7 @@ const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/dashboard/account', 'Account Settings'],
   ['/dashboard/content', 'Content Builder'],
   ['/dashboard/door-knocking', 'Door Knocking'],
+  ['/dashboard/team', NAV_LABELS.team],
 ]
 
 const isContactsPath = (pathname: string): boolean =>

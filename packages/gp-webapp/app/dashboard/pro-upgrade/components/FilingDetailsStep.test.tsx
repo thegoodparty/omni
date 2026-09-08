@@ -6,9 +6,11 @@ import { apiRoutes } from 'gpApi/routes'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { submitTcrCompliance } from 'app/dashboard/profile/texting-compliance/util/registrationFormData.util'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { TcrComplianceSubmitError } from 'app/dashboard/profile/texting-compliance/util/registrationFormData.util'
 import FilingDetailsStep, {
   ballotLevelToOfficeLevel,
   getInitialFilingDetailsState,
+  hasBallotLevel,
 } from './FilingDetailsStep'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
@@ -172,10 +174,29 @@ describe('ballotLevelToOfficeLevel', () => {
     expect(ballotLevelToOfficeLevel('local')).toBe('local')
   })
 
+  it('maps the uppercase BallotReadyPositionLevel enum values', () => {
+    // Manual office entry persists the enum members verbatim (ENG-11043).
+    expect(ballotLevelToOfficeLevel('FEDERAL')).toBe('federal')
+    expect(ballotLevelToOfficeLevel('STATE')).toBe('state')
+    expect(ballotLevelToOfficeLevel('COUNTY')).toBe('local')
+    expect(ballotLevelToOfficeLevel('LOCAL')).toBe('local')
+  })
+
   it('defaults an unknown or missing ballot level to local', () => {
     expect(ballotLevelToOfficeLevel(undefined)).toBe('local')
     expect(ballotLevelToOfficeLevel(null)).toBe('local')
     expect(ballotLevelToOfficeLevel('Something else')).toBe('local')
+  })
+})
+
+describe('hasBallotLevel', () => {
+  it('is true only for a non-blank ballot level', () => {
+    expect(hasBallotLevel('Federal')).toBe(true)
+    expect(hasBallotLevel('local')).toBe(true)
+    expect(hasBallotLevel(undefined)).toBe(false)
+    expect(hasBallotLevel(null)).toBe(false)
+    expect(hasBallotLevel('')).toBe(false)
+    expect(hasBallotLevel('   ')).toBe(false)
   })
 })
 
@@ -196,6 +217,16 @@ describe('getInitialFilingDetailsState', () => {
     expect(state.phone).toBe('')
     // No source to prefill from; must be entered fresh, same as email/phone.
     expect(state.candidateName).toBe('')
+  })
+
+  it('leaves officeLevel unselected when the campaign has no ballotLevel', () => {
+    // Pre-ENG-11043 manual office entry never wrote details.ballotLevel.
+    // Deriving 'local' here hid the FEC fields from federal candidates; the
+    // form must instead ask, so the initial value is the empty selection.
+    const state = getInitialFilingDetailsState({
+      details: { einNumber: CLEAN_EIN },
+    } as never)
+    expect(state.officeLevel).toBe('')
   })
 })
 
@@ -562,15 +593,101 @@ describe('FilingDetailsStep', () => {
     expect(router.replace).toHaveBeenCalledWith('/dashboard/pro-upgrade/ein')
   })
 
-  it('surfaces an error and does not advance when the submit fails', async () => {
+  it('surfaces a generic error and does not advance when the submit fails', async () => {
     mockSubmit.mockRejectedValue(new Error('boom'))
     render(<FilingDetailsStep />)
     fillValidNonFederalForm()
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await waitFor(() => expect(errorSnackbar).toHaveBeenCalled())
+    // A non-submit error must never leak its internal message to the
+    // candidate — only TcrComplianceSubmitError carries user-facing copy.
+    await waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(
+        'Failed to submit filing details. Please try again later.',
+      ),
+    )
     expect(goToNextStep).not.toHaveBeenCalled()
+  })
+
+  it("shows the server's rejection reason when the submit is refused (ENG-11043)", async () => {
+    // The real trigger: a non-federal officeLevel with an FEC.gov filing URL
+    // is 400'd by the createAgentic Zod check. The candidate must see that
+    // reason, not "try again later".
+    const serverReason =
+      'Election Filing Link must be from the state or local election ' +
+      'authority for non-federal office level, not FEC.gov — Campaign ' +
+      'Verify rejects FEC filing URLs for state and local candidates'
+    mockSubmit.mockRejectedValue(new TcrComplianceSubmitError(serverReason))
+    render(<FilingDetailsStep />)
+    fillValidNonFederalForm()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(serverReason),
+    )
+    expect(goToNextStep).not.toHaveBeenCalled()
+  })
+
+  it('hides the office-level select when onboarding recorded a ballot level', () => {
+    render(<FilingDetailsStep />)
+    expect(screen.queryByText('Office level *')).not.toBeInTheDocument()
+  })
+
+  it('asks for the office level when the campaign has no ballotLevel and blocks submit until chosen', () => {
+    // Pre-ENG-11043 manual office entry never wrote details.ballotLevel;
+    // silently deriving 'local' hid the FEC fields from federal candidates.
+    seedCampaign({ einNumber: CLEAN_EIN })
+    render(<FilingDetailsStep />)
+
+    expect(screen.getByText('Office level *')).toBeInTheDocument()
+    fillValidNonFederalForm()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(mockSubmit).not.toHaveBeenCalled()
+    const bannerHeading = screen.getByText('Please fix the following fields:')
+    expect(
+      within(bannerHeading.parentElement as HTMLElement).getByText(
+        'Office Level',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('reveals the FEC fields when a level-less candidate selects Federal', () => {
+    seedCampaign({ einNumber: CLEAN_EIN })
+    render(<FilingDetailsStep />)
+
+    expect(screen.queryByLabelText('FEC Committee ID')).not.toBeInTheDocument()
+
+    const levelTrigger = screen
+      .getAllByRole('combobox')
+      .find((el) => el.textContent?.includes('Select an office level'))
+    fireEvent.click(levelTrigger!)
+    fireEvent.click(screen.getByRole('option', { name: 'Federal' }))
+
+    expect(screen.getByLabelText('FEC Committee ID')).toBeInTheDocument()
+    expect(screen.getByText('Committee type *')).toBeInTheDocument()
+  })
+
+  it('submits the chosen office level for a level-less campaign', async () => {
+    seedCampaign({ einNumber: CLEAN_EIN })
+    render(<FilingDetailsStep />)
+
+    const levelTrigger = screen
+      .getAllByRole('combobox')
+      .find((el) => el.textContent?.includes('Select an office level'))
+    fireEvent.click(levelTrigger!)
+    fireEvent.click(screen.getByRole('option', { name: 'Local' }))
+    fillValidNonFederalForm()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(mockSubmit).toHaveBeenCalledTimes(1))
+    const [, payload] = mockSubmit.mock.calls[0]!
+    expect(payload).toEqual(expect.objectContaining({ officeLevel: 'local' }))
+    await waitFor(() => expect(goToNextStep).toHaveBeenCalledTimes(1))
   })
 
   it('hides the FEC fields for a non-federal candidate', () => {

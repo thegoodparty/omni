@@ -12,7 +12,7 @@ import { reportErrorToSentry } from 'app/shared/sentry'
 import { useMutation } from '@tanstack/react-query'
 import { StripeError } from '@stripe/stripe-js'
 import { useCheckoutSession } from './CheckoutSessionProvider'
-import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
+import { Spinner } from '@styleguide'
 import PromoCodeSection, { usePromoCode } from './PromoCodeSection'
 
 interface CheckoutFormProps {
@@ -56,7 +56,11 @@ export default function CheckoutForm({
   }, [checkoutResult, errorSnackbar, setError, onError])
 
   if (checkoutResult.type === 'loading') {
-    return <LoadingAnimation />
+    return (
+      <div className="flex justify-center py-12">
+        <Spinner />
+      </div>
+    )
   }
 
   if (checkoutResult.type === 'error') {

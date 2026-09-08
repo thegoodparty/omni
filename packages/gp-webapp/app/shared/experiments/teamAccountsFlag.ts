@@ -5,11 +5,17 @@ export const TEAM_ACCOUNTS_FLAG_KEY = 'win-team-accounts'
 interface UseTeamAccountsFlagResult {
   ready: boolean
   enabled: boolean
+  // Whether the flags fetch this reads through genuinely failed rather than
+  // resolving to a value — see useFlagOn. post-auth-redirect uses this to
+  // tell "flag confirmed off" apart from "flag couldn't be read" before
+  // treating a volunteer-role org as non-volunteer (ENG-11071).
+  failed: boolean
 }
 
 // Gate for the team accounts surface (ENG-10816): the /dashboard/team page
-// and its left-rail nav item. Defaults off (useFlagOn falls back to 'off'),
-// so the page is unreachable and the nav item hidden until the flag is on.
+// and its account-menu nav item (ENG-11061 moved it out of the primary nav).
+// Defaults off (useFlagOn falls back to 'off'), so the page is unreachable
+// and the nav item hidden until the flag is on.
 //
 // Pass trackExposure=false on surfaces that read the flag to decide whether to
 // render something (the dashboard nav item) but aren't themselves the
@@ -17,6 +23,8 @@ interface UseTeamAccountsFlagResult {
 export const useTeamAccountsFlag = (
   trackExposure = true,
 ): UseTeamAccountsFlagResult => {
-  const { ready, on } = useFlagOn(TEAM_ACCOUNTS_FLAG_KEY, { trackExposure })
-  return { ready, enabled: on }
+  const { ready, on, failed } = useFlagOn(TEAM_ACCOUNTS_FLAG_KEY, {
+    trackExposure,
+  })
+  return { ready, enabled: on, failed: failed ?? false }
 }

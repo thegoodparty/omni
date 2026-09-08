@@ -23,6 +23,16 @@ import {
 
 interface FeatureFlagsContextValue {
   ready: boolean
+  // True when the most recent server refresh genuinely failed (5xx, network
+  // error, schema drift) rather than resolving a value. `ready` alone can't
+  // signal this — refresh() flips it in a `finally` on every outcome, success
+  // or failure — so a caller that needs to tell "resolved off" apart from
+  // "couldn't be read" (e.g. post-auth-redirect's volunteer routing,
+  // ENG-11071) has to read this too. Meaningless before `ready` is true.
+  // Optional so the many existing hand-rolled test mocks of this context
+  // (predating this field) don't all need updating — real callers always get
+  // a real boolean.
+  failed?: boolean
   variant: (key: string, fallback?: Variant) => Variant
   all: () => Record<string, Variant>
   exposure: (key: string) => void
@@ -32,6 +42,7 @@ interface FeatureFlagsContextValue {
 
 const defaultContextValue: FeatureFlagsContextValue = {
   ready: false,
+  failed: false,
   variant: () => ({ value: undefined }),
   all: () => ({}),
   exposure: noop,
@@ -68,6 +79,10 @@ export const FeatureFlagsProvider = ({
     initialVariants ?? {},
   )
   const [ready, setReady] = useState<boolean>(hasSeed)
+  // Distinct from `ready`: whether the last resolution was a genuine failure
+  // rather than a real "off"/"empty" answer. Starts false — a seeded or
+  // anonymous start is a resolved answer, not a failure.
+  const [failed, setFailed] = useState<boolean>(false)
   const [user, , isUserLoading] = useUser()
   // Whether the first identity has settled, and the fingerprint of the user the
   // current variants reflect — so we re-resolve on a real change (login /
@@ -114,6 +129,10 @@ export const FeatureFlagsProvider = ({
     // unparseable, or network error) must NOT leave the previous identity's
     // variants in place — an unresolvable flag has to read off, never stale.
     let next: Record<string, Variant> = {}
+    // True only for a genuine failure to resolve (5xx, network error, schema
+    // drift) — NOT for the routine opaque auth-expiry redirect, which is an
+    // authoritative "no flags for a signed-out session" answer.
+    let didFail = false
     try {
       // redirect: 'manual' so an expired-session redirect to /login surfaces as
       // an opaque (ok: false) response we skip — not a followed 200 HTML body
@@ -132,6 +151,7 @@ export const FeatureFlagsProvider = ({
         } else {
           // 200 but the body doesn't match the contract (gp-api deploy skew /
           // contract drift): fail safe to empty, but surface it.
+          didFail = true
           reportErrorToSentry(
             new Error('Feature flags response failed schema validation'),
             { context: 'FeatureFlagsProvider.refresh' },
@@ -141,12 +161,14 @@ export const FeatureFlagsProvider = ({
         // A non-ok response that ISN'T the expected auth-expiry redirect (opaque)
         // is a real failure (e.g. 5xx) — still fail safe to empty, but surface it.
         // Only the redirect case is silenced.
+        didFail = true
         reportErrorToSentry(
           new Error(`Feature flags fetch failed: ${res.status}`),
           { context: 'FeatureFlagsProvider.refresh' },
         )
       }
     } catch (error) {
+      didFail = true
       reportErrorToSentry(
         error instanceof Error ? error : new Error(String(error)),
         { context: 'FeatureFlagsProvider.refresh' },
@@ -165,6 +187,7 @@ export const FeatureFlagsProvider = ({
           exposedRef.current = new Set()
         }
         setReady(true)
+        setFailed(didFail)
       }
     }
   }, [])
@@ -207,6 +230,7 @@ export const FeatureFlagsProvider = ({
       setVariants({})
       exposedRef.current = new Set()
       setReady(true)
+      setFailed(false)
       return
     }
     void refresh()
@@ -215,6 +239,7 @@ export const FeatureFlagsProvider = ({
   const value = useMemo<FeatureFlagsContextValue>(
     () => ({
       ready,
+      failed,
       // Reading a variant is the experiment's treatment surface, so it emits an
       // exposure (deduped). all() deliberately does not — see useFlagOn's
       // trackExposure option.
@@ -228,9 +253,10 @@ export const FeatureFlagsProvider = ({
       clear: (): void => {
         setVariants({})
         exposedRef.current = new Set()
+        setFailed(false)
       },
     }),
-    [ready, variants, trackExposure, refresh],
+    [ready, failed, variants, trackExposure, refresh],
   )
 
   return (
@@ -246,6 +272,10 @@ export const useFeatureFlags = (): FeatureFlagsContextValue =>
 interface UseFlagOnResult {
   ready: boolean
   on: boolean
+  // See FeatureFlagsContextValue.failed — passthrough for callers that need
+  // to distinguish a resolved "off" from a fetch that couldn't be read.
+  // Optional for the same reason as there: existing test mocks predate it.
+  failed?: boolean
 }
 
 interface UseFlagOnOptions {
@@ -259,7 +289,7 @@ export const useFlagOn = (
   key: string,
   { trackExposure = true }: UseFlagOnOptions = {},
 ): UseFlagOnResult => {
-  const { ready, variant, all } = useFeatureFlags()
+  const { ready, failed, variant, all } = useFeatureFlags()
   const v = trackExposure ? variant(key, { value: 'off' }) : all()[key]
-  return { ready, on: v?.value === 'on' }
+  return { ready, on: v?.value === 'on', failed }
 }

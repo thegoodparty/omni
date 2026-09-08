@@ -18,6 +18,24 @@ vi.mock('app/dashboard/door-knocking/native/useVoterPack', () => ({
   },
 }))
 
+// The per-day allowance the hub reads to decide whether pressing Door
+// knocking is worth navigating for. Left null (unresolved endpoint) by
+// default so the vast majority of tests here mirror the pre-gate behavior:
+// a click that goes through as-is, since a pending read is not a refusal.
+const quotaData = vi.hoisted(
+  () =>
+    ({ current: null }) as {
+      current: { campaignsRemaining: number; campaignLimit: number } | null
+    },
+)
+vi.mock('app/dashboard/door-knocking/native/turfQueries', () => ({
+  quotaQueryOptions: {
+    queryKey: ['door-knocking-quota'],
+    queryFn: async () =>
+      quotaData.current ?? { campaignsRemaining: 5, campaignLimit: 5 },
+  },
+}))
+
 const mockRouterPush = vi.fn()
 vi.mock('next/navigation', async (importOriginal) => ({
   ...(await importOriginal<typeof import('next/navigation')>()),
@@ -359,6 +377,59 @@ describe('ChannelTileGrid — door-knocking tile carries the selected list', () 
     expect(
       await screen.findByText('Get Pro voter data and tools'),
     ).toBeInTheDocument()
+  })
+})
+
+// The per-day cap the door-knocking backend enforces used to be raised
+// only after the destination page had mounted, so a candidate who had spent
+// the day's allowance had to load /dashboard/door-knocking to be told they
+// couldn't create anything. The hub intercepts the click here when the
+// quota query has already answered zero — the same dialog on the far side
+// stays as the safety net for direct-URL entry and quota-refetch races.
+describe('ChannelTileGrid — door-knocking daily-limit gate', () => {
+  beforeEach(() => {
+    mockCampaign = { id: 9, isPro: true }
+    mockElectedOffice = { data: null, isPending: false }
+    mockRouterPush.mockClear()
+    testQueryClient.clear()
+    quotaData.current = null
+  })
+
+  it('opens the daily-limit dialog and does not navigate when the allowance is spent', async () => {
+    quotaData.current = { campaignsRemaining: 0, campaignLimit: 5 }
+    renderGrid({ preselectedListId: 42 })
+
+    // Wait for the quota query to resolve before clicking. Prefetching the
+    // query here mirrors what the tile's own useQuery does on mount, and
+    // guarantees the click sees a settled read.
+    await testQueryClient.prefetchQuery({
+      queryKey: ['door-knocking-quota'],
+      queryFn: async () => quotaData.current,
+    })
+
+    await userEvent.click(screen.getByText('Door knocking'))
+
+    expect(mockRouterPush).not.toHaveBeenCalled()
+    expect(await screen.findByText('Daily limit reached')).toBeInTheDocument()
+    expect(
+      screen.getByText(/created 5 door knocking campaigns today/),
+    ).toBeInTheDocument()
+  })
+
+  it('navigates as usual when the quota still has capacity', async () => {
+    quotaData.current = { campaignsRemaining: 3, campaignLimit: 5 }
+    renderGrid()
+    await testQueryClient.prefetchQuery({
+      queryKey: ['door-knocking-quota'],
+      queryFn: async () => quotaData.current,
+    })
+
+    await userEvent.click(screen.getByText('Door knocking'))
+
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      '/dashboard/door-knocking?create=1',
+    )
+    expect(screen.queryByText('Daily limit reached')).not.toBeInTheDocument()
   })
 })
 

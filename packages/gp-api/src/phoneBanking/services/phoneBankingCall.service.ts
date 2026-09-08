@@ -14,12 +14,14 @@ import {
   ContactInteractionPhoneBanking,
   ContactStatusField,
   ContactStatusSource,
+  OrganizationRole,
   OutreachStatus,
   PhoneBankCallOutcome,
   Prisma,
   SupportAnswer,
   WillVoteAnswer,
 } from '../../generated/prisma'
+import { PhoneBankingAccessService } from './phoneBankingAccess.service'
 
 type EntryWithPersons = Prisma.PhoneBankingListEntryGetPayload<{
   include: { persons: true }
@@ -51,13 +53,17 @@ const PHONE_BANKING_LIST_LOCK_NAMESPACE = 25714
 export class PhoneBankingCallService extends createPrismaBase(
   MODELS.ContactInteractionPhoneBanking,
 ) {
-  constructor(private readonly contactStatus: ContactStatusService) {
+  constructor(
+    private readonly contactStatus: ContactStatusService,
+    private readonly access: PhoneBankingAccessService,
+  ) {
     super()
   }
 
   async recordCall(
     listId: number,
     organizationSlug: string,
+    role: OrganizationRole,
     input: RecordPhoneBankingCall,
     actorUserId: number,
   ): Promise<RecordPhoneBankingCallResponse> {
@@ -68,6 +74,7 @@ export class PhoneBankingCallService extends createPrismaBase(
     if (!list) {
       throw new NotFoundException('Phone banking list not found')
     }
+    await this.access.assertVolunteerAccess(listId, role, actorUserId)
 
     const entry = await this.client.phoneBankingListEntry.findFirst({
       where: { id: input.entryId, phoneBankingListId: listId },

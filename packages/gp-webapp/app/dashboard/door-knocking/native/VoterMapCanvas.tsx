@@ -22,6 +22,11 @@ import {
   LocateOffIcon,
   MinusIcon,
   PlusIcon,
+  toast,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  Undo2Icon,
 } from '@styleguide'
 import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
 import { STATUS_RGB } from './statusPresentation'
@@ -65,10 +70,16 @@ const LOCATION_BLUE_APPROX: [number, number, number, number] = [
   19, 81, 216, 120,
 ]
 const LOCATION_HALO: [number, number, number, number] = [19, 81, 216, 38]
-// How far the location notice clears the control cluster it belongs to: the
-// cluster is three 40px buttons and two 8px gaps, so this sits the line just
-// above the topmost one rather than over the button that produced it.
-const LOCATION_NOTICE_GAP_PX = 152
+// How far the location notice clears the control cluster it belongs to.
+// Sizing depends on whether the drawing surface's Undo + count-pill row is
+// present: without it the stack is three ~40px buttons + two 8px gaps
+// (~136px, plus a bit of breathing room = 152); with it there's a fourth
+// ~40px row + one more 8px gap = 200. Overshooting either way stacks the
+// notice on top of the top button — the very case this line exists to
+// avoid — so it's computed at render time from the same signal that
+// renders the fourth row.
+const LOCATION_NOTICE_GAP_BASE_PX = 152
+const LOCATION_NOTICE_GAP_WITH_UNDO_PX = 200
 // Slop in pixels around a route pin's own 11-14px radius. The whole feature is
 // used one-handed on a phone in the street, so the tap target has to clear the
 // ~44px a thumb needs rather than the ~24px the pin is drawn at.
@@ -118,6 +129,11 @@ const SELECTION_RING_WIDTH = 3
 // keeps listing it. See the archived-dimming note in this directory's
 // AGENTS.md for why this is a strength change and not a filter.
 const ARCHIVED_RING_ALPHA = 0.28
+// Same idea for the walk. During a walk the numbered pins are the action
+// and the ring is orientation — muting it lets the pins carry the visual
+// weight without removing the "these are the doors in your list" boundary.
+// If both apply (a walk on an archived list, rare), the two multiply.
+const WALK_ACTIVE_RING_ALPHA = 0.3
 
 export type PolygonRing = Array<[number, number]>
 
@@ -138,8 +154,13 @@ export interface RoutePin {
 }
 
 interface VoterMapCanvasProps {
-  pack: DecodedPack
-  filterResult: FilterResult
+  // Null for the volunteer walk (ENG-11055): a volunteer never reads
+  // GET /v1/door-knocking/pack (403 server-side), so there is no district
+  // plane to draw. Null omits the `voter-dots` layer entirely rather than
+  // rendering it empty, and the opening camera falls back to the route-fit
+  // effect below instead of `packOpeningCenter`.
+  pack: DecodedPack | null
+  filterResult: FilterResult | null
   turfs: DoorKnockingTurf[]
   // Numbered stop pins for the open route's walk view.
   routePins: RoutePin[]
@@ -191,6 +212,12 @@ interface VoterMapCanvasProps {
   // so the cluster has to be told where the uncovered map ends; every other
   // surface leaves it at the design's 16px edge.
   controlsBottomPx?: number
+  // Bottom padding to reserve when framing the route with fitBounds — the
+  // canvas re-fits the pins to keep them visible above the walk sheet,
+  // Google Maps pattern for a persistent bottom sheet over a route map.
+  // `null` or absent = use default padding (no sheet, or `full` snap where
+  // the map is covered anyway).
+  routeFrameBottomPx?: number | null
   // Where the canvasser is, when they have asked to be shown. A reading and not
   // a switch: this canvas draws the dot, and the page holds the watch because
   // it is the one thing that outlives every surface. The SWITCH is the third
@@ -198,6 +225,25 @@ interface VoterMapCanvasProps {
   location: LiveLocation
   liveLocationEnabled?: boolean
   onToggleLiveLocation?: (next: boolean) => void
+  // Drops the last placed vertex. Rendered as the fourth (visually
+  // bottom) button of the zoom/locate cluster whenever this callback is
+  // provided — grouped with the map's own controls so all four share
+  // the cluster's flex gap and card styling instead of two clusters
+  // that have to be kept in visual sync by hand. On a zero-point press
+  // the button toasts "There is nothing to undo" and shakes; a real
+  // press fires `onUndoPoint`.
+  onUndoPoint?: () => void
+  // Whether there's a vertex to drop. Zero disables the real path and
+  // routes the click into the toast + shake feedback path.
+  hasPointToUndo?: boolean
+  // Draw-stop count for the pill that sits beside Undo — same cluster,
+  // same flex parent, so the pair reads as one control row and shares
+  // gap-2 with the icon buttons above. Only rendered when Undo is
+  // (i.e., when `onUndoPoint` is provided).
+  drawStopCount?: number
+  // Whether the shape is over the 150-stop cap; the pill turns red and
+  // shakes on a new tap that keeps it over.
+  drawStopsOverCap?: boolean
   // Whether this canvas is the one that has to report the watch's state in
   // words. Off by default: the walk sets it false because its sheet already
   // carries the line, and two copies of "Location is blocked" on one screen is
@@ -232,6 +278,13 @@ interface VoterMapCanvasProps {
 // fetch client into the maplibre/deck.gl chunk to answer a one-field question.
 const archivedAlpha = (turf: DoorKnockingTurf, alpha: number): number =>
   turf.archivedAt ? Math.round(alpha * ARCHIVED_RING_ALPHA) : alpha
+
+// The walk-active counterpart of `archivedAlpha`, but a scalar op — the
+// mute isn't per-turf (during a walk visibleTurfs is already scoped to the
+// walked list by the orchestrator), so this only asks "are we in a walk
+// right now" and takes the alpha down by the same strength-only pattern.
+const walkActiveAlpha = (alpha: number, walkActive: boolean): number =>
+  walkActive ? Math.round(alpha * WALK_ACTIVE_RING_ALPHA) : alpha
 
 const hexToRgba = (
   hex: string,
@@ -276,7 +329,7 @@ const buildColors = (
   return colors
 }
 
-const packBounds = (
+export const packBounds = (
   positions: Float32Array,
 ): [[number, number], [number, number]] | null => {
   if (positions.length === 0) return null
@@ -443,15 +496,46 @@ export default function VoterMapCanvas({
   frameDrawBottomPct,
   controlsHidden = false,
   controlsBottomPx = 16,
+  routeFrameBottomPx = null,
   location,
   liveLocationEnabled = false,
   onToggleLiveLocation,
+  onUndoPoint,
+  hasPointToUndo = false,
+  drawStopCount = 0,
+  drawStopsOverCap = false,
   locationNotice = false,
   onPolygonChange,
   onDrawPointCount,
   onRoutePinClick,
 }: VoterMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  // The Undo button in the cluster below shakes on a zero-point press.
+  // Ref lives here so the click handler can clear + reapply the class
+  // without React re-render skipping the animation restart.
+  const undoRef = useRef<HTMLButtonElement>(null)
+  // The count pill next to Undo shakes on a new tap that keeps the shape
+  // over the 150-stop cap. The tooltip beside it force-opens over the
+  // cap, so this is attention feedback without a toast (which would
+  // stack a snackbar on top of the tooltip that's already saying it).
+  const pillRef = useRef<HTMLSpanElement>(null)
+  const prevStopsRef = useRef(drawStopCount)
+  useEffect(() => {
+    const previous = prevStopsRef.current
+    prevStopsRef.current = drawStopCount
+    // Only shake on a new tap that KEPT us over — undoing while still
+    // over-cap is progress in the right direction, so the pill should
+    // not scold the very move that's fixing the problem.
+    if (!drawStopsOverCap || drawStopCount <= previous) return
+    const el = pillRef.current
+    if (!el) return
+    el.classList.remove('animate-shake')
+    // Reflow: React seeing the same class on re-render will not restart
+    // the CSS animation, so the class has to go away and come back with
+    // a layout between the two writes.
+    void el.offsetWidth
+    el.classList.add('animate-shake')
+  }, [drawStopCount, drawStopsOverCap])
   const hasTilesKey = NEXT_PUBLIC_GEOAPIFY_TILES_KEY.length > 0
   const overlayRef = useRef<MapboxOverlay | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -710,11 +794,15 @@ export default function VoterMapCanvas({
 
     // Read at mount only: this names the opening view, not a controlled
     // zoom — reacting to it later would fight the canvasser's own panning.
+    // A null pack (the volunteer walk) leaves both branches with nothing to
+    // frame; the map opens at its bare default and the route-fit effect below
+    // reframes it onto the pins the moment the served route lands.
     if (initialZoom === undefined) {
-      const bounds = packBounds(packRef.current.positions)
+      const bounds = packRef.current && packBounds(packRef.current.positions)
       if (bounds) map.fitBounds(bounds, { padding: 48, animate: false })
     } else {
-      const center = packOpeningCenter(packRef.current.positions)
+      const center =
+        packRef.current && packOpeningCenter(packRef.current.positions)
       if (center) map.jumpTo({ center, zoom: initialZoom })
     }
 
@@ -733,7 +821,7 @@ export default function VoterMapCanvas({
   useEffect(() => {
     const overlay = overlayRef.current
     if (!overlay) return
-    const dotCount = pack.manifest.counts.dots
+    const dotCount = pack?.manifest.counts.dots ?? 0
     // Only the hue crosses the seam. The strengths stay this canvas's, so the
     // ring being cut can't come out bolder or fainter than the saved ones it is
     // being compared against.
@@ -769,31 +857,53 @@ export default function VoterMapCanvas({
           // accent bar, so recolouring it would break the one thing that ties
           // an outline to a row. This is the same treatment the archived card
           // gets in the rail (`dimmed`), on the other half of the screen.
+          //
+          // During a walk (routePins non-empty), the ring gets the same
+          // strength-only pullback so the numbered pins carry the visual
+          // weight and the boundary reads as ambient context. Composes with
+          // the archived treatment above — a walk on an archived list gets
+          // both multiplications and reads as nearly invisible, which is
+          // the right answer for that rare state.
           getFillColor: (turf) =>
-            hexToRgba(turf.color, archivedAlpha(turf, 40)),
+            hexToRgba(
+              turf.color,
+              walkActiveAlpha(archivedAlpha(turf, 40), routePins.length > 0),
+            ),
           getLineColor: (turf) =>
-            hexToRgba(turf.color, archivedAlpha(turf, 220)),
+            hexToRgba(
+              turf.color,
+              walkActiveAlpha(archivedAlpha(turf, 220), routePins.length > 0),
+            ),
           lineWidthMinPixels: 2,
           pickable: false,
-        }),
-        new ScatterplotLayer({
-          id: 'voter-dots',
-          ...underLabels,
-          data: {
-            length: dotCount,
-            attributes: {
-              getPosition: { value: pack.positions, size: 2 },
-              getFillColor: {
-                value: buildColors(filterResult, dotCount, drawing),
-                size: 4,
-              },
-            },
+          updateTriggers: {
+            getFillColor: routePins.length > 0,
+            getLineColor: routePins.length > 0,
           },
-          radiusMinPixels: 1.5,
-          radiusMaxPixels: 6,
-          getRadius: 5,
-          pickable: false,
         }),
+        // Null on the volunteer walk (ENG-11055), which never reads the pack —
+        // omitted rather than drawn empty, so there is no district plane
+        // underneath a route that has no pack to be scoped against.
+        pack && filterResult
+          ? new ScatterplotLayer({
+              id: 'voter-dots',
+              ...underLabels,
+              data: {
+                length: dotCount,
+                attributes: {
+                  getPosition: { value: pack.positions, size: 2 },
+                  getFillColor: {
+                    value: buildColors(filterResult, dotCount, drawing),
+                    size: 4,
+                  },
+                },
+              },
+              radiusMinPixels: 1.5,
+              radiusMaxPixels: 6,
+              getRadius: 5,
+              pickable: false,
+            })
+          : null,
         // Two points are not a polygon yet, so the shape in progress is a bare
         // segment and the PolygonLayer below has nothing to draw. The design
         // still draws the edge, dashed — an unclosed boundary that shows
@@ -1034,8 +1144,31 @@ export default function VoterMapCanvas({
     if (bounds) mapRef.current.fitBounds(bounds, { padding: 64 })
   }, [focusTurf])
 
-  // Fit once per distinct route: refit when the pin set actually changes,
-  // not on every rerender that passes the same array contents.
+  // Persist a bottom padding on the map itself so every camera op — the
+  // route fit below, but also panTo, easeTo, and the live-location
+  // recenter — respects the sheet's covered area. maplibre's setPadding is
+  // more reliable than passing padding via fitBounds options: the latter
+  // is per-call and sometimes silently ignores object-form padding
+  // depending on version; setPadding is a persistent camera property that
+  // any subsequent fit re-centers against.
+  useEffect(() => {
+    const map = mapRef.current
+    // Guarded: test mocks don't stub `setPadding`, and older maplibre
+    // versions may lack it. Skip cleanly when unavailable.
+    if (!map || typeof map.setPadding !== 'function') return
+    map.setPadding({
+      top: 0,
+      bottom: routeFrameBottomPx ? routeFrameBottomPx + 16 : 0,
+      left: 0,
+      right: 0,
+    })
+  }, [routeFrameBottomPx])
+
+  // Fit the camera around the route. Refits whenever the pin set actually
+  // changes AND whenever the walk sheet snaps (routeFrameBottomPx changes),
+  // so the pins stay visible in the band above the sheet as it opens —
+  // Google Maps pattern. Signature includes the padding source so a re-snap
+  // with the same route still refits; otherwise the ref short-circuits.
   const fittedRouteRef = useRef<string | null>(null)
   useEffect(() => {
     if (routePins.length === 0) {
@@ -1044,7 +1177,7 @@ export default function VoterMapCanvas({
     }
     const first = routePins[0]
     const last = routePins[routePins.length - 1]
-    const signature = `${routePins.length}:${first?.lat},${first?.lng}:${last?.lat},${last?.lng}`
+    const signature = `${routePins.length}:${first?.lat},${first?.lng}:${last?.lat},${last?.lng}:${routeFrameBottomPx ?? 'none'}`
     if (fittedRouteRef.current === signature || !mapRef.current) return
     fittedRouteRef.current = signature
     let minX = Infinity
@@ -1057,6 +1190,9 @@ export default function VoterMapCanvas({
       if (pin.lat < minY) minY = pin.lat
       if (pin.lat > maxY) maxY = pin.lat
     }
+    // Uniform padding via fitBounds option — the persistent bottom pad
+    // from setPadding above handles the sheet-clearance; this just gives
+    // the pins a little breathing room from the map edges.
     mapRef.current.fitBounds(
       [
         [minX, minY],
@@ -1064,7 +1200,7 @@ export default function VoterMapCanvas({
       ],
       { padding: 80 },
     )
-  }, [routePins])
+  }, [routePins, routeFrameBottomPx])
 
   useEffect(() => {
     if (startDrawToken === 0) return
@@ -1178,14 +1314,14 @@ export default function VoterMapCanvas({
           and the map is this component's. */}
       {!controlsHidden && (
         <div
-          className="absolute left-4 z-20 flex flex-col gap-2 transition-[bottom] duration-200 ease-out"
+          className="absolute left-8 z-20 flex flex-col gap-2 transition-[bottom] duration-200 ease-out"
           style={{ bottom: controlsBottomPx }}
         >
           <IconButton
             type="button"
             variant="outline"
             aria-label="Zoom in"
-            className="bg-card"
+            className="bg-card hover:bg-card"
             onClick={() => mapRef.current?.zoomIn()}
           >
             <PlusIcon className="size-[18px]" />
@@ -1194,7 +1330,7 @@ export default function VoterMapCanvas({
             type="button"
             variant="outline"
             aria-label="Zoom out"
-            className="bg-card"
+            className="bg-card hover:bg-card"
             onClick={() => mapRef.current?.zoomOut()}
           >
             <MinusIcon className="size-[18px]" />
@@ -1211,7 +1347,7 @@ export default function VoterMapCanvas({
                 liveLocationEnabled ? 'Hide my location' : 'Show my location'
               }
               aria-pressed={liveLocationEnabled}
-              className="bg-card"
+              className="bg-card hover:bg-card"
               onClick={() => onToggleLiveLocation(!liveLocationEnabled)}
             >
               {liveLocationEnabled ? (
@@ -1220,6 +1356,80 @@ export default function VoterMapCanvas({
                 <LocateOffIcon className="size-[18px]" />
               )}
             </IconButton>
+          )}
+          {/* The drawing surface's Undo + count pill, slotted in as the
+              fourth (visually bottom) row of the cluster. Undo is on the
+              left, the "N selected" pill sits immediately to its right,
+              same gap-2 the vertical stack uses. Only rendered when a
+              caller provides `onUndoPoint` — every other surface leaves
+              the slot empty. */}
+          {onUndoPoint && (
+            <div className="flex items-center gap-2">
+              <IconButton
+                ref={undoRef}
+                type="button"
+                variant="outline"
+                aria-label="Undo"
+                className="bg-card hover:bg-card"
+                onAnimationEnd={() => {
+                  undoRef.current?.classList.remove('animate-shake')
+                }}
+                onClick={() => {
+                  if (!hasPointToUndo) {
+                    // Same feedback path as the drawing surface's other
+                    // "nothing to act on" gestures: toast says what
+                    // happened, shake says the tap reached the control
+                    // and it deliberately did nothing. Reflow trick so
+                    // React re-render with the same class doesn't
+                    // swallow the restart.
+                    toast('There is nothing to undo')
+                    const el = undoRef.current
+                    if (el) {
+                      el.classList.remove('animate-shake')
+                      void el.offsetWidth
+                      el.classList.add('animate-shake')
+                    }
+                    return
+                  }
+                  onUndoPoint()
+                }}
+              >
+                <Undo2Icon className="size-[18px]" />
+              </IconButton>
+              {/* Forced open over the cap: the pill turning red is the
+                  whole explanation otherwise, and a colour is not a
+                  limit. */}
+              <Tooltip open={drawStopsOverCap ? true : undefined}>
+                <TooltipTrigger asChild>
+                  <span
+                    ref={pillRef}
+                    onAnimationEnd={(e) =>
+                      e.currentTarget.classList.remove('animate-shake')
+                    }
+                    className={`inline-flex h-9 items-center rounded-full border bg-card px-3.5 text-sm font-semibold ${
+                      drawStopsOverCap
+                        ? 'border-destructive text-destructive'
+                        : 'border-border text-foreground'
+                    }`}
+                  >
+                    {drawStopCount.toLocaleString()} selected
+                  </span>
+                </TooltipTrigger>
+                {/* Stops, not doors: the 150 is a cap on the stops the
+                    router visits, and a limit quoted in a unit it is
+                    not measured in is a limit nobody can act on.
+
+                    `align="start"` shifts the tooltip body rightward so
+                    it clears the vertical button stack directly above
+                    the pill (Zoom In / Zoom Out / Locate / Undo).
+                    Radix's Arrow tracks the trigger's center, so it
+                    stays pointing at the pill even as the tooltip
+                    extends to the right. */}
+                <TooltipContent side="top" align="start">
+                  Limit is 150 stops per list
+                </TooltipContent>
+              </Tooltip>
+            </div>
           )}
         </div>
       )}
@@ -1236,7 +1446,13 @@ export default function VoterMapCanvas({
           role="status"
           aria-live="polite"
           className="pointer-events-none absolute left-4 right-4 z-20 mx-auto max-w-xs rounded-md bg-card/95 px-3 py-2 text-center text-sm shadow-md transition-[bottom] duration-200 ease-out"
-          style={{ bottom: controlsBottomPx + LOCATION_NOTICE_GAP_PX }}
+          style={{
+            bottom:
+              controlsBottomPx +
+              (onUndoPoint
+                ? LOCATION_NOTICE_GAP_WITH_UNDO_PX
+                : LOCATION_NOTICE_GAP_BASE_PX),
+          }}
         >
           {locationMessage}
         </div>

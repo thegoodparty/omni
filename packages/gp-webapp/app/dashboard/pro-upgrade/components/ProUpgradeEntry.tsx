@@ -11,7 +11,7 @@ import {
   CAMPAIGN_QUERY_KEY,
   fetchCampaign,
 } from '@shared/hooks/CampaignProvider'
-import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
+import { Spinner } from '@styleguide'
 import {
   USER_WEBSITE_QUERY_KEY,
   getUserWebsite,
@@ -129,7 +129,12 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
   ])
 
   // Spinner only while the canonical-state queries are pending.
-  if (!ready) return <LoadingAnimation />
+  if (!ready)
+    return (
+      <div className="flex h-[60vh] items-center justify-center">
+        <Spinner />
+      </div>
+    )
 
   // A fetch failed: show a recoverable error instead of mis-routing to the
   // intro. Refetching clears the error and re-runs the redirect effect.

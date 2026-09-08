@@ -19,7 +19,9 @@ import {
   type ContactNoteListResponse,
 } from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
+import { AllowVolunteer } from 'src/organizations/decorators/AllowVolunteer.decorator'
 import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.decorator'
+import { ReqOrganizationRole } from 'src/organizations/decorators/ReqOrganizationRole.decorator'
 import { UseOrganization } from 'src/organizations/decorators/UseOrganization.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
@@ -28,7 +30,8 @@ import {
   ContactNoteService,
   ContactNoteWithActor,
 } from '@/contactNote/services/contactNote.service'
-import { Organization, User } from '../generated/prisma'
+import { ContactNoteVolunteerAccessService } from '@/contactNote/services/contactNoteVolunteerAccess.service'
+import { Organization, OrganizationRole, User } from '../generated/prisma'
 import {
   ContactNoteBodyDTO,
   ContactNoteIdParamsDTO,
@@ -56,15 +59,25 @@ export class ContactNotesController {
   constructor(
     private readonly contactsService: ContactsService,
     private readonly contactNoteService: ContactNoteService,
+    private readonly volunteerAccess: ContactNoteVolunteerAccessService,
   ) {}
 
   @Get(':personId/notes')
+  @AllowVolunteer()
   @ResponseSchema(ContactNoteListResponseSchema)
   async listNotes(
     @Param() { personId }: ContactNotePersonParamsDTO,
     @ReqOrganization() organization: Organization,
+    @ReqOrganizationRole() role: OrganizationRole,
+    @ReqUser() user: User,
   ): Promise<ContactNoteListResponse> {
     await this.contactsService.assertProAccess(organization)
+    await this.volunteerAccess.assertAccessToPerson(
+      organization.slug,
+      personId,
+      role,
+      user.id,
+    )
     const notes = await this.contactNoteService.listForPerson(
       organization.slug,
       personId,
@@ -73,14 +86,22 @@ export class ContactNotesController {
   }
 
   @Post(':personId/notes')
+  @AllowVolunteer()
   @ResponseSchema(ContactNoteSchema)
   async createNote(
     @Param() { personId }: ContactNotePersonParamsDTO,
     @Body() body: ContactNoteBodyDTO,
     @ReqOrganization() organization: Organization,
+    @ReqOrganizationRole() role: OrganizationRole,
     @ReqUser() user: User,
   ): Promise<ContactNoteDto> {
     await this.contactsService.assertProAccess(organization)
+    await this.volunteerAccess.assertAccessToPerson(
+      organization.slug,
+      personId,
+      role,
+      user.id,
+    )
     const note = await this.contactNoteService.create(
       organization.slug,
       personId,
@@ -90,17 +111,27 @@ export class ContactNotesController {
     return toApi(note)
   }
 
-  // No @ReqUser here: actorUserId is author-at-creation only (mirrors the
-  // column's own semantics — an edit must not reattribute the note to
-  // whoever happens to fix a typo).
+  // @ReqUser here is only for the volunteer-access check below —
+  // actorUserId itself is author-at-creation only (mirrors the column's
+  // own semantics — an edit must not reattribute the note to whoever
+  // happens to fix a typo).
   @Patch('notes/:noteId')
+  @AllowVolunteer()
   @ResponseSchema(ContactNoteSchema)
   async updateNote(
     @Param() { noteId }: ContactNoteIdParamsDTO,
     @Body() body: ContactNoteBodyDTO,
     @ReqOrganization() organization: Organization,
+    @ReqOrganizationRole() role: OrganizationRole,
+    @ReqUser() user: User,
   ): Promise<ContactNoteDto> {
     await this.contactsService.assertProAccess(organization)
+    await this.volunteerAccess.assertAccessToNote(
+      noteId,
+      organization.slug,
+      role,
+      user.id,
+    )
     const updated = await this.contactNoteService.updateByIdAndOrganizationSlug(
       noteId,
       organization.slug,
@@ -113,12 +144,21 @@ export class ContactNotesController {
   }
 
   @Delete('notes/:noteId')
+  @AllowVolunteer()
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteNote(
     @Param() { noteId }: ContactNoteIdParamsDTO,
     @ReqOrganization() organization: Organization,
+    @ReqOrganizationRole() role: OrganizationRole,
+    @ReqUser() user: User,
   ): Promise<void> {
     await this.contactsService.assertProAccess(organization)
+    await this.volunteerAccess.assertAccessToNote(
+      noteId,
+      organization.slug,
+      role,
+      user.id,
+    )
     const deletedCount =
       await this.contactNoteService.deleteByIdAndOrganizationSlug(
         noteId,

@@ -3,12 +3,29 @@ import type { DoorKnockingAddressPreviewResponse } from '@goodparty_org/contract
 
 interface DoorsPanelProps {
   addressPreview: DoorKnockingAddressPreviewResponse | null
+  // A prop and not a context read, for the reason `CreateListFlow` takes
+  // `isServeOrg` as one: this panel is presentational and its tests render it
+  // without a provider.
+  isServe: boolean
   pending: boolean
   failed: boolean
   stale: boolean
   onShow: () => void
   onRetry: () => void
 }
+
+// What the count under an address is counting. Serve says constituents for the
+// same people: they are already represented, so the word does not wait on an
+// election. Kept beside the panel that says it rather than in the shared copy
+// module, because this is the only place either word is a unit of measure.
+const peopleNoun = (people: number, isServe: boolean): string =>
+  isServe
+    ? people === 1
+      ? 'constituent'
+      : 'constituents'
+    : people === 1
+      ? 'voter'
+      : 'voters'
 
 // The addresses inside the boundary (ADR 0010), lifted out of the draw step so
 // that step can be read against the canvas without four states of a panel in
@@ -17,6 +34,7 @@ interface DoorsPanelProps {
 // thing the candidate is checking it against.
 export const DoorsPanel = ({
   addressPreview,
+  isServe,
   pending,
   failed,
   stale,
@@ -74,7 +92,12 @@ export const DoorsPanel = ({
             this is the evaluation the route is built from, with do-not-knock
             and "not a voter" residents already out. What it does need to say
             is that it is a snapshot, since a list saved tomorrow is evaluated
-            again. */}
+            again.
+
+            The exclusion keeps its ADR 0008 name on both rails: "not a voter"
+            is the flag a canvasser sets and the word they will look for, and a
+            Serve-only rewording would name a thing this panel is not
+            describing. */}
         <p className="text-xs text-muted-foreground">
           Everyone your filters target, as of now — people marked do-not-knock
           or &ldquo;not a voter&rdquo; are already out.
@@ -103,7 +126,7 @@ export const DoorsPanel = ({
                     <span className="text-muted-foreground">
                       {' '}
                       · {door.people.toLocaleString()}{' '}
-                      {door.people === 1 ? 'voter' : 'voters'}
+                      {peopleNoun(door.people, isServe)}
                     </span>
                   </li>
                 ))}

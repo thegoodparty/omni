@@ -180,7 +180,10 @@ export class OutreachSocialService extends createPrismaBase(
   // used to select `completedAt`/`archivedAt` off the turf specifically so the
   // drawer would read the source instead of the envelope's mirror of it; there
   // is one row now, so the block and the row it decorates cannot disagree.
-  private async computeDoorKnockingDetail(
+  // Public: also reused by OutreachAssignmentService.listMineDetailed to
+  // hydrate a volunteer's assignment cards (ENG-11048) — same reasoning as
+  // the ADR 0010 note above, one more caller.
+  async computeDoorKnockingDetail(
     routeId: number,
     organizationSlug: string,
     envelope: Pick<Outreach, 'status' | 'archivedAt'>,
@@ -221,7 +224,9 @@ export class OutreachSocialService extends createPrismaBase(
   // across all persons on it — the same latest-wins rule
   // SupportStatusService uses, since a fan-out write's uniform outcome can
   // later diverge when one housemate is corrected on their own.
-  private async computePhoneBankingDetail(
+  // Public: also reused by OutreachAssignmentService.listMineDetailed (see
+  // the note on computeDoorKnockingDetail above).
+  async computePhoneBankingDetail(
     listId: number,
   ): Promise<PhoneBankingOutreachDetail> {
     const [

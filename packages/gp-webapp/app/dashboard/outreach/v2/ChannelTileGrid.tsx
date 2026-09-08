@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChannelCard } from '@styleguide'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
@@ -20,6 +20,8 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { TcrCompliance } from 'helpers/types'
 import type { OutreachType } from 'gpApi/types/outreach.types'
 import { voterPackQueryOptions } from 'app/dashboard/door-knocking/native/useVoterPack'
+import { quotaQueryOptions } from 'app/dashboard/door-knocking/native/turfQueries'
+import { DoorKnockingDailyLimitDialog } from 'app/dashboard/door-knocking/native/DoorKnockingDailyLimitDialog'
 import { CHANNEL_META } from './channelMeta'
 
 interface ChannelTileGridProps {
@@ -41,9 +43,6 @@ const TILE_ORDER: OutreachType[] = [
   OUTREACH_TYPES.phoneBanking,
   OUTREACH_TYPES.doorKnocking,
 ]
-
-const formatCost = (cost: number): string =>
-  cost === 0 ? 'Free' : `$${cost.toFixed(3).replace(/^0\./, '.')}/msg`
 
 export const ChannelTileGrid = ({
   tcrCompliance,
@@ -67,6 +66,20 @@ export const ChannelTileGrid = ({
   // Read only to decide whether the district download below is worth starting.
   // The door-knocking page gate is the treatment surface, so no exposure here.
   const nativeDoorKnocking = useNativeDoorKnockingFlag(false)
+  // Prefetch the per-day quota alongside the pack (small, cached) so a click
+  // on the door-knocking tile can be intercepted here when the allowance is
+  // spent, instead of navigating to /dashboard/door-knocking just to raise
+  // the refusal dialog. Same enabled scope as the pack prefetch: control-arm
+  // campaigns never reach the native page, so there is nothing to gate for
+  // them. A failed or in-flight read lets the click through — the destination
+  // page carries the same dialog as the safety net.
+  const quotaQuery = useQuery({
+    ...quotaQueryOptions,
+    enabled: nativeDoorKnocking.enabled,
+  })
+  const [refusedCampaignLimit, setRefusedCampaignLimit] = useState<
+    number | null
+  >(null)
   // Own equivalent of ContactsTableProvider's canUseProFeatures — not
   // imported from there (contacts-scoped, would force an organization
   // provider onto every tile-grid test). A pending elected-office query must
@@ -167,6 +180,18 @@ export const ChannelTileGrid = ({
       return
     }
     if (type === OUTREACH_TYPES.doorKnocking) {
+      // Intercept a spent allowance here rather than making the candidate
+      // load the door-knocking page just to see the refusal. The dialog on
+      // the destination page stays as the safety net for direct-URL entry
+      // and for a race between this click and the quota refetch. Only fires
+      // on a settled read that reports zero — an in-flight or failed read
+      // lets the click through and the destination-page assert is the
+      // authority, same as the destination's own beginCreateFlow policy.
+      const quota = quotaQuery.data
+      if (quota && quota.campaignsRemaining === 0) {
+        setRefusedCampaignLimit(quota.campaignLimit)
+        return
+      }
       // The one tile that navigates instead of opening a flow here, so the
       // preselected list travels as `?listId=` — the same param the CRM's
       // "Send outreach" links already use to reach this hub. The
@@ -238,7 +263,6 @@ export const ChannelTileGrid = ({
               icon={meta.icon}
               iconClassName={meta.iconTint}
               label={meta.label}
-              subCopy={formatCost(option?.cost ?? 0)}
               locked={Boolean(
                 option?.requiresPro &&
                 (type === OUTREACH_TYPES.phoneBanking
@@ -280,6 +304,10 @@ export const ChannelTileGrid = ({
           }}
         />
       )}
+      <DoorKnockingDailyLimitDialog
+        limit={refusedCampaignLimit}
+        onDismiss={() => setRefusedCampaignLimit(null)}
+      />
     </section>
   )
 }

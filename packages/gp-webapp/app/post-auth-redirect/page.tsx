@@ -8,6 +8,7 @@ import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
 import {
   resolvePostAuthRedirectPath,
   CampaignStatus,
+  WIN_ONBOARDING_PATH,
 } from 'helpers/resolvePostAuthRedirectPath.util'
 import { getCookie, setCookie } from 'helpers/cookieHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
@@ -16,11 +17,21 @@ import { trackRegistrationCompleted } from 'helpers/analyticsHelper'
 import { getReadyAnalytics } from '@shared/utils/analytics'
 import { isSafeInternalPath } from 'helpers/isSafeInternalPath'
 import { isServeRoutePath } from 'app/dashboard/shared/serveRoutes'
-import { LoaderCircle } from 'lucide-react'
+import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
+import { Spinner } from '@styleguide'
 
 const PostAuthRedirectPage = () => {
   const { isSignedIn, isLoaded, user: clerkUser } = useClerkUser()
   const ranRef = useRef(false)
+  // trackExposure=false: a render-decision read for routing, not the
+  // experiment's own treatment surface (mirrors every other nav/routing read
+  // of this flag — DashboardMenu, the org picker).
+  // `failed` is intentionally not read here anymore (ENG-11073) — the
+  // active-org role, not the client flag read, is what this page's
+  // /dashboard override keys off. The field stays on the hook for other
+  // consumers.
+  const { enabled: teamAccountsEnabled, ready: flagReady } =
+    useTeamAccountsFlag(false)
 
   useEffect(() => {
     if (ranRef.current) return
@@ -29,8 +40,26 @@ const PostAuthRedirectPage = () => {
       window.location.replace('/login')
       return
     }
+    // teamAccountsEnabled is a closed-over render value the async body below
+    // reads once and never re-reads. If the SSR flag seed came back null
+    // (gp-api hiccup in PageWrapper), FeatureFlagsProvider's async refresh()
+    // races Clerk hydration — without this guard, a run that fires before
+    // refresh() resolves would permanently close over `false` (ranRef is set
+    // right below) and misroute a volunteer into onboarding for the whole
+    // visit. `flagReady` is guaranteed to flip true once resolution SETTLES,
+    // success or failure (FeatureFlagsProvider's refresh() sets it in a
+    // `finally`, and the synchronous seeded/anonymous paths set it
+    // immediately) — so this can only stall on an unsettled fetch, the same
+    // class of risk every other awaited call below already carries unguarded.
+    if (!flagReady) return
 
     ranRef.current = true
+    // Declared outside the try so the catch below can still make a
+    // volunteer-aware decision if something later throws — assigned as soon
+    // as `organizations`/`slug` resolve, well before any of the riskier
+    // Promise.all calls (ENG-11071: onboarding is destructive for a
+    // confirmed volunteer, so this can't stay trapped inside the try block).
+    let activeOrgIsVolunteer = false
     ;(async () => {
       try {
         // An explicit deep-link destination forwarded by the login flow when
@@ -43,24 +72,28 @@ const PostAuthRedirectPage = () => {
         const safeNext = isSafeInternalPath(nextParam) ? nextParam : null
 
         // First authenticated call after a fresh sign-up may race the gp-api
-        // JIT-provisioning of the local user record. Retry once on failure
-        // before falling back to an empty list.
+        // JIT-provisioning of the local user record; a fresh LOGIN of an
+        // EXISTING user (an established volunteer included) can race the same
+        // way while Clerk's cookie/JWT is still propagating. An empty result
+        // here is indistinguishable from a genuinely org-less new user, and
+        // for a volunteer that ambiguity is what misroutes them into
+        // candidate onboarding instead of /volunteer (ENG-11071) — so retry
+        // with backoff a couple of times before giving up.
         let organizations: Organization[] = []
-        const orgsRes = await clientRequest(
-          'GET /v1/organizations',
-          {},
-          { ignoreResponseError: true },
-        )
-        if (orgsRes.ok) {
-          organizations = orgsRes.data.organizations
-        } else {
-          await new Promise((resolve) => setTimeout(resolve, 500))
-          const retry = await clientRequest(
+        const ORG_FETCH_RETRY_DELAYS_MS = [500, 1000]
+        for (let attempt = 0; ; attempt++) {
+          const res = await clientRequest(
             'GET /v1/organizations',
             {},
             { ignoreResponseError: true },
           )
-          if (retry.ok) organizations = retry.data.organizations
+          if (res.ok) {
+            organizations = res.data.organizations
+            break
+          }
+          const delay = ORG_FETCH_RETRY_DELAYS_MS[attempt]
+          if (delay === undefined) break
+          await new Promise((resolve) => setTimeout(resolve, delay))
         }
 
         // The "serve" experience (briefings, polls) is scoped to the org that
@@ -83,6 +116,18 @@ const PostAuthRedirectPage = () => {
           setCookie(ORG_SLUG_COOKIE, slug)
         }
 
+        // Mirrors the server-side resolution in
+        // app/shared/organizations/activeOrgVolunteer.server.ts: the active
+        // org is the one `slug` just resolved to (cookie match, else the
+        // first org) — re-matching it here rather than trusting `electedOrg`
+        // or any other org found above, since none of those are guaranteed
+        // to be the one the cookie now points at. This is the raw role fact,
+        // independent of the win-team-accounts flag — the flag gate is
+        // applied below, where `isActiveOrgVolunteer` feeds the resolver.
+        const activeOrg =
+          organizations.find((o) => o.slug === slug) ?? organizations[0]
+        activeOrgIsVolunteer = activeOrg?.role === 'volunteer'
+
         const [userRes, statusRes, electedRes, electedMineRes] =
           await Promise.all([
             clientRequest(
@@ -90,11 +135,18 @@ const PostAuthRedirectPage = () => {
               {},
               { ignoreResponseError: true },
             ),
-            clientRequest(
-              'GET /v1/campaigns/mine/status',
-              {},
-              { ignoreResponseError: true },
-            ),
+            // gp-api's UseCampaignGuard fails closed on a volunteer
+            // membership, so this always 403s for one regardless of the
+            // team-accounts flag (ENG-11072) — skip it outright rather than
+            // firing a request whose only possible outcome downstream is the
+            // same `campaignStatus = null` a real 403 already produces below.
+            activeOrgIsVolunteer
+              ? Promise.resolve({ ok: false as const })
+              : clientRequest(
+                  'GET /v1/campaigns/mine/status',
+                  {},
+                  { ignoreResponseError: true },
+                ),
             clientRequest(
               'GET /v1/elected-office/current',
               {},
@@ -223,13 +275,31 @@ const PostAuthRedirectPage = () => {
           }
         }
 
+        const isActiveOrgVolunteer = teamAccountsEnabled && activeOrgIsVolunteer
+
         const resolvedPath = resolvePostAuthRedirectPath(
           user,
           campaignStatus,
           hasElectedOffice,
           electedOfficeOnboardingComplete,
           hasPendingTeamInvite,
+          isActiveOrgVolunteer,
         )
+        // The client flag read isn't a reliable signal on a cold pass — it can
+        // come back a settled `false` (not just a fetch failure) before
+        // identity has attached, so gating on `teamAccountsFlagFailed` misses
+        // exactly that race (ENG-11073). The org list is reliable: an
+        // active-org role of `volunteer` is a server-confirmed fact regardless
+        // of what the flag read said. Sending a confirmed volunteer into
+        // onboarding is destructive (it creates them a campaign), so fall back
+        // to /dashboard instead: its server-side candidateAccess() gate
+        // re-checks the flag and volunteer role fresh and still bounces to
+        // /volunteer if the flag is really on for them, while a genuinely
+        // flag-off volunteer just gets today's /dashboard landing (ENG-11071).
+        const finalResolvedPath =
+          activeOrgIsVolunteer && resolvedPath === WIN_ONBOARDING_PATH
+            ? '/dashboard'
+            : resolvedPath
         // Honor the explicit deep-link destination now that the org slug cookie
         // is set and the session is established — unless a pending team invite
         // demands the acceptance screen: an unaccepted invite must win over any
@@ -239,7 +309,9 @@ const PostAuthRedirectPage = () => {
         // rebuilding from `URL().pathname` strips any host an attacker could
         // smuggle in, keeping the redirect provably same-origin.
         const destination = new URL(
-          hasPendingTeamInvite ? resolvedPath : (safeNext ?? resolvedPath),
+          hasPendingTeamInvite
+            ? finalResolvedPath
+            : (safeNext ?? finalResolvedPath),
           window.location.origin,
         )
         // Hard nav so the destination renders with fresh auth'd server
@@ -249,16 +321,24 @@ const PostAuthRedirectPage = () => {
         )
       } catch (e) {
         console.error('post-auth-redirect error', e)
-        // Don't strand new users on a blank /dashboard if the resolver
-        // throws — onboarding is the safe default for unknown state.
-        window.location.replace('/onboarding/office-selection')
+        // Don't strand new users on a blank /dashboard if something throws —
+        // onboarding is the safe default for unknown state. EXCEPT when
+        // `activeOrgIsVolunteer` was already confirmed true before the
+        // throw: onboarding there is actively destructive (it creates a
+        // campaign for someone who was never meant to have one), while
+        // /dashboard's server-side candidateAccess() gate re-checks the org
+        // role fresh and still bounces a real volunteer to /volunteer
+        // (ENG-11071).
+        window.location.replace(
+          activeOrgIsVolunteer ? '/dashboard' : WIN_ONBOARDING_PATH,
+        )
       }
     })()
-  }, [isSignedIn, isLoaded])
+  }, [isSignedIn, isLoaded, flagReady])
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center">
-      <LoaderCircle className="animate-spin" />
+      <Spinner />
     </div>
   )
 }

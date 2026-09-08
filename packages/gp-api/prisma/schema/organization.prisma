@@ -32,6 +32,7 @@ model Organization {
   contactStatusEvents               ContactStatusEvent[]
   contactCurrentStatuses            ContactCurrentStatus[]
   memberships                       OrganizationMembership[]
+  outreachAssignments               OutreachAssignment[]
 
   @@index([ownerId])
   @@map("organization")

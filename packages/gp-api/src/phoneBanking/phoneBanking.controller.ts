@@ -26,6 +26,8 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
 import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
+import { AllowVolunteer } from '@/organizations/decorators/AllowVolunteer.decorator'
+import { ReqOrganizationRole } from '@/organizations/decorators/ReqOrganizationRole.decorator'
 import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
 import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
 import { UseElectedOffice } from '@/electedOffice/decorators/UseElectedOffice.decorator'
@@ -36,6 +38,7 @@ import {
   Campaign,
   ElectedOffice,
   Organization,
+  OrganizationRole,
   User,
 } from '../generated/prisma'
 import { PhoneBankingCallService } from './services/phoneBankingCall.service'
@@ -43,7 +46,11 @@ import { PhoneBankingListService } from './services/phoneBankingList.service'
 
 // Every route is Pro-gated through ContactsService.assertProAccess in-method
 // (400, not 403) — the same deliberate no-guard-decorator shape
-// DoorKnockingController uses.
+// DoorKnockingController uses. Role posture (ENG-11050): create, serve-create,
+// and delete default to manager+ (OrganizationRoleGuard's unmarked posture);
+// GET lists/:id and POST lists/:id/calls carry @AllowVolunteer() and gate a
+// volunteer further via PhoneBankingAccessService (an OutreachAssignment on
+// the list's envelope, else 404 — the data is the gate, no flag check here).
 @Controller('phone-banking')
 @UseInterceptors(ZodResponseInterceptor)
 export class PhoneBankingController {
@@ -99,27 +106,38 @@ export class PhoneBankingController {
 
   @Get('lists/:id')
   @UseOrganization()
+  @AllowVolunteer()
   @ResponseSchema(PhoneBankingListSchema)
   async get(
     @Param('id', ParseIntPipe) id: number,
     @ReqOrganization() organization: Organization,
+    @ReqOrganizationRole() role: OrganizationRole,
+    @ReqUser() user: User,
   ) {
     await this.contacts.assertProAccess(organization)
-    return this.listService.getForOrganization(id, organization)
+    return this.listService.getForOrganization(id, organization, role, user.id)
   }
 
   @Post('lists/:id/calls')
   @UseOrganization()
+  @AllowVolunteer()
   @ResponseSchema(RecordPhoneBankingCallResponseSchema)
   async recordCall(
     @Param('id', ParseIntPipe) id: number,
     @ReqOrganization() organization: Organization,
+    @ReqOrganizationRole() role: OrganizationRole,
     @ReqUser() user: User,
     @Body(new ZodValidationPipe(RecordPhoneBankingCallSchema))
     input: RecordPhoneBankingCall,
   ) {
     await this.contacts.assertProAccess(organization)
-    return this.callService.recordCall(id, organization.slug, input, user.id)
+    return this.callService.recordCall(
+      id,
+      organization.slug,
+      role,
+      input,
+      user.id,
+    )
   }
 
   @Delete('lists/:id')
