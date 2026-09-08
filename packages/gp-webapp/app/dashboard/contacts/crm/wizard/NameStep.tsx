@@ -18,8 +18,8 @@ interface NameStepProps {
 // via useListWizardCount), and (in the parent's footer) build it. Copy locked
 // by the ENG-10721 prototype: the count sentence and name field share one
 // line ("N voters match. Give this list a name so you can find it later."),
-// with a live char-count counter under the input (RenameListDialog.tsx
-// precedent — trimmed length, same as its Save-gate).
+// with a live char-count counter under the input (trimmed length, same as
+// the Save gate).
 export default function NameStep({
   name,
   onNameChange,

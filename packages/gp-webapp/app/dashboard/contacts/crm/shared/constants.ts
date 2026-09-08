@@ -15,9 +15,9 @@ const ALL_SEGMENTS = 'all'
 // VOTER_DATA_UNAVAILABLE_ERROR_CODE in gp-api's contacts.types.ts.
 const VOTER_DATA_UNAVAILABLE_ERROR_CODE = 'VOTER_DATA_UNAVAILABLE'
 
-// Shown when a list's rename/delete 409s because it was used for outreach
+// Shown when a list's edit/delete 409s because it was used for outreach
 // (locked) — including the race where it gets locked between page load and
-// the mutation. RenameListDialog, DeleteListDialog, and their tests all need
+// the mutation. CreateListWizard, DeleteListDialog, and their tests all need
 // this exact copy, so it lives here once (ENG-10707).
 const LOCKED_LIST_MESSAGE =
   'This list was just used for outreach and is now locked — duplicate it to make changes.'

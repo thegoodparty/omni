@@ -1,4 +1,6 @@
-import filterSections from '../../[[...attr]]/components/configs/filters.config'
+import filterSections, {
+  legacyAgeOptions,
+} from '../../[[...attr]]/components/configs/filters.config'
 import {
   ANY_PHONE_FIELD,
   RECOMMENDED_LIST_FILTER_FIELDS,
@@ -121,3 +123,46 @@ export const transformVoterFileFiltersForBackend = (
 
   return result
 }
+
+// Inverse of transformVoterFileFiltersForBackend: rehydrates a saved list's
+// persisted columns into the wizard's pill state so Edit opens on the
+// selection the list was built from. Only `true` seeds a pill — the persisted
+// shape writes an explicit `false` for every unselected key, and a segment
+// also carries plenty of non-filter fields (id, name, search, counts), so
+// anything that isn't a literal `true` is skipped rather than coerced.
+export const segmentToVoterFileFilters = (
+  segment: Record<string, unknown>,
+): VoterFileFilters => {
+  const filters: VoterFileFilters = {}
+
+  for (const key of ALL_FILTER_OPTION_KEYS) {
+    if (LANGUAGE_KEYS.has(key) || INCOME_KEYS.has(key)) continue
+    if (segment[key] === true) filters[key] = true
+  }
+
+  const languageCodes = Array.isArray(segment.languageCodes)
+    ? segment.languageCodes
+    : []
+  for (const [key, code] of Object.entries(LANGUAGE_KEY_TO_CODE)) {
+    if (languageCodes.includes(code)) filters[key] = true
+  }
+
+  const incomeRanges = Array.isArray(segment.incomeRanges)
+    ? segment.incomeRanges
+    : []
+  for (const [key, range] of Object.entries(INCOME_KEY_TO_RANGE)) {
+    if (incomeRanges.includes(range)) filters[key] = true
+  }
+  if (segment.incomeUnknown === true) filters.incomeUnknown = true
+
+  return filters
+}
+
+// ENG-10752's retired age buckets straddle the current ones (legacy 18-25
+// covers part of 25-34), so there's no honest remap — an edit drops them
+// instead. Without this a legacy list would keep filtering on an age range
+// the wizard can't render and the live count doesn't include, so the saved
+// list would silently disagree with the count shown on the Save button.
+export const LEGACY_AGE_CLEARED: VoterFileBackendFilters = Object.fromEntries(
+  legacyAgeOptions.map((option) => [option.key, false]),
+)

@@ -43,7 +43,6 @@ import { OUTREACH_CHANNEL_NOUNS } from '../shared/outreachChannelLabels'
 import CrmSheet from '../shared/CrmSheet'
 import ListFilterSummary from './ListFilterSummary'
 import ReachabilityGrid from './ReachabilityGrid'
-import RenameListDialog from './RenameListDialog'
 import DeleteListDialog from './DeleteListDialog'
 import DuplicateListDialog from './DuplicateListDialog'
 import { SectionLabel, StatTile } from './ListDetailSection'
@@ -78,9 +77,9 @@ export default function ListDetailSheet({
     isWinContext,
     isWinContextReady,
     voterDataUnavailable,
+    editList,
   } = useContactsTable()
 
-  const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [duplicateOpen, setDuplicateOpen] = useState(false)
 
@@ -236,9 +235,9 @@ export default function ListDetailSheet({
                   <Button
                     variant="ghost"
                     size="small"
-                    aria-label="Rename list"
+                    aria-label="Edit list"
                     className="size-8 p-0"
-                    onClick={() => setRenameOpen(true)}
+                    onClick={() => editList(segment)}
                   >
                     <PencilIcon className="size-4" />
                   </Button>
@@ -497,11 +496,6 @@ export default function ListDetailSheet({
 
       {segment && (
         <>
-          <RenameListDialog
-            segment={segment}
-            open={renameOpen}
-            onOpenChange={setRenameOpen}
-          />
           <DeleteListDialog
             segment={segment}
             open={deleteOpen}
