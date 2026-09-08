@@ -6,6 +6,7 @@ import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   ContactStatusField,
   DoorKnockOutcome,
+  FollowUpAnswer,
   OutreachStatus,
   OutreachType,
   SupportAnswer,
@@ -107,6 +108,7 @@ describe('DoorKnockingStatsService', () => {
       occurredAt = T1,
       supportAnswer = null as SupportAnswer | null,
       willVote = null as WillVoteAnswer | null,
+      followUp = null as FollowUpAnswer | null,
       slug = orgSlug,
     } = {},
   ) =>
@@ -118,6 +120,7 @@ describe('DoorKnockingStatsService', () => {
         outcome,
         supportAnswer,
         willVote,
+        followUp,
       },
     })
 
@@ -144,6 +147,7 @@ describe('DoorKnockingStatsService', () => {
         totalContactsMade: 0,
         committedVoters: 0,
         votersPersuaded: 0,
+        needsFollowUp: 0,
         uniqueTurfsCreated: 0,
         uniqueTurfsCompleted: 0,
         lastCanvassActivityAt: null,
@@ -485,6 +489,154 @@ describe('DoorKnockingStatsService', () => {
     })
   })
 
+  // The Serve (`eo-`) surface's only outcome answer. Its semantics are the
+  // deliberate opposite of `votersPersuaded` above: latest-answer, so the
+  // number goes back down when a follow-up is resolved.
+  describe('needsFollowUp', () => {
+    it('counts a constituent whose only answer is follow-up yes', async () => {
+      await knock('p1', DoorKnockOutcome.answered, {
+        followUp: FollowUpAnswer.yes,
+      })
+
+      expect((await stats.canvassingTotals(orgSlug)).needsFollowUp).toBe(1)
+    })
+
+    // The retraction case, and the whole reason this reads the latest answer
+    // rather than accumulating: the question is who is awaiting follow-up now.
+    it('drops someone whose later visit answers no', async () => {
+      await knock('p1', DoorKnockOutcome.answered, {
+        occurredAt: T1,
+        followUp: FollowUpAnswer.yes,
+      })
+      await knock('p1', DoorKnockOutcome.answered, {
+        occurredAt: T2,
+        followUp: FollowUpAnswer.no,
+      })
+
+      expect((await stats.canvassingTotals(orgSlug)).needsFollowUp).toBe(0)
+    })
+
+    // The converse, and the contrast with `votersPersuaded`, which never
+    // retracts: a follow-up re-opened at a third visit is outstanding again.
+    it('counts someone again when a still later visit answers yes', async () => {
+      await knock('p1', DoorKnockOutcome.answered, {
+        occurredAt: T1,
+        followUp: FollowUpAnswer.yes,
+      })
+      await knock('p1', DoorKnockOutcome.answered, {
+        occurredAt: T2,
+        followUp: FollowUpAnswer.no,
+      })
+      await knock('p1', DoorKnockOutcome.answered, {
+        occurredAt: T3,
+        followUp: FollowUpAnswer.yes,
+      })
+
+      expect((await stats.canvassingTotals(orgSlug)).needsFollowUp).toBe(1)
+    })
+
+    it('counts each outstanding constituent once, however many visits', async () => {
+      await knock('p1', DoorKnockOutcome.answered, {
+        occurredAt: T1,
+        followUp: FollowUpAnswer.yes,
+      })
+      await knock('p1', DoorKnockOutcome.answered, {
+        occurredAt: T2,
+        followUp: FollowUpAnswer.yes,
+      })
+      await knock('p2', DoorKnockOutcome.answered, {
+        occurredAt: T2,
+        followUp: FollowUpAnswer.yes,
+      })
+
+      expect((await stats.canvassingTotals(orgSlug)).needsFollowUp).toBe(2)
+    })
+
+    it('ignores a knock that captured no follow-up answer', async () => {
+      await knock('p1', DoorKnockOutcome.not_home)
+
+      expect((await stats.canvassingTotals(orgSlug)).needsFollowUp).toBe(0)
+    })
+
+    // A null on a later visit is "not asked", not "resolved". Both the
+    // `WHERE follow_up IS NOT NULL` filter and the sibling latest-answer CTEs
+    // work this way: an answer stands until another answer replaces it.
+    it('keeps someone outstanding when a later visit asked nothing', async () => {
+      await knock('p1', DoorKnockOutcome.answered, {
+        occurredAt: T1,
+        followUp: FollowUpAnswer.yes,
+      })
+      await knock('p1', DoorKnockOutcome.not_home, { occurredAt: T2 })
+
+      expect((await stats.canvassingTotals(orgSlug)).needsFollowUp).toBe(1)
+    })
+
+    it('never reads another org’s follow-up answers', async () => {
+      const otherSlug = `dk-other-follow-up-${Date.now()}`
+      await service.prisma.organization.create({
+        data: { slug: otherSlug, ownerId: service.user.id },
+      })
+      await knock('p1', DoorKnockOutcome.answered, {
+        slug: otherSlug,
+        followUp: FollowUpAnswer.yes,
+      })
+
+      expect((await stats.canvassingTotals(orgSlug)).needsFollowUp).toBe(0)
+    })
+
+    // The regression guard for the new CTE: a Win-surface org captures support
+    // answers and no follow-up at all, and every pre-existing number has to
+    // read exactly what it read before `latest_follow_up` joined the query.
+    it('reports zero for a Win-surface org without perturbing its other totals', async () => {
+      await seedTurf({
+        completed: true,
+        doors: [[{ personId: 'p1', addressKey: '12 ELM|3B|60601' }]],
+      })
+      await knock('p1', DoorKnockOutcome.answered, {
+        occurredAt: T1,
+        supportAnswer: SupportAnswer.non_supporter,
+      })
+      await knock('p1', DoorKnockOutcome.answered, {
+        occurredAt: T2,
+        supportAnswer: SupportAnswer.supporter,
+        willVote: WillVoteAnswer.yes,
+      })
+
+      const totals = await stats.canvassingTotals(orgSlug)
+
+      expect(totals).toEqual({
+        uniqueDoorsKnocked: 1,
+        doorAttempts: 2,
+        uniqueContactsMade: 1,
+        totalContactsMade: 2,
+        committedVoters: 1,
+        votersPersuaded: 1,
+        needsFollowUp: 0,
+        uniqueTurfsCreated: 1,
+        uniqueTurfsCompleted: 1,
+        lastCanvassActivityAt: T2,
+      })
+    })
+
+    // The Serve shape the metric exists for: doors knocked, nothing the
+    // support-derived numbers can say about them, and one number that can.
+    it('is the only outcome number a Serve org can move', async () => {
+      await knock('p1', DoorKnockOutcome.answered, {
+        followUp: FollowUpAnswer.yes,
+      })
+      await knock('p2', DoorKnockOutcome.answered, {
+        followUp: FollowUpAnswer.no,
+      })
+
+      const totals = await stats.canvassingTotals(orgSlug)
+
+      expect(totals.needsFollowUp).toBe(1)
+      expect(totals.committedVoters).toBe(0)
+      expect(totals.votersPersuaded).toBe(0)
+      expect(totals.totalContactsMade).toBe(2)
+    })
+  })
+
   describe('turf counts', () => {
     it('counts live turfs and the completed subset of them', async () => {
       await seedTurf({ completed: true })
@@ -576,6 +728,19 @@ describe('DoorKnockingStatsService', () => {
         lastCanvassActivityAt: T2.toISOString(),
         doorAttempts: 1,
       })
+    })
+
+    // The property CS will key the HubSpot workflow on has to be on the event,
+    // not merely computable from it.
+    it('carries needsFollowUp', async () => {
+      await knock('p1', DoorKnockOutcome.answered, {
+        followUp: FollowUpAnswer.yes,
+      })
+      const track = trackSpy()
+
+      await stats.emitCanvassingTotals(service.user.id, orgSlug)
+
+      expect(track.mock.calls[0]?.[2]).toMatchObject({ needsFollowUp: 1 })
     })
   })
 

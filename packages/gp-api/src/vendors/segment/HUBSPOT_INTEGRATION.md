@@ -350,13 +350,13 @@ The cron enqueues the window in the SQS message itself, so manual triggering jus
 ## Door Knocking Canvassing Totals
 
 `DoorKnockingStatsService` fires `Door Knocking - Canvassing Totals Updated`
-with the organization's nine canvassing running totals — on turf create, turf
+with the organization's ten canvassing running totals — on turf create, turf
 complete and turf delete, and from a daily sweep over orgs that recorded a
 knock in the last 24 hours.
 
 | Event Name                                  | HubSpot Target                                        | Fired From                                      |
 | ------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------- |
-| `Door Knocking - Canvassing Totals Updated` | Nine properties on the contact, copied to the company | `DoorKnockingStatsService.emitCanvassingTotals` |
+| `Door Knocking - Canvassing Totals Updated` | Ten properties on the contact, copied to the company | `DoorKnockingStatsService.emitCanvassingTotals` |
 
 **The workflow does not exist yet, and nothing reaches HubSpot until it does.**
 CS needs one workflow keyed on the exact event name that copies each property
@@ -371,6 +371,7 @@ event carries, in the camelCase the payload uses:
 | `totalContactsMade`     | number             | Conversations at the door, counted every time                                                     |
 | `committedVoters`       | number             | Latest door-knock answers are `supporter` **and** will-vote `yes`                                 |
 | `votersPersuaded`       | number             | Answered `non_supporter` at one door and `supporter` at a later one                               |
+| `needsFollowUp`         | number             | Constituents whose latest follow-up answer is `yes`. A current-state count, not a cumulative one: it goes DOWN as follow-up is resolved (a later visit answering `no` removes the person). The Serve (`eo-`) surface's only outcome metric — a Serve canvasser is never asked about support or turnout, so `committedVoters` and `votersPersuaded` read 0 there |
 | `uniqueTurfsCreated`    | number             | Lists drawn and still held                                                                        |
 | `uniqueTurfsCompleted`  | number             | The subset marked done                                                                            |
 | `lastCanvassActivityAt` | ISO string \| null | The newest knock's timestamp                                                                      |
@@ -384,7 +385,10 @@ Notes:
 
 - **Every number is a running total, deliberately.** A workflow can copy a
   value onto a property but cannot sum across events, so the property should be
-  SET from the event, never incremented.
+  SET from the event, never incremented. "Running total" means an absolute
+  value, not a monotonic one: `needsFollowUp` falls as follow-ups are resolved,
+  and the turf numbers fall when a list is deleted. An incrementing workflow
+  would ratchet both upward forever.
 - Property keys are camelCase here (the analytics standard) rather than
   snake_case matching HubSpot internal names, unlike `Peerly Identity ID
 Created` above. The workflow maps them.
