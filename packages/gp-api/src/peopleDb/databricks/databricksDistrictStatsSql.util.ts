@@ -31,6 +31,7 @@ export type ComputedDistrictStats = {
   updatedAt: Date
   totalConstituents: number
   totalConstituentsWithCellPhone: number
+  districtPopulation: number | null
   buckets: DistrictStatsBuckets
 }
 
@@ -196,6 +197,10 @@ const percentOf = (count: number, total: number): number =>
 export const mapDistrictStatsRows = (
   districtId: string,
   rows: Array<Array<string | null>>,
+  // Comes from a separate statement (buildDistrictCensusSql), not these rows,
+  // so it defaults to null rather than becoming a required fourth caller
+  // burden for every existing call site.
+  districtPopulation: number | null = null,
 ): ComputedDistrictStats | null => {
   let total = 0
   let withCell = 0
@@ -234,6 +239,7 @@ export const mapDistrictStatsRows = (
     updatedAt: new Date(),
     totalConstituents: total,
     totalConstituentsWithCellPhone: withCell,
+    districtPopulation,
     buckets: collected,
   }
 }

@@ -60,6 +60,7 @@ import {
   mapDistrictStatsRows,
   type ComputedDistrictStats,
 } from './databricksDistrictStatsSql.util'
+import { buildDistrictCensusSql } from './districtCensusSql.util'
 import {
   PeopleDbxStatementClient,
   PeopleDbxStatementTooLargeError,
@@ -390,11 +391,23 @@ export class DatabricksVoterService {
 
   // All five dimensions aggregated from the voter rows in one statement. Needs
   // the district resolved first, because the aggregate is scoped the way every
-  // other voter read is scoped rather than keyed on a precomputed row.
+  // other voter read is scoped rather than keyed on a precomputed row. The
+  // census lookup rides alongside it via Promise.all rather than a second
+  // await: it hits a 109k-row table, so it costs nothing next to the voter
+  // scan, and a missing census row (~25% of districts) must never affect the
+  // null/unavailable result that scan alone decides.
   async findStats(districtId: string): Promise<ComputedDistrictStats | null> {
     const district = await this.resolveDistrict(districtId)
-    const { rows } = await this.run(buildDistrictStatsSql(district))
-    return mapDistrictStatsRows(districtId, rows)
+    const [{ rows }, censusResult] = await Promise.all([
+      this.run(buildDistrictStatsSql(district)),
+      this.run(buildDistrictCensusSql(district)),
+    ])
+    const rawPopulation = censusResult.rows[0]?.[0]
+    // The mart's block allocation conserves population mass exactly rather
+    // than whole persons per block, so the value is fractional by design.
+    const districtPopulation =
+      rawPopulation == null ? null : Math.round(Number(rawPopulation))
+    return mapDistrictStatsRows(districtId, rows, districtPopulation)
   }
 
   // Sizing comes from the district's own totals: the pre-cut divisor needs to
