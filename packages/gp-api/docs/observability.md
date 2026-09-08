@@ -29,6 +29,14 @@ These cover system-wide concerns that aren't tied to a specific endpoint:
 - **Public campaign lookup failing** (>10% of resolvable `GET /v1/public-campaigns` lookups returning 5xx over 10 min) -- a rate-based rule for a route the generated one can't serve. See [High-volume routes](#high-volume-routes-prefer-a-ratio).
 - **Door-knocking pack build failed mid-response** -- `GET /v1/door-knocking/pack` streams, so it commits a 200 before it starts building and a later failure cannot be a status code. The generated route alert is structurally blind to it; this log-line rule is the only signal. See gp-api `docs/door-knocking.md` § The pack.
 
+### Synthetic monitoring (prod only)
+
+`grafana.ts` provisions one Synthetic Monitoring check, `gp-api-<env>-health`, hitting `/v1/health` from three probes every 60s. It feeds the `health-check-probe-failure` rule, which is the only signal for "the service is unreachable from outside", as distinct from the in-process metrics every other global alert reads.
+
+**It is enabled in prod only.** Check executions bill against a single account-wide allowance (100,000/month) that every environment shares, and three probes a minute is 129,600/month per environment. Dev's copy was ~43% of our synthetic monitoring volume and bought nothing, because probe failures raise an alert whose `environment` label sends it to the `nowhere` contact point (see [Ownership](#ownership)). The dev check stays provisioned but disabled, so re-enabling it is a one-line change if dev alerting ever gets a real destination.
+
+The allowance is shared and account-wide, so this is the one alerting knob where **adding a check in any environment can put a different team's checks into overage**. Budget before adding probes or raising frequency: prod's three probes are 129,600/month against the 100,000 included.
+
 ## Where do alerts show up?
 
 When an alert fires, Grafana sends a notification to the `#dev-alerts` Slack channel. The notification includes:
