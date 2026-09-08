@@ -1,11 +1,23 @@
 import { randomUUID } from 'node:crypto'
-import { BadGatewayException } from '@nestjs/common'
-import { addHours, addMinutes, isAfter, isEqual, subMinutes } from 'date-fns'
+import { BadGatewayException, BadRequestException } from '@nestjs/common'
+import {
+  addHours,
+  addMinutes,
+  addSeconds,
+  isAfter,
+  isBefore,
+  isEqual,
+  subMinutes,
+  subSeconds,
+} from 'date-fns'
 import { MimeTypes } from 'http-constants-ts'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
-import { OutreachRobocallStagingService } from '@/outreach/services/outreachRobocallStaging.service'
+import {
+  OutreachRobocallStagingService,
+  ROBOCALL_STAGING_START_BUFFER_MINUTES,
+} from '@/outreach/services/outreachRobocallStaging.service'
 import { RobocallPhonebookService } from '@/outreach/services/robocallPhonebook.service'
 import { AudioTranscodeService } from '@/shared/services/audioTranscode.service'
 import { CallhubMediaService } from '@/vendors/callhub/services/callhubMedia.service'
@@ -178,14 +190,24 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     // sweep and never stages (grace would be a no-op).
     const outreachId = await createDraft({ sendInMinutes: -10 })
 
+    // Anchor on a `now` captured BEFORE the call: the clamp is now + buffer, so
+    // asserting scheduledStart sits in a tight window around beforeCall + buffer
+    // catches a buffer-magnitude regression (e.g. 2 min → 1 sec), which a plain
+    // "after now" assertion would pass trivially.
+    const beforeCall = new Date()
     await staging.stageCampaign(outreachId)
-    const afterCall = new Date()
 
     expect(createVbSpy).toHaveBeenCalledTimes(1)
     const scheduledStart = createVbSpy.mock.calls[0]?.[0]
       ?.scheduledStart as Date
-    // Strictly after now, so it clears createVoiceBroadcast's isAfter guard.
-    expect(isAfter(scheduledStart, afterCall)).toBe(true)
+    const expectedStart = addMinutes(
+      beforeCall,
+      ROBOCALL_STAGING_START_BUFFER_MINUTES,
+    )
+    // scheduledStart ≈ beforeCall + buffer, allowing only a few seconds for the
+    // intra-call `new Date()` re-read — far tighter than the 2-min buffer.
+    expect(isBefore(scheduledStart, subSeconds(expectedStart, 5))).toBe(false)
+    expect(isAfter(scheduledStart, addSeconds(expectedStart, 30))).toBe(false)
 
     // Committed to staged (pk_str persisted), NOT revert-bounced to authorized.
     const satellite = await readSatellite(outreachId)
@@ -557,6 +579,71 @@ describe('OutreachRobocallStagingService.stageCampaign', () => {
     await staging.stageCampaign(outreachId)
 
     expect(createVbSpy).toHaveBeenCalledTimes(1)
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.callhubCampaignPkStr).toBe('vb_1')
+    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
+  })
+
+  it('reclaims a BEYOND-grace stale staging row unclamped, reverting it', async () => {
+    // A run whose send passed 45 min ago (beyond the 30-min grace) crashed
+    // mid-staging and is stuck in `staging`. The stale-reclaim arm picks it up,
+    // but the conditional clamp must NOT move its past sendAt forward: it passes
+    // the real past time, createVoiceBroadcast rejects it, and the claim reverts
+    // to `authorized` so the stranded sweep (not staging) fails it and releases
+    // the hold. Clamping instead would commit a pk_str and dial 45+ min late.
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.staging,
+      sendInMinutes: -45,
+    })
+    await ageStagingRow(outreachId, 45)
+    const sendAt = (
+      await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: outreachId },
+      })
+    ).date
+    // Mirror createVoiceBroadcast's real strictly-after-now guard: a past
+    // scheduledStart is rejected (a transient BadRequestException, not a
+    // permanent/ZodError), so the claim reverts rather than failing the send.
+    createVbSpy.mockImplementationOnce(
+      async ({ scheduledStart }: { scheduledStart: Date }) => {
+        if (!isAfter(scheduledStart, new Date())) {
+          throw new BadRequestException('must be scheduled in the future')
+        }
+        return vbResult('vb_1')
+      },
+    )
+
+    await expect(staging.stageCampaign(outreachId)).rejects.toBeInstanceOf(
+      BadRequestException,
+    )
+
+    // The past sendAt reached CallHub unclamped.
+    const scheduledStart = createVbSpy.mock.calls[0]?.[0]
+      ?.scheduledStart as Date
+    expect(isEqual(scheduledStart, sendAt!)).toBe(true)
+    // Not left staged with a campaign: reverted to authorized, no pk_str, so the
+    // stranded sweep can catch it.
+    const satellite = await readSatellite(outreachId)
+    expect(satellite.callhubCampaignPkStr).toBeNull()
+    expect(satellite.settleState).toBe(RobocallSettleState.authorized)
+  })
+
+  it('reclaims a WITHIN-grace stale staging row, clamping and staging it', async () => {
+    // A crash can strand a within-grace run in `staging` too. The stale-reclaim
+    // arm must still rescue it: its send is only 10 min past (inside the 30-min
+    // grace), so the clamp moves scheduledStart forward and it commits staged.
+    const outreachId = await createDraft({
+      settleState: RobocallSettleState.staging,
+      sendInMinutes: -10,
+    })
+    await ageStagingRow(outreachId, 45)
+
+    await staging.stageCampaign(outreachId)
+
+    expect(createVbSpy).toHaveBeenCalledTimes(1)
+    const scheduledStart = createVbSpy.mock.calls[0]?.[0]
+      ?.scheduledStart as Date
+    expect(isAfter(scheduledStart, new Date())).toBe(true)
     const satellite = await readSatellite(outreachId)
     expect(satellite.callhubCampaignPkStr).toBe('vb_1')
     expect(satellite.settleState).toBe(RobocallSettleState.authorized)

@@ -1,6 +1,6 @@
 import { BadGatewayException, Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { addHours, addMinutes, max, subMinutes } from 'date-fns'
+import { addHours, addMinutes, isBefore, max, subMinutes } from 'date-fns'
 import { ZodError } from 'zod'
 import { MimeTypes } from 'http-constants-ts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -49,7 +49,7 @@ const ROBOCALL_STAGING_STALE_MINUTES = 30
 // minutes clears the guard with room for the intra-request time gap; the dial
 // itself is NOT gated on this value (the send sweep dials on `outreach.date`,
 // not the CallHub schedule), so a late run still dials as soon as it is staged.
-const ROBOCALL_STAGING_START_BUFFER_MINUTES = 2
+export const ROBOCALL_STAGING_START_BUFFER_MINUTES = 2
 
 // Every 10 minutes, offset off :00 so the sweep doesn't join the top-of-hour
 // herd (and off the existing */10 job). Frequent enough that a draft authorized
@@ -240,6 +240,24 @@ export class OutreachRobocallStagingService extends createPrismaBase(
     // org-only, outreach.prisma).
     const campaign = outreach.campaign!
     const campaignName = `Robocall ${campaign.slug} #${outreachId}`
+
+    // scheduledStart is clamped CONDITIONALLY on whether the send is still within
+    // the staging grace. A within-grace (or future) send clamps to a safely-
+    // future value so it clears createVoiceBroadcast's strictly-after-now guard
+    // and stages — the dial is driven by the send sweep off outreach.date, so a
+    // within-grace run just dials a few minutes late. A BEYOND-grace send (only
+    // reachable via the stale-staging reclaim arm — the authorized arm's query
+    // never selects one) MUST NOT be clamped: it passes its real past sendAt,
+    // which createVoiceBroadcast rejects, so staging reverts the claim to
+    // authorized and the stranded sweep then fails the run and releases its hold.
+    // Clamping it instead would let a genuinely-late run stage, commit a pk_str
+    // (hiding it from the stranded sweep), and dial 45+ min late.
+    const now = new Date()
+    const graceFloor = subMinutes(now, ROBOCALL_STAGING_GRACE_MINUTES)
+    const scheduledStart = !isBefore(sendAt, graceFloor)
+      ? max([sendAt, addMinutes(now, ROBOCALL_STAGING_START_BUFFER_MINUTES)])
+      : sendAt
+
     let created: CreateVbCampaignResult
     try {
       // Upload the (format-sensitive) media BEFORE loading the phonebook: a
@@ -285,14 +303,7 @@ export class OutreachRobocallStagingService extends createPrismaBase(
         voterFileFilterId,
       )
       created = await this.campaigns.createVoiceBroadcast({
-        // A genuinely-future send passes its real time; a grace-rescued send
-        // (sendAt in the past) clamps to a small future value so it clears
-        // createVoiceBroadcast's strictly-after-now guard. The actual dial is
-        // driven by the send sweep off outreach.date, not this value.
-        scheduledStart: max([
-          sendAt,
-          addMinutes(new Date(), ROBOCALL_STAGING_START_BUFFER_MINUTES),
-        ]),
+        scheduledStart,
         name: campaignName,
         phonebookPkStr: phonebook.phonebookPkStr,
         mediaFileId: media.media_file_id,
