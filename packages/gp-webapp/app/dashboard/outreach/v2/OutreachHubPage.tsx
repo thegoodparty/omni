@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { NAV_LABELS } from 'app/dashboard/shared/navLabels'
@@ -9,8 +9,12 @@ import {
   useOutreach,
   type Outreach,
 } from 'app/dashboard/outreach/hooks/OutreachContext'
-import { OutreachComposeDeepLink } from 'app/dashboard/outreach/components/OutreachComposeDeepLink'
+import {
+  OutreachComposeDeepLink,
+  type ComposeRequest,
+} from 'app/dashboard/outreach/components/OutreachComposeDeepLink'
 import { clientRequest } from 'gpApi/typed-request'
+import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSingleEffect } from '@shared/hooks/useSingleEffect'
 import type { Campaign, TcrCompliance } from 'helpers/types'
@@ -56,7 +60,22 @@ const OutreachHubContent = ({
   const [phoneBankingPreselectedListId, setPhoneBankingPreselectedListId] =
     useState<number | undefined>(undefined)
   const [smsFlowOpen, setSmsFlowOpen] = useState(false)
+  // Seeds a `?compose=` deep link handed over (a tracker/manager task's due
+  // date, Know Your Opponent's suggested message, a CRM list). Held per open
+  // and cleared on close, so a later tile click starts clean.
+  const [composeSeeds, setComposeSeeds] = useState<ComposeRequest | null>(null)
   const seedOutreachDetail = useSeedOutreachDetail()
+
+  // The deep link resolves the params and the channel gate; opening the right
+  // flow is the hub's job, since it owns the one mount of each.
+  const handleCompose = useCallback((request: ComposeRequest) => {
+    setComposeSeeds(request)
+    if (request.type === OUTREACH_TYPES.text) {
+      setSmsFlowOpen(true)
+      return
+    }
+    setRobocallFlowOpen(true)
+  }, [])
 
   // The save response is the created row: seed the detail cache (so the
   // drawer and the "N platforms" metric never refetch it) and prepend it to
@@ -140,8 +159,13 @@ const OutreachHubContent = ({
       />
       <RobocallFlow
         open={robocallFlowOpen}
-        onClose={() => setRobocallFlowOpen(false)}
+        onClose={() => {
+          setRobocallFlowOpen(false)
+          setComposeSeeds(null)
+        }}
         onScheduled={refetchOutreaches}
+        campaignPlanDueDate={composeSeeds?.due}
+        preselectedListId={composeSeeds?.listId}
       />
       <PhoneBankingFlow
         open={phoneBankingFlowOpen}
@@ -151,12 +175,21 @@ const OutreachHubContent = ({
       />
       <SmsFlow
         open={smsFlowOpen}
-        onClose={() => setSmsFlowOpen(false)}
+        onClose={() => {
+          setSmsFlowOpen(false)
+          setComposeSeeds(null)
+        }}
         onScheduled={refetchOutreaches}
         tcrCompliance={tcrCompliance}
+        campaignPlanDueDate={composeSeeds?.due}
+        initialScript={composeSeeds?.script}
+        preselectedListId={composeSeeds?.listId}
       />
       <Suspense>
-        <OutreachComposeDeepLink tcrCompliance={tcrCompliance} />
+        <OutreachComposeDeepLink
+          tcrCompliance={tcrCompliance}
+          onCompose={handleCompose}
+        />
       </Suspense>
       <OutreachHistoryTable
         rows={outreaches ?? []}

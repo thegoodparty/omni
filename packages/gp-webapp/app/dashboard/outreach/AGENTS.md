@@ -11,11 +11,28 @@ outreach page for every candidate, and every tile opens its own new flow:
 upgrade-at-entry), and door knocking navigates. There are no tile-swap flags.
 The text gate (Pro/compliance) runs in front of the SMS tile.
 
-The legacy `TaskFlow` is no longer reachable from any tile, but it is still
-the text/robocall compose surface for `?compose=` deep links
-(`components/OutreachComposeDeepLink.tsx`) and for the campaign-tracker /
-campaign-manager task cards (`hooks/useOutreachComposeFlow.tsx`). Migrating
-those onto the v2 flows is separate, unfinished work.
+**Every way into a text/robocall campaign now lands on the v2 flows, and the
+hub is the only thing that mounts them.** A campaign-plan task CTA (campaign
+tracker, campaign manager) and Know Your Opponent's suggested message all link
+to `/dashboard/outreach?compose=text|robocall`, and
+`components/OutreachComposeDeepLink.tsx` resolves those params, runs the
+channel's gate, and hands the hub a `ComposeRequest` — it mounts no flow of
+its own.
+
+Linking beats mounting in place because the hub owns exactly one instance of
+each channel flow plus the gate in front of it; a second mount would duplicate
+both. `util/composeOutreachHref.util.ts` builds the URL, and the press site
+rides it as `?source=` (allowlisted, so the query string cannot inject an
+arbitrary value into `ClickCreate`) — without that every task CTA would report
+as a plain `deep_link`.
+
+Three seeds ride the deep link into the flow: `campaignPlanDueDate` (a task's
+due date, persisted on the outreach record and forwarded into the CAS Slack
+notification — for robocall this is on the `POST /v1/outreach/robocall` draft
+contract), `initialScript` (text only; opens the flow on the `custom` purpose,
+the one that never AI-drafts, so a preset message is not immediately drafted
+over), and `preselectedListId` (applied once its row arrives in the picker; an
+id naming no list of yours is a missed preselection, never a broken step).
 
 Phone banking's upgrade-at-entry: a non-Pro click on the tile redirects
 straight to `/dashboard/pro-upgrade` (firing
@@ -52,13 +69,14 @@ modal. The predicate is `ChannelTileGrid`'s own `canUseProFeatures`
 Flow state is flat client state; no server drafts — closing a dirty flow asks
 to discard, reopening starts fresh. Nothing persists until Save.
 
-## Shared support files (used by the hub and the legacy TaskFlow deep links)
+## Shared support files
 
 | File                                     | Role                                                                                                                                                                                    |
 | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `hooks/OutreachContext.tsx`              | Feature-level context — outreach rows (read/written by the hub)                                                                                                                         |
-| `components/OutreachComposeDeepLink.tsx` | Consumes `?compose=text&message=<sms>` — opens the text TaskFlow with the preset script through the same text gate, then strips the params (consume-once via `router.replace`) |
+| `components/OutreachComposeDeepLink.tsx` | Consumes `?compose=text\|robocall` (+ `?message=`, `?due=`, `?listId=`, `?source=`) — runs the channel gate, hands the hub a `ComposeRequest`, then strips the params (consume-once via `router.replace`) |
 | `hooks/useTextOutreachGate.tsx`          | Single source for the text-channel gate (non-Pro → `P2PUpgradeModal`, Pro non-compliant → `ComplianceModal`, else pass) — the deep link and the SMS tile both call it                   |
+| `util/composeOutreachHref.util.ts`       | Builds a task CTA's `?compose=` link into the hub, carrying the channel, the press site (`?source=`) and the task's due date                                                          |
 | `hooks/`                                 | Feature-local hooks (audience fetching, scheduling)                                                                                                                                     |
 | `util/`                                  | Pure helpers — message templating, audience shaping                                                                                                                                     |
 | `constants.tsx`                          | Channel definitions, status labels, `OUTREACH_OPTIONS` (the pricing/type source `ChannelTileGrid` and the flow files share)                                                             |
@@ -70,16 +88,17 @@ to discard, reopening starts fresh. Nothing persists until Save.
 
 ## Draft-first purchase flow (text/p2p)
 
-The paid text flow persists the campaign BEFORE payment: entering the purchase
-step in `components/tasks/flows/TaskFlow.tsx` creates the outreach with
+The paid text flow persists the campaign BEFORE payment: entering the review
+step in `v2/sms/SmsFlow.tsx` creates the outreach with
 `draft: true` (server stores it as `pending_payment`, hidden from
 `GET /outreach`), and the draft's id rides in the checkout session metadata as
 `outreachId`. The SERVER finalizes (Peerly + CAS Slack) during payment
 completion — the client no longer POSTs the campaign after paying, it just
 refetches the list. A tab that dies after payment loses nothing: the Stripe
-webhook finalizes the draft on its own. Going back from the purchase step
+webhook finalizes the draft on its own. Going back from the review step
 discards the draft id; re-entry creates a fresh draft (stale ones stay hidden
-server-side).
+server-side). Robocall runs the same shape through its own contract
+(`POST /v1/outreach/robocall` + the pay step's authorization hold).
 
 ## Gotchas
 

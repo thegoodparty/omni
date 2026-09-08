@@ -200,6 +200,7 @@ export class OutreachRobocallService extends createPrismaBase(
             // US send would otherwise shift to the next day at dial time.
             scheduledLocalDate: input.scheduledAt.slice(0, 10),
             voterFileFilterId: input.voterFileFilterId,
+            campaignPlanDueDate: input.campaignPlanDueDate,
           },
         })
         await tx.outreachRobocall.create({

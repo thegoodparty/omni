@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   ListDetailReachability,
@@ -13,7 +13,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { useOrganization } from '@shared/organization-picker'
 import { fetchListDetailThrottled } from 'app/dashboard/contacts/crm/lists/useListRowDetail'
-import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/components/tasks/flows/util/flowHandlers.util'
+import { AUTO_VOTER_FILTER_NAME_PATTERN } from 'app/dashboard/outreach/util/autoVoterFilterName.util'
 import type {
   SegmentResponse,
   SupportStatusRollup,
@@ -67,6 +67,12 @@ interface UseOutreachAudienceParams {
   // channel that hasn't wired a purpose->intent mapping yet) — the
   // recommendations query simply never fires.
   recommendedListIntent?: RecommendedListIntent | null
+  // A saved list the caller wants selected on open (the outreach hub's
+  // `?listId=` deep link). Applied once, and only if it names a row the
+  // picker actually has — a deleted, archived or foreign id is a missed
+  // preselection, never a broken step, the same rule door knocking's
+  // CreateListFlow applies to the id it carries.
+  preselectedListId?: number
 }
 
 export interface OutreachAudience {
@@ -150,6 +156,7 @@ export const useOutreachAudience = ({
   reachabilityKey,
   countOverlay,
   recommendedListIntent = null,
+  preselectedListId,
 }: UseOutreachAudienceParams): OutreachAudience => {
   const [mode, setMode] = useState<OutreachAudienceMode>('picker')
   const [selectedListId, setSelectedListId] = useState<number | null>(null)
@@ -239,6 +246,20 @@ export const useOutreachAudience = ({
   })
   const lists = useMemo(() => listsQuery.data ?? [], [listsQuery.data])
   const selectedList = lists.find((l) => l.id === selectedListId) ?? null
+
+  // Apply the caller's preselected list once its row arrives. Spent on
+  // application rather than bound to the prop: the candidate must be able to
+  // pick something else and have that stick, including across the refetches
+  // this query does on window focus. Re-arms on a different id, so a second
+  // deep link into a still-mounted flow preselects too.
+  const appliedPreselectRef = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    if (preselectedListId === undefined) return
+    if (appliedPreselectRef.current === preselectedListId) return
+    if (!lists.some((l) => l.id === preselectedListId)) return
+    appliedPreselectRef.current = preselectedListId
+    setSelectedListId(preselectedListId)
+  }, [preselectedListId, lists])
 
   const reachabilityQuery = useQuery({
     queryKey: [
@@ -371,6 +392,7 @@ export const useOutreachAudience = ({
   const reset = useCallback(() => {
     setMode('picker')
     setSelectedListId(null)
+    appliedPreselectRef.current = undefined
     setBuilderFilters({})
     setBuilderSupportStatus([])
     setBuilderPrecincts([])

@@ -5,11 +5,10 @@ import { deleteCookie, getCookie } from 'helpers/cookieHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useDistrictResolution } from '../../../shared/useDistrictResolution'
 
-// Exported (not just used internally) so downloadVoterList.util's saved-list
-// branch (ENG-10765) can poll the same cookie on the same schedule instead of
-// hand-rolling a second copy of this timing-sensitive handshake — the two
-// callers hit the identical GET /api/v1/contacts/download endpoint and must
-// not drift on the interval or fallback window.
+// Exported (not just used internally) so a second caller of
+// GET /api/v1/contacts/download can poll the same cookie on the same
+// schedule rather than hand-rolling a copy of this timing-sensitive
+// handshake and drifting on the interval or fallback window.
 export const DOWNLOAD_COOKIE_NAME = 'gp_download'
 export const DOWNLOAD_COOKIE_POLL_MS = 250
 // Fallback in case the server-side cookie handshake is missing (older deploy,

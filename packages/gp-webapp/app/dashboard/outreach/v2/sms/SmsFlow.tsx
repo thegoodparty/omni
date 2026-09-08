@@ -97,6 +97,17 @@ interface SmsFlowProps {
   // Fired after payment (or free redemption) completes server-side; the hub
   // refetches the outreach list there.
   onScheduled: () => Promise<void>
+  // Seeds carried in by the hub's `?compose=text` deep link (campaign
+  // tracker / manager task CTAs, Know Your Opponent's suggested message).
+  // A tracker task's due date, persisted on the outreach row and forwarded
+  // into the CAS Slack notification — the flow never derives it.
+  campaignPlanDueDate?: string
+  // A message the candidate is meant to send as written (Know Your
+  // Opponent). It opens the flow on `custom`, the one purpose that never
+  // AI-drafts, so the seeded words are what they edit rather than something
+  // a draft immediately overwrites.
+  initialScript?: string
+  preselectedListId?: number
 }
 
 const successDate = (d: Date) =>
@@ -237,6 +248,9 @@ export const SmsFlow = ({
   onClose,
   onScheduled,
   tcrCompliance,
+  campaignPlanDueDate,
+  initialScript,
+  preselectedListId,
 }: SmsFlowProps) => {
   const [campaign] = useCampaign()
   const [user] = useUser()
@@ -291,6 +305,7 @@ export const SmsFlow = ({
     reachabilityKey: 'sms',
     countOverlay: SMS_COUNT_OVERLAY,
     recommendedListIntent,
+    preselectedListId,
   })
   const { reset: resetAudience } = audience
   const selectedList = audience.selectedList
@@ -307,11 +322,14 @@ export const SmsFlow = ({
   useEffect(() => {
     if (!open) return
     draftRequestRef.current += 1
-    setStepId('purpose')
-    setPurpose(null)
+    // A seeded message opens past the purpose picker on `custom`: the words
+    // are already chosen, so asking what the candidate wants to do and then
+    // drafting over them would throw the seed away.
+    setStepId(initialScript ? 'audience' : 'purpose')
+    setPurpose(initialScript ? 'custom' : null)
     setTone('warm')
-    setBody('')
-    setManuallyEdited(false)
+    setBody(initialScript ?? '')
+    setManuallyEdited(Boolean(initialScript))
     setUndoText(null)
     setToneDrafts({})
     resetAudience()
@@ -332,7 +350,7 @@ export const SmsFlow = ({
     setScheduled(false)
     setPaidSend(false)
     resetDraftMutation()
-  }, [open, resetDraftMutation, resetAudience])
+  }, [open, resetDraftMutation, resetAudience, initialScript])
 
   // Object URL lifecycle for the image preview.
   useEffect(() => {
@@ -583,6 +601,7 @@ export const SmsFlow = ({
             phoneListId: phoneList.phoneListId,
             textCount: phoneList.leadsLoaded,
             billableTextCount: phoneList.leadsLoaded - discount,
+            ...(campaignPlanDueDate ? { campaignPlanDueDate } : {}),
             draft: true,
           },
           image,

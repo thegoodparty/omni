@@ -98,6 +98,11 @@ interface RobocallFlowProps {
   // refetch the history list — the draft row now exists and is visible, and it
   // should appear without a page reload.
   onScheduled?: () => void
+  // Seeds carried in by the hub's `?compose=robocall` deep link (campaign
+  // tracker / manager task CTAs). The due date is persisted on the draft the
+  // pay step creates, matching what the p2p create has always done.
+  campaignPlanDueDate?: string
+  preselectedListId?: number
 }
 
 // Flow state is flat client state owned here (phase 1 TDD pattern): no server
@@ -106,6 +111,8 @@ export const RobocallFlow = ({
   open,
   onClose,
   onScheduled,
+  campaignPlanDueDate,
+  preselectedListId,
 }: RobocallFlowProps) => {
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<RobocallPurpose | null>(null)
@@ -133,6 +140,7 @@ export const RobocallFlow = ({
     reachabilityKey: 'robocall',
     countOverlay: ROBOCALL_COUNT_OVERLAY,
     recommendedListIntent,
+    preselectedListId,
   })
   const { reset: resetAudience } = audience
 
@@ -688,6 +696,7 @@ export const RobocallFlow = ({
           timeZone={timeZone}
           script={script}
           campaignName={campaignName}
+          campaignPlanDueDate={campaignPlanDueDate}
           audienceName={audience.selectedList?.name ?? 'your list'}
           reachCount={audience.reachableCount ?? 0}
           outcome={payOutcome}

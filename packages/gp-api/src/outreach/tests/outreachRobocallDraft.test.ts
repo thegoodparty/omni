@@ -172,6 +172,47 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
     expect(spine.robocall?.compliancePassedAt).not.toBeNull()
   })
 
+  // A robocall started from a campaign-plan task carries the task's due date,
+  // the same way the p2p create has always done — it rides the outreach record
+  // rather than being derived from the send date.
+  it('persists a campaign-plan due date when the task CTA supplies one', async () => {
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+
+    const res = await postDraft({
+      ...validDraftBody(),
+      campaignPlanDueDate: '2026-10-02',
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const spine = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: res.data.outreachId },
+    })
+    expect(spine.campaignPlanDueDate).toBe('2026-10-02')
+  })
+
+  it('leaves the due date null when the flow was not opened from a task', async () => {
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+
+    const res = await postDraft(validDraftBody())
+
+    const spine = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: res.data.outreachId },
+    })
+    expect(spine.campaignPlanDueDate).toBeNull()
+  })
+
+  it('rejects a malformed campaignPlanDueDate, writing no row', async () => {
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
+
+    const res = await postDraft({
+      ...validDraftBody(),
+      campaignPlanDueDate: 'next-tuesday',
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(await service.prisma.outreach.count()).toBe(0)
+  })
+
   it('emits the Scheduled milestone once on a fresh create, not on an idempotent repeat', async () => {
     findContactsForFilter.mockResolvedValue(peopleListWithTotal(500))
     const trackSpy = vi

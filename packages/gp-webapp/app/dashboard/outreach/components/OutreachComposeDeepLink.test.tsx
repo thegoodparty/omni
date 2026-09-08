@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
+import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { CampaignContext } from '@shared/hooks/CampaignProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { OutreachComposeDeepLink } from './OutreachComposeDeepLink'
-import { MAX_SMS_CHAR_COUNT } from 'app/dashboard/components/tasks/flows/AddScriptStep/CreateSmSScriptScreen'
 import type { Campaign, TcrCompliance } from 'helpers/types'
 
 let mockSearchParams = new URLSearchParams()
@@ -22,33 +22,12 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
-vi.mock('app/dashboard/components/tasks/flows/TaskFlow', () => ({
-  default: ({
-    type,
-    forceOpen,
-    initialScriptText,
-    campaignPlanDueDate,
-    preselectedListId,
-  }: {
-    type: string
-    forceOpen?: boolean
-    initialScriptText?: string
-    campaignPlanDueDate?: string
-    preselectedListId?: number
-  }) => (
-    <div
-      data-testid="task-flow"
-      data-type={type}
-      data-force-open={String(forceOpen)}
-      data-initial-script={initialScriptText ?? ''}
-      data-due-date={campaignPlanDueDate ?? ''}
-      data-preselected-list-id={preselectedListId ?? ''}
-    />
-  ),
-}))
-
 const approvedCompliance = { status: 'approved' } as TcrCompliance
 const pendingCompliance = { status: 'pending' } as TcrCompliance
+
+// The hub owns the flow mounts, so this component's whole output is the
+// request it hands over — that callback is the contract under test.
+const onCompose = vi.fn()
 
 const renderDeepLink = ({
   isPro,
@@ -59,27 +38,34 @@ const renderDeepLink = ({
 }) =>
   render(
     <CampaignContext.Provider value={[{ id: 1, isPro } as Campaign]}>
-      <OutreachComposeDeepLink tcrCompliance={tcrCompliance} />
+      <OutreachComposeDeepLink
+        tcrCompliance={tcrCompliance}
+        onCompose={onCompose}
+      />
     </CampaignContext.Provider>,
   )
+
+const composeRequest = () => onCompose.mock.calls[0]?.[0]
 
 describe('OutreachComposeDeepLink', () => {
   beforeEach(() => {
     mockSearchParams = new URLSearchParams()
     mockReplace.mockClear()
+    onCompose.mockClear()
     vi.mocked(trackEvent).mockClear()
   })
 
-  it('opens the text TaskFlow with the decoded preset and consumes the params', async () => {
+  it('asks for the text flow with the decoded preset and consumes the params', async () => {
     mockSearchParams = new URLSearchParams(
       'compose=text&message=Hello%20voters',
     )
     renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
 
-    const taskFlow = await screen.findByTestId('task-flow')
-    expect(taskFlow).toHaveAttribute('data-type', 'text')
-    expect(taskFlow).toHaveAttribute('data-force-open', 'true')
-    expect(taskFlow).toHaveAttribute('data-initial-script', 'Hello voters')
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(composeRequest()).toMatchObject({
+      type: 'text',
+      script: 'Hello voters',
+    })
     expect(mockReplace).toHaveBeenCalledWith('/dashboard/outreach', {
       scroll: false,
     })
@@ -89,12 +75,12 @@ describe('OutreachComposeDeepLink', () => {
     })
   })
 
-  it('opens the flow with an empty script when message is missing', async () => {
+  it('asks for the flow with no script when message is missing', async () => {
     mockSearchParams = new URLSearchParams('compose=text')
     renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
 
-    const taskFlow = await screen.findByTestId('task-flow')
-    expect(taskFlow).toHaveAttribute('data-initial-script', '')
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(composeRequest().script).toBeUndefined()
     expect(mockReplace).toHaveBeenCalledWith('/dashboard/outreach', {
       scroll: false,
     })
@@ -102,39 +88,69 @@ describe('OutreachComposeDeepLink', () => {
 
   it('clamps the message to the sms script limit', async () => {
     mockSearchParams = new URLSearchParams(
-      `compose=text&message=${'a'.repeat(MAX_SMS_CHAR_COUNT + 400)}`,
+      `compose=text&message=${'a'.repeat(P2P_SCRIPT_MAX_LENGTH + 400)}`,
     )
     renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
 
-    const taskFlow = await screen.findByTestId('task-flow')
-    expect(taskFlow.getAttribute('data-initial-script')).toHaveLength(
-      MAX_SMS_CHAR_COUNT,
-    )
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(composeRequest().script).toHaveLength(P2P_SCRIPT_MAX_LENGTH)
   })
 
   it('passes a valid due param through as the campaign-plan due date', async () => {
     mockSearchParams = new URLSearchParams('compose=text&due=2026-08-03')
     renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
 
-    const taskFlow = await screen.findByTestId('task-flow')
-    expect(taskFlow).toHaveAttribute('data-due-date', '2026-08-03')
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(composeRequest().due).toBe('2026-08-03')
   })
 
   it('ignores a malformed due param', async () => {
     mockSearchParams = new URLSearchParams('compose=text&due=next-tuesday')
     renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
 
-    const taskFlow = await screen.findByTestId('task-flow')
-    expect(taskFlow).toHaveAttribute('data-due-date', '')
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(composeRequest().due).toBeUndefined()
   })
 
-  it('opens the robocall flow with the due date for a Pro user', async () => {
+  // The linking surface rides in the URL so the hub can report where the
+  // press happened; anything not on the allowlist reads as a plain deep link
+  // rather than injecting an arbitrary source into analytics.
+  it('reports an allowlisted source and rejects an arbitrary one', async () => {
+    mockSearchParams = new URLSearchParams(
+      'compose=text&source=campaign_tracker',
+    )
+    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.ClickCreate, {
+      type: 'text',
+      source: 'campaign_tracker',
+    })
+
+    onCompose.mockClear()
+    vi.mocked(trackEvent).mockClear()
+    mockSearchParams = new URLSearchParams('compose=text&source=whatever')
+    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.ClickCreate, {
+      type: 'text',
+      source: 'deep_link',
+    })
+  })
+
+  it('asks for the robocall flow with the due date for a Pro user', async () => {
     mockSearchParams = new URLSearchParams('compose=robocall&due=2026-08-03')
     renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
 
-    const taskFlow = await screen.findByTestId('task-flow')
-    expect(taskFlow).toHaveAttribute('data-type', 'robocall')
-    expect(taskFlow).toHaveAttribute('data-due-date', '2026-08-03')
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(composeRequest()).toMatchObject({
+      type: 'robocall',
+      due: '2026-08-03',
+    })
+    // Robocall's deliverable is a recording, so no script rides along even
+    // when the URL carries one.
+    expect(composeRequest().script).toBeUndefined()
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.ClickCreate, {
       type: 'robocall',
       source: 'deep_link',
@@ -150,10 +166,10 @@ describe('OutreachComposeDeepLink', () => {
         scroll: false,
       }),
     )
-    expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
+    expect(onCompose).not.toHaveBeenCalled()
   })
 
-  it('shows the P2P upgrade modal instead of the flow for a non-Pro user', async () => {
+  it('shows the P2P upgrade modal instead of asking for a flow for a non-Pro user', async () => {
     mockSearchParams = new URLSearchParams(
       'compose=text&message=Hello%20voters',
     )
@@ -162,13 +178,13 @@ describe('OutreachComposeDeepLink', () => {
     expect(
       await screen.findByText('Level the playing field for less'),
     ).toBeInTheDocument()
-    expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
+    expect(onCompose).not.toHaveBeenCalled()
     expect(mockReplace).toHaveBeenCalledWith('/dashboard/outreach', {
       scroll: false,
     })
   })
 
-  it('shows the compliance modal instead of the flow for a Pro non-compliant user', async () => {
+  it('shows the compliance modal instead of asking for a flow for a Pro non-compliant user', async () => {
     mockSearchParams = new URLSearchParams(
       'compose=text&message=Hello%20voters',
     )
@@ -177,7 +193,7 @@ describe('OutreachComposeDeepLink', () => {
     expect(
       await screen.findByText('Texting registration under review'),
     ).toBeInTheDocument()
-    expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
+    expect(onCompose).not.toHaveBeenCalled()
   })
 
   // ENG-10762: the CRM "Send outreach" link carries ?listId=<id> so the
@@ -193,7 +209,7 @@ describe('OutreachComposeDeepLink', () => {
         scroll: false,
       }),
     )
-    expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
+    expect(onCompose).not.toHaveBeenCalled()
   })
 
   it('re-arms after the strip so a second listId navigation strips again', async () => {
@@ -208,7 +224,10 @@ describe('OutreachComposeDeepLink', () => {
     mockSearchParams = new URLSearchParams()
     view.rerender(
       <CampaignContext.Provider value={[{ id: 1, isPro: true } as Campaign]}>
-        <OutreachComposeDeepLink tcrCompliance={approvedCompliance} />
+        <OutreachComposeDeepLink
+          tcrCompliance={approvedCompliance}
+          onCompose={onCompose}
+        />
       </CampaignContext.Provider>,
     )
     expect(mockReplace).toHaveBeenCalledTimes(1)
@@ -216,7 +235,10 @@ describe('OutreachComposeDeepLink', () => {
     mockSearchParams = new URLSearchParams('listId=456')
     view.rerender(
       <CampaignContext.Provider value={[{ id: 1, isPro: true } as Campaign]}>
-        <OutreachComposeDeepLink tcrCompliance={approvedCompliance} />
+        <OutreachComposeDeepLink
+          tcrCompliance={approvedCompliance}
+          onCompose={onCompose}
+        />
       </CampaignContext.Provider>,
     )
     await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(2))
@@ -225,18 +247,17 @@ describe('OutreachComposeDeepLink', () => {
     })
   })
 
-  it('consumes both compose and listId together in a single replace, preselecting the list on the TaskFlow it opens', async () => {
+  it('consumes both compose and listId together in a single replace, carrying the list', async () => {
     mockSearchParams = new URLSearchParams(
       'compose=text&message=Hello%20voters&listId=123',
     )
     renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
 
-    const taskFlow = await screen.findByTestId('task-flow')
-    expect(taskFlow).toHaveAttribute('data-type', 'text')
-    // This component opens its own TaskFlow directly (it never routes
-    // through the hub's channel tiles), so it must parse and carry listId
-    // itself rather than relying on the server-threaded prop.
-    expect(taskFlow).toHaveAttribute('data-preselected-list-id', '123')
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    // This component resolves listId itself rather than relying on the
+    // server-threaded prop the channel tiles read, because it hands the
+    // whole request over in one go.
+    expect(composeRequest()).toMatchObject({ type: 'text', listId: 123 })
     expect(mockReplace).toHaveBeenCalledWith('/dashboard/outreach', {
       scroll: false,
     })
@@ -251,8 +272,8 @@ describe('OutreachComposeDeepLink', () => {
     )
     renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
 
-    const taskFlow = await screen.findByTestId('task-flow')
-    expect(taskFlow).toHaveAttribute('data-preselected-list-id', '')
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(composeRequest().listId).toBeUndefined()
   })
 
   it('does nothing without a compose param', async () => {
@@ -261,7 +282,7 @@ describe('OutreachComposeDeepLink', () => {
     await waitFor(() => {
       expect(mockReplace).not.toHaveBeenCalled()
     })
-    expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
+    expect(onCompose).not.toHaveBeenCalled()
     expect(trackEvent).not.toHaveBeenCalled()
   })
 })

@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { Accordion, Button, Card } from '@styleguide'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
@@ -15,7 +16,7 @@ import {
 } from './useTrackerTasks'
 import CampaignStrategyPhase from './CampaignStrategyPhase'
 import CountModal from '../../../components/tasks/CountModal'
-import { useOutreachComposeFlow } from 'app/dashboard/outreach/hooks/useOutreachComposeFlow'
+import { composeOutreachHref } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 
 // The "Campaign Tracker" section on the campaign plan page: the persisted
 // campaign-tracker rows (campaign_tracker_tasks) rendered as a four-phase,
@@ -28,8 +29,16 @@ const CampaignStrategySection = (): React.JSX.Element => {
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
   const { generate, isGenerating } = useGenerateTrackerTasks()
   const toggleComplete = useToggleTrackerTaskComplete()
-  const { open: openOutreachFlow, flowNode: outreachFlowNode } =
-    useOutreachComposeFlow('campaign_tracker')
+  const router = useRouter()
+  // "Start outreach" links into the hub rather than opening a flow here: the
+  // hub owns the one mount of each channel flow and the gate in front of it,
+  // and it carries the task's due date onto the outreach record.
+  const openOutreachFlow = useCallback(
+    (channel: 'text' | 'robocall', date: string | null) => {
+      router.push(composeOutreachHref(channel, 'campaign_tracker', date))
+    },
+    [router],
+  )
   // An outreach task pending its voter-contact count in the modal.
   const [countTask, setCountTask] = useState<CampaignTrackerTask | null>(null)
 
@@ -206,8 +215,6 @@ const CampaignStrategySection = (): React.JSX.Element => {
           </Accordion>
         </>
       )}
-
-      {outreachFlowNode}
 
       {countTask && (
         <CountModal

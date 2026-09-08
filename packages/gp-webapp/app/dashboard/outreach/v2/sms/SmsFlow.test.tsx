@@ -292,6 +292,68 @@ describe('SmsFlow', () => {
     expect(receiptCalls).toBe(0)
   })
 
+  // The hub's `?compose=text` deep link seeds these. A preset message is one
+  // the candidate is meant to send as written (Know Your Opponent), so the
+  // flow opens on `custom` — the purpose that never AI-drafts — past the
+  // picker, rather than asking a question whose answer would draft over it.
+  describe('deep-link seeds', () => {
+    const openSeeded = (
+      props: Partial<{
+        initialScript: string
+        preselectedListId: number
+        campaignPlanDueDate: string
+      }>,
+    ) =>
+      render(
+        <SmsFlow
+          open
+          onClose={vi.fn()}
+          onScheduled={vi.fn().mockResolvedValue(undefined)}
+          tcrCompliance={TCR_FIXTURE}
+          {...props}
+        />,
+      )
+
+    it('opens past the purpose picker with a seeded message', async () => {
+      openSeeded({ initialScript: 'Hello {first_name}, vote Tuesday.' })
+
+      expect(
+        (await screen.findAllByText('Who do you want to reach?')).length,
+      ).toBeGreaterThan(0)
+      expect(
+        screen.queryByText('Introduce myself to voters'),
+      ).not.toBeInTheDocument()
+    })
+
+    it('opens on the purpose picker with no seed', async () => {
+      openSeeded({})
+
+      expect(
+        await screen.findByText('Introduce myself to voters'),
+      ).toBeInTheDocument()
+    })
+
+    it('selects a preselected list once the picker rows arrive', async () => {
+      openSeeded({
+        initialScript: 'Hello {first_name}, vote Tuesday.',
+        preselectedListId: 41,
+      })
+
+      // The audience step reads back the selected list by name rather than
+      // leaving the picker on its placeholder.
+      expect(await screen.findByText(/Likely voters/)).toBeInTheDocument()
+    })
+
+    it('ignores a preselected list that names no row of yours', async () => {
+      openSeeded({
+        initialScript: 'Hello {first_name}, vote Tuesday.',
+        preselectedListId: 9999,
+      })
+
+      expect(await screen.findByText('Choose a voter list')).toBeInTheDocument()
+    })
+  })
+
   it('shows the server message when the free purchase is rejected as a 400', async () => {
     mockDraft()
     const rejectionMessage =

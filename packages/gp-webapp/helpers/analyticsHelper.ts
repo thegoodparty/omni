@@ -507,11 +507,11 @@ export const EVENTS = {
     // ENG-10767: entry point of the CRM list → outreach funnel. Fires on
     // every "Send outreach" click in the CRM with
     // { surface: 'listCard' | 'listDetail' | 'universeRow' } plus { listId }
-    // for the two saved-list surfaces (the universe row links bare). Joins to
-    // the outreach wizard's audienceSource: 'deepLink' property on the
-    // audience-step Next and Voter Outreach - Campaign Completed events.
-    // Win-only by construction (ENG-10749 hides the button for Serve), so
-    // there is no ConstituentData variant.
+    // for the two saved-list surfaces (the universe row links bare). This is
+    // the funnel's entry only: the v2 outreach flows emit no audienceSource
+    // counterpart, so a click cannot currently be joined to the campaign it
+    // produced. Win-only by construction (ENG-10749 hides the button for
+    // Serve), so there is no ConstituentData variant.
     SendOutreachClicked: 'Voter Data - Send Outreach Clicked',
     // ENG-10836: the person-record status row (Voter Likelihood / Support
     // Status dropdowns). Fires once per confirmed-successful change with
