@@ -81,7 +81,6 @@ describe('ChiefOfStaffHandler', () => {
           anchor: null,
           districtFilters: null,
           constituentToolEnabled: false,
-          crmToolsEnabled: false,
         }),
       ),
     } as unknown as ChiefOfStaffContextService
@@ -435,7 +434,6 @@ describe('ChiefOfStaffHandler', () => {
     it('registers describe_filter_dimensions and count_contacts whenever contacts + organization resolve', async () => {
       const handler = buildCrmHandler({ contacts: buildContacts() })
       const ctx = await handler.loadContext('c1', USER_ID)
-      expect(ctx.crmToolsEnabled).toBe(true)
       expect(ctx.organization).toEqual({ slug: ORG })
       const toolNames = Object.keys(handler.buildTools(ctx))
       expect(toolNames).toContain('describe_filter_dimensions')
@@ -457,7 +455,6 @@ describe('ChiefOfStaffHandler', () => {
     it('omits both tools without the contacts service', async () => {
       const handler = buildCrmHandler({})
       const ctx = await handler.loadContext('c1', USER_ID)
-      expect(ctx.crmToolsEnabled).toBe(false)
       expect(Object.keys(handler.buildTools(ctx))).not.toContain(
         'count_contacts',
       )

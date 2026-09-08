@@ -116,9 +116,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       userId,
       this.priorities,
     )
-    const crmToolsEnabled = !!this.contacts
     const resolved = await this.districtResolver?.resolveByUserId(userId)
-    if (!resolved) return { ...ctx, crmToolsEnabled }
+    if (!resolved) return ctx
     const districtFilters = this.districtResolver
       ? this.districtResolver.toMandatoryFilters(resolved)
       : null
@@ -129,7 +128,6 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       districtFilters,
       constituentToolEnabled,
-      crmToolsEnabled,
     }
   }
 
@@ -211,7 +209,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     // for Serve once the contacts service resolves. The org is bound from
     // the resolved context; ContactsService enforces the Serve party
     // rejection and every other filter rule.
-    if (this.contacts && ctx.crmToolsEnabled) {
+    if (this.contacts) {
       tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
         contacts: this.contacts,
         organization: ctx.organization,

@@ -28,10 +28,6 @@ export interface ChiefOfStaffContext {
   // table configured). The context service defaults it false; the handler
   // resolves the real value from the provider + table allowlist.
   constituentToolEnabled: boolean
-  // True only when the contacts service is injected, so the prompt block
-  // and tool registration can't diverge. Defaults false here; the handler
-  // resolves the real value.
-  crmToolsEnabled: boolean
 }
 
 // Loads the static CoS context from the conversation's owning user + their
@@ -95,7 +91,6 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       anchor,
       districtFilters: null,
       constituentToolEnabled: false,
-      crmToolsEnabled: false,
     }
   }
 }
