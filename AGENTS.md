@@ -59,6 +59,7 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Debugging a prod issue / incident      | `docs/observability.md`                       |
 | The CRM (contacts) — flows, debugging  | `packages/gp-api/src/contacts/AGENTS.md`      |
 | Which MCP tools exist + their env vars | `docs/mcp.md`                                 |
+| Design rules + fixtures for Claude Design | `docs/design-memory/`                      |
 | Querying analytics data / Databricks   | `docs/databricks.md`                          |
 | AI code-review rule files              | `ai-rules/` (git submodule)                   |
 
