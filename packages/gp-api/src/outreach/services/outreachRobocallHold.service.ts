@@ -214,8 +214,8 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       // every authorized hold).
       estimate = calcRobocallTotalInCents(billableCount)
 
-      // INV-2: a TESTING ceiling. An estimate over it is a human-alert anomaly,
-      // not something to silently authorize.
+      // INV-2: a production sanity cap. An estimate over it is a human-alert
+      // anomaly (a count or pricing bug), not something to silently authorize.
       if (estimate > ROBOCALL_PER_RUN_CEILING_CENTS) {
         this.logger.error(
           { outreachId, estimate, ceiling: ROBOCALL_PER_RUN_CEILING_CENTS },
