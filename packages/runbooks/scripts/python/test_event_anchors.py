@@ -160,3 +160,54 @@ def test_no_desync_warning_on_healthy_registry(capsys):
     captured = capsys.readouterr()
     assert 'WARNING' not in captured.err
     assert len(reg) == 3
+
+
+def test_regression_comment_with_quotes_does_not_leak_into_registry():
+    """Regression: comment containing quotes like 'win' must not be parsed as events.
+
+    This was the bug introduced by first state machine: a quote in a comment
+    on line 133 would flip in_string flag, causing // on line 429 to not be
+    recognized as comment start, leaking comment prose into the registry.
+    """
+    src = """
+export const EVENTS = {
+  // Know your context: 'win' | 'serve' property distinguishes candidate vs. official
+  Good: {
+    Event1: 'Good - Real Event',
+  },
+  // Also a comment with 'more' | 'quotes' here
+  Better: {
+    Event2: 'Better - Another Event',
+  },
+}
+"""
+    reg = ea.load_event_registry(src)
+
+    assert 'win' not in reg
+    assert 'serve' not in reg
+    assert 'quotes' not in reg
+    assert 'more' not in reg
+
+    assert reg['Good - Real Event'] == 'EVENTS.Good.Event1'
+    assert reg['Better - Another Event'] == 'EVENTS.Better.Event2'
+    assert len(reg) == 2
+
+
+def test_regression_event_literal_with_url_and_comment_marker_survives():
+    """Regression: event literal with https:// (which contains //) must survive
+    stripping intact. This should have been caught by existing tests, but explicit
+    regression test for the specific failure mode.
+    """
+    src = """
+export const EVENTS = {
+  Documentation: {
+    // This comment also has a URL: https://example.com/help
+    LinkViewed: 'Documentation - Link to https://example.com/guide Viewed',
+  },
+}
+"""
+    stripped = ea._strip_comments(src)
+
+    reg = ea.load_event_registry(src)
+    assert 'Documentation - Link to https://example.com/guide Viewed' in reg
+    assert reg['Documentation - Link to https://example.com/guide Viewed'] == 'EVENTS.Documentation.LinkViewed'

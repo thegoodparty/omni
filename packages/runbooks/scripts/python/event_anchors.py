@@ -18,28 +18,66 @@ _OPEN = re.compile(r"([A-Za-z0-9_]+)\s*:\s*\{")
 
 
 def _strip_comments(text: str) -> str:
-    """Remove // line comments and /* block comments */ from text, preserving string
-    content inside single-quoted strings and overall structure. String-aware to avoid
-    breaking event literals that contain comment-like patterns."""
+    """Remove // line comments and /* block comments */ from text with a proper state
+    machine. Handles strings (single, double, template literals) and comments correctly:
+    - Quotes inside comments are inert characters (not state changes)
+    - Comments inside strings are code (not comment starts)
+    - Preserves newlines and string content exactly
+    - Replaces comment content with spaces (preserving offsets)
+    """
     out = []
     i = 0
     while i < len(text):
-        if text[i] == "'":
-            out.append(text[i])
+        ch = text[i]
+
+        if ch == "'":
+            out.append(ch)
             i += 1
             while i < len(text):
-                if text[i] == '\\' and i + 1 < len(text):
-                    out.append(text[i])
-                    out.append(text[i + 1])
+                ch = text[i]
+                if ch == '\\' and i + 1 < len(text):
+                    out.append(text[i:i + 2])
                     i += 2
                     continue
-                if text[i] == "'":
-                    out.append(text[i])
+                out.append(ch)
+                if ch == "'":
                     i += 1
                     break
-                out.append(text[i])
                 i += 1
             continue
+
+        if ch == '"':
+            out.append(ch)
+            i += 1
+            while i < len(text):
+                ch = text[i]
+                if ch == '\\' and i + 1 < len(text):
+                    out.append(text[i:i + 2])
+                    i += 2
+                    continue
+                out.append(ch)
+                if ch == '"':
+                    i += 1
+                    break
+                i += 1
+            continue
+
+        if ch == '`':
+            out.append(ch)
+            i += 1
+            while i < len(text):
+                ch = text[i]
+                if ch == '\\' and i + 1 < len(text):
+                    out.append(text[i:i + 2])
+                    i += 2
+                    continue
+                out.append(ch)
+                if ch == '`':
+                    i += 1
+                    break
+                i += 1
+            continue
+
         if i + 1 < len(text) and text[i:i + 2] == '//':
             while i < len(text) and text[i] != '\n':
                 out.append(' ')
@@ -48,23 +86,24 @@ def _strip_comments(text: str) -> str:
                 out.append('\n')
                 i += 1
             continue
+
         if i + 1 < len(text) and text[i:i + 2] == '/*':
             out.append(' ')
-            i += 1
             out.append(' ')
-            i += 1
+            i += 2
             while i + 1 < len(text):
                 if text[i:i + 2] == '*/':
                     out.append(' ')
-                    i += 1
                     out.append(' ')
-                    i += 1
+                    i += 2
                     break
                 out.append(' ' if text[i] != '\n' else '\n')
                 i += 1
             continue
-        out.append(text[i])
+
+        out.append(ch)
         i += 1
+
     return ''.join(out)
 
 
