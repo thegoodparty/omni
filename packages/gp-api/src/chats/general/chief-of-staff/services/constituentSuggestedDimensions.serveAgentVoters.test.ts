@@ -73,8 +73,6 @@ describe('serve suggested dimensions — mark coupling with HS_SCORE_SEMANTICS',
     expect(offCenter.sort()).toEqual(['hs_any_home_buyer', 'hs_new_home_buyer'])
   })
 
-  // Was 51. The vendor stopped delivering 49 of them; the 2 that remain are
-  // ones it renamed rather than dropped, so their labels carried over.
   it('marks the 2 columns still limited to the 12-state December 2025 delivery', () => {
     const twelveStateOnly = hsEntries.filter((d) =>
       d.label.includes('limited coverage: data exists in only 12 states'),

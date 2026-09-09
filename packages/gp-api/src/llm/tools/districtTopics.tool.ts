@@ -209,6 +209,10 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
       'Violent crime concern, gun control, police trust, death penalty',
     columns: [
       {
+        name: 'hs_violent_crime_worried',
+        meaning: 'worried about violent crime',
+      },
+      {
         name: 'hs_violent_crime_not_worried',
         meaning: 'not worried about violent crime',
       },
