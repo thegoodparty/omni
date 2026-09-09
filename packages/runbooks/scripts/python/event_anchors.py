@@ -16,10 +16,45 @@ _LEAF = re.compile(r"([A-Za-z0-9_]+)\s*:\s*'([^']*)'")
 _OPEN = re.compile(r"([A-Za-z0-9_]+)\s*:\s*\{")
 
 
+def _strip_comments(text: str) -> str:
+    """Remove // line comments and /* block comments */ from text, preserving string
+    content inside quotes and overall structure."""
+    out = []
+    i = 0
+    while i < len(text):
+        if i + 1 < len(text) and text[i:i + 2] == '//':
+            while i < len(text) and text[i] != '\n':
+                out.append(' ')
+                i += 1
+            if i < len(text):
+                out.append('\n')
+                i += 1
+            continue
+        if i + 1 < len(text) and text[i:i + 2] == '/*':
+            out.append(' ')
+            i += 1
+            out.append(' ')
+            i += 1
+            while i + 1 < len(text):
+                if text[i:i + 2] == '*/':
+                    out.append(' ')
+                    i += 1
+                    out.append(' ')
+                    i += 1
+                    break
+                out.append(' ' if text[i] != '\n' else '\n')
+                i += 1
+            continue
+        out.append(text[i])
+        i += 1
+    return ''.join(out)
+
+
 def load_event_registry(text: str, root: str = "EVENTS") -> dict[str, str]:
     """{event-name literal -> dotted key-path} from the nested object literal in
     analyticsHelper.ts. A regex walk rather than a TS parse: the shape is a fixed nesting
     of string leaves, and a miss only costs that event its key-path search."""
+    text = _strip_comments(text)
     start = text.find(f"{root} = {{")
     if start == -1:
         return {}
