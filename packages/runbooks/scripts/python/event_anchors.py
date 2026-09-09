@@ -10,14 +10,18 @@ nothing reaches Amplitude Govern from this module.
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import posixpath
 import re
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
+import analytics_event_health as aeh
+import event_state_assembler as esa
 import instrumentation_gaps as ig
 import llm_judge
 
@@ -450,16 +454,53 @@ def build_anchor_messages(candidates: Sequence[dict]) -> list[dict]:
     return [{"role": "user", "content": json.dumps(list(candidates), indent=2)}]
 
 
+# Matches the chunk size instrumentation_gaps.judge_all already uses for the gap sweep.
+# llm_judge.max_tokens_for caps at 32,000 output tokens; past ~77 candidates in one call the
+# response no longer fits and truncates (parse_tool_response raises, run_graceful degrades
+# the whole batch to "failed: ... truncated"). Chunking bounds every call's own budget so a
+# 320-event run degrades chunk by chunk instead of yielding nothing.
+ANCHOR_CHUNK_SIZE = 25
+
+
+def _combine_chunk_statuses(statuses: Sequence[str]) -> str:
+    """Fold per-chunk statuses into one. A single chunk (the common case) reports its own
+    status verbatim, unchanged from the pre-chunking behavior. With more than one chunk,
+    all-ok collapses to "ok"; otherwise the count of not-ok chunks and one underlying reason
+    are named, so a partial failure is visible rather than masked by whichever chunk ran
+    last — but this never raises, matching the graceful contract for the whole loop."""
+    if len(statuses) == 1:
+        return statuses[0]
+    bad = [s for s in statuses if s != "ok"]
+    if not bad:
+        return "ok"
+    return f"{len(bad)}/{len(statuses)} chunks not ok: {bad[0]}"
+
+
 def judge_anchors(candidates: Sequence[dict], *, api_key: str | None, model: str = DEFAULT_MODEL,
-                  client_factory: Callable[[str], object] = llm_judge.make_anthropic_client
+                  client_factory: Callable[[str], object] = llm_judge.make_anthropic_client,
+                  chunk_size: int = ANCHOR_CHUNK_SIZE
                   ) -> tuple[dict[str, dict], str]:
-    return llm_judge.run_graceful(
-        candidates, api_key=api_key, model=model, tool=ANCHOR_TOOL,
-        message_builder=build_anchor_messages,
-        system_factory=anchor_system_prompt,
-        unavailable_status="skipped: prompt unavailable",
-        client_factory=client_factory,
-    )
+    """Judge candidates in bounded chunks, merging verdicts across calls. One call per chunk
+    keeps every request inside llm_judge's output-token ceiling; a batch at or under
+    chunk_size is exactly one call, matching the pre-chunking shape. Never raises — each
+    chunk goes through run_graceful's own graceful boundary, and a failing chunk neither
+    raises nor discards the verdicts the other chunks already produced."""
+    if not candidates:
+        return {}, llm_judge.NO_ITEMS_STATUS
+    verdicts: dict[str, dict] = {}
+    statuses: list[str] = []
+    for i in range(0, len(candidates), chunk_size):
+        chunk = candidates[i:i + chunk_size]
+        chunk_verdicts, status = llm_judge.run_graceful(
+            chunk, api_key=api_key, model=model, tool=ANCHOR_TOOL,
+            message_builder=build_anchor_messages,
+            system_factory=anchor_system_prompt,
+            unavailable_status="skipped: prompt unavailable",
+            client_factory=client_factory,
+        )
+        verdicts.update(chunk_verdicts)
+        statuses.append(status)
+    return verdicts, _combine_chunk_statuses(statuses)
 
 
 # --- State and the review artifact -----------------------------------------------
@@ -620,3 +661,125 @@ def apply_review(state: dict, parsed: Mapping[str, dict], today: str) -> dict:
             out[event_id]["disposition"] = disposition
         out[event_id]["last_seen"] = today
     return out
+
+
+# --- CLI: candidate collection + main --------------------------------------------
+
+SEARCH_PACKAGES = ("packages/gp-webapp", "packages/gp-admin", "packages/gp-api")
+SEARCH_SUFFIXES = (".ts", ".tsx")
+
+
+def load_state(path: Path) -> dict:
+    """State keyed by event_type. A missing or unreadable file is a legitimate first run,
+    not an error — but a *corrupt* one is not, because silently starting from {} would
+    re-draft every event and wipe every human disposition on the next save. json.loads is
+    left to raise on bad JSON rather than caught here: that is the entire distinction."""
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text())
+
+
+def save_state(path: Path, state: Mapping) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+
+
+def read_repo_files(repo: Path) -> dict[str, str]:
+    """{repo-relative path: text} for the packages that can fire an event. Read once and
+    passed down, so the locator never touches the filesystem itself and stays testable."""
+    files: dict[str, str] = {}
+    for pkg in SEARCH_PACKAGES:
+        for path in (repo / pkg).rglob("*"):
+            if path.suffix not in SEARCH_SUFFIXES or "node_modules" in path.parts:
+                continue
+            try:
+                files[path.relative_to(repo).as_posix()] = path.read_text()
+            except (OSError, UnicodeDecodeError):
+                continue
+    return files
+
+
+def collect_candidates(repo: Path | None, state: Mapping, *,
+                       limit: int | None = None,
+                       run_query=None) -> list[dict]:
+    """Judge inputs for the events that need an anchor: fired in the last 30 days, no
+    `fires_on` yet, and not already dispositioned by a human. `run_query` is injected
+    straight through to `event_state_assembler.fetch_catalog` so a test never reaches
+    Databricks; production runs leave it None and get the real connector."""
+    repo = repo or Path(os.environ.get("OMNI_REPO", Path(__file__).parents[4]))
+    files = read_repo_files(repo)
+    registry = load_event_registry(files.get(REGISTRY_FILE, ""))
+    pages = [p for p in files if p.endswith("/page.tsx")]
+
+    catalog = esa.fetch_catalog(run_query) if run_query else esa.fetch_catalog()
+    out: list[dict] = []
+    for row in sorted(catalog, key=lambda r: -int(r.get("event_count_30d") or 0)):
+        event_type = row["event_type"]
+        if int(row.get("event_count_30d") or 0) <= 0:
+            continue
+        entry = state.get(event_type, {})
+        if entry.get("fires_on") or entry.get("disposition") in ("accepted", "dismissed"):
+            continue
+        gpmeta = aeh.parse_gpmeta(row.get("govern_description")) or {}
+        if gpmeta.get("fires_on"):
+            continue
+        hits = find_call_sites(event_type, registry.get(event_type), files)
+        url = next((u for u in (derive_url(h["path"], pages) for h in hits) if u), None)
+        out.append(build_candidate(
+            {"event_type": event_type, "family": row.get("family"),
+             "description": gpmeta.get("purpose") or ""},
+            hits, url, files))
+        if limit is not None and len(out) >= limit:
+            break
+    return out
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--repo", type=Path, default=None)
+    parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
+    parser.add_argument("--today", default=None, help="override run date YYYY-MM-DD")
+    parser.add_argument("--limit", type=int, default=None,
+                        help="bound the number of events drafted (the calibration pilot)")
+    parser.add_argument("--no-judge", action="store_true")
+    parser.add_argument("--list-new", action="store_true")
+    parser.add_argument("--review-artifact", type=Path)
+    parser.add_argument("--load-review", type=Path)
+    parser.add_argument("--json", type=Path)
+    args = parser.parse_args(argv)
+
+    today = args.today or date.today().isoformat()
+    state = load_state(args.state)
+
+    if args.list_new:
+        for event_id in sorted(state):
+            if state[event_id].get("disposition") in ("new", "open"):
+                print(event_id)
+        return 0
+
+    if args.load_review:
+        state = apply_review(state, parse_review_artifact(args.load_review.read_text()), today)
+        save_state(args.state, state)
+        return 0
+
+    if args.review_artifact:
+        args.review_artifact.write_text(render_review_artifact(state, today))
+        print(f"wrote review artifact to {args.review_artifact}")
+        return 0
+
+    candidates = collect_candidates(args.repo, state, limit=args.limit)
+    if args.no_judge:
+        verdicts, status = {}, "skipped: --no-judge"
+    else:
+        verdicts, status = judge_anchors(
+            candidates, api_key=os.environ.get("ANTHROPIC_API_KEY"), model=DEFAULT_MODEL)
+    state = merge_verdicts(state, verdicts, candidates, today)
+    save_state(args.state, state)
+    if args.json:
+        args.json.write_text(json.dumps(state, indent=2))
+    print(f"event-anchors: {len(candidates)} candidates, {len(verdicts)} drafted, judge {status}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

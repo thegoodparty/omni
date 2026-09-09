@@ -308,6 +308,95 @@ _WRITEBACK_ENV = {
 }
 
 
+def test_build_anchor_values_leads_with_the_event_and_its_anchor():
+    state = {
+        "B Event": {"fires_on": "Plan page, Generate.", "url": "/dashboard/campaign-plan",
+                    "confidence": "high", "flag_reason": "", "evidence": "a.tsx:3",
+                    "disposition": "new", "reason": "", "first_seen": "2026-09-10",
+                    "last_seen": "2026-09-10", "written_date": ""},
+        "A Event": {"fires_on": "Left nav.", "url": "n/a (global nav)",
+                    "confidence": "low", "flag_reason": "global_chrome",
+                    "evidence": "nav.tsx:1", "disposition": "accepted", "reason": "ok",
+                    "first_seen": "2026-09-10", "last_seen": "2026-09-10",
+                    "written_date": ""},
+    }
+    values = gs.build_anchor_values(state)
+    assert values[0] == list(gs.ANCHORS_COLUMNS)
+    assert gs.ANCHORS_COLUMNS[:4] == ["event", "fires_on", "url", "confidence"]
+    assert values[1][0] == "A Event"          # sorted by event id
+    assert len(values) == 3
+    assert all(isinstance(c, str) for row in values for c in row)
+
+
+def test_build_anchor_values_missing_cell_becomes_blank():
+    state = {"E": {"fires_on": "x"}}   # most fields absent
+    values = gs.build_anchor_values(state)
+    row = values[1]
+    assert row[gs.ANCHORS_COLUMNS.index("event")] == "E"
+    assert row[gs.ANCHORS_COLUMNS.index("url")] == ""
+
+
+def test_write_anchors_sheet_updates_then_clears_and_returns_count():
+    svc = _FakeService()
+    state = {"A": {"fires_on": "x"}, "B": {"fires_on": "y"}}
+    n = gs.write_anchors_sheet(state, service=svc, spreadsheet_id="SID", tab="anchors")
+    assert n == 2  # excludes header
+    kinds = [k for k, _ in svc.log]
+    assert kinds == ["update", "clear"]
+    update_kw = svc.log[0][1]
+    clear_kw = svc.log[1][1]
+    assert update_kw["spreadsheetId"] == "SID"
+    assert update_kw["range"] == "anchors!A1"
+    assert update_kw["body"]["values"][0] == list(gs.ANCHORS_COLUMNS)
+    assert len(update_kw["body"]["values"]) == 3     # header + 2 data rows
+    assert clear_kw["spreadsheetId"] == "SID" and clear_kw["range"] == "anchors!A4:ZZ"
+
+
+def test_write_anchors_sheet_default_tab_is_ANCHORS_TAB():
+    svc = _FakeService()
+    gs.write_anchors_sheet({}, service=svc, spreadsheet_id="SID")
+    assert svc.log[0][1]["range"] == f"{gs.ANCHORS_TAB}!A1"
+
+
+def test_load_anchors_state_missing_is_empty_and_corrupt_is_none(tmp_path):
+    assert gs.load_anchors_state(tmp_path / "nope.json") == {}
+    bad = tmp_path / "bad.json"
+    bad.write_text("{ not json")
+    assert gs.load_anchors_state(bad) is None
+    notdict = tmp_path / "arr.json"
+    notdict.write_text("[]")
+    assert gs.load_anchors_state(notdict) is None
+
+
+def test_load_anchors_state_reads_valid_dict(tmp_path):
+    good = tmp_path / "state.json"
+    good.write_text(json.dumps({"E": {"fires_on": "x"}}))
+    assert gs.load_anchors_state(good) == {"E": {"fires_on": "x"}}
+
+
+def test_main_refresh_anchors_writes_state_rows(monkeypatch, tmp_path, capsys):
+    state = {"E": {"fires_on": "x", "disposition": "new"}}
+    state_file = tmp_path / "event_anchors.json"
+    state_file.write_text(json.dumps(state))
+    svc = _FakeService()
+    monkeypatch.setattr(gs, "get_sheets_service", lambda **kw: svc)
+    rc = gs.main(["refresh-anchors", "--spreadsheet-id", "SID",
+                 "--anchors-state", str(state_file)])
+    assert rc == 0
+    assert any(c[0] == "update" for c in svc.log)
+
+
+def test_main_refresh_anchors_skips_on_corrupt_state(monkeypatch, tmp_path, capsys):
+    state_file = tmp_path / "event_anchors.json"
+    state_file.write_text("{ broken")
+    monkeypatch.setattr(gs, "get_sheets_service",
+                        lambda **kw: (_ for _ in ()).throw(AssertionError("must not auth")))
+    rc = gs.main(["refresh-anchors", "--spreadsheet-id", "SID",
+                 "--anchors-state", str(state_file)])
+    assert rc == 0
+    assert "skipping" in capsys.readouterr().err.lower()
+
+
 def test_main_writeback_questions_exits_2_without_the_token(monkeypatch, capsys):
     monkeypatch.delenv("CLICKUP_API_KEY", raising=False)
     rc = gs.main(["writeback-questions"])

@@ -1,4 +1,9 @@
 import copy
+import inspect
+import json
+
+import pytest
+
 import event_anchors as ea
 import pathlib
 import re
@@ -627,6 +632,41 @@ def test_judge_anchors_wires_the_forced_tool_and_returns_id_keyed_verdicts():
     assert sent["tools"] == [ea.ANCHOR_TOOL]
 
 
+class _ChunkCountingClient:
+    """Fake client whose second call fails; the other two succeed with verdicts keyed by
+    whatever ids that particular chunk actually sent — proves chunks are merged, not just
+    repeated, and that a failing chunk does not discard the succeeding ones' verdicts."""
+    def __init__(self):
+        self.messages = self
+        self.call_count = 0
+
+    def create(self, **kwargs):
+        self.call_count += 1
+        ids = [c["id"] for c in json.loads(kwargs["messages"][0]["content"])]
+        if self.call_count == 2:
+            raise RuntimeError("boom")
+        payload = {"verdicts": [
+            {"id": i, "fires_on": f"fires {i}", "url": "/x", "confidence": "high"}
+            for i in ids
+        ]}
+        return _FakeResp([_FakeBlock(payload)])
+
+
+def test_judge_anchors_chunks_candidates_and_merges_across_calls():
+    candidates = [{"id": f"E{i}"} for i in range(60)]
+    client = _ChunkCountingClient()
+    verdicts, status = ea.judge_anchors(
+        candidates, api_key="sk-ant-x", model="m", client_factory=lambda _key: client)
+    assert client.call_count == 3          # 60 candidates / chunk_size 25 -> 3 calls
+    # chunks 1 (E0-E24) and 3 (E50-E59) succeed; chunk 2 (E25-E49) fails and contributes
+    # nothing, but never raises and never discards the other chunks' verdicts.
+    assert len(verdicts) == 35
+    assert "E0" in verdicts and "E59" in verdicts
+    assert "E30" not in verdicts
+    assert "not ok" in status
+    assert "boom" in status
+
+
 def test_merge_verdicts_seeds_new_entries_and_preserves_human_fields():
     candidates = [{"id": "E", "evidence": "a.tsx:3"}]
     verdicts = {"E": {"id": "E", "fires_on": "Plan page, Generate button.",
@@ -799,3 +839,187 @@ def test_review_round_trip_still_works_after_the_stricter_parsing():
     # untouched row survives unchanged
     assert applied["F"]["fires_on"] == "Draft two."
     assert applied["F"]["disposition"] == "new"
+
+
+# --- Task 7: state I/O, candidate collection, and the CLI -----------------------------
+
+def test_load_state_missing_file_is_a_legitimate_first_run(tmp_path):
+    assert ea.load_state(tmp_path / "nope.json") == {}
+
+
+def test_load_state_raises_on_a_corrupt_file_rather_than_silently_restarting(tmp_path):
+    """A corrupt file is NOT a legitimate first run: silently starting from {} would
+    re-draft every event and wipe every human disposition on the next save."""
+    bad = tmp_path / "anchors.json"
+    bad.write_text("{ not valid json")
+    with pytest.raises(json.JSONDecodeError):
+        ea.load_state(bad)
+
+
+def test_save_state_round_trips_and_creates_parent_dirs(tmp_path):
+    path = tmp_path / "nested" / "anchors.json"
+    ea.save_state(path, {"E": {"fires_on": "x"}})
+    assert json.loads(path.read_text()) == {"E": {"fires_on": "x"}}
+
+
+def _write_fake_repo(tmp_path: pathlib.Path, page_rel: str, page_src: str = "export default function Page(){return null}") -> pathlib.Path:
+    """A minimal repo tree: the registry file plus one page.tsx, enough for
+    collect_candidates to walk without touching a real checkout."""
+    registry_path = tmp_path / ea.REGISTRY_FILE
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text(REGISTRY_SRC)
+    page_path = tmp_path / page_rel
+    page_path.parent.mkdir(parents=True, exist_ok=True)
+    page_path.write_text(page_src)
+    return tmp_path
+
+
+def _fake_run_query(rows):
+    """Mimics event_state_assembler.fetch_catalog's `run_query(sql).to_dict("records")`
+    contract without ever touching Databricks."""
+    class _FakeDF:
+        def __init__(self, data):
+            self._data = data
+
+        def to_dict(self, orient):
+            assert orient == "records"
+            return self._data
+
+    def run_query(sql):
+        return _FakeDF(rows)
+
+    return run_query
+
+
+def test_collect_candidates_never_touches_the_network(tmp_path):
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    rows = [{"event_type": "Onboarding - Pledge Completed", "family": "onboarding",
+             "event_count_30d": 5}]
+    candidates = ea.collect_candidates(repo, {}, run_query=_fake_run_query(rows))
+    assert [c["id"] for c in candidates] == ["Onboarding - Pledge Completed"]
+
+
+def test_collect_candidates_skips_events_already_anchored_or_dispositioned(tmp_path):
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    rows = [
+        {"event_type": "Onboarding - Pledge Completed", "family": "onboarding",
+         "event_count_30d": 5},
+        {"event_type": "Navigation - Dashboard: Click My Profile", "family": "nav",
+         "event_count_30d": 3},
+        {"event_type": "Navigation - Dashboard: Click Door Knocking", "family": "nav",
+         "event_count_30d": 1},
+        {"event_type": "Zero Volume Event", "family": "x", "event_count_30d": 0},
+    ]
+    state = {
+        # already drafted a fires_on -> skip
+        "Onboarding - Pledge Completed": {"fires_on": "already drafted", "disposition": "new"},
+        # human-dispositioned -> skip even with no fires_on
+        "Navigation - Dashboard: Click My Profile": {"fires_on": "", "disposition": "accepted"},
+    }
+    candidates = ea.collect_candidates(repo, state, run_query=_fake_run_query(rows))
+    assert [c["id"] for c in candidates] == ["Navigation - Dashboard: Click Door Knocking"]
+
+
+def test_collect_candidates_skips_an_event_whose_govern_description_already_has_fires_on(tmp_path):
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    rows = [{"event_type": "Onboarding - Pledge Completed", "family": "onboarding",
+             "event_count_30d": 5,
+             "govern_description": "<!-- gp-meta -->\nfires_on: Onboarding, pledge step.\n"
+                                    "<!-- /gp-meta -->"}]
+    assert ea.collect_candidates(repo, {}, run_query=_fake_run_query(rows)) == []
+
+
+def test_collect_candidates_respects_limit_and_sorts_by_volume_desc(tmp_path):
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    rows = [
+        {"event_type": "Onboarding - Pledge Completed", "family": "o", "event_count_30d": 9},
+        {"event_type": "Navigation - Dashboard: Click My Profile", "family": "n",
+         "event_count_30d": 5},
+        {"event_type": "Navigation - Dashboard: Click Door Knocking", "family": "n",
+         "event_count_30d": 1},
+    ]
+    candidates = ea.collect_candidates(repo, {}, run_query=_fake_run_query(rows), limit=2)
+    assert [c["id"] for c in candidates] == [
+        "Onboarding - Pledge Completed", "Navigation - Dashboard: Click My Profile",
+    ]
+
+
+def test_main_list_new_reports_without_touching_state(tmp_path, capsys):
+    state = tmp_path / "anchors.json"
+    state.write_text(json.dumps({"E": {
+        "fires_on": "x", "url": "/y", "confidence": "high", "flag_reason": "",
+        "evidence": "a.tsx:1", "disposition": "new", "reason": "",
+        "first_seen": "2026-09-10", "last_seen": "2026-09-10", "written_date": ""}}))
+    before = state.read_text()
+    assert ea.main(["--state", str(state), "--list-new"]) == 0
+    assert "E" in capsys.readouterr().out
+    assert state.read_text() == before
+
+
+def test_main_load_review_applies_edits_to_state(tmp_path):
+    state = tmp_path / "anchors.json"
+    state.write_text(json.dumps({"E": {
+        "fires_on": "draft", "url": "/y", "confidence": "high", "flag_reason": "",
+        "evidence": "a.tsx:1", "disposition": "new", "reason": "",
+        "first_seen": "2026-09-10", "last_seen": "2026-09-10", "written_date": ""}}))
+    artifact = tmp_path / "review.md"
+    artifact.write_text("## E\n- fires_on: corrected\n- url: /y\n- disposition: accepted\n- reason: ok\n")
+    assert ea.main(["--state", str(state), "--load-review", str(artifact),
+                    "--today", "2026-09-11"]) == 0
+    after = json.loads(state.read_text())
+    assert after["E"]["fires_on"] == "corrected"
+    assert after["E"]["disposition"] == "accepted"
+
+
+def test_main_review_artifact_writes_the_queue_without_mutating_state(tmp_path, capsys):
+    state = tmp_path / "anchors.json"
+    state.write_text(json.dumps({"E": {
+        "fires_on": "x", "url": "/y", "confidence": "high", "flag_reason": "",
+        "evidence": "a.tsx:1", "disposition": "new", "reason": "",
+        "first_seen": "2026-09-10", "last_seen": "2026-09-10", "written_date": ""}}))
+    artifact_path = tmp_path / "review.md"
+    before = state.read_text()
+    assert ea.main(["--state", str(state), "--review-artifact", str(artifact_path),
+                    "--today", "2026-09-11"]) == 0
+    assert "## E" in artifact_path.read_text()
+    assert state.read_text() == before
+    assert "wrote review artifact" in capsys.readouterr().out
+
+
+def test_main_no_judge_run_collects_and_reports_without_drafting(tmp_path, monkeypatch, capsys):
+    """--no-judge exercises main's default wiring (collect_candidates -> merge_verdicts ->
+    save_state) with no LLM call and no verdicts, via a monkeypatched collect_candidates so
+    the test never reaches the filesystem walk or Databricks."""
+    state_path = tmp_path / "anchors.json"
+    monkeypatch.setattr(ea, "collect_candidates",
+                        lambda repo, state, limit=None: [{"id": "E", "evidence": "a.tsx:1"}])
+    assert ea.main(["--state", str(state_path), "--no-judge"]) == 0
+    out = capsys.readouterr().out
+    assert "1 candidates" in out
+    assert "0 drafted" in out
+    assert "skipped: --no-judge" in out
+    assert json.loads(state_path.read_text()) == {}   # no verdicts -> nothing to merge in
+
+
+def test_main_default_run_judges_drafts_and_saves(tmp_path, monkeypatch, capsys):
+    """The full default path, with both collect_candidates and judge_anchors monkeypatched
+    so the run never touches the filesystem walk, Databricks, or the network."""
+    state_path = tmp_path / "anchors.json"
+    monkeypatch.setattr(ea, "collect_candidates",
+                        lambda repo, state, limit=None: [{"id": "E", "evidence": "a.tsx:1"}])
+    monkeypatch.setattr(ea, "judge_anchors", lambda candidates, **kwargs: (
+        {"E": {"id": "E", "fires_on": "Dashboard, Generate.", "url": "/dashboard",
+               "confidence": "high"}}, "ok"))
+    assert ea.main(["--state", str(state_path), "--today", "2026-09-11"]) == 0
+    saved = json.loads(state_path.read_text())
+    assert saved["E"]["fires_on"] == "Dashboard, Generate."
+    assert saved["E"]["disposition"] == "new"
+    out = capsys.readouterr().out
+    assert "1 drafted" in out
+    assert "judge ok" in out
+
+
+def test_main_never_writes_to_amplitude():
+    # Plan A ends at the queue. The writer is plan B, behind a human reading a pilot.
+    src = inspect.getsource(ea)
+    assert "update_event" not in src and "create_events" not in src
