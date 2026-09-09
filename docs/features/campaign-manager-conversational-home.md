@@ -1,135 +1,155 @@
 # Campaign Manager conversational home (prototype)
 
-Working note for the prototype that replaces the card-based Win dashboard home with a
-conversation-first home, behind a feature flag, built so the same component can serve
-the Serve Chief of Staff. **Delete this file before the prototype merges to `main`.**
+Working note for the conversation-first Win home, behind `campaign-manager-chat-home`.
+**Delete this file before the prototype merges to `main`.**
 
 Branch: `claude/campaign-manager-ai-prototype-t4dgn6`.
-
 Design source: Claude Design project `5718ad9e-b4e7-493e-8cbf-37711fc905c0`,
-file `Campaign Manager.dc.html`. It cannot be read from a Claude Code web session
-(`DesignSync` needs `/design-login`, which is interactive-only). Run `/design-login`
-once in a local interactive session, then `DesignSync` `get_file` works.
+`Campaign Manager.dc.html`, plus `campaign-manager-baseline-prompt.md` in the same
+project. Read with `DesignSync get_file` after `/design-login`.
 
-## The goal
-
-Today the Win home tells candidates what to do with a stack of cards. The prototype
-replaces that with an open conversation the Campaign Manager starts. Same information
-hierarchy and same rules as the cards, delivered conversationally, with every
-recommendation ending in a microcard CTA.
-
-Two behaviors define it:
-
-- **First-time user.** The manager introduces itself, sketches what it can do, then
-  asks the questions it needs to personalize: why you are running, what issues you
-  are running on, and so on.
-- **Returning user.** Every new session opens with what changed since last time, then
-  clear direction on what to tackle this week. Each item carries a microcard CTA, and
-  an outreach CTA opens the bottom drawer for that outreach action.
-
-## What already exists
-
-This is closer to a promotion than a build. The conversation is already there, it is
-just docked in a drawer behind the cards.
-
-### Frontend (packages/gp-webapp)
+## What is built
 
 | Thing | Where |
 | --- | --- |
-| Win home route | `app/dashboard/page.tsx` → `app/dashboard/components/DashboardContent.tsx` |
-| The card home to replace | `app/dashboard/campaign-manager/CampaignManagerHome.tsx` |
-| The cards themselves | `ProUpgradeBanner`, `TextingSetupBanner`, `ProUpgrade3ComplianceCard`, `ProgressSection` (in `app/dashboard/components/campaignManager/`), plus `CampaignManagerTasks` and its `ManagerPromptCard` / `PersonalizeStoryCard` / `GetOnBallotCard` / `StoryReadyCard` |
-| The always-on chat dock | `app/dashboard/campaign-manager/CampaignManagerChatProvider.tsx`, mounted in `DashboardLayout` via `DashboardCampaignManagerChat` |
-| Chat surface and body | `app/dashboard/chief-of-staff/components/chat/ChiefOfStaffChatSurface.tsx` and `ChiefOfStaffChatBody.tsx` |
-| Chat client | `app/dashboard/campaign-manager/campaignManagerChat.ts` |
-| Feature flags | `app/shared/experiments/`, documented in `packages/gp-webapp/docs/feature-flags.md` |
+| Flag wrapper | `app/shared/experiments/campaignManagerChatHomeFlag.ts` |
+| Shared home (scope-parameterized) | `app/dashboard/chief-of-staff/components/chat/ConversationalHome.tsx` |
+| Win binding | `app/dashboard/campaign-manager/CampaignManagerChatHome.tsx` |
+| Hero | `app/dashboard/campaign-manager/CampaignManagerHero.tsx` |
+| Task-card rail + state logic | `app/dashboard/campaign-manager/CampaignManagerTaskCards.tsx` |
+| Shared task CTA resolution | `app/dashboard/campaign-manager/trackerTaskCta.ts` |
+| Branch point + Serve guard | `app/dashboard/components/DashboardContent.tsx` |
+| Slots added to the shared body | `ChiefOfStaffChatBody.tsx` (`leadingSlot`, `trailingSlot`) |
 
-Win and Serve already share the chat components: the Win dock imports `FooterChatBar`,
-`ChiefOfStaffChatSurface`, and `ChiefOfStaffChatBody` straight out of the
-`chief-of-staff/` tree. Building the new home parameterized by chat config rather than
-hardcoded to Win is therefore the natural shape, not extra work.
+The flag still has to be created in Amplitude Experiment (dev + prod) via the
+`amplitude-flag` skill.
 
-The dock already has the pieces the FTUE needs:
+### Decisions worth not relitigating
 
-- A server-seeded, resume-aware greeting.
-- Starter suggestion chips typed as `ChatSuggestion { label, description, kickoff }`,
-  which is close to the microcard shape already.
-- One-shot hidden kickoff sentinels (`CAMPAIGN_MANAGER_START_STORY_SENTINEL`,
-  `CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL`, and a ballot kickoff) that drive a
-  scripted flow without the candidate typing.
+- **A new conversation per browser session**, not the manager's one resumed thread.
+  The active id lives in `sessionStorage` keyed by org, so one sitting is one
+  conversation; past ones are reached through the composer's history popover. This
+  surface therefore never shows the server-seeded greeting (nothing is created until
+  the first send) — the hero is the greeting.
+- **Task cards carry no avatar or bubble.** They hang under the preceding message at
+  the assistant indent. A second avatar reads as a second turn.
+- **Chips and task cards never share a turn.** An explicitly empty `suggestions`
+  array is how the home suppresses chips; `undefined` falls back to the Chief of
+  Staff defaults, so it cannot mean "none".
+- **Outreach CTAs deep-link to the hub.** The hub owns one instance of each channel
+  flow plus its Pro and 10DLC gates (`outreach/AGENTS.md`). The design wants the
+  flow in this surface's own sheet; that needs the flows hoisted out of the hub
+  first, which is its own ticket.
+- **Free candidates see no Pro surface at all**, upsell included. Task cards filter
+  on the catalog's `proRequired` before the top three are picked.
+- **The flag branch falls back to the card home** for every state that is not a
+  resolved "on". `ready` never flips true when the flag provider cannot resolve, so
+  gating the other way blanks the dashboard.
 
-### Backend (packages/gp-api)
+## Not built yet
 
-The `campaign_assistant` scope handler is real and substantial:
-`src/chats/general/campaign-manager/campaignManager.handler.ts` (~500 lines), with its
-system prompt in `campaignManagerPrompt.ts`.
+| Gap | Note |
+| --- | --- |
+| Session digest ("what changed since last time") | Plan below. The highest-value item left. |
+| Pre-plan question ladder | Approved to persist in `localStorage`. Ordering and content below. |
+| Response action row (copy / read aloud / thumbs) | Lives in shared `chatUI.tsx`, so it ships to Chief of Staff, ordinances and the CRM assistant at the same time. Product call. |
+| Artifacts as cards opening a bottom sheet | Frontend seam exists (`useStreamingTurn`'s `onEvent`, as `OrdinanceFlowChat` uses). Cost is a tool contract per artifact type. |
+| First-time tour (four tool beats + three setup questions) | Depends on artifacts. |
+| 34px cream avatar, 16/16/16/4 bubbles, bouncing-dot typing indicator | All in shared `chatUI.tsx`. The design's dots resolve its own §3-vs-§9 contradiction in favour of a bounce (`gp-dot`, `translateY(-4px)`). |
+| "Campaign Tracker" → "Campaign Plan" | One line in `shared/navLabels.ts`; renames the tab product-wide. |
 
-`CampaignManagerContext` already carries office name, district, office level,
-location, weeks to election, ballot status, filing window start and end, precomputed
-days to the filing deadline, top tracker tasks, Campaign Story state, and the
-generated plan's strategic landscape.
+## The session digest
 
-Registered tools: `web_search` (Anthropic native), `query_constituent_data` and
-`describe_constituent_data` (aggregate-only Win voter mart), `get_ballot_requirements`
-(BallotReady, bound to the campaign's race hash), `campaign_story`,
-`describe_filter_dimensions`, `count_contacts`, and `crud_saved_filters`.
+Now that each session opens a new conversation, the digest is simply the
+conversation's **first assistant message** — the same slot the resume-aware greeting
+fills today (`campaignManager.handler.ts` → `resolveGreeting`). So this is "make the
+seeded greeting a digest", not a new surface. Keep `resolveGreeting`'s best-effort
+contract: any digest query that fails falls back to the plain greeting rather than
+blocking conversation creation.
 
-## Requested context, mapped to reality
+**The marker.** No new column for v1. `store.findLatestByScope` already returns the
+candidate's previous `campaign_assistant` conversation, and its `updatedAt` is when
+they last actually talked to the manager. Because creation is deferred, a visit with
+no message creates nothing and does not advance the marker, which is the right
+semantics for "since you last talked to me". Add a `lastDigestAt` column only if that
+proxy proves wrong.
 
-| Requested | Status | Notes |
-| --- | --- | --- |
-| Onboarding answers (why running, issues) | **In context** | `story` on `CampaignManagerContext`; `campaign_story` tool reads and writes it |
-| On the ballot / filed status | **In context** | `ballotStatus` from onboarding, plus `filingPeriodStart` / `filingPeriodEnd` / `daysToFilingDeadline` and the `get_ballot_requirements` tool |
-| Campaign plan and its action items | **Partly in context** | `plan` (strategic landscape) and `topTasks` are there. Whether that is the full action-item set the CTAs need has not been checked |
-| Know Your Opponent | **Not wired** | Backend module exists (`packages/gp-api/src/raceOpponent/`, frontend `app/dashboard/race-opponent/`) but no chat tool exposes it. Needs a new read tool. Pro-gated |
-| Community issues | **Serve only, real gap** | Every endpoint in `packages/gp-api/src/communityIssues/controllers/` is bound to `@ReqElectedOffice()`. This is a backend gap for Win, not a wiring job. Scope it separately |
-| Voter data questions | **In context** | `query_constituent_data` / `describe_constituent_data` / `count_contacts`, all aggregate-only with a cell-size floor |
-| "What changed since last time" | **Does not exist** | Needs a digest: a last-seen timestamp plus a diff over plan, tracker, opponent, and outreach state. The single biggest new build |
-| "What to tackle this week" | **Partly** | `topTasks` and `selectTopDynamicTasks` exist on both sides. Reframing them as conversational turns with CTAs is presentation work |
+**The diff, in phases.**
 
-## The one architectural conflict
+1. **Tracker + plan.** Both are already in the handler's reach. New dynamic
+   generation since the marker (`week` above the previous max), tasks completed since
+   the marker, and `CampaignStrategy.oppositionPersistedAt` /
+   `opportunitiesPersistedAt` crossing the marker ("your plan is ready"). Deterministic
+   prose, no LLM turn, no contract change, no migration.
+2. **Opponent + outreach.** Opponent needs a `raceOpponent` read, which the chat
+   scope is missing anyway (no tool exposes that module today). Outreach needs a
+   since-query; per-row detail exists on `GET /v1/outreach/:id` but there is no
+   "changed since" read.
+3. **Structured digest.** Move it into `@goodparty_org/contracts` so the client can
+   render a change card per item instead of prose. Only worth it once phases 1 and 2
+   have proven which changes candidates actually act on.
 
-The ask is that an outreach CTA instantiates the bottom drawer for that outreach
-action. Today it cannot, by design. `app/dashboard/outreach/AGENTS.md` says the hub
-(`v2/OutreachHubPage.tsx`) is the only thing that mounts the channel flows, and every
-task CTA elsewhere in the product deep-links to
-`/dashboard/outreach?compose=text|robocall` instead:
+**Cost.** Phase 1 adds a few cheap queries at conversation creation and no model
+call. Having the manager *voice* the digest costs one extra turn per session — decide
+that separately from computing it.
 
-> Linking beats mounting in place because the hub owns exactly one instance of each
-> channel flow plus the gate in front of it; a second mount would duplicate both.
+## The pre-plan ladder
 
-Two options:
+The state to design for is **not** `isGeneratingDynamic`. That means "static rows
+exist, dynamic ones land in minutes". The candidate who actually sits with nothing is
+the one who skipped the campaign story: `bootstrapTrackerIfPlanComplete` is gated on a
+`campaign_story` row existing, so they have no tracker rows and nothing is generating.
+They are not waiting on the plan, they are blocking it, and the copy says so.
 
-1. **Deep link (matches today).** The microcard navigates via
-   `util/composeOutreachHref.util.ts`. Cheap, consistent, but it leaves the
-   conversation.
-2. **Hoist the flows.** Lift the channel flows and their gates out of `OutreachHubPage`
-   so any surface can mount one. True to the ask, but it touches the Pro and 10DLC
-   compliance gates, which is not prototype-shaped work.
+Ordering, persisted per step in `localStorage` (matching the four existing
+`campaign-manager-*` dismissal keys):
 
-Recommendation: ship the prototype on option 1, and treat option 2 as its own ticket
-once the conversational home has proven out.
+1. Why you are running, your background, the change you want. All three are the
+   campaign-story gate (`isCampaignStoryComplete` checks `about.bio`,
+   `campaign_story.background`, and `about.issues`), and the `campaign_story` chat
+   tool already reads and writes all three. One card, one kickoff.
+2. Ballot position. Existing logic, plus the filing-deadline gate.
+3. Announcement: have you told anyone, friends and family or a formal announcement.
+4. Press release. Content Builder has a `pressRelease` template (Contentful-defined),
+   and `GET /v1/onboarding/local-news` returns up to 9 local outlets with newsroom
+   email, phone and address, cached per office/city/state. Both exist; neither is
+   wired to the manager.
+5. First voter outreach, done manually. Follow the Relational Organizing brief
+   (ClickUp `86ajqhjka`): personal sends from the candidate's own number to people
+   they know, and the ask at every hop is a re-share, not a signup. Instructions only
+   — the feature itself is gated on legal review, and its own brief forbids quoting
+   vendor efficacy stats.
+6. Budget. `computeBudget` in `app/onboarding/components/budget.ts` already produces
+   the full breakdown, and the dashboard plan tab renders it as "Projected Minimum
+   Resources Needed" with a hardcoded `FUNDRAISING_MIX`. **Funds raised does not
+   exist anywhere** — no donations model, no `amountRaised` field. "How much have you
+   raised" cannot be answered from data, only asked.
 
-## Proposed build
+## Haystaq is already wired, and unguarded
 
-1. **Flag.** `app/shared/experiments/campaignManagerChatHomeFlag.ts`, key
-   `campaign-manager-chat-home`, wrapping `useFlagOn` per the per-flag wrapper
-   convention. Ships dark to prod and gets turned on per user. The flag itself must be
-   created in Amplitude Experiment (dev and prod); the `amplitude-flag` skill does
-   this, but the Amplitude MCP was unauthorized in the session that wrote this note.
-2. **Shared component.** A `ConversationalHome` parameterized by chat config (chat
-   API, scope, greeting, FTUE script, microcard set) so Win passes campaign-manager
-   config and Serve can later pass chief-of-staff config with no fork.
-3. **Promote chat from drawer to page.** Render `ChiefOfStaffChatBody` inline and
-   full-height as the home, and suppress the footer dock on `/dashboard` when the flag
-   is on so there are not two chats on screen.
-4. **Microcards.** Render as a CTA row attached to an assistant message. The existing
-   `ChatSuggestion` shape is the starting point; the Claude Design file defines the
-   visual.
-5. **Branch point.** In `DashboardContent.tsx`, flag off renders today's
-   `CampaignManagerHome` unchanged.
+`WIN_AGENT_VOTER_DIMENSIONS` contains **403 `hs_*` columns**, so the manager's
+`query_constituent_data` tool can already aggregate Haystaq issue-alignment scores
+over the candidate's district today, with no new build. That is the bootstrap for
+issue priorities, and it sidesteps the fact that door-knock and phone-bank
+interactions capture no issue field.
 
-Suggested prototype scope, chosen to keep iteration fast: frontend only, reusing the
-existing `campaign_assistant` endpoints so no gp-api deploy sits in the loop, with the
-FTUE script driven client-side. The session digest and the Know Your Opponent tool are
-the two items that will eventually force backend work.
+**But `campaignManagerPrompt.ts` says nothing about what those columns mean.** Per
+`packages/runbooks/experiments/district_issue_snapshot/instruction.md`:
+
+- `hs_*` values are **within-state percentile ranks** (mean ~50). A `>= 50` count is
+  the share of district voters at or above the **state median** on that issue, not
+  the share who support it. ~50% means "typical for this state".
+- Never frame it as "X% of voters support Y". A low score is a lean away *relative to
+  the state*, not evidence of the opposite stance.
+- ~51 columns exist only in a 12-state December 2025 delivery and are null elsewhere;
+  an all-null column returns 0% aligned from a correct query. That is no coverage,
+  not opposition.
+- Nulls stay in the denominator. Texas (~72% scored) and Utah (~82%) trail 90%+
+  elsewhere, so their aligned shares read low for vendor reasons.
+- `hs_new_home_buyer` / `hs_any_home_buyer` are ~60-baseline propensity models, not
+  stance ranks; the `>= 50` read does not apply.
+
+So the manager can be asked "what do my voters care about" right now and has no
+instruction preventing it from answering "62% of your district supports X". Adding
+these semantics to the system prompt is a small change and should land before the
+conversational home makes issue questions easy to ask.
