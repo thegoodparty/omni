@@ -944,6 +944,92 @@ def test_collect_candidates_respects_limit_and_sorts_by_volume_desc(tmp_path):
     ]
 
 
+# --- Fix round 1: --only names a reproducible, stratified pilot -----------------------
+
+_ONLY_ROWS = [
+    {"event_type": "Onboarding - Pledge Completed", "family": "o", "event_count_30d": 9},
+    {"event_type": "Navigation - Dashboard: Click My Profile", "family": "n",
+     "event_count_30d": 5},
+    {"event_type": "Navigation - Dashboard: Click Door Knocking", "family": "n",
+     "event_count_30d": 1},
+]
+
+
+def test_collect_candidates_only_restricts_to_the_named_events(tmp_path):
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    candidates = ea.collect_candidates(
+        repo, {}, run_query=_fake_run_query(_ONLY_ROWS),
+        only=["Navigation - Dashboard: Click Door Knocking", "Onboarding - Pledge Completed"])
+    # volume-desc order still applies among the named set — --only narrows the catalog,
+    # it doesn't change the ordering rule.
+    assert [c["id"] for c in candidates] == [
+        "Onboarding - Pledge Completed", "Navigation - Dashboard: Click Door Knocking",
+    ]
+
+
+def test_collect_candidates_only_still_skips_an_already_dispositioned_named_event(tmp_path, capsys):
+    """--only is a filter on top of the normal skip rules, never a way to re-draft an
+    already-decided row."""
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    state = {"Onboarding - Pledge Completed": {"fires_on": "", "disposition": "accepted"}}
+    candidates = ea.collect_candidates(
+        repo, state, run_query=_fake_run_query(_ONLY_ROWS),
+        only=["Onboarding - Pledge Completed", "Navigation - Dashboard: Click Door Knocking"])
+    assert [c["id"] for c in candidates] == ["Navigation - Dashboard: Click Door Knocking"]
+    err = capsys.readouterr().err
+    assert "Onboarding - Pledge Completed" in err
+    assert "did not make the pilot" in err
+
+
+def test_collect_candidates_only_reports_a_name_absent_from_the_catalog(tmp_path, capsys):
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    candidates = ea.collect_candidates(
+        repo, {}, run_query=_fake_run_query(_ONLY_ROWS),
+        only=["Onboarding - Pledge Completed", "Voter Outreach - Campaign Approved"])
+    assert [c["id"] for c in candidates] == ["Onboarding - Pledge Completed"]
+    err = capsys.readouterr().err
+    assert "Voter Outreach - Campaign Approved" in err
+    assert "not found in the catalog" in err
+
+
+def test_collect_candidates_only_then_limit_composes_without_a_false_missing_report(tmp_path, capsys):
+    """--only is applied first, then --limit — --limit trimming an oversized pilot request
+    is harmless and expected, not a typo, so the trimmed-off name must NOT be reported as
+    missing the way a skip or a catalog miss is."""
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    candidates = ea.collect_candidates(
+        repo, {}, run_query=_fake_run_query(_ONLY_ROWS), limit=1,
+        only=["Onboarding - Pledge Completed", "Navigation - Dashboard: Click My Profile"])
+    assert [c["id"] for c in candidates] == ["Onboarding - Pledge Completed"]
+    err = capsys.readouterr().err
+    assert "Navigation - Dashboard: Click My Profile" not in err
+
+
+def test_collect_candidates_without_only_is_unchanged_volume_desc_order(tmp_path):
+    """Regression: the default (no --only) path still sorts by volume desc with no
+    reporting side effects."""
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    candidates = ea.collect_candidates(repo, {}, run_query=_fake_run_query(_ONLY_ROWS))
+    assert [c["id"] for c in candidates] == [
+        "Onboarding - Pledge Completed", "Navigation - Dashboard: Click My Profile",
+        "Navigation - Dashboard: Click Door Knocking",
+    ]
+
+
+def test_main_only_flag_is_comma_split_and_threaded_into_collect_candidates(tmp_path, monkeypatch):
+    seen = {}
+
+    def fake_collect_candidates(repo, state, limit=None, only=None):
+        seen["only"] = only
+        return []
+
+    monkeypatch.setattr(ea, "collect_candidates", fake_collect_candidates)
+    state_path = tmp_path / "anchors.json"
+    assert ea.main(["--state", str(state_path), "--no-judge",
+                    "--only", "Event A, Event B ,Event C"]) == 0
+    assert seen["only"] == ["Event A", "Event B", "Event C"]
+
+
 def test_main_list_new_reports_without_touching_state(tmp_path, capsys):
     state = tmp_path / "anchors.json"
     state.write_text(json.dumps({"E": {
@@ -992,7 +1078,7 @@ def test_main_no_judge_run_collects_and_reports_without_drafting(tmp_path, monke
     the test never reaches the filesystem walk or Databricks."""
     state_path = tmp_path / "anchors.json"
     monkeypatch.setattr(ea, "collect_candidates",
-                        lambda repo, state, limit=None: [{"id": "E", "evidence": "a.tsx:1"}])
+                        lambda repo, state, limit=None, only=None: [{"id": "E", "evidence": "a.tsx:1"}])
     assert ea.main(["--state", str(state_path), "--no-judge"]) == 0
     out = capsys.readouterr().out
     assert "1 candidates" in out
@@ -1006,7 +1092,7 @@ def test_main_default_run_judges_drafts_and_saves(tmp_path, monkeypatch, capsys)
     so the run never touches the filesystem walk, Databricks, or the network."""
     state_path = tmp_path / "anchors.json"
     monkeypatch.setattr(ea, "collect_candidates",
-                        lambda repo, state, limit=None: [{"id": "E", "evidence": "a.tsx:1"}])
+                        lambda repo, state, limit=None, only=None: [{"id": "E", "evidence": "a.tsx:1"}])
     monkeypatch.setattr(ea, "judge_anchors", lambda candidates, **kwargs: (
         {"E": {"id": "E", "fires_on": "Dashboard, Generate.", "url": "/dashboard",
                "confidence": "high"}}, "ok"))

@@ -701,20 +701,37 @@ def read_repo_files(repo: Path) -> dict[str, str]:
 
 def collect_candidates(repo: Path | None, state: Mapping, *,
                        limit: int | None = None,
-                       run_query=None) -> list[dict]:
+                       run_query=None,
+                       only: Sequence[str] | None = None) -> list[dict]:
     """Judge inputs for the events that need an anchor: fired in the last 30 days, no
     `fires_on` yet, and not already dispositioned by a human. `run_query` is injected
     straight through to `event_state_assembler.fetch_catalog` so a test never reaches
-    Databricks; production runs leave it None and get the real connector."""
+    Databricks; production runs leave it None and get the real connector.
+
+    `only`, when given, restricts the candidate set to exactly those event names — the
+    honest way to name a reproducible calibration pilot, since a volume sort is all
+    dashboard events and a class like global_chrome isn't knowable before the judge runs
+    to name it algorithmically. The existing skips still apply to a named event: `only`
+    is a filter on top of the normal rules, never a way to re-draft an already-decided
+    row. `limit` is applied after `only` and after the skip rules, so it only ever trims
+    an oversized pilot request — it never causes a named event to be misreported as
+    skipped or missing below. A name that ends up excluded for any other reason (not in
+    the catalog, or skipped) is reported on stderr rather than silently shrinking the
+    pilot the reviewer asked for."""
     repo = repo or Path(os.environ.get("OMNI_REPO", Path(__file__).parents[4]))
     files = read_repo_files(repo)
     registry = load_event_registry(files.get(REGISTRY_FILE, ""))
     pages = [p for p in files if p.endswith("/page.tsx")]
 
     catalog = esa.fetch_catalog(run_query) if run_query else esa.fetch_catalog()
+    only_set = set(only) if only else None
+    catalog_by_type = {row["event_type"]: row for row in catalog} if only_set is not None else None
+
     out: list[dict] = []
     for row in sorted(catalog, key=lambda r: -int(r.get("event_count_30d") or 0)):
         event_type = row["event_type"]
+        if only_set is not None and event_type not in only_set:
+            continue
         if int(row.get("event_count_30d") or 0) <= 0:
             continue
         entry = state.get(event_type, {})
@@ -729,8 +746,21 @@ def collect_candidates(repo: Path | None, state: Mapping, *,
             {"event_type": event_type, "family": row.get("family"),
              "description": gpmeta.get("purpose") or ""},
             hits, url, files))
-        if limit is not None and len(out) >= limit:
-            break
+
+    if only_set is not None:
+        included = {c["id"] for c in out}
+        for name in only:
+            if name in included:
+                continue
+            if catalog_by_type is not None and name not in catalog_by_type:
+                reason = "not found in the catalog (check the spelling)"
+            else:
+                reason = "skipped (zero 30d volume, already anchored, or already dispositioned)"
+            print(f"event-anchors: --only named {name!r} but it did not make the pilot "
+                  f"— {reason}", file=sys.stderr)
+
+    if limit is not None:
+        out = out[:limit]
     return out
 
 
@@ -741,6 +771,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--today", default=None, help="override run date YYYY-MM-DD")
     parser.add_argument("--limit", type=int, default=None,
                         help="bound the number of events drafted (the calibration pilot)")
+    parser.add_argument("--only", default=None,
+                        help="restrict the pilot to exactly these event names (comma-"
+                             "separated) — a reproducible stratified sample, since a "
+                             "volume sort alone cannot name the hard cases (a machine "
+                             "cannot know which events are global_chrome before the "
+                             "judge runs). Existing skips still apply to a named event.")
     parser.add_argument("--no-judge", action="store_true")
     parser.add_argument("--list-new", action="store_true")
     parser.add_argument("--review-artifact", type=Path)
@@ -767,7 +803,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"wrote review artifact to {args.review_artifact}")
         return 0
 
-    candidates = collect_candidates(args.repo, state, limit=args.limit)
+    only = [name.strip() for name in args.only.split(",") if name.strip()] if args.only else None
+    candidates = collect_candidates(args.repo, state, limit=args.limit, only=only)
     if args.no_judge:
         verdicts, status = {}, "skipped: --no-judge"
     else:
