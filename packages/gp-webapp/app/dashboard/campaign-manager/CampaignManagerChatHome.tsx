@@ -5,13 +5,13 @@ import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
 } from '@goodparty_org/contracts'
+import type { TcrCompliance } from 'helpers/types'
 import { useUser } from '@shared/hooks/useUser'
 import ConversationalHome, {
   type ConversationalHomeConfig,
 } from '../chief-of-staff/components/chat/ConversationalHome'
 import type { ChatSuggestion } from '../chief-of-staff/components/chat/ChiefOfStaffChatBody'
 import {
-  CAMPAIGN_MANAGER_BALLOT_KICKOFF,
   CAMPAIGN_MANAGER_HISTORY_KEY,
   buildCampaignManagerIntro,
   campaignManagerChatApi,
@@ -40,7 +40,13 @@ const NO_SUGGESTIONS: ChatSuggestion[] = []
  * page, so hiding it (which is what the dock does to avoid a double greeting on
  * a story-flow entry) would make it disappear under them.
  */
-export default function CampaignManagerChatHome(): React.JSX.Element {
+export default function CampaignManagerChatHome({
+  tcrCompliance,
+}: {
+  // Threaded from the server render, same as the card home, so the texting
+  // setup prompt can read the TCR record without a second fetch.
+  tcrCompliance: TcrCompliance | null
+}): React.JSX.Element {
   const [user] = useUser()
   const firstName = user?.firstName || undefined
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
@@ -48,11 +54,8 @@ export default function CampaignManagerChatHome(): React.JSX.Element {
     undefined,
   )
 
-  const { cards, isGenerating } = useCampaignManagerTaskCards({
-    onGetOnBallot: () => setPendingKickoff(CAMPAIGN_MANAGER_BALLOT_KICKOFF),
-    onPersonalize: () =>
-      setPendingKickoff(CAMPAIGN_MANAGER_START_STORY_SENTINEL),
-  })
+  const { cards, isGenerating, isWeekClear, showCompliance } =
+    useCampaignManagerTaskCards({ onKickoff: setPendingKickoff })
 
   const config = useMemo<ConversationalHomeConfig>(
     () => ({
@@ -98,9 +101,17 @@ export default function CampaignManagerChatHome(): React.JSX.Element {
       composerRef={composerRef}
       leadingSlot={<CampaignManagerHero />}
       trailingSlot={
-        <CampaignManagerTaskCards cards={cards} isGenerating={isGenerating} />
+        <CampaignManagerTaskCards
+          cards={cards}
+          isGenerating={isGenerating}
+          isWeekClear={isWeekClear}
+          showCompliance={showCompliance}
+          tcrCompliance={tcrCompliance}
+        />
       }
-      suggestions={cards.length > 0 ? NO_SUGGESTIONS : undefined}
+      suggestions={
+        cards.length > 0 || showCompliance ? NO_SUGGESTIONS : undefined
+      }
     />
   )
 }

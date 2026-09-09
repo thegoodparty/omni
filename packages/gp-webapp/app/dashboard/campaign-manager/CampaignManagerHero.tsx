@@ -42,22 +42,22 @@ export default function CampaignManagerHero(): React.JSX.Element {
   const days = daysToElection(campaign?.details?.electionDate)
 
   const orientation = [
-    week !== null ? `Week ${week}` : null,
+    week !== null ? `Week ${week} of your campaign` : null,
     days !== null
-      ? `${days.toLocaleString('en-US')} ${days === 1 ? 'day' : 'days'} to election`
+      ? `${days.toLocaleString('en-US')} ${days === 1 ? 'day' : 'days'} to election day`
       : null,
   ].filter(Boolean)
 
   return (
-    <div className="flex flex-col gap-1.5 pb-2">
-      <h1 className="bg-gradient-to-r from-brand-red-400 to-brand-blue-400 bg-clip-text text-2xl font-semibold tracking-[-0.02em] text-transparent">
+    <div className="flex flex-col gap-2.5 pb-3 pt-2 text-center">
+      <h1 className="bg-gradient-to-r from-brand-red-400 to-brand-blue-400 bg-clip-text text-[30px] font-bold leading-[1.15] text-transparent">
         {user?.firstName
-          ? `Good to see you, ${user.firstName}.`
-          : 'Good to see you.'}
+          ? `Let's pick up where you left off, ${user.firstName}.`
+          : "Let's pick up where you left off."}
       </h1>
-      <p className="text-sm text-muted-foreground">
-        {orientation.length > 0 && `${orientation.join(', ')}. `}I keep track of
-        your plan, your voters, and what is due next.
+      <p className="text-base leading-[1.55] text-muted-foreground">
+        {orientation.length > 0 && `${orientation.join(', ')}. `}I keep your
+        plan, your outreach, and your voter data in one place.
       </p>
     </div>
   )

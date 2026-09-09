@@ -41,7 +41,7 @@ export default function DashboardContent({
     >
       <WebsiteSunsetModalController eligible={sunsetEligible} />
       {chatHome ? (
-        <CampaignManagerChatHome />
+        <CampaignManagerChatHome tcrCompliance={tcrCompliance} />
       ) : (
         <CampaignManagerHome tcrCompliance={tcrCompliance} />
       )}

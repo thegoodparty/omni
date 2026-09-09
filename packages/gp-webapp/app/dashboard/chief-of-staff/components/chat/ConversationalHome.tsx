@@ -155,7 +155,7 @@ export default function ConversationalHome({
         // The 608px measure the whole surface shares: transcript, cards, hero
         // and composer all sit on it, so nothing reads ragged. Gutters step
         // 12/16/24px at sm/md/above.
-        bodyClassName="mx-auto flex min-h-0 w-full max-w-[608px] flex-1 flex-col gap-3 overflow-y-auto px-3 py-6 sm:px-4 md:px-6"
+        bodyClassName="mx-auto flex min-h-0 w-full max-w-[608px] flex-1 flex-col gap-5 overflow-y-auto px-3 py-6 sm:px-4 md:px-6"
       />
     </div>
   )
