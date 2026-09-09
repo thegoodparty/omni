@@ -4,11 +4,13 @@ import { useTestService } from '@/test-service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import { OutreachService } from '../services/outreach.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
+import { SlackService } from '@/vendors/slack/services/slack.service'
 import { OutreachStatus, OutreachType } from '../../generated/prisma'
 
 const service = useTestService()
 
 const deleteJob = vi.fn()
+const slackMessage = vi.fn()
 const retrieveCheckoutSession = vi.fn()
 const refundPaymentIntent = vi.fn()
 
@@ -19,11 +21,15 @@ beforeEach(async () => {
   // clearMocks resets calls, not implementations — a persistent
   // mockRejectedValue from one test must not leak into the next.
   deleteJob.mockReset().mockResolvedValue(undefined)
+  slackMessage.mockReset().mockResolvedValue(undefined)
   retrieveCheckoutSession.mockReset()
   refundPaymentIntent.mockReset()
 
   const peerly = service.app.get(PeerlyP2pJobService)
   vi.spyOn(peerly, 'deleteJob').mockImplementation(deleteJob)
+  vi.spyOn(service.app.get(SlackService), 'message').mockImplementation(
+    slackMessage,
+  )
   const stripe = service.app.get(StripeService)
   vi.spyOn(stripe, 'retrieveCheckoutSession').mockImplementation(
     retrieveCheckoutSession,
@@ -99,6 +105,10 @@ describe('POST /v1/outreach/:id/cancel', () => {
     expect(stamped.canceledAt).not.toBeNull()
     expect(stamped.canceledBy).toBe('tests@goodparty.org')
     expect(stamped.canceledByAdmin).toBe(false)
+    // The cancel notice: request-shaped blocks, canceled header, candidate
+    // attribution.
+    const blob = JSON.stringify(slackMessage.mock.calls)
+    expect(blob).toContain('P2P Campaign Canceled (by candidate)')
     expect(refundPaymentIntent).toHaveBeenCalledWith(
       'pi_test_1',
       `outreach-cancel-${row.id}`,

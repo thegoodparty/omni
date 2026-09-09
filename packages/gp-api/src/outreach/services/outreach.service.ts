@@ -897,6 +897,36 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       }
     }
 
+    // The cancel notice (CAS request 2026-09-09), covering both the
+    // candidate route and the admin console: best-effort, after the cancel
+    // fully committed — a Slack failure must never fail or retry a
+    // completed cancel.
+    try {
+      const notifRow = await this.model.findFirst({
+        where: { id: outreachId },
+        include: { voterFileFilter: true },
+      })
+      const campaignWithUser = await this.client.campaign.findFirst({
+        where: { id: campaignId },
+        include: { user: true },
+      })
+      if (notifRow && campaignWithUser?.user) {
+        await this.notificationService.notifyCanceled({
+          user: campaignWithUser.user,
+          campaign: campaignWithUser,
+          outreach: notifRow,
+          textCount: notifRow.textCount ?? undefined,
+          billableTextCount: notifRow.billableTextCount ?? undefined,
+          canceledByAdmin: attribution?.byAdmin ?? false,
+        })
+      }
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId, campaignId },
+        'Cancel Slack notice failed; the cancel itself is unaffected',
+      )
+    }
+
     const updated = await this.model.findFirstOrThrow({
       where: { id: outreachId, campaignId },
     })

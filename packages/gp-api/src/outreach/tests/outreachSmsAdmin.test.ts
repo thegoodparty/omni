@@ -2,6 +2,7 @@ import { HttpStatus } from '@nestjs/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
+import { SlackService } from '@/vendors/slack/services/slack.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { OutreachSmsAdminService } from '../services/outreachSmsAdmin.service'
@@ -11,6 +12,7 @@ const service = useTestService()
 
 const requestCanvassers = vi.fn()
 const activateJob = vi.fn()
+const slackMessage = vi.fn()
 const clearCanvassers = vi.fn()
 const getJobsByIdentityId = vi.fn()
 const getJob = vi.fn()
@@ -33,6 +35,7 @@ const liveJob = (id: string, approved = false) => ({
 beforeEach(async () => {
   requestCanvassers.mockReset().mockResolvedValue(undefined)
   activateJob.mockReset().mockResolvedValue(undefined)
+  slackMessage.mockReset().mockResolvedValue(undefined)
   clearCanvassers.mockReset().mockResolvedValue(undefined)
   getJobsByIdentityId.mockReset().mockResolvedValue([])
   getJob.mockReset().mockResolvedValue(liveJob('peerly-job-1'))
@@ -50,6 +53,9 @@ beforeEach(async () => {
   const peerly = service.app.get(PeerlyP2pJobService)
   vi.spyOn(peerly, 'requestCanvassers').mockImplementation(requestCanvassers)
   vi.spyOn(peerly, 'activateJob').mockImplementation(activateJob)
+  vi.spyOn(service.app.get(SlackService), 'message').mockImplementation(
+    slackMessage,
+  )
   vi.spyOn(peerly, 'clearCanvassers').mockImplementation(clearCanvassers)
   vi.spyOn(peerly, 'getJobsByIdentityId').mockImplementation(
     getJobsByIdentityId,
@@ -243,11 +249,33 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(updated.approvedAt).not.toBeNull()
       expect(updated.canvassRequestedAt).not.toBeNull()
       expect(activateJob).toHaveBeenCalledWith('peerly-job-1')
+      // The approval notice: request-shaped blocks under the approved
+      // header, to the CAS channel.
+      expect(slackMessage).toHaveBeenCalledTimes(1)
+      const blob = JSON.stringify(slackMessage.mock.calls[0])
+      expect(blob).toContain('P2P Campaign Approved to Send')
+      expect(blob).toContain('peerly-job-1')
       expect(track).toHaveBeenCalledWith(
         service.user.id,
         'Voter Outreach - Campaign Approved',
         { channel: 'sms' },
       )
+    })
+
+    it('keeps the approval when the Slack notice fails', async () => {
+      slackMessage.mockRejectedValue(new Error('slack down'))
+      const row = await seedOutreach()
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      const updated = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(updated.canvassRequestedAt).not.toBeNull()
     })
 
     it('keeps the booking when vendor activation fails', async () => {
@@ -312,6 +340,8 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(res.data.canceledBy).toBe('cas@goodparty.org')
       expect(res.data.canceledByAdmin).toBe(true)
       expect(deleteJob).toHaveBeenCalledWith('peerly-job-1')
+      const blob = JSON.stringify(slackMessage.mock.calls)
+      expect(blob).toContain('P2P Campaign Canceled (by staff)')
 
       const queue = await service.client.get('/v1/outreach/admin/sms/queue')
       const item = queue.data.items.find((i: { id: number }) => i.id === row.id)

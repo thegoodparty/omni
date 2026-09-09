@@ -88,17 +88,91 @@ export class OutreachNotificationService {
     this.logger.setContext(OutreachNotificationService.name)
   }
 
-  async notifySuccess({
-    user,
-    campaign,
-    outreach,
-    audienceRequest,
-    campaignPlanDueDate,
-    textCount,
-    billableTextCount,
-  }: NotifySuccessParams): Promise<void> {
+  async notifySuccess(params: NotifySuccessParams): Promise<void> {
+    const { campaign, outreach } = params
     if (!shouldNotifyCAS(outreach.outreachType)) return
 
+    try {
+      await this.slack.message(
+        await this.buildCampaignBlocks(params),
+        TARGET_CHANNEL,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId: outreach.id, campaignId: campaign.id },
+        'CAS success Slack message failed',
+      )
+    }
+
+    await this.recordNotified(campaign)
+  }
+
+  /**
+   * The console-approval notice (CAS request 2026-09-09): the same block
+   * set as the schedule-request message — the fields the team's workflow
+   * keys on — under its own label, posted when an admin approves a send.
+   * Best-effort: a Slack failure never unwinds or fails the approval.
+   */
+  async notifyApproved(params: NotifySuccessParams): Promise<void> {
+    const { campaign, outreach } = params
+    if (!shouldNotifyCAS(outreach.outreachType)) return
+    try {
+      await this.slack.message(
+        await this.buildCampaignBlocks(
+          params,
+          '✅ P2P Campaign Approved to Send',
+        ),
+        TARGET_CHANNEL,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId: outreach.id, campaignId: campaign.id },
+        'CAS approval Slack message failed',
+      )
+    }
+  }
+
+  /**
+   * The cancel notice (CAS request 2026-09-09): the same block set under a
+   * canceled header naming who ended it — a canceled submission otherwise
+   * vanishes from the channel's narrative and the team chases where it
+   * went. Best-effort like the others.
+   */
+  async notifyCanceled(
+    params: NotifySuccessParams & { canceledByAdmin: boolean },
+  ): Promise<void> {
+    const { campaign, outreach, canceledByAdmin } = params
+    if (!shouldNotifyCAS(outreach.outreachType)) return
+    try {
+      await this.slack.message(
+        await this.buildCampaignBlocks(
+          params,
+          `🚫 P2P Campaign Canceled (by ${
+            canceledByAdmin ? 'staff' : 'candidate'
+          })`,
+        ),
+        TARGET_CHANNEL,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId: outreach.id, campaignId: campaign.id },
+        'CAS cancel Slack message failed',
+      )
+    }
+  }
+
+  private async buildCampaignBlocks(
+    {
+      user,
+      campaign,
+      outreach,
+      audienceRequest,
+      campaignPlanDueDate,
+      textCount,
+      billableTextCount,
+    }: NotifySuccessParams,
+    headerText?: string,
+  ) {
     const audience: Partial<Audience> = outreach.voterFileFilter
       ? await this.voterFileFilterService.voterFileFilterToAudience(
           outreach.voterFileFilter,
@@ -145,38 +219,31 @@ export class OutreachNotificationService {
       )
     }
 
-    try {
-      await this.slack.message(
-        buildSlackBlocks({
-          name: `${(user.firstName || '').trim()} ${(user.lastName || '').trim()}`,
-          email: user.email,
-          ...(user.phone ? { phone: user.phone } : {}),
-          assignedPa,
-          crmCompanyId,
-          voterFileUrl,
-          type: outreach.outreachType,
-          date: outreach.date ?? undefined,
-          script,
-          ...(outreach.imageUrl ? { imageUrl: outreach.imageUrl } : {}),
-          message: outreach.message ? sanitizeHtml(outreach.message) : '',
-          formattedAudience: this.formatAudienceFiltersForSlack(audience),
-          audienceRequest,
-          peerlyJobUrl,
-          peerlyJobId: outreach.projectId ?? undefined,
-          peerlyIdentityId,
-          campaignPlanDueDate,
-          textCount,
-          billableTextCount,
-        }),
-        TARGET_CHANNEL,
-      )
-    } catch (err) {
-      this.logger.error(
-        { err, outreachId: outreach.id, campaignId: campaign.id },
-        'CAS success Slack message failed',
-      )
-    }
+    return buildSlackBlocks({
+      name: `${(user.firstName || '').trim()} ${(user.lastName || '').trim()}`,
+      email: user.email,
+      ...(user.phone ? { phone: user.phone } : {}),
+      assignedPa,
+      crmCompanyId,
+      voterFileUrl,
+      type: outreach.outreachType,
+      date: outreach.date ?? undefined,
+      script,
+      ...(outreach.imageUrl ? { imageUrl: outreach.imageUrl } : {}),
+      message: outreach.message ? sanitizeHtml(outreach.message) : '',
+      formattedAudience: this.formatAudienceFiltersForSlack(audience),
+      audienceRequest,
+      peerlyJobUrl,
+      peerlyJobId: outreach.projectId ?? undefined,
+      peerlyIdentityId,
+      campaignPlanDueDate,
+      textCount,
+      billableTextCount,
+      headerText,
+    })
+  }
 
+  private async recordNotified(campaign: Campaign) {
     try {
       await this.campaignsService.update({
         where: { id: campaign.id },

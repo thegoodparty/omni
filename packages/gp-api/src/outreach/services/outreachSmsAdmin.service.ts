@@ -20,6 +20,7 @@ import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
 import { OutreachService } from './outreach.service'
+import { OutreachNotificationService } from './outreachNotification.service'
 import { PeerlyJob } from 'src/vendors/peerly/peerly.types'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { CrmCampaignsService } from 'src/campaigns/services/crmCampaigns.service'
@@ -123,6 +124,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     private readonly crmCampaigns: CrmCampaignsService,
     private readonly s3: S3Service,
     private readonly outreachService: OutreachService,
+    private readonly notifications: OutreachNotificationService,
   ) {
     super()
   }
@@ -361,6 +363,36 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         { err, outreachId },
         'Approve booked canvassers but could not activate the vendor ' +
           'job — it will not send until activated manually in Peerly',
+      )
+    }
+
+    // The approval notice (CAS request 2026-09-09): the schedule-request
+    // block set under a "P2P Campaign Approved to Send" header, so the
+    // team's Slack workflow sees approvals where requests land. Re-read
+    // with the notification shape (voterFileFilter drives the audience
+    // block); best-effort end to end — a notice failure never fails an
+    // approval that already booked and activated.
+    try {
+      const notifRow = await this.model.findFirst({
+        where: { id: outreachId },
+        include: {
+          campaign: { include: { user: true } },
+          voterFileFilter: true,
+        },
+      })
+      if (notifRow?.campaign?.user) {
+        await this.notifications.notifyApproved({
+          user: notifRow.campaign.user,
+          campaign: notifRow.campaign,
+          outreach: notifRow,
+          textCount: notifRow.textCount ?? undefined,
+          billableTextCount: notifRow.billableTextCount ?? undefined,
+        })
+      }
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'Approval Slack notice failed; the approval itself is unaffected',
       )
     }
 
