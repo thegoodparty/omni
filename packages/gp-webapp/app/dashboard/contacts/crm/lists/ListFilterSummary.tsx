@@ -1,6 +1,4 @@
-import filterSections, {
-  legacyAgeOptions,
-} from '../../[[...attr]]/components/configs/filters.config'
+import filterSections, { legacyAgeOptions } from '../../shared/filters.config'
 import { LANGUAGE_KEY_TO_CODE } from '../shared/voterFileFilterTransform.util'
 import {
   ANY_PHONE_FIELD,

@@ -28,12 +28,9 @@ interface DeleteListDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-// Modeled on the legacy DeleteSegment.tsx confirm pattern, but a standalone
-// component: this is a new CRM surface (app/dashboard/contacts/CLAUDE.md
-// convention keeps new CRM code out of [[...attr]]/components/) and it needs
-// a different post-delete action (navigate back to the lists index, not
-// reset an in-page segment picker) plus the 409-locked handling gp-api added
-// for this ticket's dependency (ENG-10703 guards DELETE the same as PUT).
+// Standalone destructive-confirm dialog: it navigates back to the lists
+// index after a delete, and carries the 409-locked handling gp-api added for
+// this ticket's dependency (ENG-10703 guards DELETE the same as PUT).
 export default function DeleteListDialog({
   segment,
   open,

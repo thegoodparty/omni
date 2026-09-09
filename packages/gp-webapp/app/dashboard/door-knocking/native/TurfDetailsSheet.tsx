@@ -33,7 +33,7 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import EditTurfDialog from './EditTurfDialog'
 import filterSections, {
   legacyAgeOptions,
-} from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
+} from 'app/dashboard/contacts/shared/filters.config'
 import { LANGUAGE_KEY_TO_CODE } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import {
   routeQueryOptions,

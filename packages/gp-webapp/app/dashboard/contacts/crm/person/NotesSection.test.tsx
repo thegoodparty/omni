@@ -4,15 +4,10 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useCrmEnabled } from '../../../shared/useCrmEnabled'
 import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 import { useOrganization } from '@shared/organization-picker'
 import NotesSection from './NotesSection'
 import type { ContactNote } from '../shared/contacts-types'
-
-vi.mock('../../../shared/useCrmEnabled', () => ({
-  useCrmEnabled: vi.fn(),
-}))
 
 vi.mock('../../../shared/useWinVoterContext', () => ({
   useWinVoterContext: vi.fn(),
@@ -28,7 +23,6 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
-const mockedUseCrmEnabled = vi.mocked(useCrmEnabled)
 const mockedUseWinVoterContext = vi.mocked(useWinVoterContext)
 const mockedUseOrganization = vi.mocked(useOrganization)
 
@@ -46,39 +40,13 @@ const makeNote = (overrides: Partial<ContactNote> = {}): ContactNote => ({
 
 describe('<NotesSection>', () => {
   beforeEach(() => {
-    mockedUseCrmEnabled.mockReset()
     mockedUseWinVoterContext.mockReset()
     mockedUseOrganization.mockReset()
     vi.mocked(trackEvent).mockClear()
 
-    mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
     mockedUseWinVoterContext.mockReturnValue({ isWin: false, isReady: true })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockedUseOrganization.mockReturnValue({ slug: 'org-1' } as any)
-  })
-
-  it('does not render when the CRM flag is off', () => {
-    mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: false })
-    api.mock('GET /v1/contacts/:personId/notes', {
-      status: 200,
-      data: { results: [] },
-    })
-
-    const { container } = render(<NotesSection personId={PERSON_ID} />)
-
-    expect(container).toBeEmptyDOMElement()
-  })
-
-  it('does not render while the CRM gate is not ready', () => {
-    mockedUseCrmEnabled.mockReturnValue({ ready: false, enabled: false })
-    api.mock('GET /v1/contacts/:personId/notes', {
-      status: 200,
-      data: { results: [] },
-    })
-
-    const { container } = render(<NotesSection personId={PERSON_ID} />)
-
-    expect(container).toBeEmptyDOMElement()
   })
 
   it('opens the compose form from Add a note and saves a new note', async () => {

@@ -1,4 +1,4 @@
-import filterSections from '../../[[...attr]]/components/configs/filters.config'
+import filterSections from '../../shared/filters.config'
 import {
   ANY_PHONE_FIELD,
   RECOMMENDED_LIST_FILTER_FIELDS,

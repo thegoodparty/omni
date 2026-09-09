@@ -22,7 +22,6 @@ import {
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useCrmEnabled } from '../../../shared/useCrmEnabled'
 import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 import { InfoSection } from './InfoSection'
 import type { ContactNote } from '../shared/contacts-types'
@@ -202,10 +201,7 @@ const NoteRow: React.FC<NoteRowProps> = ({
 
 export default function NotesSection({
   personId,
-}: NotesSectionProps): React.JSX.Element | null {
-  // trackExposure=false: this surface reads the flag to decide whether to
-  // render, it isn't the CRM treatment surface (ContactsPageGate is).
-  const { enabled, ready } = useCrmEnabled()
+}: NotesSectionProps): React.JSX.Element {
   const orgSlug = useOrganization()?.slug
   const { isWin, isReady: isWinContextReady } = useWinVoterContext()
   const queryClient = useQueryClient()
@@ -214,8 +210,6 @@ export default function NotesSection({
   const [draft, setDraft] = useState('')
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
   const [editingBody, setEditingBody] = useState('')
-
-  const shouldRender = ready && enabled
 
   const notesQuery = useQuery({
     // API returns notes ordered newest-first (ContactNoteService.listForPerson
@@ -227,7 +221,7 @@ export default function NotesSection({
       ),
     // !!orgSlug: before the org resolves, a fetch would land under an
     // undefined-slug cache key that post-write invalidations never hit.
-    enabled: shouldRender && !!orgSlug,
+    enabled: !!orgSlug,
   })
 
   const invalidateAfterWrite = () => {
@@ -288,8 +282,6 @@ export default function NotesSection({
       setDeleteErrorNoteIds((ids) => new Set(ids).add(noteId))
     },
   })
-
-  if (!shouldRender) return null
 
   const notes = notesQuery.data ?? []
 
