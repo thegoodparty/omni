@@ -33,8 +33,9 @@ card aloud would be told it was written about the person in front of them.
 
 1. **Per list, not per person.** One set of points per door-knocking list,
    generated once when the list is created, frozen with it.
-2. **Takes the list's purpose into account** — listening to constituents vs.
-   getting out the vote.
+2. **Takes the list's purpose into account** — the goal the candidate already
+   picked on the wizard's first step. "Turn out my supporters" and "Ask for
+   community input" should not produce the same card.
 3. **Takes the list's filters into account** — "I'm talking to women today",
    "I'm chatting with homeowners".
 
@@ -162,10 +163,31 @@ Unit tests per clause combination, mirroring the webapp's existing
 ### PR 2 — Prisma and contracts
 
 **Prisma** (`prisma/schema/doorKnockingTurf.prisma`): a `DoorKnockingPurpose`
-enum mirroring `PhoneBankingPurpose`, and a nullable `purpose` column on
-`DoorKnockingTurf`. Nullable because every existing list predates it and there
-is no honest value to backfill. `npm run migrate:dev`; migrations are immutable
-once applied.
+enum and a nullable `purpose` column on `DoorKnockingTurf`. Nullable because
+every existing list predates it and there is no honest value to backfill.
+`npm run migrate:dev`; migrations are immutable once applied.
+
+**The enum is exactly `PhoneBankingPurpose`'s nine values, with no additions.**
+The wizard already picks from the shared vocabulary — `doorKnockingPurposes.ts`
+re-exports `OUTREACH_PURPOSE_VALUES` and `serveDoorKnockingPurposes.ts`
+re-exports `SERVE_OUTREACH_PURPOSE_VALUES` — so the storage vocabulary is the
+union of the two, which is the set phone banking already consolidated onto:
+
+```
+introduce_myself  persuade_voters  event_invite  early_voting
+election_day_turnout  custom  explain_decision  community_input  share_resource
+```
+
+Do not invent a door-knocking-shaped purpose. `doorKnockingPurposes.ts`'s own
+header records that this channel used to carry a local six-value vocabulary and
+that consolidating it onto the shared slugs is what the consolidation existed to
+achieve — a fourth translation table is the thing being avoided.
+
+What *is* door-knocking's own is the **wording**, and it already exists:
+`DOOR_KNOCKING_PURPOSE_LABELS` and `SERVE_DOOR_KNOCKING_PURPOSE_LABELS`, kept
+deliberately distinct from social's and phone banking's copy. Nothing about the
+labels changes here; PR 3's prompt copy is a third record keyed on the same
+slugs, for the same reason the name suggestions are a second one.
 
 Nothing is added for the points themselves — `Outreach.script` already exists.
 
@@ -221,10 +243,17 @@ canned fallback string.
 Three context blocks beyond name and office:
 
 1. **Purpose.** A full instruction block per purpose, following phone banking's
-   `WIN_PURPOSE_PROMPTS` convention rather than the older one-line goal +
-   structure pair. This is where "listening to constituents" and "get out the
-   vote" produce genuinely different cards. Purpose copy is product's to write;
-   transcribe it verbatim and do not editorialize.
+   `WIN_PURPOSE_PROMPTS` / `SERVE_PURPOSE_PROMPTS` convention rather than the
+   older one-line goal + structure pair. Two records keyed on the nine slugs
+   from PR 2 — the Win six and the Serve six, overlapping on
+   `introduce_myself`, `event_invite` and `custom`. This is where "Turn out my
+   supporters" and "Ask for community input" produce genuinely different cards.
+   Purpose copy is product's to write; transcribe it verbatim and do not
+   editorialize, the same rule phone banking's copy carries.
+
+   `custom` follows phone banking exactly: fresh generation is refused with a
+   400 and only the improve path is allowed, because custom-purpose content is
+   the candidate's own words being adapted rather than written.
 2. **Audience.** The filter description from PR 1.
 3. **Campaign materials.** `buildCampaignContext`, unchanged.
 
@@ -334,16 +363,6 @@ that suite gates every PR in the monorepo.
 
 ## Risks and open questions
 
-**The purpose vocabulary does not contain the product owner's own example.**
-"Listening to constituents" is `community_input`, which lives in
-`SERVE_OUTREACH_PURPOSE_VALUES` — the elected-official vocabulary. The Win list
-is `introduce_myself`, `persuade_voters`, `event_invite`, `early_voting`,
-`election_day_turnout`, `custom`. So either a listening-mode candidate picks
-`introduce_myself` and the purpose copy carries the listening framing, or door
-knocking needs a purpose value the other channels do not have. **Worth
-confirming with product before PR 2**, because it decides whether the enum is a
-mirror of the shared vocabulary or a superset.
-
 **Generated points replace the candidate's own issue stances on the card.**
 That follows from the settled fallback decision, and it may be the right call —
 but the stances are what the candidate actually wrote and can recognize, which
@@ -357,10 +376,19 @@ is rendered but unreachable by design, and `door-knocking/AGENTS.md` warns
 against inventing a surface for it. Persisting `purpose` in PR 2 is what keeps
 that door open for later without a migration.
 
-**Serve.** An elected official's door script is deliberately opener-only today,
-and `door-knocking/AGENTS.md` records that as the finished shape rather than a
-stub — the bullets under a Win intro are campaign issue stances an official has
-no campaign to have written. Generated points change that premise, since they
-come from a prompt rather than an issues editor. Whether Serve gets them is a
-product decision, not a fallout of this work; the plan above works either way,
-and the Serve purpose vocabulary already exists if the answer is yes.
+**Serve is probably in scope, and the plan assumes it is.** An elected
+official's door script is opener-only today, and `door-knocking/AGENTS.md`
+records that as the finished shape rather than a stub — the bullets under a Win
+intro are campaign issue stances, and an official has no campaign to have
+written them in. Generated points remove that constraint, because they come
+from a prompt rather than an issues editor, and the Serve wizard **already
+shows six purpose cards** ("Explain a recent decision", "Ask for community
+input", "Share a resource or service", …) that today decide nothing but a
+suggested list name. Those cards are the strongest argument that Serve gets
+points: the candidate has already been asked the question, and the answer is
+currently thrown away.
+
+Two things stay Serve-specific if it ships: the card keeps its "Introduction"
+heading rather than "Talking points" where that is still the right word, and
+the prompt must never introduce a sitting official as a candidate for their own
+seat — the mistake `buildServeIntro` exists to prevent.
