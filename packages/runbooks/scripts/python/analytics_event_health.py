@@ -142,8 +142,13 @@ def to_date(value: Any) -> date | None:
 
 
 def _prose(text: str) -> str | None:
-    """Collapse a run of description prose to one line; None when it holds no words."""
-    return " ".join(text.split()) or None
+    """Collapse a run of description prose to one line; None when it holds no words.
+
+    Truncates at the first ``<!--`` so a malformed/unclosed gp-meta marker (or a second,
+    duplicate block) never leaks its raw markup into the purpose — worst case degrades to
+    the pre-DATA-2426 blank cell, not a garbled one.
+    """
+    return " ".join(text.split("<!--", 1)[0].split()) or None
 
 
 def _strip_sep(value: str) -> str:
@@ -187,7 +192,7 @@ def parse_gpmeta(description: str | None) -> dict | None:
     if status_line:
         d = re.search(r"\d{4}-\d{2}-\d{2}", status_line.group(0))
         intent_date = d.group(0) if d else None
-    sup = re.search(r"supersession:\s*(.+)", block, re.IGNORECASE)
+    sup = re.search(r"^\s*supersession\s*:\s*(.+)$", block, re.IGNORECASE | re.MULTILINE)
     fires_on = re.search(r"^\s*fires_on\s*:\s*(.+)$", block, re.IGNORECASE | re.MULTILINE)
     url = re.search(r"^\s*url\s*:\s*(.+)$", block, re.IGNORECASE | re.MULTILINE)
     # Purpose: the first content line that is neither a known field nor an in/out-of-use

@@ -167,7 +167,8 @@ other — that is normal given different data volumes):
    `<!-- gp-meta -->…<!-- /gp-meta -->` block (append the block if there is none yet).
    - Human prose **outside** the markers is preserved untouched.
    - An already-set **purpose line inside** the block is read and kept verbatim (it is
-     immutable); only the status/supersession lines change.
+     immutable); only the status, supersession, and anchor (`fires_on` / `url`) lines
+     change.
    - Pass the full merged string — never just the block. Re-runs update the block in
      place (never duplicate it) and never drop human content.
 3. Apply, branching on the event's `isInSchema` flag in the `get_events` response (the
