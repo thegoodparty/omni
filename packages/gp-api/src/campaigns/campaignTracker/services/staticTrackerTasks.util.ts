@@ -121,14 +121,16 @@ export const buildBallotAccessTrackerTaskRows = (
 // Build the 7 deterministic outreach rows (the plan contact schedule). Returns
 // none when the candidate lost their primary — a lost-primary race is over, so
 // the tracker must never suggest further texts/robocalls (gated on the
-// HubSpot-sourced `campaign.primaryResult`).
+// HubSpot-sourced `campaign.primaryResult`) — and none without an upcoming
+// election to anchor to, since every send is election-relative and a `start`
+// fallback would schedule the whole contact program for next week.
 export const buildOutreachTrackerTaskRows = (
   campaignId: number,
   start: Date,
   electionDate: Date | null,
   primaryLost: boolean,
 ): Prisma.CampaignTrackerTaskCreateManyInput[] =>
-  primaryLost
+  primaryLost || !electionDate
     ? []
     : CAMPAIGN_TASK_CATALOG.filter((task) =>
         OUTREACH_CHANNELS.has(task.channel),

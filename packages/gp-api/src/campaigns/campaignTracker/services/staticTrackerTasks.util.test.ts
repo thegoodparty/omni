@@ -136,4 +136,8 @@ describe('buildOutreachTrackerTaskRows', () => {
   it('suppresses all outreach when the candidate lost their primary', () => {
     expect(buildOutreachTrackerTaskRows(7, start, election, true)).toEqual([])
   })
+
+  it('builds no outreach when there is no election date to anchor to', () => {
+    expect(buildOutreachTrackerTaskRows(7, start, null, false)).toEqual([])
+  })
 })

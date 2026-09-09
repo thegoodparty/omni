@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { startOfDay } from 'date-fns'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
+import { parseIsoDateAsUTC } from 'src/shared/util/date.util'
 import {
   CampaignTaskType,
   ExperimentRunStatus,
@@ -301,6 +303,48 @@ describe('CampaignTrackerTasksService.bootstrapForCampaign', () => {
     h.prisma.campaignTrackerTask.count.mockResolvedValueOnce(31)
     await h.service.bootstrapForCampaign(campaign())
     expect(h.prisma.campaignTrackerTask.createMany).not.toHaveBeenCalled()
+  })
+
+  const materializedRows = () =>
+    firstOrThrow(h.prisma.campaignTrackerTask.createMany.mock.calls)[0]
+      .data as { flowType?: CampaignTaskType | null; date: Date }[]
+  const outreachRows = () =>
+    materializedRows().filter(
+      (r) =>
+        r.flowType === CampaignTaskType.text ||
+        r.flowType === CampaignTaskType.robocall,
+    )
+
+  it('materializes no outreach rows when the general election has passed', async () => {
+    await h.service.bootstrapForCampaign(
+      campaign({
+        details: {
+          raceId: 'race-abc',
+          electionDate: '2024-11-05',
+          state: 'NC',
+        },
+      }),
+    )
+    expect(materializedRows().length).toBeGreaterThan(0)
+    expect(outreachRows()).toEqual([])
+  })
+
+  it('dates outreach off a future primary when the general election has passed', async () => {
+    await h.service.bootstrapForCampaign(
+      campaign({
+        details: {
+          raceId: 'race-abc',
+          electionDate: '2024-11-05',
+          primaryElectionDate: '2099-03-03',
+          state: 'NC',
+        },
+      }),
+    )
+    const rows = outreachRows()
+    expect(rows).toHaveLength(7)
+    expect(rows.map((r) => r.date)).toContainEqual(
+      startOfDay(parseIsoDateAsUTC('2099-03-03')),
+    )
   })
 
   it('releases the claim and rethrows when bootstrap work fails', async () => {

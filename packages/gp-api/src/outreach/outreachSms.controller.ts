@@ -61,7 +61,12 @@ export class OutreachSmsController {
         candidateName(user),
         positionName ?? campaign.details.normalizedOffice ?? '',
         String(user.id),
-        await this.composeContext.buildCampaignContext(campaign),
+        [
+          ...(campaign.details.website
+            ? [`The campaign's website: ${campaign.details.website}`]
+            : []),
+          ...(await this.composeContext.buildCampaignContext(campaign)),
+        ],
       ),
     }
   }

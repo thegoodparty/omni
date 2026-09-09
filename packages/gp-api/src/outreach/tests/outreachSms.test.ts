@@ -71,8 +71,34 @@ describe('POST /v1/outreach/sms/draft', () => {
       (m: { role: string }) => m.role === 'user',
     )?.content
     expect(userPrompt).toContain('introduce the candidate to voters')
+    expect(userPrompt).toContain('My priorities:')
+    expect(userPrompt).toContain('concrete HOW')
     expect(userPrompt).toContain('Warm:')
     expect(userPrompt).toContain('City Council')
+  })
+
+  it('includes the campaign website in the prompt when on file', async () => {
+    await service.prisma.campaign.update({
+      where: { id: 998 },
+      data: {
+        details: {
+          state: 'TX',
+          zip: '78634',
+          normalizedOffice: 'City Council',
+          website: 'https://janedoe.com',
+        },
+      },
+    })
+    jsonCompletion.mockResolvedValue(llmDraft('A note.'))
+
+    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain("The campaign's website: https://janedoe.com")
   })
 
   it('feeds campaign story, issues, and plan sections into the prompt', async () => {
@@ -152,6 +178,24 @@ describe('POST /v1/outreach/sms/draft', () => {
     )
   })
 
+  it('never injects a purpose structure into a polish', async () => {
+    jsonCompletion.mockResolvedValue(llmDraft('A tighter version.'))
+
+    const res = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      currentDraft: 'I wrote this myself, in my own shape.',
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).not.toContain('My priorities:')
+    expect(userPrompt).not.toContain('three short bullet points')
+  })
+
   it('rejects custom purpose without currentDraft, and bad input', async () => {
     const custom = await postDraft({ purpose: 'custom', tone: 'warm' })
     expect(custom.status).toBe(HttpStatus.BAD_REQUEST)
@@ -165,7 +209,7 @@ describe('POST /v1/outreach/sms/draft', () => {
     const oversized = await postDraft({
       purpose: 'introduce_myself',
       tone: 'warm',
-      currentDraft: 'x'.repeat(481),
+      currentDraft: 'x'.repeat(1001),
     })
     expect(oversized.status).toBe(HttpStatus.BAD_REQUEST)
 

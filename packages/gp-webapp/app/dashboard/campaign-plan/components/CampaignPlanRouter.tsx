@@ -1,7 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { formatInTimeZone } from 'date-fns-tz'
 import type { User } from 'helpers/types'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
 import DashboardLayout, {
   type DashboardNavHeaderConfig,
@@ -9,6 +11,25 @@ import DashboardLayout, {
 import { NAV_LABELS } from '../../shared/navLabels'
 import CampaignPlanPage from './CampaignPlanPage'
 import CampaignPlanStoryGate from './CampaignPlanStoryGate'
+import CampaignPlanElectionPassedGate from './CampaignPlanElectionPassedGate'
+
+const ISO_DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+
+// Mirrors gp-api's guard: passed only when every stored date has passed, so a
+// stale general with an upcoming primary stays live. Compare calendar dates in
+// UTC, not the viewer's zone: the API judges against its own UTC clock, so a US
+// browser on election-day evening would otherwise still show the plan while
+// the API already refuses to generate. Election day itself counts as upcoming.
+const electionHasPassed = (
+  electionDate: string | undefined,
+  primaryElectionDate: string | undefined,
+): boolean => {
+  const todayUtc = formatInTimeZone(new Date(), 'UTC', 'yyyy-MM-dd')
+  const days = [electionDate, primaryElectionDate]
+    .map((date) => (date ?? '').trim().slice(0, 10))
+    .filter((day) => ISO_DATE_ONLY.test(day))
+  return days.length > 0 && days.every((day) => day < todayUtc)
+}
 
 interface CampaignPlanRouterProps {
   initialUser: User | null
@@ -46,6 +67,9 @@ const CampaignPlanRouter = ({
   initialUser,
   planExists,
 }: CampaignPlanRouterProps): React.JSX.Element => {
+  const [campaign] = useCampaign()
+  const electionDate = campaign?.details?.electionDate
+  const primaryElectionDate = campaign?.details?.primaryElectionDate
   const { isComplete: storyComplete, isLoading: storyLoading } =
     useCampaignStoryComplete(true)
   // Initialized false (not from sessionStorage) so the client's first render
@@ -85,6 +109,21 @@ const CampaignPlanRouter = ({
   const requestGenerate = (): void => {
     sessionStorage.setItem(GENERATE_REQUESTED_KEY, String(Date.now()))
     setGenerateRequested(true)
+  }
+
+  // A returning candidate's campaign still carries last cycle's election until
+  // they update their race. gp-api refuses to generate a plan for a past
+  // electionDate (400), and a tracker for a finished race is meaningless, so
+  // send them to fix the race first — ahead of the story gate and regardless of
+  // an existing plan or a pending generate request.
+  if (electionHasPassed(electionDate, primaryElectionDate)) {
+    return (
+      <DashboardLayout navHeader={navHeader}>
+        <CampaignPlanElectionPassedGate
+          electionDate={electionDate ?? primaryElectionDate ?? ''}
+        />
+      </DashboardLayout>
+    )
   }
 
   // Show the plan/tracker only once the story is complete — then either an

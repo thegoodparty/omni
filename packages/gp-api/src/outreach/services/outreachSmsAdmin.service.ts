@@ -65,6 +65,11 @@ const timeboxed = <T>(read: Promise<T>): Promise<T> => {
 
 const DATE_FMT = 'yyyy-MM-dd'
 
+// Send-date floor for the console: everything scheduled before the CAS
+// team's chosen cutoff predates the console and was resolved (or
+// abandoned) through the old manual process.
+const SMS_ADMIN_QUEUE_CUTOFF = new Date('2026-06-02T00:00:00Z')
+
 // Peerly flagged (2026-09-04) that our detail reads were rapidly piling
 // duplicate long-running requests — a slow read gets abandoned client-side
 // by the timebox above, but the request keeps computing at Peerly, and the
@@ -131,6 +136,11 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       // pending rows are actionable.
       status: { in: [OutreachStatus.pending, OutreachStatus.canceled] },
       projectId: { not: null },
+      // The pre-console backlog is noise, not work: rows stranded pending
+      // from before the console existed are hidden behind a fixed cutoff
+      // (CAS request, 2026-09-09). Dateless rows stay visible — a pending
+      // row with no send date is an anomaly worth seeing, not backlog.
+      OR: [{ date: null }, { date: { gte: SMS_ADMIN_QUEUE_CUTOFF } }],
     }
   }
 

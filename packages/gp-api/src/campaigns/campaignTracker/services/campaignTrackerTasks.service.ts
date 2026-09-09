@@ -12,6 +12,7 @@ import {
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   CENTRAL_TIMEZONE,
+  isDateTodayOrFuture,
   mondayOfWeekUtc,
   nextMondayUtcMidnight,
   parseIsoDateAsUTC,
@@ -211,7 +212,14 @@ export class CampaignTrackerTasksService extends createPrismaBase(
 
   private resolveElectionDate(campaign: Campaign): Date | null {
     const { electionDate, primaryElectionDate } = campaign.details ?? {}
-    const chosen = electionDate ?? primaryElectionDate
+    // A past date anchors nothing: a returning candidate's campaign row keeps
+    // last cycle's election until they update their race, and outreach dated
+    // off it would post a finished schedule to CAS. General first, primary as
+    // the fallback, skipping whichever has passed (mirrors the legacy task
+    // generator's hasFutureDate).
+    const chosen = [electionDate, primaryElectionDate].find((date) =>
+      isDateTodayOrFuture(date),
+    )
     // Parse as UTC midnight, not local: date-only strings via parseIsoDateString
     // land on local midnight, which on a server east of UTC shifts the date back
     // a UTC day. The GOTV gate then diverges from the digest's UTC-only SQL
