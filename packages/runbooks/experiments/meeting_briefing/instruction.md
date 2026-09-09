@@ -549,7 +549,7 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 
 `hs_new_home_buyer`/`hs_any_home_buyer` are deliberately excluded: ~60-baseline propensity models (recently/ever bought a home), not polarized sentiment — never select or cite them as constituent sentiment (see the score rule in CRITICAL RULES).
 
-**taxes** — Tax cuts, gas tax, social security tax, minimum wage, fiscal ideology
+**taxes** — Tax cuts, gas tax, fiscal ideology
 
 | Column                                    | Meaning                                |
 | ----------------------------------------- | -------------------------------------- |
@@ -573,7 +573,7 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 | `hs_teachers_union_positive`        | positive view of teachers unions |
 | `hs_teachers_union_negative`        | negative view of teachers unions |
 
-**healthcare** — Medicaid expansion, Medicare for All, ACA, family medical leave, opioid policy
+**healthcare** — Medicaid expansion, Medicare for All, ACA
 
 | Column                            | Meaning                                         |
 | --------------------------------- | ----------------------------------------------- |
@@ -585,7 +585,7 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 | `hs_obamacare_aca_protect`        | supports protecting ACA                         |
 | `hs_obamacare_aca_oppose`         | opposes the ACA                                 |
 
-**climate_energy** — Climate change belief, EVs, solar, fracking, federal lands, Green New Deal
+**climate_energy** — Climate change belief, EVs, solar, fracking, Green New Deal
 
 | Column                             | Meaning                                 |
 | ---------------------------------- | --------------------------------------- |
