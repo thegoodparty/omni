@@ -127,6 +127,50 @@ def test_parse_gpmeta_purpose_none_when_block_has_no_prose_line_and_no_prose_out
     assert result["supersession"] == "original"
 
 
+def test_parse_gpmeta_extracts_fires_on_and_url():
+    desc = (
+        "<!-- gp-meta -->\n"
+        "Confirms an admin approved a campaign for sending. |\n"
+        "fires_on: Admin SMS outreach queue, Approve & book send on a campaign detail page. |\n"
+        "url: /dashboard/sms-outreach/:id (gp-admin) |\n"
+        "supersession: original |\n"
+        "in use: 2026-09-09 (#1)\n"
+        "<!-- /gp-meta -->"
+    )
+    meta = eh.parse_gpmeta(desc)
+    assert meta["fires_on"] == (
+        "Admin SMS outreach queue, Approve & book send on a campaign detail page."
+    )
+    assert meta["url"] == "/dashboard/sms-outreach/:id (gp-admin)"
+    assert meta["purpose"] == "Confirms an admin approved a campaign for sending."
+
+
+def test_parse_gpmeta_anchor_fields_absent_are_none():
+    desc = "<!-- gp-meta -->\npurpose line\nin use: 2026-06-18 (#1)\n<!-- /gp-meta -->"
+    meta = eh.parse_gpmeta(desc)
+    assert meta["fires_on"] is None
+    assert meta["url"] is None
+    meta = eh.parse_gpmeta("prose only, no block")
+    assert meta["fires_on"] is None
+    assert meta["url"] is None
+
+
+def test_parse_gpmeta_anchor_line_above_the_prose_is_not_mistaken_for_the_purpose():
+    desc = (
+        "<!-- gp-meta -->\n"
+        "fires_on: Campaign plan page, Generate button. |\n"
+        "The question this event answers. |\n"
+        "in use: 2026-09-09 (#1)\n"
+        "<!-- /gp-meta -->"
+    )
+    assert eh.parse_gpmeta(desc)["purpose"] == "The question this event answers."
+
+
+def test_parse_gpmeta_purpose_starting_with_the_word_url_survives():
+    desc = "<!-- gp-meta -->\nURL of the shared plan was opened. |\nin use: 2026-09-09\n<!-- /gp-meta -->"
+    assert eh.parse_gpmeta(desc)["purpose"] == "URL of the shared plan was opened."
+
+
 def test_parse_gpmeta_prose_only_does_not_raise_a_divergence():
     # The fallback must not turn 193 undeclared events into intent-vs-reality flags.
     meta = eh.parse_gpmeta("A plain prose description, no markers.")

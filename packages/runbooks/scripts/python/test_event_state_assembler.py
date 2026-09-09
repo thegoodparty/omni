@@ -463,3 +463,21 @@ def test_build_rows_renders_questions_column():
 def test_build_rows_questions_blank_when_no_behavior_claims_the_event():
     records = [{"event_type": "E", "status": "active", "family": "win_dashboard"}]
     assert esa.build_rows(records, {"E": {}}, {})[0]["questions"] == ""
+
+
+def test_build_rows_maps_the_anchor_fields_from_gpmeta():
+    records = [_record("E", "active", gpmeta={
+        "intent": None, "intent_date": None, "supersession": None, "purpose": "p",
+        "fires_on": "Campaign plan page, Generate button.",
+        "url": "/dashboard/campaign-plan",
+    })]
+    row = esa.build_rows(records, {"E": {}}, {})[0]
+    assert row["where_it_fires"] == "Campaign plan page, Generate button."
+    assert row["url"] == "/dashboard/campaign-plan"
+
+
+def test_build_rows_anchor_columns_blank_when_the_block_has_no_anchor():
+    records = [_record("E", "active", gpmeta={"intent": None, "purpose": "p"})]
+    row = esa.build_rows(records, {"E": {}}, {})[0]
+    assert row["where_it_fires"] == ""
+    assert row["url"] == ""

@@ -121,8 +121,8 @@ def build_rows(
             {
                 "event": cat.get("govern_display_name") or event_type,
                 "description": _blank(gpmeta.get("purpose")),
-                "where_it_fires": "",
-                "url": "",
+                "where_it_fires": _blank(gpmeta.get("fires_on")),
+                "url": _blank(gpmeta.get("url")),
                 "status": rec["status"],
                 "last_seen_date": _blank(cat.get("last_seen_date")),
                 "event_count_30d": _num(cat.get("event_count_30d", rec.get("event_count_30d", 0))),
