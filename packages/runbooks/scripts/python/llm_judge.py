@@ -38,7 +38,7 @@ def make_anthropic_client(api_key: str):
 
 
 def parse_tool_response(resp, item_ids: Sequence[str], *, id_field: str = "id",
-                        results_field: str = "verdicts") -> dict[str, dict]:
+                        results_field: str = "verdicts", noun: str = "items") -> dict[str, dict]:
     """Verdicts keyed by item id from a forced tool call, keeping only ids that were in the
     input (a hallucinated id is dropped, never trusted into state).
 
@@ -46,11 +46,12 @@ def parse_tool_response(resp, item_ids: Sequence[str], *, id_field: str = "id",
     input incomplete, and reporting that as a schema error points the reader at the schema
     instead of the budget — read that way it once hid a month of un-judged candidates. A
     truncated response may also carry no complete tool_use block, so this precedes the
-    block lookup.
+    block lookup. `noun` only varies the message text (e.g. "candidates") for a caller whose
+    status string surfaces verbatim to a human.
     """
     if getattr(resp, "stop_reason", None) == "max_tokens":
         raise RuntimeError(
-            f"judge response truncated at max_tokens ({len(item_ids)} items): "
+            f"judge response truncated at max_tokens ({len(item_ids)} {noun}): "
             "the verdict batch did not fit the output budget"
         )
     allowed = set(item_ids)
@@ -63,7 +64,8 @@ def parse_tool_response(resp, item_ids: Sequence[str], *, id_field: str = "id",
 
 def judge_batch(items: Sequence[dict], *, system: str, tool: dict, client, model: str,
                 message_builder: Callable[[Sequence[dict]], list], max_tokens: int | None = None,
-                id_field: str = "id", results_field: str = "verdicts") -> dict[str, dict]:
+                id_field: str = "id", results_field: str = "verdicts",
+                noun: str = "items") -> dict[str, dict]:
     """One batched judgment call. Client is injected so this is unit-testable without
     network. Forces the tool for a validated result."""
     resp = client.messages.create(
@@ -75,17 +77,24 @@ def judge_batch(items: Sequence[dict], *, system: str, tool: dict, client, model
         messages=message_builder(items),
     )
     return parse_tool_response(resp, [i[id_field] for i in items], id_field=id_field,
-                               results_field=results_field)
+                               results_field=results_field, noun=noun)
 
 
 def run_graceful(items: Sequence[dict], *, api_key: str | None, model: str, tool: dict,
                  message_builder: Callable[[Sequence[dict]], list],
                  system_factory: Callable[[], str], unavailable_status: str,
                  client_factory=make_anthropic_client,
-                 id_field: str = "id", results_field: str = "verdicts") -> tuple[dict[str, dict], str]:
+                 id_field: str = "id", results_field: str = "verdicts",
+                 noun: str = "items") -> tuple[dict[str, dict], str]:
     """Graceful boundary around a judge. Never raises: returns (verdicts_by_id, status).
     A missing key, an unreadable prompt source, an SDK/network error or a bad response all
-    degrade to an empty result and a status string the caller reports — the run continues."""
+    degrade to an empty result and a status string the caller reports — the run continues.
+
+    system_factory gets its own try so an unreadable prompt source (OSError) reports
+    `unavailable_status` specifically; any other exception from it — same as any exception
+    from building the client or calling the judge — degrades to the generic `failed: ...`,
+    never propagates.
+    """
     if not items:
         return {}, NO_ITEMS_STATUS
     if not api_key:
@@ -94,11 +103,13 @@ def run_graceful(items: Sequence[dict], *, api_key: str | None, model: str, tool
         system = system_factory()
     except OSError:
         return {}, unavailable_status
+    except Exception as exc:  # noqa: BLE001 — judgment must never break the governance run
+        return {}, f"failed: {exc}"
     try:
         client = client_factory(api_key)
         verdicts = judge_batch(items, system=system, tool=tool, client=client, model=model,
                                message_builder=message_builder, id_field=id_field,
-                               results_field=results_field)
+                               results_field=results_field, noun=noun)
     except Exception as exc:  # noqa: BLE001 — judgment must never break the governance run
         return {}, f"failed: {exc}"
     return verdicts, "ok"
