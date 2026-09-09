@@ -99,6 +99,7 @@ const CampaignDetailsSchema = z
     city: lenientString,
     state: lenientString,
     electionDate: lenientString,
+    primaryElectionDate: lenientString,
     officeTermLength: lenientString,
   })
   .partial()
@@ -116,18 +117,21 @@ const resolveRaceId = (details: Campaign['details']): string => {
 
 // A returning candidate's campaign row keeps last cycle's electionDate until
 // they update their race. Generating against it would research a finished
-// race and date the tracker's outreach off a past election, so a past date
-// blocks generation outright. A missing date is left to the callers' own
-// checks — only a date we can prove has passed is refused here.
+// race and date the tracker's outreach off a past election, so generation is
+// refused when every stored date has passed. An upcoming primary keeps the
+// campaign live even with a stale general (the tracker's resolveElectionDate
+// falls back to it the same way). Missing dates are left to the callers' own
+// checks — only dates we can prove have passed are refused here.
 const ELECTION_PASSED_MESSAGE =
   'Campaign election date has passed — update your race before generating a plan.'
 
 const electionHasPassed = (details: Campaign['details']): boolean => {
   const parsed = CampaignDetailsSchema.safeParse(details)
-  const electionDate = parsed.success
-    ? (parsed.data.electionDate ?? '').trim()
-    : ''
-  return electionDate.length > 0 && !isDateTodayOrFuture(electionDate)
+  if (!parsed.success) return false
+  const dates = [parsed.data.electionDate, parsed.data.primaryElectionDate]
+    .map((date) => (date ?? '').trim())
+    .filter((date) => date.length > 0)
+  return dates.length > 0 && dates.every((date) => !isDateTodayOrFuture(date))
 }
 
 @Injectable()

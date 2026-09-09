@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ReactNode } from 'react'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { formatInTimeZone } from 'date-fns-tz'
 import { render } from 'helpers/test-utils/render'
 import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -68,6 +69,13 @@ describe('CampaignPlanRouter', () => {
     render(<CampaignPlanRouter initialUser={null} planExists={false} />)
     expect(electionPassedGate()).toBeInTheDocument()
     expect(planPage()).not.toBeInTheDocument()
+  })
+
+  it('treats election day itself (in UTC) as upcoming', () => {
+    setElectionDate(formatInTimeZone(new Date(), 'UTC', 'yyyy-MM-dd'))
+    render(<CampaignPlanRouter initialUser={null} planExists />)
+    expect(planPage()).toBeInTheDocument()
+    expect(electionPassedGate()).not.toBeInTheDocument()
   })
 
   it('treats a missing election date as not passed', () => {

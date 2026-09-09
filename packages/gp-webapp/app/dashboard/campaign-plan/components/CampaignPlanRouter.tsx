@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { isBefore, isValid, parseISO, startOfDay } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import type { User } from 'helpers/types'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
@@ -13,12 +13,19 @@ import CampaignPlanPage from './CampaignPlanPage'
 import CampaignPlanStoryGate from './CampaignPlanStoryGate'
 import CampaignPlanElectionPassedGate from './CampaignPlanElectionPassedGate'
 
-// Date-only ISO parses as local midnight, so "passed" means strictly before
-// today in the viewer's zone — election day itself still counts as upcoming.
+const ISO_DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+
+// Compare calendar dates in UTC, not the viewer's zone: gp-api judges "passed"
+// against its own UTC clock, so a US browser on election-day evening would
+// otherwise still show the plan while the API already refuses to generate.
+// Election day itself counts as upcoming on both sides.
 const electionHasPassed = (electionDate: string | undefined): boolean => {
   if (!electionDate) return false
-  const date = parseISO(electionDate.slice(0, 10))
-  return isValid(date) && isBefore(date, startOfDay(new Date()))
+  const day = electionDate.slice(0, 10)
+  return (
+    ISO_DATE_ONLY.test(day) &&
+    day < formatInTimeZone(new Date(), 'UTC', 'yyyy-MM-dd')
+  )
 }
 
 interface CampaignPlanRouterProps {
