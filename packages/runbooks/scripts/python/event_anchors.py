@@ -247,6 +247,13 @@ def find_call_sites(event_name: str, key_path: str | None,
                     registry_block_start = open_brace_pos
                     registry_block_end = block_end_pos
                     block_found = True
+            else:
+                # Registry file found but EVENTS block not locatable — warn like load_event_registry does
+                print(
+                    f"event-anchors: WARNING — EVENTS block not locatable in {REGISTRY_FILE}, "
+                    f"call sites in this file cannot be distinguished from declarations",
+                    file=sys.stderr,
+                )
 
         # Process each line with character offset tracking
         char_offset = 0
@@ -257,13 +264,9 @@ def find_call_sites(event_name: str, key_path: str | None,
                 quoted_needle = quote + event_name + quote
                 if quoted_needle in line:
                     hit_char_offset = char_offset + line.index(quoted_needle)
-                    # Classify as declaration if in registry file and either:
-                    # (a) inside the block (if block was found), or
-                    # (b) block was not found (fallback for minimal test fixtures)
-                    is_declaration = path == REGISTRY_FILE and (
-                        not block_found or
-                        (registry_block_start <= hit_char_offset <= registry_block_end)
-                    )
+                    # Only classify as declaration if inside the located block
+                    is_declaration = (path == REGISTRY_FILE and block_found and
+                                      registry_block_start <= hit_char_offset <= registry_block_end)
                     kind = "declaration" if is_declaration else "literal"
                     hits.append({
                         "path": path,
@@ -284,13 +287,9 @@ def find_call_sites(event_name: str, key_path: str | None,
 
                     if before_ok and after_ok:
                         hit_char_offset = char_offset + idx
-                        # Classify as declaration if in registry file and either:
-                        # (a) inside the block (if block was found), or
-                        # (b) block was not found (fallback for minimal test fixtures)
-                        is_declaration = path == REGISTRY_FILE and (
-                            not block_found or
-                            (registry_block_start <= hit_char_offset <= registry_block_end)
-                        )
+                        # Only classify as declaration if inside the located block
+                        is_declaration = (path == REGISTRY_FILE and block_found and
+                                          registry_block_start <= hit_char_offset <= registry_block_end)
                         kind = "declaration" if is_declaration else "key_path"
                         hits.append({
                             "path": path,
