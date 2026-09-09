@@ -200,16 +200,40 @@ def make_anthropic_client(api_key: str):
     return anthropic.Anthropic(api_key=api_key)
 
 
+# Output budget, mirroring instrumentation_gaps.judge_max_tokens for the same reason: a
+# constant cap sized near the typical batch truncates silently once the batch grows, and
+# the pydantic error it produces names the schema rather than the budget. Sized by analogy
+# to the measured gap judge (~185 output tokens/verdict) rather than measured on this
+# payload directly — triage verdicts carry three short free-text fields, so the ~2x
+# headroom covers them; the truncation guard below catches it loudly if that is ever wrong.
+_TRIAGE_BUDGET_FLOOR = 1024
+_TRIAGE_TOKENS_PER_VERDICT = 400
+_TRIAGE_BUDGET_CEILING = 32_000
+
+
+def triage_max_tokens(item_count: int) -> int:
+    """The output cap for a batch of this size."""
+    return min(
+        _TRIAGE_BUDGET_FLOOR + _TRIAGE_TOKENS_PER_VERDICT * item_count,
+        _TRIAGE_BUDGET_CEILING,
+    )
+
+
 def _judge_items(items: Sequence[dict], rubric: str, *, client, model: str,
-                 max_tokens: int = 4096) -> dict[str, dict]:
+                 max_tokens: int | None = None) -> dict[str, dict]:
     resp = client.messages.create(
         model=model,
-        max_tokens=max_tokens,
+        max_tokens=max_tokens or triage_max_tokens(len(items)),
         system=triage_system_prompt(rubric),
         tools=[TRIAGE_TOOL],
         tool_choice={"type": "tool", "name": TRIAGE_TOOL["name"]},
         messages=build_triage_messages(items),
     )
+    if getattr(resp, "stop_reason", None) == "max_tokens":
+        raise RuntimeError(
+            f"triage response truncated at max_tokens ({len(items)} items): "
+            "the verdict batch did not fit the output budget"
+        )
     block = next((b for b in resp.content if getattr(b, "type", None) == "tool_use"), None)
     if block is None:
         raise RuntimeError("no tool_use block in triage response")
