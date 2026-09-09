@@ -15,17 +15,20 @@ import CampaignPlanElectionPassedGate from './CampaignPlanElectionPassedGate'
 
 const ISO_DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
 
-// Compare calendar dates in UTC, not the viewer's zone: gp-api judges "passed"
-// against its own UTC clock, so a US browser on election-day evening would
-// otherwise still show the plan while the API already refuses to generate.
-// Election day itself counts as upcoming on both sides.
-const electionHasPassed = (electionDate: string | undefined): boolean => {
-  if (!electionDate) return false
-  const day = electionDate.slice(0, 10)
-  return (
-    ISO_DATE_ONLY.test(day) &&
-    day < formatInTimeZone(new Date(), 'UTC', 'yyyy-MM-dd')
-  )
+// Mirrors gp-api's guard: passed only when every stored date has passed, so a
+// stale general with an upcoming primary stays live. Compare calendar dates in
+// UTC, not the viewer's zone: the API judges against its own UTC clock, so a US
+// browser on election-day evening would otherwise still show the plan while
+// the API already refuses to generate. Election day itself counts as upcoming.
+const electionHasPassed = (
+  electionDate: string | undefined,
+  primaryElectionDate: string | undefined,
+): boolean => {
+  const todayUtc = formatInTimeZone(new Date(), 'UTC', 'yyyy-MM-dd')
+  const days = [electionDate, primaryElectionDate]
+    .map((date) => (date ?? '').trim().slice(0, 10))
+    .filter((day) => ISO_DATE_ONLY.test(day))
+  return days.length > 0 && days.every((day) => day < todayUtc)
 }
 
 interface CampaignPlanRouterProps {
@@ -66,6 +69,7 @@ const CampaignPlanRouter = ({
 }: CampaignPlanRouterProps): React.JSX.Element => {
   const [campaign] = useCampaign()
   const electionDate = campaign?.details?.electionDate
+  const primaryElectionDate = campaign?.details?.primaryElectionDate
   const { isComplete: storyComplete, isLoading: storyLoading } =
     useCampaignStoryComplete(true)
   // Initialized false (not from sessionStorage) so the client's first render
@@ -112,7 +116,7 @@ const CampaignPlanRouter = ({
   // electionDate (400), and a tracker for a finished race is meaningless, so
   // send them to fix the race first — ahead of the story gate and regardless of
   // an existing plan or a pending generate request.
-  if (electionHasPassed(electionDate)) {
+  if (electionHasPassed(electionDate, primaryElectionDate)) {
     return (
       <DashboardLayout navHeader={navHeader}>
         <CampaignPlanElectionPassedGate electionDate={electionDate ?? ''} />

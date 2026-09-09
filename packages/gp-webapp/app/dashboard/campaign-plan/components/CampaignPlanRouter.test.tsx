@@ -34,9 +34,12 @@ const setStoryComplete = (isComplete: boolean, isLoading = false): void => {
 }
 
 const mockUseCampaign = vi.mocked(useCampaign)
-const setElectionDate = (electionDate: string | undefined): void => {
+const setElectionDate = (
+  electionDate: string | undefined,
+  primaryElectionDate?: string,
+): void => {
   mockUseCampaign.mockReturnValue([
-    { id: 1, details: { electionDate } },
+    { id: 1, details: { electionDate, primaryElectionDate } },
   ] as unknown as ReturnType<typeof useCampaign>)
 }
 
@@ -69,6 +72,13 @@ describe('CampaignPlanRouter', () => {
     render(<CampaignPlanRouter initialUser={null} planExists={false} />)
     expect(electionPassedGate()).toBeInTheDocument()
     expect(planPage()).not.toBeInTheDocument()
+  })
+
+  it('does not block when the general date is past but the primary is upcoming', () => {
+    setElectionDate('2024-11-05', '2099-03-03')
+    render(<CampaignPlanRouter initialUser={null} planExists />)
+    expect(planPage()).toBeInTheDocument()
+    expect(electionPassedGate()).not.toBeInTheDocument()
   })
 
   it('treats election day itself (in UTC) as upcoming', () => {
