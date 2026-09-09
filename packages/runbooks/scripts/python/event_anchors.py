@@ -10,12 +10,17 @@ nothing reaches Amplitude Govern from this module.
 
 from __future__ import annotations
 
+import json
+import os
 import posixpath
 import re
 import sys
 from typing import Mapping, Sequence
 
 import instrumentation_gaps as ig
+import llm_judge
+
+DEFAULT_MODEL = os.environ.get("ANCHOR_JUDGE_MODEL", "claude-sonnet-5")
 
 _LEAF = re.compile(r"([A-Za-z0-9_]+)\s*:\s*'([^']*)'")
 _OPEN = re.compile(r"([A-Za-z0-9_]+)\s*:\s*\{")
@@ -305,9 +310,6 @@ def find_call_sites(event_name: str, key_path: str | None,
     return sorted(hits, key=lambda h: (h["path"], h["line"]))
 
 
-CANDIDATE_APP = "packages/gp-webapp"
-
-
 def derive_url(hit_path: str, page_paths: Sequence[str]) -> str | None:
     """The product route a call site sits under, app-qualified when it is not the
     candidate webapp. None when the file is not under an app router at all — a gp-api
@@ -342,3 +344,108 @@ def derive_url(hit_path: str, page_paths: Sequence[str]) -> str | None:
         return None
     app_name = parts[1]
     return route if app_name == "gp-webapp" else f"{route} ({app_name})"
+
+
+# --- LLM judge pass -------------------------------------------------------------
+
+CONFIDENCE_CLASSES = ("global_chrome", "dynamic_dispatch", "no_call_site")
+
+ANCHOR_TOOL = {
+    "name": "report_anchors",
+    "description": "Return one anchor per event: where it fires, and at what URL.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "verdicts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "fires_on": {"type": "string"},
+                        "url": {"type": "string"},
+                        "confidence": {"type": "string", "enum": ["high", "low"]},
+                        "flag_reason": {"type": "string"},
+                    },
+                    "required": ["id", "fires_on", "url", "confidence"],
+                },
+            }
+        },
+        "required": ["verdicts"],
+    },
+}
+
+_ANCHOR_INSTRUCTIONS = (
+    "You are writing the line that lets a non-engineer confirm an analytics event is the "
+    "one they mean. For each event you get its name, its description, the code around its "
+    "call site, and a url already derived from the enclosing route file.\n\n"
+    "fires_on: ONE plain-English line naming the surface and the trigger, as a person "
+    "using the product would describe it — 'Admin SMS outreach queue, Approve & book send "
+    "on a campaign detail page.' Name the button or control if you can see it. Never "
+    "describe the code: no function names, no file names, no 'trackEvent is called when'.\n"
+    "url: confirm the derived url by returning it verbatim, or correct it if the code "
+    "shows the action happens elsewhere. When there is no single URL because the event "
+    "fires from global chrome, return a short reason instead, like 'n/a (global nav)'. "
+    "Never invent a path you have not seen.\n"
+    "confidence: 'low' whenever you are guessing — no call site was found, the event is "
+    "dispatched dynamically so no call site reveals the surface, or it fires from "
+    "everywhere. Set flag_reason to one of: global_chrome, dynamic_dispatch, "
+    "no_call_site. A flagged anchor is useful; a confident wrong one is worse than none.\n"
+    "Copy each id verbatim. Return exactly one verdict per event via the tool."
+)
+
+
+def anchor_system_prompt() -> str:
+    return _ANCHOR_INSTRUCTIONS
+
+
+def build_candidate(event: Mapping, hits: Sequence[dict], url: str | None,
+                    files: Mapping[str, str]) -> dict:
+    """One judge input: what the event is, where it appears in code, and the route we
+    already derived. `hint` pre-classifies the two low-confidence shapes the code can
+    prove, so the judge confirms rather than discovers them."""
+    call_sites = [h for h in hits if h["kind"] != "declaration"]
+    if not hits:
+        hint = "no_call_site"
+    elif not call_sites:
+        hint = "dynamic_dispatch"
+    else:
+        hint = ""
+    primary = (call_sites or hits or [None])[0]
+    code = ""
+    if primary is not None:
+        text = files.get(primary["path"], "")
+        # Anchor the window on the hit's own line, not on searching for event_type —
+        # a key_path or declaration hit's line contains the key-path text, not the
+        # event-name string literal, so a search for event_type would miss it and
+        # silently fall back to the file head instead of the actual call site.
+        lines = text.splitlines()
+        hit_idx = primary["line"] - 1
+        anchor = lines[hit_idx] if 0 <= hit_idx < len(lines) else ""
+        pattern = re.compile(re.escape(anchor)) if anchor.strip() else None
+        code = ig.extract_context(text, pattern)
+    return {
+        "id": event["event_type"],
+        "family": event.get("family") or "",
+        "description": event.get("description") or "",
+        "derived_url": url or "",
+        "evidence": f"{primary['path']}:{primary['line']}" if primary else "",
+        "hint": hint,
+        "code": code,
+    }
+
+
+def build_anchor_messages(candidates: Sequence[dict]) -> list[dict]:
+    """One user turn carrying the batch as JSON."""
+    return [{"role": "user", "content": json.dumps(list(candidates), indent=2)}]
+
+
+def judge_anchors(candidates, *, api_key, model=DEFAULT_MODEL,
+                  client_factory=llm_judge.make_anthropic_client):
+    return llm_judge.run_graceful(
+        candidates, api_key=api_key, model=model, tool=ANCHOR_TOOL,
+        message_builder=build_anchor_messages,
+        system_factory=anchor_system_prompt,
+        unavailable_status="skipped: prompt unavailable",
+        client_factory=client_factory,
+    )

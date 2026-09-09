@@ -521,3 +521,46 @@ def test_derive_url_handles_gp_admin_real_directory_structure():
     assert ea.derive_url(
         "packages/gp-admin/src/app/dashboard/ecanvasser/SomeComponent.tsx", pages
     ) == "/dashboard/ecanvasser (gp-admin)"
+
+
+def test_build_candidate_windows_the_code_and_carries_the_evidence():
+    files = {"packages/gp-webapp/app/dashboard/page.tsx": "\n".join(
+        f"line {i}" for i in range(1, 101))}
+    hits = [{"path": "packages/gp-webapp/app/dashboard/page.tsx", "line": 50,
+             "kind": "key_path"}]
+    c = ea.build_candidate(
+        {"event_type": "E", "family": "win_dashboard", "description": "does a thing"},
+        hits, "/dashboard", files)
+    assert c["id"] == "E"
+    assert c["derived_url"] == "/dashboard"
+    assert c["evidence"] == "packages/gp-webapp/app/dashboard/page.tsx:50"
+    assert "line 50" in c["code"]
+    assert len(c["code"].splitlines()) <= 40   # bounded so judge input stays small
+
+
+def test_build_candidate_marks_a_declaration_only_event_as_dynamic_dispatch():
+    files = {ea.REGISTRY_FILE: "  ClickX: 'Nav - X',\n"}
+    hits = [{"path": ea.REGISTRY_FILE, "line": 1, "kind": "declaration"}]
+    c = ea.build_candidate({"event_type": "Nav - X", "family": "nav", "description": ""},
+                           hits, None, files)
+    assert c["hint"] == "dynamic_dispatch"
+
+
+def test_build_candidate_marks_no_call_site():
+    c = ea.build_candidate({"event_type": "Ghost", "family": "x", "description": ""},
+                           [], None, {})
+    assert c["hint"] == "no_call_site"
+    assert c["code"] == ""
+
+
+def test_anchor_tool_forces_one_verdict_per_event_with_the_needed_fields():
+    schema = ea.ANCHOR_TOOL["input_schema"]
+    verdict = schema["properties"]["verdicts"]["items"]["properties"]
+    assert set(verdict) >= {"id", "fires_on", "url", "confidence", "flag_reason"}
+    assert ea.ANCHOR_TOOL["name"] == "report_anchors"
+
+
+def test_judge_anchors_degrades_gracefully_without_a_key():
+    verdicts, status = ea.judge_anchors([{"id": "E"}], api_key=None, model="m")
+    assert verdicts == {}
+    assert status == "skipped: ANTHROPIC_API_KEY unset"
