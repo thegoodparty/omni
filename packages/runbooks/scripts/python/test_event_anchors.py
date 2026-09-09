@@ -102,3 +102,61 @@ def test_load_event_registry_real_file_count():
     assert len(reg) == expected_count, (
         f"Registry mapped {len(reg)} literals but ground truth is {expected_count} distinct values"
     )
+
+
+def test_strip_comments_preserves_urls_in_strings():
+    """Event literals containing URLs with // should survive comment stripping."""
+    src = """
+export const EVENTS = {
+  Help: {
+    LinkClicked: 'Help - Link Clicked to https://example.com/help',
+  },
+}
+"""
+    stripped = ea._strip_comments(src)
+    assert 'https://example.com/help' in stripped
+    reg = ea.load_event_registry(src)
+    assert reg['Help - Link Clicked to https://example.com/help'] == 'EVENTS.Help.LinkClicked'
+
+
+def test_strip_comments_preserves_quoted_comment_markers():
+    """Event literals containing // or /* should survive stripping if inside quotes."""
+    src = """
+export const EVENTS = {
+  Help: {
+    UrlEvent: 'Help - Visit https://example.com/docs for details',
+    BlockEvent: 'Help - Code /* example */ shown',
+  },
+}
+"""
+    stripped = ea._strip_comments(src)
+    reg = ea.load_event_registry(src)
+    assert reg['Help - Visit https://example.com/docs for details'] == 'EVENTS.Help.UrlEvent'
+    assert reg['Help - Code /* example */ shown'] == 'EVENTS.Help.BlockEvent'
+
+
+def test_desync_warning_on_unmatched_brace_outside_comments(capsys):
+    """When walk desyncs due to a quoted key (which regex doesn't match), emit warning."""
+    src = """
+export const EVENTS = {
+  Good: {
+    Event1: 'Good - Event 1',
+  },
+  'my-dynamic-key': {
+    Event2: 'Bad - Event 2',
+  },
+}
+"""
+    reg = ea.load_event_registry(src)
+    captured = capsys.readouterr()
+    assert 'WARNING' in captured.err
+    assert 'desynced' in captured.err
+    assert len(reg) >= 1
+
+
+def test_no_desync_warning_on_healthy_registry(capsys):
+    """When the walk completes successfully, no warning should be emitted."""
+    reg = ea.load_event_registry(REGISTRY_SRC)
+    captured = capsys.readouterr()
+    assert 'WARNING' not in captured.err
+    assert len(reg) == 3
