@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
   type RefObject,
 } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -101,6 +102,23 @@ interface Props {
    * Default empty: no filtering.
    */
   hiddenMessageContents?: string[]
+  /**
+   * Content rendered at the top of the transcript's scroll flow, above the
+   * first turn — the conversational home's hero greeting. Scrolls away with the
+   * transcript rather than pinning, so the conversation reclaims the column
+   * once it gets going.
+   */
+  leadingSlot?: ReactNode
+  /**
+   * Content rendered at the end of the transcript's scroll flow, below the last
+   * turn — the conversational home's task-card rail. Deliberately NOT gated on
+   * a pristine transcript the way the starter chips are: the manager resumes one
+   * ongoing conversation, so a returning candidate's transcript is never
+   * pristine, and these cards are the home's own content rather than a
+   * first-run affordance. Hidden only while a turn is in flight, so it doesn't
+   * jump around the streaming reply.
+   */
+  trailingSlot?: ReactNode
 }
 
 /**
@@ -155,6 +173,8 @@ export default function ChiefOfStaffChatBody({
   composerRef,
   disclaimer,
   hiddenMessageContents = NO_HIDDEN_CONTENTS,
+  leadingSlot,
+  trailingSlot,
 }: Props): React.JSX.Element {
   const queryClient = useQueryClient()
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -581,7 +601,14 @@ export default function ChiefOfStaffChatBody({
   const isPristineGreeting =
     !hasSent && visibleMessages.length + (playback?.items.length ?? 0) <= 1
 
+  // An explicitly empty `suggestions` list means "no chips this turn" — the
+  // conversational home passes one when its task-card rail is showing, because
+  // chips and task cards must never share a turn. Without this guard the
+  // starter row would render as an empty padded strip (and `suggestions`
+  // couldn't be emptied at all, since undefined falls back to the CoS
+  // defaults).
   const showStarters =
+    effectiveSuggestions.length > 0 &&
     ((visibleMessages.length === 0 && !playback) ||
       (showSuggestionsWithGreeting && isPristineGreeting)) &&
     !sending &&
@@ -620,6 +647,8 @@ export default function ChiefOfStaffChatBody({
         }
         data-testid="cos-conversation"
       >
+        {leadingSlot}
+
         {loading && visibleMessages.length === 0 && !sending && (
           <div className="text-sm text-muted-foreground">Loading chat...</div>
         )}
@@ -674,6 +703,8 @@ export default function ChiefOfStaffChatBody({
             )}
           </div>
         )}
+
+        {trailingSlot && !sending && !streamError ? trailingSlot : null}
       </div>
 
       {showStarters && (

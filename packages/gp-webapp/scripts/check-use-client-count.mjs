@@ -366,7 +366,15 @@ import { dirname, join, relative } from 'node:path'
 //   - RecommendedListNameDrawer: vaul Drawer for naming a saved list on
 //     recommendation accept, used by OutreachAudienceStep. Vaul is
 //     client-only.
-const BASELINE = 589
+// 2026-09-09: 589 -> 593 for the conversation-first Campaign Manager home
+// (behind `campaign-manager-chat-home`). All four are client-only by nature:
+//   - ConversationalHome: resolves the ongoing conversation in an effect and
+//     hosts the streaming chat body.
+//   - CampaignManagerChatHome: owns the one-shot kickoff state the footer
+//     dock's provider owns on the card home.
+//   - CampaignManagerHero / CampaignManagerTaskCards: read the tracker,
+//     campaign and story hooks (React Query) to build the week's cards.
+const BASELINE = 593
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
