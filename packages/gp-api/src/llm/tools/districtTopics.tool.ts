@@ -16,8 +16,8 @@ export interface CatalogTopic {
 // constituentSuggestedDimensions.serveAgentVoters.ts when the column exists
 // there — that catalog's labels were verified against the vendor's per-model
 // cards and supersede the gp-data-platform seed. Columns advertised only here
-// (`hs_ideology_*`, `hs_religion_*`, `hs_ticket_splitter_*`,
-// `hs_tribalism_team_dem`/`_gop`, `hs_view_of_opposition_*`) have NOT had
+// (`hs_ideology_*`, `hs_religion_*`, `hs_ticket_splitting_*`,
+// `hs_view_of_opposition_*`) have NOT had
 // that verification; treat their meanings as name/seed-derived until the
 // data team confirms them. Scale/threshold framing lives in
 // HS_SCORE_SEMANTICS — keep `meaning` strings to the stance itself.
@@ -49,7 +49,7 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
     ],
   },
   taxes: {
-    description: 'Tax cuts, gas tax, social security tax, minimum wage',
+    description: 'Tax cuts, gas tax, fiscal ideology',
     columns: [
       { name: 'hs_tax_cuts_support', meaning: 'supports tax cuts' },
       { name: 'hs_tax_cuts_oppose', meaning: 'opposes tax cuts' },
@@ -104,8 +104,7 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
     ],
   },
   healthcare: {
-    description:
-      'Medicaid expansion, Medicare for All, ACA, family medical leave, opioid policy',
+    description: 'Medicaid expansion, Medicare for All, ACA',
     columns: [
       {
         name: 'hs_medicaid_expansion_support',
@@ -133,7 +132,7 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
   },
   climate_energy: {
     description:
-      'Climate change belief, electric vehicles, solar, fracking, federal lands, Green New Deal',
+      'Climate change belief, electric vehicles, solar, fracking, Green New Deal',
     columns: [
       {
         name: 'hs_climate_change_believer',
@@ -350,8 +349,7 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
     ],
   },
   political_identity: {
-    description:
-      'Self-identified ideology, party strength, tribalism, ticket splitting',
+    description: 'Self-identified ideology, party strength, ticket splitting',
     columns: [
       {
         name: 'hs_ideology_general_conservative',
@@ -389,7 +387,7 @@ export const DISTRICT_TOPICS_CATALOG: Record<string, CatalogTopic> = {
   },
   trust: {
     description:
-      'Trust in science, voting integrity, view of political opposition',
+      'Voting integrity, view of political opposition, conspiracy belief',
     columns: [
       {
         name: 'hs_voting_fraud_concern_fraud',
