@@ -38,6 +38,112 @@ class _FakeService:
         return _FakeSheets(self.log)
 
 
+# --- transient-error retry (the 2026-09-07 Sheets 503) ------------------------
+
+class _Resp:
+    """Mirrors httplib2's response object: googleapiclient.errors.HttpError carries the
+    status on .resp.status, which is what the retry predicate reads."""
+    def __init__(self, status):
+        self.status = status
+
+
+class _HttpErrorLike(Exception):
+    def __init__(self, status):
+        super().__init__(f"HTTP {status}")
+        self.resp = _Resp(status)
+
+
+class _FlakyRequest:
+    """Raises `errors` in order, one per execute() call, then returns a result."""
+    def __init__(self, errors, result="ok"):
+        self._errors = list(errors)
+        self._result = result
+        self.attempts = 0
+
+    def execute(self):
+        self.attempts += 1
+        if self._errors:
+            raise self._errors.pop(0)
+        return self._result
+
+
+def test_execute_retries_transient_503_then_succeeds():
+    """The 503 that failed the 2026-09-07 governance run: Google was briefly unavailable,
+    and a single retry would have carried the write through."""
+    req = _FlakyRequest([_HttpErrorLike(503)])
+    slept = []
+    assert gs._execute(req, sleep=slept.append) == "ok"
+    assert req.attempts == 2
+    assert slept  # backed off rather than hammering
+
+
+def test_execute_does_not_retry_a_permission_error():
+    """A 403 is a standing condition — retrying it wastes the run's time and buries the
+    real cause. Only transient statuses earn a retry."""
+    req = _FlakyRequest([_HttpErrorLike(403)])
+    with pytest.raises(_HttpErrorLike):
+        gs._execute(req, sleep=lambda _: None)
+    assert req.attempts == 1
+
+
+def test_execute_gives_up_and_reraises_after_the_cap():
+    """A sustained outage must still fail the step, so the digest's failure notification
+    and the dead man's switch stay truthful."""
+    req = _FlakyRequest([_HttpErrorLike(503) for _ in range(20)])
+    with pytest.raises(_HttpErrorLike):
+        gs._execute(req, sleep=lambda _: None)
+    assert req.attempts == gs._SHEETS_ATTEMPTS
+
+
+def test_execute_does_not_retry_a_non_http_error():
+    """An exception with no HTTP status (a bug, a KeyboardInterrupt path) is not transient."""
+    req = _FlakyRequest([ValueError("boom")])
+    with pytest.raises(ValueError):
+        gs._execute(req, sleep=lambda _: None)
+    assert req.attempts == 1
+
+
+class _FlakyValues:
+    """Fails the first update() execute with a 503, then behaves. Mirrors _FakeValues."""
+    def __init__(self, log):
+        self._log = log
+        self._failed = False
+
+    def clear(self, **kw):
+        self._log.append(("clear", kw))
+        return self
+
+    def update(self, **kw):
+        self._log.append(("update", kw))
+        return self
+
+    def execute(self):
+        if not self._failed:
+            self._failed = True
+            raise _HttpErrorLike(503)
+        return {}
+
+
+class _FlakyService:
+    def __init__(self):
+        self.log = []
+        self._values = _FlakyValues(self.log)
+
+    def spreadsheets(self):
+        return self
+
+    def values(self):
+        return self._values
+
+
+def test_write_sheet_survives_a_transient_503(monkeypatch):
+    """End to end: the exact production failure no longer fails the write."""
+    monkeypatch.setattr(gs.time, "sleep", lambda _: None)
+    svc = _FlakyService()
+    rows = [{c: "" for c in esa.COLUMNS}]
+    assert gs.write_sheet(rows, service=svc, spreadsheet_id="sid") == 1
+
+
 SAMPLE = [
     {c: "" for c in esa.COLUMNS} | {"event": "A", "status": "active", "event_count_30d": 0},
     {c: "" for c in esa.COLUMNS} | {"event": "B", "status": "dormant", "event_count_30d": 5},
