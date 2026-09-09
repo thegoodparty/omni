@@ -400,8 +400,9 @@ class _FakeBlock:
 
 
 class _FakeResp:
-    def __init__(self, content):
+    def __init__(self, content, stop_reason="tool_use"):
         self.content = content
+        self.stop_reason = stop_reason
 
 
 def test_build_judge_messages_carries_candidates():
@@ -435,6 +436,37 @@ def test_parse_judge_response_no_tool_use_raises():
     import pytest
     with pytest.raises(RuntimeError):
         ig.parse_judge_response(_FakeResp([]), candidate_ids=["/a"])
+
+
+def test_parse_judge_response_raises_named_error_on_truncation():
+    """A max_tokens stop truncates the tool_use block to `{}`. Left to pydantic that
+    surfaces as "results Field required", which points at the schema instead of the
+    budget — the exact misdirection that hid this for a month. The error must name
+    truncation so the log line alone is diagnosable."""
+    resp = _FakeResp([_FakeBlock({})], stop_reason="max_tokens")
+    with pytest.raises(RuntimeError, match="truncated"):
+        ig.parse_judge_response(resp, candidate_ids=["/a"])
+
+
+def test_judge_max_tokens_scales_with_batch_size():
+    """The budget is derived from the batch, never a constant: 25 verdicts measured at
+    4.1k-4.8k output tokens, so the cap must clear the larger observation with headroom
+    and still grow if the batch does."""
+    assert ig.judge_max_tokens(1) < ig.judge_max_tokens(25)
+    assert ig.judge_max_tokens(25) >= 10_000
+
+
+def test_judge_max_tokens_is_bounded():
+    """Headroom is not a blank cheque — a pathological batch stays under a hard ceiling
+    so worst-case spend per call is provable."""
+    assert ig.judge_max_tokens(10_000) <= 32_000
+
+
+def test_judge_candidates_sends_the_derived_budget():
+    client = _FakeClient(payload=_VERDICT_PAYLOAD)
+    cands = [{"id": "/a", "surface_type": "wizard_stage", "location": "a.tsx", "snippet": "x"}]
+    ig.judge_candidates(cands, "RUBRIC", client=client, model="m")
+    assert client.messages.calls[0]["max_tokens"] == ig.judge_max_tokens(1)
 
 
 class _FakeMessages:
