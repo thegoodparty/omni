@@ -313,6 +313,8 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(res.data.canceledBy).toBe('cas@goodparty.org')
       expect(res.data.canceledByAdmin).toBe(true)
       expect(deleteJob).toHaveBeenCalledWith('peerly-job-1')
+      const blob = JSON.stringify(slackMessage.mock.calls)
+      expect(blob).toContain('P2P Campaign Canceled (by staff)')
 
       const queue = await service.client.get('/v1/outreach/admin/sms/queue')
       const item = queue.data.items.find((i: { id: number }) => i.id === row.id)

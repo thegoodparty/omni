@@ -132,6 +132,35 @@ export class OutreachNotificationService {
     }
   }
 
+  /**
+   * The cancel notice (CAS request 2026-09-09): the same block set under a
+   * canceled header naming who ended it — a canceled submission otherwise
+   * vanishes from the channel's narrative and the team chases where it
+   * went. Best-effort like the others.
+   */
+  async notifyCanceled(
+    params: NotifySuccessParams & { canceledByAdmin: boolean },
+  ): Promise<void> {
+    const { campaign, outreach, canceledByAdmin } = params
+    if (!shouldNotifyCAS(outreach.outreachType)) return
+    try {
+      await this.slack.message(
+        await this.buildCampaignBlocks(
+          params,
+          `🚫 P2P Campaign Canceled (by ${
+            canceledByAdmin ? 'staff' : 'candidate'
+          })`,
+        ),
+        TARGET_CHANNEL,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId: outreach.id, campaignId: campaign.id },
+        'CAS cancel Slack message failed',
+      )
+    }
+  }
+
   private async buildCampaignBlocks(
     {
       user,
