@@ -119,7 +119,9 @@ const CampaignPlanRouter = ({
   if (electionHasPassed(electionDate, primaryElectionDate)) {
     return (
       <DashboardLayout navHeader={navHeader}>
-        <CampaignPlanElectionPassedGate electionDate={electionDate ?? ''} />
+        <CampaignPlanElectionPassedGate
+          electionDate={electionDate ?? primaryElectionDate ?? ''}
+        />
       </DashboardLayout>
     )
   }

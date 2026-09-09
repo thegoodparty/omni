@@ -74,6 +74,14 @@ describe('CampaignPlanRouter', () => {
     expect(planPage()).not.toBeInTheDocument()
   })
 
+  it('gates on a past primary when no general date is stored, showing that date', () => {
+    setElectionDate(undefined, '2024-03-05')
+    render(<CampaignPlanRouter initialUser={null} planExists />)
+    expect(electionPassedGate()).toBeInTheDocument()
+    expect(screen.getByText(/2024/)).toBeInTheDocument()
+    expect(planPage()).not.toBeInTheDocument()
+  })
+
   it('does not block when the general date is past but the primary is upcoming', () => {
     setElectionDate('2024-11-05', '2099-03-03')
     render(<CampaignPlanRouter initialUser={null} planExists />)
