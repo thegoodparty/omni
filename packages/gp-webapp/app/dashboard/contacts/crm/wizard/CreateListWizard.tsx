@@ -1,24 +1,29 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
-import { Button, DrawerTitle, Stepper } from '@styleguide'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { FetchError } from 'ofetch'
+import { Button, DrawerTitle, Input, Stepper } from '@styleguide'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { clientRequest } from 'gpApi/typed-request'
+import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useFeatureFlags } from '@shared/experiments/FeatureFlagsProvider'
-import {
-  useWinRecommendedListsFlag,
-  WIN_RECOMMENDED_LISTS_FLAG_KEY,
-} from '@shared/experiments/winRecommendedListsFlag'
+import { outreachAudienceListsKey } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
 import { useContactsTable } from '../ContactsTableProvider'
 import { getContactsLabels } from '../../../shared/contactsLabels'
 import CrmSheet from '../shared/CrmSheet'
-import type { SupportStatusRollup } from '../shared/contacts-types'
+import { LOCKED_LIST_MESSAGE } from '../shared/constants'
+import { MAX_SEGMENT_NAME_LENGTH } from '../shared/segments.util'
+import type {
+  SegmentResponse,
+  SupportStatusRollup,
+} from '../shared/contacts-types'
 import {
   countSelectedFilterCategories,
   hasAnyVoterFileSelection,
   hasPartyFilterSelection,
+  CLEARED_VOTER_FILE_FILTERS,
+  segmentToVoterFileFilters,
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
 } from '../shared/voterFileFilterTransform.util'
@@ -29,6 +34,7 @@ import ActivityStep, {
   blankActivityCondition,
   isActivityStepValid,
   toActivityConditionPayload,
+  toWizardActivityConditions,
   type WizardActivityCondition,
 } from './ActivityStep'
 import NameStep from './NameStep'
@@ -50,6 +56,10 @@ const STAGE_VIEWED_EVENTS: Record<WizardStepName, string> = {
 interface CreateListWizardProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  // Present = edit mode (ENG-10725 "Edit list"): the same sheet, seeded from
+  // a saved list, collapsed to its conditions step, saving with PUT instead
+  // of POST. Null/absent = the create flow.
+  editingSegment?: SegmentResponse | null
 }
 
 // The list creation wizard (ENG-10708 locked design): branch chooser ->
@@ -61,6 +71,7 @@ interface CreateListWizardProps {
 export default function CreateListWizard({
   open,
   onOpenChange,
+  editingSegment = null,
 }: CreateListWizardProps) {
   const {
     isElectedOfficial,
@@ -71,19 +82,23 @@ export default function CreateListWizard({
     customSegments,
     voterDataUnavailable,
   } = useContactsTable()
-  // Read without exposure: this call only computes a prop. The exposure
-  // fires from the effect below, at the step that actually renders the
-  // groups.
-  const recommendedLists = useWinRecommendedListsFlag(false)
-  const { exposure } = useFeatureFlags()
   const { successSnackbar, errorSnackbar } = useSnackbar()
+  const queryClient = useQueryClient()
+  const orgSlug = useOrganization()?.slug
   const bodyRef = useRef<HTMLDivElement>(null)
 
-  // The page's "Create new list" button is disabled until isWinContextReady,
-  // so the wizard never opens on an unsettled mode.
-  const steps: readonly WizardStepName[] = isWinContext
-    ? ['branch', 'conditions', 'name']
-    : ['conditions', 'name']
+  const isEditing = editingSegment !== null
+
+  // Edit collapses to a single screen (ENG-10725 "Edit list"): the branch is
+  // already decided by what the list was built from, and the name moves into
+  // the header beside the filters rather than getting its own step.
+  const steps: readonly WizardStepName[] = isEditing
+    ? ['conditions']
+    : // The page's "Create new list" button is disabled until
+      // isWinContextReady, so the wizard never opens on an unsettled mode.
+      isWinContext
+      ? ['branch', 'conditions', 'name']
+      : ['conditions', 'name']
 
   const [stepIndex, setStepIndex] = useState(0)
   const [branch, setBranch] = useState<ListWizardBranch | null>(null)
@@ -108,10 +123,16 @@ export default function CreateListWizard({
 
   // Serve never renders the branch chooser, so its branch is a constant —
   // derived, not set on open, so no frame can render the activity branch
-  // while a reset effect is still pending.
-  const activeBranch: ListWizardBranch | null = isWinContext
-    ? branch
-    : 'voterFile'
+  // while a reset effect is still pending. Edit derives it the same way, from
+  // what the saved list was built with: switching a list between the two is
+  // what Duplicate is for, so edit never offers the chooser.
+  const activeBranch: ListWizardBranch | null = editingSegment
+    ? editingSegment.activityConditions?.length
+      ? 'activity'
+      : 'voterFile'
+    : isWinContext
+      ? branch
+      : 'voterFile'
   const stepName: WizardStepName = steps[stepIndex] ?? 'conditions'
 
   // ENG-10767: bumps once per wizard open, from the reset effect below, so
@@ -120,18 +141,40 @@ export default function CreateListWizard({
   const [openSession, setOpenSession] = useState(0)
 
   // Fresh wizard state every time it opens — a cancelled-then-reopened
-  // wizard must not resume a half-built prior list.
+  // wizard must not resume a half-built prior list. Edit seeds from the saved
+  // list in the same pass, so the pills, name, and live count are the list's
+  // own from the first frame rather than flashing an empty selection.
   useEffect(() => {
     if (!open) return
     setStepIndex(0)
     setBranch(null)
-    setDemographicFilters({})
-    setSupportStatus([])
-    setPrecincts([])
-    setActivityConditions([blankActivityCondition()])
-    setName('')
+    setDemographicFilters(
+      editingSegment ? segmentToVoterFileFilters(editingSegment) : {},
+    )
+    setSupportStatus(editingSegment?.supportStatus ?? [])
+    setPrecincts(
+      Array.isArray(editingSegment?.precincts)
+        ? (editingSegment.precincts as string[])
+        : [],
+    )
+    setActivityConditions(
+      editingSegment?.activityConditions?.length
+        ? toWizardActivityConditions(editingSegment.activityConditions)
+        : [blankActivityCondition()],
+    )
+    setName(editingSegment?.name ?? '')
     setOpenSession((session) => session + 1)
-  }, [open])
+    // Keyed on the edited list's ID, not on `open` alone: `open` is a derived
+    // OR of two independent sources (the page's create button and the
+    // provider's editingSegment), so a switch straight from editing one list
+    // to another — or to a create — never passes through `false`, and an
+    // effect that only watched `open` would leave the previous list's name,
+    // pills, and conditions seeded under create-mode chrome. The ID rather
+    // than the object: the segments query refetching underneath the sheet
+    // hands back a new object for the same list, and re-seeding mid-edit
+    // would throw away the user's in-progress changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editingSegment?.id])
 
   // ENG-10767: stage Viewed fires on every stage entry — including Back
   // re-entry — keyed on the open session + active-stage identifier ONLY
@@ -142,6 +185,10 @@ export default function CreateListWizard({
   // is settled whenever the wizard is open.
   useEffect(() => {
     if (openSession === 0) return
+    // These are the CREATE funnel's stages — an edit reuses the conditions
+    // screen but never reaches NameCompleted, so counting it here would
+    // inflate the middle of the funnel with sessions that can't convert.
+    if (isEditing) return
     trackEvent(STAGE_VIEWED_EVENTS[stepName], {
       context: isWinContext ? 'win' : 'serve',
       ...(stepName !== 'branch' && activeBranch
@@ -151,20 +198,6 @@ export default function CreateListWizard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openSession, stepName])
 
-  // The recommended-list groups render only on the voter-file filter step, so
-  // that step — not the page load — is the experiment's treatment/control
-  // divergence point. This component never unmounts (CrmContactsPage keeps it
-  // mounted and toggles `open`), so reading the flag with exposure on counted
-  // every contacts page view as exposed, including visits that never opened
-  // the wizard. Keyed on reaching the step rather than on the flag's value, so
-  // it fires for both arms; `ready` gates it because an exposure recorded
-  // before the variants resolve would dedupe away the real one.
-  useEffect(() => {
-    if (!open || !recommendedLists.ready) return
-    if (stepName !== 'conditions' || activeBranch !== 'voterFile') return
-    exposure(WIN_RECOMMENDED_LISTS_FLAG_KEY)
-  }, [open, recommendedLists.ready, stepName, activeBranch, exposure])
-
   // Multi-step flow: reset scroll to the top of the sheet's own scrollable
   // body (not window) on every step change (app/dashboard/CLAUDE.md
   // convention), so a long filter list on the conditions step doesn't leave
@@ -173,17 +206,41 @@ export default function CreateListWizard({
     if (bodyRef.current) bodyRef.current.scrollTop = 0
   }, [stepIndex])
 
+  // Also the save payload, so the number on the CTA is always exactly what
+  // gets persisted. Two things ride along in edit mode for that reason: the
+  // retired age columns are explicitly cleared (the wizard can't render them,
+  // so a stale one would filter the saved list without appearing in the
+  // count), and a list saved from a search carries its term forward (dropping
+  // it from the count would preview a wider audience than the list holds).
+  const editingSearch =
+    typeof editingSegment?.search === 'string' && editingSegment.search
+      ? editingSegment.search
+      : null
+
   const backendPayload = useMemo(() => {
     if (activeBranch === 'voterFile') {
       return {
+        // Baseline first so the selection overlays it: the two conditional
+        // spreads below drop out when their selection is empty, and without
+        // the baseline's explicit `[]` under them, clearing every support
+        // status or precinct pill would omit the key and leave the saved
+        // list filtering on the old value.
+        ...(isEditing ? CLEARED_VOTER_FILE_FILTERS : {}),
         ...transformVoterFileFiltersForBackend(demographicFilters),
         ...(supportStatus.length ? { supportStatus } : {}),
         ...(precincts.length ? { precincts } : {}),
+        ...(editingSearch ? { search: editingSearch } : {}),
       }
     }
     if (activeBranch === 'activity') {
       return {
+        // The cleared baseline, not just the conditions: a list can hold
+        // voter-file columns alongside its activity conditions, and this
+        // branch renders none of them, so leaving them set would persist a
+        // filter the user never saw and the count never included.
+        ...(isEditing ? CLEARED_VOTER_FILE_FILTERS : {}),
         activityConditions: toActivityConditionPayload(activityConditions),
+        ...(editingSearch ? { search: editingSearch } : {}),
       }
     }
     return {}
@@ -193,6 +250,8 @@ export default function CreateListWizard({
     supportStatus,
     precincts,
     activityConditions,
+    isEditing,
+    editingSearch,
   ])
 
   // ENG-10751: an empty voter-file selection would just recreate the
@@ -242,7 +301,14 @@ export default function CreateListWizard({
     isError: isOverlapError,
   } = useListWizardOverlapCount(
     backendPayload,
-    !voterDataUnavailable && isConditionsStepValid && hasSavedLists,
+    // Never in edit mode: the overlap union counts the list being edited as
+    // one of the saved lists, so an unchanged selection would report ~100%
+    // already-saved. Excluding it needs an excludeSegmentId on
+    // POST /v1/contacts/overlap-count, so the strip stays hidden until then.
+    !voterDataUnavailable &&
+      isConditionsStepValid &&
+      hasSavedLists &&
+      !isEditing,
   )
 
   // Render only once every input has settled: the live count backs the
@@ -252,6 +318,7 @@ export default function CreateListWizard({
   // affordance, never something that blocks the CTA.
   const overlapBarProps =
     stepName === 'conditions' &&
+    !isEditing &&
     isConditionsStepValid &&
     hasSavedLists &&
     !isOverlapLoading &&
@@ -377,6 +444,74 @@ export default function CreateListWizard({
     },
   })
 
+  // The detail sheet's own demographics/reachability query is keyed on the
+  // list id, so an edited list would keep rendering the pre-edit numbers
+  // underneath. The outreach audience picker reads the same segments
+  // endpoint, so it gets dropped too.
+  const invalidateEditedList = async () => {
+    if (!editingSegment) return
+    await queryClient.invalidateQueries({
+      queryKey: ['list-detail', orgSlug, editingSegment.id],
+    })
+    await queryClient.invalidateQueries({
+      queryKey: outreachAudienceListsKey(orgSlug),
+    })
+  }
+
+  const updateMutation = useMutation({
+    mutationFn: (payload: Record<string, unknown>) =>
+      clientRequest('PUT /v1/voters/voter-file/filter/:id', {
+        id: String(editingSegment?.id),
+        ...payload,
+      }).then((res) => res.data),
+    onSuccess: async () => {
+      // ENG-10767: Segment Updated, distinguished by action — 'filters' is
+      // the property the legacy FiltersSheet used for a criteria edit. Edit
+      // covers renaming too, so there is no separate 'rename' variant.
+      if (isWinContextReady) {
+        trackEvent(EVENTS.Contacts.SegmentUpdated, {
+          action: 'filters',
+          context: isWinContext ? 'win' : 'serve',
+        })
+      }
+      successSnackbar('List updated')
+      // refreshCustomSegments refetches the segments query directly rather
+      // than invalidating it, so a failed refetch leaves the cache holding the
+      // pre-edit name and criteria — the lists index would keep showing them
+      // until a full reload. Marking it stale is the floor.
+      await refreshCustomSegments().catch((error) => {
+        console.log('Error refreshing segments after update', error)
+        queryClient.invalidateQueries({
+          queryKey: ['custom-segments', orgSlug],
+        })
+      })
+      await invalidateEditedList()
+      onOpenChange(false)
+      // Back to the list's own detail sheet, the surface the edit was
+      // launched from — deferred for the same reason the create path defers
+      // selectList: pushState lands outside the React batch, so opening it
+      // synchronously could render a frame with both drawers stacked.
+      if (editingSegment) {
+        const editedId = editingSegment.id
+        setTimeout(() => selectList(editedId), 0)
+      }
+    },
+    onError: async (error: unknown) => {
+      // ENG-10703 stamps firstUsedForOutreachAt atomically, so outreach can
+      // lock this list while the sheet is open — that race lands in the
+      // now-locked messaging, not a generic failure toast.
+      if (error instanceof FetchError && error.status === 409) {
+        errorSnackbar(LOCKED_LIST_MESSAGE, { autoHideDuration: 6000 })
+        await refreshCustomSegments().catch((refreshError) =>
+          console.log('Error refreshing segments after lock', refreshError),
+        )
+        onOpenChange(false)
+        return
+      }
+      errorSnackbar('Failed to update list')
+    },
+  })
+
   const trimmedName = name.trim()
   // !isLoading && !isStale: a save that races the debounced count would omit
   // voterCount and let the server default it to 0 — the exact display bug
@@ -385,15 +520,29 @@ export default function CreateListWizard({
   // and then re-disable when the trailing refetch lands (that flicker let a
   // click slip through onto a disabled button under load). A failed count
   // still submits once settled (count stays a nice-to-have).
-  const canSubmit =
-    trimmedName.length > 0 &&
-    !createMutation.isPending &&
-    !isLoading &&
-    !isStale
+  const canSubmitName = trimmedName.length > 0 && !isLoading && !isStale
+  const canSubmit = canSubmitName && !createMutation.isPending
 
   const handleSubmit = () => {
     if (!canSubmit) return
     createMutation.mutate({
+      name: trimmedName,
+      ...backendPayload,
+    })
+  }
+
+  // Edit's single screen has to clear both gates at once — the name step's
+  // (a name, a settled count) and the conditions step's (a real, non-empty
+  // selection) — since there's no second step left to enforce the latter.
+  const canSaveEdit =
+    canSubmitName &&
+    !updateMutation.isPending &&
+    isConditionsStepValid &&
+    !isZeroMatch
+
+  const handleSaveEdit = () => {
+    if (!canSaveEdit) return
+    updateMutation.mutate({
       name: trimmedName,
       ...backendPayload,
     })
@@ -407,12 +556,18 @@ export default function CreateListWizard({
   // branches — "Build a voter list" / "Build a constituent list" (via
   // contactsLabels.ts, the one place that copy lives), matching the
   // prototype's single step-2 title.
-  const stepTitle =
-    stepName === 'branch'
+  const stepTitle = isEditing
+    ? 'Edit list'
+    : stepName === 'branch'
       ? 'How do you want to build this list?'
       : stepName === 'name'
         ? 'Name your list'
         : labels.wizardVoterFileStepTitle
+
+  const saveChangesLabel =
+    isLoading || isStale || count === undefined
+      ? 'Save changes'
+      : `Save changes (${count.toLocaleString()})`
 
   // The label hides the number whenever there's no trustworthy CURRENT
   // count — mid-fetch, still debouncing, or never resolved (including a
@@ -448,11 +603,26 @@ export default function CreateListWizard({
           <DrawerTitle className="text-base font-semibold">
             {stepTitle}
           </DrawerTitle>
-          <Stepper
-            currentStep={stepIndex + 1}
-            totalSteps={steps.length}
-            labelClassName="text-xs"
-          />
+          {/* Edit has one step, so the stepper has nothing to say — the
+              prototype puts the name field in its place, which is what
+              lets edit cover renaming without a separate dialog. */}
+          {isEditing ? (
+            <Input
+              aria-label="List name"
+              value={name}
+              onChange={(event) =>
+                setName(event.target.value.slice(0, MAX_SEGMENT_NAME_LENGTH))
+              }
+              maxLength={MAX_SEGMENT_NAME_LENGTH}
+              placeholder="Name this list"
+            />
+          ) : (
+            <Stepper
+              currentStep={stepIndex + 1}
+              totalSteps={steps.length}
+              labelClassName="text-xs"
+            />
+          )}
         </>
       }
       footer={
@@ -467,17 +637,28 @@ export default function CreateListWizard({
               Continue
             </Button>
           )}
-          {stepName === 'conditions' && (
-            <Button
-              type="button"
-              className="w-full text-sm"
-              onClick={handleNext}
-              disabled={!isConditionsStepValid || isZeroMatch}
-              loading={isCounting}
-            >
-              {buildLabel}
-            </Button>
-          )}
+          {stepName === 'conditions' &&
+            (isEditing ? (
+              <Button
+                type="button"
+                className="w-full text-sm"
+                onClick={handleSaveEdit}
+                disabled={!canSaveEdit}
+                loading={updateMutation.isPending || isCounting}
+              >
+                {saveChangesLabel}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                className="w-full text-sm"
+                onClick={handleNext}
+                disabled={!isConditionsStepValid || isZeroMatch}
+                loading={isCounting}
+              >
+                {buildLabel}
+              </Button>
+            ))}
           {stepName === 'name' && (
             <Button
               type="button"
@@ -509,9 +690,7 @@ export default function CreateListWizard({
           onPrecinctsChange={setPrecincts}
           precinctOptions={precinctOptions}
           isElectedOfficial={isElectedOfficial}
-          showRecommendedListFilters={
-            recommendedLists.ready && recommendedLists.enabled
-          }
+          showRecommendedListFilters
         />
       )}
       {stepName === 'conditions' && activeBranch === 'activity' && (

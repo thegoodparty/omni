@@ -305,9 +305,38 @@ def build_judge_messages(candidates: Sequence[dict]) -> list[dict]:
     return [{"role": "user", "content": content}]
 
 
+# Output budget. Measured: 25 verdicts cost 4.1k-4.8k output tokens (~185/verdict, and
+# it varies run to run), so a constant cap sized near that is fragile — the old 4096
+# overflowed by ~45 tokens and truncated silently for a month. Per-verdict instead, with
+# ~2x headroom, so the budget tracks the batch; the ceiling keeps worst-case spend per
+# call provable. max_tokens is only ever a ceiling: billing is on tokens emitted.
+_JUDGE_BUDGET_FLOOR = 1024
+_JUDGE_TOKENS_PER_VERDICT = 400
+_JUDGE_BUDGET_CEILING = 32_000
+
+
+def judge_max_tokens(candidate_count: int) -> int:
+    """The output cap for a batch of this size."""
+    return min(
+        _JUDGE_BUDGET_FLOOR + _JUDGE_TOKENS_PER_VERDICT * candidate_count,
+        _JUDGE_BUDGET_CEILING,
+    )
+
+
 def parse_judge_response(resp, candidate_ids: Sequence[str]) -> dict[str, dict]:
     """Validate the tool_use block as a JudgeBatch and key verdicts by id, keeping only ids
-    that were in the input (a hallucinated id is dropped, never trusted into state)."""
+    that were in the input (a hallucinated id is dropped, never trusted into state).
+
+    Truncation is checked first and named explicitly. A max_tokens stop leaves the
+    tool_use input an empty dict, which pydantic reports as "results Field required" —
+    an error that points at the schema instead of the budget, and read that way it hid a
+    month of un-judged candidates. A truncated response may also carry no complete
+    tool_use block, so this precedes the block lookup."""
+    if getattr(resp, "stop_reason", None) == "max_tokens":
+        raise RuntimeError(
+            f"judge response truncated at max_tokens ({len(candidate_ids)} candidates): "
+            "the verdict batch did not fit the output budget"
+        )
     block = next((b for b in resp.content if getattr(b, "type", None) == "tool_use"), None)
     if block is None:
         raise RuntimeError("no tool_use block in judge response")
@@ -328,14 +357,15 @@ def make_anthropic_client(api_key: str):
 
 
 def judge_candidates(
-    candidates: Sequence[dict], rubric: str, *, client, model: str, max_tokens: int = 4096
+    candidates: Sequence[dict], rubric: str, *, client, model: str,
+    max_tokens: int | None = None,
 ) -> dict[str, dict]:
     """One batched judgment call over the capped candidate set. Client is injected so this
     is unit-testable without network. Forces the report_gap_verdicts tool for a validated
     result. Mirrors qa_validate.py's AnthropicJudge."""
     resp = client.messages.create(
         model=model,
-        max_tokens=max_tokens,
+        max_tokens=max_tokens or judge_max_tokens(len(candidates)),
         system=judge_system_prompt(rubric),
         tools=[JUDGE_TOOL],
         tool_choice={"type": "tool", "name": JUDGE_TOOL["name"]},

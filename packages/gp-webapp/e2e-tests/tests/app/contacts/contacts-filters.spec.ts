@@ -440,7 +440,7 @@ test('contacts filters: ethnicity and multi-filter combos', async ({
   })
 })
 
-// win-recommended-lists (ENG-10708 follow-on): three dimensions added to the
+// Recommended-list dimensions (ENG-10708 follow-on): three dimensions in the
 // wizard — independent affinity, ideology, and hasAnyPhone. Affinity and
 // ideology are Win-only (gp-api 400s both for an eo- org via
 // assertNoRecommendedListFilterForElectedOffice, and VoterFileStep/
@@ -453,11 +453,6 @@ test('contacts filters: recommended-list dimensions (any-phone + Win-only gate)'
   page,
 }) => {
   test.setTimeout(TEST_TIMEOUT)
-  // The beforeEach's enableCrmFlags(page) only turns serve-crm on; the
-  // recommended-list groups additionally need win-recommended-lists, so
-  // re-apply before any navigation happens (setUpCrmContacts is what first
-  // navigates to /dashboard/contacts).
-  await enableCrmFlags(page, { 'win-recommended-lists': 'on' })
   const client = await setUpCrmContacts(page)
   const { wizard, unfiltered } = await openWizard(page)
 

@@ -30,6 +30,16 @@ export const RobocallDraftCreateRequestSchema = z.object({
   // The script the candidate read into the recording (display/record only).
   script: z.string().min(1).max(ROBOCALL_SCRIPT_MAX_LENGTH).optional(),
   name: z.string().min(1).max(120).optional(),
+  // The campaign-plan task's due date, when the flow was opened from a tracker
+  // or manager task. Carried so it can ride the outreach record the way the
+  // p2p create already does (POST /v1/outreach); the flow never derives it.
+  campaignPlanDueDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'campaignPlanDueDate must be YYYY-MM-DD')
+    .refine((value) => !Number.isNaN(Date.parse(value)), {
+      message: 'campaignPlanDueDate must be a valid calendar date',
+    })
+    .optional(),
 })
 export type RobocallDraftCreateRequest = z.infer<
   typeof RobocallDraftCreateRequestSchema

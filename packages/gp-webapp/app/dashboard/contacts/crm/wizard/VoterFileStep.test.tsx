@@ -618,10 +618,10 @@ describe('VoterFileStep — per-group Select all', () => {
     expect(onSupportStatusChange).toHaveBeenCalledWith([])
   })
 })
-// The recommended-lists groundwork dimensions. Gated on
-// win-recommended-lists (resolved by CreateListWizard and passed in as a
-// prop), so the default-off path is what every other caller of this step —
-// the outreach v2 builders — keeps rendering.
+// The recommended-list dimensions, rendered only when the caller passes
+// showRecommendedListFilters. The default-off path is what the callers that
+// must NOT gain these groups (door-knocking's WhoStep, TurfDetailsSheet)
+// keep rendering.
 describe('VoterFileStep — recommended-list filter groups', () => {
   const renderStep = (
     props: Partial<{

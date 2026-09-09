@@ -104,9 +104,8 @@ export class OutreachRobocallStagingService extends createPrismaBase(
   // dev/preview where the flow is stubbed and every call still counts against
   // the budget. The Pro/paywall gate is inherited, not re-checked here: a draft
   // only reaches `authorized` by passing the Pro-gated authorize endpoint that
-  // reserved the hold, so the eligibility filter below is itself the gate — no
-  // server-side feature flag exists (the voter-outreach-v2-robocall flag is
-  // client-only), matching how the sibling robocall endpoints gate.
+  // reserved the hold, so the eligibility filter below is itself the gate,
+  // matching how the sibling robocall endpoints gate.
   //
   // A draft whose send time passes before it stages (authorized very close to
   // sendAt, or a reclaim that keeps missing the window) drops out of this sweep

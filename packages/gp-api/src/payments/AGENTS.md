@@ -63,9 +63,11 @@ each guard exists because a customer was double-billed without it):
    (`campaigns/util/eligibility.util.ts`). Fulfillment webhooks resolve the
    campaign via `findActiveByUserId` and skip with a 2xx when nothing
    qualifies, so selling here = charged with no Pro and no cancel path.
-2. 409 `ALREADY_PRO` — a second completed checkout mints a SECOND Stripe
-   customer (Pro sessions carry only `customer_email`, never the stored
-   `customerId`, so Stripe cannot dedupe subscriptions itself).
+2. 409 `ALREADY_PRO` — Stripe allows multiple subscriptions per customer,
+   so this guard is what refuses a second sale. Pro sessions pin the stored
+   customer via `StripeService.ensureCustomer` (ENG-11084), so any duplicate
+   that does slip through lands visibly on the SAME Stripe customer instead
+   of minting an invisible second one.
 3. 409 `CHECKOUT_ALREADY_COMPLETED` — previous stored session already paid,
    isPro flip still in flight.
 4. 409 `CHECKOUT_IN_PROGRESS` — lost the `compareAndSwapCheckoutSessionId`
@@ -85,15 +87,18 @@ to find which app user actually paid — trust it over the email on the Stripe
 customer (users enter arbitrary emails/names at checkout, which also creates
 cross-account confusion when one person has two app users).
 
-**"Charged twice" (ENG-10771 shape).** First check for TWO Stripe customers
-under one email, then list subs per customer. Known chain: duplicate checkout
-→ second customer + second sub; `checkout.session.completed` blindly
-overwrites `campaign.details.subscriptionId`, orphaning (not cancelling) the
-first sub, which keeps billing; CS cancelling the SECOND sub then fires
-`customer.subscription.deleted` and un-Pros the campaign while the FIRST sub
-still bills — paying-but-not-Pro. Repair = pick the sub to keep, fix
-`subscriptionId`/`customerId` by SQL, cancel/refund the other in Stripe.
-Refunds can be blocked on insufficient Stripe available balance — retry later.
+**"Charged twice" (ENG-10771 shape; recurred as ENG-11083).** First check
+for TWO Stripe customers under one email (pre-ENG-11084 checkouts minted one
+per completed session), then list subs per customer. Known chain: duplicate
+checkout → second sub; `checkout.session.completed` overwrites
+`campaign.details.subscriptionId` (error-logged since ENG-11084 when the
+stored id differs — search Loki for "possible duplicate Pro subscription"),
+orphaning (not cancelling) the first sub, which keeps billing; CS cancelling
+the SECOND sub then fires `customer.subscription.deleted` and un-Pros the
+campaign while the FIRST sub still bills — paying-but-not-Pro. Repair = pick
+the sub to keep, fix `subscriptionId`/`customerId` by SQL, cancel/refund the
+other in Stripe. Refunds can be blocked on insufficient Stripe available
+balance — retry later.
 
 **Purchase error 400 `NO_ACTIVE_CAMPAIGN`.** `isActiveCampaign` requires: not
 demo, `primaryResult !== 'lost'`, `didWin === null`, valid future
@@ -136,10 +141,6 @@ with `wonGeneral` null force-redirects every dashboard route to
 `/dashboard/election-result`, hiding Profile → Manage Subscription;
 `ActiveProSubscriptionAlert` on the election-result pages (PR #677) is the
 escape hatch.
-
-Open follow-ups (not ticketed): pass `customer` (stored customerId) on Pro
-checkout sessions instead of `customer_email`; alert on the webhook seeing a
-subscriptionId overwrite.
 
 ## Draft-first outreach fulfillment (TEXT)
 

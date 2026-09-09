@@ -51,7 +51,6 @@ const baseProps = () => ({
   selectedId: null,
   onSelect: vi.fn(),
   onStartBuilder: vi.fn(),
-  recommendedListsEnabled: true,
   recommendations: [] as RecommendedList[],
   recommendationsLoading: false,
   recommendationsError: false,
@@ -95,19 +94,6 @@ describe('OutreachAudienceStep — recommended lists', () => {
     expect(screen.getByText('Persuadable independents')).toBeInTheDocument()
     expect(screen.getByText(/19,000 people/)).toBeInTheDocument()
     expect(screen.getByText(/48% of your vote goal/)).toBeInTheDocument()
-  })
-
-  it('shows nothing extra when the flag is off', () => {
-    render(
-      <OutreachAudienceStep
-        {...baseProps()}
-        recommendedListsEnabled={false}
-        recommendations={[RECOMMENDATION]}
-      />,
-    )
-
-    expect(screen.queryByTestId('recommended-list-card')).toBeNull()
-    expect(screen.queryByText('Recommended for you')).toBeNull()
   })
 
   it('renders the existing-list picker unchanged when there are no recommendations', () => {

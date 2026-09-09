@@ -3,33 +3,10 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
-import { WIN_RECOMMENDED_LISTS_FLAG_KEY } from '@shared/experiments/winRecommendedListsFlag'
 import {
   PhoneBankingFlow,
   SERVE_PHONE_BANKING_SURFACE,
 } from './PhoneBankingFlow'
-
-// Same seam as SmsFlow.recommendedLists.test.tsx / RobocallFlow.recommendedLists.test.tsx.
-vi.mock('@shared/experiments/FeatureFlagsProvider', () => ({
-  useFlagOn: vi.fn(),
-  useFeatureFlags: vi.fn(),
-}))
-
-const { useFlagOn, useFeatureFlags } =
-  await import('@shared/experiments/FeatureFlagsProvider')
-const mockedUseFlagOn = vi.mocked(useFlagOn)
-const mockedUseFeatureFlags = vi.mocked(useFeatureFlags)
-const exposure = vi.fn()
-
-const setFlag = ({
-  ready = true,
-  on = true,
-}: {
-  ready?: boolean
-  on?: boolean
-}) => {
-  mockedUseFlagOn.mockReturnValue({ ready, on })
-}
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -52,21 +29,9 @@ const RECOMMENDATION = {
   existingFilterId: null,
 }
 
-const exposureCalls = () =>
-  exposure.mock.calls.filter(([key]) => key === WIN_RECOMMENDED_LISTS_FLAG_KEY)
-
 beforeEach(() => {
   api.reset()
   vi.clearAllMocks()
-  mockedUseFeatureFlags.mockReturnValue({
-    ready: true,
-    variant: () => ({ value: undefined }),
-    all: () => ({}),
-    exposure,
-    refresh: vi.fn(),
-    clear: vi.fn(),
-  } as ReturnType<typeof useFeatureFlags>)
-  setFlag({ ready: true, on: true })
   api.mock('GET /v1/elected-office/current', {
     status: 404,
     data: { message: 'No elected office' },
@@ -83,7 +48,7 @@ describe('PhoneBankingFlow (Win surface) — recommended lists', () => {
     ).toBeInTheDocument()
   }
 
-  it('records the exposure and carries the variant/channel/intent through', async () => {
+  it('carries the variant/channel/intent through to the created filter', async () => {
     api.mock('GET /v1/campaigns/mine/recommended-lists', {
       status: 200,
       data: [RECOMMENDATION],
@@ -96,7 +61,6 @@ describe('PhoneBankingFlow (Win surface) — recommended lists', () => {
     })
     await openToWho()
 
-    expect(exposureCalls()).toHaveLength(1)
     await screen.findByText('Persuadable independents')
     expect(screen.getByText(/8,000 people/)).toBeInTheDocument()
     // Volunteer-run, so gp-api sends no cost and the card must show none.
@@ -152,6 +116,5 @@ describe('PhoneBankingFlow (Serve surface) — recommended lists', () => {
 
     expect(requested).toBe(false)
     expect(screen.queryByTestId('recommended-list-card')).toBeNull()
-    expect(exposureCalls()).toHaveLength(0)
   })
 })

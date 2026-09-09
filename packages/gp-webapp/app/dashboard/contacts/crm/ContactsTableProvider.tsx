@@ -6,6 +6,7 @@ import {
   useCallback,
   useMemo,
   useRef,
+  useState,
   ReactNode,
 } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
@@ -122,6 +123,7 @@ interface ContactsTableState {
   isElectedOfficial: boolean
   isWinContext: boolean
   isWinContextReady: boolean
+  editingSegment: SegmentResponse | null
 }
 
 interface ContactsTableActions {
@@ -131,6 +133,12 @@ interface ContactsTableActions {
   setPageSize: (pageSize: number) => void
   selectPerson: (personId: string | number | null) => void
   selectList: (listId: string | number | null) => void
+  // Opens the list wizard in edit mode over the index (CrmContactsPage mounts
+  // the single wizard instance). Lives here rather than in page state because
+  // both entry points — the list row's kebab and the detail sheet's pencil —
+  // are rendered well below that page.
+  editList: (segment: SegmentResponse) => void
+  closeEditList: () => void
   selectSegment: (segment: string) => void
   searchContacts: (query: string) => void
   refreshCustomSegments: () => Promise<void>
@@ -579,6 +587,23 @@ export const ContactsTableProvider = ({
     [searchParams],
   )
 
+  const [editingSegment, setEditingSegment] = useState<SegmentResponse | null>(
+    null,
+  )
+
+  // Closes the detail sheet on the way in, like the prototype's vdEditList —
+  // the wizard is a full-height drawer and would otherwise stack on top of
+  // the one it was launched from. The save handler reopens it.
+  const editList = useCallback(
+    (segment: SegmentResponse) => {
+      selectList(null)
+      setEditingSegment(segment)
+    },
+    [selectList],
+  )
+
+  const closeEditList = useCallback(() => setEditingSegment(null), [])
+
   const selectSegment = useCallback(
     (segment: string) => {
       // A list saved from a search result set stores its search term; selecting
@@ -639,6 +664,9 @@ export const ContactsTableProvider = ({
       setPageSize,
       selectPerson,
       selectList,
+      editingSegment,
+      editList,
+      closeEditList,
       selectSegment,
       searchContacts: searchContactsAction,
       refreshCustomSegments,
@@ -670,6 +698,9 @@ export const ContactsTableProvider = ({
       setPageSize,
       selectPerson,
       selectList,
+      editingSegment,
+      editList,
+      closeEditList,
       selectSegment,
       searchContactsAction,
       refreshCustomSegments,

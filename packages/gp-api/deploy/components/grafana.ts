@@ -283,7 +283,17 @@ export const createGrafanaResources = async ({
   new grafana.syntheticmonitoring.Check('health-check', {
     job: `gp-api-${environment}-health`,
     target: `https://${domain}/v1/health`,
-    enabled: true,
+    // Prod only. Check executions bill against one account-wide allowance
+    // (100k/month) that all environments share, and three probes a minute is
+    // 129,600 a month per environment — so dev alone was ~43% of our synthetic
+    // monitoring volume. What it bought was nothing: probe failures raise the
+    // `health-check-probe-failure` rule, and every non-prod alert is routed to
+    // the `nowhere` contact point, a webhook pointed at localhost:0.
+    //
+    // Disabled rather than removed so the check, its history, and its Pulumi
+    // state survive. If dev alerting ever gets a real destination, re-enabling
+    // is this one line.
+    enabled: environment === 'prod',
     frequency: 60000,
     timeout: 10000,
     probes: [

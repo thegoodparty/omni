@@ -340,6 +340,20 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       include: queueInclude,
     })
 
+    // A booked job stays paused at the vendor until explicitly activated,
+    // and nothing on Peerly's side flips it. Best-effort AFTER the stamp:
+    // the booking is the unrepeatable half of the approval; a failed
+    // activation is recoverable by hand in Peerly and must not unwind it.
+    try {
+      await this.peerlyP2pJobService.activateJob(row.projectId)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'Approve booked canvassers but could not activate the vendor ' +
+          'job — it will not send until activated manually in Peerly',
+      )
+    }
+
     const registrations = await this.registrationsByCampaign([updated])
     if (updated.campaign?.user) {
       await this.tryTrack(

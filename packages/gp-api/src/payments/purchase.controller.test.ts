@@ -109,10 +109,7 @@ describe('PurchaseController', () => {
 
       const result = await controller.createProCheckoutSession(mockUser)
 
-      expect(stripeService.createCheckoutSession).toHaveBeenCalledWith(
-        userId,
-        mockUser.email,
-      )
+      expect(stripeService.createCheckoutSession).toHaveBeenCalledWith(mockUser)
       expect(usersService.compareAndSwapCheckoutSessionId).toHaveBeenCalledWith(
         userId,
         null,
@@ -136,11 +133,7 @@ describe('PurchaseController', () => {
 
       expect(
         stripeService.createEmbeddedProSubscriptionCheckoutSession,
-      ).toHaveBeenCalledWith(
-        userId,
-        mockUser.email,
-        'https://app.test/dashboard/pro-upgrade',
-      )
+      ).toHaveBeenCalledWith(mockUser, 'https://app.test/dashboard/pro-upgrade')
       expect(stripeService.createCheckoutSession).not.toHaveBeenCalled()
       expect(usersService.compareAndSwapCheckoutSessionId).toHaveBeenCalledWith(
         userId,

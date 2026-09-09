@@ -367,8 +367,8 @@ describe('POST /v1/outreach/robocall/number', () => {
   })
 
   it('still succeeds when CallHub has no inventory for the requested area code', async () => {
-    // CallHub never errors on an exhausted prefix — it silently substitutes a
-    // national number, which the rental must surface, not reject.
+    // CallHub 400s for an unserved prefix; CallhubNumbersService retries without
+    // it, so the controller receives a national number to surface here.
     getAreaCodeFromZip.mockResolvedValue(['512'])
     rentNumber.mockResolvedValue({
       phone_number: '+12025550147',

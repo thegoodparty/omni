@@ -4,11 +4,8 @@ import { WhoStep } from './WhoStep'
 
 // Component-level coverage of the recommendations block specifically —
 // CreateListFlow.recommendedLists.test.tsx covers the same feature end to
-// end, but its "flag off" case can't isolate this component's own
-// `recommendedListsEnabled` gate from the query-level gate that also stops
-// data from ever arriving when the flag is off. Rendering WhoStep directly
-// with recommendations already present is what actually exercises this
-// component's guard.
+// end, but rendering WhoStep directly with recommendations already present
+// is what exercises this component's own render guards.
 const RECOMMENDATION = {
   variant: 'introNeverIded' as const,
   filter: { voterStatus: ['Super'], precincts: ['Cook|101'] },
@@ -35,7 +32,6 @@ const baseProps = {
   onBuildingChange: vi.fn(),
   open: false,
   onOpenChange: vi.fn(),
-  recommendedListsEnabled: true,
   recommendations: [],
   recommendationsLoading: false,
   recommendationsError: false,
@@ -43,19 +39,6 @@ const baseProps = {
 }
 
 describe('WhoStep — recommended lists', () => {
-  it('renders nothing when the flag is off, even with recommendations available', () => {
-    render(
-      <WhoStep
-        {...baseProps}
-        recommendedListsEnabled={false}
-        recommendations={[RECOMMENDATION]}
-      />,
-    )
-
-    expect(screen.queryByTestId('recommended-list-card')).toBeNull()
-    expect(screen.queryByText('Recommended for you')).toBeNull()
-  })
-
   it('renders nothing extra when there are no recommendations', () => {
     render(<WhoStep {...baseProps} recommendations={[]} />)
 

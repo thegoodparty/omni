@@ -170,6 +170,41 @@ describe('PaymentEventsService', () => {
       )
     })
 
+    it('error-logs a differing stored subscriptionId without blocking fulfillment', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue({
+        ...mockCampaign,
+        details: { ...mockCampaign.details, subscriptionId: 'sub_previous' },
+      })
+
+      await service.handleEvent(subscriptionEvent)
+
+      expect(logger.error).toHaveBeenCalledWith(
+        {
+          campaignId: mockCampaign.id,
+          userId: mockUser.id,
+          previousSubscriptionId: 'sub_previous',
+          incomingSubscriptionId: 'sub_test',
+        },
+        expect.stringContaining('possible duplicate Pro subscription'),
+      )
+      expect(campaignsService.patchCampaignDetails).toHaveBeenCalledWith(
+        mockCampaign.id,
+        { subscriptionId: 'sub_test' },
+      )
+      expect(campaignsService.setIsPro).toHaveBeenCalledWith(mockCampaign.id)
+    })
+
+    it('does not log a duplicate alert when the stored subscriptionId matches (webhook replay)', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue({
+        ...mockCampaign,
+        details: { ...mockCampaign.details, subscriptionId: 'sub_test' },
+      })
+
+      await service.handleEvent(subscriptionEvent)
+
+      expect(logger.error).not.toHaveBeenCalled()
+    })
+
     it('resolves the authoritative ballot level and forwards it to the voter-file alert', async () => {
       campaignsService.findActiveByUserId.mockResolvedValue({
         ...mockCampaign,

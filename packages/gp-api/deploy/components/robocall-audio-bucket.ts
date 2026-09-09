@@ -6,7 +6,7 @@ export interface RobocallAudioBucketConfig {
 
 /**
  * Private bucket for the recorded/uploaded robocall message a candidate sends
- * (voter-outreach-v2 robocall). The browser uploads the audio directly via a
+ * (Voter Outreach 2.0 robocall). The browser uploads the audio directly via a
  * presigned POST from `POST /v1/outreach/robocall/audio/presign`; gp-api reads
  * it back server-side to hand off to the delivery vendor. All public access is
  * blocked — the presigned POST is the only way in.

@@ -366,7 +366,7 @@ import { dirname, join, relative } from 'node:path'
 //   - RecommendedListNameDrawer: vaul Drawer for naming a saved list on
 //     recommendation accept, used by OutreachAudienceStep. Vaul is
 //     client-only.
-const BASELINE = 605
+const BASELINE = 589
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
