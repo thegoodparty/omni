@@ -15,7 +15,7 @@ import os
 import posixpath
 import re
 import sys
-from typing import Mapping, Sequence
+from typing import Callable, Mapping, Sequence
 
 import instrumentation_gaps as ig
 import llm_judge
@@ -365,7 +365,10 @@ ANCHOR_TOOL = {
                         "fires_on": {"type": "string"},
                         "url": {"type": "string"},
                         "confidence": {"type": "string", "enum": ["high", "low"]},
-                        "flag_reason": {"type": "string"},
+                        # Optional — a high-confidence verdict legitimately has none — but
+                        # once present it must be one of CONFIDENCE_CLASSES, sourced here so
+                        # the schema and the constant cannot drift apart.
+                        "flag_reason": {"type": "string", "enum": list(CONFIDENCE_CLASSES)},
                     },
                     "required": ["id", "fires_on", "url", "confidence"],
                 },
@@ -391,6 +394,12 @@ _ANCHOR_INSTRUCTIONS = (
     "dispatched dynamically so no call site reveals the surface, or it fires from "
     "everywhere. Set flag_reason to one of: global_chrome, dynamic_dispatch, "
     "no_call_site. A flagged anchor is useful; a confident wrong one is worse than none.\n"
+    "hint: when an event's hint is non-empty, it is a fact already derived from the "
+    "codebase, not a suggestion to weigh — no_call_site means the code search found no "
+    "reference at all, dynamic_dispatch means every reference is the registry "
+    "declaration itself, and no call site was there to inspect. Set confidence to low "
+    "and copy hint verbatim into flag_reason rather than re-deriving it. global_chrome "
+    "carries no hint — that class is yours to judge from the code alone.\n"
     "Copy each id verbatim. Return exactly one verdict per event via the tool."
 )
 
@@ -440,8 +449,9 @@ def build_anchor_messages(candidates: Sequence[dict]) -> list[dict]:
     return [{"role": "user", "content": json.dumps(list(candidates), indent=2)}]
 
 
-def judge_anchors(candidates, *, api_key, model=DEFAULT_MODEL,
-                  client_factory=llm_judge.make_anthropic_client):
+def judge_anchors(candidates: Sequence[dict], *, api_key: str | None, model: str = DEFAULT_MODEL,
+                  client_factory: Callable[[str], object] = llm_judge.make_anthropic_client
+                  ) -> tuple[dict[str, dict], str]:
     return llm_judge.run_graceful(
         candidates, api_key=api_key, model=model, tool=ANCHOR_TOOL,
         message_builder=build_anchor_messages,

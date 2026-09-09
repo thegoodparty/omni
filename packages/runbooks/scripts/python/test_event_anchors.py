@@ -564,3 +564,63 @@ def test_judge_anchors_degrades_gracefully_without_a_key():
     verdicts, status = ea.judge_anchors([{"id": "E"}], api_key=None, model="m")
     assert verdicts == {}
     assert status == "skipped: ANTHROPIC_API_KEY unset"
+
+
+def test_anchor_tool_flag_reason_is_constrained_to_the_confidence_classes():
+    """flag_reason must be optional (a high-confidence verdict has none) but, once
+    present, restricted to CONFIDENCE_CLASSES — sourced from the constant so the schema
+    and the constant cannot drift apart."""
+    schema = ea.ANCHOR_TOOL["input_schema"]
+    verdict = schema["properties"]["verdicts"]["items"]["properties"]
+    assert verdict["flag_reason"]["enum"] == list(ea.CONFIDENCE_CLASSES)
+    assert "flag_reason" not in schema["properties"]["verdicts"]["items"]["required"]
+
+
+def test_anchor_prompt_tells_the_model_to_trust_a_nonempty_hint():
+    prompt = ea.anchor_system_prompt()
+    assert "hint" in prompt.lower()
+
+
+class _FakeBlock:
+    def __init__(self, input_):
+        self.type = "tool_use"
+        self.input = input_
+
+
+class _FakeResp:
+    def __init__(self, content, stop_reason="tool_use"):
+        self.content = content
+        self.stop_reason = stop_reason
+
+
+class _FakeMessages:
+    def __init__(self, payload):
+        self._payload = payload
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return _FakeResp([_FakeBlock(self._payload)])
+
+
+class _FakeClient:
+    def __init__(self, payload):
+        self.messages = _FakeMessages(payload)
+
+
+def test_judge_anchors_wires_the_forced_tool_and_returns_id_keyed_verdicts():
+    payload = {
+        "verdicts": [
+            {"id": "E", "fires_on": "Dashboard, click a thing", "url": "/dashboard",
+             "confidence": "high"},
+        ]
+    }
+    client = _FakeClient(payload)
+    verdicts, status = ea.judge_anchors(
+        [{"id": "E"}], api_key="sk-ant-x", model="claude-sonnet-5",
+        client_factory=lambda _key: client)
+    assert status == "ok"
+    assert verdicts["E"]["fires_on"] == "Dashboard, click a thing"
+    sent = client.messages.calls[0]
+    assert sent["tool_choice"] == {"type": "tool", "name": "report_anchors"}
+    assert sent["tools"] == [ea.ANCHOR_TOOL]
