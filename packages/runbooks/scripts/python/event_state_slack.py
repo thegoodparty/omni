@@ -152,6 +152,7 @@ def _new_anomalies(result: dict, prior_anomalous: set[str] | None = None) -> lis
 
 
 _JUDGE_OK = ("ok", "no-candidates")
+_JUDGE_STREAK_ALERT = 2   # a second failed run in a row is a pattern, not a blip
 
 
 def gap_has_news(gap: dict | None) -> bool:
@@ -163,11 +164,19 @@ def build_gap_summary_line(gap: dict) -> str:
     """The parent's one-line gaps status, always coherent with the thread below it. Three
     states: N new gaps, no new gaps, or the judge run didn't produce a verdict this run
     (``status`` outside ``_JUDGE_OK``) — surfaced distinctly so silence isn't mistaken for
-    a clean sweep."""
+    a clean sweep.
+
+    An unavailable judgment also carries how long it has been unavailable. The 2026-08 gap-judge
+    truncation bug survived ~10 runs because this line was stateless: every digest read the same,
+    so run ten looked exactly like run one. Below the threshold the wording is unchanged — one
+    bad run is noise, and escalating on it trains the channel to skip the line."""
     status = gap.get("status", "ok")
     if status not in _JUDGE_OK:
-        return (f"🧭 Instrumentation gaps: judgment unavailable this run "
-                f"({gap.get('pending_count', 0)} pending)")
+        pending = gap.get("pending_count", 0)
+        streak = gap.get("judge_consecutive_failures", 0)
+        window = (f"for {streak} consecutive runs" if streak >= _JUDGE_STREAK_ALERT
+                  else "this run")
+        return f"🧭 Instrumentation gaps: judgment unavailable {window} ({pending} pending)"
     n = gap.get("new_count", 0)
     if n == 0:
         return "🧭 No new instrumentation gaps"

@@ -15,9 +15,10 @@ import os
 import pickle
 import shutil
 import sys
+import time
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import event_state_assembler as esa
 
@@ -46,6 +47,39 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]   # read/write (not th
 # gp-ai client uses); override with GP_SHEETS_GOOGLE_* if a dedicated client is set up.
 CLIENT_ID_ENVS = ("GP_SHEETS_GOOGLE_CLIENT_ID", "DDHQ_MATCHER_GOOGLE_CLIENT_ID")
 CLIENT_SECRET_ENVS = ("GP_SHEETS_GOOGLE_CLIENT_SECRET", "DDHQ_MATCHER_GOOGLE_CLIENT_SECRET")
+
+_SHEETS_ATTEMPTS = 4                                    # initial call + 3 retries, ~7s worst case
+_SHEETS_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+
+
+def _execute(request: Any, *, sleep: Callable[[float], None] | None = None) -> Any:
+    """Run one Sheets API request, retrying transient failures with exponential backoff.
+
+    A 503 on `events!A1` killed the 2026-09-07 scheduled run; the step is `set -euo pipefail`,
+    so refresh-gaps, refresh-questions and the ClickUp write-back never ran.
+
+    Retrying is safe because every write here is an idempotent full overwrite of a fixed range:
+    replaying an update or a clear that already landed changes nothing. That is not obvious at
+    the call sites, which is why it is said once here.
+
+    The status is duck-typed off `exc.resp.status` (googleapiclient.errors.HttpError's shape)
+    rather than caught by type, because this module imports its google dependencies lazily so it
+    still imports when they are absent. An exception with no status is never retried, and neither
+    is a standing condition like a 403 — retrying that only wastes the run and buries the cause.
+
+    Past the cap it re-raises. A sustained outage has to fail the step, or the Slack failure
+    notification and the dead man's switch stop being truthful. This is a retry, not a swallow.
+    """
+    # Resolved per call, not as a default argument, so tests can patch time.sleep on the module.
+    sleep = sleep or time.sleep
+    for attempt in range(1, _SHEETS_ATTEMPTS + 1):
+        try:
+            return request.execute()
+        except Exception as exc:
+            status = getattr(getattr(exc, "resp", None), "status", None)
+            if status not in _SHEETS_RETRY_STATUSES or attempt == _SHEETS_ATTEMPTS:
+                raise
+            sleep(2 ** (attempt - 1))
 
 
 def build_values(rows: list[dict]) -> list[list[str]]:
@@ -103,13 +137,15 @@ def write_gaps_sheet(state: dict, *, service: Any, spreadsheet_id: str, tab: str
     Same write-then-clear order as write_sheet: a failed update never leaves an empty tab."""
     values = build_gap_values(state)
     sheets = service.spreadsheets()
-    sheets.values().update(
+    _execute(sheets.values().update(
         spreadsheetId=spreadsheet_id,
         range=f"{tab}!A1",
         valueInputOption="RAW",
         body={"values": values},
-    ).execute()
-    sheets.values().clear(spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ").execute()
+    ))
+    _execute(sheets.values().clear(
+        spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ"
+    ))
     return len(values) - 1
 
 
@@ -144,11 +180,13 @@ def write_meta_sheet(
     as write_sheet/write_gaps_sheet so a failed update never leaves an empty tab."""
     values = build_meta_values(meta, clickup_url=clickup_url)
     sheets = service.spreadsheets()
-    sheets.values().update(
+    _execute(sheets.values().update(
         spreadsheetId=spreadsheet_id, range=f"{tab}!A1",
         valueInputOption="RAW", body={"values": values},
-    ).execute()
-    sheets.values().clear(spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ").execute()
+    ))
+    _execute(sheets.values().clear(
+        spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ"
+    ))
     return len(values) - 1
 
 
@@ -187,13 +225,13 @@ def write_questions_sheet(
     write_sheet so a failed update never leaves an empty tab."""
     values = build_question_values(rows)
     sheets = service.spreadsheets()
-    sheets.values().update(
+    _execute(sheets.values().update(
         spreadsheetId=spreadsheet_id, range=f"{tab}!A1",
         valueInputOption="RAW", body={"values": values},
-    ).execute()
-    sheets.values().clear(
+    ))
+    _execute(sheets.values().clear(
         spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ"
-    ).execute()
+    ))
     return len(values) - 1
 
 
@@ -222,13 +260,15 @@ def write_sheet(rows: list[dict], *, service: Any, spreadsheet_id: str, tab: str
     contents intact on a failed update and never produces an empty window."""
     values = build_values(rows)
     sheets = service.spreadsheets()
-    sheets.values().update(
+    _execute(sheets.values().update(
         spreadsheetId=spreadsheet_id,
         range=f"{tab}!A1",
         valueInputOption="RAW",
         body={"values": values},
-    ).execute()
-    sheets.values().clear(spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ").execute()
+    ))
+    _execute(sheets.values().clear(
+        spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ"
+    ))
     return len(values) - 1
 
 
