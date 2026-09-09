@@ -316,8 +316,16 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   { name: 'hs_listen_podcaster_rogan', label: 'listen podcaster rogan' },
   { name: 'hs_marijuana_legal_oppose', label: 'Marijuana Legal Oppose' },
   { name: 'hs_marijuana_legal_support', label: 'Marijuana Legal Support' },
-  { name: 'hs_mass_deportations_oppose', label: 'Mass Deporations Oppose' },
-  { name: 'hs_mass_deportations_support', label: 'Mass Deporations Support' },
+  {
+    name: 'hs_mass_deportations_oppose',
+    label:
+      'Mass Deportations Oppose (limited coverage: data exists in only 12 states; null elsewhere)',
+  },
+  {
+    name: 'hs_mass_deportations_support',
+    label:
+      'Mass Deportations Support (limited coverage: data exists in only 12 states; null elsewhere)',
+  },
   { name: 'hs_medicaid_expansion_oppose', label: 'Medicaid Expansion Oppose' },
   {
     name: 'hs_medicaid_expansion_support',
