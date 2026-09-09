@@ -133,16 +133,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     label: 'Supports a maximum age of 75 for federally elected officials',
   },
   {
-    name: 'hs_aliens_governenment_disclosed_all',
-    label:
-      'Believes the government has disclosed most of what it knows about aliens/UFOs (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_aliens_governenment_hiding_much',
-    label:
-      'Believes the government is hiding much about aliens/UFOs (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
     name: 'hs_amazon_exploitative',
     label: 'Believes Amazon is exploitative toward its workers',
   },
@@ -172,32 +162,12 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     label: 'More excited than concerned about AI in daily life',
   },
   {
-    name: 'hs_autonomous_vehicles_allow',
-    label:
-      'Believes self-driving vehicles should be allowed on the road (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_autonomous_vehicles_do_not_allow',
-    label:
-      'Believes self-driving vehicles should not be allowed on the road (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
     name: 'hs_campaign_finance_reform_high_priority',
     label: 'Sees campaign finance reform as a high priority',
   },
   {
     name: 'hs_campaign_finance_reform_less_important',
     label: 'Sees campaign finance reform as less important',
-  },
-  {
-    name: 'hs_candidate_mail_do_not_read',
-    label:
-      'Does not read mail from candidates (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_candidate_mail_read_carefully',
-    label:
-      'Reads candidate mail carefully (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_candidate_mail_readership_do_not_read',
@@ -244,16 +214,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     label: 'Sees China as a trade partner the US should work with',
   },
   {
-    name: 'hs_civil_liberties_oppose',
-    label:
-      'More concerned that law enforcement is not going far enough to protect us (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_civil_liberties_support',
-    label:
-      'More concerned that law enforcement goes too far restricting civil liberties (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
     name: 'hs_climate_change_believer',
     label: 'Believes in human-caused climate change',
   },
@@ -270,16 +230,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     label: 'Believes colleges should not consider race in admissions',
   },
   {
-    name: 'hs_community_college_free_oppose',
-    label:
-      'Opposes free community college (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_community_college_free_support',
-    label:
-      'Supports free community college (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
     name: 'hs_community_not_integrated',
     label: 'Does not feel integrated into their local community',
   },
@@ -294,16 +244,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_concerned_job_loss_due_to_ai_yes',
     label: 'Concerned about losing their job to AI',
-  },
-  {
-    name: 'hs_conspiracy_believer',
-    label:
-      'Does not rule out that the 2024 hurricanes were artificially created — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_conspiracy_nonbeliever',
-    label:
-      'Firmly rejects the claim that the 2024 hurricanes were artificially created — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_consumer_value_brand_savings',
@@ -369,21 +309,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   { name: 'hs_dei_oppose', label: 'Opposes DEI initiatives' },
   { name: 'hs_dei_support', label: 'Supports DEI initiatives' },
   {
-    name: 'hs_despondency_ahead',
-    label:
-      'Feels ahead of where they expected to be in life — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_despondency_far_behind',
-    label:
-      'Feels far behind where they expected to be in life — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_despondency_on_pace',
-    label:
-      'Feels on pace with where they expected to be in life — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
     name: 'hs_doge_oppose',
     label: 'Opposes DOGE (Department of Government Efficiency)',
   },
@@ -442,16 +367,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_epstein_files_unimportant_or_hoax',
     label: 'Sees the Epstein files as unimportant or a hoax',
-  },
-  {
-    name: 'hs_family_medical_leave_oppose',
-    label:
-      'Opposes paid family/medical leave (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_family_medical_leave_support',
-    label:
-      'Supports paid family/medical leave (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_felon_voting_oppose',
@@ -522,16 +437,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     label: 'More concerned too many undesirable people are immigrating',
   },
   {
-    name: 'hs_immigration_process_unfair',
-    label:
-      'Sees the immigration process as unfair (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_immigration_undesirable',
-    label:
-      'Sees more immigration as undesirable (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
     name: 'hs_income_inequality_no_issue',
     label: 'Sees income inequality as not a real issue',
   },
@@ -559,16 +464,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_infrastructure_funding_fund_more',
     label: 'Favors more infrastructure funding',
-  },
-  {
-    name: 'hs_insurance_of_last_resort_government_should_not_provide',
-    label:
-      'Believes government should not provide insurance of last resort (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_insurance_of_last_resort_government_should_provide',
-    label:
-      'Believes government should provide insurance of last resort (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_israel_committing_genocide_no',
@@ -608,25 +503,10 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     label: 'Unlikely to look for a new job in the next six months',
   },
   {
-    name: 'hs_jobs_guarantee_oppose',
-    label:
-      'Opposes a federal jobs guarantee (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_jobs_guarantee_support',
-    label:
-      'Supports a federal jobs guarantee (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
     name: 'hs_likely_ev',
     label: 'Likely to vote early (EV)',
   },
   { name: 'hs_likely_mid_term_voter', label: 'Likely to vote in midterms' },
-  {
-    name: 'hs_likely_polling_turnout',
-    label:
-      'Likely to turn out to vote in presidential-year elections (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
   {
     name: 'hs_likely_presidential_voter',
     label: 'Likely to vote in presidential elections',
@@ -665,12 +545,12 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     label: 'Does not oppose marijuana legalization',
   },
   {
-    name: 'hs_mass_deporations_oppose',
+    name: 'hs_mass_deportations_oppose',
     label:
       'Opposes mass deportations (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
-    name: 'hs_mass_deporations_support',
+    name: 'hs_mass_deportations_support',
     label:
       'Supports mass deportations (limited coverage: data exists in only 12 states; null elsewhere)',
   },
@@ -694,16 +574,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_military_family_self',
     label: 'Personally served in the US military',
-  },
-  {
-    name: 'hs_min_wage_15_increase_oppose',
-    label:
-      'Opposes raising the minimum wage to $15 (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_min_wage_15_increase_support',
-    label:
-      'Supports raising the minimum wage to $15 (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_most_important_policy_item_economics',
@@ -744,16 +614,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_online_gambling_more_legal',
     label: 'Believes online gambling should be legal and regulated',
-  },
-  {
-    name: 'hs_opioid_crisis_enforce',
-    label:
-      'Treats opioid crisis as a law-enforcement issue (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_opioid_crisis_treat',
-    label:
-      'Treats opioid crisis as a health issue (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   { name: 'hs_pipeline_fracking_oppose', label: 'Opposes pipelines/fracking' },
   {
@@ -837,16 +697,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   { name: 'hs_school_funding_more', label: 'Favors more school funding' },
   {
-    name: 'hs_sell_federal_lands_oppose',
-    label:
-      'Opposes selling federal lands (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_sell_federal_lands_support',
-    label:
-      'Supports selling federal lands (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
     name: 'hs_snap_not_important',
     label: 'Does not see protecting SNAP benefits as important',
   },
@@ -855,37 +705,12 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     label: 'Wants SNAP food assistance benefits protected',
   },
   {
-    name: 'hs_social_media_truth_vs_speech_free_speech',
-    label:
-      'Prioritizes free speech over truth enforcement on social media (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_social_media_truth_vs_speech_truth',
-    label:
-      'Prioritizes truth over unrestricted speech on social media (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_social_media_user',
-    label:
-      'Active social media user (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
     name: 'hs_social_media_user_frequent',
     label: 'Frequent social media user',
   },
   {
     name: 'hs_social_media_user_no_or_infrequent',
     label: 'Not an active social media user',
-  },
-  {
-    name: 'hs_social_security_tax_increase_oppose',
-    label:
-      'Opposes raising Social Security taxes (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_social_security_tax_increase_support',
-    label:
-      'Supports raising Social Security taxes (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_solar_panel_buyer_no',
@@ -903,16 +728,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_stadium_public_financing_disapprove',
     label: 'Disapproves of using local taxes to fund pro sports stadiums',
-  },
-  {
-    name: 'hs_state_level_fema_oppose',
-    label:
-      'Opposes shifting FEMA disaster response to the states (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_state_level_fema_support',
-    label:
-      'Supports shifting FEMA disaster response to the states (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_super_power_policy_oppose',
@@ -948,36 +763,6 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     label: 'Supports trans athlete participation',
   },
   {
-    name: 'hs_tribalism_open_minded',
-    label:
-      'Open-minded, low partisan tribalism (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_trust_science_always',
-    label:
-      'Almost always trusts the scientific and medical communities (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_trust_science_rarely',
-    label:
-      'Rarely trusts the scientific and medical communities (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_tv_most_trusted_news_cnn',
-    label:
-      'Trusts CNN most for TV news — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_tv_most_trusted_news_fox',
-    label:
-      'Trusts Fox most for TV news — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_tv_most_trusted_news_msnbc',
-    label:
-      'Trusts MSNBC most for TV news — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
     name: 'hs_tv_news_source_most_trusted_cnn',
     label: 'Trusts CNN most for TV news — newer survey vintage',
   },
@@ -1008,26 +793,11 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   { name: 'hs_unions_beneficial', label: 'Views unions as beneficial' },
   { name: 'hs_unions_not_beneficial', label: 'Views unions as not beneficial' },
-  {
-    name: 'hs_united_healthcare_at_fault',
-    label:
-      'Assigns UnitedHealthcare a great deal of blame, over its claim denials, for the December 2024 killing of its CEO (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_united_healthcare_no_fault',
-    label:
-      'Believes UnitedHealthcare is not responsible for the December 2024 killing of its CEO (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
   { name: 'hs_vaping_user_no', label: 'Does not use vaping products' },
   { name: 'hs_vaping_user_yes', label: 'Uses vaping products' },
   {
     name: 'hs_violent_crime_not_worried',
     label: 'Not worried about violent crime',
-  },
-  {
-    name: 'hs_violent_crime_very_worried',
-    label:
-      'Very worried about violent crime (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_violent_crime_worried',
@@ -1041,20 +811,5 @@ export const SERVE_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_voting_fraud_concern_fraud',
     label: 'More concerned about voter fraud than about barriers to voting',
-  },
-  {
-    name: 'hs_voting_fraud_concern_oppression',
-    label:
-      'More concerned about voter suppression than voter fraud — older survey vintage (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_wealth_acquired_advantages',
-    label:
-      'Believes the top 1% acquired their wealth through advantages they were handed (limited coverage: data exists in only 12 states; null elsewhere)',
-  },
-  {
-    name: 'hs_wealth_acquired_hardwork',
-    label:
-      'Believes the top 1% acquired their wealth through hard work (limited coverage: data exists in only 12 states; null elsewhere)',
   },
 ]

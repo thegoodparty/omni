@@ -27,7 +27,10 @@ describe('win constituent scope', () => {
   it('advertises the partisan block (Win-specific decision)', () => {
     const names = WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS.map((d) => d.name)
     expect(names).toContain('Parties_Description')
-    expect(names).toContain('hs_ideology_overall_party_dem')
+    // Vendor renamed hs_ideology_overall_party_dem.
+    expect(names).toContain(
+      'hs_ideology_partisanship_partisanship_overall_party_dem',
+    )
   })
 
   it('does not forbid partisan columns, only identity backstops', () => {
