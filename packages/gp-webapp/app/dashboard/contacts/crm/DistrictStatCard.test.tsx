@@ -8,6 +8,7 @@ const STATS_RESPONSE = {
   districtId: '1234',
   totalConstituents: 30000,
   totalConstituentsWithCellPhone: 9000,
+  districtPopulation: 45000,
   computedAt: new Date().toISOString(),
   buckets: {
     age: [],

@@ -224,6 +224,7 @@ describe('ENG-10777 — duplicate-list navigation, real provider + real sheet', 
         computedAt: '2026-07-23T00:00:00.000Z',
         totalConstituents: 1000,
         totalConstituentsWithCellPhone: 800,
+        districtPopulation: null,
         buckets: {
           age: [],
           homeowner: [],

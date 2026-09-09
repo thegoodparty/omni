@@ -17,12 +17,10 @@ export const WIN_UNIVERSE_STAT_LABELS = {
 export interface ContactsLabels {
   dataTitle: string
   universeTitle: string
-  subheading: string
   searchPlaceholder: string
   searchNoResults: string
   // ENG-10721 (CRM lists UI prototype parity): the district stat card and
-  // lists-index section on crm/CrmContactsPage.tsx carry their own copy,
-  // distinct from the generic subheading above.
+  // lists-index section on crm/CrmContactsPage.tsx carry their own copy.
   districtTotalLabel: string
   listsSectionTitle: string
   listsSectionSubtitle: string
@@ -55,7 +53,6 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
     ? {
         dataTitle: CONTACTS_DATA_TITLE.win,
         universeTitle: 'Your Voter Universe',
-        subheading: 'Manage and filter on your voter list',
         searchPlaceholder: 'Search for any voter contact',
         searchNoResults: 'No voters found',
         districtTotalLabel: 'Voters in your district',
@@ -83,7 +80,6 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
     : {
         dataTitle: CONTACTS_DATA_TITLE.serve,
         universeTitle: 'Your Constituent Universe',
-        subheading: 'Manage and filter on your constituent list',
         searchPlaceholder: 'Search for any constituent contact',
         searchNoResults: 'No constituents found',
         districtTotalLabel: 'Total constituents in your district',
