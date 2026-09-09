@@ -173,6 +173,62 @@ describe('CampaignStrategyService', () => {
     ).rejects.toBeInstanceOf(BadRequestException)
   })
 
+  it('rejects a campaign whose election date has passed, before any dispatch or tracker rows', async () => {
+    await expect(
+      service.getOrGenerateStrategicLandscape(
+        campaign({
+          details: { raceId: 'br-general', electionDate: '2024-11-05' },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException)
+    expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+    expect(trackerTasks.materializeStaticTasks).not.toHaveBeenCalled()
+  })
+
+  it('generates for a campaign whose election date is upcoming', async () => {
+    experimentRuns.dispatchRun
+      .mockResolvedValueOnce({ runId: 'opp-run' })
+      .mockResolvedValueOnce({ runId: 'oc-run' })
+
+    await service.getOrGenerateStrategicLandscape(
+      campaign({
+        details: { raceId: 'br-general', electionDate: '2099-11-03' },
+      }),
+    )
+
+    expect(experimentRuns.dispatchRun).toHaveBeenCalledTimes(2)
+  })
+
+  it('generates when the general date is stale but the primary is upcoming', async () => {
+    experimentRuns.dispatchRun
+      .mockResolvedValueOnce({ runId: 'opp-run' })
+      .mockResolvedValueOnce({ runId: 'oc-run' })
+
+    await service.getOrGenerateStrategicLandscape(
+      campaign({
+        details: {
+          raceId: 'br-general',
+          electionDate: '2024-11-05',
+          primaryElectionDate: '2099-03-03',
+        },
+      }),
+    )
+
+    expect(experimentRuns.dispatchRun).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports opponents unavailable for a past election without dispatching', async () => {
+    const res = await service.ensureOppositionResearch(
+      campaign({
+        details: { raceId: 'br-general', electionDate: '2024-11-05' },
+      }),
+    )
+
+    expect(res).toEqual({ disposition: 'unavailable', oppositionRunId: null })
+    expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+    expect(prisma.campaignStrategy.upsert).not.toHaveBeenCalled()
+  })
+
   const testUserCampaign = (overrides: Record<string, unknown> = {}) =>
     campaign({
       user: {

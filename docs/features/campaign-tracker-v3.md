@@ -139,6 +139,12 @@ calls `CampaignTrackerTasksService.bootstrapForCampaign`:
    (`staticTrackerTasks.util.ts`), anchored to the upcoming Monday, plus the **7
    outreach sends** (`buildOutreachTrackerTaskRows`) dated against the general
    election (skipped entirely if the primary was already lost; see below).
+   A general date that has already passed is ignored in favor of an upcoming
+   primary, and with no upcoming date at all no outreach rows are written: a
+   returning candidate's campaign row keeps last cycle's `electionDate` until
+   they update their race, and one-shot rows dated off it would outlive the fix.
+   Upstream, `getOrGenerateStrategicLandscape` refuses (400) to generate a plan
+   for a past `electionDate` at all.
 3. **Dispatch** the initial CAP run (`mode = initial`, high priority).
 
 **Static rows are also materialized eagerly, at plan-generation start.**

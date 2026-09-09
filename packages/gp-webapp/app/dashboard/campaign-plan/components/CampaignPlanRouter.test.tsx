@@ -2,12 +2,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ReactNode } from 'react'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { formatInTimeZone } from 'date-fns-tz'
 import { render } from 'helpers/test-utils/render'
 import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import CampaignPlanRouter from './CampaignPlanRouter'
 
 vi.mock('app/dashboard/campaign-story/useCampaignStoryComplete', () => ({
   useCampaignStoryComplete: vi.fn(),
+}))
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: vi.fn(),
 }))
 vi.mock('./CampaignPlanPage', () => ({
   default: () => <div data-testid="plan-page" />,
@@ -28,13 +33,74 @@ const setStoryComplete = (isComplete: boolean, isLoading = false): void => {
   mockStoryComplete.mockReturnValue({ isComplete, isLoading, isError: false })
 }
 
+const mockUseCampaign = vi.mocked(useCampaign)
+const setElectionDate = (
+  electionDate: string | undefined,
+  primaryElectionDate?: string,
+): void => {
+  mockUseCampaign.mockReturnValue([
+    { id: 1, details: { electionDate, primaryElectionDate } },
+  ] as unknown as ReturnType<typeof useCampaign>)
+}
+
 const planPage = () => screen.queryByTestId('plan-page')
 const generateButton = () => screen.queryByRole('button', { name: 'generate' })
+const electionPassedGate = () =>
+  screen.queryByRole('heading', { name: /election date has passed/i })
 
 describe('CampaignPlanRouter', () => {
   beforeEach(() => {
     sessionStorage.clear()
     setStoryComplete(true)
+    setElectionDate('2099-11-03')
+  })
+
+  it('routes a campaign whose election has passed to the update-your-race gate, even with a plan', () => {
+    setElectionDate('2024-11-05')
+    render(<CampaignPlanRouter initialUser={null} planExists />)
+    expect(electionPassedGate()).toBeInTheDocument()
+    expect(planPage()).not.toBeInTheDocument()
+    expect(generateButton()).not.toBeInTheDocument()
+  })
+
+  it('does not let a generate request bypass the past-election gate', () => {
+    setElectionDate('2024-11-05')
+    sessionStorage.setItem(
+      'campaignPlanGenerateRequestedAt',
+      String(Date.now()),
+    )
+    render(<CampaignPlanRouter initialUser={null} planExists={false} />)
+    expect(electionPassedGate()).toBeInTheDocument()
+    expect(planPage()).not.toBeInTheDocument()
+  })
+
+  it('gates on a past primary when no general date is stored, showing that date', () => {
+    setElectionDate(undefined, '2024-03-05')
+    render(<CampaignPlanRouter initialUser={null} planExists />)
+    expect(electionPassedGate()).toBeInTheDocument()
+    expect(screen.getByText(/2024/)).toBeInTheDocument()
+    expect(planPage()).not.toBeInTheDocument()
+  })
+
+  it('does not block when the general date is past but the primary is upcoming', () => {
+    setElectionDate('2024-11-05', '2099-03-03')
+    render(<CampaignPlanRouter initialUser={null} planExists />)
+    expect(planPage()).toBeInTheDocument()
+    expect(electionPassedGate()).not.toBeInTheDocument()
+  })
+
+  it('treats election day itself (in UTC) as upcoming', () => {
+    setElectionDate(formatInTimeZone(new Date(), 'UTC', 'yyyy-MM-dd'))
+    render(<CampaignPlanRouter initialUser={null} planExists />)
+    expect(planPage()).toBeInTheDocument()
+    expect(electionPassedGate()).not.toBeInTheDocument()
+  })
+
+  it('treats a missing election date as not passed', () => {
+    setElectionDate(undefined)
+    render(<CampaignPlanRouter initialUser={null} planExists />)
+    expect(planPage()).toBeInTheDocument()
+    expect(electionPassedGate()).not.toBeInTheDocument()
   })
 
   it('shows the story gate for a user with no plan', () => {
