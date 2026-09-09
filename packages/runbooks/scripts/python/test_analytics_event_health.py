@@ -42,9 +42,39 @@ def test_to_date_handles_date_string_and_empty():
 # --- parse_gpmeta ------------------------------------------------------------
 
 
-def test_parse_gpmeta_absent_returns_none():
+def test_parse_gpmeta_none_only_when_description_is_empty():
     assert eh.parse_gpmeta(None) is None
-    assert eh.parse_gpmeta("a plain description, no markers") is None
+    assert eh.parse_gpmeta("") is None
+    assert eh.parse_gpmeta("   \n  ") is None
+
+
+def test_parse_gpmeta_prose_only_description_is_the_purpose():
+    # DATA-2426 regression: 193 events carry a good prose description in Amplitude and
+    # no gp-meta block. They rendered an empty description cell in the sheet.
+    meta = eh.parse_gpmeta("Fired when a candidate publishes their website.")
+    assert meta is not None
+    assert meta["purpose"] == "Fired when a candidate publishes their website."
+    assert meta["intent"] is None
+    assert meta["intent_date"] is None
+    assert meta["supersession"] is None
+
+
+def test_parse_gpmeta_prose_only_collapses_multiline_to_one_line():
+    meta = eh.parse_gpmeta("Fired on publish.\n\nCounts once per campaign.\n")
+    assert meta["purpose"] == "Fired on publish. Counts once per campaign."
+
+
+def test_parse_gpmeta_block_without_purpose_line_falls_back_to_prose_outside():
+    desc = (
+        "Fired when a member submits an issue.\n"
+        "<!-- gp-meta -->\n"
+        "supersession: original |\n"
+        "in use: 2026-06-16 (#171)\n"
+        "<!-- /gp-meta -->\n"
+    )
+    meta = eh.parse_gpmeta(desc)
+    assert meta["purpose"] == "Fired when a member submits an issue."
+    assert meta["intent"] == "in_use"
 
 
 def test_parse_gpmeta_extracts_intent_and_supersession():
@@ -90,16 +120,18 @@ def test_parse_gpmeta_extracts_purpose():
     assert result["intent"] == "not_in_use"
 
 
-def test_parse_gpmeta_purpose_none_when_block_has_no_prose_line():
+def test_parse_gpmeta_purpose_none_when_block_has_no_prose_line_and_no_prose_outside():
     desc = "<!-- gp-meta -->\nsupersession: original |\nin use: 2026-06-16 (#171)\n<!-- /gp-meta -->"
     result = eh.parse_gpmeta(desc)
     assert result["purpose"] is None
     assert result["supersession"] == "original"
 
 
-def test_parse_gpmeta_none_when_no_block():
-    assert eh.parse_gpmeta("plain description, no markers") is None
-    assert eh.parse_gpmeta(None) is None
+def test_parse_gpmeta_prose_only_does_not_raise_a_divergence():
+    # The fallback must not turn 193 undeclared events into intent-vs-reality flags.
+    meta = eh.parse_gpmeta("A plain prose description, no markers.")
+    assert eh.divergence(meta, "retired", firing_recent=False) is None
+    assert eh.divergence(meta, "active", firing_recent=True) is None
 
 
 # --- is_system / is_elevated -------------------------------------------------
