@@ -624,3 +624,67 @@ def test_judge_anchors_wires_the_forced_tool_and_returns_id_keyed_verdicts():
     sent = client.messages.calls[0]
     assert sent["tool_choice"] == {"type": "tool", "name": "report_anchors"}
     assert sent["tools"] == [ea.ANCHOR_TOOL]
+
+
+def test_merge_verdicts_seeds_new_entries_and_preserves_human_fields():
+    candidates = [{"id": "E", "evidence": "a.tsx:3"}]
+    verdicts = {"E": {"id": "E", "fires_on": "Plan page, Generate button.",
+                      "url": "/dashboard/campaign-plan", "confidence": "high"}}
+    state = ea.merge_verdicts({}, verdicts, candidates, "2026-09-10")
+    assert state["E"]["disposition"] == "new"
+    assert state["E"]["first_seen"] == "2026-09-10"
+    assert state["E"]["evidence"] == "a.tsx:3"
+
+    # a later run must not clobber a decision or the edited text
+    state["E"].update(disposition="accepted", fires_on="Edited by a human.")
+    again = ea.merge_verdicts(state, verdicts, candidates, "2026-09-17")
+    assert again["E"]["disposition"] == "accepted"
+    assert again["E"]["fires_on"] == "Edited by a human."
+    assert again["E"]["first_seen"] == "2026-09-10"
+    assert again["E"]["last_seen"] == "2026-09-17"
+
+
+def test_review_artifact_round_trips_an_edited_draft():
+    state = {"E": {"fires_on": "Draft line.", "url": "/dashboard",
+                   "confidence": "high", "flag_reason": "", "evidence": "a.tsx:3",
+                   "disposition": "new", "reason": "", "first_seen": "2026-09-10",
+                   "last_seen": "2026-09-10", "written_date": ""}}
+    text = ea.render_review_artifact(state, "2026-09-10")
+    assert "- fires_on: Draft line." in text
+    assert "a.tsx:3" in text                      # evidence visible to the reviewer
+
+    edited = text.replace("- fires_on: Draft line.",
+                          "- fires_on: Corrected line.").replace(
+                          "- disposition:", "- disposition: accepted")
+    parsed = ea.parse_review_artifact(edited)
+    assert parsed["E"]["fires_on"] == "Corrected line."
+    assert parsed["E"]["disposition"] == "accepted"
+
+    applied = ea.apply_review(state, parsed, "2026-09-11")
+    assert applied["E"]["fires_on"] == "Corrected line."
+    assert applied["E"]["disposition"] == "accepted"
+    assert applied["E"]["first_seen"] == "2026-09-10"   # preserved
+
+
+def test_apply_review_skips_an_invalid_disposition_rather_than_applying_it():
+    state = {"E": {"fires_on": "x", "url": "", "disposition": "new", "reason": "",
+                   "first_seen": "2026-09-10", "last_seen": "2026-09-10",
+                   "confidence": "high", "flag_reason": "", "evidence": "",
+                   "written_date": ""}}
+    out = ea.apply_review(state, {"E": {"disposition": "yes-please", "fires_on": "x"}},
+                          "2026-09-11")
+    assert out["E"]["disposition"] == "new"
+
+
+def test_apply_review_ignores_ids_absent_from_state():
+    assert ea.apply_review({}, {"Ghost": {"disposition": "accepted"}}, "2026-09-11") == {}
+
+
+def test_render_shows_the_flag_class_instead_of_a_route_when_confidence_is_low():
+    state = {"E": {"fires_on": "Left nav item.", "url": "n/a (global nav)",
+                   "confidence": "low", "flag_reason": "global_chrome",
+                   "evidence": "nav.tsx:12", "disposition": "new", "reason": "",
+                   "first_seen": "2026-09-10", "last_seen": "2026-09-10",
+                   "written_date": ""}}
+    text = ea.render_review_artifact(state, "2026-09-10")
+    assert "LOW" in text and "global_chrome" in text

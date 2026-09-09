@@ -15,6 +15,7 @@ import os
 import posixpath
 import re
 import sys
+from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
 import instrumentation_gaps as ig
@@ -459,3 +460,110 @@ def judge_anchors(candidates: Sequence[dict], *, api_key: str | None, model: str
         unavailable_status="skipped: prompt unavailable",
         client_factory=client_factory,
     )
+
+
+# --- State and the review artifact -----------------------------------------------
+
+DEFAULT_STATE = Path(__file__).parent / "instrumentation_data" / "event_anchors.json"
+VALID_DISPOSITIONS = {"new", "open", "accepted", "dismissed"}
+
+# Fields the reviewer owns. A re-run refreshes the machine-derived fields but must never
+# overwrite these: the whole point of the queue is that a human's correction sticks.
+_HUMAN_FIELDS = ("fires_on", "url", "disposition", "reason")
+
+_ARTIFACT_HEADER = """# Event anchors — review queue ({today})
+
+Edit the `- fires_on:` and `- url:` lines directly when a draft is wrong; whatever text is
+on them when you load this back is what the event will carry. Then set `- disposition:` to
+`accepted` or `dismissed`. Leaving it blank keeps the row queued for next time.
+
+The `evidence` line is the call site the draft came from — open it to check the claim.
+"""
+
+
+def merge_verdicts(state: dict, verdicts: Mapping[str, dict],
+                   candidates: Sequence[dict], today: str) -> dict:
+    """Fold judged anchors into the state. Machine-derived fields refresh every run; the
+    reviewer's own fields and first_seen are preserved."""
+    by_id = {c["id"]: c for c in candidates}
+    out = dict(state)
+    for event_id, verdict in verdicts.items():
+        entry = out.get(event_id)
+        if entry is None:
+            entry = {
+                "fires_on": "", "url": "", "confidence": "", "flag_reason": "",
+                "evidence": "", "disposition": "new", "reason": "",
+                "first_seen": today, "last_seen": today, "written_date": "",
+            }
+            out[event_id] = entry
+        entry["last_seen"] = today
+        entry["evidence"] = by_id.get(event_id, {}).get("evidence", entry["evidence"])
+        entry["confidence"] = verdict.get("confidence", "")
+        entry["flag_reason"] = verdict.get("flag_reason", "")
+        for field in ("fires_on", "url"):
+            if entry["disposition"] == "new" and not entry[field]:
+                entry[field] = verdict.get(field, "")
+    return out
+
+
+def render_review_artifact(state: Mapping, today: str) -> str:
+    """The fill-in-the-blanks review surface. Drafted values sit on editable lines with
+    the evidence above them, because an anchor is a draft to correct, not a fact to
+    accept."""
+    blocks = [_ARTIFACT_HEADER.format(today=today)]
+    for event_id in sorted(state):
+        e = state[event_id]
+        if e.get("disposition") not in ("new", "open"):
+            continue
+        conf = (f"LOW — {e.get('flag_reason') or 'unspecified'}"
+                if e.get("confidence") == "low" else "high")
+        blocks.append(
+            f"---\n\n## {event_id}\n"
+            f"  evidence:   {e.get('evidence') or 'none found'}\n"
+            f"  confidence: {conf}\n\n"
+            f"- fires_on: {e.get('fires_on', '')}\n"
+            f"- url: {e.get('url', '')}\n"
+            f"- disposition:\n"
+            f"- reason:\n"
+        )
+    return "\n".join(blocks)
+
+
+def parse_review_artifact(text: str) -> dict[str, dict]:
+    """Parse a filled artifact into {event_id: {fires_on, url, disposition, reason}}."""
+    out: dict[str, dict] = {}
+    current: str | None = None
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if line.startswith("## "):
+            current = line[3:].strip()
+            out[current] = {}
+        elif current is not None:
+            for field in _HUMAN_FIELDS:
+                marker = f"- {field}:"
+                if line.startswith(marker):
+                    out[current][field] = line[len(marker):].strip()
+                    break
+    return out
+
+
+def apply_review(state: dict, parsed: Mapping[str, dict], today: str) -> dict:
+    """Apply the reviewer's edits and dispositions onto state, for ids that exist. An
+    unknown disposition is skipped with a warning rather than applied — a typo must never
+    silently promote a row toward a Govern write."""
+    out = dict(state)
+    for event_id, fields in parsed.items():
+        if event_id not in out:
+            continue
+        disposition = fields.get("disposition", "")
+        if disposition and disposition not in VALID_DISPOSITIONS:
+            print(f"event-anchors: skipping {event_id!r} — invalid disposition "
+                  f"{disposition!r} (valid: {sorted(VALID_DISPOSITIONS)})", file=sys.stderr)
+            continue
+        for field in ("fires_on", "url", "reason"):
+            if field in fields:
+                out[event_id][field] = fields[field]
+        if disposition:
+            out[event_id]["disposition"] = disposition
+        out[event_id]["last_seen"] = today
+    return out
