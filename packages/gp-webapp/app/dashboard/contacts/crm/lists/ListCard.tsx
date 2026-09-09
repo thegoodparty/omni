@@ -22,7 +22,6 @@ import type { SegmentResponse } from '../shared/contacts-types'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useShowContactProModal } from '../ContactProModal'
 import { useListRowDetail } from './useListRowDetail'
-import RenameListDialog from './RenameListDialog'
 import DeleteListDialog from './DeleteListDialog'
 import DuplicateListDialog from './DuplicateListDialog'
 
@@ -31,19 +30,24 @@ interface ListCardProps {
 }
 
 // One full-width row in the lists index (ENG-10725 Lovable parity: rows in
-// the 560px column, not a card grid). Rename/Duplicate/Delete live behind
-// the kebab menu; the dialogs and mutation hooks (RenameListDialog,
-// DeleteListDialog, useDuplicateList) stay shared with ListDetailSheet.
+// the 560px column, not a card grid). Edit/Duplicate/Delete live behind
+// the kebab menu; Edit reopens the list wizard seeded from this list, and
+// the dialogs and mutation hooks (DeleteListDialog, useDuplicateList) stay
+// shared with ListDetailSheet.
 // "Details" opens the list-detail sheet via the provider's shallow
 // selectList navigation — not a router.push — so the index stays mounted
 // underneath.
 export default function ListCard({ segment }: ListCardProps) {
-  const { selectList, isWinContext, isWinContextReady, canUseProFeatures } =
-    useContactsTable()
+  const {
+    selectList,
+    editList,
+    isWinContext,
+    isWinContextReady,
+    canUseProFeatures,
+  } = useContactsTable()
   const showProUpgradeModal = useShowContactProModal()
   const { peopleCount, lastOutreach, isLoading, isError, isGated } =
     useListRowDetail(segment.id, canUseProFeatures)
-  const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [duplicateOpen, setDuplicateOpen] = useState(false)
   const isLocked = Boolean(segment.firstUsedForOutreachAt)
@@ -83,9 +87,9 @@ export default function ListCard({ segment }: ListCardProps) {
               </DropdownMenuItem>
             ) : (
               <>
-                <DropdownMenuItem onClick={() => setRenameOpen(true)}>
+                <DropdownMenuItem onClick={() => editList(segment)}>
                   <PencilIcon />
-                  Rename
+                  Edit
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setDuplicateOpen(true)}>
                   <CopyIcon />
@@ -166,11 +170,6 @@ export default function ListCard({ segment }: ListCardProps) {
         </div>
       </div>
 
-      <RenameListDialog
-        segment={segment}
-        open={renameOpen}
-        onOpenChange={setRenameOpen}
-      />
       <DeleteListDialog
         segment={segment}
         open={deleteOpen}

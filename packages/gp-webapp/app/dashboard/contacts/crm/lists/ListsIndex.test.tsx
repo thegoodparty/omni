@@ -25,11 +25,10 @@ vi.mock('./useDuplicateList', () => ({
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'test-org' }),
 }))
-// Each ListCard mounts RenameListDialog/DeleteListDialog unconditionally
-// (closed by default) — both call useSnackbar()/useOrganization() on every
-// render regardless of `open`, so both need a mock here even though no test
-// in this file exercises the dialogs' submit paths (ListDetailSheet.test.tsx
-// already covers those).
+// Each ListCard mounts DeleteListDialog unconditionally (closed by default)
+// — it calls useSnackbar()/useOrganization() on every render regardless of
+// `open`, so both need a mock here even though no test in this file exercises
+// the dialog's submit path (ListDetailSheet.test.tsx already covers it).
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({
     successSnackbar: vi.fn(),
@@ -43,6 +42,7 @@ const mockedUseListRowDetail = vi.mocked(useListRowDetail)
 const mockedUseDuplicateList = vi.mocked(useDuplicateList)
 
 const selectList = vi.fn()
+const editList = vi.fn()
 
 const setContext = (
   overrides: Partial<ReturnType<typeof useContactsTable>> = {},
@@ -53,6 +53,7 @@ const setContext = (
     isWinContextReady: true,
     canUseProFeatures: true,
     selectList,
+    editList,
     ...overrides,
   } as unknown as ReturnType<typeof useContactsTable>)
 }
@@ -265,7 +266,7 @@ describe('ListsIndex — Details opens the detail sheet', () => {
 })
 
 describe('ListsIndex — card options menu', () => {
-  it('shows Rename/Duplicate/Delete for an unlocked list', async () => {
+  it('shows Edit/Duplicate/Delete for an unlocked list', async () => {
     setContext({
       customSegments: [{ id: 42, name: 'GOTV text list' }],
     })
@@ -275,9 +276,22 @@ describe('ListsIndex — card options menu', () => {
 
     await user.click(screen.getByRole('button', { name: 'List options' }))
 
-    expect(screen.getByText('Rename')).toBeInTheDocument()
+    expect(screen.getByText('Edit')).toBeInTheDocument()
     expect(screen.getByText('Duplicate')).toBeInTheDocument()
     expect(screen.getByText('Delete')).toBeInTheDocument()
+  })
+
+  it('opens the wizard in edit mode on the whole segment, not just its id', async () => {
+    const segment = { id: 42, name: 'GOTV text list' }
+    setContext({ customSegments: [segment] })
+    const user = userEvent.setup()
+
+    render(<ListsIndex />)
+
+    await user.click(screen.getByRole('button', { name: 'List options' }))
+    await user.click(screen.getByText('Edit'))
+
+    expect(editList).toHaveBeenCalledWith(segment)
   })
 
   it('shows "Duplicate to edit" and hides Delete for a locked list', async () => {
@@ -297,7 +311,7 @@ describe('ListsIndex — card options menu', () => {
     await user.click(screen.getByRole('button', { name: 'List options' }))
 
     expect(screen.getByText('Duplicate to edit')).toBeInTheDocument()
-    expect(screen.queryByText('Rename')).not.toBeInTheDocument()
+    expect(screen.queryByText('Edit')).not.toBeInTheDocument()
     expect(screen.queryByText('Delete')).not.toBeInTheDocument()
   })
 })
