@@ -1,3 +1,4 @@
+import copy
 import event_anchors as ea
 import pathlib
 import re
@@ -688,3 +689,113 @@ def test_render_shows_the_flag_class_instead_of_a_route_when_confidence_is_low()
                    "written_date": ""}}
     text = ea.render_review_artifact(state, "2026-09-10")
     assert "LOW" in text and "global_chrome" in text
+
+
+# --- Fix-round 1: never drop a reviewer's edit in silence -----------------------------
+
+def test_parse_warns_on_a_wrapped_value_naming_the_event_and_text(capsys):
+    text = ("## E\n"
+            "- fires_on: Campaign Plan page, click Generate when the very long\n"
+            "  correction continues on a second line.\n"
+            "- url: /dashboard\n"
+            "- disposition:\n"
+            "- reason:\n")
+    parsed = ea.parse_review_artifact(text)
+    # the continuation is not guessed into fires_on — only the marker line is captured
+    assert parsed["E"]["fires_on"] == "Campaign Plan page, click Generate when the very long"
+    err = capsys.readouterr().err
+    assert "'E'" in err
+    assert "correction continues on a second line." in err
+
+
+def test_stray_heading_inside_a_block_surfaces_as_an_unknown_id_warning_not_a_lost_decision(capsys):
+    state = {"E": {"fires_on": "x", "url": "", "confidence": "high", "flag_reason": "",
+                   "evidence": "", "disposition": "new", "reason": "",
+                   "first_seen": "2026-09-10", "last_seen": "2026-09-10",
+                   "written_date": ""}}
+    text = ("## E\n"
+            "- fires_on: Corrected.\n"
+            "## check with PM\n"
+            "- url: /dashboard\n"
+            "- disposition: accepted\n"
+            "- reason:\n")
+    parsed = ea.parse_review_artifact(text)
+    out = ea.apply_review(state, parsed, "2026-09-11")
+    err = capsys.readouterr().err
+    assert "check with PM" in err
+    # the disposition landed on the phantom block, not the real row — apply_review must
+    # say so loudly rather than leave the row silently stuck on "new"
+    assert out["E"]["disposition"] == "new"
+    assert out["E"]["fires_on"] == "Corrected."
+
+
+def test_apply_review_skips_a_stale_reapply_onto_an_already_decided_row(capsys):
+    state = {"E": {"fires_on": "Final text.", "url": "/dashboard", "confidence": "high",
+                   "flag_reason": "", "evidence": "", "disposition": "accepted",
+                   "reason": "", "first_seen": "2026-09-01", "last_seen": "2026-09-05",
+                   "written_date": ""}}
+    stale = {"E": {"fires_on": "Old draft text.", "url": "/old", "disposition": ""}}
+    out = ea.apply_review(state, stale, "2026-09-11")
+    assert out["E"]["fires_on"] == "Final text."
+    assert out["E"]["disposition"] == "accepted"
+    assert "'E'" in capsys.readouterr().err
+
+    # a deliberate re-decision, with an explicit disposition, still goes through
+    deliberate = {"E": {"fires_on": "Reopened correction.", "disposition": "dismissed"}}
+    out2 = ea.apply_review(out, deliberate, "2026-09-12")
+    assert out2["E"]["fires_on"] == "Reopened correction."
+    assert out2["E"]["disposition"] == "dismissed"
+
+
+def test_parse_review_artifact_honours_an_indented_field_line():
+    text = "## E\n  - fires_on: Indented edit.\n- disposition:\n"
+    parsed = ea.parse_review_artifact(text)
+    assert parsed["E"]["fires_on"] == "Indented edit."
+
+
+def test_merge_and_apply_do_not_mutate_the_callers_state_object():
+    state = {"E": {"fires_on": "orig", "url": "orig_url", "confidence": "high",
+                   "flag_reason": "", "evidence": "a.tsx:1", "disposition": "new",
+                   "reason": "", "first_seen": "2026-09-10", "last_seen": "2026-09-10",
+                   "written_date": ""}}
+    before = copy.deepcopy(state)
+
+    candidates = [{"id": "E", "evidence": "a.tsx:1"}]
+    verdicts = {"E": {"id": "E", "fires_on": "changed", "url": "changed", "confidence": "high"}}
+    ea.merge_verdicts(state, verdicts, candidates, "2026-09-17")
+    assert state == before
+
+    ea.apply_review(state, {"E": {"fires_on": "edited", "disposition": "accepted"}},
+                    "2026-09-18")
+    assert state == before
+
+
+def test_review_round_trip_still_works_after_the_stricter_parsing():
+    state = {
+        "E": {"fires_on": "Draft one.", "url": "/one", "confidence": "high",
+              "flag_reason": "", "evidence": "a.tsx:1", "disposition": "new",
+              "reason": "", "first_seen": "2026-09-10", "last_seen": "2026-09-10",
+              "written_date": ""},
+        "F": {"fires_on": "Draft two.", "url": "/two", "confidence": "high",
+              "flag_reason": "", "evidence": "b.tsx:2", "disposition": "new",
+              "reason": "", "first_seen": "2026-09-10", "last_seen": "2026-09-10",
+              "written_date": ""},
+    }
+    text = ea.render_review_artifact(state, "2026-09-10")
+    # Isolate block E's own text before editing it — the header also contains the literal
+    # substring "- disposition:" (backticked, in the reviewer instructions), so a replace
+    # over the whole text or over everything up to "## F" can hit the header instead of
+    # the real field line. Scoping to between "## E" and "## F" avoids that trap.
+    before_e, _, e_and_rest = text.partition("## E")
+    block_e, _, after_f = e_and_rest.partition("## F")
+    block_e = block_e.replace("- fires_on: Draft one.", "- fires_on: Corrected one.").replace(
+        "- disposition:", "- disposition: accepted")
+    edited = before_e + "## E" + block_e + "## F" + after_f
+    parsed = ea.parse_review_artifact(edited)
+    applied = ea.apply_review(state, parsed, "2026-09-11")
+    assert applied["E"]["fires_on"] == "Corrected one."
+    assert applied["E"]["disposition"] == "accepted"
+    assert applied["E"]["first_seen"] == "2026-09-10"
+    # untouched row survives unchanged
+    assert applied["F"]["fires_on"] == "Draft two."
+    assert applied["F"]["disposition"] == "new"

@@ -471,11 +471,19 @@ VALID_DISPOSITIONS = {"new", "open", "accepted", "dismissed"}
 # overwrite these: the whole point of the queue is that a human's correction sticks.
 _HUMAN_FIELDS = ("fires_on", "url", "disposition", "reason")
 
+# Rendered metadata lines that sit inside a block but are never reviewer input — recognized
+# and skipped silently so parse_review_artifact's not-understood warning fires only on
+# actual reviewer text, not on the artifact's own read-only scaffolding.
+_KNOWN_METADATA_PREFIXES = ("evidence:", "confidence:")
+
 _ARTIFACT_HEADER = """# Event anchors — review queue ({today})
 
 Edit the `- fires_on:` and `- url:` lines directly when a draft is wrong; whatever text is
 on them when you load this back is what the event will carry. Then set `- disposition:` to
 `accepted` or `dismissed`. Leaving it blank keeps the row queued for next time.
+
+Keep each edited value on one line. A value wrapped onto a second line is not understood as
+part of it — it is reported instead of guessed at, and the rest of the edit is lost.
 
 The `evidence` line is the call site the draft came from — open it to check the claim.
 """
@@ -484,9 +492,11 @@ The `evidence` line is the call site the draft came from — open it to check th
 def merge_verdicts(state: dict, verdicts: Mapping[str, dict],
                    candidates: Sequence[dict], today: str) -> dict:
     """Fold judged anchors into the state. Machine-derived fields refresh every run; the
-    reviewer's own fields and first_seen are preserved."""
+    reviewer's own fields and first_seen are preserved. Copies each entry rather than
+    aliasing the caller's — a pure-looking transform that secretly mutates the input is
+    a hazard the type hints don't warn anyone about."""
     by_id = {c["id"]: c for c in candidates}
-    out = dict(state)
+    out = {event_id: dict(entry) for event_id, entry in state.items()}
     for event_id, verdict in verdicts.items():
         entry = out.get(event_id)
         if entry is None:
@@ -530,7 +540,14 @@ def render_review_artifact(state: Mapping, today: str) -> str:
 
 
 def parse_review_artifact(text: str) -> dict[str, dict]:
-    """Parse a filled artifact into {event_id: {fires_on, url, disposition, reason}}."""
+    """Parse a filled artifact into {event_id: {fires_on, url, disposition, reason}}.
+
+    A line inside a block that matches no known field marker — a wrapped continuation, a
+    stray note — is never guessed at and folded into the wrong field. It is reported on
+    stderr, naming the event, because a silently dropped edit is worse than a noisy
+    warning. Field markers are matched after stripping leading whitespace so an indented
+    line (an editor's auto-indent) still lands on the right field.
+    """
     out: dict[str, dict] = {}
     current: str | None = None
     for raw in text.splitlines():
@@ -538,27 +555,63 @@ def parse_review_artifact(text: str) -> dict[str, dict]:
         if line.startswith("## "):
             current = line[3:].strip()
             out[current] = {}
-        elif current is not None:
-            for field in _HUMAN_FIELDS:
-                marker = f"- {field}:"
-                if line.startswith(marker):
-                    out[current][field] = line[len(marker):].strip()
-                    break
+            continue
+        if current is None:
+            continue
+        stripped = line.strip()
+        if not stripped or stripped == "---" or stripped.startswith(_KNOWN_METADATA_PREFIXES):
+            continue
+        matched = False
+        for field in _HUMAN_FIELDS:
+            marker = f"- {field}:"
+            if stripped.startswith(marker):
+                out[current][field] = stripped[len(marker):].strip()
+                matched = True
+                break
+        if not matched:
+            print(f"event-anchors: {current!r} — line inside the block matched no known "
+                  f"field, so it was not understood and was dropped rather than guessed "
+                  f"at (a wrapped continuation must stay on one line): {stripped!r}",
+                  file=sys.stderr)
     return out
 
 
 def apply_review(state: dict, parsed: Mapping[str, dict], today: str) -> dict:
-    """Apply the reviewer's edits and dispositions onto state, for ids that exist. An
-    unknown disposition is skipped with a warning rather than applied — a typo must never
-    silently promote a row toward a Govern write."""
-    out = dict(state)
+    """Apply the reviewer's edits and dispositions onto state, for ids that exist.
+
+    An unknown disposition is skipped with a warning rather than applied — a typo must
+    never silently promote a row toward a Govern write. An unknown event id gets the same
+    treatment: it is the signature of a stray '## ' note inside a block hijacking the
+    parse into a phantom entry, and silently ignoring it would drop whatever disposition
+    the reviewer actually wrote on the real row.
+
+    A row already `accepted` or `dismissed` is left untouched when the parsed block's
+    disposition is blank — that is a stale re-applied artifact, not a human revisiting the
+    decision, and re-applying it must not clobber the finalized text. An explicit
+    disposition in the parsed block still goes through: that is a deliberate re-decision.
+
+    Copies each entry rather than aliasing the caller's, matching merge_verdicts — the
+    caller may keep the pre-call state to diff or retry against.
+    """
+    out = {event_id: dict(entry) for event_id, entry in state.items()}
     for event_id, fields in parsed.items():
         if event_id not in out:
+            print(f"event-anchors: skipping {event_id!r} from the artifact — no matching "
+                  f"row in state (check for a stray '## ' line inside a block, which "
+                  f"parses as a phantom event and can strand the real row's disposition)",
+                  file=sys.stderr)
             continue
         disposition = fields.get("disposition", "")
         if disposition and disposition not in VALID_DISPOSITIONS:
             print(f"event-anchors: skipping {event_id!r} — invalid disposition "
                   f"{disposition!r} (valid: {sorted(VALID_DISPOSITIONS)})", file=sys.stderr)
+            continue
+        already_decided = out[event_id].get("disposition") in ("accepted", "dismissed")
+        if already_decided and not disposition:
+            print(f"event-anchors: skipping {event_id!r} — already "
+                  f"{out[event_id]['disposition']!r} and this artifact left disposition "
+                  f"blank; treating it as a stale re-apply rather than reverting the "
+                  f"decision", file=sys.stderr)
             continue
         for field in ("fires_on", "url", "reason"):
             if field in fields:
