@@ -69,9 +69,7 @@ const isOutreachActivity = (
 // ENG-10695 unioned ContactInteraction* entries into the feed response;
 // ENG-10698 (task 07) widened rendering to draw them via ActivityFeedEntry.
 // Notes were unioned in too but removed from the feed in ENG-10780 — they
-// live only in the dedicated Notes section now. Gated on the CRM flag below
-// — CRM-off keeps the interim pre-CRM behavior of skipping them so the old
-// overlay is unchanged.
+// live only in the dedicated Notes section now.
 const isPollActivity = (
   activity: ConstituentActivity,
 ): activity is PollConstituentActivity => activity.type === 'POLL_INTERACTIONS'
@@ -424,9 +422,9 @@ const PersonContent: React.FC<{
 
   // Serve keeps its poll-interaction timeline behind its own flag (unchanged);
   // Win adds the outreach timeline for campaigns (not elected officials). The
-  // Win decision (flag on, not an elected official, elected-office load
-  // settled) is computed once in the provider as isWinContext; reuse it so the
-  // feed and the provider's activities query never disagree. Top Issues stays
+  // Win decision (not an elected official, elected-office load settled) is
+  // computed once in the provider as isWinContext; reuse it so the feed and
+  // the provider's activities query never disagree. Top Issues stays
   // Serve-only.
   const showActivityFeed = showActivitiesAndIssues || showWinActivities
   const details = [person.gender, person.age ? `${person.age} years old` : null]

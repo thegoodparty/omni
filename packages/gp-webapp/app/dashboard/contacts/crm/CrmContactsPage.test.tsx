@@ -137,8 +137,8 @@ beforeEach(() => {
   vi.mocked(trackEvent).mockClear()
 })
 
-// ENG-10767: parity with the pre-CRM page's Contacts Viewed (flag-on users
-// vanished from that chart) — same event, distinguished by surface: 'crm'.
+// ENG-10767: this page's users had vanished from the Contacts Viewed chart,
+// so it fires the same event tagged surface: 'crm'.
 describe('CrmContactsPage — Contacts Viewed analytics', () => {
   it('fires once on mount with the settled context and surface crm', () => {
     const { rerender } = render(<CrmContactsPage />)
