@@ -38,7 +38,8 @@ def make_anthropic_client(api_key: str):
 
 
 def parse_tool_response(resp, item_ids: Sequence[str], *, id_field: str = "id",
-                        results_field: str = "verdicts", noun: str = "items") -> dict[str, dict]:
+                        results_field: str = "verdicts", noun: str = "items",
+                        validate: Callable[[dict], dict] | None = None) -> dict[str, dict]:
     """Verdicts keyed by item id from a forced tool call, keeping only ids that were in the
     input (a hallucinated id is dropped, never trusted into state).
 
@@ -48,6 +49,13 @@ def parse_tool_response(resp, item_ids: Sequence[str], *, id_field: str = "id",
     truncated response may also carry no complete tool_use block, so this precedes the
     block lookup. `noun` only varies the message text (e.g. "candidates") for a caller whose
     status string surfaces verbatim to a human.
+
+    `validate`, when given, runs against the *whole* tool payload before any id filtering
+    and returns the payload to read `results_field` from (raising is how it rejects a bad
+    payload). Order matters: a malformed verdict can ride in on an id that was never sent —
+    a plausible failure mode of a forced-tool-use call — and validating only after filtering
+    would silently drop it instead of failing the batch. The caller owns what "valid" means;
+    this module only enforces that the check runs before the filter.
     """
     if getattr(resp, "stop_reason", None) == "max_tokens":
         raise RuntimeError(
@@ -57,7 +65,10 @@ def parse_tool_response(resp, item_ids: Sequence[str], *, id_field: str = "id",
     allowed = set(item_ids)
     for block in getattr(resp, "content", []) or []:
         if getattr(block, "type", None) == "tool_use":
-            results = (block.input or {}).get(results_field, [])
+            payload = block.input or {}
+            if validate is not None:
+                payload = validate(payload)
+            results = payload.get(results_field, [])
             return {v[id_field]: v for v in results if v.get(id_field) in allowed}
     raise RuntimeError("no tool_use block in judge response")
 
@@ -65,7 +76,8 @@ def parse_tool_response(resp, item_ids: Sequence[str], *, id_field: str = "id",
 def judge_batch(items: Sequence[dict], *, system: str, tool: dict, client, model: str,
                 message_builder: Callable[[Sequence[dict]], list], max_tokens: int | None = None,
                 id_field: str = "id", results_field: str = "verdicts",
-                noun: str = "items") -> dict[str, dict]:
+                noun: str = "items",
+                validate: Callable[[dict], dict] | None = None) -> dict[str, dict]:
     """One batched judgment call. Client is injected so this is unit-testable without
     network. Forces the tool for a validated result."""
     resp = client.messages.create(
@@ -77,7 +89,7 @@ def judge_batch(items: Sequence[dict], *, system: str, tool: dict, client, model
         messages=message_builder(items),
     )
     return parse_tool_response(resp, [i[id_field] for i in items], id_field=id_field,
-                               results_field=results_field, noun=noun)
+                               results_field=results_field, noun=noun, validate=validate)
 
 
 def run_graceful(items: Sequence[dict], *, api_key: str | None, model: str, tool: dict,
@@ -85,7 +97,8 @@ def run_graceful(items: Sequence[dict], *, api_key: str | None, model: str, tool
                  system_factory: Callable[[], str], unavailable_status: str,
                  client_factory=make_anthropic_client,
                  id_field: str = "id", results_field: str = "verdicts",
-                 noun: str = "items") -> tuple[dict[str, dict], str]:
+                 noun: str = "items",
+                 validate: Callable[[dict], dict] | None = None) -> tuple[dict[str, dict], str]:
     """Graceful boundary around a judge. Never raises: returns (verdicts_by_id, status).
     A missing key, an unreadable prompt source, an SDK/network error or a bad response all
     degrade to an empty result and a status string the caller reports — the run continues.
@@ -109,7 +122,7 @@ def run_graceful(items: Sequence[dict], *, api_key: str | None, model: str, tool
         client = client_factory(api_key)
         verdicts = judge_batch(items, system=system, tool=tool, client=client, model=model,
                                message_builder=message_builder, id_field=id_field,
-                               results_field=results_field, noun=noun)
+                               results_field=results_field, noun=noun, validate=validate)
     except Exception as exc:  # noqa: BLE001 — judgment must never break the governance run
         return {}, f"failed: {exc}"
     return verdicts, "ok"

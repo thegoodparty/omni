@@ -323,19 +323,22 @@ def judge_max_tokens(candidate_count: int) -> int:
     return llm_judge.max_tokens_for(candidate_count)
 
 
-def _validate_verdicts(raw: Mapping[str, dict]) -> dict[str, dict]:
-    """Re-validate llm_judge's raw, subject-agnostic dicts as JudgeVerdict. llm_judge only
-    keys verdicts by id; it has no notion of what a gap verdict must contain. Without this,
-    a verdict missing a required field (is_gap, rubric_rule, dashboard_question, rank,
-    reason) would carry a valid id straight into merge_judged_state as a confirmed gap.
-    Raises pydantic.ValidationError, which every caller here treats as a judge failure."""
-    return {k: JudgeVerdict.model_validate(v).model_dump() for k, v in raw.items()}
+def _validated_judge_batch(payload: dict) -> dict:
+    """Validate the *whole* tool payload as a JudgeBatch, before llm_judge filters by id.
+    llm_judge is subject-agnostic — it only knows ids — so a hallucinated id carrying a
+    malformed verdict would otherwise be silently dropped by the id filter instead of
+    failing the batch. Matches the pre-extraction original's exact ordering:
+    JudgeBatch.model_validate(block.input) ran before the allowed-id filter. Returns the
+    validated, re-dumped payload so the verdicts llm_judge reads back are the same shape
+    the original returned (JudgeVerdict.model_dump()), not the raw tool-call dicts."""
+    return JudgeBatch.model_validate(payload).model_dump()
 
 
 def parse_judge_response(resp, candidate_ids: Sequence[str]) -> dict[str, dict]:
-    raw = llm_judge.parse_tool_response(resp, candidate_ids, results_field="results",
-                                        noun="candidates")
-    return _validate_verdicts(raw)
+    return llm_judge.parse_tool_response(
+        resp, candidate_ids, results_field="results", noun="candidates",
+        validate=_validated_judge_batch,
+    )
 
 
 # --- judge call + graceful wrapper (network IO layer) ------------------------
@@ -351,12 +354,11 @@ def judge_candidates(
     """One batched judgment call over the capped candidate set. Client is injected so this
     is unit-testable without network. Forces the report_gap_verdicts tool for a validated
     result. Mirrors qa_validate.py's AnthropicJudge."""
-    raw = llm_judge.judge_batch(
+    return llm_judge.judge_batch(
         candidates, system=judge_system_prompt(rubric), tool=JUDGE_TOOL, client=client,
         model=model, message_builder=build_judge_messages, max_tokens=max_tokens,
-        results_field="results", noun="candidates",
+        results_field="results", noun="candidates", validate=_validated_judge_batch,
     )
-    return _validate_verdicts(raw)
 
 
 def judge_all(
@@ -383,22 +385,14 @@ def run_judgment(
     """Graceful boundary around the judge. Never raises: returns (verdicts_by_id, status).
     A missing key, missing rubric, SDK/network error, or bad response all degrade to an
     empty result and a status string the digest reports — the run continues unaffected."""
-    verdicts, status = llm_judge.run_graceful(
+    return llm_judge.run_graceful(
         candidates, api_key=api_key, model=model, tool=JUDGE_TOOL,
         message_builder=build_judge_messages,
         system_factory=lambda: judge_system_prompt(load_rubric(rubric_path)),
         unavailable_status="skipped: rubric unavailable",
         client_factory=client_factory,
-        results_field="results", noun="candidates",
+        results_field="results", noun="candidates", validate=_validated_judge_batch,
     )
-    if status != "ok":
-        return verdicts, status
-    # llm_judge only guarantees ids; the gap-shaped validation is ours, so it happens here,
-    # after the graceful call, with the same never-raise contract.
-    try:
-        return _validate_verdicts(verdicts), "ok"
-    except Exception as exc:  # noqa: BLE001 — judgment must never break the governance run
-        return {}, f"failed: {exc}"
 
 
 # --- state + dispositions -----------------------------------------------------

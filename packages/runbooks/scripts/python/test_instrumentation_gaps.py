@@ -474,6 +474,24 @@ def test_judge_candidates_rejects_malformed_verdict_with_valid_id():
         ig.judge_candidates(cands, "RUBRIC", client=client, model="m")
 
 
+def test_parse_judge_response_fails_whole_batch_on_malformed_hallucinated_verdict():
+    """A malformed verdict can ride in on an id that was never sent — a plausible forced-
+    tool-use failure mode. Validation must run before the allowed-id filter (matching the
+    pre-extraction original's JudgeBatch.model_validate(block.input) ordering), so this
+    fails the whole batch instead of silently dropping /c and returning only /a as if the
+    batch were clean."""
+    payload = {
+        "results": [
+            {"id": "/a", "is_gap": True, "rubric_rule": "flow", "dashboard_question": "q",
+             "rank": 0, "reason": "r"},
+            {"id": "/c"},
+        ]
+    }
+    resp = _FakeResp([_FakeBlock(payload)])
+    with pytest.raises(Exception):
+        ig.parse_judge_response(resp, candidate_ids=["/a", "/b"])
+
+
 def test_judge_max_tokens_scales_with_batch_size():
     """The budget is derived from the batch, never a constant: 25 verdicts measured at
     4.1k-4.8k output tokens, so the cap must clear the larger observation with headroom
