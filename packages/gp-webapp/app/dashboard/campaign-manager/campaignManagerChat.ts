@@ -57,6 +57,14 @@ export const CAMPAIGN_MANAGER_OUTREACH_REVIEW_KICKOFF =
   'Looking at the voter outreach I have done so far, who have I reached, who ' +
   'is still undecided, and where should I go deeper next?'
 
+// Fired when the candidate answers that they never made the ballot. The
+// supportive close ("try again next cycle, we will be here") is the manager's
+// reply, not card copy, so it can meet the candidate where they are — which
+// also means the tone lives in campaignManagerPrompt.ts, not here.
+export const CAMPAIGN_MANAGER_MISSED_BALLOT_KICKOFF =
+  'The filing deadline passed and I did not make it onto the ballot for this ' +
+  'election. What should I do now?'
+
 export const campaignManagerChatApi = createAgentChatClient(
   'campaign_assistant',
   'campaign-manager-chat',

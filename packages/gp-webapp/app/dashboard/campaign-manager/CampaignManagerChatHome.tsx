@@ -13,6 +13,7 @@ import ConversationalHome, {
 import type { ChatSuggestion } from '../chief-of-staff/components/chat/ChiefOfStaffChatBody'
 import {
   CAMPAIGN_MANAGER_HISTORY_KEY,
+  CAMPAIGN_MANAGER_MISSED_BALLOT_KICKOFF,
   buildCampaignManagerIntro,
   campaignManagerChatApi,
 } from './campaignManagerChat'
@@ -35,10 +36,10 @@ const NO_SUGGESTIONS: ChatSuggestion[] = []
  * route in that case, so this owns the kickoff state the dock's provider owns
  * elsewhere — the same one-shot hidden sends, minus the drawer.
  *
- * Unlike the drawer, the seeded greeting stays visible here even when a card
- * fires the story kickoff: the candidate has already read the greeting on the
- * page, so hiding it (which is what the dock does to avoid a double greeting on
- * a story-flow entry) would make it disappear under them.
+ * There is no seeded greeting to manage here. The drawer resumes the ongoing
+ * conversation, so it has to hide the server's greeting on a story-flow entry
+ * to avoid double-greeting; this home opens a new conversation per session and
+ * nothing exists until the candidate sends, so the hero is the greeting.
  */
 export default function CampaignManagerChatHome({
   tcrCompliance,
@@ -54,8 +55,37 @@ export default function CampaignManagerChatHome({
     undefined,
   )
 
-  const { cards, isGenerating, isWeekClear, showCompliance } =
-    useCampaignManagerTaskCards({ onKickoff: setPendingKickoff })
+  const {
+    cards,
+    isGenerating,
+    isWeekClear,
+    showCompliance,
+    ballotOutcome,
+    awaitingStory,
+  } = useCampaignManagerTaskCards({ onKickoff: setPendingKickoff })
+
+  // A yes/no question belongs in chips, not cards. Answering yes persists the
+  // ballot status and the week's cards take over on the next render; answering
+  // no hands the conversation to the manager for the supportive close.
+  const ballotOutcomeChips = useMemo<ChatSuggestion[] | null>(
+    () =>
+      ballotOutcome
+        ? [
+            {
+              label: 'Yes, I made the ballot',
+              onSelect: ballotOutcome.onMadeBallot,
+            },
+            {
+              label: 'No, I did not file in time',
+              onSelect: () => {
+                ballotOutcome.onMissedBallot()
+                setPendingKickoff(CAMPAIGN_MANAGER_MISSED_BALLOT_KICKOFF)
+              },
+            },
+          ]
+        : null,
+    [ballotOutcome],
+  )
 
   const config = useMemo<ConversationalHomeConfig>(
     () => ({
@@ -107,10 +137,13 @@ export default function CampaignManagerChatHome({
           isWeekClear={isWeekClear}
           showCompliance={showCompliance}
           tcrCompliance={tcrCompliance}
+          askBallotOutcome={ballotOutcomeChips !== null}
+          awaitingStory={awaitingStory}
         />
       }
       suggestions={
-        cards.length > 0 || showCompliance ? NO_SUGGESTIONS : undefined
+        ballotOutcomeChips ??
+        (cards.length > 0 || showCompliance ? NO_SUGGESTIONS : undefined)
       }
     />
   )

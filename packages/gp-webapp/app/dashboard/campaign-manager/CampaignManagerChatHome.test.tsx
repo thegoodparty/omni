@@ -28,6 +28,11 @@ vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => organizationMock(),
 }))
 
+const updateCampaignMock = vi.fn()
+vi.mock('app/onboarding/shared/ajaxActions', () => ({
+  updateCampaign: (...args: unknown[]) => updateCampaignMock(...args),
+}))
+
 const trackerTasksMock = vi.fn<() => TrackerTasksResult>()
 vi.mock(
   '../campaign-plan/components/campaignStrategy/useTrackerTasks',
@@ -108,31 +113,26 @@ const noTasks: TrackerTasksResult = {
   isGeneratingDynamic: false,
 }
 
-// The seeded greeting is the conversation's sole assistant message, which is
-// what makes the body type it in rather than dump it.
+// The home starts with no conversation, so a send is what creates one. Tests
+// that only need the page rendered call this for the deferred create.
 const seedGreeting = (): void => {
   createMock.mockResolvedValue({ conversationId: 'conv_1' })
-  listMessagesMock.mockResolvedValue([
-    {
-      id: 'm1',
-      conversationId: 'conv_1',
-      role: 'assistant',
-      content: "Hi Renee, I'm your Campaign Manager.",
-      createdAt: '2026-09-09T00:00:00.000Z',
-    },
-  ])
+  listMessagesMock.mockResolvedValue([])
 }
 
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   vi.setSystemTime(new Date('2026-09-09T12:00:00.000Z'))
   window.localStorage.clear()
+  window.sessionStorage.clear()
   createMock.mockReset()
   listMessagesMock.mockReset()
   streamMessageMock.mockReset()
+  updateCampaignMock.mockReset()
+  updateCampaignMock.mockResolvedValue({})
   organizationMock.mockReturnValue({ slug: 'renee-for-council' })
   campaignMock.mockReturnValue({
-    ballotStatus: 'on-the-ballot',
+    ballotStatus: 'on-ballot',
     details: { electionDate: '2026-11-03' },
   })
   trackerTasksMock.mockReturnValue(noTasks)
@@ -148,46 +148,67 @@ afterEach(() => {
 })
 
 describe('CampaignManagerChatHome', () => {
-  it('opens onto the resumed conversation greeting, with no drawer', async () => {
-    seedGreeting()
+  it('opens a fresh conversation each session instead of resuming', async () => {
     render(<CampaignManagerChatHome tcrCompliance={null} />)
 
-    await waitFor(() =>
-      expect(screen.getByText(/^Hi Renee/)).toBeInTheDocument(),
-    )
-    // The home IS the chat: it resolves the ongoing conversation itself rather
-    // than waiting for a drawer to open.
-    expect(createMock).toHaveBeenCalledTimes(1)
-    expect(listMessagesMock).toHaveBeenCalledWith('conv_1')
+    await screen.findByRole('heading', { name: /pick up where you left off/ })
+    // Nothing is resolved or created on load: a resumed thread would put months
+    // of scroll above the week's cards. The first send mints the conversation.
+    expect(createMock).not.toHaveBeenCalled()
+    expect(listMessagesMock).not.toHaveBeenCalled()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
-  // Switching orgs sets a cookie and invalidates queries; it does not remount
-  // this page. A once-per-mount resolve would leave the previous org's
-  // conversation on screen under the new org.
-  it('re-resolves the conversation when the org changes', async () => {
-    createMock.mockResolvedValueOnce({ conversationId: 'conv_1' })
+  it('continues the same conversation across a remount within the session', async () => {
+    window.sessionStorage.setItem(
+      'conversational-home:campaign-manager-chat-home:renee-for-council',
+      'conv_1',
+    )
     listMessagesMock.mockResolvedValue([
       {
         id: 'm1',
         conversationId: 'conv_1',
         role: 'assistant',
-        content: "Hi Renee, I'm your Campaign Manager.",
+        content: 'Earlier in this sitting.',
+        createdAt: '2026-09-09T00:00:00.000Z',
+      },
+    ])
+    render(<CampaignManagerChatHome tcrCompliance={null} />)
+
+    // Navigating away and back must not split one sitting into two threads.
+    await waitFor(() => expect(listMessagesMock).toHaveBeenCalledWith('conv_1'))
+    expect(createMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps each org on its own conversation', async () => {
+    window.sessionStorage.setItem(
+      'conversational-home:campaign-manager-chat-home:renee-for-council',
+      'conv_council',
+    )
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_council',
+        role: 'assistant',
+        content: 'Council race transcript.',
         createdAt: '2026-09-09T00:00:00.000Z',
       },
     ])
     const { rerender } = render(
       <CampaignManagerChatHome tcrCompliance={null} />,
     )
-    await waitFor(() => expect(createMock).toHaveBeenCalledTimes(1))
+    await screen.findByText('Council race transcript.')
 
-    createMock.mockResolvedValueOnce({ conversationId: 'conv_2' })
-    listMessagesMock.mockResolvedValue([])
     organizationMock.mockReturnValue({ slug: 'renee-for-mayor' })
     rerender(<CampaignManagerChatHome tcrCompliance={null} />)
 
-    await waitFor(() => expect(createMock).toHaveBeenCalledTimes(2))
-    await waitFor(() => expect(listMessagesMock).toHaveBeenCalledWith('conv_2'))
+    // The mayor org has no stored conversation, so it starts empty rather than
+    // carrying the council race's thread across the switch.
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Council race transcript.'),
+      ).not.toBeInTheDocument(),
+    )
   })
 
   it('shows the hero with the campaign week and days to election', async () => {
@@ -207,7 +228,7 @@ describe('CampaignManagerChatHome', () => {
 
   it('drops an orientation clause whose data has not arrived', async () => {
     seedGreeting()
-    campaignMock.mockReturnValue({ ballotStatus: 'on-the-ballot', details: {} })
+    campaignMock.mockReturnValue({ ballotStatus: 'on-ballot', details: {} })
     render(<CampaignManagerChatHome tcrCompliance={null} />)
 
     await screen.findByRole('heading', { name: /pick up where you left off/ })
@@ -263,7 +284,7 @@ describe('CampaignManagerChatHome', () => {
       seedGreeting()
       campaignMock.mockReturnValue({
         isPro: true,
-        ballotStatus: 'on-the-ballot',
+        ballotStatus: 'on-ballot',
         details: { electionDate: '2026-11-03' },
       })
       render(<CampaignManagerChatHome tcrCompliance={null} />)
@@ -296,12 +317,12 @@ describe('CampaignManagerChatHome', () => {
       seedGreeting()
       campaignMock.mockReturnValue({
         isPro: false,
-        ballotStatus: 'on-the-ballot',
+        ballotStatus: 'on-ballot',
         details: { electionDate: '2026-11-03' },
       })
       render(<CampaignManagerChatHome tcrCompliance={null} />)
 
-      await screen.findByText(/^Hi Renee/)
+      await screen.findByRole('heading', { name: /pick up where you left off/ })
       expect(
         screen.queryByTestId('pro-upgrade-3-compliance-card'),
       ).not.toBeInTheDocument()
@@ -320,6 +341,11 @@ describe('CampaignManagerChatHome', () => {
     trackerTasksMock.mockReturnValue({
       ...noTasks,
       tasks: [task({ completed: true })],
+    })
+    campaignMock.mockReturnValue({
+      isPro: true,
+      ballotStatus: 'on-ballot',
+      details: { electionDate: '2026-11-03' },
     })
     render(<CampaignManagerChatHome tcrCompliance={null} />)
 
@@ -358,6 +384,200 @@ describe('CampaignManagerChatHome', () => {
     ).not.toBeInTheDocument()
   })
 
+  describe('filing deadline', () => {
+    const notFiledPastDeadline = {
+      isPro: false,
+      ballotStatus: 'qualified-not-filed',
+      details: {
+        electionDate: '2026-11-03',
+        filingPeriodsEnd: '2026-08-01',
+      },
+    }
+
+    it('stops telling a candidate to file after their window closed', async () => {
+      seedGreeting()
+      campaignMock.mockReturnValue(notFiledPastDeadline)
+      render(<CampaignManagerChatHome tcrCompliance={null} />)
+
+      expect(
+        await screen.findByText(/Your filing deadline has passed/),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /get you on the ballot/ }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('still prompts to file while the window is open', async () => {
+      seedGreeting()
+      campaignMock.mockReturnValue({
+        ...notFiledPastDeadline,
+        details: {
+          electionDate: '2026-11-03',
+          filingPeriodsEnd: '2026-10-01',
+        },
+      })
+      render(<CampaignManagerChatHome tcrCompliance={null} />)
+
+      expect(
+        await screen.findByRole('button', { name: /get you on the ballot/ }),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(/Your filing deadline has passed/),
+      ).not.toBeInTheDocument()
+    })
+
+    // An unknown window must not read as closed, or a candidate whose race
+    // never resolved dates gets asked about a ballot nobody told them about.
+    it('does not ask when the race has no filing dates', async () => {
+      seedGreeting()
+      campaignMock.mockReturnValue({
+        ...notFiledPastDeadline,
+        details: { electionDate: '2026-11-03' },
+      })
+      render(<CampaignManagerChatHome tcrCompliance={null} />)
+
+      expect(
+        await screen.findByRole('button', { name: /get you on the ballot/ }),
+      ).toBeInTheDocument()
+    })
+
+    // A candidate who filed on time is past their own filing deadline for most
+    // of the campaign, so the question must not fire for them.
+    it('leaves an on-ballot candidate alone past the deadline', async () => {
+      seedGreeting()
+      trackerTasksMock.mockReturnValue({ ...noTasks, tasks: [task()] })
+      campaignMock.mockReturnValue({
+        isPro: true,
+        ballotStatus: 'on-ballot',
+        details: {
+          electionDate: '2026-11-03',
+          filingPeriodsEnd: '2026-08-01',
+        },
+      })
+      render(<CampaignManagerChatHome tcrCompliance={null} />)
+
+      expect(
+        await screen.findByRole('link', { name: /Text 500 likely voters/ }),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(/Your filing deadline has passed/),
+      ).not.toBeInTheDocument()
+    })
+
+    it('persists the ballot status when they say they made it', async () => {
+      seedGreeting()
+      campaignMock.mockReturnValue(notFiledPastDeadline)
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      render(<CampaignManagerChatHome tcrCompliance={null} />)
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Yes, I made the ballot' }),
+      )
+
+      // Written to the column, not remembered locally, so every other surface
+      // that reads ballotStatus is fixed too.
+      await waitFor(() =>
+        expect(updateCampaignMock).toHaveBeenCalledWith([
+          { key: 'ballotStatus', value: 'on-ballot' },
+        ]),
+      )
+    })
+
+    it('hands a missed ballot to the manager and stops asking', async () => {
+      seedGreeting()
+      campaignMock.mockReturnValue(notFiledPastDeadline)
+      streamMessageMock.mockReturnValue(
+        makeStream([
+          {
+            type: 'text',
+            delta: 'There is a next cycle, and we will be here.',
+          },
+          { type: 'done' },
+        ]),
+      )
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      render(<CampaignManagerChatHome tcrCompliance={null} />)
+
+      await user.click(
+        await screen.findByRole('button', {
+          name: 'No, I did not file in time',
+        }),
+      )
+
+      // The supportive close is the manager's reply, so the answer opens a turn
+      // rather than rendering canned card copy.
+      await waitFor(() =>
+        expect(streamMessageMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            content: expect.stringContaining('did not make it onto the ballot'),
+          }),
+        ),
+      )
+      expect(updateCampaignMock).not.toHaveBeenCalled()
+      expect(
+        screen.queryByText(/Your filing deadline has passed/),
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  describe('free tier', () => {
+    // A Pro-only task CTA is a wall for a free candidate, and in a conversation
+    // a wall reads as the manager not knowing what they have access to.
+    it('drops Pro-only tasks rather than offering a wall', async () => {
+      seedGreeting()
+      trackerTasksMock.mockReturnValue({
+        ...noTasks,
+        tasks: [
+          task({ id: 'pro', title: 'Send an intro text', proRequired: true }),
+          task({
+            id: 'free',
+            title: 'Post a district update',
+            flowType: 'socialMedia',
+            proRequired: false,
+          }),
+        ],
+      })
+      campaignMock.mockReturnValue({
+        isPro: false,
+        ballotStatus: 'on-ballot',
+        details: { electionDate: '2026-11-03' },
+      })
+      render(<CampaignManagerChatHome tcrCompliance={null} />)
+
+      expect(
+        await screen.findByRole('link', { name: /Post a district update/ }),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/Send an intro text/)).not.toBeInTheDocument()
+    })
+
+    it('does not push door knocking to a free candidate on a clear week', async () => {
+      seedGreeting()
+      trackerTasksMock.mockReturnValue({
+        ...noTasks,
+        tasks: [task({ completed: true, proRequired: false })],
+      })
+      campaignMock.mockReturnValue({
+        isPro: false,
+        ballotStatus: 'on-ballot',
+        details: { electionDate: '2026-11-03' },
+      })
+      render(<CampaignManagerChatHome tcrCompliance={null} />)
+
+      // Events are open to everyone; doors and the outreach review are Pro.
+      expect(
+        await screen.findByRole('button', {
+          name: /Put an event on the calendar/,
+        }),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('link', { name: /Knock another turf/ }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /Go deeper on the voters/ }),
+      ).not.toBeInTheDocument()
+    })
+  })
+
   it('fires the story kickoff into the conversation without a user bubble', async () => {
     seedGreeting()
     storyCompleteMock.mockReturnValue({
@@ -393,6 +613,5 @@ describe('CampaignManagerChatHome', () => {
     expect(
       screen.queryByText(CAMPAIGN_MANAGER_START_STORY_SENTINEL),
     ).not.toBeInTheDocument()
-    expect(screen.getByText(/^Hi Renee/)).toBeInTheDocument()
   })
 })

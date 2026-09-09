@@ -1,5 +1,8 @@
 'use client'
 
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { useOrganization } from '@shared/organization-picker'
 import DashboardLayout from '../shared/DashboardLayout'
 import { NAV_LABELS } from '../shared/navLabels'
 import CampaignManagerHome from '../campaign-manager/CampaignManagerHome'
@@ -19,6 +22,20 @@ export default function DashboardContent({
   tcrCompliance,
   sunsetEligible,
 }: DashboardContentProps): React.JSX.Element {
+  const router = useRouter()
+  const organization = useOrganization()
+  // `/dashboard` is Win-only, enforced by a server redirect at page load. But
+  // the org picker switches client-side (it writes a cookie and invalidates
+  // queries, it does not navigate), so switching to a Serve org here leaves
+  // this page mounted — and the conversational home would go on answering as
+  // the Campaign Manager under an elected-office org. Mirror the redirect
+  // client-side off the same signal the chat dock uses
+  // (DashboardCampaignManagerChat).
+  const isServeOrg = !!organization?.electedOfficeId
+  useEffect(() => {
+    if (isServeOrg) router.replace('/dashboard/chief-of-staff')
+  }, [isServeOrg, router])
+
   const { ready, enabled } = useCampaignManagerChatHomeFlag()
   // The card home is the fallback for every state that isn't a resolved "on":
   // loading, off, an anonymous read, a gp-api failure. Deliberately not gated
@@ -40,7 +57,9 @@ export default function DashboardContent({
       hideChatDock={chatHome}
     >
       <WebsiteSunsetModalController eligible={sunsetEligible} />
-      {chatHome ? (
+      {/* Nothing while the redirect above is in flight: the Win home would
+          otherwise talk to campaign_assistant under a Serve org. */}
+      {isServeOrg ? null : chatHome ? (
         <CampaignManagerChatHome tcrCompliance={tcrCompliance} />
       ) : (
         <CampaignManagerHome tcrCompliance={tcrCompliance} />

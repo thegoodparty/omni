@@ -1,14 +1,12 @@
 'use client'
 
 import {
+  useCallback,
   useEffect,
-  useRef,
   useState,
   type ReactNode,
   type RefObject,
 } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
-import { reportErrorToSentry } from '@shared/sentry'
 import { useOrganization } from '@shared/organization-picker'
 import ChiefOfStaffChatBody, {
   type ChatSuggestion,
@@ -25,7 +23,7 @@ export interface ConversationalHomeConfig {
   chatApi: AgentChatClient
   analyticsLabel: string
   historyKey: readonly unknown[]
-  /** Played only if resolving the ongoing conversation fails. */
+  /** Played on the candidate's first ever chat. */
   defaultIntro: string[]
   suggestions?: ChatSuggestion[]
   quickPrompts?: string[]
@@ -52,21 +50,43 @@ interface Props {
   suggestions?: ChatSuggestion[]
 }
 
+// Where the active conversation is remembered. sessionStorage, not local: the
+// home opens a fresh conversation each session, and past ones are reached
+// through the composer's history popover.
+const sessionKey = (label: string, orgSlug: string | null): string =>
+  `conversational-home:${label}:${orgSlug ?? 'none'}`
+
+const readSessionConversation = (key: string): string | null => {
+  try {
+    return window.sessionStorage.getItem(key)
+  } catch {
+    // Storage disabled: the sitting fragments into a conversation per mount,
+    // which is survivable. Never throw on the render path for this.
+    return null
+  }
+}
+
 /**
  * The conversation-first dashboard home: the shared chat body promoted out of
  * the bottom drawer and rendered inline, full height, as the page itself.
  *
- * The one thing this owns that the drawer surface does not is the bootstrap.
- * The drawer can open empty and defer creating a conversation until the first
- * send; a home cannot — it has to open onto the agent's own greeting. So it
- * resolves the ongoing conversation before mounting the body (the
- * `campaign_assistant` scope's `createConversation` resumes the candidate's
- * latest thread, seeding the greeting only when none exists) and passes the id
- * as `conversationIdOverride`, which is what makes the body type the seeded
- * greeting in rather than dump it.
+ * Each session starts a new conversation rather than resuming the last one. A
+ * resumed thread would mean a candidate three months in loads months of scroll
+ * on every visit, with the week's cards pinned somewhere below it — and an
+ * opening "here is what changed" turn would land under all of it. So the home
+ * opens empty and the first message mints the conversation (the body's own
+ * deferred create); earlier conversations are reached through the history
+ * popover in the composer.
  *
- * A failed resolve falls through to the body's own deferred create, so the home
- * still takes a message instead of dead-ending on an error.
+ * "Session" is the browser session, not the mount: the active id is held in
+ * sessionStorage so navigating to the tracker and back continues the same
+ * conversation instead of splitting one sitting in two. It is keyed by org, so
+ * switching orgs lands on that org's own conversation.
+ *
+ * A consequence worth knowing: this surface never sees the server-seeded,
+ * resume-aware greeting, because that is written at conversation creation and
+ * nothing is created until the candidate sends. The hero carries the greeting
+ * instead.
  */
 export default function ConversationalHome({
   config,
@@ -76,57 +96,46 @@ export default function ConversationalHome({
   trailingSlot,
   suggestions,
 }: Props): React.JSX.Element {
-  const queryClient = useQueryClient()
   const organization = useOrganization()
   const orgSlug = organization?.slug ?? null
-  const [resolving, setResolving] = useState(true)
+  const storageKey = sessionKey(config.analyticsLabel, orgSlug)
+
+  // Null until read: sessionStorage is unreadable during SSR, so a synchronous
+  // initializer would either mismatch hydration or mount the body against the
+  // wrong conversation and fire its load.
   const [conversationId, setConversationId] = useState<string | null>(null)
-  // The org slug this component last resolved a conversation for, not a
-  // boolean. It guards a double-invoke (strict mode, a fast remount) — each
-  // createConversation is a round trip, and on a scope without resume it would
-  // mint a second thread — while still re-resolving on an org switch. Switching
-  // orgs does not remount this page (the picker sets a cookie and invalidates
-  // queries), so a plain once-per-mount guard would leave the previous org's
-  // conversation on screen under the new org.
-  const resolvedForRef = useRef<string | null | undefined>(undefined)
+  const [restored, setRestored] = useState(false)
 
-  const { chatApi, historyKey } = config
   useEffect(() => {
-    if (resolvedForRef.current === orgSlug) return
-    resolvedForRef.current = orgSlug
-    setResolving(true)
-    setConversationId(null)
-    void (async () => {
-      try {
-        // The org header rides the cookie the picker already wrote, so this
-        // resolves against the org just switched to.
-        const { conversationId: id } = await chatApi.createConversation()
-        // A later switch may have superseded this resolve while it was in
-        // flight; drop the stale result rather than showing the wrong org's
-        // conversation.
-        if (resolvedForRef.current !== orgSlug) return
-        setConversationId(id)
-        // A conversation now exists, so the history popover's list is stale.
-        void queryClient.invalidateQueries({ queryKey: historyKey })
-      } catch (err) {
-        reportErrorToSentry(err, {
-          surface: 'conversational-home',
-          phase: 'init',
-        })
-        if (resolvedForRef.current !== orgSlug) return
-        setConversationId(null)
-      } finally {
-        if (resolvedForRef.current === orgSlug) setResolving(false)
-      }
-    })()
-  }, [chatApi, historyKey, queryClient, orgSlug])
+    setConversationId(readSessionConversation(storageKey))
+    setRestored(true)
+  }, [storageKey])
 
-  if (resolving) {
-    return (
-      <div className="flex min-h-0 flex-1 items-center justify-center">
-        <p className="text-sm text-muted-foreground">Loading chat...</p>
-      </div>
-    )
+  // Remember the conversation the first send created, so the rest of this
+  // session continues it.
+  const onConversationCreated = useCallback(
+    (id: string) => {
+      try {
+        window.sessionStorage.setItem(storageKey, id)
+      } catch {
+        // Storage disabled: see readSessionConversation.
+      }
+    },
+    [storageKey],
+  )
+
+  // Picking a past conversation from the history popover switches to it for the
+  // rest of the session, the same as one started here.
+  const onSelectConversation = useCallback(
+    (id: string) => {
+      onConversationCreated(id)
+      setConversationId(id)
+    },
+    [onConversationCreated],
+  )
+
+  if (!restored) {
+    return <div className="flex min-h-0 flex-1" />
   }
 
   return (
@@ -134,10 +143,13 @@ export default function ConversationalHome({
     // canvas, and only the bubbles, cards and composer carry a surface.
     <div className="flex min-h-0 flex-1 flex-col">
       <ChiefOfStaffChatBody
-        // Remount on a history switch so the body reloads that transcript.
-        key={conversationId ?? 'new'}
+        // Remount on a conversation switch (a history pick, or an org change)
+        // so the body loads that transcript against a clean deferred-create
+        // state.
+        key={`${storageKey}:${conversationId ?? 'new'}`}
         conversationIdOverride={conversationId ?? undefined}
-        onSelectConversation={setConversationId}
+        onConversationCreated={onConversationCreated}
+        onSelectConversation={onSelectConversation}
         chatApi={config.chatApi}
         analyticsLabel={config.analyticsLabel}
         historyKey={config.historyKey}

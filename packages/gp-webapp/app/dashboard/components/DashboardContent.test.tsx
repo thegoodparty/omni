@@ -38,6 +38,18 @@ vi.mock('@shared/experiments/campaignManagerChatHomeFlag', () => ({
   useCampaignManagerChatHomeFlag: () => flagMock(),
 }))
 
+const organizationMock = vi.fn()
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => organizationMock(),
+}))
+
+const routerReplaceMock = vi.fn()
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: routerReplaceMock, push: vi.fn() }),
+  usePathname: () => '/dashboard',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
 const props = {
   pathname: '/dashboard',
   tcrCompliance: null,
@@ -46,7 +58,9 @@ const props = {
 
 beforeEach(() => {
   layoutPropsMock.mockClear()
+  routerReplaceMock.mockClear()
   flagMock.mockReturnValue({ ready: true, enabled: false })
+  organizationMock.mockReturnValue({ slug: 'renee-for-council' })
 })
 
 describe('DashboardContent', () => {
@@ -80,5 +94,26 @@ describe('DashboardContent', () => {
     render(<DashboardContent {...props} />)
 
     expect(screen.getByTestId('campaign-manager-home')).toBeInTheDocument()
+  })
+
+  // The server redirects a Serve org away from /dashboard at page load, but the
+  // org picker switches client-side without navigating, which would leave the
+  // Win home mounted and answering as the Campaign Manager under an
+  // elected-office org.
+  it('redirects a Serve org away instead of rendering the Win home', () => {
+    flagMock.mockReturnValue({ ready: true, enabled: true })
+    organizationMock.mockReturnValue({
+      slug: 'mayor-office',
+      electedOfficeId: 42,
+    })
+    render(<DashboardContent {...props} />)
+
+    expect(routerReplaceMock).toHaveBeenCalledWith('/dashboard/chief-of-staff')
+    expect(
+      screen.queryByTestId('campaign-manager-chat-home'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId('campaign-manager-home'),
+    ).not.toBeInTheDocument()
   })
 })
