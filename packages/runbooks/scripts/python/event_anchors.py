@@ -321,9 +321,22 @@ def derive_url(hit_path: str, page_paths: Sequence[str]) -> str | None:
                 best = page
     if best is None:
         return None
-    route = ig.route_pattern_from_page_path(best)
+
+    # Normalize the page path to the form route_pattern_from_page_path expects.
+    # route_pattern_from_page_path hardcodes slicing off "packages/gp-webapp/app",
+    # which is 22 characters. Different app structures (e.g., packages/gp-admin/src/app)
+    # have the /app segment at different offsets, so we normalize by locating /app/ and
+    # reconstructing as "packages/gp-webapp/app/..." before calling the helper.
+    app_marker = "/app/"
+    if app_marker not in best:
+        return None
+    app_root_end = best.index(app_marker) + len(app_marker)
+    remainder = best[app_root_end:]
+    normalized = "packages/gp-webapp/app/" + remainder
+
+    route = ig.route_pattern_from_page_path(normalized)
+
     # Extract the package name (e.g., "gp-admin" from "packages/gp-admin/...").
-    # The app router is always under packages/gp-*/, so split on that.
     parts = best.split("/")
     if len(parts) < 2 or not parts[1].startswith("gp-"):
         return None

@@ -504,3 +504,20 @@ def test_derive_url_drops_route_groups():
 def test_derive_url_returns_none_off_the_app_router():
     assert ea.derive_url(
         "packages/gp-api/src/sms/outreachSmsAdmin.service.ts", PAGES) is None
+
+
+def test_derive_url_handles_gp_admin_real_directory_structure():
+    # The real repo has gp-admin at packages/gp-admin/src/app/..., not packages/gp-admin/app/...
+    # This test verifies the path normalization handles the src/ subdirectory correctly.
+    pages = [
+        "packages/gp-admin/src/app/page.tsx",
+        "packages/gp-admin/src/app/dashboard/page.tsx",
+        "packages/gp-admin/src/app/dashboard/ecanvasser/page.tsx",
+    ]
+    assert ea.derive_url("packages/gp-admin/src/app/page.tsx", pages) == "/ (gp-admin)"
+    assert ea.derive_url(
+        "packages/gp-admin/src/app/dashboard/SomeComponent.tsx", pages
+    ) == "/dashboard (gp-admin)"
+    assert ea.derive_url(
+        "packages/gp-admin/src/app/dashboard/ecanvasser/SomeComponent.tsx", pages
+    ) == "/dashboard/ecanvasser (gp-admin)"
