@@ -55,6 +55,42 @@ export const taskHref = (task: {
     : TRACKER_HREF
 }
 
+// Routes that render an upgrade wall to a non-Pro Win campaign instead of a
+// usable surface: door knocking's native arm (DoorKnockingProLockedView) and
+// Know Your Opponent (OpponentProLockedView, server-side on all three of its
+// pages). The tracker, contacts and the social channel are all open, so they
+// are deliberately absent.
+const PRO_WALLED_ROUTES = [
+  '/dashboard/door-knocking',
+  '/dashboard/race-opponent',
+]
+
+/**
+ * Whether this task's CTA would dead-end a non-Pro candidate.
+ *
+ * Keyed on the CTA's actual destination rather than the task's `proRequired`
+ * flag, because the agent-generated dynamic rows come back with
+ * `proRequired: false` even for the channels the catalog marks Pro — a
+ * door-knocking row arrives unflagged, so trusting the flag alone gates
+ * nothing. The flag is still honored when it is set.
+ *
+ * text and robocall wall at the compose deep link (P2PUpgradeModal and
+ * ProUpgradeModal respectively). A phoneBanking row has no compose CTA at all,
+ * so it falls back to the tracker and does not wall here.
+ */
+export const taskLeadsToProWall = (task: {
+  cta: string | null
+  link: string | null
+  flowType: string | null
+  date: string | null
+  proRequired: boolean | null
+}): boolean => {
+  if (task.proRequired === true) return true
+  if (composeFlowType(task)) return true
+  const href = taskHref(task)
+  return !!href && PRO_WALLED_ROUTES.some((route) => href.startsWith(route))
+}
+
 // A task's CTA label: its own if the agent wrote one, else derived from where
 // the CTA points.
 export const taskCtaLabel = (task: {

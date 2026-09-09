@@ -3,14 +3,23 @@
 import { differenceInCalendarDays, parseISO } from 'date-fns'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
-import { useTrackerTasks } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 
-// The campaign week the candidate is in, taken from the latest generation of
-// dynamic tracker tasks — the product's own notion of "this week", so the hero
-// and the tracker can't disagree. Null until the first CAP run has landed.
-const currentWeek = (tasks: { week: number; isDefaultTask: boolean }[]) => {
-  const dynamic = tasks.filter((t) => !t.isDefaultTask)
-  return dynamic.length > 0 ? Math.max(...dynamic.map((t) => t.week)) : null
+const toDate = (value?: Date | string | null): Date | null => {
+  if (!value) return null
+  const date = value instanceof Date ? value : parseISO(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+// Which week of the campaign the candidate is in, counted from when they
+// started. Deliberately NOT the tracker's `week` column: that is a generation
+// counter incremented on each weekly regen, so it read "Week 1" for a candidate
+// eight weeks out from their election.
+const campaignWeek = (createdAt?: Date | string | null): number | null => {
+  const start = toDate(createdAt)
+  if (!start) return null
+  const days = differenceInCalendarDays(new Date(), start)
+  if (days < 0) return null
+  return Math.floor(days / 7) + 1
 }
 
 const daysToElection = (electionDate?: string | null): number | null => {
@@ -29,16 +38,15 @@ const daysToElection = (electionDate?: string | null): number | null => {
  * not arrived is dropped rather than filled with a placeholder, so the line is
  * never wrong.
  *
- * Not shown to a first-time candidate: they get the tour instead, and a "62
- * days to election" headline is the wrong first thing to say to someone who has
- * not told us anything yet.
+ * This is also the greeting. The home opens a new conversation each session and
+ * nothing is created until the candidate sends, so there is no server-seeded
+ * greeting on this surface for it to duplicate.
  */
 export default function CampaignManagerHero(): React.JSX.Element {
   const [user] = useUser()
   const [campaign] = useCampaign()
-  const { tasks } = useTrackerTasks()
 
-  const week = currentWeek(tasks)
+  const week = campaignWeek(campaign?.createdAt)
   const days = daysToElection(campaign?.details?.electionDate)
 
   const orientation = [

@@ -132,6 +132,8 @@ beforeEach(() => {
   updateCampaignMock.mockResolvedValue({})
   organizationMock.mockReturnValue({ slug: 'renee-for-council' })
   campaignMock.mockReturnValue({
+    isPro: true,
+    createdAt: '2026-08-05T00:00:00.000Z',
     ballotStatus: 'on-ballot',
     details: { electionDate: '2026-11-03' },
   })
@@ -228,7 +230,11 @@ describe('CampaignManagerChatHome', () => {
 
   it('drops an orientation clause whose data has not arrived', async () => {
     seedGreeting()
-    campaignMock.mockReturnValue({ ballotStatus: 'on-ballot', details: {} })
+    campaignMock.mockReturnValue({
+      isPro: true,
+      ballotStatus: 'on-ballot',
+      details: {},
+    })
     render(<CampaignManagerChatHome tcrCompliance={null} />)
 
     await screen.findByRole('heading', { name: /pick up where you left off/ })
@@ -268,6 +274,14 @@ describe('CampaignManagerChatHome', () => {
 
   it('falls back to the starter chips when there is nothing to recommend', async () => {
     seedGreeting()
+    // Non-Pro, so the compliance step is not in play either and the rail is
+    // genuinely empty.
+    campaignMock.mockReturnValue({
+      isPro: false,
+      createdAt: '2026-08-05T00:00:00.000Z',
+      ballotStatus: 'on-ballot',
+      details: { electionDate: '2026-11-03' },
+    })
     render(<CampaignManagerChatHome tcrCompliance={null} />)
 
     expect(
@@ -317,6 +331,7 @@ describe('CampaignManagerChatHome', () => {
       seedGreeting()
       campaignMock.mockReturnValue({
         isPro: false,
+        createdAt: '2026-08-05T00:00:00.000Z',
         ballotStatus: 'on-ballot',
         details: { electionDate: '2026-11-03' },
       })
@@ -387,6 +402,7 @@ describe('CampaignManagerChatHome', () => {
   describe('filing deadline', () => {
     const notFiledPastDeadline = {
       isPro: false,
+      createdAt: '2026-08-05T00:00:00.000Z',
       ballotStatus: 'qualified-not-filed',
       details: {
         electionDate: '2026-11-03',
@@ -539,6 +555,7 @@ describe('CampaignManagerChatHome', () => {
       })
       campaignMock.mockReturnValue({
         isPro: false,
+        createdAt: '2026-08-05T00:00:00.000Z',
         ballotStatus: 'on-ballot',
         details: { electionDate: '2026-11-03' },
       })
@@ -558,6 +575,7 @@ describe('CampaignManagerChatHome', () => {
       })
       campaignMock.mockReturnValue({
         isPro: false,
+        createdAt: '2026-08-05T00:00:00.000Z',
         ballotStatus: 'on-ballot',
         details: { electionDate: '2026-11-03' },
       })

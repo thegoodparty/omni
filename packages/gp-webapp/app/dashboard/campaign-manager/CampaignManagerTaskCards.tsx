@@ -28,7 +28,7 @@ import TextingSetupBanner from '../components/campaignManager/TextingSetupBanner
 import ProUpgrade3ComplianceCard from '../components/campaignManager/ProUpgrade3ComplianceCard'
 import { useTrackerTasks } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
-import { taskHref, taskMeta } from './trackerTaskCta'
+import { taskHref, taskLeadsToProWall, taskMeta } from './trackerTaskCta'
 
 // Aligns the rail to the assistant column, so the cards hang under the
 // preceding message's bubble rather than under its avatar. Tracks the shared
@@ -152,13 +152,19 @@ export function useCampaignManagerTaskCards({
   const { tasks, isGeneratingDynamic } = useTrackerTasks()
   const isPro = campaign?.isPro ?? false
 
-  // Drop the Pro-only rows for a free candidate before picking the top three,
-  // not after, so they still get three actionable cards instead of one plus two
-  // walls. `proRequired` is the catalog's own marker, so this tracks the
-  // catalog rather than a second list of which channels are gated.
+  // Drop the rows that would dead-end a free candidate, before picking the top
+  // three rather than after, so they still get three actionable cards instead
+  // of one plus two walls. Keyed on where the CTA lands, not on `proRequired`:
+  // the agent-generated rows come back unflagged even for Pro channels, so the
+  // flag alone gates nothing (verified against dev: a doorKnocking row arrives
+  // with proRequired false).
+  //
+  // `isPro` alone is the right predicate here even though entitlement is
+  // really isPro OR elected-office: this route redirects a Serve org away, so
+  // an elected office cannot be in play.
   const entitledTasks = isPro
     ? tasks
-    : tasks.filter((t) => t.proRequired !== true)
+    : tasks.filter((t) => !taskLeadsToProWall(t))
   const top = selectTopDynamicTasks(entitledTasks)
 
   const cards: TaskCardData[] = []
@@ -348,7 +354,10 @@ function TaskCard({ card }: { card: TaskCardData }): React.JSX.Element {
         <span className="text-[14.5px] font-semibold leading-[1.35] text-card-foreground">
           {card.title}
         </span>
-        <span className="text-[13px] leading-[1.45] text-muted-foreground">
+        {/* Clamped like the card home's TaskCard summary: the design's why line
+            is one or two lines, but the agent writes a full paragraph, which
+            turns a wide chip into a wall of text. */}
+        <span className="line-clamp-2 text-[13px] leading-[1.45] text-muted-foreground">
           {card.why}
         </span>
         {card.impact && (
