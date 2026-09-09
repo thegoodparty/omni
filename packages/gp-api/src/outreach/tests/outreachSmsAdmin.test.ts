@@ -111,6 +111,7 @@ const seedOutreach = (
     deniedAt: Date | null
     script: string
     stripeCheckoutSessionId: string | null
+    date: Date
   }> = {},
 ) =>
   service.prisma.outreach.create({
@@ -178,11 +179,37 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       await seedOutreach({ status: OutreachStatus.completed })
       await seedOutreach({ projectId: null })
       await seedOutreach({ outreachType: OutreachType.text })
+      // Pre-console backlog: stranded pending rows older than the cutoff.
+      await seedOutreach({ date: new Date('2026-04-15T15:00:00Z') })
+      await seedOutreach({ date: new Date('2026-06-01T23:59:00Z') })
 
       const res = await service.client.get('/v1/outreach/admin/sms/queue')
 
       expect(res.status).toBe(HttpStatus.OK)
       expect(res.data.items).toHaveLength(0)
+    })
+
+    it('keeps dateless and post-cutoff rows visible', async () => {
+      const dateless = await service.prisma.outreach.create({
+        data: {
+          campaignId,
+          outreachType: OutreachType.p2p,
+          name: 'No date yet',
+          status: OutreachStatus.pending,
+          projectId: 'peerly-job-1',
+          identityId: 'identity-1',
+          script: 'Hello {first_name}',
+          date: null,
+        },
+      })
+      const recent = await seedOutreach()
+
+      const res = await service.client.get('/v1/outreach/admin/sms/queue')
+
+      expect(res.status).toBe(HttpStatus.OK)
+      const ids = res.data.items.map((i: { id: number }) => i.id)
+      expect(ids).toContain(dateless.id)
+      expect(ids).toContain(recent.id)
     })
 
     it('is admin-gated', async () => {
