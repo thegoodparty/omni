@@ -153,3 +153,176 @@ So the manager can be asked "what do my voters care about" right now and has no
 instruction preventing it from answering "62% of your district supports X". Adding
 these semantics to the system prompt is a small change and should land before the
 conversational home makes issue questions easy to ask.
+
+---
+
+# Remaining work, in milestones
+
+Ordered by dependency and value. M1 and M2 are what make it *look* like the
+prototype; M4 is what makes it *behave* like the returning-user experience.
+
+Design values below are read from `Campaign Manager.dc.html` (the computed
+`renderVals()` styles, not the markup — the markup alone does not carry the
+metrics). `--radius-md` is referenced by the design but is not defined in the
+project's token files; confirm its value before implementing M1.
+
+## M1 — Card and page metrics (frontend only, no shared files)
+
+The cards are measurably off. Fixes are all in `CampaignManagerTaskCards.tsx`,
+`CampaignManagerHero.tsx` and `ConversationalHome.tsx`.
+
+- Wide chip: `padding: 14px 16px`, `min-height: 56px`, `border-radius:
+  var(--radius-md)`, container `font-size: 15px; font-weight: 500`. Inner spans
+  already match (14.5/600 label, 13/1.45 why, 12/600/.02em due in primary,
+  18px primary icon, 3px column gap, `align-items: flex-start`).
+- Move the gutter outside the 608px column. The design puts `padding: 28px
+  <gutter> 8px` on `main` (16px top below `sm`) with a `width: 608px;
+  max-width: 100%` child; we put the padding on the 608px element itself, so the
+  column is narrower than 608 at mid widths.
+- Hero hides once the candidate has sent anything: `showHero = !firstTimeUser &&
+  !messages.some((m) => m.role === 'user')`. Ours never hides.
+
+## M2 — Shared chat chrome (touches `shared/agent-chat/chatUI.tsx`)
+
+**This is the biggest single reason the surface does not read like the
+prototype.** Every change here also lands on Chief of Staff, ordinances and the
+CRM assistant, which is why it was held for a product decision. Decide once,
+then do it in one pass.
+
+- Assistant avatar: 34px circle, `background: var(--color-cream, #fcf8f3)`, 1px
+  border, 20x16 logo. Ours is 24px on `bg-background`.
+- AI bubble: `background: #f7fafb` (`--color-muted`), 1px `--color-border`,
+  corners `16px 16px 16px 4px`. User bubble mirrors it. Ours is uniform
+  `rounded-2xl`, no border.
+- Message entrance: `gp-msg-in`, 10px rise + fade. No other entrance motion.
+- Typing indicator: three 7px dots, `gp-dot` 1.2s with 0/.2/.4 delays,
+  `translateY(-4px)`. Ours is a text shimmer. (This resolves the spec's own
+  §3-vs-§9 contradiction in favour of a bounce.)
+- Quick-reply chips: `padding: 8px 14px`, `border-radius: full`, 13px/500;
+  selected uses `--color-primary-light` fill with primary border and text. Ours
+  are styleguide `Badge`s.
+- Chip and card rails indent 44px to align under the bubble. Only correct once
+  the avatar is 34px — `ASSISTANT_INDENT` in the task cards is currently 32px
+  and carries a note to move with it.
+- Composer wrapper: translucent wash (`color-mix(in srgb, background 70%,
+  transparent)`) with `backdrop-filter: blur(12px)`; textarea auto-grows to a
+  33vh cap. Ours has no wash and caps at 6 rows.
+- Bubble sub-blocks in fixed order: quote → text → note → why → example
+  (`noteStyle` 12.5px muted, `exampleStyle` 12.5px italic muted).
+
+## M3 — Response action row
+
+Copy, read aloud, thumbs up, thumbs down, always visible below the bubble and
+below any artifact card. `.gp-msgact`: 30px circular targets growing to 44px
+below 640px, muted by default, `--color-primary` when active, muted-surface wash
+on hover. Thumbs are mutually exclusive and toggle off.
+
+The qualifying rule is explicit in the design:
+`canCopy = isAi && i > 0 && (!!m.card || !!m.fromAction || msgs[i-1].role === 'user')`.
+Purely introductory or framing messages get no row.
+
+Copy grabs the whole response: bubble text, note, why, example, plus the
+artifact card's kicker, title and description. Flips to a check for 1.6s.
+
+Also in `chatUI.tsx`, so same blast radius as M2.
+
+## M4 — Session digest (backend)
+
+The returning-user experience rests on this. Detail in the section above; in
+short: the digest is the conversation's first assistant message, produced where
+`resolveGreeting` produces the greeting today. Marker for v1 is the previous
+conversation's `updatedAt` (no migration). Phase 1 diffs tracker + plan, phase 2
+adds opponent + outreach, phase 3 moves it into contracts so the client renders
+change cards instead of prose.
+
+## M5 — Pre-plan ladder (approved: `localStorage`)
+
+Ordering and data notes in the section above. Steps: the three story answers,
+ballot position, announcement, press release, first outreach, budget.
+
+- Press release and local media both exist and are unwired: the Contentful
+  `pressRelease` template, and `GET /v1/onboarding/local-news` (up to 9 outlets
+  with newsroom email, phone, address, cached per office/city/state).
+- First outreach follows the Relational Organizing brief (ClickUp `86ajqhjka`):
+  personal sends from the candidate's own number, and the ask at every hop is a
+  re-share, not a signup. **Instructions only** — the feature is gated on legal
+  review, and its brief forbids repeating vendor efficacy stats.
+- Budget: `computeBudget` already produces the full breakdown. **Funds raised
+  does not exist** anywhere in the product, so that half can only be asked, not
+  shown.
+
+## M6 — Artifacts and documents
+
+Every deliverable summarized as a card in the transcript, opening a bottom sheet.
+
+- Artifact card: icon in a 38px `--color-primary-light` square, uppercase 10px
+  kicker at .04em, 14px/600 title, 12.5px muted description, chevron centered
+  right; hover raises border to primary plus `--shadow-md`. Design pins
+  `width: 380px`, not full width.
+- Sheet: absolute within the content area, slides up over a 24% ink scrim
+  (`rgba(15,23,32,.24)`), rounded top, 88% height below `md` / 78% above. Header
+  is back arrow + kicker + ellipsized title + close; both back and close dismiss.
+  Body supports paragraphs, headings, labelled sections, stat tile grids and
+  tables. Optional footer action bar.
+- Selecting text inside a document promotes it to a removable context chip above
+  the composer.
+
+Frontend seam exists (`useStreamingTurn`'s `onEvent`, as `OrdinanceFlowChat`
+uses it). The real cost is a tool contract per artifact type in gp-api.
+
+## M7 — Task completion inside the sheet
+
+What the design actually wants, and the one architectural conflict. Task cards
+should open a shortcut version of the relevant outreach flow in the same sheet,
+prefilling everything known and saying "skipped because…" rather than silently
+jumping, with completion on a confirmation screen inside the sheet.
+
+Requires hoisting the channel flows and their Pro/10DLC gates out of
+`OutreachHubPage`, which owns exactly one instance of each today
+(`outreach/AGENTS.md`). Until then, cards deep-link.
+
+## M8 — First-time tour
+
+Four tool beats (voter data, fundraising, voter outreach, campaign plan), each
+with a real inline artifact, then the three setup questions. Depends on M6.
+
+## M9 — Agent and prompt work (gp-api)
+
+- **Haystaq guardrail (do this first, it is small and independent).** 403 `hs_*`
+  columns are already queryable and `campaignManagerPrompt.ts` says nothing
+  about them. See the section above for the exact semantics that need stating.
+- Pro-feature refusal: a free candidate asking about a Pro feature should be
+  told it needs an upgrade. Frontend cannot do this.
+- Missed-ballot tone: the "try again next cycle, we will be here" close is a
+  model reply today, not card copy. Pin it in the prompt.
+- Know Your Opponent read tool: the module exists, no chat tool exposes it. Also
+  a prerequisite for the digest's opponent diff (M4 phase 2).
+
+## M10 — Cross-cutting
+
+- Create `campaign-manager-chat-home` in Amplitude (dev + prod) via the
+  `amplitude-flag` skill. Nothing ships without it.
+- Rename "Campaign Tracker" → "Campaign Plan" in `shared/navLabels.ts`
+  (product-wide; the route is already `/dashboard/campaign-plan`).
+- Tracker Pro parity: `CampaignStrategyTaskRow` paints a decorative "Pro" badge
+  and never locks, so the tracker still hands free candidates the walls this
+  home now filters out.
+- Org-picker navigation: `setSelectedSlug` writes a cookie and invalidates
+  queries without navigating, so every Win-only and Serve-only route has the
+  hole this home now patches locally. Fix it once in the picker.
+- Analytics: the home fires nothing of its own yet. Run the
+  `instrument-analytics-event` skill for card impressions/clicks, kickoffs, and
+  the ballot-outcome answer.
+
+## Known dead ends (do not design around these)
+
+- **Outreach-derived issue data does not exist.** No issue field on door-knock or
+  phone-bank interactions, notes never aggregated, no eCanvasser survey-answer
+  read, and campaign-scoped issue ranking is Serve-only. Use Haystaq (M9) as the
+  bootstrap instead.
+- **Funds raised does not exist.** No donations model, no `amountRaised`.
+- **The client cannot request more tracker tasks.** `POST
+  /v1/campaigns/tracker-tasks/generate` takes no channel and throws outside
+  non-prod. Cleared-week suggestions must be CTAs, not generated tasks.
+- **Tasks carry no effort estimate**, so the design's "impact and effort" line
+  can only show the due date today.
