@@ -23,6 +23,11 @@ vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [campaignMock()],
 }))
 
+const organizationMock = vi.fn()
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => organizationMock(),
+}))
+
 const trackerTasksMock = vi.fn<() => TrackerTasksResult>()
 vi.mock(
   '../campaign-plan/components/campaignStrategy/useTrackerTasks',
@@ -115,6 +120,7 @@ beforeEach(() => {
   createMock.mockReset()
   listMessagesMock.mockReset()
   streamMessageMock.mockReset()
+  organizationMock.mockReturnValue({ slug: 'renee-for-council' })
   campaignMock.mockReturnValue({
     ballotStatus: 'on-the-ballot',
     details: { electionDate: '2026-11-03' },
@@ -144,6 +150,32 @@ describe('CampaignManagerChatHome', () => {
     expect(createMock).toHaveBeenCalledTimes(1)
     expect(listMessagesMock).toHaveBeenCalledWith('conv_1')
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  // Switching orgs sets a cookie and invalidates queries; it does not remount
+  // this page. A once-per-mount resolve would leave the previous org's
+  // conversation on screen under the new org.
+  it('re-resolves the conversation when the org changes', async () => {
+    createMock.mockResolvedValueOnce({ conversationId: 'conv_1' })
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_1',
+        role: 'assistant',
+        content: "Hi Renee, I'm your Campaign Manager.",
+        createdAt: '2026-09-09T00:00:00.000Z',
+      },
+    ])
+    const { rerender } = render(<CampaignManagerChatHome />)
+    await waitFor(() => expect(createMock).toHaveBeenCalledTimes(1))
+
+    createMock.mockResolvedValueOnce({ conversationId: 'conv_2' })
+    listMessagesMock.mockResolvedValue([])
+    organizationMock.mockReturnValue({ slug: 'renee-for-mayor' })
+    rerender(<CampaignManagerChatHome />)
+
+    await waitFor(() => expect(createMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(listMessagesMock).toHaveBeenCalledWith('conv_2'))
   })
 
   it('shows the hero with the campaign week and days to election', async () => {

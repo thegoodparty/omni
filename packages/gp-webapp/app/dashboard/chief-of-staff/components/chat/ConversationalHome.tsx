@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { reportErrorToSentry } from '@shared/sentry'
+import { useOrganization } from '@shared/organization-picker'
 import ChiefOfStaffChatBody, {
   type ChatSuggestion,
 } from './ChiefOfStaffChatBody'
@@ -76,20 +77,34 @@ export default function ConversationalHome({
   suggestions,
 }: Props): React.JSX.Element {
   const queryClient = useQueryClient()
+  const organization = useOrganization()
+  const orgSlug = organization?.slug ?? null
   const [resolving, setResolving] = useState(true)
   const [conversationId, setConversationId] = useState<string | null>(null)
-  // Guards the effect against a double-invoke (React strict mode, a fast
-  // remount): each createConversation call is a round trip, and on a scope
-  // without resume it would mint a second thread.
-  const resolvedRef = useRef(false)
+  // The org slug this component last resolved a conversation for, not a
+  // boolean. It guards a double-invoke (strict mode, a fast remount) — each
+  // createConversation is a round trip, and on a scope without resume it would
+  // mint a second thread — while still re-resolving on an org switch. Switching
+  // orgs does not remount this page (the picker sets a cookie and invalidates
+  // queries), so a plain once-per-mount guard would leave the previous org's
+  // conversation on screen under the new org.
+  const resolvedForRef = useRef<string | null | undefined>(undefined)
 
   const { chatApi, historyKey } = config
   useEffect(() => {
-    if (resolvedRef.current) return
-    resolvedRef.current = true
+    if (resolvedForRef.current === orgSlug) return
+    resolvedForRef.current = orgSlug
+    setResolving(true)
+    setConversationId(null)
     void (async () => {
       try {
+        // The org header rides the cookie the picker already wrote, so this
+        // resolves against the org just switched to.
         const { conversationId: id } = await chatApi.createConversation()
+        // A later switch may have superseded this resolve while it was in
+        // flight; drop the stale result rather than showing the wrong org's
+        // conversation.
+        if (resolvedForRef.current !== orgSlug) return
         setConversationId(id)
         // A conversation now exists, so the history popover's list is stale.
         void queryClient.invalidateQueries({ queryKey: historyKey })
@@ -98,12 +113,13 @@ export default function ConversationalHome({
           surface: 'conversational-home',
           phase: 'init',
         })
+        if (resolvedForRef.current !== orgSlug) return
         setConversationId(null)
       } finally {
-        setResolving(false)
+        if (resolvedForRef.current === orgSlug) setResolving(false)
       }
     })()
-  }, [chatApi, historyKey, queryClient])
+  }, [chatApi, historyKey, queryClient, orgSlug])
 
   if (resolving) {
     return (
