@@ -23,43 +23,53 @@ const PURPOSE_GOALS: Record<SmsPurpose, string> = {
   custom: "deliver the candidate's own message as written",
 }
 
-// The Candidate Success message structures (2026-09-08), transcribed from
-// the team's published intro-text templates — the CS input the phase-2 TDD
-// left as an open question. Each structure describes only the BODY: the
-// app owns the greeting/identification above it and the disclosures below.
+// The Candidate Success message structures (2026-09-08, refined per CS
+// feedback 2026-09-09), transcribed from the team's published intro-text
+// templates — the CS input the phase-2 TDD left as an open question. Each
+// structure describes only the BODY: the app owns the greeting and
+// identification above it and the disclosures below.
 const PURPOSE_STRUCTURES: Record<SmsPurpose, string> = {
   introduce_myself:
-    'Structure (the three-bullet formula): one sentence stating the ' +
-    "candidate's vision for the community; then the line \"Here's how " +
-    'I\'ll work for you:\" followed by exactly three short bullet points, ' +
-    'each on its own line starting with \"• \", drawn from the stated ' +
-    'priorities in the campaign materials; then one closing line that ' +
-    'invites a reply or looks ahead to the election. If the materials ' +
-    'contain no stated priorities, skip the bullets and instead write a ' +
-    "short narrative of the candidate's experience and values from the " +
-    'materials.',
+    'Structure (the three-bullet formula): one short line of who the ' +
+    'candidate is, drawn from the materials (occupation, family, ' +
+    'community roots) — voters need a reason to trust before any ask; ' +
+    'then one sentence of vision; then the line "My priorities:" ' +
+    'followed by exactly three short bullet points, each on its own ' +
+    'line starting with \"• \", drawn from the stated priorities in ' +
+    'the materials — each bullet names the concrete HOW, not just the ' +
+    'topic (\"Fix our roads with a real maintenance plan, not ' +
+    'patchwork\", never just \"Fix our roads\"); then one closing ' +
+    'line inviting a reply. If the materials contain no stated ' +
+    'priorities, skip the bullets and instead write a short narrative ' +
+    "of the candidate's experience and values from the materials.",
   persuade_voters:
     'Structure: one line on what sets the candidate apart (independent, ' +
     'not beholden to special interests — only as supported by the ' +
-    'materials); then up to three \"• \" bullet lines of stated ' +
-    'priorities from the materials; then a direct invitation to text ' +
-    'back and hear how the candidate will be different.',
+    'materials); then "My priorities:" with up to three "• " ' +
+    'bullet lines of stated priorities from the materials, each with ' +
+    'its concrete HOW, at the same specificity an intro message would ' +
+    'use; then a direct invitation to reply and ask how the candidate ' +
+    'will be different.',
   event_invite:
-    'Structure: a warm invitation naming why the gathering matters and ' +
-    'a reply-to-RSVP ask. Event specifics (date, time, place) come from ' +
-    'the candidate editing the draft — never invent them; write around ' +
-    'them without placeholders.',
+    'Structure: a warm invitation naming why the gathering matters; ' +
+    'then a details line the candidate fills in before sending, ' +
+    'formatted exactly as \"[Date] | [Time] | [Location]\"; then a ' +
+    'reply-to-RSVP ask. Never invent event specifics.',
   early_voting:
     'Structure (the early-voting text): lead with the fact that early ' +
     'voting is underway and why local races matter; ask directly for ' +
-    'their vote; then one line \"My focus is on: ...\" listing two or ' +
-    'three stated priorities from the materials; close by encouraging ' +
-    'them to make a plan to vote.',
+    'their vote; then one line "My focus: ..." listing two or three ' +
+    'stated priorities from the materials; then a logistics line with ' +
+    'poll hours and the early-voting end date — as \"[hours]\" and ' +
+    '\"[date]\" placeholders unless the materials provide them; close ' +
+    'by encouraging them to make a plan to vote.',
   election_day_turnout:
     'Structure: lead with election day being here and why local races ' +
-    'matter; ask directly for their vote; then one line \"My focus is ' +
-    'on: ...\" listing two or three stated priorities from the ' +
-    'materials; close by urging them to the polls today.',
+    'matter; ask directly for their vote; then one line "My focus: ' +
+    '...\" listing two or three stated priorities from the materials; ' +
+    'then a deadline line with the poll closing time — as a ' +
+    '\"[time]\" placeholder unless the materials provide it; close by ' +
+    'urging them to the polls today.',
   custom: '',
 }
 
@@ -93,6 +103,13 @@ const DRAFT_SYSTEM_PROMPT = [
   "- If the campaign materials include the campaign's website, you may",
   '  include it once, as a plain domain, near the close. Never invent',
   '  or shorten a URL; with no website in the materials, include none.',
+  '- Invite responses as replies to this message (\"You can reply here',
+  '  with questions\") — never \"text me back\" or \"call me\": the',
+  '  message is sent from a temporary campaign number.',
+  '- For logistics the materials do not provide (poll hours, dates,',
+  '  times, locations), use short square-bracket placeholders like',
+  '  [time] or [date] for the candidate to fill in before sending;',
+  '  never invent real-sounding specifics.',
   '- Do NOT introduce the candidate by name or office, and do NOT add',
   '  any opt-out or paid-for-by language: the app wraps your text with',
   '  both.',
@@ -117,7 +134,8 @@ const IMPROVE_SYSTEM_PROMPT = [
   "  keep the author's meaning, structure, and voice.",
   '- Keep roughly the same length; never exceed 800 characters. Keep',
   "  the author's line breaks and bullets. No hashtags or emojis; keep",
-  '  any website the author included, unchanged.',
+  '  any website the author included, unchanged, and keep any',
+  '  square-bracket placeholders like [time] exactly as written.',
   "- The message opens with the candidate's identification; keep it",
   '  intact. Do NOT add any opt-out language: the app appends it.',
   '- Never add policy positions, issue stances, endorsements,',

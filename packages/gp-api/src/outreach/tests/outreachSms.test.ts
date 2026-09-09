@@ -71,7 +71,8 @@ describe('POST /v1/outreach/sms/draft', () => {
       (m: { role: string }) => m.role === 'user',
     )?.content
     expect(userPrompt).toContain('introduce the candidate to voters')
-    expect(userPrompt).toContain("Here's how")
+    expect(userPrompt).toContain('My priorities:')
+    expect(userPrompt).toContain('concrete HOW')
     expect(userPrompt).toContain('Warm:')
     expect(userPrompt).toContain('City Council')
   })
@@ -191,7 +192,7 @@ describe('POST /v1/outreach/sms/draft', () => {
     const userPrompt = call.messages.find(
       (m: { role: string }) => m.role === 'user',
     )?.content
-    expect(userPrompt).not.toContain("Here's how")
+    expect(userPrompt).not.toContain('My priorities:')
     expect(userPrompt).not.toContain('three short bullet points')
   })
 
