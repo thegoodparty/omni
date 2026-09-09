@@ -453,6 +453,43 @@ describe('DatabricksVoterService', () => {
       expect(stats?.totalConstituents).toBe(100)
       expect(stats?.districtPopulation).toBeNull()
     })
+
+    // The mart has never shipped a NULL district_population (checked live:
+    // 0 of 109,514 rows), but the ==null check is what makes a present row
+    // with a SQL NULL value collapse into the same state as an absent row --
+    // pin that branch directly rather than only the absent-row case above.
+    it('maps a present row whose value is SQL NULL to null', async () => {
+      query
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [['TOTAL', 'all', '100', '40']],
+        })
+        .mockResolvedValueOnce({ columns: [], rows: [[null]] })
+
+      const stats = await service.findStats(DISTRICT_ID)
+
+      expect(stats?.districtPopulation).toBeNull()
+    })
+
+    // The census read is decorative next to the voter scan: a Databricks
+    // failure on it (permission blip, timeout, transient error) must not
+    // fail the whole findStats call the contacts card and polls sampling
+    // depend on. It has to fold into the same null-population state a
+    // missing row produces, with the failure still visible in the log.
+    it('isolates a census-query failure instead of rejecting the whole read', async () => {
+      query
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [['TOTAL', 'all', '100', '40']],
+        })
+        .mockRejectedValueOnce(new Error('census warehouse timeout'))
+
+      const stats = await service.findStats(DISTRICT_ID)
+
+      expect(stats).not.toBeNull()
+      expect(stats?.totalConstituents).toBe(100)
+      expect(stats?.districtPopulation).toBeNull()
+    })
   })
 
   describe('samplePeople', () => {

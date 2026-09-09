@@ -20,6 +20,7 @@ export type StatsResponse = {
   computedAt?: string
   totalConstituents: number
   totalConstituentsWithCellPhone: number
+  districtPopulation: number | null
   buckets: {
     age: DistrictStatCategory
     homeowner: DistrictStatCategory

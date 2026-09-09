@@ -398,11 +398,23 @@ export class DatabricksVoterService {
   // null/unavailable result that scan alone decides.
   async findStats(districtId: string): Promise<ComputedDistrictStats | null> {
     const district = await this.resolveDistrict(districtId)
-    const [{ rows }, censusResult] = await Promise.all([
-      this.run(buildDistrictStatsSql(district)),
-      this.run(buildDistrictCensusSql(district)),
-    ])
-    const rawPopulation = censusResult.rows[0]?.[0]
+    const statsRead = this.run(buildDistrictStatsSql(district))
+    // Failure-isolated: this figure is decorative next to the voter scan, so
+    // a Databricks blip on it must not fail the primary stats read every
+    // contacts card and poll depends on. A rejection here folds into the
+    // same null-population state a district with no census row produces —
+    // the failure still surfaces in the warn log, it just never propagates.
+    const censusRead = this.run(buildDistrictCensusSql(district)).catch(
+      (err: unknown) => {
+        this.logger.warn(
+          { err, districtId },
+          'district census lookup failed; census population omitted',
+        )
+        return null
+      },
+    )
+    const [{ rows }, censusResult] = await Promise.all([statsRead, censusRead])
+    const rawPopulation = censusResult?.rows[0]?.[0]
     // The mart's block allocation conserves population mass exactly rather
     // than whole persons per block, so the value is fractional by design.
     const districtPopulation =
