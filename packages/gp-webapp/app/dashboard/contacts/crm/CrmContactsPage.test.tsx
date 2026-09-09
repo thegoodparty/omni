@@ -66,12 +66,15 @@ vi.mock('./wizard/CreateListWizard', () => ({
 vi.mock('./DistrictStatCard', () => ({
   default: ({
     label,
+    populationLabel,
     additionalRows,
   }: {
     label: string
+    populationLabel?: string
     additionalRows?: Array<{ label: string; value: number }>
   }) => (
     <div data-testid="district-stat">
+      {populationLabel && <div>{populationLabel}</div>}
       <div>{label}</div>
       {additionalRows?.map((row) => (
         <div key={row.label}>{`${row.label}: ${row.value}`}</div>
@@ -286,7 +289,7 @@ describe('CrmContactsPage — universe stat card rows (ENG-10746)', () => {
     expect(screen.getByText('Voters needed to win: 21160')).toBeInTheDocument()
   })
 
-  it('Serve renders the single constituents row even when a campaign has metrics', () => {
+  it('Serve renders the records-available row and the census row (no raceTargetMetrics rows)', () => {
     setContext({ isWinContext: false })
     mockCampaign.current = {
       raceTargetMetrics: { projectedTurnout: 42318, winNumber: 21160 },
@@ -294,11 +297,22 @@ describe('CrmContactsPage — universe stat card rows (ENG-10746)', () => {
 
     render(<CrmContactsPage />)
 
+    expect(screen.getByText('Records available')).toBeInTheDocument()
     expect(
       screen.getByText('Total constituents in your district'),
     ).toBeInTheDocument()
     expect(screen.queryByText(/Projected turnout/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Voters needed to win/)).not.toBeInTheDocument()
+  })
+
+  it('Win passes no populationLabel to the district stat card', () => {
+    setContext({ isWinContext: true })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.queryByText('Total constituents in your district'),
+    ).not.toBeInTheDocument()
   })
 })
 

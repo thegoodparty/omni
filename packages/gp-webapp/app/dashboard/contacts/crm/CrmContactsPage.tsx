@@ -165,6 +165,7 @@ export const CrmContactsPage = () => {
                   <DistrictStatCard
                     className="mt-4"
                     label={labels.districtTotalLabel}
+                    populationLabel={labels.districtPopulationLabel}
                     additionalRows={universeMetricRows}
                   />
                 </div>

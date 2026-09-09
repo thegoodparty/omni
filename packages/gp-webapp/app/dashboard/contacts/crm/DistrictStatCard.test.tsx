@@ -80,11 +80,67 @@ describe('DistrictStatCard', () => {
   it('renders exactly one row when no additional rows are passed (Serve)', async () => {
     api.mock('GET /v1/contacts/stats', { status: 200, data: STATS_RESPONSE })
 
-    render(<DistrictStatCard label="Total constituents in your district" />)
+    render(<DistrictStatCard label="Records available" />)
 
     expect(await screen.findByText('30,000')).toBeInTheDocument()
     expect(
       screen.queryByText(/Projected turnout|Voters needed to win/),
     ).not.toBeInTheDocument()
+  })
+
+  it('renders no census row when no populationLabel is passed (Win)', async () => {
+    api.mock('GET /v1/contacts/stats', { status: 200, data: STATS_RESPONSE })
+
+    render(<DistrictStatCard label="Voters in your district" />)
+
+    expect(await screen.findByText('30,000')).toBeInTheDocument()
+    expect(
+      screen.queryByText('Total constituents in your district'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('hides the census row when districtPopulation is null (not "Unavailable", not a zero)', async () => {
+    api.mock('GET /v1/contacts/stats', {
+      status: 200,
+      data: { ...STATS_RESPONSE, districtPopulation: null },
+    })
+
+    render(
+      <DistrictStatCard
+        label="Records available"
+        populationLabel="Total constituents in your district"
+      />,
+    )
+
+    expect(await screen.findByText('30,000')).toBeInTheDocument()
+    expect(
+      screen.queryByText('Total constituents in your district'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders the census row above the records row, in that order, when both are present', async () => {
+    api.mock('GET /v1/contacts/stats', { status: 200, data: STATS_RESPONSE })
+
+    render(
+      <DistrictStatCard
+        label="Records available"
+        populationLabel="Total constituents in your district"
+      />,
+    )
+
+    expect(await screen.findByText('45,000')).toBeInTheDocument()
+    expect(screen.getByText('30,000')).toBeInTheDocument()
+
+    const populationRow = screen.getByText(
+      'Total constituents in your district',
+    )
+    const recordsRow = screen.getByText('Records available')
+    // A real DOM-order check: asserting call order or index into a queryAll
+    // array would still pass if the rows swapped but both still matched.
+    // compareDocumentPosition fails if the records row ends up first.
+    expect(
+      populationRow.compareDocumentPosition(recordsRow) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
   })
 })

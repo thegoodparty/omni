@@ -13,6 +13,13 @@ interface StatRow {
 
 interface DistrictStatCardProps {
   label: string
+  // The 2020-census population row rendered above `label`'s row. Win passes
+  // no label (no census row at all); Serve passes one, but the row still
+  // hides itself when the stats query's districtPopulation is null — a
+  // common state (the mart's voter-block allocation legitimately has no
+  // coverage for some districts), not an error worth an "Unavailable" or a
+  // silent zero.
+  populationLabel?: string
   // ENG-10746: Win mode appends the raceTargetMetrics rows (projected
   // turnout, voters needed to win) under the fetched district-total row.
   // These values arrive synchronously from the campaign context, so they
@@ -32,14 +39,30 @@ interface DistrictStatCardProps {
 // card (label left, value right) in ENG-10725.
 export default function DistrictStatCard({
   label,
+  populationLabel,
   additionalRows,
   className,
 }: DistrictStatCardProps) {
   const query = useQuery(districtStatsQueryOptions)
+  const population =
+    query.status === 'success' ? query.data.districtPopulation : null
 
   return (
     <Card className={cn('w-full gap-0 rounded-lg py-0', className)}>
-      <div className="flex items-center justify-between gap-4 px-4 py-3">
+      {populationLabel && population !== null && (
+        <div className="flex items-center justify-between gap-4 px-4 py-3">
+          <span className="text-sm font-normal">{populationLabel}</span>
+          <span className="text-lg font-semibold">
+            {numberFormatter(population)}
+          </span>
+        </div>
+      )}
+      <div
+        className={cn(
+          'flex items-center justify-between gap-4 px-4 py-3',
+          populationLabel && population !== null && 'border-t border-border',
+        )}
+      >
         <span className="text-sm font-normal">{label}</span>
         {/* React Query v5's `isLoading` is `isPending && isFetching` — on the
             very first synchronous render `isFetching` is still false, so

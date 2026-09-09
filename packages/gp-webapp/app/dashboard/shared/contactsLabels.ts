@@ -22,6 +22,9 @@ export interface ContactsLabels {
   // ENG-10721 (CRM lists UI prototype parity): the district stat card and
   // lists-index section on crm/CrmContactsPage.tsx carry their own copy.
   districtTotalLabel: string
+  // The census population row above districtTotalLabel on the same card.
+  // Win has no census figure, hence optional — undefined there hides the row.
+  districtPopulationLabel?: string
   listsSectionTitle: string
   listsSectionSubtitle: string
   // ENG-10725 (Lovable pixel parity): the sentence under the universe h1,
@@ -82,7 +85,8 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
         universeTitle: 'Your Constituent Universe',
         searchPlaceholder: 'Search for any constituent contact',
         searchNoResults: 'No constituents found',
-        districtTotalLabel: 'Total constituents in your district',
+        districtTotalLabel: 'Records available',
+        districtPopulationLabel: 'Total constituents in your district',
         listsSectionTitle: 'Constituent Lists',
         listsSectionSubtitle:
           'Constituent lists are segments you can create for targeted outreach',
