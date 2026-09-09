@@ -68,9 +68,10 @@ export default function RenameListDialog({
         name: nextName,
       }).then((res) => res.data),
     onSuccess: async () => {
-      // ENG-10767: the legacy FiltersSheet fired Segment Updated for filter
-      // edits; action: 'rename' distinguishes this name-only update (the
-      // legacy fires carry a filters property instead). Ready-gated like the
+      // ENG-10767: Segment Updated covers any edit to a saved list, so
+      // action: 'rename' is what marks this fire as a name-only update and
+      // keeps it separable in Amplitude from fires that changed the filters
+      // (those carry a filters property instead). Ready-gated like the
       // surface's other events.
       if (isWinContextReady) {
         trackEvent(EVENTS.Contacts.SegmentUpdated, {

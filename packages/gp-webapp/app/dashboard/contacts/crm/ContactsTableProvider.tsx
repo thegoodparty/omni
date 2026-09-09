@@ -175,9 +175,8 @@ const contactTableQueryOptions = (params: {
     refetchOnMount: false,
     // Contacts 4xx are deterministic (VOTER_DATA_UNAVAILABLE / not-pro =
     // 400); retrying just makes ineligible users wait through the global
-    // 2-retry backoff before the ineligible state renders, and the page+1
-    // prefetch doubles the wasted requests. Keep the global budget for
-    // everything else (5xx, network).
+    // 2-retry backoff before the ineligible state renders. Keep the global
+    // budget for everything else (5xx, network).
     retry: (failureCount, error) =>
       !(
         error instanceof FetchError &&
@@ -261,22 +260,6 @@ export const ContactsTableProvider = ({
     // Gated on the proactive predicate only. Gating on the union would let this
     // query's own error disable the query that produced it.
     enabled: !isDistrictUnresolvable,
-  })
-
-  // Prefetch the next page, but only once we know there is one. Without this
-  // guard the prefetch fires a second /v1/contacts request on every view —
-  // including the last page, where page+1 has no results — doubling the list
-  // request volume for no benefit.
-  useQuery({
-    ...contactTableQueryOptions({
-      orgSlug,
-      page: currentPage + 1,
-      resultsPerPage: pageSize,
-      segment: currentSegment,
-      search: searchTerm,
-    }),
-    enabled:
-      !isDistrictUnresolvable && !!contactsQuery.data?.pagination?.hasNextPage,
   })
 
   const personQuery = useQuery({

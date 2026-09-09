@@ -28,6 +28,10 @@ const STATE_DISTRICT_ID = 'aaaaaaaa-1111-4111-8111-111111111111'
 describe('DatabricksVoterService', () => {
   let query: ReturnType<typeof vi.fn>
   let findDistrictById: ReturnType<typeof vi.fn>
+  let logger: {
+    warn: ReturnType<typeof vi.fn>
+    error: ReturnType<typeof vi.fn>
+  }
   let service: DatabricksVoterService
 
   // The district comes from Postgres now, so queueing one is not a warehouse
@@ -41,12 +45,13 @@ describe('DatabricksVoterService', () => {
   beforeEach(() => {
     query = vi.fn()
     findDistrictById = vi.fn()
+    logger = { warn: vi.fn(), error: vi.fn() }
     service = new DatabricksVoterService(
       {
         setContext: vi.fn(),
         info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
+        warn: logger.warn,
+        error: logger.error,
         debug: vi.fn(),
       } as never,
       stubClient(),
@@ -489,6 +494,47 @@ describe('DatabricksVoterService', () => {
       expect(stats).not.toBeNull()
       expect(stats?.totalConstituents).toBe(100)
       expect(stats?.districtPopulation).toBeNull()
+    })
+
+    // The request SUCCEEDS, so nothing about it may log at error -- an
+    // error-level line on a 200 is an alerting hazard, and Loki read volume
+    // is what we pay for. `PeopleDbxUnavailableError` specifically, because
+    // that is the class the shared `run()` wrapper logs at error and
+    // translates into a 502; the census read must not go through it.
+    it('logs a census failure at warn only, naming the census statement', async () => {
+      query
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [['TOTAL', 'all', '100', '40']],
+        })
+        .mockRejectedValueOnce(
+          new PeopleDbxUnavailableError('other side closed'),
+        )
+
+      const stats = await service.findStats(DISTRICT_ID)
+
+      expect(stats?.districtPopulation).toBeNull()
+      expect(logger.error).not.toHaveBeenCalled()
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ districtId: DISTRICT_ID }),
+        expect.stringContaining('census'),
+      )
+    })
+
+    // The voter scan is the opposite contract: it stays exactly as loud as
+    // it was. A warehouse failure there is a real 502, so it must still log
+    // at error and propagate rather than degrading to a null population.
+    it('leaves a voter-scan failure loud and propagating', async () => {
+      query
+        .mockRejectedValueOnce(
+          new PeopleDbxUnavailableError('other side closed'),
+        )
+        .mockResolvedValueOnce({ columns: [], rows: [] })
+
+      await expect(service.findStats(DISTRICT_ID)).rejects.toThrow(
+        BadGatewayException,
+      )
+      expect(logger.error).toHaveBeenCalled()
     })
   })
 

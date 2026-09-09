@@ -77,7 +77,7 @@ describe('DistrictStatCard', () => {
     expect(screen.getByText('21,160')).toBeInTheDocument()
   })
 
-  it('renders exactly one row when no additional rows are passed (Serve)', async () => {
+  it('renders no Win metric rows when additionalRows is omitted', async () => {
     api.mock('GET /v1/contacts/stats', { status: 200, data: STATS_RESPONSE })
 
     render(<DistrictStatCard label="Records available" />)

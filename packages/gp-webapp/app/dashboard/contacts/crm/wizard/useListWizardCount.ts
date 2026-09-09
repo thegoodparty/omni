@@ -26,11 +26,11 @@ export interface ListWizardCountResult {
   errorMessage: string | undefined
 }
 
-// Debounced live running-total for the list wizard's build button, mirroring
-// FiltersSheet's ENG-10517 count pattern: the query is keyed on the debounced
-// payload, so a slower response for a superseded payload resolves into its
-// own cache entry and can never overwrite the currently-rendered total
-// (same guarantee the typeahead's request-sequencing relies on).
+// Debounced live running-total for the list wizard's build button
+// (ENG-10517). The query is keyed on the debounced payload, so a slower
+// response for a superseded payload resolves into its own cache entry and
+// can never overwrite the currently-rendered total (same guarantee the
+// typeahead's request-sequencing relies on).
 export const useListWizardCount = (
   payload: Record<string, unknown>,
   enabled: boolean,
@@ -61,8 +61,7 @@ export const useListWizardCount = (
       ),
     enabled,
     // The count is an at-a-glance affordance while building; a window-focus
-    // refetch mid-build would be disruptive and waste a query (same reasoning
-    // as FiltersSheet's countQuery).
+    // refetch mid-build would be disruptive and waste a query.
     refetchOnWindowFocus: false,
   })
 

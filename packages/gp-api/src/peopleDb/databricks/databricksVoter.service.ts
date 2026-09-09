@@ -404,15 +404,22 @@ export class DatabricksVoterService {
     // contacts card and poll depends on. A rejection here folds into the
     // same null-population state a district with no census row produces —
     // the failure still surfaces in the warn log, it just never propagates.
-    const censusRead = this.run(buildDistrictCensusSql(district)).catch(
-      (err: unknown) => {
+    //
+    // Deliberately NOT through `run()`: that wrapper logs at error and
+    // translates into an HTTP exception, both of which are wrong for a
+    // failure this path swallows. Routing through it would emit an
+    // error-level line on a request that ultimately succeeds, which is
+    // exactly the kind of alert noise that costs us in query volume. The
+    // client is still the same one, so the statement id is still collected.
+    const censusRead = this.client
+      .query(buildDistrictCensusSql(district))
+      .catch((err: unknown) => {
         this.logger.warn(
           { err, districtId },
           'district census lookup failed; census population omitted',
         )
         return null
-      },
-    )
+      })
     const [{ rows }, censusResult] = await Promise.all([statsRead, censusRead])
     const rawPopulation = censusResult?.rows[0]?.[0]
     // The mart's block allocation conserves population mass exactly rather

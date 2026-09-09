@@ -65,9 +65,10 @@ export default function DeleteListDialog({
       await queryClient.invalidateQueries({
         queryKey: outreachAudienceListsKey(orgSlug),
       })
-      // ENG-10767: same event the legacy DeleteSegment fired — parity for
-      // the "lists deleted" chart. Ready-gated like the surface's other
-      // events so an unsettled mode can't emit the wrong context.
+      // ENG-10767: the shared Contacts-group event rather than a CRM-only
+      // one, so the "lists deleted" chart stays one continuous series.
+      // Ready-gated like the surface's other events so an unsettled mode
+      // can't emit the wrong context.
       if (isWinContextReady) {
         trackEvent(EVENTS.Contacts.SegmentDeleted, {
           context: isWinContext ? 'win' : 'serve',

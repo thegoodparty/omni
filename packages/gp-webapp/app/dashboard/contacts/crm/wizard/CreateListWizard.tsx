@@ -333,8 +333,8 @@ export default function CreateListWizard({
         }
       }
       // A failed cache refresh must not strand the sheet open after the
-      // create itself succeeded (React Query doesn't catch onSuccess throws;
-      // DeleteSegment guards the same call).
+      // create itself succeeded — React Query doesn't catch onSuccess
+      // throws, so an unguarded rejection here would skip the close below.
       await refreshCustomSegments().catch((error) =>
         console.log('Error refreshing segments after create', error),
       )

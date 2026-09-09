@@ -59,9 +59,8 @@ test.describe('Win Contacts', () => {
     await expect(page.getByRole('heading', { name: 'Voter Data' })).toBeVisible(
       { timeout: 20_000 },
     )
-    // The rebuilt page has no member table — moved from the retired
-    // win-crm-default-on.spec.ts, which pinned this for a zero-override Win
-    // load.
+    // The rebuilt page has no member table by design, and this spec sets no
+    // flag override — so a zero-override Win load must land on it.
     await expect(page.locator('table')).toHaveCount(0)
     await expect(
       page.getByRole('heading', { name: 'Your Voter Universe' }),
@@ -188,8 +187,8 @@ test.describe('Win Contacts', () => {
       panel.getByText('Political Party', { exact: true }),
     ).toBeVisible({ timeout: 10_000 })
 
-    // StatusRow and NotesSection are mounted unconditionally for Win now (no
-    // flag gates them) — moved from the retired win-crm-default-on.spec.ts.
+    // StatusRow and NotesSection are mounted unconditionally for Win — no
+    // flag gates them, and this spec sets no override.
     await expect(
       panel.getByText('Voter Likelihood', { exact: true }),
     ).toBeVisible({ timeout: 10_000 })

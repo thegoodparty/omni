@@ -29,14 +29,14 @@ interface DistrictStatCardProps {
 }
 
 // ENG-10721 (locked-prototype parity): the "Total voters/constituents in
-// your district" stat card on crm/CrmContactsPage.tsx. Reuses the exact
-// GET /v1/contacts/stats query the legacy ContactsStatsSection.tsx already
-// fetches (districtStatsQueryOptions, keyed 'contacts-stats') — no new
-// endpoint. Split into its own component (rather than inlined in
-// CrmContactsPage) so page-level tests that don't care about this fetch can
-// mock it away, matching how ContactTypeahead/PersonOverlay/CreateListWizard
-// are already mocked there. Restyled to the Lovable full-column-width row
-// card (label left, value right) in ENG-10725.
+// your district" stat card on crm/CrmContactsPage.tsx. Reads the shared
+// GET /v1/contacts/stats query (districtStatsQueryOptions, keyed
+// 'contacts-stats') — no new endpoint. Split into its own component (rather
+// than inlined in CrmContactsPage) so page-level tests that don't care about
+// this fetch can mock it away, matching how
+// ContactTypeahead/PersonOverlay/CreateListWizard are already mocked there.
+// Restyled to the Lovable full-column-width row card (label left, value
+// right) in ENG-10725.
 export default function DistrictStatCard({
   label,
   populationLabel,
@@ -46,10 +46,14 @@ export default function DistrictStatCard({
   const query = useQuery(districtStatsQueryOptions)
   const population =
     query.status === 'success' ? query.data.districtPopulation : null
+  // Gates the census row's existence AND the border that separates it from
+  // the row below. Written once so the two can't drift into a `border-t`
+  // with nothing above it.
+  const showPopulationRow = Boolean(populationLabel) && population !== null
 
   return (
     <Card className={cn('w-full gap-0 rounded-lg py-0', className)}>
-      {populationLabel && population !== null && (
+      {showPopulationRow && (
         <div className="flex items-center justify-between gap-4 px-4 py-3">
           <span className="text-sm font-normal">{populationLabel}</span>
           <span className="text-lg font-semibold">
@@ -60,7 +64,7 @@ export default function DistrictStatCard({
       <div
         className={cn(
           'flex items-center justify-between gap-4 px-4 py-3',
-          populationLabel && population !== null && 'border-t border-border',
+          showPopulationRow && 'border-t border-border',
         )}
       >
         <span className="text-sm font-normal">{label}</span>
@@ -71,8 +75,7 @@ export default function DistrictStatCard({
             starts. `status !== 'success'` covers pending AND error, so the
             skeleton (not a bogus zero) shows until data actually resolves;
             the error branch below still renders "Unavailable" once
-            status flips to 'error'. Same guard ContactsStatsSection.tsx
-            uses for this identical query. */}
+            status flips to 'error'. */}
         {query.status !== 'success' ? (
           query.isError ? (
             <span className="text-lg font-semibold">Unavailable</span>

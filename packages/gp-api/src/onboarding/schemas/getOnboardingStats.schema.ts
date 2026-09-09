@@ -26,6 +26,10 @@ export const onboardingStatsResponseSchema = z.object({
   computedAt: z.string().optional(),
   totalConstituents: z.number(),
   totalConstituentsWithCellPhone: z.number(),
+  // Shares the webapp's `ContactsStats` type with GET /v1/contacts/stats, so
+  // omitting it here would have Zod strip a field the type promises. The
+  // shared read already computes it, so carrying it costs nothing.
+  districtPopulation: z.number().nullable(),
   buckets: z.object({
     age: districtStatCategorySchema,
     homeowner: districtStatCategorySchema,

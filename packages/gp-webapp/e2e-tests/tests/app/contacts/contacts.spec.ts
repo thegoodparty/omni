@@ -65,9 +65,8 @@ test.describe('CRM Contacts Page (Serve)', () => {
       0,
     )
 
-    // --- Person overlay: Notes is mounted unconditionally (no flag gates it
-    // any more) — moved from the retired win-crm-default-on.spec.ts, which
-    // pinned this same affordance for Serve.
+    // --- Person overlay: Notes is mounted unconditionally — no flag gates
+    // it, and this spec sets no override.
     const people = await fetchListMembers(client, 'all')
     const person = people.find(
       (candidate) => fullPersonName(candidate).length >= 3,
