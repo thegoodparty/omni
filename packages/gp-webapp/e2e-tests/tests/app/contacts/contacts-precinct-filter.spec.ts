@@ -4,7 +4,6 @@ import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import {
   closeCrmSheet,
   crmSheet,
-  enableCrmFlags,
   gotoCrmContacts,
   readSettledWizardCount,
   saveWizardList,
@@ -107,7 +106,6 @@ const clearFilters = async (
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
-  await enableCrmFlags(page)
 })
 
 // Four Win assertions in ONE test, not four. Each `setupProCampaignUser` mints

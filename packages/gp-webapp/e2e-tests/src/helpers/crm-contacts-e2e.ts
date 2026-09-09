@@ -1,32 +1,11 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 import type { AxiosInstance } from 'axios'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { NavigationHelper } from 'src/helpers/navigation.helper'
 import { personContactPanel } from 'src/helpers/contacts-e2e'
 
-// Helpers for the flag-on CRM contacts page (ENG-10756 port). win-crm hit
-// 100% and was removed (ENG-11009): Win CRM is unconditional now, so these
-// helpers only carry serve-crm. The legacy flag-off helpers stay in
-// contacts-e2e.ts — contacts-legacy-smoke.spec.ts (Serve-only) still imports
-// them.
-
-// Force the Serve CRM rebuild on via the off-prod override cookie. Call
-// BEFORE auth/navigation so the first SSR render already sees it — flag
-// resolution is server-side and this cookie is the only deterministic lever
-// (e2e-tests/CLAUDE.md "Flag-gated surfaces"). `overrides` merges in
-// additional flags without disturbing serve-crm.
-export const enableCrmFlags = async (
-  page: Page,
-  overrides: Record<string, string> = {},
-): Promise<void> => {
-  await setFlagOverrides(page, { 'serve-crm': 'on', ...overrides })
-}
-
-// Pin serve-crm off for the retained Serve legacy smoke, so it keeps testing
-// the old surface deterministically even after serve-crm ramps in Amplitude.
-export const disableCrmFlags = async (page: Page): Promise<void> => {
-  await setFlagOverrides(page, { 'serve-crm': 'off' })
-}
+// Helpers for the CRM contacts page (ENG-10756 port). Contacts is one
+// unconditional surface for both Win and Serve now — no flag override needed
+// to reach it.
 
 export const gotoCrmContacts = async (page: Page): Promise<void> => {
   await page.goto('/dashboard/contacts', { waitUntil: 'domcontentloaded' })
