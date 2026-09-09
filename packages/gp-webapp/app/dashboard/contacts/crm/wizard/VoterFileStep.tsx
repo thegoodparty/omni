@@ -1,7 +1,7 @@
 'use client'
 
 import { Button, ToggleGroup, ToggleGroupItem } from '@styleguide'
-import filterSections from '../../[[...attr]]/components/configs/filters.config'
+import filterSections from '../../shared/filters.config'
 import {
   FILTER_GROUP_LABEL_CLASSNAME,
   PILL_TOGGLE_ITEM_CLASSNAME,
@@ -51,8 +51,8 @@ const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
 // status, in the Lovable prototype's order (ENG-10847; supersedes the
 // ENG-10838 single-field pull-out). Support status is a hardcoded block with
 // no config entry, so no filters.config.ts reorder could express this — and
-// the config's section order must stay untouched anyway because the legacy
-// flag-off page (FiltersSheet.tsx) renders it directly. Fields the prototype
+// the config's section order must stay untouched anyway because
+// door-knocking's WhoStep renders it directly. Fields the prototype
 // doesn't have (gender, cell phone, landline) trail at the end; a config
 // field missing from this array still renders, after the ordered set.
 const FIELD_ORDER_BELOW_SUPPORT_STATUS = [
@@ -77,10 +77,10 @@ const FIELD_ORDER_BELOW_SUPPORT_STATUS = [
 ]
 
 // Step 2 of the voter-file branch (ENG-10721 locked-prototype parity): pill
-// toggles over the same filters.config.ts sections/options FiltersSheet and
-// the original checkbox rendering used — the filter dimensions and the
-// backend payload shape (voterFileFilterTransform.util.ts) are unchanged,
-// only the control chrome is new.
+// toggles over the same filters.config.ts sections/options the original
+// checkbox rendering used — the filter dimensions and the backend payload
+// shape (voterFileFilterTransform.util.ts) are unchanged, only the control
+// chrome is new.
 export default function VoterFileStep({
   filters,
   onFiltersChange,
@@ -92,11 +92,11 @@ export default function VoterFileStep({
   isElectedOfficial,
   showRecommendedListFilters = false,
 }: VoterFileStepProps) {
-  // Political party doesn't apply to an elected official's constituent file —
-  // same exclusion FiltersSheet applies today. Contacts Made is Win-only the
-  // same way (campaign activity has no Serve equivalent), and so is Voter
-  // Likelihood: an elected official serves everyone in the district, so
-  // segmenting constituents by how reliably they vote has no Serve meaning.
+  // Political party doesn't apply to an elected official's constituent file.
+  // Contacts Made is Win-only the same way (campaign activity has no Serve
+  // equivalent), and so is Voter Likelihood: an elected official serves
+  // everyone in the district, so segmenting constituents by how reliably
+  // they vote has no Serve meaning.
   const orderIndex = (key: string) => {
     const index = FIELD_ORDER_BELOW_SUPPORT_STATUS.indexOf(key)
     return index === -1 ? FIELD_ORDER_BELOW_SUPPORT_STATUS.length : index

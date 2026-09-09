@@ -60,6 +60,7 @@ import {
   mapDistrictStatsRows,
   type ComputedDistrictStats,
 } from './databricksDistrictStatsSql.util'
+import { buildDistrictCensusSql } from './districtCensusSql.util'
 import {
   PeopleDbxStatementClient,
   PeopleDbxStatementTooLargeError,
@@ -390,11 +391,42 @@ export class DatabricksVoterService {
 
   // All five dimensions aggregated from the voter rows in one statement. Needs
   // the district resolved first, because the aggregate is scoped the way every
-  // other voter read is scoped rather than keyed on a precomputed row.
+  // other voter read is scoped rather than keyed on a precomputed row. The
+  // census lookup rides alongside it via Promise.all rather than a second
+  // await: it hits a 109k-row table, so it costs nothing next to the voter
+  // scan, and a missing census row (~25% of districts) must never affect the
+  // null/unavailable result that scan alone decides.
   async findStats(districtId: string): Promise<ComputedDistrictStats | null> {
     const district = await this.resolveDistrict(districtId)
-    const { rows } = await this.run(buildDistrictStatsSql(district))
-    return mapDistrictStatsRows(districtId, rows)
+    const statsRead = this.run(buildDistrictStatsSql(district))
+    // Failure-isolated: this figure is decorative next to the voter scan, so
+    // a Databricks blip on it must not fail the primary stats read every
+    // contacts card and poll depends on. A rejection here folds into the
+    // same null-population state a district with no census row produces —
+    // the failure still surfaces in the warn log, it just never propagates.
+    //
+    // Deliberately NOT through `run()`: that wrapper logs at error and
+    // translates into an HTTP exception, both of which are wrong for a
+    // failure this path swallows. Routing through it would emit an
+    // error-level line on a request that ultimately succeeds, which is
+    // exactly the kind of alert noise that costs us in query volume. The
+    // client is still the same one, so the statement id is still collected.
+    const censusRead = this.client
+      .query(buildDistrictCensusSql(district))
+      .catch((err: unknown) => {
+        this.logger.warn(
+          { err, districtId },
+          'district census lookup failed; census population omitted',
+        )
+        return null
+      })
+    const [{ rows }, censusResult] = await Promise.all([statsRead, censusRead])
+    const rawPopulation = censusResult?.rows[0]?.[0]
+    // The mart's block allocation conserves population mass exactly rather
+    // than whole persons per block, so the value is fractional by design.
+    const districtPopulation =
+      rawPopulation == null ? null : Math.round(Number(rawPopulation))
+    return mapDistrictStatsRows(districtId, rows, districtPopulation)
   }
 
   // Sizing comes from the district's own totals: the pre-cut divisor needs to

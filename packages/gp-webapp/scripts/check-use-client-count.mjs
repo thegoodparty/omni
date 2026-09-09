@@ -366,7 +366,15 @@ import { dirname, join, relative } from 'node:path'
 //   - RecommendedListNameDrawer: vaul Drawer for naming a saved list on
 //     recommendation accept, used by OutreachAudienceStep. Vaul is
 //     client-only.
-const BASELINE = 589
+// 2026-09-08: 589 -> 579. The rebuilt CRM contacts experience became the
+// only one, which deleted the whole pre-CRM contacts page and the flag
+// plumbing that chose between the two. Ten client components went with it:
+// the page shell and its search box, stats section, member table and its
+// server-data-table wrapper, download button, filters sheet and segment
+// section, plus the client-side gate component and the flag hook it read.
+// Nothing was converted to a server component here — the win is entirely
+// deletion, which is why it is this large in one step.
+const BASELINE = 579
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

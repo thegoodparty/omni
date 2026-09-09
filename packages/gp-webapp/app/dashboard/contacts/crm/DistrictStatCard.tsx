@@ -13,6 +13,13 @@ interface StatRow {
 
 interface DistrictStatCardProps {
   label: string
+  // The 2020-census population row rendered above `label`'s row. Win passes
+  // no label (no census row at all); Serve passes one, but the row still
+  // hides itself when the stats query's districtPopulation is null — a
+  // common state (the mart's voter-block allocation legitimately has no
+  // coverage for some districts), not an error worth an "Unavailable" or a
+  // silent zero.
+  populationLabel?: string
   // ENG-10746: Win mode appends the raceTargetMetrics rows (projected
   // turnout, voters needed to win) under the fetched district-total row.
   // These values arrive synchronously from the campaign context, so they
@@ -22,24 +29,44 @@ interface DistrictStatCardProps {
 }
 
 // ENG-10721 (locked-prototype parity): the "Total voters/constituents in
-// your district" stat card on crm/CrmContactsPage.tsx. Reuses the exact
-// GET /v1/contacts/stats query the legacy ContactsStatsSection.tsx already
-// fetches (districtStatsQueryOptions, keyed 'contacts-stats') — no new
-// endpoint. Split into its own component (rather than inlined in
-// CrmContactsPage) so page-level tests that don't care about this fetch can
-// mock it away, matching how ContactTypeahead/PersonOverlay/CreateListWizard
-// are already mocked there. Restyled to the Lovable full-column-width row
-// card (label left, value right) in ENG-10725.
+// your district" stat card on crm/CrmContactsPage.tsx. Reads the shared
+// GET /v1/contacts/stats query (districtStatsQueryOptions, keyed
+// 'contacts-stats') — no new endpoint. Split into its own component (rather
+// than inlined in CrmContactsPage) so page-level tests that don't care about
+// this fetch can mock it away, matching how
+// ContactTypeahead/PersonOverlay/CreateListWizard are already mocked there.
+// Restyled to the Lovable full-column-width row card (label left, value
+// right) in ENG-10725.
 export default function DistrictStatCard({
   label,
+  populationLabel,
   additionalRows,
   className,
 }: DistrictStatCardProps) {
   const query = useQuery(districtStatsQueryOptions)
+  const population =
+    query.status === 'success' ? query.data.districtPopulation : null
+  // Gates the census row's existence AND the border that separates it from
+  // the row below. Written once so the two can't drift into a `border-t`
+  // with nothing above it.
+  const showPopulationRow = Boolean(populationLabel) && population !== null
 
   return (
     <Card className={cn('w-full gap-0 rounded-lg py-0', className)}>
-      <div className="flex items-center justify-between gap-4 px-4 py-3">
+      {showPopulationRow && (
+        <div className="flex items-center justify-between gap-4 px-4 py-3">
+          <span className="text-sm font-normal">{populationLabel}</span>
+          <span className="text-lg font-semibold">
+            {numberFormatter(population)}
+          </span>
+        </div>
+      )}
+      <div
+        className={cn(
+          'flex items-center justify-between gap-4 px-4 py-3',
+          showPopulationRow && 'border-t border-border',
+        )}
+      >
         <span className="text-sm font-normal">{label}</span>
         {/* React Query v5's `isLoading` is `isPending && isFetching` — on the
             very first synchronous render `isFetching` is still false, so
@@ -48,8 +75,7 @@ export default function DistrictStatCard({
             starts. `status !== 'success'` covers pending AND error, so the
             skeleton (not a bogus zero) shows until data actually resolves;
             the error branch below still renders "Unavailable" once
-            status flips to 'error'. Same guard ContactsStatsSection.tsx
-            uses for this identical query. */}
+            status flips to 'error'. */}
         {query.status !== 'success' ? (
           query.isError ? (
             <span className="text-lg font-semibold">Unavailable</span>

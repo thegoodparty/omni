@@ -45,6 +45,7 @@ const statsResponse = {
   computedAt: '2026-08-01T00:00:00.000Z',
   totalConstituents: 40000,
   totalConstituentsWithCellPhone: 20000,
+  districtPopulation: null,
   buckets: {
     age: [],
     homeowner: [],

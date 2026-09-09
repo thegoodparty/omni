@@ -59,6 +59,9 @@ test.describe('Win Contacts', () => {
     await expect(page.getByRole('heading', { name: 'Voter Data' })).toBeVisible(
       { timeout: 20_000 },
     )
+    // The rebuilt page has no member table by design, and this spec sets no
+    // flag override — so a zero-override Win load must land on it.
+    await expect(page.locator('table')).toHaveCount(0)
     await expect(
       page.getByRole('heading', { name: 'Your Voter Universe' }),
     ).toBeVisible({ timeout: 20_000 })
@@ -183,6 +186,15 @@ test.describe('Win Contacts', () => {
     await expect(
       panel.getByText('Political Party', { exact: true }),
     ).toBeVisible({ timeout: 10_000 })
+
+    // StatusRow and NotesSection are mounted unconditionally for Win — no
+    // flag gates them, and this spec sets no override.
+    await expect(
+      panel.getByText('Voter Likelihood', { exact: true }),
+    ).toBeVisible({ timeout: 10_000 })
+    await expect(panel.getByRole('button', { name: 'Add a note' })).toBeVisible(
+      { timeout: 10_000 },
+    )
 
     // Win context renders the outreach Activity Feed section (ENG-10432).
     // The section header proves the Win timeline is wired for this org; a

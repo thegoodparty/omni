@@ -126,15 +126,20 @@ describe('ContactsTableProvider — context value memoization', () => {
   })
 })
 
-describe('ContactsTableProvider — next-page prefetch guard', () => {
-  it('does not prefetch page 2 when hasNextPage is false', async () => {
+describe('ContactsTableProvider — list request volume', () => {
+  // Nothing renders contact rows any more, so a page load must cost exactly
+  // one GET /v1/contacts. `hasNextPage` is true here specifically because
+  // that is the condition a next-page fetch would key off — with rows to
+  // page through it would be a real optimisation, with none it is a second
+  // voter read that no consumer can observe.
+  it('issues exactly one list request even when a next page exists', async () => {
     const requestedPages: string[] = []
     mockSupportingEndpoints()
     api.mock('GET /v1/contacts', (request) => {
       requestedPages.push(String(request.query.page ?? 1))
       return {
         status: 200,
-        data: { people: [makePerson()], pagination: paginationFor(false) },
+        data: { people: [makePerson()], pagination: paginationFor(true) },
       }
     })
 
@@ -149,37 +154,10 @@ describe('ContactsTableProvider — next-page prefetch guard', () => {
     await waitFor(() =>
       expect(screen.getByTestId('loading')).toHaveTextContent('false'),
     )
-    // Give any (incorrectly) enabled prefetch a chance to fire before asserting.
+    // Give any re-introduced follow-on fetch a chance to fire before
+    // asserting, so this can't pass by racing it.
     await new Promise((resolve) => setTimeout(resolve, 30))
 
-    expect(requestedPages).not.toContain('2')
     expect(requestedPages).toEqual(['1'])
-  })
-
-  it('still prefetches page 2 when hasNextPage is true (no regression)', async () => {
-    const requestedPages: string[] = []
-    mockSupportingEndpoints()
-    api.mock('GET /v1/contacts', (request) => {
-      const page = String(request.query.page ?? 1)
-      requestedPages.push(page)
-      return {
-        status: 200,
-        data: {
-          people: [makePerson()],
-          pagination: paginationFor(page === '1'),
-        },
-      }
-    })
-
-    render(
-      <CampaignContext.Provider value={stableCampaign}>
-        <ContactsTableProvider>
-          <LoadProbe />
-        </ContactsTableProvider>
-      </CampaignContext.Provider>,
-    )
-
-    await waitFor(() => expect(requestedPages).toContain('2'))
-    expect(requestedPages).toContain('1')
   })
 })

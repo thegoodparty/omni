@@ -17,6 +17,7 @@ export type ContactsStats = {
   computedAt: string
   totalConstituents: number
   totalConstituentsWithCellPhone: number
+  districtPopulation: number | null
   buckets: {
     age: ContactStatsCategory
     homeowner: ContactStatsCategory

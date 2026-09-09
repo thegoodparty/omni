@@ -34,9 +34,10 @@ export interface UseContactsDownloadOptions {
 }
 
 // The top-level-navigation download flow (cookie handshake + poll + fallback
-// timeout) shared by the legacy Download.tsx (segment-search page) and the
-// CRM list-detail page (ENG-10707) — extracted so the two surfaces can't
-// drift on this subtle timing logic (single source per repo convention).
+// timeout) behind the CRM list-detail page's Download button (ENG-10707).
+// Its own module rather than inlined there because the timing logic below is
+// subtle enough that a second download surface must reuse it, not restate
+// it.
 export function useContactsDownload({
   canUseProFeatures,
   onProGated,
@@ -80,9 +81,9 @@ export function useContactsDownload({
     // ENG-10709: called from the cookie-confirmed success branch below, not
     // at click time — the CRM `List Exported` event must not fire on a
     // failed download, and the cookie handshake is the only signal this hook
-    // has that the server actually started streaming. Optional: the legacy
-    // (pre-CRM) Download.tsx caller doesn't pass one, so it never emits the
-    // CRM-only event. The 15s fallback branch is deliberately excluded (see
+    // has that the server actually started streaming. Optional, so a caller
+    // that has no `List Exported` event to fire can omit it rather than
+    // pass a no-op. The 15s fallback branch is deliberately excluded (see
     // its own comment) — it's ambiguous between "failed" and "succeeded but
     // missed the cookie", so it can't safely fire a success event either.
     onDownloadConfirmed?: () => void,

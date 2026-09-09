@@ -5,7 +5,6 @@ import {
   closeCrmSheet,
   closePersonPanel,
   crmSheet,
-  enableCrmFlags,
   fetchListMembers,
   fullPersonName,
   gotoCrmContacts,
@@ -157,7 +156,6 @@ const expectPanelField = async (
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
-  await enableCrmFlags(page)
 })
 
 test('contacts filters: demographics', async ({ page }) => {

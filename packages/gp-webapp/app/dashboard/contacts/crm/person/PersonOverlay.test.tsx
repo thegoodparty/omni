@@ -5,7 +5,6 @@ import { render } from 'helpers/test-utils/render'
 import PersonOverlay from './PersonOverlay'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
-import { useCrmEnabled } from '../../../shared/useCrmEnabled'
 import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 import { makePerson } from '../shared/test-fixtures'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -20,10 +19,6 @@ vi.mock('../ContactsTableProvider', () => ({
 
 vi.mock('@shared/experiments/FeatureFlagsProvider', () => ({
   useFlagOn: vi.fn(),
-}))
-
-vi.mock('../../../shared/useCrmEnabled', () => ({
-  useCrmEnabled: vi.fn(),
 }))
 
 vi.mock('../../../shared/useWinVoterContext', () => ({
@@ -43,9 +38,9 @@ vi.mock('@shared/utils/Map', () => ({
   default: () => <div data-testid="mock-map" />,
 }))
 
-// NotesSection has its own suite (NotesSection.test.tsx) covering CRM-gating,
-// CRUD, and analytics. Here it would otherwise call the real useOrganization()
-// hook, which throws outside an OrganizationProvider — this file only asserts
+// NotesSection has its own suite (NotesSection.test.tsx) covering CRUD and
+// analytics. Here it would otherwise call the real useOrganization() hook,
+// which throws outside an OrganizationProvider — this file only asserts
 // PersonOverlay mounts it with the right personId.
 vi.mock('./NotesSection', () => ({
   __esModule: true,
@@ -56,8 +51,8 @@ vi.mock('./NotesSection', () => ({
 
 // StatusRow has its own suite (StatusRow.test.tsx) covering its self-gating,
 // the two dropdowns, the opt-in pill, mutations, and analytics. Here it would
-// otherwise call the real useOrganization()/useCrmEnabled() hooks — this file
-// only asserts PersonOverlay mounts it (or doesn't) with the right props.
+// otherwise call the real useOrganization() hook — this file only asserts
+// PersonOverlay mounts it (or doesn't) with the right props.
 vi.mock('./StatusRow', () => ({
   __esModule: true,
   default: ({
@@ -78,8 +73,16 @@ vi.mock('./StatusRow', () => ({
 
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 const mockedUseFlagOn = vi.mocked(useFlagOn)
-const mockedUseCrmEnabled = vi.mocked(useCrmEnabled)
 const mockedUseWinVoterContext = vi.mocked(useWinVoterContext)
+
+// Contact Viewed also fires from this overlay, so a total trackEvent call
+// count can't answer "how many times did the outreach timeline fire".
+const outreachTimelineFires = () =>
+  vi
+    .mocked(trackEvent)
+    .mock.calls.filter(
+      ([event]) => event === EVENTS.Contacts.OutreachTimelineViewed,
+    ).length
 
 type ContextValue = ReturnType<typeof useContactsTable>
 type SelectedPerson = ContextValue['currentlySelectedPerson']
@@ -161,14 +164,7 @@ describe('<PersonOverlay>', () => {
     mockedUseContactsTable.mockReset()
     mockedUseFlagOn.mockReset()
     mockedUseFlagOn.mockReturnValue({ ready: true, on: false })
-    mockedUseCrmEnabled.mockReset()
     mockedUseWinVoterContext.mockReset()
-    // CRM off by default: the many pre-existing tests below assert the
-    // pre-CRM overlay's behavior and predate ENG-10698's CRM-gated surfaces
-    // (Support Status, Contact Viewed, new feed entry types) — defaulting to
-    // off keeps their assertions valid unchanged. Tests exercising the new
-    // surfaces opt in explicitly.
-    mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: false })
     mockedUseWinVoterContext.mockReturnValue({ isWin: false, isReady: true })
     vi.mocked(trackEvent).mockClear()
   })
@@ -369,12 +365,11 @@ describe('<PersonOverlay>', () => {
     )
   })
 
-  it('does not crash on ENG-10695 entry types the pre-CRM renderer does not know (skips them, keeps rendering known rows)', () => {
+  it('renders a mixed page of every entry type without falling through into the poll branch', () => {
     // The unified feed (ENG-10695) can return DOOR_KNOCK/TEXT/ROBOCALL
-    // entries in the same page as OUTREACH/POLL_INTERACTIONS rows. Rendering
-    // them is task 07's job; this only proves the switch has a safe default
-    // instead of falling through to the poll branch and crashing on
-    // activity.data.pollId.
+    // entries in the same page as OUTREACH/POLL_INTERACTIONS rows. Each type
+    // needs a branch of its own: one reaching the poll branch by accident
+    // crashes on activity.data.pollId.
     const activities: ConstituentActivity[] = [
       {
         type: 'DOOR_KNOCK',
@@ -433,7 +428,9 @@ describe('<PersonOverlay>', () => {
     expect(() => render(<PersonOverlay />)).not.toThrow()
 
     expect(screen.getByText('Activity Feed')).toBeInTheDocument()
-    // The known OUTREACH row still renders alongside the skipped new types.
+    expect(screen.getByText(/door knock: answered/i)).toBeInTheDocument()
+    expect(screen.getByText('Text')).toBeInTheDocument()
+    expect(screen.getByText('Robocall')).toBeInTheDocument()
     expect(screen.getByText('Texted')).toBeInTheDocument()
   })
 
@@ -457,61 +454,10 @@ describe('<PersonOverlay>', () => {
     expect(dialog.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0)
   })
 
-  it('shows the empty state (not a blank feed) and does not fire Outreach Timeline Viewed when a page has only ENG-10695 entry types', () => {
-    // A page containing only DOOR_KNOCK/TEXT/ROBOCALL rows has nothing
-    // this renderer can draw (task 07 widens it) — it must read as "Data not
-    // available", not as a real, contentless feed, and must not count as a
-    // seen outreach timeline for the adoption event.
-    const activities: ConstituentActivity[] = [
-      {
-        type: 'DOOR_KNOCK',
-        date: '2026-05-11T00:00:00.000Z',
-        data: {
-          activityId: 'dk_1',
-          outcome: 'answered',
-          supportAnswer: 'supporter',
-          note: null,
-          manual: true,
-          actorName: null,
-          actorUserId: null,
-        },
-      },
-    ]
-    setContext({
-      isElectedOfficial: false,
-      isWinContext: true,
-      selectedPersonId: 'p_42',
-      selectedPerson: { activities },
-    })
-
-    render(<PersonOverlay />)
-
-    expect(screen.getByText('Data not available.')).toBeInTheDocument()
-    expect(trackEvent).not.toHaveBeenCalledWith(
-      EVENTS.Contacts.OutreachTimelineViewed,
-      expect.anything(),
-    )
-  })
-
-  it('shows "View more" instead of the empty state when a page of only ENG-10695 entry types still has a next page', () => {
-    // Same all-new-types page as above, but with a next page available.
-    // Older OUTREACH/POLL_INTERACTIONS rows can still be behind it — the
-    // empty state must not swallow the pagination affordance and strand them.
-    const activities: ConstituentActivity[] = [
-      {
-        type: 'DOOR_KNOCK',
-        date: '2026-05-12T00:00:00.000Z',
-        data: {
-          activityId: 'dk_1',
-          outcome: 'answered',
-          supportAnswer: 'supporter',
-          note: null,
-          manual: true,
-          actorName: null,
-          actorUserId: null,
-        },
-      },
-    ]
+  it('shows "View more" instead of the empty state when a page holds no rows but still has a next page', () => {
+    // Older rows can still be behind the next page — the empty state must
+    // not swallow the pagination affordance and strand them.
+    const activities: ConstituentActivity[] = []
     const activitiesFetchNextPage = vi.fn()
     setContext({
       isElectedOfficial: false,
@@ -542,6 +488,7 @@ describe('<PersonOverlay>', () => {
 
     render(<PersonOverlay />)
 
+    expect(screen.getByText('Data not available.')).toBeInTheDocument()
     expect(trackEvent).not.toHaveBeenCalledWith(
       EVENTS.Contacts.OutreachTimelineViewed,
       expect.anything(),
@@ -635,7 +582,7 @@ describe('<PersonOverlay>', () => {
 
     const { rerender } = render(<PersonOverlay />)
 
-    expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(outreachTimelineFires()).toBe(1)
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.Contacts.OutreachTimelineViewed,
       { context: 'win', personId: 'p_42' },
@@ -659,7 +606,7 @@ describe('<PersonOverlay>', () => {
     })
     rerender(<PersonOverlay />)
 
-    expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(outreachTimelineFires()).toBe(1)
   })
 
   it('re-arms Outreach Timeline Viewed when a different person is opened', () => {
@@ -682,7 +629,7 @@ describe('<PersonOverlay>', () => {
     })
 
     const { rerender } = render(<PersonOverlay />)
-    expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(outreachTimelineFires()).toBe(1)
 
     setContext({
       isElectedOfficial: false,
@@ -692,7 +639,7 @@ describe('<PersonOverlay>', () => {
     })
     rerender(<PersonOverlay />)
 
-    expect(trackEvent).toHaveBeenCalledTimes(2)
+    expect(outreachTimelineFires()).toBe(2)
     expect(trackEvent).toHaveBeenLastCalledWith(
       EVENTS.Contacts.OutreachTimelineViewed,
       { context: 'win', personId: 'p_99' },
@@ -789,22 +736,13 @@ describe('<PersonOverlay>', () => {
     // ENG-10836 removed this Field for Win (replaced by the StatusRow
     // dropdown, mocked below) — these assertions now only apply to Serve,
     // which keeps the pre-ENG-10836 read-only rendering untouched.
-    it('hides Support Status when the CRM flag is off', () => {
-      setContext({ isElectedOfficial: true })
-
-      render(<PersonOverlay />)
-
-      expect(screen.queryByText('Support Status')).not.toBeInTheDocument()
-    })
-
     it.each([
       ['supporter', 'Supporter'],
       ['non_supporter', 'Non-supporter'],
       ['unknown', 'Support unknown'],
     ] as const)(
-      'shows Support Status "%s" as "%s" for Serve when the CRM flag is on',
+      'shows Support Status "%s" as "%s" for Serve',
       (rollup, label) => {
-        mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
         setContext({
           isElectedOfficial: true,
           selectedPerson: { person: makePerson({ supportStatus: rollup }) },
@@ -818,7 +756,6 @@ describe('<PersonOverlay>', () => {
     )
 
     it('shows "Support unknown" when supportStatus is absent from the response', () => {
-      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
       // makePerson() doesn't set supportStatus (undefined by default).
       setContext({
         isElectedOfficial: true,
@@ -831,7 +768,6 @@ describe('<PersonOverlay>', () => {
     })
 
     it('hides the Support Status Field for Win — the status row replaces it (ENG-10836)', () => {
-      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
       setContext({
         isElectedOfficial: false,
         selectedPerson: { person: makePerson({ supportStatus: 'supporter' }) },
@@ -870,8 +806,7 @@ describe('<PersonOverlay>', () => {
   })
 
   describe('ENG-10698 Contact Viewed', () => {
-    it('fires the Win-mode Contact Viewed event once when the CRM flag is on', () => {
-      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+    it('fires the Win-mode Contact Viewed event once per person open', () => {
       mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
       setContext({ selectedPersonId: 'p_7' })
 
@@ -888,7 +823,6 @@ describe('<PersonOverlay>', () => {
     })
 
     it('fires the Serve-mode Contact Viewed event when not in Win context', () => {
-      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
       mockedUseWinVoterContext.mockReturnValue({ isWin: false, isReady: true })
       setContext({ selectedPersonId: 'p_8' })
 
@@ -899,22 +833,7 @@ describe('<PersonOverlay>', () => {
       )
     })
 
-    it('does not fire Contact Viewed when the CRM flag is off', () => {
-      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: false })
-      setContext()
-
-      render(<PersonOverlay />)
-
-      expect(trackEvent).not.toHaveBeenCalledWith(
-        EVENTS.VoterData.ContactViewed,
-      )
-      expect(trackEvent).not.toHaveBeenCalledWith(
-        EVENTS.ConstituentData.ContactViewed,
-      )
-    })
-
     it('does not fire Contact Viewed until the win context is ready', () => {
-      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
       mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: false })
       setContext()
 
@@ -967,8 +886,7 @@ describe('<PersonOverlay>', () => {
       },
     ]
 
-    it('renders DOOR_KNOCK/TEXT/ROBOCALL entries (with a manual badge) when the CRM flag is on', () => {
-      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+    it('renders DOOR_KNOCK/TEXT/ROBOCALL entries (with a manual badge)', () => {
       setContext({
         isElectedOfficial: false,
         isWinContext: true,
@@ -991,24 +909,7 @@ describe('<PersonOverlay>', () => {
       ).toBeInTheDocument()
     })
 
-    it('does not render new entry types when the CRM flag is off (keeps the pre-CRM skip behavior)', () => {
-      setContext({
-        isElectedOfficial: false,
-        isWinContext: true,
-        selectedPersonId: 'p_42',
-        selectedPerson: { activities: newTypeActivities },
-      })
-
-      render(<PersonOverlay />)
-
-      expect(
-        screen.queryByText(/door knock: answered/i),
-      ).not.toBeInTheDocument()
-      expect(screen.queryByText('Left a flyer')).not.toBeInTheDocument()
-    })
-
-    it('shows real feed content (not the empty state) for a CRM-on page containing only new entry types, and does not fire Outreach Timeline Viewed', () => {
-      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+    it('shows real feed content (not the empty state) for a page containing only new entry types, and does not fire Outreach Timeline Viewed', () => {
       const doorKnockOnly: ConstituentActivity[] = [newTypeActivities[0]!]
       setContext({
         isElectedOfficial: false,
@@ -1045,8 +946,7 @@ describe('<PersonOverlay>', () => {
       },
     ]
 
-    it('renders a STATUS_CHANGE entry in the Win context when the CRM flag is on', () => {
-      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+    it('renders a STATUS_CHANGE entry in the Win context', () => {
       setContext({
         isElectedOfficial: false,
         isWinContext: true,
@@ -1065,25 +965,9 @@ describe('<PersonOverlay>', () => {
     })
 
     it('never renders a STATUS_CHANGE entry outside the Win context, even if the feed returned one', () => {
-      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
       setContext({
         isElectedOfficial: true,
         isWinContext: false,
-        selectedPersonId: 'p_42',
-        selectedPerson: { activities: statusChangeActivities },
-      })
-
-      render(<PersonOverlay />)
-
-      expect(
-        screen.queryByText('Support Status updated'),
-      ).not.toBeInTheDocument()
-    })
-
-    it('does not render STATUS_CHANGE entries when the CRM flag is off', () => {
-      setContext({
-        isElectedOfficial: false,
-        isWinContext: true,
         selectedPersonId: 'p_42',
         selectedPerson: { activities: statusChangeActivities },
       })

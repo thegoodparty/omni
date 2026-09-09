@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import filterSections, {
-  legacyAgeOptions,
-} from '../../[[...attr]]/components/configs/filters.config'
+import filterSections, { legacyAgeOptions } from '../../shared/filters.config'
 import { RECOMMENDED_LIST_FILTER_OPTION_KEYS } from './recommendedListFilters.config'
 import {
   LEGACY_AGE_CLEARED,

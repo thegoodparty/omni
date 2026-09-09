@@ -5,7 +5,7 @@ import {
   CONTACTS_MADE_DIM_KEY,
   DoorKnockingPackManifest,
 } from '@goodparty_org/contracts'
-import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
+import filterSections from 'app/dashboard/contacts/shared/filters.config'
 import { DimSelections } from '../filterEngine'
 import {
   INCOME_KEY_TO_RANGE,

@@ -2,11 +2,14 @@ import { expect, test } from '@playwright/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import {
   closeCrmSheet,
+  closePersonPanel,
   crmSheet,
-  enableCrmFlags,
+  fetchListMembers,
+  fullPersonName,
   gotoCrmContacts,
   listCard,
   openListCardMenu,
+  openPersonViaTypeahead,
   readSettledWizardCount,
   saveWizardList,
   selectWizardPill,
@@ -15,20 +18,18 @@ import {
 } from 'src/helpers/crm-contacts-e2e'
 import { setupElectedOfficeUser } from 'src/helpers/organizations'
 
-// The flag-on CRM contacts page in Serve mode (ENG-10756 port of the legacy
+// The CRM contacts page in Serve mode (ENG-10756 port of the legacy
 // contacts.spec). The legacy member table / pagination / segment combobox are
 // gone by design — the universe stat card, lists index, bottom-sheet wizard,
-// and card kebab lifecycle are the rebuilt equivalents. The legacy flag-off
-// flow stays covered by contacts-legacy-smoke.spec.ts.
+// and card kebab lifecycle are the rebuilt equivalents.
 test.describe('CRM Contacts Page (Serve)', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
-    await enableCrmFlags(page)
   })
 
   test('universe, wizard, and list lifecycle', async ({ page }) => {
     test.setTimeout(5 * 60 * 1000)
-    await setupElectedOfficeUser(page)
+    const { client } = await setupElectedOfficeUser(page)
 
     await gotoCrmContacts(page)
 
@@ -39,9 +40,11 @@ test.describe('CRM Contacts Page (Serve)', () => {
     await expect(
       page.getByRole('heading', { name: 'Your Constituent Universe' }),
     ).toBeVisible({ timeout: 20_000 })
-    const statRow = page
-      .getByText('Total constituents in your district')
-      .locator('xpath=..')
+    // 'Records available' (the L2 record count) is always rendered; the
+    // census population row above it ('Total constituents in your district')
+    // hides itself whenever the district has no census figure, so it isn't a
+    // safe anchor here.
+    const statRow = page.getByText('Records available').locator('xpath=..')
     await expect(statRow).toBeVisible({ timeout: 20_000 })
     // The card renders a skeleton until GET /v1/contacts/stats resolves; a
     // real district count is a formatted integer, never 'Unavailable'.
@@ -61,6 +64,19 @@ test.describe('CRM Contacts Page (Serve)', () => {
     await expect(page.getByRole('link', { name: 'Send outreach' })).toHaveCount(
       0,
     )
+
+    // --- Person overlay: Notes is mounted unconditionally — no flag gates
+    // it, and this spec sets no override.
+    const people = await fetchListMembers(client, 'all')
+    const person = people.find(
+      (candidate) => fullPersonName(candidate).length >= 3,
+    )
+    expect(person).toBeTruthy()
+    const panel = await openPersonViaTypeahead(page, person!)
+    await expect(panel.getByRole('button', { name: 'Add a note' })).toBeVisible(
+      { timeout: 10_000 },
+    )
+    await closePersonPanel(panel)
 
     // --- Wizard: Serve opens directly on the constituent filters as a
     // 2-step flow — no branch chooser, no activity branch (ENG-10750) ---

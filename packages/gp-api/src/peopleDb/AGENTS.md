@@ -47,8 +47,9 @@ json without a parser expression per field.
 | `statementIds` | every Databricks statement id the operation issued |
 
 `statementIds` is an array, not a scalar, and is collected **per operation**:
-`list` issues a count and a page, and an export issues a submit plus its chunk
-fetches. It is gathered through an `AsyncLocalStorage` collector in
+`list` issues a count and a page, `stats` issues a voter scan and a census
+lookup, and an export issues a submit plus its chunk fetches. It is gathered
+through an `AsyncLocalStorage` collector in
 `databricks/peopleDbxStatement.client.ts`, which is what lets the client push
 an id without the read path threading one back. It is the join key for
 warehouse-side latency attribution (statement duration, queue time, cold
@@ -63,8 +64,8 @@ degrading to a second answer.
 
 ## District stats is aggregated on demand, not read from a table
 
-`stats` computes all five dimensions from the voter rows in one statement rather
-than reading a precomputed table. `buildDistrictStatsSql` is one scan:
+`stats` computes all five dimensions from the voter rows rather than reading a
+precomputed table. `buildDistrictStatsSql` is one scan:
 `GROUPING SETS` emits a row per bucket per dimension plus a grand-total row from
 the empty set, which is where both totals come from. Cost is roughly flat in
 district size -- the scan is columnar with predicate pushdown, so fixed overhead
@@ -96,6 +97,40 @@ this office yet" screen rather than a zero-filled one.
 `updatedAt` is the time the aggregate ran. It described a snapshot date when the
 mirrored table served this, and nothing reads it, so it is a candidate for
 removal from the response.
+
+### `districtPopulation` is a second statement, not part of the scan
+
+`findStats` also issues `buildDistrictCensusSql`, a keyed lookup against the
+`gp_api_district_census_stats` mart for the district's 2020-census population.
+It is a separate statement because the census figure is not a fact about voter
+rows -- it counts everyone in the district, registered or not, which is the
+whole reason the product shows it next to the L2 record count. The two run
+concurrently under `Promise.all`, so the lookup adds no latency next to the
+scan.
+
+Three properties of that column shape the code:
+
+- **Coverage is partial.** The mart's voter-block allocation resolves a
+  population for some districts and not others, so a `null` population is a
+  normal state, not an error. It renders as no row rather than an
+  "Unavailable" or a zero. Never let a missing census row influence the
+  `null`-vs-stats decision the voter scan alone makes -- that `null` means
+  `VOTER_DATA_UNAVAILABLE`, which is a different thing entirely.
+- **The value is fractional at source.** Block allocation conserves
+  population mass rather than whole persons, so the column holds a real
+  number. It is rounded once, here at the service boundary, so no consumer
+  has to decide.
+- **It is failure-isolated.** A Databricks failure on the census statement is
+  caught and folded into that same `null`, because this figure must never
+  fail the stats read every contacts card and polls sampling depend on.
+
+That isolation is why the census statement deliberately bypasses `run()`:
+that wrapper logs at **error** and translates into an HTTP exception, and a
+swallowed failure must do neither -- an error-level line on a request that
+returns 200 is an alerting hazard. It calls the client directly and logs its
+own `warn`, naming the census lookup so the line is attributable to one of
+the two statements. The voter scan keeps `run()` and stays exactly as loud as
+every other voter read.
 
 ## Connection: `PeopleDbUrlProvider` + `PEOPLE_DB_SSM_PARAM`
 

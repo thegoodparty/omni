@@ -17,15 +17,14 @@ export const WIN_UNIVERSE_STAT_LABELS = {
 export interface ContactsLabels {
   dataTitle: string
   universeTitle: string
-  subheading: string
-  totalLabel: string
-  percentLabel: string
   searchPlaceholder: string
   searchNoResults: string
   // ENG-10721 (CRM lists UI prototype parity): the district stat card and
-  // lists-index section on crm/CrmContactsPage.tsx carry their own copy,
-  // distinct from the generic subheading/totalLabel above.
+  // lists-index section on crm/CrmContactsPage.tsx carry their own copy.
   districtTotalLabel: string
+  // The census population row above districtTotalLabel on the same card.
+  // Win has no census figure, hence optional — undefined there hides the row.
+  districtPopulationLabel?: string
   listsSectionTitle: string
   listsSectionSubtitle: string
   // ENG-10725 (Lovable pixel parity): the sentence under the universe h1,
@@ -45,11 +44,6 @@ export interface ContactsLabels {
   wizardActivityBranchDescription: string
   // crm/assistant/CrmAssistant.tsx's conversation-drawer heading (ENG-10737).
   assistantTitle: string
-  // [[...attr]]/components/segments/FiltersSheet.tsx overrides the
-  // filters.config.ts "Voter Demographics" section title for Serve — that
-  // config file stays untouched since the legacy flag-off page renders it
-  // byte-identically.
-  demographicsSectionTitle: string
   // crm/VoterDataUnavailableState.tsx — shown when the org has no resolvable
   // district, so there is no voter file to show at all.
   unavailableTitle: string
@@ -62,9 +56,6 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
     ? {
         dataTitle: CONTACTS_DATA_TITLE.win,
         universeTitle: 'Your Voter Universe',
-        subheading: 'Manage and filter on your voter list',
-        totalLabel: 'Total Voters',
-        percentLabel: '% of Voters',
         searchPlaceholder: 'Search for any voter contact',
         searchNoResults: 'No voters found',
         districtTotalLabel: 'Voters in your district',
@@ -83,7 +74,6 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
         wizardActivityBranchDescription:
           "Use this option to select voters who you've previously interacted with.",
         assistantTitle: 'Voter list assistant',
-        demographicsSectionTitle: 'Voter Demographics',
         unavailableTitle: "Voter data isn't available for this office yet",
         unavailableBody:
           "We couldn't match your office to a district in our voter file. Our team can set this up for you.",
@@ -93,12 +83,10 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
     : {
         dataTitle: CONTACTS_DATA_TITLE.serve,
         universeTitle: 'Your Constituent Universe',
-        subheading: 'Manage and filter on your constituent list',
-        totalLabel: 'Records Available',
-        percentLabel: '% of Total Records',
         searchPlaceholder: 'Search for any constituent contact',
         searchNoResults: 'No constituents found',
-        districtTotalLabel: 'Total constituents in your district',
+        districtTotalLabel: 'Records available',
+        districtPopulationLabel: 'Total constituents in your district',
         listsSectionTitle: 'Constituent Lists',
         listsSectionSubtitle:
           'Constituent lists are segments you can create for targeted outreach',
@@ -113,7 +101,6 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
         wizardActivityBranchDescription:
           "Use this option to select constituents who you've previously interacted with.",
         assistantTitle: 'Constituent list assistant',
-        demographicsSectionTitle: 'Constituent Demographics',
         unavailableTitle:
           "Constituent data isn't available for this office yet",
         unavailableBody:

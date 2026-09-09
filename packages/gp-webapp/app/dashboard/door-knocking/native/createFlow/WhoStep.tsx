@@ -17,7 +17,7 @@ import {
   PlusIcon,
 } from '@styleguide/components/ui/icons'
 import type { RecommendedList } from '@goodparty_org/contracts'
-import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
+import filterSections from 'app/dashboard/contacts/shared/filters.config'
 import { PILL_TOGGLE_ITEM_CLASSNAME } from 'app/dashboard/contacts/crm/shared/constants'
 import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import { RecommendedListCard } from 'app/dashboard/outreach/v2/audience/RecommendedListCard'

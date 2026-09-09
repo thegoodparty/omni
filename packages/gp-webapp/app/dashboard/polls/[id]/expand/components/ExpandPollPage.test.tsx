@@ -47,6 +47,7 @@ it('shows the audience selection form', async () => {
       districtId: '1234',
       totalConstituents: 30000,
       totalConstituentsWithCellPhone: 9000,
+      districtPopulation: null,
       computedAt: new Date().toISOString(),
       buckets: {
         age: [],
@@ -93,6 +94,7 @@ describe('ExpandPollPage — unresolvable district', () => {
           districtId: '1234',
           totalConstituents: 30000,
           totalConstituentsWithCellPhone: 9000,
+          districtPopulation: null,
           computedAt: new Date().toISOString(),
           buckets: {
             age: [],

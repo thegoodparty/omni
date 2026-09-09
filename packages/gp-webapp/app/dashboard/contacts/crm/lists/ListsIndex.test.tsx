@@ -67,6 +67,7 @@ beforeEach(() => {
       computedAt: '2026-07-17T00:00:00.000Z',
       totalConstituents: 85696,
       totalConstituentsWithCellPhone: 60000,
+      districtPopulation: null,
       buckets: {
         age: [],
         homeowner: [],

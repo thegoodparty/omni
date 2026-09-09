@@ -127,8 +127,7 @@ export default function ListDetailSheet({
   })
 
   // A non-pro user reaching this URL directly has no upsell modal wired
-  // here — the download button communicates the lock via LockIcon,
-  // mirroring Download.tsx's existing icon-only affordance.
+  // here — the download button communicates the lock via LockIcon alone.
   const { download, isPreparing } = useContactsDownload({
     canUseProFeatures,
   })

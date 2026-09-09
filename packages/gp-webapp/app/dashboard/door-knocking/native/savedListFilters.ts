@@ -5,7 +5,7 @@ import {
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import type { SegmentResponse } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { ActivityConditionInput } from 'app/dashboard/contacts/crm/shared/activityConditionOptions'
-import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
+import filterSections from 'app/dashboard/contacts/shared/filters.config'
 
 // The three ways a saved list narrows that the voter pack has no plane for at
 // all. This is a harder gap than 65+'s: there the pack holds an `age` dim and

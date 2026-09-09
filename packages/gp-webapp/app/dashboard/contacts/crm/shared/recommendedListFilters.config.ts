@@ -1,8 +1,8 @@
 // The filter dimensions for recommended lists, kept out of filters.config.ts
-// on purpose. That config is rendered by other surfaces (the legacy
-// FiltersSheet, door-knocking's WhoStep and TurfDetailsSheet) which must not
-// gain these groups; the surfaces that do render them pass
-// VoterFileStep's `showRecommendedListFilters`.
+// on purpose. That config is rendered by other surfaces (door-knocking's
+// WhoStep and TurfDetailsSheet) which must not gain these groups; the
+// surfaces that do render them pass VoterFileStep's
+// `showRecommendedListFilters`.
 //
 // Labels are title case to match filters.config.ts — CRM surfaces
 // sentence-case group labels at render time (labels.util.ts). Keep them in

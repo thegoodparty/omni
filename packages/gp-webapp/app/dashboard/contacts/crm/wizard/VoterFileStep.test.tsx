@@ -73,7 +73,7 @@ describe('VoterFileStep — Support status pills', () => {
 
 // ENG-10838: Voter Likelihood moves to render directly below Support status
 // in the wizard (a wizard-only rendering change — filters.config.ts's
-// section/field order is untouched, so the legacy flag-off page, which
+// section/field order is untouched, so door-knocking's WhoStep, which
 // renders that same config directly, is unaffected).
 describe('VoterFileStep — Voter Likelihood section position', () => {
   const noop = vi.fn()

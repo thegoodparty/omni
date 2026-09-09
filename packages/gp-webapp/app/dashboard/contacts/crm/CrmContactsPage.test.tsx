@@ -71,12 +71,15 @@ vi.mock('./wizard/CreateListWizard', () => ({
 vi.mock('./DistrictStatCard', () => ({
   default: ({
     label,
+    populationLabel,
     additionalRows,
   }: {
     label: string
+    populationLabel?: string
     additionalRows?: Array<{ label: string; value: number }>
   }) => (
     <div data-testid="district-stat">
+      {populationLabel && <div>{populationLabel}</div>}
       <div>{label}</div>
       {additionalRows?.map((row) => (
         <div key={row.label}>{`${row.label}: ${row.value}`}</div>
@@ -145,8 +148,8 @@ beforeEach(() => {
   vi.mocked(trackEvent).mockClear()
 })
 
-// ENG-10767: parity with the pre-CRM page's Contacts Viewed (flag-on users
-// vanished from that chart) — same event, distinguished by surface: 'crm'.
+// ENG-10767: this page's users had vanished from the Contacts Viewed chart,
+// so it fires the same event tagged surface: 'crm'.
 describe('CrmContactsPage — Contacts Viewed analytics', () => {
   it('fires once on mount with the settled context and surface crm', () => {
     const { rerender } = render(<CrmContactsPage />)
@@ -294,7 +297,7 @@ describe('CrmContactsPage — universe stat card rows (ENG-10746)', () => {
     expect(screen.getByText('Voters needed to win: 21160')).toBeInTheDocument()
   })
 
-  it('Serve renders the single constituents row even when a campaign has metrics', () => {
+  it('Serve renders the records-available row and the census row (no raceTargetMetrics rows)', () => {
     setContext({ isWinContext: false })
     mockCampaign.current = {
       raceTargetMetrics: { projectedTurnout: 42318, winNumber: 21160 },
@@ -302,11 +305,22 @@ describe('CrmContactsPage — universe stat card rows (ENG-10746)', () => {
 
     render(<CrmContactsPage />)
 
+    expect(screen.getByText('Records available')).toBeInTheDocument()
     expect(
       screen.getByText('Total constituents in your district'),
     ).toBeInTheDocument()
     expect(screen.queryByText(/Projected turnout/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Voters needed to win/)).not.toBeInTheDocument()
+  })
+
+  it('Win passes no populationLabel to the district stat card', () => {
+    setContext({ isWinContext: true })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.queryByText('Total constituents in your district'),
+    ).not.toBeInTheDocument()
   })
 })
 

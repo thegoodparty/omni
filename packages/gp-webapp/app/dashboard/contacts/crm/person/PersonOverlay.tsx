@@ -36,7 +36,6 @@ import { ReactNode, useEffect, useRef } from 'react'
 import Map from '@shared/utils/Map'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useCrmEnabled } from '../../../shared/useCrmEnabled'
 import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 import { InfoSection } from './InfoSection'
 import NotesSection from './NotesSection'
@@ -70,9 +69,7 @@ const isOutreachActivity = (
 // ENG-10695 unioned ContactInteraction* entries into the feed response;
 // ENG-10698 (task 07) widened rendering to draw them via ActivityFeedEntry.
 // Notes were unioned in too but removed from the feed in ENG-10780 — they
-// live only in the dedicated Notes section now. Gated on the CRM flag below
-// — CRM-off keeps the interim pre-CRM behavior of skipping them so the old
-// overlay is unchanged.
+// live only in the dedicated Notes section now.
 const isPollActivity = (
   activity: ConstituentActivity,
 ): activity is PollConstituentActivity => activity.type === 'POLL_INTERACTIONS'
@@ -250,20 +247,7 @@ const ActivitiesContent: React.FC = () => {
     isWinContext,
     isWinContextReady,
   } = useContactsTable()
-  // trackExposure=false: this reads the flag to decide what to render, it
-  // isn't the CRM treatment surface (ContactsPageGate is).
-  const { enabled: crmEnabled, ready: crmReady } = useCrmEnabled()
-  const canRenderNewEntryTypes = crmReady && crmEnabled
-
-  // ENG-10695 unioned in DOOR_KNOCK/TEXT/ROBOCALL entries; ENG-10698
-  // widened rendering to draw them via ActivityFeedEntry, gated on the CRM
-  // flag so the pre-CRM overlay's empty-state/pagination behavior (and the
-  // Outreach Timeline Viewed event below) is unchanged when the flag is off.
-  const hasActivities = canRenderNewEntryTypes
-    ? activities.length > 0
-    : activities.some(
-        (activity) => isOutreachActivity(activity) || isPollActivity(activity),
-      )
+  const hasActivities = activities.length > 0
 
   // "Did a Win user see attributed outreach" is a narrower question than
   // "does the feed have any rows" — scoped to legacy OUTREACH rows
@@ -275,9 +259,10 @@ const ActivitiesContent: React.FC = () => {
   // renders rows (not while loading and not for an empty/error feed), so the
   // event answers "did a Win user see attributed outreach" rather than "did
   // the overlay open". Gate on isWinContextReady and latch on the person id
-  // (same pattern as ContactsPage) so a post-settle isWinContext toggle
-  // (focus revalidation, flag re-fetch) can't duplicate the event for the
-  // same person; switching to a different person re-arms the latch.
+  // (same pattern as CrmContactsPage's Viewed event) so a post-settle
+  // isWinContext toggle (focus revalidation, query re-fetch) can't duplicate
+  // the event for the same person; switching to a different person re-arms
+  // the latch.
   const firedForPersonRef = useRef<string | null>(null)
   useEffect(() => {
     if (
@@ -306,10 +291,9 @@ const ActivitiesContent: React.FC = () => {
   // loaded from a prior successful fetch) must keep showing those rows, not
   // blank a populated feed. First-fetch failure still lands here because
   // hasActivities is false in that case. Not gated on hasActivities alone
-  // either: a page that happens to hold only new (unrenderable, CRM-off)
-  // entry types can still have a next page of real OUTREACH/POLL_INTERACTIONS
-  // rows — hiding "View more" there would permanently strand them. Not while
-  // isLoading either — the initial fetch starts with hasActivities and
+  // either: a page with no rows of its own can still have a next page of
+  // real ones — hiding "View more" there would permanently strand them. Not
+  // while isLoading either — the initial fetch starts with hasActivities and
   // hasNextPage both false, so without this the empty state would flash
   // before the loading skeleton ever gets a chance to render.
   if (!isLoading && !hasActivities && !hasNextPage) {
@@ -344,9 +328,6 @@ const ActivitiesContent: React.FC = () => {
         if (isPollActivity(activity)) {
           return <PollActivityRow key={idx} activity={activity} />
         }
-        // CRM-off: keep the pre-CRM interim behavior of skipping rather than
-        // crashing on these entry types.
-        if (!canRenderNewEntryTypes) return null
         switch (activity.type) {
           case 'DOOR_KNOCK':
             return <DoorKnockActivityRow key={idx} activity={activity} />
@@ -421,23 +402,15 @@ const PersonContent: React.FC<{
   const { on: showActivitiesAndIssues } = useFlagOn(
     'serve-contacts-activities-and-issues',
   )
-  // trackExposure=false: these surfaces read the flag to decide whether to
-  // render, they aren't the CRM treatment surface (ContactsPageGate is).
-  const { enabled: crmEnabled, ready: crmReady } = useCrmEnabled()
   const { isWin, isReady: isWinContextReady } = useWinVoterContext()
-  const showCrmSurfaces = crmReady && crmEnabled
 
   // Fires once per person open (this component remounts per person via the
   // `key={person.id}` on PersonContent below — a fresh person always gets a
   // fresh `firedContactViewed` ref). Distinct from `Contacts.Viewed`, which
-  // only fires from the pre-CRM page.
+  // fires from the contacts page itself.
   const firedContactViewedRef = useRef(false)
   useEffect(() => {
-    if (
-      showCrmSurfaces &&
-      isWinContextReady &&
-      !firedContactViewedRef.current
-    ) {
+    if (isWinContextReady && !firedContactViewedRef.current) {
       firedContactViewedRef.current = true
       trackEvent(
         isWin
@@ -445,13 +418,13 @@ const PersonContent: React.FC<{
           : EVENTS.ConstituentData.ContactViewed,
       )
     }
-  }, [showCrmSurfaces, isWinContextReady, isWin])
+  }, [isWinContextReady, isWin])
 
   // Serve keeps its poll-interaction timeline behind its own flag (unchanged);
   // Win adds the outreach timeline for campaigns (not elected officials). The
-  // Win decision (flag on, not an elected official, elected-office load
-  // settled) is computed once in the provider as isWinContext; reuse it so the
-  // feed and the provider's activities query never disagree. Top Issues stays
+  // Win decision (not an elected official, elected-office load settled) is
+  // computed once in the provider as isWinContext; reuse it so the feed and
+  // the provider's activities query never disagree. Top Issues stays
   // Serve-only.
   const showActivityFeed = showActivitiesAndIssues || showWinActivities
   const details = [person.gender, person.age ? `${person.age} years old` : null]
@@ -467,9 +440,8 @@ const PersonContent: React.FC<{
       {/* ENG-10836: Win-only status row (Voter Likelihood / Support Status
           dropdowns + read-only Opt In Status pill) — replaces the Win branch
           of the Support Status Field below and the OptedInChip that used to
-          render next to the name above. Self-gates on Win + CRM-on so
-          Serve's rendering (the Field below, no opt-in display) is
-          untouched. */}
+          render next to the name above. Self-gates on Win so Serve's
+          rendering (the Field below, no opt-in display) is untouched. */}
       <StatusRow person={person} hidePoliticalParty={hidePoliticalParty} />
       <div className="flex flex-col gap-6">
         <NotesSection personId={person.id} />
@@ -524,7 +496,7 @@ const PersonContent: React.FC<{
         >
           {/* Win moved this to the StatusRow's editable dropdown (ENG-10836)
               — Serve keeps the read-only Field unchanged. */}
-          {showCrmSurfaces && hidePoliticalParty ? (
+          {hidePoliticalParty ? (
             <Field
               label="Support Status"
               value={

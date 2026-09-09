@@ -28,9 +28,6 @@ export interface ChiefOfStaffContext {
   // table configured). The context service defaults it false; the handler
   // resolves the real value from the provider + table allowlist.
   constituentToolEnabled: boolean
-  // Whether the serve-crm flag enables the contact describe/count tools.
-  // Defaults false here; the handler resolves it from FeaturesService.
-  crmToolsEnabled: boolean
 }
 
 // Loads the static CoS context from the conversation's owning user + their
@@ -94,7 +91,6 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       anchor,
       districtFilters: null,
       constituentToolEnabled: false,
-      crmToolsEnabled: false,
     }
   }
 }

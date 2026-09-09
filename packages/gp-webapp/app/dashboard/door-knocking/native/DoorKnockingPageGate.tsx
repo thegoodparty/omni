@@ -94,9 +94,9 @@ const DoorKnockingProLockedView = ({
   </DashboardLayout>
 )
 
-// The one treatment/control divergence point (same pattern as
-// ContactsPageGate): flag on gets the native map experience, flag off (or
-// unsettled) renders the eCanvasser dashboard exactly as before.
+// The one treatment/control divergence point: flag on gets the native map
+// experience, flag off (or unsettled) renders the eCanvasser dashboard
+// exactly as before.
 export default function DoorKnockingPageGate({
   pathname,
   campaign,

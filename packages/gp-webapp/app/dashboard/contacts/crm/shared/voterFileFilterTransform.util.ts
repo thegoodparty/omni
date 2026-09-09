@@ -1,6 +1,4 @@
-import filterSections, {
-  legacyAgeOptions,
-} from '../../[[...attr]]/components/configs/filters.config'
+import filterSections, { legacyAgeOptions } from '../../shared/filters.config'
 import {
   ANY_PHONE_FIELD,
   RECOMMENDED_LIST_FILTER_FIELDS,
@@ -9,9 +7,9 @@ import {
 import type { SupportStatusRollup } from './contacts-types'
 
 // Single source of truth for the voter-file filter → backend field mapping
-// (ENG-10708): both the wizard's voter-file branch and FiltersSheet import
-// these maps so the two surfaces can never send diverging payloads for the
-// same selection.
+// (ENG-10708): every surface that builds a filter payload imports these maps
+// rather than restating them, so two surfaces can never send diverging
+// payloads for the same selection.
 export interface VoterFileFilters {
   [key: string]: boolean
 }
