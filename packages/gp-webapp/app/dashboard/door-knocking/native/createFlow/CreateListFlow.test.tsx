@@ -261,8 +261,7 @@ describe('CreateListFlow', () => {
         ],
       },
     })
-    // One event for one transaction. The `RouteBuilt` that used to follow it
-    // described a second press that no longer exists.
+    // One event for one transaction.
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.DoorKnocking.ListCreated, {
       stops: 14,
       people: 22,

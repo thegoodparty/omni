@@ -730,8 +730,7 @@ export default function CreateListFlow({
     },
     onSuccess: (turf) => {
       // One event, because creating the list and building its route are one
-      // transaction now — the separate `RouteBuilt` it used to fire described
-      // a second press that no longer exists.
+      // transaction.
       trackEvent(EVENTS.DoorKnocking.ListCreated, {
         stops,
         people,
