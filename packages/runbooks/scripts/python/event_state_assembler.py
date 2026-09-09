@@ -25,34 +25,37 @@ select event_type, govern_display_name, family, first_seen_date, last_seen_date,
 from {CATALOG_TABLE}
 """
 
-# 22 columns, render order. See the design doc for the rationale behind the set.
-# `event` renders the Amplitude display name when one is set, so it can diverge
-# from the name in code; `event_type` carries the ingested name alongside it so a
-# reader can always map a row back to the string in the codebase, the provenance
-# CSV, and HubSpot.
+# 24 columns, render order. Identity and meaning first, firing reality next, governance
+# and provenance last: the sheet's readers are mostly non-engineers confirming that an
+# event is the one they mean (DATA-2426). `event` renders the Amplitude display name when
+# one is set, so it can diverge from the name in code; `event_type` carries the ingested
+# name so a reader can still map a row back to the string in the codebase, the provenance
+# CSV, and HubSpot — but it duplicates `event` for 99.3% of rows, so it sits right.
 COLUMNS = [
     "event",
-    "event_type",
+    "description",
+    "where_it_fires",
+    "url",
     "status",
-    "declared_intent",
-    "intent_date",
-    "supersession",
-    "family",
-    "first_seen_date",
     "last_seen_date",
     "event_count_30d",
     "event_count",
-    "description",
+    "first_seen_date",
+    "family",
     "tags",
+    "questions",
+    "okr",
+    "watchlist_status",
+    "event_type",
+    "declared_intent",
+    "intent_date",
+    "supersession",
     "instrumented_pr",
     "instrumented_date",
     "instrumented_author_email",
     "retired_pr",
     "retired_date",
     "retired_author_email",
-    "watchlist_status",
-    "okr",
-    "questions",
 ]
 
 
@@ -117,29 +120,31 @@ def build_rows(
         rows.append(
             {
                 "event": cat.get("govern_display_name") or event_type,
-                "event_type": event_type,
+                "description": _blank(gpmeta.get("purpose")),
+                "where_it_fires": "",
+                "url": "",
                 "status": rec["status"],
+                "last_seen_date": _blank(cat.get("last_seen_date")),
+                "event_count_30d": _num(cat.get("event_count_30d", rec.get("event_count_30d", 0))),
+                "event_count": _num(cat.get("event_count", 0)),
+                "first_seen_date": _blank(cat.get("first_seen_date")),
+                "family": _blank(rec.get("family") or cat.get("family")),
+                "tags": format_tags(cat.get("govern_tags")),
+                "questions": "; ".join((questions_by_type or {}).get(event_type, [])),
+                "okr": _blank(rec.get("okr")),
+                "watchlist_status": rec.get("watchlist_status", "—"),
+                "event_type": event_type,
                 "declared_intent": {"in_use": "in use", "not_in_use": "not in use"}.get(
                     gpmeta.get("intent"), ""
                 ),
                 "intent_date": _blank(gpmeta.get("intent_date")),
                 "supersession": supersession,
-                "family": _blank(rec.get("family") or cat.get("family")),
-                "first_seen_date": _blank(cat.get("first_seen_date")),
-                "last_seen_date": _blank(cat.get("last_seen_date")),
-                "event_count_30d": _num(cat.get("event_count_30d", rec.get("event_count_30d", 0))),
-                "event_count": _num(cat.get("event_count", 0)),
-                "description": _blank(gpmeta.get("purpose")),
-                "tags": format_tags(cat.get("govern_tags")),
                 "instrumented_pr": _blank(prov.get("instrumented_pr")),
                 "instrumented_date": _blank(prov.get("instrumented_date")),
                 "instrumented_author_email": _blank(prov.get("instrumented_author_email")),
                 "retired_pr": _blank(prov.get("retired_pr")),
                 "retired_date": _blank(prov.get("retired_date")),
                 "retired_author_email": _blank(prov.get("retired_author_email")),
-                "watchlist_status": rec.get("watchlist_status", "—"),
-                "okr": _blank(rec.get("okr")),
-                "questions": "; ".join((questions_by_type or {}).get(event_type, [])),
                 "_sort_date": prov.get("last_code_change_date") or "",
             }
         )
@@ -202,7 +207,7 @@ def assemble(
     overrides: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict:
     """Load the catalog + provenance, derive status via the shared reconcile(), and project
-    into the 22-column table. weekly_rows=[] skips the monitor's anomaly query — irrelevant
+    into the 24-column table. weekly_rows=[] skips the monitor's anomaly query — irrelevant
     to this surface — while still yielding the authoritative status for every event.
     ``overrides`` maps event_type -> {govern_*} to overlay Amplitude-direct metadata onto
     (or inject rows into) the Databricks catalog (DATA-2053)."""
