@@ -273,3 +273,110 @@ def test_find_call_sites_finds_a_raw_string_literal_with_no_key_path():
 
 def test_find_call_sites_returns_empty_when_nothing_references_the_event():
     assert ea.find_call_sites("Nobody - Fires This", "EVENTS.No.Body", FILES) == []
+
+
+def test_find_call_sites_avoids_substring_over_matching():
+    """A prefix substring must not match inside a longer sibling event name.
+    e.g., 'Candidate Website - Started' should not match inside
+    'Candidate Website - Started domain selection'.
+    """
+    files = {
+        "packages/gp-webapp/helpers/analyticsHelper.ts":
+            "  Started: 'Candidate Website - Started',\n"
+            "  StartedDomainSelection: 'Candidate Website - Started domain selection',\n",
+        "packages/gp-webapp/app/test.tsx":
+            "trackEvent('Candidate Website - Started domain selection')\n"
+            "trackEvent('Candidate Website - Started')\n",
+    }
+    # Shorter event should only match on line 2, not line 1
+    hits = ea.find_call_sites("Candidate Website - Started", None, files)
+    paths_and_lines = [(h["path"], h["line"]) for h in hits]
+    assert ("packages/gp-webapp/helpers/analyticsHelper.ts", 1) in paths_and_lines
+    assert ("packages/gp-webapp/app/test.tsx", 2) in paths_and_lines
+    assert len(paths_and_lines) == 2
+
+
+def test_find_call_sites_classifies_call_sites_in_registry_file_correctly():
+    """A line inside the registry file can be either declaration (inside EVENTS block)
+    or a normal call site (outside EVENTS block). Only inside-block hits are declared."""
+    files = {
+        "packages/gp-webapp/helpers/analyticsHelper.ts":
+            "export const EVENTS = {\n"  # line 1
+            "  Onboarding: {\n"  # line 2
+            "    RegistrationCompleted: 'Onboarding - Registration Completed',\n"  # line 3 - declaration
+            "  },\n"  # line 4
+            "}\n"  # line 5
+            "async function trackRegistrationCompleted() {\n"  # line 6
+            "  await trackEvent(EVENTS.Onboarding.RegistrationCompleted, {})\n"  # line 7 - call site
+            "}\n",  # line 8
+        "packages/gp-webapp/app/signup.tsx":
+            "await trackEvent(EVENTS.Onboarding.RegistrationCompleted)\n",
+    }
+    hits = ea.find_call_sites(
+        "Onboarding - Registration Completed",
+        "EVENTS.Onboarding.RegistrationCompleted",
+        files
+    )
+    # Should have 3 hits total:
+    # - Line 3 in registry file: declaration
+    # - Line 7 in registry file: key_path (call site, not declaration, because outside block)
+    # - Line 1 in app file: key_path
+    kinds = {(h["path"], h["line"], h["kind"]) for h in hits}
+    assert ("packages/gp-webapp/helpers/analyticsHelper.ts", 3, "declaration") in kinds
+    assert ("packages/gp-webapp/helpers/analyticsHelper.ts", 7, "key_path") in kinds
+    assert ("packages/gp-webapp/app/signup.tsx", 1, "key_path") in kinds
+
+
+def test_find_call_sites_respects_key_path_word_boundaries():
+    """A key-path needle must have word boundaries on both sides.
+    EVENTS.Foo should not match EVENTS.FooBar or EVENTS.Foo.Bar components."""
+    files = {
+        "packages/gp-webapp/helpers/analyticsHelper.ts":
+            "  Foo: 'Foo - Event',\n",
+        "packages/gp-webapp/app/test.tsx":
+            "const x = EVENTS.Foo\n"  # Exact match with boundary at end
+            "const y = EVENTS.FooBar\n"  # Should NOT match (FooBar starts where Foo ends)
+            "const z = { EVENTS.Foo.Bar }\n"  # Should NOT match (. after Foo)
+            "const w = myEvents.Foo\n",  # No . before, but also not in EVENTS namespace
+    }
+    hits = ea.find_call_sites("Foo - Event", "EVENTS.Foo", files)
+    paths_and_lines = [(h["path"], h["line"]) for h in hits]
+    # Should find: line 1 (declaration), line 1 in test (exact match)
+    # Should NOT find: line 2, line 3 (due to boundary checks)
+    # Line 4 should NOT match due to myEvents vs EVENTS
+    assert ("packages/gp-webapp/helpers/analyticsHelper.ts", 1) in paths_and_lines
+    assert ("packages/gp-webapp/app/test.tsx", 1) in paths_and_lines
+    # Verify we didn't get spurious matches
+    assert all((p, l) != ("packages/gp-webapp/app/test.tsx", 2) for p, l in paths_and_lines)
+    assert all((p, l) != ("packages/gp-webapp/app/test.tsx", 3) for p, l in paths_and_lines)
+
+
+def test_find_call_sites_results_ordered_by_path_then_line():
+    """Results must be sorted by path (alphabetically) then by line number."""
+    files = {
+        "packages/gp-api/services/eventTracker.ts":
+            "  track('Event - Name')\n"
+            "  // another reference below\n"
+            "  track('Event - Name')\n",
+        "packages/gp-webapp/helpers/analyticsHelper.ts":
+            "  EventName: 'Event - Name',\n"
+            "  other: 'Other - Event',\n"
+            "  EventName2: 'Event - Name',\n",
+        "packages/gp-admin/src/utils.ts":
+            "  track('Event - Name')\n",
+    }
+    hits = ea.find_call_sites("Event - Name", None, files)
+    # Extract (path, line) pairs to verify order
+    pairs = [(h["path"], h["line"]) for h in hits]
+
+    # Expected order: gp-admin, gp-api, gp-webapp (alphabetical)
+    # Within each path: line numbers in order
+    # Note: 'Event - Name' appears twice in the registry (lines 1 and 3)
+    expected = [
+        ("packages/gp-admin/src/utils.ts", 1),
+        ("packages/gp-api/services/eventTracker.ts", 1),
+        ("packages/gp-api/services/eventTracker.ts", 3),
+        ("packages/gp-webapp/helpers/analyticsHelper.ts", 1),
+        ("packages/gp-webapp/helpers/analyticsHelper.ts", 3),
+    ]
+    assert pairs == expected

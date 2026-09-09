@@ -213,25 +213,91 @@ def load_event_registry(text: str, root: str = "EVENTS") -> dict[str, str]:
 REGISTRY_FILE = "packages/gp-webapp/helpers/analyticsHelper.ts"
 
 
+def _is_identifier_char(ch: str) -> bool:
+    """Check if a character is part of a TypeScript/JS identifier."""
+    return ch.isalnum() or ch in '_.'
+
+
 def find_call_sites(event_name: str, key_path: str | None,
                     files: Mapping[str, str]) -> list[dict]:
     """Every reference to an event, by literal string and by EVENTS key-path.
 
-    A hit in the registry file is the declaration, not a call site: an event that has only
-    that is dispatched dynamically (or dead), and the judge needs to tell those apart.
+    Literals are matched only in quoted form ('...' or "..." or `...`) to avoid
+    substring over-matching between sibling event names. Key-paths require word
+    boundaries (no alphanumeric, _, or . before/after).
+
+    A hit inside the EVENTS block literal in the registry file is the declaration,
+    not a call site: an event with only declaration hits is dispatched dynamically
+    (or dead), and the judge needs to tell those apart from normal call sites.
     """
-    needles = [(event_name, "literal")]
-    if key_path:
-        needles.append((key_path, "key_path"))
     hits: list[dict] = []
+
     for path, text in files.items():
+        # For registry file, find the EVENTS block boundaries to classify hits
+        registry_block_start = -1
+        registry_block_end = -1
+        block_found = False
+        if path == REGISTRY_FILE:
+            text_stripped = _strip_comments(text)
+            start = text_stripped.find("EVENTS = {")
+            if start != -1:
+                open_brace_pos = text_stripped.index("{", start)
+                block_end_pos = _find_events_block_end(text_stripped, open_brace_pos)
+                if block_end_pos != -1:
+                    registry_block_start = open_brace_pos
+                    registry_block_end = block_end_pos
+                    block_found = True
+
+        # Process each line with character offset tracking
+        char_offset = 0
         for lineno, line in enumerate(text.splitlines(), start=1):
-            for needle, kind in needles:
-                if needle in line:
+            # Check for quoted literal matches (single, double, or backtick)
+            literal_found = False
+            for quote in ("'", '"', "`"):
+                quoted_needle = quote + event_name + quote
+                if quoted_needle in line:
+                    hit_char_offset = char_offset + line.index(quoted_needle)
+                    # Classify as declaration if in registry file and either:
+                    # (a) inside the block (if block was found), or
+                    # (b) block was not found (fallback for minimal test fixtures)
+                    is_declaration = path == REGISTRY_FILE and (
+                        not block_found or
+                        (registry_block_start <= hit_char_offset <= registry_block_end)
+                    )
+                    kind = "declaration" if is_declaration else "literal"
                     hits.append({
                         "path": path,
                         "line": lineno,
-                        "kind": "declaration" if path == REGISTRY_FILE else kind,
+                        "kind": kind,
                     })
+                    literal_found = True
                     break
+
+            # If no literal found, check for key_path with word boundary
+            if not literal_found and key_path:
+                idx = line.find(key_path)
+                if idx != -1:
+                    # Word boundary check: chars before and after must not be identifier chars
+                    before_ok = (idx == 0 or not _is_identifier_char(line[idx - 1]))
+                    after_idx = idx + len(key_path)
+                    after_ok = (after_idx >= len(line) or not _is_identifier_char(line[after_idx]))
+
+                    if before_ok and after_ok:
+                        hit_char_offset = char_offset + idx
+                        # Classify as declaration if in registry file and either:
+                        # (a) inside the block (if block was found), or
+                        # (b) block was not found (fallback for minimal test fixtures)
+                        is_declaration = path == REGISTRY_FILE and (
+                            not block_found or
+                            (registry_block_start <= hit_char_offset <= registry_block_end)
+                        )
+                        kind = "declaration" if is_declaration else "key_path"
+                        hits.append({
+                            "path": path,
+                            "line": lineno,
+                            "kind": kind,
+                        })
+
+            char_offset += len(line) + 1  # +1 for the newline character
+
     return sorted(hits, key=lambda h: (h["path"], h["line"]))
