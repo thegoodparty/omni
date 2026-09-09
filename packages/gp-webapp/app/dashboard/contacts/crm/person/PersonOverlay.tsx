@@ -261,9 +261,10 @@ const ActivitiesContent: React.FC = () => {
   // renders rows (not while loading and not for an empty/error feed), so the
   // event answers "did a Win user see attributed outreach" rather than "did
   // the overlay open". Gate on isWinContextReady and latch on the person id
-  // (same pattern as ContactsPage) so a post-settle isWinContext toggle
-  // (focus revalidation, flag re-fetch) can't duplicate the event for the
-  // same person; switching to a different person re-arms the latch.
+  // (same pattern as CrmContactsPage's Viewed event) so a post-settle
+  // isWinContext toggle (focus revalidation, query re-fetch) can't duplicate
+  // the event for the same person; switching to a different person re-arms
+  // the latch.
   const firedForPersonRef = useRef<string | null>(null)
   useEffect(() => {
     if (

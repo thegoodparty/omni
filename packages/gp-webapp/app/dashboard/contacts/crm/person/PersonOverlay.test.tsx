@@ -362,12 +362,11 @@ describe('<PersonOverlay>', () => {
     )
   })
 
-  it('does not crash on ENG-10695 entry types the pre-CRM renderer does not know (skips them, keeps rendering known rows)', () => {
+  it('renders a mixed page of every entry type without falling through into the poll branch', () => {
     // The unified feed (ENG-10695) can return DOOR_KNOCK/TEXT/ROBOCALL
-    // entries in the same page as OUTREACH/POLL_INTERACTIONS rows. Rendering
-    // them is task 07's job; this only proves the switch has a safe default
-    // instead of falling through to the poll branch and crashing on
-    // activity.data.pollId.
+    // entries in the same page as OUTREACH/POLL_INTERACTIONS rows. Each type
+    // needs a branch of its own: one reaching the poll branch by accident
+    // crashes on activity.data.pollId.
     const activities: ConstituentActivity[] = [
       {
         type: 'DOOR_KNOCK',
@@ -426,7 +425,9 @@ describe('<PersonOverlay>', () => {
     expect(() => render(<PersonOverlay />)).not.toThrow()
 
     expect(screen.getByText('Activity Feed')).toBeInTheDocument()
-    // The known OUTREACH row still renders alongside the skipped new types.
+    expect(screen.getByText(/door knock: answered/i)).toBeInTheDocument()
+    expect(screen.getByText('Text')).toBeInTheDocument()
+    expect(screen.getByText('Robocall')).toBeInTheDocument()
     expect(screen.getByText('Texted')).toBeInTheDocument()
   })
 
@@ -484,6 +485,7 @@ describe('<PersonOverlay>', () => {
 
     render(<PersonOverlay />)
 
+    expect(screen.getByText('Data not available.')).toBeInTheDocument()
     expect(trackEvent).not.toHaveBeenCalledWith(
       EVENTS.Contacts.OutreachTimelineViewed,
       expect.anything(),

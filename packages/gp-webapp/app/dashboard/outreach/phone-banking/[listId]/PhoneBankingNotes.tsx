@@ -37,10 +37,9 @@ interface PhoneBankingNotesProps {
 // Uses the existing person-notes API (GET/POST/PATCH/DELETE
 // /v1/contacts/:personId/notes) — no phone-banking-specific endpoint. This is
 // a deliberately WET, trimmed sibling of crm/person/NotesSection.tsx rather
-// than a shared import: that component is gated on CRM-only concepts
-// (useCrmEnabled, useWinVoterContext, Voter/Constituent Data event naming)
-// that don't apply here — every person on a phone-banking list is reachable
-// regardless of the CRM flag.
+// than a shared import: that component carries contacts-page concepts
+// (useWinVoterContext, Voter/Constituent Data event naming) that don't apply
+// here.
 export default function PhoneBankingNotes({
   personId,
 }: PhoneBankingNotesProps): React.JSX.Element {
