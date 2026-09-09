@@ -107,17 +107,53 @@ def _strip_comments(text: str) -> str:
     return ''.join(out)
 
 
+def _skip_quoted_string(text: str, start_idx: int) -> int:
+    """Skip over a quoted string (single, double, or template literal) with escape handling.
+    Returns the index after the closing quote. If not at a quote, returns start_idx unchanged."""
+    if start_idx >= len(text):
+        return start_idx
+
+    ch = text[start_idx]
+    if ch not in ("'", '"', '`'):
+        return start_idx
+
+    quote = ch
+    i = start_idx + 1
+    while i < len(text):
+        ch = text[i]
+        if ch == '\\' and i + 1 < len(text):
+            i += 2
+            continue
+        if ch == quote:
+            return i + 1
+        i += 1
+
+    return i
+
+
 def _find_events_block_end(text: str, start_pos: int) -> int:
-    """Find the actual closing brace of the EVENTS block using simple depth counting.
-    Returns the index of the closing brace, or -1 if block is malformed."""
+    """Find the actual closing brace of the EVENTS block using depth counting that skips
+    quoted spans. Braces inside strings do not affect depth. Returns the index of the
+    closing brace, or -1 if block is malformed."""
     depth = 0
-    for idx in range(start_pos, len(text)):
-        if text[idx] == '{':
+    i = start_pos
+    while i < len(text):
+        ch = text[i]
+
+        after_skip = _skip_quoted_string(text, i)
+        if after_skip > i:
+            i = after_skip
+            continue
+
+        if ch == '{':
             depth += 1
-        elif text[idx] == '}':
+        elif ch == '}':
             depth -= 1
             if depth == 0:
-                return idx
+                return i
+
+        i += 1
+
     return -1
 
 

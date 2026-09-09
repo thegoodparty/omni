@@ -211,3 +211,29 @@ export const EVENTS = {
     reg = ea.load_event_registry(src)
     assert 'Documentation - Link to https://example.com/guide Viewed' in reg
     assert reg['Documentation - Link to https://example.com/guide Viewed'] == 'EVENTS.Documentation.LinkViewed'
+
+
+def test_regression_tripwire_no_false_alarm_on_brace_in_literal(capsys):
+    """Regression: depth counter must skip over braces inside quoted strings.
+    A literal with a lone opening brace should not cause false 'registry block malformed'
+    warning. The tripwire exists to catch silent failures; false alarms make operators
+    ignore it, which defeats the purpose.
+    """
+    src = """
+export const EVENTS = {
+  Good: {
+    Event1: 'Good - Real Event',
+  },
+  WithBrace: {
+    Event2: 'Good - Event with only an opening brace {',
+  },
+}
+"""
+    reg = ea.load_event_registry(src)
+    captured = capsys.readouterr()
+
+    assert reg['Good - Real Event'] == 'EVENTS.Good.Event1'
+    assert reg['Good - Event with only an opening brace {'] == 'EVENTS.WithBrace.Event2'
+    assert len(reg) == 2
+
+    assert 'WARNING' not in captured.err
