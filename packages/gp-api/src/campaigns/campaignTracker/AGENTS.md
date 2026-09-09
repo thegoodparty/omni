@@ -69,6 +69,15 @@ overview: `docs/features/campaign-tracker-v3.md`.
   `electionRelative` dates off the **general** election). Belt and suspenders:
   the catalog attachment excludes them (see the generator) and
   `onExperimentRunCompleted` drops any `text`/`robocall` rows the agent emits.
+- **A past election date anchors nothing.** `resolveElectionDate` takes the
+  general date, falls back to the primary, and ignores whichever has already
+  passed; with no upcoming date `buildOutreachTrackerTaskRows` emits **no**
+  outreach rows (never a `start`-anchored fallback). The reason: a returning
+  candidate's campaign row keeps last cycle's `electionDate` until they update
+  their race, and static rows are one-shot, so rows dated off it would survive
+  the fix and post a finished schedule to CAS on Pro upgrade. Upstream,
+  `getOrGenerateStrategicLandscape` refuses (400) to generate at all for a past
+  `electionDate`, before `materializeStaticTasks` runs.
 - **Manual generation is non-prod only.** The weekly cron
   (`CAMPAIGN_TRACKER_AUTOMATION_ENABLED='true'`) runs in prod only, so dev/qa
   never generate on their own. `POST /campaigns/tracker-tasks/generate` →

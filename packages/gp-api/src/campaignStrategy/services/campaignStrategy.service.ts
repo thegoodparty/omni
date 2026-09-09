@@ -31,6 +31,7 @@ import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { CampaignTrackerTasksService } from '@/campaigns/campaignTracker/services/campaignTrackerTasks.service'
 import { isTestCampaign } from '@/users/util/users.util'
+import { isDateTodayOrFuture } from 'src/shared/util/date.util'
 
 const OPPOSITION = 'opposition_research'
 const OPPORTUNITIES = 'opportunities_and_challenges'
@@ -113,6 +114,22 @@ const resolveRaceId = (details: Campaign['details']): string => {
   return raceId
 }
 
+// A returning candidate's campaign row keeps last cycle's electionDate until
+// they update their race. Generating against it would research a finished
+// race and date the tracker's outreach off a past election, so a past date
+// blocks generation outright. A missing date is left to the callers' own
+// checks — only a date we can prove has passed is refused here.
+const ELECTION_PASSED_MESSAGE =
+  'Campaign election date has passed — update your race before generating a plan.'
+
+const electionHasPassed = (details: Campaign['details']): boolean => {
+  const parsed = CampaignDetailsSchema.safeParse(details)
+  const electionDate = parsed.success
+    ? (parsed.data.electionDate ?? '').trim()
+    : ''
+  return electionDate.length > 0 && !isDateTodayOrFuture(electionDate)
+}
+
 @Injectable()
 export class CampaignStrategyService extends createPrismaBase(
   MODELS.CampaignStrategy,
@@ -153,6 +170,12 @@ export class CampaignStrategyService extends createPrismaBase(
 
     if (isTestCampaign(campaign)) {
       return { status: 'ready', data: EMPTY_STRATEGIC_LANDSCAPE }
+    }
+
+    // Before the tracker rows below: they are one-shot, so rows dated off a
+    // stale election would survive the race update that fixes the date.
+    if (electionHasPassed(campaign.details)) {
+      throw new BadRequestException(ELECTION_PASSED_MESSAGE)
     }
 
     // Materialize the tracker's static rows now, at generation start, so they
@@ -217,6 +240,13 @@ export class CampaignStrategyService extends createPrismaBase(
     const parsed = CampaignDetailsSchema.safeParse(campaign.details)
     const brHashId = parsed.success ? (parsed.data.raceId ?? '').trim() : ''
     if (brHashId.length === 0) {
+      return { disposition: 'unavailable', oppositionRunId: null }
+    }
+    if (electionHasPassed(campaign.details)) {
+      this.logger.info(
+        { campaignId: campaign.id },
+        'skipping opponent discovery: election date has passed',
+      )
       return { disposition: 'unavailable', oppositionRunId: null }
     }
 

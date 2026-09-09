@@ -1,7 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { isBefore, isValid, parseISO, startOfDay } from 'date-fns'
 import type { User } from 'helpers/types'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
 import DashboardLayout, {
   type DashboardNavHeaderConfig,
@@ -9,6 +11,15 @@ import DashboardLayout, {
 import { NAV_LABELS } from '../../shared/navLabels'
 import CampaignPlanPage from './CampaignPlanPage'
 import CampaignPlanStoryGate from './CampaignPlanStoryGate'
+import CampaignPlanElectionPassedGate from './CampaignPlanElectionPassedGate'
+
+// Date-only ISO parses as local midnight, so "passed" means strictly before
+// today in the viewer's zone — election day itself still counts as upcoming.
+const electionHasPassed = (electionDate: string | undefined): boolean => {
+  if (!electionDate) return false
+  const date = parseISO(electionDate.slice(0, 10))
+  return isValid(date) && isBefore(date, startOfDay(new Date()))
+}
 
 interface CampaignPlanRouterProps {
   initialUser: User | null
@@ -46,6 +57,8 @@ const CampaignPlanRouter = ({
   initialUser,
   planExists,
 }: CampaignPlanRouterProps): React.JSX.Element => {
+  const [campaign] = useCampaign()
+  const electionDate = campaign?.details?.electionDate
   const { isComplete: storyComplete, isLoading: storyLoading } =
     useCampaignStoryComplete(true)
   // Initialized false (not from sessionStorage) so the client's first render
@@ -85,6 +98,19 @@ const CampaignPlanRouter = ({
   const requestGenerate = (): void => {
     sessionStorage.setItem(GENERATE_REQUESTED_KEY, String(Date.now()))
     setGenerateRequested(true)
+  }
+
+  // A returning candidate's campaign still carries last cycle's election until
+  // they update their race. gp-api refuses to generate a plan for a past
+  // electionDate (400), and a tracker for a finished race is meaningless, so
+  // send them to fix the race first — ahead of the story gate and regardless of
+  // an existing plan or a pending generate request.
+  if (electionHasPassed(electionDate)) {
+    return (
+      <DashboardLayout navHeader={navHeader}>
+        <CampaignPlanElectionPassedGate electionDate={electionDate ?? ''} />
+      </DashboardLayout>
+    )
   }
 
   // Show the plan/tracker only once the story is complete — then either an
