@@ -319,12 +319,12 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_mass_deportations_oppose',
     label:
-      'Mass Deportations Oppose (limited coverage: data exists in only 12 states; null elsewhere)',
+      'Opposes mass deportations (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   {
     name: 'hs_mass_deportations_support',
     label:
-      'Mass Deportations Support (limited coverage: data exists in only 12 states; null elsewhere)',
+      'Supports mass deportations (limited coverage: data exists in only 12 states; null elsewhere)',
   },
   { name: 'hs_medicaid_expansion_oppose', label: 'Medicaid Expansion Oppose' },
   {

@@ -45,6 +45,16 @@ describe('win constituent scope', () => {
     ])
   })
 
+  // The label is the model's only cue for which way a score points, and a
+  // noun phrase ("Mass Deportations Oppose") does not say whether a high
+  // score is the voter opposing or being opposed.
+  it('states the stance direction in the mass-deportations labels', () => {
+    const labelFor = (name: string) =>
+      WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS.find((d) => d.name === name)?.label
+    expect(labelFor('hs_mass_deportations_oppose')).toMatch(/^Opposes /)
+    expect(labelFor('hs_mass_deportations_support')).toMatch(/^Supports /)
+  })
+
   it('does not forbid partisan columns, only identity backstops', () => {
     const scope = buildWinConstituentDataScope(FILTERS, WIN_CONSTITUENT_TABLES)
     expect(scope.forbiddenColumns.has('Parties_Description')).toBe(false)
