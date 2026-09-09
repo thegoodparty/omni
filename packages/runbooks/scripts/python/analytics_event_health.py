@@ -141,19 +141,44 @@ def to_date(value: Any) -> date | None:
     return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
 
 
+def _prose(text: str) -> str | None:
+    """Collapse a run of description prose to one line; None when it holds no words.
+
+    Truncates at the first ``<!--`` so a malformed/unclosed gp-meta marker (or a second,
+    duplicate block) never leaks its raw markup into the purpose — worst case degrades to
+    the pre-DATA-2426 blank cell, not a garbled one.
+    """
+    return " ".join(text.split("<!--", 1)[0].split()) or None
+
+
+def _strip_sep(value: str) -> str:
+    """Drop the trailing ' |' gp-meta line separator from a field value."""
+    return value.rstrip().removesuffix("|").rstrip()
+
+
 def parse_gpmeta(description: str | None) -> dict | None:
     """Parse the ``<!-- gp-meta -->`` block from a Govern description.
 
     Returns ``{"intent": "in_use"|"not_in_use"|None, "intent_date": str|None,
-    "supersession": str|None, "purpose": str|None}`` (``intent_date`` is the YYYY-MM-DD on
-    the in-use / not-in-use status line) or ``None`` when no block is present. Sparse today; the logic is ready for when the
-    instrument-analytics-event / event-metadata skills start writing it.
+    "supersession": str|None, "purpose": str|None, "fires_on": str|None, "url": str|None}``
+    (``intent_date`` is the YYYY-MM-DD on the in-use / not-in-use status line), or ``None``
+    only when there is no description at all. A description with no block still yields a
+    record whose ``purpose`` is the prose itself: most events pre-date the block, and
+    dropping their description on the floor is what left the sheet's description column
+    reading half-empty (DATA-2426).
     """
-    if not description:
+    if not description or not description.strip():
         return None
     match = GPMETA.search(description)
     if not match:
-        return None
+        return {
+            "intent": None,
+            "intent_date": None,
+            "supersession": None,
+            "purpose": _prose(description),
+            "fires_on": None,
+            "url": None,
+        }
     block = match.group(1)
     intent = None
     status_line = re.search(r"^\s*not in use[^\n]*", block, re.IGNORECASE | re.MULTILINE)
@@ -167,7 +192,9 @@ def parse_gpmeta(description: str | None) -> dict | None:
     if status_line:
         d = re.search(r"\d{4}-\d{2}-\d{2}", status_line.group(0))
         intent_date = d.group(0) if d else None
-    sup = re.search(r"supersession:\s*(.+)", block, re.IGNORECASE)
+    sup = re.search(r"^\s*supersession\s*:\s*(.+)$", block, re.IGNORECASE | re.MULTILINE)
+    fires_on = re.search(r"^\s*fires_on\s*:\s*(.+)$", block, re.IGNORECASE | re.MULTILINE)
+    url = re.search(r"^\s*url\s*:\s*(.+)$", block, re.IGNORECASE | re.MULTILINE)
     # Purpose: the first content line that is neither a known field nor an in/out-of-use
     # status line. Trailing " |" (the gp-meta line separator) is stripped.
     purpose = None
@@ -177,13 +204,19 @@ def parse_gpmeta(description: str | None) -> dict | None:
             continue
         if re.match(r"^(supersession|in use|not in use|change-set)\b", line, re.IGNORECASE):
             continue
+        if re.match(r"^(fires_on|url)\s*:", line, re.IGNORECASE):
+            continue
         purpose = line.rstrip().removesuffix("|").rstrip()
         break
+    if purpose is None:
+        purpose = _prose(description[: match.start()] + " " + description[match.end() :])
     return {
         "intent": intent,
         "intent_date": intent_date,
-        "supersession": sup.group(1).rstrip().removesuffix("|").rstrip() if sup else None,
+        "supersession": _strip_sep(sup.group(1)) if sup else None,
         "purpose": purpose,
+        "fires_on": _strip_sep(fires_on.group(1)) if fires_on else None,
+        "url": _strip_sep(url.group(1)) if url else None,
     }
 
 

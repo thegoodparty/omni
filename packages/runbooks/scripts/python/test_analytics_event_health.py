@@ -42,9 +42,39 @@ def test_to_date_handles_date_string_and_empty():
 # --- parse_gpmeta ------------------------------------------------------------
 
 
-def test_parse_gpmeta_absent_returns_none():
+def test_parse_gpmeta_none_only_when_description_is_empty():
     assert eh.parse_gpmeta(None) is None
-    assert eh.parse_gpmeta("a plain description, no markers") is None
+    assert eh.parse_gpmeta("") is None
+    assert eh.parse_gpmeta("   \n  ") is None
+
+
+def test_parse_gpmeta_prose_only_description_is_the_purpose():
+    # DATA-2426 regression: 193 events carry a good prose description in Amplitude and
+    # no gp-meta block. They rendered an empty description cell in the sheet.
+    meta = eh.parse_gpmeta("Fired when a candidate publishes their website.")
+    assert meta is not None
+    assert meta["purpose"] == "Fired when a candidate publishes their website."
+    assert meta["intent"] is None
+    assert meta["intent_date"] is None
+    assert meta["supersession"] is None
+
+
+def test_parse_gpmeta_prose_only_collapses_multiline_to_one_line():
+    meta = eh.parse_gpmeta("Fired on publish.\n\nCounts once per campaign.\n")
+    assert meta["purpose"] == "Fired on publish. Counts once per campaign."
+
+
+def test_parse_gpmeta_block_without_purpose_line_falls_back_to_prose_outside():
+    desc = (
+        "Fired when a member submits an issue.\n"
+        "<!-- gp-meta -->\n"
+        "supersession: original |\n"
+        "in use: 2026-06-16 (#171)\n"
+        "<!-- /gp-meta -->\n"
+    )
+    meta = eh.parse_gpmeta(desc)
+    assert meta["purpose"] == "Fired when a member submits an issue."
+    assert meta["intent"] == "in_use"
 
 
 def test_parse_gpmeta_extracts_intent_and_supersession():
@@ -90,16 +120,103 @@ def test_parse_gpmeta_extracts_purpose():
     assert result["intent"] == "not_in_use"
 
 
-def test_parse_gpmeta_purpose_none_when_block_has_no_prose_line():
+def test_parse_gpmeta_purpose_none_when_block_has_no_prose_line_and_no_prose_outside():
     desc = "<!-- gp-meta -->\nsupersession: original |\nin use: 2026-06-16 (#171)\n<!-- /gp-meta -->"
     result = eh.parse_gpmeta(desc)
     assert result["purpose"] is None
     assert result["supersession"] == "original"
 
 
-def test_parse_gpmeta_none_when_no_block():
-    assert eh.parse_gpmeta("plain description, no markers") is None
-    assert eh.parse_gpmeta(None) is None
+def test_parse_gpmeta_extracts_fires_on_and_url():
+    desc = (
+        "<!-- gp-meta -->\n"
+        "Confirms an admin approved a campaign for sending. |\n"
+        "fires_on: Admin SMS outreach queue, Approve & book send on a campaign detail page. |\n"
+        "url: /dashboard/sms-outreach/:id (gp-admin) |\n"
+        "supersession: original |\n"
+        "in use: 2026-09-09 (#1)\n"
+        "<!-- /gp-meta -->"
+    )
+    meta = eh.parse_gpmeta(desc)
+    assert meta["fires_on"] == (
+        "Admin SMS outreach queue, Approve & book send on a campaign detail page."
+    )
+    assert meta["url"] == "/dashboard/sms-outreach/:id (gp-admin)"
+    assert meta["purpose"] == "Confirms an admin approved a campaign for sending."
+
+
+def test_parse_gpmeta_anchor_fields_absent_are_none():
+    desc = "<!-- gp-meta -->\npurpose line\nin use: 2026-06-18 (#1)\n<!-- /gp-meta -->"
+    meta = eh.parse_gpmeta(desc)
+    assert meta["fires_on"] is None
+    assert meta["url"] is None
+    meta = eh.parse_gpmeta("prose only, no block")
+    assert meta["fires_on"] is None
+    assert meta["url"] is None
+
+
+def test_parse_gpmeta_anchor_line_above_the_prose_is_not_mistaken_for_the_purpose():
+    desc = (
+        "<!-- gp-meta -->\n"
+        "fires_on: Campaign plan page, Generate button. |\n"
+        "The question this event answers. |\n"
+        "in use: 2026-09-09 (#1)\n"
+        "<!-- /gp-meta -->"
+    )
+    assert eh.parse_gpmeta(desc)["purpose"] == "The question this event answers."
+
+
+def test_parse_gpmeta_purpose_starting_with_the_word_url_survives():
+    desc = "<!-- gp-meta -->\nURL of the shared plan was opened. |\nin use: 2026-09-09\n<!-- /gp-meta -->"
+    assert eh.parse_gpmeta(desc)["purpose"] == "URL of the shared plan was opened."
+
+
+def test_parse_gpmeta_prose_only_does_not_raise_a_divergence():
+    # The fallback must not turn 193 undeclared events into intent-vs-reality flags.
+    meta = eh.parse_gpmeta("A plain prose description, no markers.")
+    assert eh.divergence(meta, "retired", firing_recent=False) is None
+    assert eh.divergence(meta, "active", firing_recent=True) is None
+
+
+def test_parse_gpmeta_unclosed_marker_does_not_leak_markup_into_the_purpose():
+    # A hand-edit in the Amplitude Govern UI is exactly how a marker breaks. Without the
+    # closing marker, GPMETA.search misses and the whole raw description — including the
+    # opening marker and field lines — would otherwise become the purpose. Worst case
+    # degrades to the pre-DATA-2426 blank cell, never a garbled one.
+    desc = "Real prose here.\n<!-- gp-meta -->\nfires_on: Admin page. |\nin use: 2026-01-01 (#1)\n"
+    meta = eh.parse_gpmeta(desc)
+    assert meta["purpose"] == "Real prose here."
+    assert "gp-meta" not in meta["purpose"]
+    assert "fires_on" not in meta["purpose"]
+
+
+def test_parse_gpmeta_supersession_substring_inside_fires_on_does_not_hijack_the_field():
+    # The supersession regex was unanchored, so a "supersession:" substring anywhere in the
+    # block — including inside another field's free-prose value — used to win over the real
+    # supersession line further down.
+    desc = (
+        "<!-- gp-meta -->\n"
+        "fires_on: Page X, supersession: nope |\n"
+        "The purpose line. |\n"
+        "supersession: original |\n"
+        "in use: 2026-09-09 (#1)\n"
+        "<!-- /gp-meta -->"
+    )
+    meta = eh.parse_gpmeta(desc)
+    assert meta["supersession"] == "original"
+    assert meta["fires_on"] == "Page X, supersession: nope"
+
+
+def test_parse_gpmeta_url_field_name_collision_with_url_prefixed_purpose():
+    # Accepted tradeoff, not a bug: the skip regex for the purpose scan requires a colon so
+    # that a colon-less purpose line like "URL of the shared plan…" survives (see
+    # test_parse_gpmeta_purpose_starting_with_the_word_url_survives above). The unavoidable
+    # other side is that a purpose line that itself begins "URL:" is read as the `url` field
+    # instead of the purpose.
+    desc = "<!-- gp-meta -->\nURL: the shared plan link was opened. |\nin use: 2026-09-09\n<!-- /gp-meta -->"
+    meta = eh.parse_gpmeta(desc)
+    assert meta["purpose"] is None
+    assert meta["url"] == "the shared plan link was opened."
 
 
 # --- is_system / is_elevated -------------------------------------------------

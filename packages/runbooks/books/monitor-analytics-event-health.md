@@ -169,7 +169,10 @@ entries to the event-metadata skill:
    are gitignored and long-lived on disk, so a reviewed-but-unstamped payload is
    indistinguishable from an unwritten one. Conversely, before executing ANY payload: if the
    header carries a `WRITTEN` stamp, stop — and even without one, spot-check a few entries
-   against live declared intent (the `gpmeta` field in the monitor's `--json` report). If the
+   against live declared intent (the `gpmeta` field in the monitor's `--json` report). Since
+   DATA-2426, `gpmeta` is non-null for any event with a description at all, so its mere
+   presence no longer means a block was written — check `gpmeta.intent` and
+   `gpmeta.supersession` specifically; a prose-only record leaves both null. If the
    blocks already match the payload, the batch was already written; never re-run it.
 
 ## Stage 5 — refresh the consumer surface (independent, non-fatal)
@@ -192,7 +195,10 @@ Do not fail the monitor run on a refresh error.
 
 Block delimited by `<!-- gp-meta -->` … `<!-- /gp-meta -->` inside the description:
 
-- Line 1: purpose (the question the event answers).
+- Line 1: purpose (the question the event answers). When the description has no block at
+  all, the whole description is the purpose — most events pre-date the block.
+- `fires_on:` one plain-English line: the surface and the trigger.
+- `url:` the product path, app named when it is not the candidate webapp.
 - `supersession:` `original` | `supersedes <event>` | `superseded by <event> (reason)`.
 - `in use: YYYY-MM-DD (#PR)` or `not in use: YYYY-MM-DD (reason, #PR)`.
 

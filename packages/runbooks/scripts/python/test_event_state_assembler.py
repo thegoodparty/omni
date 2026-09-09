@@ -26,15 +26,19 @@ def test_event_state_sql_reads_mart_analytics_catalog():
     assert "dbt." not in esa.EVENT_STATE_SQL
 
 
-def test_columns_are_the_twentytwo_in_order():
+def test_columns_lead_with_what_the_event_is_then_reality_then_governance():
+    # DATA-2426: identity and meaning first, firing reality second, governance and
+    # provenance last. `event_type` moves right because it duplicates `event` for 99.3%
+    # of rows. `where_it_fires` / `url` are headers here and filled by the anchor backfill.
     assert esa.COLUMNS == [
-        "event", "event_type", "status", "declared_intent", "intent_date", "supersession",
-        "family", "first_seen_date",
-        "last_seen_date", "event_count_30d", "event_count", "description", "tags",
+        "event", "description", "where_it_fires", "url",
+        "status", "last_seen_date", "event_count_30d", "event_count", "first_seen_date",
+        "family", "tags", "questions", "okr", "watchlist_status",
+        "event_type", "declared_intent", "intent_date", "supersession",
         "instrumented_pr", "instrumented_date", "instrumented_author_email",
-        "retired_pr", "retired_date", "retired_author_email", "watchlist_status", "okr",
-        "questions",
+        "retired_pr", "retired_date", "retired_author_email",
     ]
+    assert len(esa.COLUMNS) == 24
 
 
 def test_event_type_carries_the_ingested_name_when_display_name_diverges():
@@ -461,5 +465,19 @@ def test_build_rows_questions_blank_when_no_behavior_claims_the_event():
     assert esa.build_rows(records, {"E": {}}, {})[0]["questions"] == ""
 
 
-def test_questions_is_the_last_column_so_existing_offsets_do_not_shift():
-    assert esa.COLUMNS[-1] == "questions"
+def test_build_rows_maps_the_anchor_fields_from_gpmeta():
+    records = [_record("E", "active", gpmeta={
+        "intent": None, "intent_date": None, "supersession": None, "purpose": "p",
+        "fires_on": "Campaign plan page, Generate button.",
+        "url": "/dashboard/campaign-plan",
+    })]
+    row = esa.build_rows(records, {"E": {}}, {})[0]
+    assert row["where_it_fires"] == "Campaign plan page, Generate button."
+    assert row["url"] == "/dashboard/campaign-plan"
+
+
+def test_build_rows_anchor_columns_blank_when_the_block_has_no_anchor():
+    records = [_record("E", "active", gpmeta={"intent": None, "purpose": "p"})]
+    row = esa.build_rows(records, {"E": {}}, {})[0]
+    assert row["where_it_fires"] == ""
+    assert row["url"] == ""
