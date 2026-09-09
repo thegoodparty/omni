@@ -135,7 +135,7 @@ direction. Grouped into 9 topics:
 
 **immigration** — `hs_mass_deportations_support`, `hs_mass_deportations_oppose`, `hs_mexican_wall_support`, `hs_mexican_wall_oppose`, `hs_illegal_imm_process_unfair`, `hs_illegal_imm_undesirable`
 
-**crime_safety** — `hs_violent_crime_not_worried`, `hs_gun_control_support`, `hs_gun_control_oppose`, `hs_police_trust_yes`, `hs_police_trust_no`, `hs_death_penalty_support`, `hs_death_penalty_oppose`
+**crime_safety** — `hs_violent_crime_worried`, `hs_violent_crime_not_worried`, `hs_gun_control_support`, `hs_gun_control_oppose`, `hs_police_trust_yes`, `hs_police_trust_no`, `hs_death_penalty_support`, `hs_death_penalty_oppose`
 
 **social_issues** — `hs_abortion_pro_choice`, `hs_abortion_pro_life`, `hs_same_sex_marriage_support`, `hs_same_sex_marriage_oppose`, `hs_trans_athlete_yes`, `hs_trans_athlete_no`, `hs_dei_support`, `hs_dei_oppose`, `hs_religion_important`, `hs_religion_not_important`
 

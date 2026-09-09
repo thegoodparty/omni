@@ -615,6 +615,7 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 
 | Column                          | Meaning                          |
 | ------------------------------- | -------------------------------- |
+| `hs_violent_crime_worried`      | worried about violent crime      |
 | `hs_violent_crime_not_worried`  | not worried about violent crime  |
 | `hs_gun_control_support`        | supports gun control             |
 | `hs_gun_control_oppose`         | opposes gun control              |
