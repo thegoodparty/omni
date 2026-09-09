@@ -1,3 +1,4 @@
+import { Resolver } from 'node:dns/promises'
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import {
@@ -11,10 +12,13 @@ import {
 import { formatInTimeZone } from 'date-fns-tz'
 import {
   Campaign,
+  Domain,
   ExperimentRun,
   Prisma,
   TcrCompliance,
   TcrComplianceStatus,
+  Website,
+  WebsiteStatus,
 } from '../../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
@@ -60,6 +64,23 @@ const AWAITING_PIN_NUDGE_DAYS = 7
 // budget (with headroom for the "…and N more" marker), never by row count.
 const SECTION_TEXT_BUDGET = 2800
 
+// A just-bought domain legitimately reads NXDOMAIN until the TLD zone
+// publishes its delegation, so the registry-hold sweep only looks at domains
+// old enough for propagation to be long finished.
+const DOMAIN_DNS_GRACE_HOURS = 24
+
+// A registry hold (e.g. Radix's serverHold — its automated "Suspicious
+// Pattern" screening pulled three live vote-*-nov-2026.site candidate
+// domains out of DNS on 2026-09-09) removes the delegation itself, so the
+// signature is NXDOMAIN/no-NS on a domain the registrar confirms as bought.
+// Only these codes prove the delegation is gone; anything else (timeout,
+// SERVFAIL) is resolver noise, and reporting on it would mark the whole
+// fleet dark during a resolver outage.
+const DNS_NO_DELEGATION_CODES = new Set(['ENOTFOUND', 'ENODATA'])
+
+const DNS_SWEEP_BATCH_SIZE = 10
+const DNS_LOOKUP_TIMEOUT_MS = 3000
+
 // Case 1 (ENG-10795): an identity minted but its CV never shows a status is a
 // submission dropped between GoodParty and Peerly — our-side pipeline fault,
 // not a candidate-side stall. CV creates the request at `Requested` status
@@ -101,6 +122,10 @@ export const reportableCampaign = {
 }
 
 type RecordWithCampaign = TcrCompliance & { campaign: Campaign }
+
+type DomainWithCampaign = Domain & {
+  website: Website & { campaign: Campaign }
+}
 
 type ReportSection = {
   title: string
@@ -252,6 +277,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
       inReviewStalled,
       waitingToFinalizeStalled,
       deferredDispatchCandidates,
+      liveDomainCandidates,
     ] = await Promise.all([
       this.model.findMany({
         where: {
@@ -457,7 +483,31 @@ export class Nightly10DlcReportService extends createPrismaBase(
         },
         orderBy: { createdAt: Prisma.SortOrder.asc },
       }),
+      // Registry-hold sweep candidates: domains we believe are bought and
+      // serving a published site. Disjoint from "Domain purchase never
+      // completed" by construction — a post-cutoff row with no
+      // registrantVerifiedAt is a purchase failure, and only that section
+      // may list it; pre-cutoff legacy rows never got the stamp (see the
+      // legacy-domain gotcha in this dir's AGENTS.md) so they qualify by
+      // age instead.
+      this.client.domain.findMany({
+        where: {
+          createdAt: { lt: subHours(now, DOMAIN_DNS_GRACE_HOURS) },
+          OR: [
+            { registrantVerifiedAt: { not: null } },
+            { createdAt: { lt: REGISTRANT_STAMPING_UNIVERSAL_FROM } },
+          ],
+          website: {
+            status: WebsiteStatus.published,
+            campaign: reportableCampaign,
+          },
+        },
+        include: { website: { include: { campaign: true } } },
+      }),
     ])
+
+    const heldDomains =
+      await this.sweepDomainsWithoutDelegation(liveDomainCandidates)
 
     // Business-day floor applied in code (see comment above) — restricted to
     // the same in-flight population the queries above already scoped.
@@ -546,6 +596,17 @@ export class Nightly10DlcReportService extends createPrismaBase(
             `${domain.website.campaignId}) — domain ${domain.name} bought ` +
             `${differenceInCalendarDays(now, domain.createdAt)}d ago, never ` +
             'registrant-verified',
+        ),
+      },
+      {
+        title: '🛑 Domain not resolving (registry hold?)',
+        lines: heldDomains.map(
+          (domain) =>
+            `• ${domain.website.campaign.slug} (campaign ` +
+            `${domain.website.campaignId}) — ${domain.name} has no DNS ` +
+            `delegation despite domain status \`${domain.status}\` — run ` +
+            '`whois` to check for serverHold; if held, file at ' +
+            'https://abuse.radix.website/unsuspension',
         ),
       },
       {
@@ -744,6 +805,48 @@ export class Nightly10DlcReportService extends createPrismaBase(
       '[10DLC nightly report] Posted',
     )
     return true
+  }
+
+  // NS lookup, not A: a registry hold removes the delegation itself, and an
+  // apex A read can be answered from a resolver cache long after the hold
+  // lands. Batched so a large fleet doesn't fan every query out against the
+  // VPC resolver at once.
+  private async sweepDomainsWithoutDelegation(
+    domains: DomainWithCampaign[],
+  ): Promise<DomainWithCampaign[]> {
+    const resolver = new Resolver({
+      timeout: DNS_LOOKUP_TIMEOUT_MS,
+      tries: 1,
+    })
+    const held: DomainWithCampaign[] = []
+    for (let i = 0; i < domains.length; i += DNS_SWEEP_BATCH_SIZE) {
+      const batch = domains.slice(i, i + DNS_SWEEP_BATCH_SIZE)
+      const results = await Promise.all(
+        batch.map(async (domain) => {
+          try {
+            await resolver.resolveNs(domain.name)
+            return null
+          } catch (err) {
+            const code = err instanceof Error && 'code' in err ? err.code : null
+            if (typeof code === 'string' && DNS_NO_DELEGATION_CODES.has(code)) {
+              return domain
+            }
+            this.logger.warn(
+              { err, domain: domain.name },
+              '[10DLC nightly report] Inconclusive DNS lookup; domain ' +
+                'skipped this night',
+            )
+            return null
+          }
+        }),
+      )
+      held.push(
+        ...results.filter(
+          (domain): domain is DomainWithCampaign => domain !== null,
+        ),
+      )
+    }
+    return held
   }
 
   // Once-only claim on cvNeverReachedAlertedAt before pinging the internal

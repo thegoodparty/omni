@@ -3,7 +3,11 @@ import { formatInTimeZone } from 'date-fns-tz'
 import { subDays, subHours, subMinutes } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { TcrComplianceStatus } from '../../../generated/prisma'
+import {
+  DomainStatus,
+  TcrComplianceStatus,
+  WebsiteStatus,
+} from '../../../generated/prisma'
 import { PrismaService } from '@/prisma/prisma.service'
 import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
 import { MessageGroup, QueueType } from '../../../queue/queue.types'
@@ -23,7 +27,18 @@ import {
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES } from './campaignTcrCompliance.service'
+import { REGISTRANT_STAMPING_UNIVERSAL_FROM } from './complianceState.service'
 import { Nightly10DlcReportService } from './nightly10DlcReport.service'
+
+const { mockResolveNs } = vi.hoisted(() => ({ mockResolveNs: vi.fn() }))
+vi.mock('node:dns/promises', () => ({
+  Resolver: class {
+    resolveNs = mockResolveNs
+  },
+}))
+
+const dnsError = (code: string) =>
+  Object.assign(new Error(`queryNs ${code}`), { code })
 
 type WhereClause = {
   status?: TcrComplianceStatus | { in: TcrComplianceStatus[] }
@@ -180,6 +195,9 @@ describe('Nightly10DlcReportService', () => {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     }
     mockDomain = { findMany: vi.fn().mockResolvedValue([]) }
+    // Healthy delegation by default so tests exercising other sections
+    // never trip the registry-hold sweep.
+    mockResolveNs.mockResolvedValue(['ns1.vercel-dns.com'])
     mockExperimentRun = { findMany: vi.fn().mockResolvedValue([]) }
     // Defaults to "no CV request yet" so tests that don't care about the
     // poll (most of the pre-existing suite) never see an unexpected update.
@@ -426,6 +444,93 @@ describe('Nightly10DlcReportService', () => {
           status: TcrComplianceStatus.submitted,
           peerlyIdentityId: null,
         },
+      })
+      // The registry-hold sweep must stay disjoint from the purchase-failure
+      // section above: only bought domains (registrant-verified, or legacy
+      // pre-cutoff) qualify, under a published site of the same reportable
+      // population.
+      const [heldCall] = mockDomain.findMany.mock.calls[1] as [
+        {
+          where: {
+            website: { status: WebsiteStatus; campaign: object }
+            OR: object[]
+          }
+        },
+      ]
+      expect(heldCall.where.website).toEqual({
+        status: WebsiteStatus.published,
+        campaign: expectedCampaignWhere,
+      })
+      expect(heldCall.where.OR).toEqual([
+        { registrantVerifiedAt: { not: null } },
+        { createdAt: { lt: REGISTRANT_STAMPING_UNIVERSAL_FROM } },
+      ])
+    })
+
+    describe('registry-hold domain sweep', () => {
+      const boughtDomainRow = (name: string, overrides: object = {}) => ({
+        name,
+        status: DomainStatus.submitted,
+        createdAt: subDays(new Date(), 7),
+        registrantVerifiedAt: subDays(new Date(), 7),
+        website: {
+          campaignId: 777,
+          campaign: { id: 777, slug: 'held-camp', isPro: true },
+        },
+        ...overrides,
+      })
+
+      const queueHeldSweepDomains = (rows: object[]) => {
+        mockDomain.findMany.mockImplementation(
+          ({ where }: { where: { website?: { status?: WebsiteStatus } } }) =>
+            Promise.resolve(
+              where.website?.status === WebsiteStatus.published ? rows : [],
+            ),
+        )
+      }
+
+      it('reports a bought domain with no DNS delegation and counts it stuck', async () => {
+        queueHeldSweepDomains([
+          boughtDomainRow('vote-for-paholsky-nov-2026.site'),
+        ])
+        mockResolveNs.mockRejectedValue(dnsError('ENOTFOUND'))
+
+        await service.handleNightlyReport({ reportDate: '2026-09-10' })
+
+        const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+          { blocks: SlackMessageBlock[] },
+        ]
+        const text = blocksText(blocks)
+        expect(text).toContain('🚨 10DLC nightly report — 2026-09-10: 1 stuck')
+        expect(text).toContain('Domain not resolving (registry hold?)')
+        expect(text).toContain('held-camp (campaign 777)')
+        expect(text).toContain('vote-for-paholsky-nov-2026.site')
+        expect(text).toContain('abuse.radix.website/unsuspension')
+      })
+
+      it('does not report a transient lookup failure — a resolver outage must not mark the fleet dark', async () => {
+        queueHeldSweepDomains([boughtDomainRow('vote-transient.site')])
+        mockResolveNs.mockRejectedValue(dnsError('ETIMEOUT'))
+
+        await service.handleNightlyReport({ reportDate: '2026-09-10' })
+
+        const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+          { blocks: SlackMessageBlock[] },
+        ]
+        const text = blocksText(blocks)
+        expect(text).toContain('no campaigns stuck')
+        expect(text).not.toContain('Domain not resolving')
+      })
+
+      it('does not report a domain whose delegation resolves', async () => {
+        queueHeldSweepDomains([boughtDomainRow('vote-healthy.site')])
+
+        await service.handleNightlyReport({ reportDate: '2026-09-10' })
+
+        const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+          { blocks: SlackMessageBlock[] },
+        ]
+        expect(blocksText(blocks)).not.toContain('Domain not resolving')
       })
     })
 
