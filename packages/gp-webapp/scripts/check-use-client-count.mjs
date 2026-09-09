@@ -59,8 +59,8 @@ import { dirname, join, relative } from 'node:path'
 // (removed) with DraftDetail (contentEditable inline editor with autosave +
 // selection toolbar) and DraftChat (streaming chat in a drawer). Both are
 // stateful client components; the page.tsx shell stays server.
-// 2026-07-16: 540 -> 541 for the CRM mode-gate hook composing
-// useWinVoterContext (React Query) with a feature-flag read, so it must
+// 2026-07-16: 540 -> 541 for useCrmEnabled — a hook composing
+// useWinVoterContext (React Query) with two feature-flag reads, so it must
 // run on the client, like the sibling useWinVoterContext.
 // 2026-07-16: 541 -> 542 for ContactTypeahead — the CRM contacts search
 // dropdown holds input/debounce state and a React Query fetch, so it cannot
@@ -71,8 +71,8 @@ import { dirname, join, relative } from 'node:path'
 // 2026-07-16: 543 -> 540 for removing the legacy impersonation path:
 // ImpersonateUserProvider, useImpersonateUser, and the orphaned
 // ImpersonateAction (gp-admin owns admin impersonation now).
-// 2026-07-16: 540 -> 542 for the whole-page CRM gate (ENG-10683): the
-// page-level gate branches on the client-resolved CRM flag, and
+// 2026-07-16: 540 -> 542 for the whole-page CRM gate (ENG-10683):
+// ContactsPageGate branches on the client-resolved CRM flag, and
 // CrmContactsPage hosts the interactive typeahead + Pro-modal state, so
 // neither can be a server component. The crm/ moves themselves are
 // count-neutral.
@@ -148,8 +148,8 @@ import { dirname, join, relative } from 'node:path'
 // mutation) — all interactive, all inside the client-only map page.
 // ENG-10836: +1 for crm/person/StatusRow.tsx — the person-record status row
 // needs client hooks (useMutation/useQueryClient for the PATCH + optimistic
-// update, Radix Select interactivity), so it can't render as a server
-// component.
+// update, useCrmEnabled for self-gating, Radix Select interactivity), so it
+// can't render as a server component.
 // ENG-10858: +1 for campaignManager/TextingSetupBanner.tsx — self-gates on
 // useCampaign and fires a view event in an effect, like its sibling
 // ProUpgradeBanner.
