@@ -273,19 +273,36 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
   never matches null). Nudge-style like awaiting-PIN, not counted as stuck —
   the fix is candidate action, and the sweep dispatches automatically once
   the profile is completed.
-- **Seven failure sections**, all scoped to `campaign.isPro` (pre-payment records
+- **Eight failure sections**, all scoped to `campaign.isPro` (pre-payment records
   intentionally sit idle) and excluding internal accounts (user email
   ending `@goodparty.org` / `@test.goodparty.org` — staff walk this flow
   in prod and their stuck records are noise): submission never completed (>24h after kickoff,
   with agentic run status), kickoff `error`, Peerly/CV `rejected`, active
   billing block (within `PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES`), domain
   purchase never completed (post-cutoff `registrantVerifiedAt` NULL — see
-  the legacy-domain gotcha below), the two vendor-escalation
+  the legacy-domain gotcha below), domain not resolving (the registry-hold
+  sweep, next bullet), the two vendor-escalation
   mirror sections (ENG-10796 cases 2 and 3b — see below), and an awaiting-PIN
   > 7d nudge section that is reported but not counted as stuck. Sections cap
   > at 25 rows with an explicit `…and N more`. Cases 1 and 3a (ENG-10795) are
   > detected here too but no longer render as a section — see "One-time
   > internal alerts" below.
+- **The registry-hold DNS sweep.** Domains we believe are bought
+  (`registrantVerifiedAt` set, or pre-cutoff legacy) under a **published**
+  website of the reportable population, older than 24h (DNS propagation
+  grace), get one NS lookup each (batched, 3s timeout). A conclusive
+  no-delegation answer (`ENOTFOUND`/`ENODATA` — NXDOMAIN despite a completed
+  purchase is the `serverHold` signature) renders the "Domain not resolving
+  (registry hold?)" section, pointing staff at `whois` and Radix's
+  unsuspension portal (https://abuse.radix.website/unsuspension). Origin:
+  2026-09-09, Radix's automated "Suspicious Pattern" screening serverHeld
+  three live `vote-*-nov-2026.site` candidate domains (paholsky/ghaly/
+  hennigan) and Peerly reported the CV URLs unreachable — the hold is
+  invisible to Vercel (`boughtAt` set, site serving 200 on the edge) and to
+  our DB, so DNS is the only signal. Transient lookup failures (timeout,
+  SERVFAIL) skip the domain for the night — a resolver outage must not mark
+  the whole fleet dark. Disjoint from "Domain purchase never completed":
+  post-cutoff unverified rows belong only to that section.
 - **The awaiting-PIN nudge is `peerlyCvStatus = APPROVED` only (ENG-10866).**
   It used to be `{ not: null, notIn: [VERIFIED] }`, which swept in `REQUESTED`
   and `IN_REVIEW` and printed `PIN out Nd` for records where CampaignVerify had
