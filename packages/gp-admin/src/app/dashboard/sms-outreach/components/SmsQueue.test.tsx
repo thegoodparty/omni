@@ -120,6 +120,8 @@ describe('SmsQueue', () => {
     await userEvent.click(screen.getByRole('tab', { name: /Booked \(1\)/ }))
     expect(screen.getByText('Booked send')).toBeInTheDocument()
     expect(screen.getByText('Send booked')).toBeInTheDocument()
+    // Booked + active job reads Active, not the pre-approval Ready.
+    expect(screen.getByText('Active')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('tab', { name: /Denied \(1\)/ }))
     expect(screen.getByText('Denied send')).toBeInTheDocument()
@@ -154,6 +156,33 @@ describe('SmsQueue', () => {
 
     await userEvent.click(screen.getByText('Jane Doe'))
     expect(mockPush).toHaveBeenCalledTimes(1)
+  })
+
+  it('flags a booked job the vendor still has inactive', async () => {
+    render(
+      <Theme>
+        <SmsQueue
+          items={[
+            item({
+              id: 46,
+              name: 'Booked but paused',
+              approvalStatus: 'canvass_requested',
+              canvassRequestedAt: new Date(),
+              job: {
+                status: 'paused',
+                deliverabilityCheckError: null,
+                hasCanvassersScheduled: true,
+                peerlyApproved: true,
+                leadsRemaining: 1200,
+              },
+            }),
+          ]}
+        />
+      </Theme>
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: /Booked \(1\)/ }))
+    expect(screen.getByText('Needs activation')).toBeInTheDocument()
   })
 
   it('flags standards failures and vendor readiness problems', () => {

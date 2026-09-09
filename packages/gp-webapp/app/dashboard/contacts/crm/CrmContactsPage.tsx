@@ -32,6 +32,8 @@ export const CrmContactsPage = () => {
     canUseProFeatures,
     currentlySelectedListId,
     selectList,
+    editingSegment,
+    closeEditList,
     voterDataUnavailable,
   } = useContactsTable()
   const organization = useOrganization()
@@ -70,6 +72,7 @@ export const CrmContactsPage = () => {
       setShowProModal(true)
       return
     }
+    closeEditList()
     setWizardOpen(true)
   }
 
@@ -183,7 +186,18 @@ export const CrmContactsPage = () => {
         {!voterDataUnavailable && (
           <>
             <PersonOverlay />
-            <CreateListWizard open={wizardOpen} onOpenChange={setWizardOpen} />
+            {/* One instance serves both flows: `editingSegment` switches it
+                into the edit sheet, so a list's Edit and the page's "Create
+                new list" can never render two stacked drawers. */}
+            <CreateListWizard
+              open={wizardOpen || editingSegment !== null}
+              onOpenChange={(open) => {
+                if (open) return
+                setWizardOpen(false)
+                closeEditList()
+              }}
+              editingSegment={editingSegment}
+            />
             <ListDetailSheet
               listId={currentlySelectedListId}
               onClose={() => selectList(null)}

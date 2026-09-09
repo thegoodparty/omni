@@ -60,6 +60,21 @@ export const toActivityConditionPayload = (
       actions: condition.actions,
     }))
 
+// Inverse of toActivityConditionPayload, for seeding the wizard's edit mode
+// from a saved list. outreachName stays null: it exists only for the create
+// path's ENG-10709 `sourceCampaign` property, and an edit fires Segment
+// Updated instead — the campaign picker renders its own label from the
+// fetched outreaches, keyed on outreachId.
+export const toWizardActivityConditions = (
+  conditions: ActivityConditionInput[],
+): WizardActivityCondition[] =>
+  conditions.map((condition) => ({
+    ...blankActivityCondition(),
+    outreachType: condition.outreachType,
+    outreachId: condition.outreachId,
+    actions: condition.actions ?? [],
+  }))
+
 // Single source for the "no display name on the record" fallback — used both
 // by the campaign SelectItem's render and by handleCampaignChange's
 // ENG-10709 outreachName resolution, so the two can't drift on the fallback

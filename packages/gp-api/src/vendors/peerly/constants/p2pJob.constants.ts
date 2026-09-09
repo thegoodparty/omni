@@ -19,6 +19,7 @@ export const P2P_ERROR_MESSAGES = {
   RETRIEVE_JOB_FAILED: 'Failed to fetch P2P job',
   DELETE_JOB_FAILED: 'Failed to delete P2P job',
   REQUEST_CANVASSERS_FAILED: 'Failed to request canvassers for P2P job',
+  ACTIVATE_JOB_FAILED: 'Failed to activate P2P job',
   CLEAR_CANVASSERS_FAILED: 'Failed to clear canvasser request for P2P job',
   JOB_STATS_FAILED: 'Failed to fetch P2P job stats',
   RETRIEVE_JOBS_FAILED: 'Failed to fetch P2P jobs',

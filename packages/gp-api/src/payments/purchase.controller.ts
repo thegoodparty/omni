@@ -55,9 +55,9 @@ export class PurchaseController {
       })
     }
 
-    // A second completed subscription checkout double-bills the user under a
-    // second Stripe customer (sessions carry only customer_email, so Stripe
-    // cannot dedupe them itself).
+    // A second completed subscription checkout double-bills the user —
+    // Stripe allows multiple subscriptions per customer, so this guard is
+    // what refuses the sale.
     if (activeCampaign.isPro) {
       throw new ConflictException({
         message: 'Campaign already has an active Pro subscription',
@@ -84,13 +84,10 @@ export class PurchaseController {
       }
     }
 
-    const { email } = user
-
     if (dto.embedded) {
       const { clientSecret, checkoutSessionId } =
         await this.stripeService.createEmbeddedProSubscriptionCheckoutSession(
-          user.id,
-          email,
+          user,
           dto.returnUrl,
         )
 
@@ -104,7 +101,7 @@ export class PurchaseController {
     }
 
     const { redirectUrl, checkoutSessionId } =
-      await this.stripeService.createCheckoutSession(user.id, email)
+      await this.stripeService.createCheckoutSession(user)
 
     await this.storeCheckoutSessionId(
       user.id,

@@ -164,6 +164,14 @@ export default async function Page({ params }: PageProps) {
                     'Live read failed'
                   ) : item.job.deliverabilityCheckError ? (
                     <Text color="red">{item.job.deliverabilityCheckError}</Text>
+                  ) : (item.approvalStatus === 'canvass_requested' ||
+                      item.approvalStatus === 'peerly_approved') &&
+                    item.job.status !== 'active' ? (
+                    <Text color="amber">
+                      {item.job.status}
+                      {item.job.peerlyApproved ? ' · vendor approved' : ''} —
+                      needs activation in Peerly or it will not send
+                    </Text>
                   ) : (
                     `${item.job.status}${
                       item.job.peerlyApproved ? ' · vendor approved' : ''

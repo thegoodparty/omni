@@ -10,6 +10,7 @@ import { OutreachStatus, OutreachType, UserRole } from '../../generated/prisma'
 const service = useTestService()
 
 const requestCanvassers = vi.fn()
+const activateJob = vi.fn()
 const clearCanvassers = vi.fn()
 const getJobsByIdentityId = vi.fn()
 const getJob = vi.fn()
@@ -31,6 +32,7 @@ const liveJob = (id: string, approved = false) => ({
 
 beforeEach(async () => {
   requestCanvassers.mockReset().mockResolvedValue(undefined)
+  activateJob.mockReset().mockResolvedValue(undefined)
   clearCanvassers.mockReset().mockResolvedValue(undefined)
   getJobsByIdentityId.mockReset().mockResolvedValue([])
   getJob.mockReset().mockResolvedValue(liveJob('peerly-job-1'))
@@ -47,6 +49,7 @@ beforeEach(async () => {
 
   const peerly = service.app.get(PeerlyP2pJobService)
   vi.spyOn(peerly, 'requestCanvassers').mockImplementation(requestCanvassers)
+  vi.spyOn(peerly, 'activateJob').mockImplementation(activateJob)
   vi.spyOn(peerly, 'clearCanvassers').mockImplementation(clearCanvassers)
   vi.spyOn(peerly, 'getJobsByIdentityId').mockImplementation(
     getJobsByIdentityId,
@@ -212,11 +215,29 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(updated.approvedBy).toBe('cas@goodparty.org')
       expect(updated.approvedAt).not.toBeNull()
       expect(updated.canvassRequestedAt).not.toBeNull()
+      expect(activateJob).toHaveBeenCalledWith('peerly-job-1')
       expect(track).toHaveBeenCalledWith(
         service.user.id,
         'Voter Outreach - Campaign Approved',
         { channel: 'sms' },
       )
+    })
+
+    it('keeps the booking when vendor activation fails', async () => {
+      activateJob.mockRejectedValue(new Error('cannot activate'))
+      const row = await seedOutreach()
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      const updated = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(updated.approvedAt).not.toBeNull()
+      expect(updated.canvassRequestedAt).not.toBeNull()
     })
 
     it('reverts the claim when the vendor call fails', async () => {

@@ -53,12 +53,17 @@ vi.mock('./wizard/CreateListWizard', () => ({
   default: ({
     open,
     onOpenChange,
+    editingSegment,
   }: {
     open: boolean
     onOpenChange: (open: boolean) => void
+    editingSegment?: { id: number } | null
   }) =>
     open ? (
       <div data-testid="create-list-wizard">
+        {editingSegment && (
+          <span data-testid="wizard-editing-id">{editingSegment.id}</span>
+        )}
         <button onClick={() => onOpenChange(false)}>close wizard</button>
       </div>
     ) : null,
@@ -126,6 +131,9 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
     customSegments: [],
     currentlySelectedListId: null,
     selectList: vi.fn(),
+    editingSegment: null,
+    editList: vi.fn(),
+    closeEditList: vi.fn(),
     ...overrides,
   } as ContextValue)
 }
@@ -337,6 +345,29 @@ describe('CrmContactsPage — page contents', () => {
 
     expect(router.push).not.toHaveBeenCalled()
     expect(screen.getByTestId('create-list-wizard')).toBeInTheDocument()
+  })
+
+  it('opens the wizard in edit mode when the provider has a segment to edit', () => {
+    const editingSegment = { id: 42, name: 'GOTV text list' }
+    setContext({ editingSegment })
+    render(<CrmContactsPage />)
+
+    expect(screen.getByTestId('create-list-wizard')).toBeInTheDocument()
+    expect(screen.getByTestId('wizard-editing-id')).toHaveTextContent('42')
+  })
+
+  it('clears the edit segment when the wizard closes, so create opens empty', async () => {
+    const user = userEvent.setup()
+    const closeEditList = vi.fn()
+    setContext({
+      editingSegment: { id: 42, name: 'GOTV text list' },
+      closeEditList,
+    })
+    render(<CrmContactsPage />)
+
+    await user.click(screen.getByRole('button', { name: 'close wizard' }))
+
+    expect(closeEditList).toHaveBeenCalled()
   })
 
   it('never opens the wizard for a non-pro user (Pro upgrade gate reused from the legacy create flow)', async () => {

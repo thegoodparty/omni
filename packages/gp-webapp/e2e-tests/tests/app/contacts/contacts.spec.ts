@@ -152,18 +152,35 @@ test.describe('CRM Contacts Page (Serve)', () => {
 
     await expect(listCard(page, listName)).toBeVisible({ timeout: 20_000 })
 
-    // --- Lifecycle via the card kebab (ENG-10707): rename ---
+    // --- Lifecycle via the card kebab (ENG-10707): edit ---
+    // Edit reopens the wizard seeded from the list, collapsed to one step
+    // with the name in the sheet header — so renaming and refiltering are
+    // the same screen and there is no separate rename dialog.
     // Kept short: the duplicate step appends " (copy)" and
     // trimCustomSegmentName truncates past 40 chars, which would break the
     // exact-name card lookups below.
     const renamedName = `E2E renamed ${Date.now()}`
     await openListCardMenu(page, listName)
-    await page.getByRole('menuitem', { name: 'Rename' }).click()
-    const renameDialog = page.getByRole('dialog', { name: /rename list/i })
-    await expect(renameDialog).toBeVisible({ timeout: 10_000 })
-    await renameDialog.getByLabel('List name').fill(renamedName)
-    await renameDialog.getByRole('button', { name: 'Save' }).click()
-    await expect(renameDialog).toBeHidden({ timeout: 10_000 })
+    await page.getByRole('menuitem', { name: 'Edit', exact: true }).click()
+    const editSheet = crmSheet(page)
+    await expect(editSheet.getByText('Edit list')).toBeVisible({
+      timeout: 15_000,
+    })
+    const editNameInput = editSheet.getByLabel('List name')
+    // Seeded from the saved list, not blank — this is the rename affordance.
+    await expect(editNameInput).toHaveValue(listName, { timeout: 15_000 })
+    await editNameInput.fill(renamedName)
+    // The CTA carries the live count and stays disabled until it settles.
+    const saveChangesButton = editSheet.getByRole('button', {
+      name: /^Save changes/,
+    })
+    await expect(saveChangesButton).toBeEnabled({ timeout: 45_000 })
+    await saveChangesButton.click()
+    // Saving lands back on the edited list's own detail sheet.
+    await expect(
+      crmSheet(page).getByText(renamedName, { exact: true }),
+    ).toBeVisible({ timeout: 30_000 })
+    await closeCrmSheet(page)
     await expect(listCard(page, renamedName)).toBeVisible({ timeout: 20_000 })
     await expect(listCard(page, listName)).toHaveCount(0)
 

@@ -38,7 +38,7 @@ vi.mock('../shared/useContactsDownload', () => ({
 // elements (same approach as MoreMenu.test.tsx) rather than driving Radix's
 // floating-ui positioning, which nothing else in this test suite exercises.
 // Everything else in the barrel (Drawer, Dialog, AlertDialog, Button, …)
-// stays real, so the sheet + RenameListDialog/DeleteListDialog interactions
+// stays real, so the sheet + DeleteListDialog interactions
 // are exercised for real.
 vi.mock('@styleguide', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>()
@@ -80,6 +80,7 @@ const successSnackbar = vi.fn()
 const errorSnackbar = vi.fn()
 const downloadFn = vi.fn()
 const selectList = vi.fn()
+const editList = vi.fn()
 
 type ContextValue = ReturnType<typeof useContactsTable>
 
@@ -90,6 +91,7 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
     isWinContext: true,
     isWinContextReady: true,
     selectList,
+    editList,
     ...overrides,
   } as ContextValue)
 }
@@ -385,7 +387,7 @@ describe('ListDetailSheet — universe mode (ENG-10778)', () => {
       screen.queryByRole('button', { name: 'More actions' }),
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: 'Rename list' }),
+      screen.queryByRole('button', { name: 'Edit list' }),
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole('heading', { name: 'Outreach campaign history' }),
@@ -488,7 +490,7 @@ describe('ListDetailSheet — ENG-10749 footer Send outreach is Win-only', () =>
 })
 
 describe('ListDetailSheet — locked-state affordance (firstUsedForOutreachAt)', () => {
-  it('shows a Rename affordance for an unlocked list', async () => {
+  it('shows an Edit affordance for an unlocked list', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
       data: [{ id: 42, name: 'GOTV text list' }],
@@ -497,14 +499,14 @@ describe('ListDetailSheet — locked-state affordance (firstUsedForOutreachAt)',
     render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
 
     expect(
-      await screen.findByRole('button', { name: 'Rename list' }),
+      await screen.findByRole('button', { name: 'Edit list' }),
     ).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: /duplicate to edit/i }),
     ).not.toBeInTheDocument()
   })
 
-  it('shows "Duplicate to edit" instead of Rename once firstUsedForOutreachAt is set', async () => {
+  it('shows "Duplicate to edit" instead of Edit once firstUsedForOutreachAt is set', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
       data: [
@@ -522,105 +524,8 @@ describe('ListDetailSheet — locked-state affordance (firstUsedForOutreachAt)',
       await screen.findByRole('button', { name: /duplicate to edit/i }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: 'Rename list' }),
+      screen.queryByRole('button', { name: 'Edit list' }),
     ).not.toBeInTheDocument()
-  })
-})
-
-describe('ListDetailSheet — RenameListDialog (unlocked list)', () => {
-  const unlockedSegment = { id: 42, name: 'GOTV text list' }
-
-  it('rename success: PUT 200 -> success snackbar, segments invalidated, dialog closes', async () => {
-    let filtersCallCount = 0
-    api.mock('GET /v1/voters/voter-file/filters', () => {
-      filtersCallCount += 1
-      return { status: 200, data: [unlockedSegment] }
-    })
-    api.mock('PUT /v1/voters/voter-file/filter/:id', {
-      status: 200,
-      data: { id: 42, name: 'New Name' },
-    })
-    const user = userEvent.setup()
-
-    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
-    await user.click(await screen.findByRole('button', { name: 'Rename list' }))
-    await vi.waitFor(() => expect(filtersCallCount).toBeGreaterThanOrEqual(1))
-    const countBeforeSave = filtersCallCount
-
-    const input = screen.getByLabelText('List name')
-    await user.clear(input)
-    await user.type(input, 'New Name')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
-
-    await vi.waitFor(() =>
-      expect(successSnackbar).toHaveBeenCalledWith('List renamed'),
-    )
-    await vi.waitFor(() =>
-      expect(filtersCallCount).toBeGreaterThan(countBeforeSave),
-    )
-    // The sheet itself is a Radix dialog, so assert on the rename form
-    // specifically rather than role='dialog'.
-    expect(screen.queryByLabelText('List name')).not.toBeInTheDocument()
-    expect(errorSnackbar).not.toHaveBeenCalled()
-  })
-
-  it('rename raced 409: locked-message error snackbar, invalidate, dialog closes, no generic failure toast', async () => {
-    let filtersCallCount = 0
-    api.mock('GET /v1/voters/voter-file/filters', () => {
-      filtersCallCount += 1
-      return { status: 200, data: [unlockedSegment] }
-    })
-    // api.mock's typed status union doesn't include 409 (the ticket's
-    // documented locking edge case), so this exercises the raw mswServer
-    // with an explicit HttpResponse instead of widening that union.
-    mswServer.use(
-      http.put('/api/v1/voters/voter-file/filter/:id', () =>
-        HttpResponse.json(
-          { statusCode: 409, message: LOCKED_LIST_MESSAGE, error: 'Conflict' },
-          { status: 409 },
-        ),
-      ),
-    )
-    const user = userEvent.setup()
-
-    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
-    await user.click(await screen.findByRole('button', { name: 'Rename list' }))
-    await vi.waitFor(() => expect(filtersCallCount).toBeGreaterThanOrEqual(1))
-    const countBeforeSave = filtersCallCount
-
-    await user.click(screen.getByRole('button', { name: 'Save' }))
-
-    await vi.waitFor(() =>
-      expect(errorSnackbar).toHaveBeenCalledWith(LOCKED_LIST_MESSAGE, {
-        autoHideDuration: 6000,
-      }),
-    )
-    await vi.waitFor(() =>
-      expect(filtersCallCount).toBeGreaterThan(countBeforeSave),
-    )
-    expect(screen.queryByLabelText('List name')).not.toBeInTheDocument()
-    expect(errorSnackbar).not.toHaveBeenCalledWith('Failed to rename list')
-  })
-
-  it('rename generic 500: error snackbar, dialog stays open', async () => {
-    api.mock('GET /v1/voters/voter-file/filters', {
-      status: 200,
-      data: [unlockedSegment],
-    })
-    api.mock('PUT /v1/voters/voter-file/filter/:id', {
-      status: 500,
-      data: { message: 'server exploded' },
-    })
-    const user = userEvent.setup()
-
-    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
-    await user.click(await screen.findByRole('button', { name: 'Rename list' }))
-    await user.click(screen.getByRole('button', { name: 'Save' }))
-
-    await vi.waitFor(() =>
-      expect(errorSnackbar).toHaveBeenCalledWith('Failed to rename list'),
-    )
-    expect(screen.getByLabelText('List name')).toBeInTheDocument()
   })
 })
 
@@ -848,7 +753,7 @@ describe('ListDetailSheet — not-found and error states', () => {
 })
 
 // ENG-10767: sheet-open parity with the legacy Segment Viewed, the funnel
-// entry click, and the rename/delete/duplicate management events.
+// entry click, and the edit/delete/duplicate management events.
 describe('ListDetailSheet — ENG-10767 viewed + management analytics', () => {
   const unlockedSegment = { id: 42, name: 'GOTV text list' }
 
@@ -907,39 +812,23 @@ describe('ListDetailSheet — ENG-10767 viewed + management analytics', () => {
     )
   })
 
-  it('fires Segment Updated with action rename on a successful rename only', async () => {
+  it('routes the Edit affordance to the wizard rather than mutating here', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
       data: [unlockedSegment],
     })
-    api.mock('PUT /v1/voters/voter-file/filter/:id', {
-      status: 500,
-      data: { message: 'server exploded' },
-    })
     const user = userEvent.setup()
 
     render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
-    await user.click(await screen.findByRole('button', { name: 'Rename list' }))
-    await user.click(screen.getByRole('button', { name: 'Save' }))
-    await vi.waitFor(() =>
-      expect(errorSnackbar).toHaveBeenCalledWith('Failed to rename list'),
+
+    await user.click(await screen.findByRole('button', { name: 'Edit list' }))
+
+    // Segment Updated is the wizard's to fire on a successful PUT — the sheet
+    // only hands the segment over, so an Edit click here must report nothing.
+    expect(editList).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 42, name: 'GOTV text list' }),
     )
-    // A failed rename must not report a rename.
     expect(eventCalls(EVENTS.Contacts.SegmentUpdated)).toHaveLength(0)
-
-    api.mock('PUT /v1/voters/voter-file/filter/:id', {
-      status: 200,
-      data: { id: 42, name: 'New Name' },
-    })
-    await user.click(screen.getByRole('button', { name: 'Save' }))
-
-    await vi.waitFor(() =>
-      expect(eventCalls(EVENTS.Contacts.SegmentUpdated)).toHaveLength(1),
-    )
-    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.SegmentUpdated, {
-      action: 'rename',
-      context: 'win',
-    })
   })
 
   it('fires Segment Deleted on a successful delete (Serve context)', async () => {

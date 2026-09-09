@@ -1,4 +1,4 @@
-import filterSections from '../../shared/filters.config'
+import filterSections, { legacyAgeOptions } from '../../shared/filters.config'
 import {
   ANY_PHONE_FIELD,
   RECOMMENDED_LIST_FILTER_FIELDS,
@@ -120,4 +120,65 @@ export const transformVoterFileFiltersForBackend = (
   result.incomeUnknown = !!filters.incomeUnknown
 
   return result
+}
+
+// Inverse of transformVoterFileFiltersForBackend: rehydrates a saved list's
+// persisted columns into the wizard's pill state so Edit opens on the
+// selection the list was built from. Only `true` seeds a pill — the persisted
+// shape writes an explicit `false` for every unselected key, and a segment
+// also carries plenty of non-filter fields (id, name, search, counts), so
+// anything that isn't a literal `true` is skipped rather than coerced.
+export const segmentToVoterFileFilters = (
+  segment: Record<string, unknown>,
+): VoterFileFilters => {
+  const filters: VoterFileFilters = {}
+
+  for (const key of ALL_FILTER_OPTION_KEYS) {
+    if (LANGUAGE_KEYS.has(key) || INCOME_KEYS.has(key)) continue
+    if (segment[key] === true) filters[key] = true
+  }
+
+  const languageCodes = Array.isArray(segment.languageCodes)
+    ? segment.languageCodes
+    : []
+  for (const [key, code] of Object.entries(LANGUAGE_KEY_TO_CODE)) {
+    if (languageCodes.includes(code)) filters[key] = true
+  }
+
+  const incomeRanges = Array.isArray(segment.incomeRanges)
+    ? segment.incomeRanges
+    : []
+  for (const [key, range] of Object.entries(INCOME_KEY_TO_RANGE)) {
+    if (incomeRanges.includes(range)) filters[key] = true
+  }
+  if (segment.incomeUnknown === true) filters.incomeUnknown = true
+
+  return filters
+}
+
+// ENG-10752's retired age buckets straddle the current ones (legacy 18-25
+// covers part of 25-34), so there's no honest remap — an edit drops them
+// instead. Without this a legacy list would keep filtering on an age range
+// the wizard can't render and the live count doesn't include, so the saved
+// list would silently disagree with the count shown on the Save button.
+export const LEGACY_AGE_CLEARED: VoterFileBackendFilters = Object.fromEntries(
+  legacyAgeOptions.map((option) => [option.key, false]),
+)
+
+// Every voter-file column the wizard can express, at its empty value. An edit
+// PUT is a partial update, so any key it omits keeps whatever the row already
+// holds — while the live count is keyed on the payload, so an omitted key is a
+// filter that narrows the saved list without appearing in the number on the
+// Save button. A list can carry both kinds of criteria (the assistant's
+// crud_saved_filters tool takes the whole filter schema flat, with no
+// mutual-exclusion constraint), so the activity branch sends this entire
+// baseline and the voter-file branch overlays its own selection on top.
+// Deliberately limited to what the wizard renders: `voterStatus` and the
+// legacy registration keys belong to other surfaces, and clearing a filter no
+// one here can see would be its own silent edit.
+export const CLEARED_VOTER_FILE_FILTERS: VoterFileBackendFilters = {
+  ...transformVoterFileFiltersForBackend({}),
+  ...LEGACY_AGE_CLEARED,
+  supportStatus: [],
+  precincts: [],
 }
