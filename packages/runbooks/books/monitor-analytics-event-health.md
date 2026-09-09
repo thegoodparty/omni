@@ -192,7 +192,10 @@ Do not fail the monitor run on a refresh error.
 
 Block delimited by `<!-- gp-meta -->` … `<!-- /gp-meta -->` inside the description:
 
-- Line 1: purpose (the question the event answers).
+- Line 1: purpose (the question the event answers). When the description has no block at
+  all, the whole description is the purpose — most events pre-date the block.
+- `fires_on:` one plain-English line: the surface and the trigger.
+- `url:` the product path, app named when it is not the candidate webapp.
 - `supersession:` `original` | `supersedes <event>` | `superseded by <event> (reason)`.
 - `in use: YYYY-MM-DD (#PR)` or `not in use: YYYY-MM-DD (reason, #PR)`.
 

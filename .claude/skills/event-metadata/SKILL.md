@@ -56,6 +56,8 @@ outside the marker survives:
 ```
 <!-- gp-meta -->
 <one line: the question this event answers>
+fires_on: <one plain-English line: the surface and the trigger>
+url: <the product path where it happens, app named when it is not the candidate webapp>
 supersession: original | supersedes <event> | superseded by <event> (reason)
 in use: <YYYY-MM-DD> (#PR)    (or)   not in use: <YYYY-MM-DD> (reason, #PR)
 change-set: <id or PRD link>         # optional
@@ -66,6 +68,17 @@ Rules:
 
 - **Purpose line** — drafted by you and confirmed/edited by the human at creation; then
   **immutable** (preserved verbatim on every later run, never regenerated).
+- **`fires_on:`** — one plain-English line naming the surface and the trigger, written so
+  a non-engineer can go and see it: "Admin SMS outreach queue, Approve & book send on a
+  campaign detail page." This is what lets a reader confirm an event is the one they mean,
+  which is the whole reason the field exists (DATA-2426). Drafted by you from the call
+  site, confirmed by the human. Unlike the purpose line it is **mutable** — when the UI
+  moves, the anchor should be corrected, because a stale anchor is worse than a blank one.
+- **`url:`** — the product path where the action happens, e.g. `/dashboard/campaign-plan`.
+  Paths collide across apps, so name the app whenever it is not the candidate webapp:
+  `/dashboard/sms-outreach/:id (gp-admin)`. For global chrome that fires from everywhere,
+  leave the value as a short reason rather than a guessed path: `url: n/a (global nav)`.
+  Never invent a path you have not seen in the router.
 - **`supersession:`** — always present with an explicit value, including `original` for
   a net-new standalone event. Never leave lineage to be inferred from a blank line.
 - **Change reason** rides the line that records the change: the `superseded by` line, or
@@ -96,7 +109,10 @@ front.
 ### Mode: NEW (add)
 
 1. Draft the one-line purpose from the event name + surrounding code; human confirms or
-   edits.
+   edits. Draft `fires_on` and `url` the same way, from the call site you found — the
+   route file or page component the call site sits in gives the path. If you cannot locate
+   a call site, or the event fires from global chrome with no single path, say so and
+   leave the field with an explicit reason rather than a guess.
 2. Propose `product:*` from the event name; human confirms or edits. Optionally accept
    cross-cutting tags and a `change-set`.
 3. Ask: net-new, or supersedes an existing event? **A removal elsewhere in the same PR
@@ -120,7 +136,8 @@ retire are optional transitions on top.
 
 1. Fetch the event via `get_events`; parse any existing `gp-meta` block.
 2. **Enrich**: draft+confirm the purpose if absent (preserve it verbatim if already
-   set); propose+confirm `product:*` if absent; fill missing fields.
+   set); draft+confirm `fires_on` and `url` if absent, or correct them if the surface has
+   moved; propose+confirm `product:*` if absent; fill missing fields.
 3. Optional status transition:
    - **None** → stays `in use`; metadata just enriched.
    - **Superseded by another event** → name the successor; require a reason; write
