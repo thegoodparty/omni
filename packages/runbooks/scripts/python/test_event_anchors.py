@@ -237,3 +237,39 @@ export const EVENTS = {
     assert len(reg) == 2
 
     assert 'WARNING' not in captured.err
+
+
+FILES = {
+    "packages/gp-webapp/helpers/analyticsHelper.ts":
+        "  ClickDoorKnocking: 'Navigation - Dashboard: Click Door Knocking',\n",
+    "packages/gp-webapp/app/dashboard/page.tsx":
+        "import { EVENTS } from 'helpers/analyticsHelper'\n"
+        "const go = () => trackEvent(EVENTS.Navigation.Dashboard.ClickDoorKnocking)\n",
+    "packages/gp-api/src/sms/outreachSmsAdmin.service.ts":
+        "await this.analytics.track('Voter Outreach - Campaign Approved', { id })\n",
+    "packages/gp-webapp/app/unrelated/page.tsx": "const x = 1\n",
+}
+
+
+def test_find_call_sites_finds_the_key_path_use_and_marks_the_declaration():
+    hits = ea.find_call_sites(
+        "Navigation - Dashboard: Click Door Knocking",
+        "EVENTS.Navigation.Dashboard.ClickDoorKnocking",
+        FILES,
+    )
+    kinds = {(h["path"], h["kind"]) for h in hits}
+    assert ("packages/gp-webapp/helpers/analyticsHelper.ts", "declaration") in kinds
+    assert ("packages/gp-webapp/app/dashboard/page.tsx", "key_path") in kinds
+    assert all(h["line"] > 0 for h in hits)
+
+
+def test_find_call_sites_finds_a_raw_string_literal_with_no_key_path():
+    # The provenance walk is blind to this one; the literal search is the whole point.
+    hits = ea.find_call_sites("Voter Outreach - Campaign Approved", None, FILES)
+    assert [h["path"] for h in hits] == [
+        "packages/gp-api/src/sms/outreachSmsAdmin.service.ts"]
+    assert hits[0]["kind"] == "literal"
+
+
+def test_find_call_sites_returns_empty_when_nothing_references_the_event():
+    assert ea.find_call_sites("Nobody - Fires This", "EVENTS.No.Body", FILES) == []

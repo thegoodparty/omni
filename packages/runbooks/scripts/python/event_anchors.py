@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 import sys
+from typing import Mapping
 
 _LEAF = re.compile(r"([A-Za-z0-9_]+)\s*:\s*'([^']*)'")
 _OPEN = re.compile(r"([A-Za-z0-9_]+)\s*:\s*\{")
@@ -207,3 +208,30 @@ def load_event_registry(text: str, root: str = "EVENTS") -> dict[str, str]:
         )
 
     return out
+
+
+REGISTRY_FILE = "packages/gp-webapp/helpers/analyticsHelper.ts"
+
+
+def find_call_sites(event_name: str, key_path: str | None,
+                    files: Mapping[str, str]) -> list[dict]:
+    """Every reference to an event, by literal string and by EVENTS key-path.
+
+    A hit in the registry file is the declaration, not a call site: an event that has only
+    that is dispatched dynamically (or dead), and the judge needs to tell those apart.
+    """
+    needles = [(event_name, "literal")]
+    if key_path:
+        needles.append((key_path, "key_path"))
+    hits: list[dict] = []
+    for path, text in files.items():
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            for needle, kind in needles:
+                if needle in line:
+                    hits.append({
+                        "path": path,
+                        "line": lineno,
+                        "kind": "declaration" if path == REGISTRY_FILE else kind,
+                    })
+                    break
+    return sorted(hits, key=lambda h: (h["path"], h["line"]))
