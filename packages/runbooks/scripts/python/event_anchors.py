@@ -322,5 +322,10 @@ def derive_url(hit_path: str, page_paths: Sequence[str]) -> str | None:
     if best is None:
         return None
     route = ig.route_pattern_from_page_path(best)
-    app = best.split("/app/", 1)[0]
-    return route if app == CANDIDATE_APP else f"{route} ({posixpath.basename(app)})"
+    # Extract the package name (e.g., "gp-admin" from "packages/gp-admin/...").
+    # The app router is always under packages/gp-*/, so split on that.
+    parts = best.split("/")
+    if len(parts) < 2 or not parts[1].startswith("gp-"):
+        return None
+    app_name = parts[1]
+    return route if app_name == "gp-webapp" else f"{route} ({app_name})"
