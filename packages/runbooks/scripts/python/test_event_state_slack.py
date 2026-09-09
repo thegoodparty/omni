@@ -238,6 +238,40 @@ def test_gap_summary_line_three_states():
     assert "1 new instrumentation gaps" not in singular
 
 
+def test_gap_summary_line_keeps_a_single_blip_quiet():
+    """One failed run is noise; escalating on it would train the channel to ignore the line."""
+    line = slk.build_gap_summary_line(
+        {"new_count": 0, "status": "failed: overloaded", "pending_count": 25,
+         "judge_consecutive_failures": 1})
+    assert "this run" in line
+    assert "consecutive" not in line
+
+
+def test_gap_summary_line_escalates_a_sustained_judge_failure():
+    """DATA-2425: the truncation bug read identically for ~10 runs. At the threshold the line
+    has to say how long it has been broken, or run 10 looks exactly like run 1."""
+    line = slk.build_gap_summary_line(
+        {"new_count": 0, "status": "failed: overloaded", "pending_count": 25,
+         "judge_consecutive_failures": 4})
+    assert "4 consecutive runs" in line
+    assert "25" in line
+    assert "this run" not in line
+
+
+def test_gap_summary_line_escalates_at_the_threshold_exactly():
+    line = slk.build_gap_summary_line(
+        {"new_count": 0, "status": "failed: overloaded", "pending_count": 3,
+         "judge_consecutive_failures": 2})
+    assert "2 consecutive runs" in line
+
+
+def test_gap_summary_line_without_a_streak_reads_as_before():
+    """Older payloads carry no counter; they must still render the per-run wording."""
+    line = slk.build_gap_summary_line(
+        {"new_count": 0, "status": "failed: overloaded", "pending_count": 7})
+    assert "unavailable this run" in line and "7" in line
+
+
 def test_gap_thread_blocks_empty_when_no_new_gaps():
     assert slk.build_gap_thread_blocks({"new_gaps": [], "browse_url": "http://browse"}) == []
     assert slk.build_gap_thread_blocks({}) == []
