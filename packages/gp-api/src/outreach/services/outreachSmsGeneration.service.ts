@@ -53,7 +53,7 @@ const PURPOSE_STRUCTURES: Record<SmsPurpose, string> = {
   event_invite:
     'Structure: a warm invitation naming why the gathering matters; ' +
     'then a details line the candidate fills in before sending, ' +
-    'formatted exactly as \"[Date] | [Time] | [Location]\"; then a ' +
+    'formatted exactly as \"📅 [Date] | 🕐 [Time] | 📍 [Location]\"; then a ' +
     'reply-to-RSVP ask. Never invent event specifics.',
   early_voting:
     'Structure (the early-voting text): lead with the fact that early ' +
@@ -98,8 +98,9 @@ const DRAFT_SYSTEM_PROMPT = [
   'Rules:',
   '- Write in the first person, as the candidate.',
   '- At most 700 characters. Line breaks and \"• \" bullet lines are',
-  '  allowed and encouraged where the structure calls for them. No',
-  '  hashtags, no emojis.',
+  '  allowed and encouraged where the structure calls for them. Emojis',
+  '  are allowed sparingly as visual labels (a date or location line),',
+  '  never as tone decoration. No hashtags.',
   "- If the campaign materials include the campaign's website, you may",
   '  include it once, as a plain domain, near the close. Never invent',
   '  or shorten a URL; with no website in the materials, include none.',
@@ -133,7 +134,7 @@ const IMPROVE_SYSTEM_PROMPT = [
   '- Fix grammar, punctuation, capitalization, and awkward phrasing;',
   "  keep the author's meaning, structure, and voice.",
   '- Keep roughly the same length; never exceed 800 characters. Keep',
-  "  the author's line breaks and bullets. No hashtags or emojis; keep",
+  "  the author's line breaks, bullets, and emojis. No hashtags; keep",
   '  any website the author included, unchanged, and keep any',
   '  square-bracket placeholders like [time] exactly as written.',
   "- The message opens with the candidate's identification; keep it",
