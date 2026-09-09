@@ -474,3 +474,33 @@ def test_find_call_sites_four_live_repo_cases_verified():
     if hits:
         kinds = {h["kind"] for h in hits}
         assert "declaration" in kinds or not kinds, "Should be declaration-only or empty"
+
+
+PAGES = [
+    "packages/gp-webapp/app/dashboard/page.tsx",
+    "packages/gp-webapp/app/dashboard/campaign-plan/page.tsx",
+    "packages/gp-admin/app/dashboard/sms-outreach/[id]/page.tsx",
+    "packages/gp-webapp/app/(marketing)/about/page.tsx",
+]
+
+
+def test_derive_url_finds_the_nearest_enclosing_route():
+    assert ea.derive_url(
+        "packages/gp-webapp/app/dashboard/campaign-plan/PlanCard.tsx", PAGES
+    ) == "/dashboard/campaign-plan"
+
+
+def test_derive_url_app_qualifies_anything_outside_the_candidate_webapp():
+    # /dashboard/... exists in both apps, so an unqualified path is ambiguous.
+    assert ea.derive_url(
+        "packages/gp-admin/app/dashboard/sms-outreach/[id]/Approve.tsx", PAGES
+    ) == "/dashboard/sms-outreach/[id] (gp-admin)"
+
+
+def test_derive_url_drops_route_groups():
+    assert ea.derive_url("packages/gp-webapp/app/(marketing)/about/page.tsx", PAGES) == "/about"
+
+
+def test_derive_url_returns_none_off_the_app_router():
+    assert ea.derive_url(
+        "packages/gp-api/src/sms/outreachSmsAdmin.service.ts", PAGES) is None

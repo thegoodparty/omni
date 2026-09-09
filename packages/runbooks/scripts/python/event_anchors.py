@@ -10,9 +10,12 @@ nothing reaches Amplitude Govern from this module.
 
 from __future__ import annotations
 
+import posixpath
 import re
 import sys
-from typing import Mapping
+from typing import Mapping, Sequence
+
+import instrumentation_gaps as ig
 
 _LEAF = re.compile(r"([A-Za-z0-9_]+)\s*:\s*'([^']*)'")
 _OPEN = re.compile(r"([A-Za-z0-9_]+)\s*:\s*\{")
@@ -300,3 +303,24 @@ def find_call_sites(event_name: str, key_path: str | None,
             char_offset += len(line) + 1  # +1 for the newline character
 
     return sorted(hits, key=lambda h: (h["path"], h["line"]))
+
+
+CANDIDATE_APP = "packages/gp-webapp"
+
+
+def derive_url(hit_path: str, page_paths: Sequence[str]) -> str | None:
+    """The product route a call site sits under, app-qualified when it is not the
+    candidate webapp. None when the file is not under an app router at all — a gp-api
+    service has no URL, and inventing one would be exactly the confident-but-wrong anchor
+    this whole slice exists to avoid."""
+    best: str | None = None
+    for page in page_paths:
+        page_dir = posixpath.dirname(page)
+        if hit_path == page or hit_path.startswith(page_dir + "/"):
+            if best is None or len(page_dir) > len(posixpath.dirname(best)):
+                best = page
+    if best is None:
+        return None
+    route = ig.route_pattern_from_page_path(best)
+    app = best.split("/app/", 1)[0]
+    return route if app == CANDIDATE_APP else f"{route} ({posixpath.basename(app)})"
