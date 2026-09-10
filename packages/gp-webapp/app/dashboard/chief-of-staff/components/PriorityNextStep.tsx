@@ -3,7 +3,11 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { cn } from '@styleguide'
-import { MapPinIcon, PhoneIcon } from '@styleguide/components/ui/icons'
+import {
+  FileTextIcon,
+  MapPinIcon,
+  PhoneIcon,
+} from '@styleguide/components/ui/icons'
 import type { Priority, PriorityStage } from '@goodparty_org/contracts'
 import {
   PhoneBankingFlow,
@@ -11,20 +15,29 @@ import {
 } from 'app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow'
 import { ASSISTANT_BUBBLE, AssistantRow } from '../../shared/agent-chat/chatUI'
 import WideChip, { ASSISTANT_INDENT } from './WideChip'
+import {
+  ordinanceHref,
+  usePriorityOrdinance,
+} from '../data/use-priority-ordinance'
 
 // What talking to constituents is FOR differs by stage, so the lead-in does
-// too. The two actions are the same either way — the point of asking where
-// they are is that the framing changes, not the channel.
+// too. The two outreach actions are the same either way — the point of asking
+// where they are is that the framing changes, not the channel.
 const LEAD_IN: Record<PriorityStage, string> = {
   exploring:
     'the fastest way to get your bearings is to hear it straight from the people it affects',
   gathering_input:
     'you have heard from some people already, so the next thing worth doing is widening that',
   shaping:
-    'before you commit to a solution, it is worth testing it on the people who will live with it',
+    'the next thing that moves it is getting the language down and testing it on the people who will live with it',
   ready_for_vote:
-    'a vote is won before the meeting, so the next thing that moves it is talking to the people who will show up',
+    'a vote is won before the meeting, so the next things that move it are the text and the count',
 }
+
+// Drafting only belongs on the board once there is something to draft. Before
+// that the official is still working out what the problem is, and an ordinance
+// CTA would be asking them to write a solution they have not landed on.
+const DRAFTING_STAGES: PriorityStage[] = ['shaping', 'ready_for_vote']
 
 interface Props {
   priority: Priority & { stage: PriorityStage }
@@ -36,7 +49,10 @@ interface Props {
  *
  * Nothing links a priority to the outreach done about it, so there is no
  * "already did this" state to derive — which is why this is a persistent
- * recommendation rather than a step in the flow.
+ * recommendation rather than a step in the flow. The ordinance CTA is the
+ * exception: an ordinance seeded from a priority carries the priority's title
+ * as its `goalText`, so an in-flight draft can be found and resumed instead of
+ * minting a second one on every visit.
  *
  * Phone banking mounts inline: `PhoneBankingFlow` is a controlled component
  * with no provider dependency, and Serve's surface is already exported, so the
@@ -54,6 +70,9 @@ export default function PriorityNextStep({
 }: Props): React.JSX.Element {
   const router = useRouter()
   const [phoneBankingOpen, setPhoneBankingOpen] = useState(false)
+  const ordinance = usePriorityOrdinance(priority, (href) => router.push(href))
+
+  const showDrafting = DRAFTING_STAGES.includes(priority.stage)
 
   return (
     <div className="flex flex-col gap-3">
@@ -65,6 +84,33 @@ export default function PriorityNextStep({
       </AssistantRow>
 
       <div className={cn('flex flex-col gap-2.5', ASSISTANT_INDENT)}>
+        {/* Held back until we know whether a draft already exists, so the CTA
+            never offers to start a second one. */}
+        {showDrafting &&
+          !ordinance.isPending &&
+          (ordinance.existing ? (
+            <WideChip
+              Icon={FileTextIcon}
+              title="Pick your draft back up"
+              why="You already have an ordinance going for this. I can take you back to where you left it."
+              href={ordinanceHref(ordinance.existing)}
+            />
+          ) : (
+            <WideChip
+              Icon={FileTextIcon}
+              title="Draft the ordinance"
+              why="I will research the authority you are acting under, find comparable laws, and write a first draft with you."
+              disabled={ordinance.isStarting}
+              onSelect={ordinance.start}
+            />
+          ))}
+
+        {ordinance.hasError && (
+          <p className="text-sm text-destructive">
+            I could not start an ordinance from this. Please try again.
+          </p>
+        )}
+
         <WideChip
           Icon={PhoneIcon}
           title="Call constituents about this"

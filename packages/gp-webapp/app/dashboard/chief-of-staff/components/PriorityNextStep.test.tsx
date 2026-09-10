@@ -12,6 +12,14 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 
+const ordinanceMock = vi.fn()
+const startOrdinanceMock = vi.fn()
+vi.mock('../data/use-priority-ordinance', () => ({
+  usePriorityOrdinance: () => ordinanceMock(),
+  ordinanceHref: (row: { slug: string; lastViewedStep: string | null }) =>
+    `/dashboard/ordinances/solve/${row.slug}/${row.lastViewedStep ?? 'clarify'}`,
+}))
+
 // The real flow is a full-screen sheet with its own steps and network calls;
 // this asserts that it is mounted inline and handed Serve's surface, which is
 // the part that matters here.
@@ -42,6 +50,14 @@ const priority = (
 beforeEach(() => {
   pushMock.mockReset()
   flowPropsMock.mockReset()
+  startOrdinanceMock.mockReset()
+  ordinanceMock.mockReturnValue({
+    existing: undefined,
+    isPending: false,
+    start: startOrdinanceMock,
+    isStarting: false,
+    hasError: false,
+  })
 })
 
 describe('PriorityNextStep', () => {
@@ -102,5 +118,88 @@ describe('PriorityNextStep', () => {
 
     expect(pushMock).toHaveBeenCalledWith('/dashboard/door-knocking?create=1')
     expect(screen.queryByTestId('phone-banking-flow')).not.toBeInTheDocument()
+  })
+
+  describe('drafting', () => {
+    // Before the official has landed on a solution, an ordinance CTA is asking
+    // them to write something they have not decided on.
+    it.each([['exploring' as const], ['gathering_input' as const]])(
+      'does not offer drafting at the %s stage',
+      (stage) => {
+        render(<PriorityNextStep priority={priority(stage)} />)
+
+        expect(
+          screen.queryByRole('button', { name: /Draft the ordinance/ }),
+        ).not.toBeInTheDocument()
+      },
+    )
+
+    it.each([['shaping' as const], ['ready_for_vote' as const]])(
+      'offers drafting at the %s stage',
+      (stage) => {
+        render(<PriorityNextStep priority={priority(stage)} />)
+
+        expect(
+          screen.getByRole('button', { name: /Draft the ordinance/ }),
+        ).toBeInTheDocument()
+      },
+    )
+
+    it('starts an ordinance seeded from the priority', async () => {
+      const user = userEvent.setup()
+      render(<PriorityNextStep priority={priority('shaping')} />)
+
+      await user.click(
+        screen.getByRole('button', { name: /Draft the ordinance/ }),
+      )
+
+      expect(startOrdinanceMock).toHaveBeenCalled()
+    })
+
+    // An ordinance seeded from a priority carries its title as goalText, so an
+    // in-flight draft is findable — and must be resumed rather than duplicated.
+    it('resumes an existing draft instead of starting a second', () => {
+      ordinanceMock.mockReturnValue({
+        existing: { slug: 'str-overlay', lastViewedStep: 'authority' },
+        isPending: false,
+        start: startOrdinanceMock,
+        isStarting: false,
+        hasError: false,
+      })
+      render(<PriorityNextStep priority={priority('shaping')} />)
+
+      expect(
+        screen.getByRole('link', { name: /Pick your draft back up/ }),
+      ).toHaveAttribute(
+        'href',
+        '/dashboard/ordinances/solve/str-overlay/authority',
+      )
+      expect(
+        screen.queryByRole('button', { name: /Draft the ordinance/ }),
+      ).not.toBeInTheDocument()
+    })
+
+    // Offering "start one" before the lookup settles is how you get duplicates.
+    it('offers neither while the lookup is still pending', () => {
+      ordinanceMock.mockReturnValue({
+        existing: undefined,
+        isPending: true,
+        start: startOrdinanceMock,
+        isStarting: false,
+        hasError: false,
+      })
+      render(<PriorityNextStep priority={priority('shaping')} />)
+
+      expect(
+        screen.queryByRole('button', { name: /Draft the ordinance/ }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('link', { name: /Pick your draft back up/ }),
+      ).not.toBeInTheDocument()
+      // The outreach options are unaffected by the ordinance lookup.
+      expect(
+        screen.getByRole('button', { name: /Call constituents about this/ }),
+      ).toBeInTheDocument()
+    })
   })
 })
