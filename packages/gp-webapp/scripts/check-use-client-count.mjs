@@ -374,7 +374,7 @@ import { dirname, join, relative } from 'node:path'
 // section, plus the client-side gate component and the flag hook it read.
 // Nothing was converted to a server component here — the win is entirely
 // deletion, which is why it is this large in one step.
-const BASELINE = 579
+const BASELINE = 565
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
