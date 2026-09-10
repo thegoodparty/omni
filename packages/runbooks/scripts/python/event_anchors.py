@@ -20,6 +20,8 @@ from datetime import date
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
+from pydantic import BaseModel
+
 import analytics_event_health as aeh
 import event_state_assembler as esa
 import instrumentation_gaps as ig
@@ -355,6 +357,26 @@ def derive_url(hit_path: str, page_paths: Sequence[str]) -> str | None:
 
 CONFIDENCE_CLASSES = ("global_chrome", "dynamic_dispatch", "no_call_site", "no_route")
 
+class _AnchorVerdict(BaseModel):
+    id: str
+    fires_on: str
+    url: str
+    confidence: str
+    flag_reason: str = ""
+
+
+class _AnchorBatch(BaseModel):
+    verdicts: list[_AnchorVerdict]
+
+
+def _validated_anchor_batch(payload: dict) -> dict:
+    """Validate the *whole* tool payload before llm_judge filters by id, mirroring the gap
+    judge. Without it a verdict missing `fires_on` or `url` flows through
+    `merge_verdicts`' `.get(field, "")` fallbacks and lands in state as a blank draft with
+    no error — the run reports `ok` and the reviewer gets an empty row."""
+    return _AnchorBatch.model_validate(payload).model_dump()
+
+
 ANCHOR_TOOL = {
     "name": "report_anchors",
     "description": "Return one anchor per event: where it fires, and at what URL.",
@@ -510,6 +532,7 @@ def judge_anchors(candidates: Sequence[dict], *, api_key: str | None, model: str
             unavailable_status="skipped: prompt unavailable",
             client_factory=client_factory,
             noun="anchors",
+            validate=_validated_anchor_batch,
         )
         verdicts.update(chunk_verdicts)
         statuses.append(status)

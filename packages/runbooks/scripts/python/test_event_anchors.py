@@ -1222,6 +1222,26 @@ def test_main_never_writes_to_amplitude():
     assert "update_event" not in src and "create_events" not in src
 
 
+def test_judge_anchors_fails_closed_on_a_malformed_verdict():
+    """A verdict missing fires_on/url would otherwise flow through merge_verdicts' .get()
+    fallbacks and land as a blank draft with the run still reporting ok. The gap judge
+    fails closed on the same shape; so must this one."""
+    class _Client:
+        class messages:
+            @staticmethod
+            def create(**_kw):
+                block = type("B", (), {"type": "tool_use",
+                                       "input": {"verdicts": [{"id": "E"}]}})()
+                return type("R", (), {"content": [block], "stop_reason": "tool_use"})()
+
+    verdicts, status = ea.judge_anchors(
+        [{"id": "E", "family": "f", "description": "", "derived_url": "",
+          "evidence": "a:1", "hint": "", "code": ""}],
+        api_key="k", model="m", client_factory=lambda _k: _Client())
+    assert verdicts == {}
+    assert status.startswith("failed: ")
+
+
 _GOVERN_ANCHORED_ROW = [{
     "event_type": "Already Anchored", "govern_display_name": "Already Anchored",
     "family": "win", "first_seen_date": None, "last_seen_date": None,
