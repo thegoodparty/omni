@@ -14,11 +14,12 @@ import argparse
 import json
 import os
 import posixpath
+import functools
 import re
 import sys
 from datetime import date
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
+from typing import Callable, Literal, Mapping, Sequence
 
 from pydantic import BaseModel
 
@@ -31,6 +32,14 @@ DEFAULT_MODEL = os.environ.get("ANCHOR_JUDGE_MODEL", "claude-sonnet-5")
 
 _LEAF = re.compile(r"([A-Za-z0-9_]+)\s*:\s*'([^']*)'")
 _OPEN = re.compile(r"([A-Za-z0-9_]+)\s*:\s*\{")
+
+
+@functools.lru_cache(maxsize=4096)
+def _stripped_for_scan(text: str) -> str:
+    """`_strip_comments` memoized for the call-site scan, which re-strips every file once
+    per event. Keyed on the text itself, so it is correct for any input; the cache exists
+    purely because `find_call_sites` is called ~382 times over the same ~2445 files."""
+    return _strip_comments(text)
 
 
 def _strip_comments(text: str) -> str:
@@ -248,12 +257,19 @@ def find_call_sites(event_name: str, key_path: str | None,
     hits: list[dict] = []
 
     for path, text in files.items():
+        # Scan the comment-stripped text: a commented-out `// trackEvent('My Event')`
+        # would otherwise be recorded as a live literal hit, get picked as the primary
+        # evidence, and hand the judge a code window anchored on dead code.
+        # _strip_comments is offset-preserving (spaces for comment chars, newlines kept),
+        # so line numbers and offsets are identical to the raw text.
+        # Cached because this runs once per file *per event* — ~930k strips on a full
+        # 382-event run over 2445 files, which is minutes of pure re-work otherwise.
+        text_stripped = _stripped_for_scan(text)
         # For registry file, find the EVENTS block boundaries to classify hits
         registry_block_start = -1
         registry_block_end = -1
         block_found = False
         if path == REGISTRY_FILE:
-            text_stripped = _strip_comments(text)
             start = text_stripped.find("EVENTS = {")
             if start != -1:
                 open_brace_pos = text_stripped.index("{", start)
@@ -272,7 +288,7 @@ def find_call_sites(event_name: str, key_path: str | None,
 
         # Process each line with character offset tracking
         char_offset = 0
-        for lineno, line in enumerate(text.splitlines(), start=1):
+        for lineno, line in enumerate(text_stripped.splitlines(), start=1):
             # Check for quoted literal matches (single, double, or backtick)
             literal_found = False
             for quote in ("'", '"', "`"):
@@ -361,8 +377,12 @@ class _AnchorVerdict(BaseModel):
     id: str
     fires_on: str
     url: str
-    confidence: str
-    flag_reason: str = ""
+    # Constrained to match ANCHOR_TOOL's own enums. render_review_artifact decides the
+    # label with `confidence == "low"`, so an off-enum value like "medium" or "HIGH"
+    # would render a flagged row as confidently high — the one outcome the design says
+    # is worse than a blank anchor.
+    confidence: Literal["high", "low"]
+    flag_reason: Literal["", *CONFIDENCE_CLASSES] = ""
 
 
 class _AnchorBatch(BaseModel):
