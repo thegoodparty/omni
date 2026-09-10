@@ -353,7 +353,7 @@ def derive_url(hit_path: str, page_paths: Sequence[str]) -> str | None:
 
 # --- LLM judge pass -------------------------------------------------------------
 
-CONFIDENCE_CLASSES = ("global_chrome", "dynamic_dispatch", "no_call_site")
+CONFIDENCE_CLASSES = ("global_chrome", "dynamic_dispatch", "no_call_site", "no_route")
 
 ANCHOR_TOOL = {
     "name": "report_anchors",
@@ -394,17 +394,23 @@ _ANCHOR_INSTRUCTIONS = (
     "url: confirm the derived url by returning it verbatim, or correct it if the code "
     "shows the action happens elsewhere. When there is no single URL because the event "
     "fires from global chrome, return a short reason instead, like 'n/a (global nav)'. "
-    "Never invent a path you have not seen.\n"
+    "When the derived url is empty — a real call site exists but it sits outside any page "
+    "route, e.g. a backend service — do not invent a path and do not write generic prose "
+    "in its place: describe the surface you can see in fires_on, and put a short reason in "
+    "url instead, like 'n/a (backend service, no route)'. Never invent a path you have not "
+    "seen.\n"
     "confidence: 'low' whenever you are guessing — no call site was found, the event is "
-    "dispatched dynamically so no call site reveals the surface, or it fires from "
-    "everywhere. Set flag_reason to one of: global_chrome, dynamic_dispatch, "
-    "no_call_site. A flagged anchor is useful; a confident wrong one is worse than none.\n"
+    "dispatched dynamically so no call site reveals the surface, a real call site exists "
+    "but has no route, or it fires from everywhere. Set flag_reason to one of: "
+    "global_chrome, dynamic_dispatch, no_call_site, no_route. A flagged anchor is useful; "
+    "a confident wrong one is worse than none.\n"
     "hint: when an event's hint is non-empty, it is a fact already derived from the "
     "codebase, not a suggestion to weigh — no_call_site means the code search found no "
     "reference at all, dynamic_dispatch means every reference is the registry "
-    "declaration itself, and no call site was there to inspect. Set confidence to low "
-    "and copy hint verbatim into flag_reason rather than re-deriving it. global_chrome "
-    "carries no hint — that class is yours to judge from the code alone.\n"
+    "declaration itself, and no_route means a real call site was found but it sits outside "
+    "any page route (most likely a backend event) so there is no URL to confirm. Set "
+    "confidence to low and copy hint verbatim into flag_reason rather than re-deriving it. "
+    "global_chrome carries no hint — that class is yours to judge from the code alone.\n"
     "Copy each id verbatim. Return exactly one verdict per event via the tool."
 )
 
@@ -416,13 +422,19 @@ def anchor_system_prompt() -> str:
 def build_candidate(event: Mapping, hits: Sequence[dict], url: str | None,
                     files: Mapping[str, str]) -> dict:
     """One judge input: what the event is, where it appears in code, and the route we
-    already derived. `hint` pre-classifies the two low-confidence shapes the code can
+    already derived. `hint` pre-classifies the three low-confidence shapes the code can
     prove, so the judge confirms rather than discovers them."""
     call_sites = [h for h in hits if h["kind"] != "declaration"]
     if not hits:
         hint = "no_call_site"
     elif not call_sites:
         hint = "dynamic_dispatch"
+    elif not url:
+        # A real call site exists (e.g. a backend service) but it sits outside any page
+        # route — derive_url legitimately returned nothing. Without this, the high-
+        # confidence path is the judge's only option: invent a path, write unflagged prose,
+        # or fall back to an unspecified LOW that names no reason.
+        hint = "no_route"
     else:
         hint = ""
     primary = (call_sites or hits or [None])[0]
@@ -535,7 +547,18 @@ def merge_verdicts(state: dict, verdicts: Mapping[str, dict],
     """Fold judged anchors into the state. Machine-derived fields refresh every run; the
     reviewer's own fields and first_seen are preserved. Copies each entry rather than
     aliasing the caller's — a pure-looking transform that secretly mutates the input is
-    a hazard the type hints don't warn anyone about."""
+    a hazard the type hints don't warn anyone about.
+
+    A candidate's `hint` is a fact already proven by the code (no_call_site,
+    dynamic_dispatch, no_route), not a suggestion the model can weigh — so it is enforced
+    here rather than trusted from the verdict: when `hint` is non-empty, `confidence` is
+    forced to "low" and `flag_reason` to the hint, regardless of what the model returned.
+    This makes "low confidence is flagged, never guessed" structural instead of hoped-for.
+
+    `fires_on`/`url` are whitespace-collapsed on the way in (`" ".join(value.split())`):
+    the tool schema types them as bare strings with nothing normalizing an embedded
+    newline, and `render_review_artifact` writes them on one line — an unnormalized
+    newline would otherwise split the value, and the parser would silently truncate it."""
     by_id = {c["id"]: c for c in candidates}
     out = {event_id: dict(entry) for event_id, entry in state.items()}
     for event_id, verdict in verdicts.items():
@@ -548,12 +571,18 @@ def merge_verdicts(state: dict, verdicts: Mapping[str, dict],
             }
             out[event_id] = entry
         entry["last_seen"] = today
-        entry["evidence"] = by_id.get(event_id, {}).get("evidence", entry["evidence"])
-        entry["confidence"] = verdict.get("confidence", "")
-        entry["flag_reason"] = verdict.get("flag_reason", "")
+        candidate = by_id.get(event_id, {})
+        entry["evidence"] = candidate.get("evidence", entry["evidence"])
+        hint = candidate.get("hint", "")
+        if hint:
+            entry["confidence"] = "low"
+            entry["flag_reason"] = hint
+        else:
+            entry["confidence"] = verdict.get("confidence", "")
+            entry["flag_reason"] = verdict.get("flag_reason", "")
         for field in ("fires_on", "url"):
             if entry["disposition"] == "new" and not entry[field]:
-                entry[field] = verdict.get(field, "")
+                entry[field] = " ".join(verdict.get(field, "").split())
     return out
 
 
@@ -667,6 +696,12 @@ def apply_review(state: dict, parsed: Mapping[str, dict], today: str) -> dict:
 
 SEARCH_PACKAGES = ("packages/gp-webapp", "packages/gp-admin", "packages/gp-api")
 SEARCH_SUFFIXES = (".ts", ".tsx")
+# Directories that never hold a real call site — generated output or test-only code.
+# Measured on the live repo: 1111 of 3556 scanned files were tests, and sorted() puts
+# "Foo.test.tsx" ahead of "Foo.tsx", so 103 of 382 registry events picked up a test's mock
+# assertions as their primary evidence before this exclusion existed.
+_IGNORE_DIR_NAMES = frozenset({"node_modules", ".next", "__tests__", "__mocks__", "tests", "e2e"})
+_TEST_FILE_SUFFIXES = (".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx")
 
 
 def load_state(path: Path) -> dict:
@@ -686,11 +721,20 @@ def save_state(path: Path, state: Mapping) -> None:
 
 def read_repo_files(repo: Path) -> dict[str, str]:
     """{repo-relative path: text} for the packages that can fire an event. Read once and
-    passed down, so the locator never touches the filesystem itself and stays testable."""
+    passed down, so the locator never touches the filesystem itself and stays testable.
+
+    Excludes generated output (`.next/`) and anything test-only (`__tests__/`, `tests/`,
+    `e2e/`, `__mocks__/`, `*.test.ts(x)`, `*.spec.ts(x)`) — a test file is never a real call
+    site, and `sorted()` elsewhere in this module would otherwise put `Foo.test.tsx` ahead
+    of `Foo.tsx`, handing the judge a mock assertion instead of the real code."""
     files: dict[str, str] = {}
     for pkg in SEARCH_PACKAGES:
         for path in (repo / pkg).rglob("*"):
-            if path.suffix not in SEARCH_SUFFIXES or "node_modules" in path.parts:
+            if path.suffix not in SEARCH_SUFFIXES:
+                continue
+            if _IGNORE_DIR_NAMES & set(path.parts):
+                continue
+            if path.name.endswith(_TEST_FILE_SUFFIXES):
                 continue
             try:
                 files[path.relative_to(repo).as_posix()] = path.read_text()
@@ -741,7 +785,14 @@ def collect_candidates(repo: Path | None, state: Mapping, *,
         if gpmeta.get("fires_on"):
             continue
         hits = find_call_sites(event_type, registry.get(event_type), files)
-        url = next((u for u in (derive_url(h["path"], pages) for h in hits) if u), None)
+        # Prefer the route derived from `primary` — the same hit build_candidate uses for
+        # `evidence` and the code window (a real call site first, else any hit) — so the
+        # reviewer's evidence link and the drafted url always point at the same file. Only
+        # fall back to scanning every hit when primary itself yields no route.
+        call_sites = [h for h in hits if h["kind"] != "declaration"]
+        primary = (call_sites or hits or [None])[0]
+        url = (derive_url(primary["path"], pages) if primary else None) or next(
+            (u for u in (derive_url(h["path"], pages) for h in hits) if u), None)
         out.append(build_candidate(
             {"event_type": event_type, "family": row.get("family"),
              "description": gpmeta.get("purpose") or ""},

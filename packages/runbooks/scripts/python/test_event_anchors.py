@@ -424,26 +424,38 @@ def test_find_call_sites_fails_toward_not_declaring_when_block_not_found(capsys)
 def test_find_call_sites_four_live_repo_cases_verified():
     """Verify the four key live-repo cases from the real-repo check still work.
     These are integration tests that scan real files to ensure the fixes don't
-    regress on actual data."""
+    regress on actual data. Uses the real read_repo_files (not a hand-rolled scan) so this
+    test exercises the actual test-file/generated-output exclusion, not a stale copy of it."""
     import pathlib
 
     repo = pathlib.Path("../../../..").resolve()
-    files = {}
-    for pkg in ("packages/gp-webapp", "packages/gp-admin", "packages/gp-api"):
-        pkg_path = repo / pkg
-        if not pkg_path.exists():
-            return  # Skip if running outside the full repo
-        for p in pkg_path.rglob("*"):
-            if p.suffix in (".ts", ".tsx") and "node_modules" not in p.parts:
-                try:
-                    files[p.relative_to(repo).as_posix()] = p.read_text()
-                except (OSError, UnicodeDecodeError):
-                    pass
+    if not all((repo / pkg).exists() for pkg in ea.SEARCH_PACKAGES):
+        return  # Skip if running outside the full repo
 
+    files = ea.read_repo_files(repo)
     if not files:
         return  # Skip if no files loaded
 
     reg = ea.load_event_registry(files.get(ea.REGISTRY_FILE, ""))
+
+    # Regression guard for the test-file exclusion: across every registered event, the
+    # primary call site (call sites first, else any hit) must never be a test file. Before
+    # the fix, sorted() put Foo.test.tsx ahead of Foo.tsx and 103 of 382 live registry
+    # events picked up a test's mock assertions as their primary evidence.
+    _test_markers = (".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx")
+    test_file_primaries = []
+    for event_name, key_path in reg.items():
+        hits = ea.find_call_sites(event_name, key_path, files)
+        if not hits:
+            continue
+        call_sites = [h for h in hits if h["kind"] != "declaration"]
+        primary = (call_sites or hits)[0]
+        if primary["path"].endswith(_test_markers):
+            test_file_primaries.append((event_name, primary["path"]))
+    assert test_file_primaries == [], (
+        f"{len(test_file_primaries)} events picked a test file as primary evidence: "
+        f"{test_file_primaries[:5]}"
+    )
 
     # Case 1: Onboarding - Registration Completed (has declaration + call sites)
     hits = ea.find_call_sites(
@@ -557,6 +569,19 @@ def test_build_candidate_marks_no_call_site():
                            [], None, {})
     assert c["hint"] == "no_call_site"
     assert c["code"] == ""
+
+
+def test_build_candidate_marks_no_route_when_a_real_call_site_has_no_derived_url():
+    """A backend event: a real (non-declaration) call site exists, but derive_url found
+    nothing because the file sits outside any page route. This is the design's 4th
+    low-confidence class — distinct from no_call_site (no hits at all) and
+    dynamic_dispatch (only a declaration hit)."""
+    files = {"packages/gp-api/src/outreach/outreach.service.ts": "track('E')\n"}
+    hits = [{"path": "packages/gp-api/src/outreach/outreach.service.ts", "line": 1,
+             "kind": "literal"}]
+    c = ea.build_candidate({"event_type": "E", "family": "x", "description": ""},
+                           hits, None, files)
+    assert c["hint"] == "no_route"
 
 
 def test_anchor_tool_forces_one_verdict_per_event_with_the_needed_fields():
@@ -683,6 +708,40 @@ def test_merge_verdicts_seeds_new_entries_and_preserves_human_fields():
     assert again["E"]["fires_on"] == "Edited by a human."
     assert again["E"]["first_seen"] == "2026-09-10"
     assert again["E"]["last_seen"] == "2026-09-17"
+
+
+def test_merge_verdicts_enforces_the_hint_over_a_noncompliant_verdict():
+    """The plan's constraint is 'low confidence is flagged, never guessed' — enforced
+    structurally, not just hoped for via the prompt. A candidate's hint is a fact already
+    proven by the code, so it overrides whatever confidence/flag_reason the model returned,
+    even a confidently-wrong high-confidence verdict."""
+    candidates = [{"id": "E", "evidence": "a.tsx:3", "hint": "no_route"}]
+    verdicts = {"E": {"id": "E", "fires_on": "Somewhere.", "url": "/made-up-path",
+                      "confidence": "high"}}   # non-compliant: no flag_reason at all
+    state = ea.merge_verdicts({}, verdicts, candidates, "2026-09-10")
+    assert state["E"]["confidence"] == "low"
+    assert state["E"]["flag_reason"] == "no_route"
+
+
+def test_merge_verdicts_trusts_the_verdict_when_the_candidate_has_no_hint():
+    candidates = [{"id": "E", "evidence": "a.tsx:3", "hint": ""}]
+    verdicts = {"E": {"id": "E", "fires_on": "Dashboard, Generate.", "url": "/dashboard",
+                      "confidence": "high"}}
+    state = ea.merge_verdicts({}, verdicts, candidates, "2026-09-10")
+    assert state["E"]["confidence"] == "high"
+    assert state["E"]["flag_reason"] == ""
+
+
+def test_merge_verdicts_collapses_whitespace_on_fires_on_and_url():
+    """render_review_artifact writes these on one line; an embedded newline from the model
+    would otherwise split the value and the parser would silently truncate it on load."""
+    candidates = [{"id": "E", "evidence": "a.tsx:3", "hint": ""}]
+    verdicts = {"E": {"id": "E",
+                      "fires_on": "Campaign Plan page,\nclick   Generate.",
+                      "url": "/dashboard \n/campaign-plan", "confidence": "high"}}
+    state = ea.merge_verdicts({}, verdicts, candidates, "2026-09-10")
+    assert state["E"]["fires_on"] == "Campaign Plan page, click Generate."
+    assert state["E"]["url"] == "/dashboard /campaign-plan"
 
 
 def test_review_artifact_round_trips_an_edited_draft():
@@ -860,6 +919,35 @@ def test_save_state_round_trips_and_creates_parent_dirs(tmp_path):
     path = tmp_path / "nested" / "anchors.json"
     ea.save_state(path, {"E": {"fires_on": "x"}})
     assert json.loads(path.read_text()) == {"E": {"fires_on": "x"}}
+
+
+def test_read_repo_files_excludes_test_files_and_generated_output(tmp_path):
+    """A test file is never a real call site, and sorted() elsewhere in this module would
+    put Foo.test.tsx ahead of Foo.tsx — this is the fix for 103/382 live registry events
+    picking up a test's mock assertions as their primary evidence."""
+    real = tmp_path / "packages/gp-webapp/app/dashboard/GenerateButton.tsx"
+    real.parent.mkdir(parents=True, exist_ok=True)
+    real.write_text("real call site")
+
+    excluded = {
+        "packages/gp-webapp/app/dashboard/GenerateButton.test.tsx": "mock assertion",
+        "packages/gp-webapp/app/dashboard/GenerateButton.spec.ts": "mock assertion",
+        "packages/gp-webapp/app/dashboard/__tests__/helpers.ts": "test helper",
+        "packages/gp-webapp/app/dashboard/__mocks__/analytics.ts": "mock module",
+        "packages/gp-webapp/tests/fixture.ts": "fixture",
+        "packages/gp-webapp/e2e/flow.spec.ts": "e2e spec",
+        "packages/gp-webapp/.next/types/generated.ts": "generated",
+        "packages/gp-webapp/node_modules/pkg/index.ts": "vendored",
+    }
+    for rel, text in excluded.items():
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text)
+
+    files = ea.read_repo_files(tmp_path)
+    assert "packages/gp-webapp/app/dashboard/GenerateButton.tsx" in files
+    for rel in excluded:
+        assert rel not in files
 
 
 def _write_fake_repo(tmp_path: pathlib.Path, page_rel: str, page_src: str = "export default function Page(){return null}") -> pathlib.Path:
