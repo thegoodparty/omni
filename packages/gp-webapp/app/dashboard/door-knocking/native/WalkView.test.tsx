@@ -14,6 +14,7 @@ import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSnackbar } from 'helpers/useSnackbar'
 import WalkView, { stopNumeralColor } from './WalkView'
+import { DEPARTURE_NOTE } from './talkingPointsCard'
 import type { LiveLocation } from './useLiveLocation'
 import {
   PROGRESS_LEGEND_ORDER,
@@ -2926,5 +2927,54 @@ describe('WalkView notes', () => {
     await userEvent.click(screen.getByText('105 Elm St'))
     expect(screen.getAllByText('Not yet contacted').length).toBeGreaterThan(1)
     expect(screen.queryByText('Support unknown')).toBeNull()
+  })
+
+  // The card the candidate froze with the list, reaching the door it was
+  // written for. It rides the route payload the walk already holds, so the
+  // sheet stays fetch-free: the moment a canvasser opens it is the moment
+  // they are standing on a porch with no signal.
+  it('reads the list’s talking points at the door', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routePayload,
+        talkingPoints: [
+          'What would you fix around here first?',
+          'Fix our roads with a real maintenance plan.',
+          'Point them to janedoe.org to learn more.',
+          'Ask whether we can count on them in November.',
+        ].join('\n'),
+      },
+    })
+
+    render(<WalkHarness turfId={3} />)
+    await openPersonSheet('105 Elm St')
+
+    const card = screen.getByRole('heading', {
+      name: 'Talking points',
+    }).parentElement!
+    expect(
+      within(card).getByText('What would you fix around here first?'),
+    ).toBeInTheDocument()
+    expect(
+      within(card).getByText('Ask whether we can count on them in November.'),
+    ).toBeInTheDocument()
+    // Section 5, which is composed at render rather than stored — proof the
+    // sheet assembled the card rather than printing the column.
+    expect(within(card).getByText(DEPARTURE_NOTE)).toBeInTheDocument()
+  })
+
+  // Every list frozen before the points step shipped. The payload carries no
+  // such key, and the walk must render exactly as it did.
+  it('draws no points card for a list that has none', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: routePayload,
+    })
+
+    render(<WalkHarness turfId={3} />)
+    await openPersonSheet('105 Elm St')
+
+    expect(screen.queryByText(DEPARTURE_NOTE)).toBeNull()
   })
 })

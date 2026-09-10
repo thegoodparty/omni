@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   composeCta,
-  composeTalkingPointsCard,
+  composeTalkingPointsBullets,
   DEPARTURE_NOTE,
   parseTalkingPoints,
   serializeTalkingPoints,
@@ -105,15 +105,9 @@ describe('composeCta', () => {
   })
 })
 
-describe('composeTalkingPointsCard', () => {
-  it('reads as five sections: the composed intro, the stored four, the close', () => {
-    expect(
-      composeTalkingPointsCard(
-        "Hi, I'm Jane Doe, running for City Council.",
-        lines,
-      ),
-    ).toEqual([
-      "Hi, I'm Jane Doe, running for City Council.",
+describe('composeTalkingPointsBullets', () => {
+  it('reads as the stored four followed by the close', () => {
+    expect(composeTalkingPointsBullets(lines)).toEqual([
       lines.engagementQuestion,
       lines.context,
       lines.cta,
@@ -124,9 +118,7 @@ describe('composeTalkingPointsCard', () => {
 
   // A blank section drops out rather than printing an empty bullet at a door.
   it('drops a blank section', () => {
-    const card = composeTalkingPointsCard('', { ...lines, cta: '' })
-
-    expect(card).toEqual([
+    expect(composeTalkingPointsBullets({ ...lines, cta: '' })).toEqual([
       lines.engagementQuestion,
       lines.context,
       lines.ask,
@@ -137,7 +129,7 @@ describe('composeTalkingPointsCard', () => {
   // The close is a constant, so it is there even for a card with nothing else.
   it('always closes', () => {
     expect(
-      composeTalkingPointsCard('', {
+      composeTalkingPointsBullets({
         engagementQuestion: '',
         context: '',
         cta: '',

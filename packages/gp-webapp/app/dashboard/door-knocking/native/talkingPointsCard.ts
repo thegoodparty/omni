@@ -88,14 +88,17 @@ export const DEPARTURE_NOTE =
   'Thank them for their time, tell them it genuinely helps, and leave the ' +
   'door open to get in touch.'
 
-// The card as read at a door: the composed identity clause, then the stored
+// The card as read at a door, from the engagement question down: the stored
 // lines in order, then the constant close. Blank sections drop out rather than
 // printing an empty bullet.
-export const composeTalkingPointsCard = (
-  intro: string,
+//
+// Section 1a is not in here because it is not a bullet — the identity clause
+// is the sentence the card is read under, and `DoorScript` renders it as the
+// paragraph it has always rendered an opener as.
+export const composeTalkingPointsBullets = (
   lines: TalkingPointsLines,
 ): string[] =>
-  [intro, lines.engagementQuestion, lines.context, lines.cta, lines.ask]
+  [lines.engagementQuestion, lines.context, lines.cta, lines.ask]
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .concat(DEPARTURE_NOTE)

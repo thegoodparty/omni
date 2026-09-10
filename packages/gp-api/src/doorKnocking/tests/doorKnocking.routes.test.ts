@@ -1518,9 +1518,11 @@ describe('door-knocking routes', () => {
       ],
     }
 
-    const knockAndServe = async () => {
+    const knockAndServe = async (body: Record<string, unknown> = {}) => {
       stubVendors({ residents: liveResidents })
-      const turf = await createTurf()
+      const created = await postTurf({ name: 'Elm St turf', ...body })
+      expect(created.status).toBe(201)
+      const turf = created.data as { id: number; doorCount: number }
       const res = await service.client.get(
         `/v1/door-knocking/turfs/${turf.id}/route`,
         { ...orgHeaders(), validateStatus: () => true },
@@ -2542,6 +2544,35 @@ describe('door-knocking routes', () => {
             data: owner,
           })
         }
+      })
+
+      // The card the candidate wrote in the wizard, read back at the door.
+      // It rides the payload rather than being fetched by the person sheet
+      // for the reason `representing` above does, plus one of its own: the
+      // sheet is deliberately fetch-free because the moment a canvasser opens
+      // it is the moment they are standing on a porch with no signal.
+      it('carries the frozen talking points to the door', async () => {
+        const talkingPoints = [
+          'What would you fix around here first?',
+          'Fix our roads with a real maintenance plan.',
+          'Point them to janedoe.org to learn more.',
+          'Ask whether we can count on them in November.',
+        ].join('\n')
+
+        const { res } = await knockAndServe({ talkingPoints })
+
+        expect(res.status).toBe(200)
+        expect(res.data.talkingPoints).toBe(talkingPoints)
+      })
+
+      // Every list created before the points step shipped, and every list
+      // whose candidate skipped it. The key is absent rather than empty, so
+      // the door script falls back to the static card on both.
+      it('omits the talking points for a list that has none', async () => {
+        const { res } = await knockAndServe()
+
+        expect(res.status).toBe(200)
+        expect(res.data.talkingPoints).toBeUndefined()
       })
     })
 
