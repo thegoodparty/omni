@@ -338,9 +338,18 @@ def derive_url(hit_path: str, page_paths: Sequence[str]) -> str | None:
     candidate webapp. None when the file is not under an app router at all — a gp-api
     service has no URL, and inventing one would be exactly the confident-but-wrong anchor
     this whole slice exists to avoid."""
+    hit_dir = posixpath.dirname(hit_path)
     best: str | None = None
     for page in page_paths:
         page_dir = posixpath.dirname(page)
+        # The app root's own page.tsx is route "/", and it is an ancestor of every file in
+        # the app — so without this it becomes a catch-all fallback and anything outside a
+        # route folder gets a confident "/". The pilot anchored the whole onboarding flow
+        # (app/onboarding/components/OnboardingFlow.tsx) and the top nav at "/" that way.
+        # No route at all is the honest answer there; "/" is the confident-wrong anchor
+        # this slice exists to avoid.
+        if page_dir.endswith("/app") and hit_dir != page_dir:
+            continue
         if hit_path == page or hit_path.startswith(page_dir + "/"):
             if best is None or len(page_dir) > len(posixpath.dirname(best)):
                 best = page
@@ -436,11 +445,23 @@ _ANCHOR_INSTRUCTIONS = (
     "url: confirm the derived url by returning it verbatim, or correct it if the code "
     "shows the action happens elsewhere. When there is no single URL because the event "
     "fires from global chrome, return a short reason instead, like 'n/a (global nav)'. "
+    "Never return an empty url: every event gets either a path or a short 'n/a (reason)'. "
     "When the derived url is empty — a real call site exists but it sits outside any page "
     "route, e.g. a backend service — do not invent a path and do not write generic prose "
     "in its place: describe the surface you can see in fires_on, and put a short reason in "
     "url instead, like 'n/a (backend service, no route)'. Never invent a path you have not "
-    "seen.\n"
+    "seen: an empty derived url means no page file was found for that call site, so a "
+    "path assembled out of the folder names around it is a guess, not a correction. "
+    "Correcting a url is for when one was derived and the code shows it is wrong.\n"
+    "Chrome is not only the top nav: a control that renders on every page of a section — "
+    "the dashboard sidebar, a persistent footer — fires from all of them, so the route of "
+    "the file it lives in is not where the click happens. Treat it as global_chrome and "
+    "write 'n/a (dashboard sidebar)' rather than confirming a section index url.\n"
+    "A match inside a type, enum, interface or event-name registry is a declaration, not "
+    "a call site: it names the event, it does not fire it. When that is the only evidence "
+    "you have, say so with low confidence rather than describing a surface you inferred "
+    "from the declaration's name. Comments around the declaration are fair evidence for "
+    "fires_on; the declaration's own shape is not.\n"
     "confidence: 'low' whenever you are guessing — no call site was found, the event is "
     "dispatched dynamically so no call site reveals the surface, a real call site exists "
     "but has no route, or it fires from everywhere. Set flag_reason to one of: "
@@ -467,19 +488,25 @@ def build_candidate(event: Mapping, hits: Sequence[dict], url: str | None,
     already derived. `hint` pre-classifies the three low-confidence shapes the code can
     prove, so the judge confirms rather than discovers them."""
     call_sites = [h for h in hits if h["kind"] != "declaration"]
+    primary = (call_sites or hits or [None])[0]
     if not hits:
         hint = "no_call_site"
     elif not call_sites:
         hint = "dynamic_dispatch"
-    elif not url:
-        # A real call site exists (e.g. a backend service) but it sits outside any page
-        # route — derive_url legitimately returned nothing. Without this, the high-
-        # confidence path is the judge's only option: invent a path, write unflagged prose,
-        # or fall back to an unspecified LOW that names no reason.
+    elif not url and primary is not None and "/app/" not in primary["path"]:
+        # A real call site exists (e.g. a backend service) but it sits outside any app
+        # router at all, so no URL is possible — derive_url legitimately returned nothing.
+        # Without this, the high-confidence path is the judge's only option: invent a path,
+        # write unflagged prose, or fall back to an unspecified LOW that names no reason.
+        #
+        # Scoped to files outside an app router because a routeless call site *inside* one
+        # is the opposite case: a shared component under app/shared/layouts is chrome that
+        # renders on every page, and only the judge can tell that from a genuinely
+        # routeless one. The pilot mislabelled all four top-nav events as no_route when
+        # this branch fired on them, overriding the judge's correct global_chrome.
         hint = "no_route"
     else:
         hint = ""
-    primary = (call_sites or hits or [None])[0]
     code = ""
     if primary is not None:
         text = files.get(primary["path"], "")
@@ -750,6 +777,10 @@ SEARCH_SUFFIXES = (".ts", ".tsx")
 # assertions as their primary evidence before this exclusion existed.
 _IGNORE_DIR_NAMES = frozenset({"node_modules", ".next", "__tests__", "__mocks__", "tests", "e2e"})
 _TEST_FILE_SUFFIXES = (".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx")
+# Hand-written harnesses that live outside any test directory and carry no test suffix,
+# e.g. packages/gp-api/scripts/test-weekly-tasks-digest-event.ts, which the calibration
+# pilot picked as the primary evidence for "Campaign Plan - Weekly Tasks Digest".
+_TEST_FILE_PREFIXES = ("test-", "test_")
 
 
 def load_state(path: Path) -> dict:
@@ -772,9 +803,10 @@ def read_repo_files(repo: Path) -> dict[str, str]:
     passed down, so the locator never touches the filesystem itself and stays testable.
 
     Excludes generated output (`.next/`) and anything test-only (`__tests__/`, `tests/`,
-    `e2e/`, `__mocks__/`, `*.test.ts(x)`, `*.spec.ts(x)`) — a test file is never a real call
-    site, and `sorted()` elsewhere in this module would otherwise put `Foo.test.tsx` ahead
-    of `Foo.tsx`, handing the judge a mock assertion instead of the real code."""
+    `e2e/`, `__mocks__/`, `*.test.ts(x)`, `*.spec.ts(x)`, `test-*`) — a test file is never a
+    real call site, and `sorted()` elsewhere in this module would otherwise put
+    `Foo.test.tsx` ahead of `Foo.tsx`, handing the judge a mock assertion instead of the
+    real code."""
     files: dict[str, str] = {}
     for pkg in SEARCH_PACKAGES:
         for path in (repo / pkg).rglob("*"):
@@ -782,7 +814,7 @@ def read_repo_files(repo: Path) -> dict[str, str]:
                 continue
             if _IGNORE_DIR_NAMES & set(path.parts):
                 continue
-            if path.name.endswith(_TEST_FILE_SUFFIXES):
+            if path.name.endswith(_TEST_FILE_SUFFIXES) or path.name.startswith(_TEST_FILE_PREFIXES):
                 continue
             try:
                 files[path.relative_to(repo).as_posix()] = path.read_text()

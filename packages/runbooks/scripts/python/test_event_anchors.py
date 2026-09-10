@@ -541,6 +541,22 @@ def test_derive_url_handles_gp_admin_real_directory_structure():
     ) == "/dashboard/ecanvasser (gp-admin)"
 
 
+def test_derive_url_does_not_treat_the_app_root_as_a_catch_all():
+    """The app root's own page.tsx is an ancestor of every file in the app, so without a
+    guard it answers "/" for anything that sits outside a route folder. The calibration
+    pilot anchored the whole onboarding flow and the top nav at "/" that way. No route is
+    the honest answer; "/" is the confident-wrong anchor this queue exists to avoid."""
+    pages = ["packages/gp-webapp/app/page.tsx", "packages/gp-webapp/app/dashboard/page.tsx"]
+    assert ea.derive_url(
+        "packages/gp-webapp/app/onboarding/components/OnboardingFlow.tsx", pages) is None
+    assert ea.derive_url(
+        "packages/gp-webapp/app/shared/layouts/navigation/HeaderLogo.tsx", pages) is None
+    # A file that really does sit in the app root still resolves to "/", and a nested
+    # route below the root is unaffected.
+    assert ea.derive_url("packages/gp-webapp/app/HomeHero.tsx", pages) == "/"
+    assert ea.derive_url("packages/gp-webapp/app/dashboard/Card.tsx", pages) == "/dashboard"
+
+
 def test_build_candidate_windows_the_code_and_carries_the_evidence():
     files = {"packages/gp-webapp/app/dashboard/page.tsx": "\n".join(
         f"line {i}" for i in range(1, 101))}
@@ -582,6 +598,19 @@ def test_build_candidate_marks_no_route_when_a_real_call_site_has_no_derived_url
     c = ea.build_candidate({"event_type": "E", "family": "x", "description": ""},
                            hits, None, files)
     assert c["hint"] == "no_route"
+
+
+def test_build_candidate_leaves_a_routeless_call_site_inside_the_app_to_the_judge():
+    """A shared component under an app router with no derived route is chrome that renders
+    on every page, not a routeless backend event — and only the judge can tell those apart.
+    Hinting no_route here would override its global_chrome call, which is what happened to
+    all four top-nav events in the calibration pilot."""
+    path = "packages/gp-webapp/app/shared/layouts/navigation/HeaderLogo.tsx"
+    files = {path: "trackEvent('E')\n"}
+    hits = [{"path": path, "line": 1, "kind": "literal"}]
+    c = ea.build_candidate({"event_type": "E", "family": "navigation", "description": ""},
+                           hits, None, files)
+    assert c["hint"] == ""
 
 
 def test_anchor_tool_forces_one_verdict_per_event_with_the_needed_fields():
@@ -960,6 +989,10 @@ def test_read_repo_files_excludes_test_files_and_generated_output(tmp_path):
         "packages/gp-webapp/tests/fixture.ts": "fixture",
         "packages/gp-webapp/e2e/flow.spec.ts": "e2e spec",
         "packages/gp-webapp/.next/types/generated.ts": "generated",
+        # A hand-written harness: no test suffix, no test directory. The calibration
+        # pilot picked exactly this file as the primary evidence for
+        # "Campaign Plan - Weekly Tasks Digest".
+        "packages/gp-api/scripts/test-weekly-tasks-digest-event.ts": "manual harness",
         "packages/gp-webapp/node_modules/pkg/index.ts": "vendored",
     }
     for rel, text in excluded.items():
