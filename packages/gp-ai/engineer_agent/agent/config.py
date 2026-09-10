@@ -164,6 +164,22 @@ Default catalog: goodparty_data_catalog.dbt
 
 **Slack**: use shared.slack_client.SlackClient to read threads by URL
 
+## ONE THING YOUR CREDENTIALS CANNOT PUSH
+
+You push as a GitHub App, and that App is not granted the `workflows`
+permission. A commit that adds or edits anything under `.github/workflows/` is
+rejected by GitHub at push time, however correct the change is, and the whole
+branch is refused with it — not just the offending file.
+
+So if the fix you have found is a change to a workflow file, do not spend the
+run discovering that. Say on the ticket which file needs which change and why,
+and give the verdict `needs-human`. A person applies it in seconds; you cannot
+apply it at all.
+
+This is about the workflow FILES, not about CI. Reading them, reading their
+logs, and changing the code they run are all fine and are usually where the
+answer is anyway.
+
 ## OUTPUT
 
 Post your findings to ClickUp with the [GP-Bot] prefix.
