@@ -117,4 +117,48 @@ describe('DrawFullScreen hint / Undo swap', () => {
     // distinguishes it from the neutral pill next to it.
     expect(pill.className).toMatch(/bg-brand-red-100/)
   })
+
+  // The pill shakes on every count change while still over cap, in either
+  // direction — 165 → 160 is still over the limit, so the pill keeps
+  // saying so with every tap until the shape gets under. The animation
+  // is applied via a reflow-then-class-toggle pattern, which is why the
+  // test walks two renders to catch the class landing.
+  it('shakes the pill on every count change while over cap', async () => {
+    const { rerender } = render(
+      <DrawFullScreen
+        {...baseProps}
+        pointCount={5}
+        drawStopCount={165}
+        drawStopsOverCap
+      />,
+    )
+    await dismissInstructions()
+    // Initial mount: no animation yet (previous count matches, nothing changed).
+    expect(screen.getByText('165 selected').className).not.toMatch(
+      /animate-shake/,
+    )
+
+    // Increase while over cap: shakes.
+    rerender(
+      <DrawFullScreen
+        {...baseProps}
+        pointCount={6}
+        drawStopCount={170}
+        drawStopsOverCap
+      />,
+    )
+    expect(screen.getByText('170 selected').className).toMatch(/animate-shake/)
+
+    // Decrease that keeps us over cap: also shakes (the point of the shake
+    // is to keep saying "still over" with every tap until it is not).
+    rerender(
+      <DrawFullScreen
+        {...baseProps}
+        pointCount={5}
+        drawStopCount={160}
+        drawStopsOverCap
+      />,
+    )
+    expect(screen.getByText('160 selected').className).toMatch(/animate-shake/)
+  })
 })

@@ -783,10 +783,14 @@ export default function VoterMapCanvas({
     // MapLibre does not synthesize mouse events from touch drags — mirror
     // the drag handlers so vertices are repositionable on phones.
     map.on('touchstart', (event) => {
-      // Same bound as the mousedown clear above — a touch tap after a
-      // touch drag would otherwise be eaten by a stale flag.
-      justDraggedRef.current = false
       if (event.points.length !== 1) return
+      // Same bound as the mousedown clear above — a touch tap after a
+      // touch drag would otherwise be eaten by a stale flag. Kept behind
+      // the single-touch guard so a two-finger pinch that lands in the
+      // ~300ms window between touchend and the browser-synthesized click
+      // does not prematurely clear the flag the phantom click needs to
+      // reach.
+      justDraggedRef.current = false
       if (beginDrag(event.point)) event.preventDefault()
     })
     map.on('touchmove', (event) => {

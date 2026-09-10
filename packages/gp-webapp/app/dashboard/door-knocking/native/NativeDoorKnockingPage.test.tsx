@@ -1167,6 +1167,24 @@ describe('NativeDoorKnockingPage draw step', () => {
     await drawCounts(/3 matching households · 3 selected households/)
   })
 
+  // Wired at the page level: the same over-cap boolean the create flow gates
+  // Continue on flips the canvas's boundary hue to destructive red. This
+  // asserts the false branch through the mock's data-draw-over-cap
+  // attribute — the fixture pack has 2 dots so the shape is well under the
+  // 150-stop cap and the flag must read false.
+  it('tells the canvas the shape is not over cap on the normal path', async () => {
+    renderPage()
+    await mapReady()
+
+    await openFlowAndDraw()
+    await drawRingAndReview()
+
+    expect(screen.getByTestId('voter-map')).toHaveAttribute(
+      'data-draw-over-cap',
+      'false',
+    )
+  })
+
   // Removed: DoorsPanel / "See the addresses" toggle and the address-preview
   // panel are gone from the draw step (design change — draw step body is
   // counts row + Geoapify preview card only). The preview query is still
