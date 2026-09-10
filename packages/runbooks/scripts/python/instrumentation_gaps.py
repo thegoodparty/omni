@@ -37,6 +37,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
+import llm_judge
+
 class CorruptStateError(Exception):
     """The on-disk state file exists but is not a readable JSON object. Distinct from a
     missing file (legitimate first run) — a caller must treat this as 'stop, don't touch
@@ -54,7 +56,7 @@ DEFAULT_LOG = DATA_DIR / "instrumentation-gaps-log.md"
 # small companion file as amplitude_event_provenance_state.json.
 DEFAULT_RUN_STATE = DATA_DIR / "instrumentation_gaps_run_state.json"
 
-JUDGE_OK_STATUSES = ("ok", "no-candidates")
+JUDGE_OK_STATUSES = llm_judge.OK_STATUSES
 NO_JUDGE_STATUS = "skipped: --no-judge"
 # Statuses that move the judge-failure streak neither up nor down. "no-candidates" never
 # exercised the judge, and --no-judge is a deliberate opt-out — counting a local run of it
@@ -316,55 +318,33 @@ def build_judge_messages(candidates: Sequence[dict]) -> list[dict]:
     return [{"role": "user", "content": content}]
 
 
-# Output budget. Measured: 25 verdicts cost 4.1k-4.8k output tokens (~185/verdict, and
-# it varies run to run), so a constant cap sized near that is fragile — the old 4096
-# overflowed by ~45 tokens and truncated silently for a month. Per-verdict instead, with
-# ~2x headroom, so the budget tracks the batch; the ceiling keeps worst-case spend per
-# call provable. max_tokens is only ever a ceiling: billing is on tokens emitted.
-_JUDGE_BUDGET_FLOOR = 1024
-_JUDGE_TOKENS_PER_VERDICT = 400
-_JUDGE_BUDGET_CEILING = 32_000
-
-
 def judge_max_tokens(candidate_count: int) -> int:
     """The output cap for a batch of this size."""
-    return min(
-        _JUDGE_BUDGET_FLOOR + _JUDGE_TOKENS_PER_VERDICT * candidate_count,
-        _JUDGE_BUDGET_CEILING,
-    )
+    return llm_judge.max_tokens_for(candidate_count)
+
+
+def _validated_judge_batch(payload: dict) -> dict:
+    """Validate the *whole* tool payload as a JudgeBatch, before llm_judge filters by id.
+    llm_judge is subject-agnostic — it only knows ids — so a hallucinated id carrying a
+    malformed verdict would otherwise be silently dropped by the id filter instead of
+    failing the batch. Matches the pre-extraction original's exact ordering:
+    JudgeBatch.model_validate(block.input) ran before the allowed-id filter. Returns the
+    validated, re-dumped payload so the verdicts llm_judge reads back are the same shape
+    the original returned (JudgeVerdict.model_dump()), not the raw tool-call dicts."""
+    return JudgeBatch.model_validate(payload).model_dump()
 
 
 def parse_judge_response(resp, candidate_ids: Sequence[str]) -> dict[str, dict]:
-    """Validate the tool_use block as a JudgeBatch and key verdicts by id, keeping only ids
-    that were in the input (a hallucinated id is dropped, never trusted into state).
-
-    Truncation is checked first and named explicitly. A max_tokens stop leaves the
-    tool_use input an empty dict, which pydantic reports as "results Field required" —
-    an error that points at the schema instead of the budget, and read that way it hid a
-    month of un-judged candidates. A truncated response may also carry no complete
-    tool_use block, so this precedes the block lookup."""
-    if getattr(resp, "stop_reason", None) == "max_tokens":
-        raise RuntimeError(
-            f"judge response truncated at max_tokens ({len(candidate_ids)} candidates): "
-            "the verdict batch did not fit the output budget"
-        )
-    block = next((b for b in resp.content if getattr(b, "type", None) == "tool_use"), None)
-    if block is None:
-        raise RuntimeError("no tool_use block in judge response")
-    batch = JudgeBatch.model_validate(block.input)
-    allowed = set(candidate_ids)
-    return {v.id: v.model_dump() for v in batch.results if v.id in allowed}
+    return llm_judge.parse_tool_response(
+        resp, candidate_ids, results_field="results", noun="candidates",
+        validate=_validated_judge_batch,
+    )
 
 
 # --- judge call + graceful wrapper (network IO layer) ------------------------
 
 
-def make_anthropic_client(api_key: str):
-    """Construct the Anthropic SDK client. Import is local so the module still imports when
-    the dependency is absent and judgment is skipped."""
-    import anthropic
-
-    return anthropic.Anthropic(api_key=api_key)
+make_anthropic_client = llm_judge.make_anthropic_client
 
 
 def judge_candidates(
@@ -374,15 +354,11 @@ def judge_candidates(
     """One batched judgment call over the capped candidate set. Client is injected so this
     is unit-testable without network. Forces the report_gap_verdicts tool for a validated
     result. Mirrors qa_validate.py's AnthropicJudge."""
-    resp = client.messages.create(
-        model=model,
-        max_tokens=max_tokens or judge_max_tokens(len(candidates)),
-        system=judge_system_prompt(rubric),
-        tools=[JUDGE_TOOL],
-        tool_choice={"type": "tool", "name": JUDGE_TOOL["name"]},
-        messages=build_judge_messages(candidates),
+    return llm_judge.judge_batch(
+        candidates, system=judge_system_prompt(rubric), tool=JUDGE_TOOL, client=client,
+        model=model, message_builder=build_judge_messages, max_tokens=max_tokens,
+        results_field="results", noun="candidates", validate=_validated_judge_batch,
     )
-    return parse_judge_response(resp, [c["id"] for c in candidates])
 
 
 def judge_all(
@@ -409,20 +385,14 @@ def run_judgment(
     """Graceful boundary around the judge. Never raises: returns (verdicts_by_id, status).
     A missing key, missing rubric, SDK/network error, or bad response all degrade to an
     empty result and a status string the digest reports — the run continues unaffected."""
-    if not candidates:
-        return {}, "no-candidates"
-    if not api_key:
-        return {}, "skipped: ANTHROPIC_API_KEY unset"
-    try:
-        rubric = load_rubric(rubric_path)
-    except OSError:  # missing, unreadable, or a directory — all degrade to a skip, never raise
-        return {}, "skipped: rubric unavailable"
-    try:
-        client = client_factory(api_key)
-        verdicts = judge_candidates(candidates, rubric, client=client, model=model)
-    except Exception as exc:  # noqa: BLE001 — judgment must never break the governance run
-        return {}, f"failed: {exc}"
-    return verdicts, "ok"
+    return llm_judge.run_graceful(
+        candidates, api_key=api_key, model=model, tool=JUDGE_TOOL,
+        message_builder=build_judge_messages,
+        system_factory=lambda: judge_system_prompt(load_rubric(rubric_path)),
+        unavailable_status="skipped: rubric unavailable",
+        client_factory=client_factory,
+        results_field="results", noun="candidates", validate=_validated_judge_batch,
+    )
 
 
 # --- state + dispositions -----------------------------------------------------
