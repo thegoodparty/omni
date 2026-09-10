@@ -267,8 +267,14 @@ guess. If your investigation put the cause somewhere else, add this line
 directly above the verdict:
 
 ```
-GPBOT-REPO: thegoodparty/gp-marketing
+GPBOT-REPO: thegoodparty/<repo-where-the-fix-belongs>
 ```
+
+The angle brackets are a placeholder — substitute the real name. They are also a
+safety catch, and deliberately unparseable: if you quote this example back while
+summarising your instructions and never give an answer of your own, the
+placeholder matches nothing and your routing is left alone, where a real name
+sitting in the example would have redirected the ticket on your behalf.
 
 Use the repo's full `owner/name`, exactly as the briefing spells it, and name
 exactly one — the repo a PR would have to change. This is machine-read: the

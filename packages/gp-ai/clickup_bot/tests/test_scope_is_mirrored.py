@@ -178,6 +178,44 @@ def test_a_marketing_ticket_is_a_different_repo_not_a_refusal():
     assert handler.target_repo(marketing) == handler.MARKETING_REPO
 
 
+def test_the_instruction_cannot_redirect_a_ticket_by_being_quoted():
+    """The example repo in the instruction must not parse as a real answer.
+
+    parse_repo takes the LAST GPBOT-REPO match, so that a model quoting its
+    instructions before answering is overruled by the answer. Reverse the case
+    and that rule turns on itself: a model that quotes the example and then says
+    nothing — correct behaviour, because the line is only for a redirect — leaves
+    the echo as the last match and the ticket goes wherever the example pointed.
+
+    It pointed at gp-marketing, a name that resolves. So every analysis that
+    mentioned its own instructions could have silently re-routed a ticket it had
+    diagnosed as belonging exactly where it already was.
+
+    This is the assertion and not a note in the prompt because the two halves sit
+    in different packages and neither can import the other: the instruction is in
+    the Lambda, the parser is in the agent. Run them against each other here or
+    the pairing is only an intention.
+    """
+    assert escalation.parse_repo(handler.ANALYZE_INSTRUCTION) is None
+
+
+def test_quoting_the_verdict_menu_cannot_order_a_pr():
+    """The same echo hazard on the verdict line, where it is already survivable.
+
+    The instruction lists all three verdicts in one block, so a model that quotes
+    the block and never answers leaves the last one — `needs-human` — as the last
+    match. That costs a human a read, which is the right price for an analysis
+    that did not finish.
+
+    Nothing about that is load-bearing except the ORDER. Move `fix` to the bottom
+    of that list, for tidiness or because it reads better, and an analysis that
+    only ever quoted its instructions starts ordering pull requests. This pins
+    the property rather than the order, so any reshuffle that keeps it safe
+    passes and the one that does not fails.
+    """
+    assert escalation.parse_verdict(handler.ANALYZE_INSTRUCTION) != escalation.VERDICT_FIX
+
+
 def test_the_mirror_is_never_the_only_thing_holding():
     # A reminder in executable form: the Lambda checks scope itself, on the task
     # it fetches itself, whatever the agent decided earlier. If this assertion
