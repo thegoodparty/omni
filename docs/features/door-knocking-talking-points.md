@@ -437,11 +437,20 @@ engagement question secondarily.
 
 This copy is a *steer*, not text that ships: it tells the model what commitment
 to aim at, and the model writes the note. That is the whole reason it can be
-prompt copy rather than the per-purpose constants we first reached for. Product
-still owns it — `doorKnockingPurposes.ts` and its Serve twin both record that
-robocall and phone banking shipped with copy pasted from social and had to be
-corrected in #1379 — but a wrong steer shifts output rather than putting words
-in a canvasser's mouth.
+prompt copy rather than the per-purpose constants we first reached for, and why
+we wrote it ourselves rather than blocking on product. A wrong steer shifts
+output; it does not put words in a canvasser's mouth the way the shipped
+per-purpose copy does — `doorKnockingPurposes.ts` and its Serve twin both
+record that robocall and phone banking shipped with copy pasted from social and
+had to be corrected in #1379. Grade it with the eval set and change it there.
+
+What the *shape* of a door ask is turned out not to be a per-purpose question,
+so it is stated once, in `ASK_RULE`: one request and no more, answerable where
+the resident is standing, a recordable yes-or-no where the purpose seeks a
+commitment and a single question where the purpose is listening. Two requests
+in one line is the failure it guards — "vote early and take a yard sign" gets a
+nod and neither. The per-purpose copy's job is only to name which one
+commitment.
 
 `custom` follows phone banking exactly: fresh generation is refused with a 400
 and only the improve path is allowed.
