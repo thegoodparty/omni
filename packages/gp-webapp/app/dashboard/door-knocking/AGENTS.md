@@ -2,6 +2,11 @@
 
 Door-knocking / canvassing dashboard. Tracks volunteer interactions logged in the field, summarizes by day / rating / survey, and lets campaigns design custom door-knocking surveys.
 
+**Copy.** The create-list flow's stage titles and captions
+(`native/createFlow/CreateListFlow.tsx`, `STAGE_META`) follow
+`docs/product-copy.md`. Titles ask a question the candidate can answer, and no
+caption explains route mechanics such as turf locking or purchased directions.
+
 ## Key files
 
 | File                                                                | Role                                                    |
