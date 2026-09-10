@@ -39,32 +39,6 @@ export const buildCampaignManagerIntro = (
 export const CAMPAIGN_MANAGER_BALLOT_KICKOFF =
   'How do I get on the ballot for my race?'
 
-// The two kickoffs the "you are clear for the week" cards fire. Same shape and
-// same reasoning as the ballot kickoff above: real English, a normal LLM turn,
-// and deliberately NOT in hiddenMessageContents.
-//
-// They are kickoffs rather than links because neither has a surface to link to.
-// There is no events page (an event is a tracker task with flowType `events`),
-// and no endpoint aggregates what a campaign learned from its own outreach, so
-// the review has to run through the manager's own tools (count_contacts,
-// describe_filter_dimensions, query_constituent_data) instead of reading a
-// summary that does not exist.
-export const CAMPAIGN_MANAGER_EVENT_KICKOFF =
-  'Help me plan a campaign event in the next two weeks. Suggest a format and ' +
-  'a place that fits my district.'
-
-export const CAMPAIGN_MANAGER_OUTREACH_REVIEW_KICKOFF =
-  'Looking at the voter outreach I have done so far, who have I reached, who ' +
-  'is still undecided, and where should I go deeper next?'
-
-// Fired when the candidate answers that they never made the ballot. The
-// supportive close ("try again next cycle, we will be here") is the manager's
-// reply, not card copy, so it can meet the candidate where they are — which
-// also means the tone lives in campaignManagerPrompt.ts, not here.
-export const CAMPAIGN_MANAGER_MISSED_BALLOT_KICKOFF =
-  'The filing deadline passed and I did not make it onto the ballot for this ' +
-  'election. What should I do now?'
-
 export const campaignManagerChatApi = createAgentChatClient(
   'campaign_assistant',
   'campaign-manager-chat',

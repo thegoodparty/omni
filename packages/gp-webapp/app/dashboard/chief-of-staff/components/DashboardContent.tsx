@@ -11,6 +11,8 @@ import { ONBOARDING_CARDS } from './onboardingCardsConfig'
 import TaskList from './TaskList'
 import FooterChatBar from './chat/FooterChatBar'
 import ChiefOfStaffChatSurface from './chat/ChiefOfStaffChatSurface'
+import ChiefOfStaffChatHome from './ChiefOfStaffChatHome'
+import { useChiefOfStaffChatHomeFlag } from '@shared/experiments/chiefOfStaffChatHomeFlag'
 import type { OnboardingCardKey } from '../data/contracts'
 
 /**
@@ -20,6 +22,7 @@ import type { OnboardingCardKey } from '../data/contracts'
  */
 export default function DashboardContent(): React.JSX.Element {
   const [user] = useUser()
+  const { ready, enabled } = useChiefOfStaffChatHomeFlag()
   const [chatOpen, setChatOpen] = useState(false)
   const [initialConversationId, setInitialConversationId] = useState<
     string | null
@@ -42,6 +45,18 @@ export default function DashboardContent(): React.JSX.Element {
     setOpenerKey(key)
     setInitialConversationId(null)
     setChatOpen(true)
+  }
+
+  // The card stack is the fallback for every state that is not a resolved
+  // "on": loading, off, an anonymous read, a gp-api failure. Deliberately not
+  // gated the other way (render nothing until `ready`) — `ready` stays false
+  // forever when the flag provider never resolves, which would blank the
+  // dashboard rather than degrade to the home that works.
+  if (ready && enabled) {
+    // The conversational home IS the chat, so the footer dock is dropped here:
+    // it would put a second chat on screen and its fixed bar would sit over
+    // this page's own composer.
+    return <ChiefOfStaffChatHome />
   }
 
   return (

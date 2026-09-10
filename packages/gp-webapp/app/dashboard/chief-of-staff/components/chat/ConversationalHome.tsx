@@ -48,6 +48,19 @@ interface Props {
    * empties this.
    */
   suggestions?: ChatSuggestion[]
+  /**
+   * Display-only agent messages to play into a fresh conversation, e.g. a
+   * get-started card's own opener. Not sent to the model; the real turn begins
+   * when the user replies, so this changes no prompt.
+   */
+  opener?: string[]
+  /**
+   * Identity of the active opener. Setting it starts a fresh conversation so
+   * the opener plays on its own rather than landing on top of the session's
+   * existing transcript — the same thing the drawer does when a card is
+   * clicked. The prior conversation stays reachable through history.
+   */
+  openerKey?: string | null
 }
 
 // Where the active conversation is remembered. sessionStorage, not local: the
@@ -95,6 +108,8 @@ export default function ConversationalHome({
   leadingSlot,
   trailingSlot,
   suggestions,
+  opener,
+  openerKey,
 }: Props): React.JSX.Element {
   const organization = useOrganization()
   const orgSlug = organization?.slug ?? null
@@ -138,16 +153,21 @@ export default function ConversationalHome({
     return <div className="flex min-h-0 flex-1" />
   }
 
+  // An opener plays into a fresh conversation, so it supersedes whatever this
+  // session was in the middle of.
+  const activeConversationId = openerKey ? null : conversationId
+
   return (
     // No background of its own: the home sits directly on the shell's #f5f5f5
     // canvas, and only the bubbles, cards and composer carry a surface.
     <div className="flex min-h-0 flex-1 flex-col">
       <ChiefOfStaffChatBody
-        // Remount on a conversation switch (a history pick, or an org change)
-        // so the body loads that transcript against a clean deferred-create
-        // state.
-        key={`${storageKey}:${conversationId ?? 'new'}`}
-        conversationIdOverride={conversationId ?? undefined}
+        // Remount on a conversation switch (a history pick, an org change, or a
+        // new opener) so the body loads that transcript against a clean
+        // deferred-create state.
+        key={`${storageKey}:${openerKey ?? ''}:${activeConversationId ?? 'new'}`}
+        conversationIdOverride={activeConversationId ?? undefined}
+        opener={opener}
         onConversationCreated={onConversationCreated}
         onSelectConversation={onSelectConversation}
         chatApi={config.chatApi}
