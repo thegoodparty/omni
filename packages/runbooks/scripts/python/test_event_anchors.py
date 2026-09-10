@@ -744,6 +744,29 @@ def test_merge_verdicts_collapses_whitespace_on_fires_on_and_url():
     assert state["E"]["url"] == "/dashboard /campaign-plan"
 
 
+def test_merge_verdicts_fills_a_blank_open_row_but_never_overwrites_its_text():
+    """collect_candidates still offers an `open` row with no fires_on to the judge, so the
+    draft has to be allowed to land — otherwise the row is re-judged and discarded on every
+    run and stays blank forever. A row the reviewer has already written into is untouched."""
+    candidates = [{"id": "Blank", "evidence": "a.tsx:3", "hint": ""},
+                  {"id": "Edited", "evidence": "b.tsx:9", "hint": ""}]
+    verdicts = {"Blank": {"id": "Blank", "fires_on": "Drafted.", "url": "/a", "confidence": "high"},
+                "Edited": {"id": "Edited", "fires_on": "Drafted.", "url": "/b", "confidence": "high"}}
+    state = {
+        "Blank": {"fires_on": "", "url": "", "confidence": "", "flag_reason": "",
+                  "evidence": "", "disposition": "open", "reason": "", "first_seen": "2026-09-01",
+                  "last_seen": "2026-09-01", "written_date": ""},
+        "Edited": {"fires_on": "Human wrote this.", "url": "/kept", "confidence": "",
+                   "flag_reason": "", "evidence": "", "disposition": "open", "reason": "",
+                   "first_seen": "2026-09-01", "last_seen": "2026-09-01", "written_date": ""},
+    }
+    out = ea.merge_verdicts(state, verdicts, candidates, "2026-09-10")
+    assert out["Blank"]["fires_on"] == "Drafted."
+    assert out["Blank"]["url"] == "/a"
+    assert out["Edited"]["fires_on"] == "Human wrote this."
+    assert out["Edited"]["url"] == "/kept"
+
+
 def test_review_artifact_round_trips_an_edited_draft():
     state = {"E": {"fires_on": "Draft line.", "url": "/dashboard",
                    "confidence": "high", "flag_reason": "", "evidence": "a.tsx:3",

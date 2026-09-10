@@ -581,7 +581,11 @@ def merge_verdicts(state: dict, verdicts: Mapping[str, dict],
             entry["confidence"] = verdict.get("confidence", "")
             entry["flag_reason"] = verdict.get("flag_reason", "")
         for field in ("fires_on", "url"):
-            if entry["disposition"] == "new" and not entry[field]:
+            # `open` is a row the reviewer deliberately left queued, and collect_candidates
+            # still offers it to the judge, so a draft must be allowed to land in it —
+            # otherwise the row is re-judged and discarded every run and stays blank
+            # forever. The emptiness guard is what protects a human's own text.
+            if entry["disposition"] in ("new", "open") and not entry[field]:
                 entry[field] = " ".join(verdict.get(field, "").split())
     return out
 
