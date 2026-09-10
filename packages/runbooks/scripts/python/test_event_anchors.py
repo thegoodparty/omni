@@ -1220,3 +1220,35 @@ def test_main_never_writes_to_amplitude():
     # Plan A ends at the queue. The writer is plan B, behind a human reading a pilot.
     src = inspect.getsource(ea)
     assert "update_event" not in src and "create_events" not in src
+
+
+_GOVERN_ANCHORED_ROW = [{
+    "event_type": "Already Anchored", "govern_display_name": "Already Anchored",
+    "family": "win", "first_seen_date": None, "last_seen_date": None,
+    "event_count": 9, "event_count_30d": 9,
+    "govern_description": "<!-- gp-meta -->\np |\nfires_on: Plan page. |\n<!-- /gp-meta -->",
+    "govern_tags": None,
+}]
+
+
+def test_collect_candidates_warns_when_an_open_row_is_already_anchored_in_govern(tmp_path, capsys):
+    """Govern holding a fires_on means there is nothing to draft, so skipping is right — but
+    a row the reviewer deliberately left 'open' must not vanish without saying why."""
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    state = {"Already Anchored": {
+        "fires_on": "", "url": "", "confidence": "", "flag_reason": "", "evidence": "",
+        "disposition": "open", "reason": "", "first_seen": "2026-09-01",
+        "last_seen": "2026-09-01", "written_date": ""}}
+    assert ea.collect_candidates(
+        repo, state, run_query=_fake_run_query(_GOVERN_ANCHORED_ROW)) == []
+    err = capsys.readouterr().err
+    assert "Already Anchored" in err
+    assert "nothing to draft" in err
+
+
+def test_collect_candidates_skips_a_govern_anchored_new_row_silently(tmp_path, capsys):
+    """Only an 'open' row earns the notice — skipping a 'new' row this way is routine."""
+    repo = _write_fake_repo(tmp_path, "packages/gp-webapp/app/dashboard/page.tsx")
+    assert ea.collect_candidates(
+        repo, {}, run_query=_fake_run_query(_GOVERN_ANCHORED_ROW)) == []
+    assert "Already Anchored" not in capsys.readouterr().err

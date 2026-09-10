@@ -509,6 +509,7 @@ def judge_anchors(candidates: Sequence[dict], *, api_key: str | None, model: str
             system_factory=anchor_system_prompt,
             unavailable_status="skipped: prompt unavailable",
             client_factory=client_factory,
+            noun="anchors",
         )
         verdicts.update(chunk_verdicts)
         statuses.append(status)
@@ -787,6 +788,13 @@ def collect_candidates(repo: Path | None, state: Mapping, *,
             continue
         gpmeta = aeh.parse_gpmeta(row.get("govern_description")) or {}
         if gpmeta.get("fires_on"):
+            # Govern already has the anchor, so there is nothing to draft — but a row the
+            # reviewer deliberately left `open` must not vanish from the queue in silence,
+            # or they will keep looking for it and never learn it was already answered.
+            if entry.get("disposition") == "open":
+                print(f"event-anchors: {event_type!r} is queued as 'open' but Govern already "
+                      "carries a fires_on — nothing to draft; close the row or clear the "
+                      "Govern value", file=sys.stderr)
             continue
         hits = find_call_sites(event_type, registry.get(event_type), files)
         # Prefer the route derived from `primary` — the same hit build_candidate uses for
