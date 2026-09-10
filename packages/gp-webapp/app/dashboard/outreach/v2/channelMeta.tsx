@@ -22,16 +22,17 @@ import type { OutreachType } from 'gpApi/types/outreach.types'
 // channel badge, and the details drawer so the channel reads identically
 // everywhere (prototype: serve-nav-kit outreach data.ts).
 //
-// `badgeTint` and `iconTint` both use BRAND-PALETTE tokens rather than
-// semantic role tokens (`destructive-light`, `info-light`, …) so a retune
-// of `destructive` for error surfaces does not silently recolour phone
-// banking. The two are kept ONE-TO-ONE on the same brand shade — the
-// tile's icon circle and the row's badge must look like the same channel
-// speaking, not two different ones — following one shade pair:
-// `bg-brand-<palette>-100` background, `text-brand-<palette>-800`
-// foreground (700 where 800 tests too dark). Add a new channel by picking
-// an unused brand palette from `tailwind-theme.css` and using the same
-// pair for both fields.
+// `badgeTint` and `iconTint` both use BRAND-PALETTE tokens for the tinted
+// bg rather than semantic role tokens (`destructive-light`, `info-light`,
+// …) so a retune of `destructive` for error surfaces does not silently
+// recolour phone banking. Bg is one-to-one with the tile's icon circle —
+// the row's badge must look like the same channel speaking, not a
+// different one — using `bg-brand-<palette>-100`. Text is
+// `text-foreground` on every badge, matching the ChannelCard icon glyph's
+// constant `text-foreground` (see `styleguide/components/ui/channel-card.tsx`)
+// so the label reads flat and neutral instead of tinted. Add a new
+// channel by picking an unused brand palette from `tailwind-theme.css`
+// for the bg pair.
 interface ChannelMeta {
   label: string
   icon: ReactNode
@@ -46,46 +47,43 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
     label: 'Social media',
     icon: <Share2Icon />,
     iconTint: 'bg-brand-lavender-100',
-    badgeTint:
-      'border-transparent bg-brand-lavender-100 text-brand-lavender-800',
+    badgeTint: 'border-transparent bg-brand-lavender-100 text-foreground',
   },
   text: {
     label: 'SMS',
     icon: <MessageSquareIcon />,
     iconTint: 'bg-brand-blue-100',
-    badgeTint: 'border-transparent bg-brand-blue-100 text-brand-blue-800',
+    badgeTint: 'border-transparent bg-brand-blue-100 text-foreground',
   },
   p2p: {
     label: 'SMS',
     icon: <MessageSquareIcon />,
     iconTint: 'bg-brand-blue-100',
-    badgeTint: 'border-transparent bg-brand-blue-100 text-brand-blue-800',
+    badgeTint: 'border-transparent bg-brand-blue-100 text-foreground',
   },
   robocall: {
     label: 'Robocall',
     icon: <PhoneIcon />,
     iconTint: 'bg-brand-waxflower-100',
-    badgeTint:
-      'border-transparent bg-brand-waxflower-100 text-brand-waxflower-700',
+    badgeTint: 'border-transparent bg-brand-waxflower-100 text-foreground',
   },
   phoneBanking: {
     label: 'Phone banking',
     icon: <HeadphonesIcon />,
     iconTint: 'bg-brand-red-100',
-    badgeTint: 'border-transparent bg-brand-red-100 text-brand-red-800',
+    badgeTint: 'border-transparent bg-brand-red-100 text-foreground',
   },
   nativePhoneBanking: {
     label: 'Phone banking',
     icon: <HeadphonesIcon />,
     iconTint: 'bg-brand-red-100',
-    badgeTint: 'border-transparent bg-brand-red-100 text-brand-red-800',
+    badgeTint: 'border-transparent bg-brand-red-100 text-foreground',
   },
   doorKnocking: {
     label: 'Door knocking',
     icon: <DoorOpenIcon />,
     iconTint: 'bg-brand-halo-green-100',
-    badgeTint:
-      'border-transparent bg-brand-halo-green-100 text-brand-halo-green-800',
+    badgeTint: 'border-transparent bg-brand-halo-green-100 text-foreground',
   },
   // Same presentation as the legacy type: a candidate reading the history has
   // no use for the distinction between an eCanvasser draft and a native walk,
@@ -94,8 +92,7 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
     label: 'Door knocking',
     icon: <DoorOpenIcon />,
     iconTint: 'bg-brand-halo-green-100',
-    badgeTint:
-      'border-transparent bg-brand-halo-green-100 text-brand-halo-green-800',
+    badgeTint: 'border-transparent bg-brand-halo-green-100 text-foreground',
   },
 }
 

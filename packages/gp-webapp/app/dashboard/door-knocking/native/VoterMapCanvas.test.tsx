@@ -25,17 +25,13 @@ const LOCATION_OFF: LiveLocation = {
 
 vi.mock('appEnv', () => ({ NEXT_PUBLIC_GEOAPIFY_TILES_KEY: 'test-tiles-key' }))
 
-// The Undo button in the map's control cluster fires `toast(...)` when
-// pressed with no vertices to drop. Stubbing it here — real toast pulls in
-// Sonner's provider setup that this suite doesn't stand up.
-vi.mock('@styleguide', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@styleguide')>()
-  return { ...actual, toast: vi.fn() }
-})
-
 interface MapEvent {
   lngLat: { lng: number; lat: number }
   point: { x: number; y: number }
+  // maplibre's real MapMouseEvent carries this; the mousedown handler calls
+  // it when beginDrag succeeds, so the fixture has to provide it or the
+  // drag path throws before it can be exercised.
+  preventDefault?: () => void
 }
 
 interface MockLayerProps {
@@ -96,6 +92,9 @@ const gl = vi.hoisted(() => {
     // canvasser does. Keyed by layer so the vertex picking the drag handlers
     // do is unaffected.
     pickedPin: null as { object: RoutePin } | null,
+    // Stands a vertex under the pointer for the drag handlers — `pickVertex`
+    // reads `info.index` (not `.object`), so this shape matches.
+    pickedVertex: null as { index: number } | null,
     lastPick: null as PickParams | null,
     // Real deck.gl's `LayersList` allows `null`/`false`/`undefined` entries
     // (a layer that opts itself out for this render) — `voter-dots` is one of
@@ -113,7 +112,9 @@ const gl = vi.hoisted(() => {
     },
     pickObject: (params: PickParams) => {
       overlay.lastPick = params
-      return params.layerIds.includes('route-pins') ? overlay.pickedPin : null
+      if (params.layerIds.includes('route-pins')) return overlay.pickedPin
+      if (params.layerIds.includes('draw-vertices')) return overlay.pickedVertex
+      return null
     },
   }
   return {
@@ -312,6 +313,7 @@ describe('VoterMapCanvas drawing', () => {
     gl.handlers.clear()
     gl.overlay.layers = []
     gl.overlay.pickedPin = null
+    gl.overlay.pickedVertex = null
     gl.overlay.lastPick = null
     gl.overlay.options = null
     gl.style.layers = []
@@ -538,6 +540,74 @@ describe('VoterMapCanvas drawing', () => {
     // The third bump has nothing left to drop rather than throwing.
     expect(onDrawPointCount).toHaveBeenLastCalledWith(0)
     expect(layerData('draw-vertices')).toEqual([])
+  })
+
+  // Undo covers vertex drags on the same stack as placements, so a canvasser
+  // who corrected a vertex by moving it can walk that move back rather than
+  // re-dragging. This exercises the `type: 'move'` branch of the undo
+  // effect: beginDrag → moveDrag → endDrag → undoDrawToken, and expects the
+  // vertex to land at its pre-drag coordinate.
+  it('undoes a vertex drag, restoring the pre-drag coordinate', () => {
+    const onPolygonChange = vi.fn()
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    POINTS.slice(0, 3).forEach(clickMap)
+    const original = POINTS[1] as [number, number]
+    const moved: [number, number] = [-87.6, 41.94]
+
+    // Stand a vertex under the pointer for beginDrag, then walk the drag
+    // through the same event names maplibre would fire.
+    gl.overlay.pickedVertex = { index: 1 }
+    const preventDefault = vi.fn()
+    act(() => {
+      gl.handlers.get('mousedown')?.({
+        lngLat: { lng: original[0], lat: original[1] },
+        point: { x: 0, y: 0 },
+        preventDefault,
+      })
+      gl.handlers.get('mousemove')?.({
+        lngLat: { lng: moved[0], lat: moved[1] },
+        point: { x: 0, y: 0 },
+        preventDefault,
+      })
+      gl.handlers.get('mouseup')?.({
+        lngLat: { lng: moved[0], lat: moved[1] },
+        point: { x: 0, y: 0 },
+        preventDefault,
+      })
+    })
+
+    expect((layerData('draw-vertices') as PolygonRing)[1]).toEqual(moved)
+    // The drag lands on the polygon-change callback in its new position, so
+    // the page can recompute stats.
+    expect(onPolygonChange).toHaveBeenLastCalledWith([
+      POINTS[0],
+      moved,
+      POINTS[2],
+    ])
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        undoDrawToken={1}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    // Vertex back at its pre-drag coordinate, and the polygon-change
+    // callback carries the restored ring.
+    expect((layerData('draw-vertices') as PolygonRing)[1]).toEqual(original)
+    expect(onPolygonChange).toHaveBeenLastCalledWith([
+      POINTS[0],
+      original,
+      POINTS[2],
+    ])
   })
 
   // Clear is a restarted drawing session, not an exit from one: the canvasser
@@ -1574,124 +1644,5 @@ describe('VoterMapCanvas label ordering', () => {
     render(<VoterMapCanvas {...baseProps} />)
 
     expect(beforeIdOf('voter-dots')).toBeUndefined()
-  })
-})
-
-// Coverage moved here from CreateListFlow.test.tsx when Undo + the count
-// pill moved out of DrawFullScreen into VoterMapCanvas's own control
-// cluster. Those old tests were removed in that commit with redirects
-// pointing here, so this block is what those redirects reach.
-describe('VoterMapCanvas drawing controls', () => {
-  const baseProps = {
-    pack,
-    filterResult,
-    turfs: [],
-    routePins: [],
-    selectedStopId: null,
-    routeLoop: false,
-    routeGeometry: null,
-    focusTurf: null,
-    startDrawToken: 0,
-    clearDrawToken: 0,
-    undoDrawToken: 0,
-    drawColor: '#2563eb',
-    frameDrawToken: 0,
-    frameDrawBottomPct: 0,
-    location: LOCATION_OFF,
-    onPolygonChange: vi.fn(),
-  }
-
-  beforeEach(async () => {
-    gl.handlers.clear()
-    gl.overlay.layers = []
-    gl.style.layers = []
-    vi.clearAllMocks()
-    // The mock is on the same module the component imports from, so pull
-    // the mocked reference here for the assertions below.
-    const styleguide = await import('@styleguide')
-    vi.mocked(styleguide.toast).mockClear()
-  })
-
-  // Undo is opt-in: the button lives in the same cluster as zoom / locate,
-  // but callers off the drawing surface (the walk, the create-flow's own
-  // draw step behind the shielded preview) don't want an Undo affordance
-  // at all — passing `onUndoPoint={undefined}` is how they say so.
-  it('renders Undo only when onUndoPoint is provided', () => {
-    const { rerender } = render(<VoterMapCanvas {...baseProps} />)
-    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
-
-    rerender(<VoterMapCanvas {...baseProps} onUndoPoint={vi.fn()} />)
-    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
-  })
-
-  // The zero-point path is not a "disable and go grey" — the button stays
-  // enabled so a stray tap reaches something (a toast that names the
-  // gesture) rather than being swallowed silently.
-  it('toasts on a zero-point Undo and does not fire onUndoPoint', async () => {
-    const onUndoPoint = vi.fn()
-    render(
-      <VoterMapCanvas
-        {...baseProps}
-        onUndoPoint={onUndoPoint}
-        hasPointToUndo={false}
-      />,
-    )
-
-    await userEvent.click(screen.getByRole('button', { name: 'Undo' }))
-
-    expect(onUndoPoint).not.toHaveBeenCalled()
-    const { toast } = await import('@styleguide')
-    expect(toast).toHaveBeenCalledWith('There is nothing to undo')
-  })
-
-  it('fires onUndoPoint when a point is present', async () => {
-    const onUndoPoint = vi.fn()
-    render(
-      <VoterMapCanvas
-        {...baseProps}
-        onUndoPoint={onUndoPoint}
-        hasPointToUndo
-      />,
-    )
-
-    await userEvent.click(screen.getByRole('button', { name: 'Undo' }))
-
-    expect(onUndoPoint).toHaveBeenCalledTimes(1)
-    const { toast } = await import('@styleguide')
-    expect(toast).not.toHaveBeenCalled()
-  })
-
-  // The pill is the only place on the drawing surface counting anything
-  // now — the Continue button was intentionally taken off that job. It
-  // renders whenever Undo does and reads its count from the prop.
-  it('renders the count pill with the stop count next to Undo', () => {
-    render(
-      <VoterMapCanvas
-        {...baseProps}
-        onUndoPoint={vi.fn()}
-        drawStopCount={42}
-      />,
-    )
-
-    expect(screen.getByText('42 selected')).toBeInTheDocument()
-  })
-
-  // Over-cap is the state that gates the whole route — the pill is what
-  // says so on the map itself (the tooltip beside it names the limit).
-  // A colour is not a limit, but this test just pins that the state
-  // actually applies to the pill's rendered classes.
-  it('marks the pill destructive when over cap', () => {
-    render(
-      <VoterMapCanvas
-        {...baseProps}
-        onUndoPoint={vi.fn()}
-        drawStopCount={151}
-        drawStopsOverCap
-      />,
-    )
-
-    const pill = screen.getByText('151 selected')
-    expect(pill.className).toMatch(/border-destructive/)
-    expect(pill.className).toMatch(/text-destructive/)
   })
 })

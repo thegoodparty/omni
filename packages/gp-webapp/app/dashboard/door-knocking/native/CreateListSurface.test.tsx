@@ -149,6 +149,7 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     onDrawFullScreenChange={vi.fn()}
     onRestartDrawing={vi.fn()}
     drawPointCount={3}
+    onUndoPoint={vi.fn()}
     color="#2563eb"
     drawnStops={null}
     onListCreated={onListCreated}

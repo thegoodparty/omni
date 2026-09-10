@@ -22,11 +22,6 @@ import {
   LocateOffIcon,
   MinusIcon,
   PlusIcon,
-  toast,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-  Undo2Icon,
 } from '@styleguide'
 import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
 import { STATUS_RGB } from './statusPresentation'
@@ -70,16 +65,11 @@ const LOCATION_BLUE_APPROX: [number, number, number, number] = [
   19, 81, 216, 120,
 ]
 const LOCATION_HALO: [number, number, number, number] = [19, 81, 216, 38]
-// How far the location notice clears the control cluster it belongs to.
-// Sizing depends on whether the drawing surface's Undo + count-pill row is
-// present: without it the stack is three ~40px buttons + two 8px gaps
-// (~136px, plus a bit of breathing room = 152); with it there's a fourth
-// ~40px row + one more 8px gap = 200. Overshooting either way stacks the
-// notice on top of the top button — the very case this line exists to
-// avoid — so it's computed at render time from the same signal that
-// renders the fourth row.
-const LOCATION_NOTICE_GAP_BASE_PX = 152
-const LOCATION_NOTICE_GAP_WITH_UNDO_PX = 200
+// How far the location notice clears the control cluster it belongs to. The
+// stack is three ~40px buttons + two 8px gaps (~136px, plus a bit of
+// breathing room = 152). Overshooting stacks the notice on top of the top
+// button — the very case this line exists to avoid.
+const LOCATION_NOTICE_GAP_PX = 152
 // Slop in pixels around a route pin's own 11-14px radius. The whole feature is
 // used one-handed on a phone in the street, so the tap target has to clear the
 // ~44px a thumb needs rather than the ~24px the pin is drawn at.
@@ -118,6 +108,13 @@ const SELECTION_BLUE: [number, number, number, number] = [...PRIMARY_BLUE, 255]
 // The alpha is `STATUS_COLORS`', so entering the flow restates which dots
 // matter without the whole plane changing weight underfoot.
 const MATCH_BLUE: [number, number, number, number] = [...PRIMARY_BLUE, 210]
+// Destructive red for the in-progress boundary when the shape is over the
+// 150-stop cap. Resolved from the styleguide's destructive token chain
+// (`--theme-destructive` → `--tw-red-600`, `#dc2626`), written out for the
+// same reason PRIMARY_BLUE is: nothing on this canvas can reach a CSS
+// variable. Matches the pill's border/text-destructive class on the surface
+// above, so the two error states cannot drift.
+const DESTRUCTIVE_HEX = '#dc2626'
 // Drawn as a ring OUTSIDE the pin rather than a change to the pin itself: the
 // fill already carries the stop's status and the stroke already carries whether
 // anyone there is knockable, so those are both spoken for. Same reasoning as the
@@ -192,6 +189,11 @@ interface VoterMapCanvasProps {
   // picks it: a candidate choosing the colour their list will be drawn in has
   // nothing to judge it by unless the shape on screen is already wearing it.
   drawColor: string
+  // Whether the drawn shape is over the 150-stop cap. When true the ring
+  // (and its vertex handles) render in destructive red, overriding
+  // `drawColor` — matching the pill's error state on the surface above so
+  // the map itself communicates that this boundary won't route.
+  drawOverCap?: boolean
   // Bump to fit the camera around the drawn ring. A request rather than a
   // reaction to the ring, because the ring changes on every tap and drag while
   // the canvasser is the one framing it — this is only ever pressed by a step
@@ -225,25 +227,6 @@ interface VoterMapCanvasProps {
   location: LiveLocation
   liveLocationEnabled?: boolean
   onToggleLiveLocation?: (next: boolean) => void
-  // Drops the last placed vertex. Rendered as the fourth (visually
-  // bottom) button of the zoom/locate cluster whenever this callback is
-  // provided — grouped with the map's own controls so all four share
-  // the cluster's flex gap and card styling instead of two clusters
-  // that have to be kept in visual sync by hand. On a zero-point press
-  // the button toasts "There is nothing to undo" and shakes; a real
-  // press fires `onUndoPoint`.
-  onUndoPoint?: () => void
-  // Whether there's a vertex to drop. Zero disables the real path and
-  // routes the click into the toast + shake feedback path.
-  hasPointToUndo?: boolean
-  // Draw-stop count for the pill that sits beside Undo — same cluster,
-  // same flex parent, so the pair reads as one control row and shares
-  // gap-2 with the icon buttons above. Only rendered when Undo is
-  // (i.e., when `onUndoPoint` is provided).
-  drawStopCount?: number
-  // Whether the shape is over the 150-stop cap; the pill turns red and
-  // shakes on a new tap that keeps it over.
-  drawStopsOverCap?: boolean
   // Whether this canvas is the one that has to report the watch's state in
   // words. Off by default: the walk sets it false because its sheet already
   // carries the line, and two copies of "Location is blocked" on one screen is
@@ -492,6 +475,7 @@ export default function VoterMapCanvas({
   clearDrawToken,
   undoDrawToken,
   drawColor,
+  drawOverCap = false,
   frameDrawToken,
   frameDrawBottomPct,
   controlsHidden = false,
@@ -500,42 +484,12 @@ export default function VoterMapCanvas({
   location,
   liveLocationEnabled = false,
   onToggleLiveLocation,
-  onUndoPoint,
-  hasPointToUndo = false,
-  drawStopCount = 0,
-  drawStopsOverCap = false,
   locationNotice = false,
   onPolygonChange,
   onDrawPointCount,
   onRoutePinClick,
 }: VoterMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  // The Undo button in the cluster below shakes on a zero-point press.
-  // Ref lives here so the click handler can clear + reapply the class
-  // without React re-render skipping the animation restart.
-  const undoRef = useRef<HTMLButtonElement>(null)
-  // The count pill next to Undo shakes on a new tap that keeps the shape
-  // over the 150-stop cap. The tooltip beside it force-opens over the
-  // cap, so this is attention feedback without a toast (which would
-  // stack a snackbar on top of the tooltip that's already saying it).
-  const pillRef = useRef<HTMLSpanElement>(null)
-  const prevStopsRef = useRef(drawStopCount)
-  useEffect(() => {
-    const previous = prevStopsRef.current
-    prevStopsRef.current = drawStopCount
-    // Only shake on a new tap that KEPT us over — undoing while still
-    // over-cap is progress in the right direction, so the pill should
-    // not scold the very move that's fixing the problem.
-    if (!drawStopsOverCap || drawStopCount <= previous) return
-    const el = pillRef.current
-    if (!el) return
-    el.classList.remove('animate-shake')
-    // Reflow: React seeing the same class on re-render will not restart
-    // the CSS animation, so the class has to go away and come back with
-    // a layout between the two writes.
-    void el.offsetWidth
-    el.classList.add('animate-shake')
-  }, [drawStopCount, drawStopsOverCap])
   const hasTilesKey = NEXT_PUBLIC_GEOAPIFY_TILES_KEY.length > 0
   const overlayRef = useRef<MapboxOverlay | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -567,13 +521,27 @@ export default function VoterMapCanvas({
   const [drawing, setDrawing] = useState(false)
   const [drawPoints, setDrawPoints] = useState<PolygonRing>([])
   const drawPointsRef = useRef<PolygonRing>([])
-  // Ring indexes in the order they were placed. The array used to BE that
-  // record — appending meant the newest vertex was always the last element —
-  // and edge insertion takes it away, so undo (still last-add only) needs it
-  // kept explicitly. Drags are deliberately absent: a moved vertex is corrected
-  // by moving it again, and recording them would turn this into an edit stack.
-  const addOrderRef = useRef<number[]>([])
+  // A stack of every user-made change to the boundary — both placed vertices
+  // AND moved ones — in the order they happened. Undo pops the last entry:
+  // an add is reversed by removing the vertex, a move by restoring the
+  // vertex's previous position. Repeated undos walk back through the whole
+  // history, including three drags of one vertex undone in reverse.
+  //
+  // Indexes on this stack refer to positions inside `drawPoints`. Because
+  // adds/undos shift the ring, every op push/pop rewrites subsequent
+  // entries' indexes so a move recorded before a later add still points at
+  // the same physical vertex when it gets undone.
+  const undoStackRef = useRef<
+    Array<
+      | { type: 'add'; index: number }
+      | { type: 'move'; index: number; from: [number, number] }
+    >
+  >([])
   const dragIndexRef = useRef<number | null>(null)
+  // The vertex's position at the moment the drag started, captured so a
+  // completed drag can be pushed onto the undo stack with its "restore to"
+  // coordinate. Null when no drag is in flight.
+  const dragFromRef = useRef<[number, number] | null>(null)
   const justDraggedRef = useRef(false)
   const endDragRef = useRef<(() => void) | null>(null)
   const onPolygonChangeRef = useRef(onPolygonChange)
@@ -696,11 +664,15 @@ export default function VoterMapCanvas({
       const index = ringInsertIndex(drawPointsRef.current, point)
       const next = [...drawPointsRef.current]
       next.splice(index, 0, point)
-      addOrderRef.current = [
-        ...addOrderRef.current.map((added) =>
-          added >= index ? added + 1 : added,
+      // Shift every stored index at or past the insertion point (both add
+      // and move entries), then push this add — the physical vertices a
+      // move entry points at have to survive later insertions in front of
+      // them.
+      undoStackRef.current = [
+        ...undoStackRef.current.map((entry) =>
+          entry.index >= index ? { ...entry, index: entry.index + 1 } : entry,
         ),
-        index,
+        { type: 'add', index },
       ]
       drawPointsRef.current = next
       setDrawPoints(next)
@@ -725,7 +697,16 @@ export default function VoterMapCanvas({
       const index = pickVertex(point.x, point.y)
       if (index === null) return false
       dragIndexRef.current = index
+      // Snapshot where the vertex started, so a completed drag can be
+      // pushed onto the undo stack with a coordinate to restore to.
+      const original = drawPointsRef.current[index]
+      dragFromRef.current = original ? [original[0], original[1]] : null
       map.dragPan.disable()
+      // Closed-hand cursor while the vertex is under the pointer being
+      // moved. The mousemove branch below flips to 'move' when merely
+      // hovering a vertex; this overrides it as soon as a drag starts,
+      // and endDrag clears it back to the default.
+      map.getCanvas().style.cursor = 'grabbing'
       return true
     }
     const moveDrag = (lngLat: { lng: number; lat: number }) => {
@@ -734,19 +715,40 @@ export default function VoterMapCanvas({
       next[dragIndexRef.current] = [lngLat.lng, lngLat.lat]
       drawPointsRef.current = next
       setDrawPoints(next)
+      // Reassert the closed-hand cursor every frame — maplibre's own
+      // handlers reset it back to 'grab' on mousemove even with dragPan
+      // disabled, so a single set in beginDrag doesn't survive.
+      map.getCanvas().style.cursor = 'grabbing'
       return true
     }
     const endDrag = () => {
       if (dragIndexRef.current === null) return
+      const index = dragIndexRef.current
+      const from = dragFromRef.current
       dragIndexRef.current = null
-      justDraggedRef.current = true
+      dragFromRef.current = null
       map.dragPan.enable()
+      map.getCanvas().style.cursor = ''
       const points = drawPointsRef.current
+      const landed = points[index]
+      // A drag that ends at the same coordinate is either a tap that
+      // grabbed a vertex without moving it, or a round-trip that cancels
+      // itself out — either way there is nothing to undo, so no entry.
+      if (from && landed && (from[0] !== landed[0] || from[1] !== landed[1])) {
+        undoStackRef.current.push({ type: 'move', index, from })
+      }
       onPolygonChangeRef.current(points.length >= 3 ? points : null)
     }
     endDragRef.current = endDrag
 
     map.on('mousedown', (event) => {
+      // Any new gesture voids a leftover justDraggedRef. The flag is set
+      // by endDrag to eat the browser-synthesized click that follows a
+      // short mouse drag; a real drag (motion > browser click tolerance)
+      // fires no such click, and the flag would then survive to eat the
+      // user's next intentional click — the "sometimes needs two taps"
+      // bug. Clearing here bounds the flag's life to its actual window.
+      justDraggedRef.current = false
       if (beginDrag(event.point)) event.preventDefault()
     })
     map.on('mousemove', (event) => {
@@ -755,31 +757,40 @@ export default function VoterMapCanvas({
       map.getCanvas().style.cursor =
         pickVertex(event.point.x, event.point.y) !== null ? 'move' : ''
     })
-    map.on('mouseup', endDrag)
+    // The synthetic click that follows a mouse drag on canvas would land as
+    // a phantom vertex — this is the one path that needs `justDraggedRef`
+    // to eat the next click. Touch drags, mouseleave, and window-fallback
+    // mouseups produce no such click, so their endDrag calls skip it.
+    map.on('mouseup', () => {
+      const wasDragging = dragIndexRef.current !== null
+      endDrag()
+      if (wasDragging) justDraggedRef.current = true
+    })
     // Releasing outside the canvas (or the window) never fires the map's
     // mouseup — without this, dragPan stays disabled for the session.
     const canvas = map.getCanvas()
     canvas.addEventListener('mouseleave', endDrag)
-    const onWindowMouseUp = (event: MouseEvent) => {
-      const target = event.target
-      const releasedOnCanvas =
-        target instanceof Node && (target === canvas || canvas.contains(target))
+    const onWindowMouseUp = () => {
+      // Only cleans up drag state for a release that landed outside the
+      // canvas — dragPan would otherwise stay disabled for the session.
+      // Never touches justDraggedRef: the flag is set exclusively by the
+      // map's own mouseup handler above (the only path where a synthetic
+      // click will follow), so a window-fallback release never has one to
+      // clear.
       endDrag()
-      // justDraggedRef exists so the click that follows a release inside the
-      // canvas doesn't become a vertex, and that click clears it. A release
-      // outside never produces the click, so the flag would survive and eat
-      // the next intentional one — clear it here instead. Checked against the
-      // release point rather than dragIndexRef: this listener also sees the
-      // in-canvas mouseup bubble up, by which time endDrag has already nulled
-      // the index, so keying on the index would clear the flag every time and
-      // put the spurious vertex back.
-      if (!releasedOnCanvas) justDraggedRef.current = false
     }
     window.addEventListener('mouseup', onWindowMouseUp)
     // MapLibre does not synthesize mouse events from touch drags — mirror
     // the drag handlers so vertices are repositionable on phones.
     map.on('touchstart', (event) => {
       if (event.points.length !== 1) return
+      // Same bound as the mousedown clear above — a touch tap after a
+      // touch drag would otherwise be eaten by a stale flag. Kept behind
+      // the single-touch guard so a two-finger pinch that lands in the
+      // ~300ms window between touchend and the browser-synthesized click
+      // does not prematurely clear the flag the phantom click needs to
+      // reach.
+      justDraggedRef.current = false
       if (beginDrag(event.point)) event.preventDefault()
     })
     map.on('touchmove', (event) => {
@@ -789,7 +800,18 @@ export default function VoterMapCanvas({
       // the underlying touchmove (registered non-passive) is prevented.
       if (moveDrag(event.lngLat)) event.originalEvent.preventDefault()
     })
-    map.on('touchend', endDrag)
+    // Same rule as `mouseup` above — a completed touch drag (or a tap that
+    // began as a drag) is followed by a synthetic click, and left un-eaten
+    // it lands near enough to the just-grabbed vertex to defeat the
+    // exact-coordinate duplicate-point guard and place a second point next
+    // to the one under the thumb. `touchstart` clears the flag on the next
+    // gesture, so setting it here still bounds its life to the one click
+    // it exists to catch.
+    map.on('touchend', () => {
+      const wasDragging = dragIndexRef.current !== null
+      endDrag()
+      if (wasDragging) justDraggedRef.current = true
+    })
     map.on('touchcancel', endDrag)
 
     // Read at mount only: this names the opening view, not a controlled
@@ -823,10 +845,12 @@ export default function VoterMapCanvas({
     if (!overlay) return
     const dotCount = pack?.manifest.counts.dots ?? 0
     // Only the hue crosses the seam. The strengths stay this canvas's, so the
-    // ring being cut can't come out bolder or fainter than the saved ones it is
-    // being compared against.
-    const drawLine = hexToRgba(drawColor, DRAW_LINE_ALPHA)
-    const drawFill = hexToRgba(drawColor, DRAW_FILL_ALPHA)
+    // ring being cut can't come out bolder or fainter than the saved ones it
+    // is being compared against. When over cap the hue swaps to destructive
+    // red — the map says the same thing the pill above it is saying.
+    const rawColor = drawOverCap ? DESTRUCTIVE_HEX : drawColor
+    const drawLine = hexToRgba(rawColor, DRAW_LINE_ALPHA)
+    const drawFill = hexToRgba(rawColor, DRAW_FILL_ALPHA)
     // `beforeId` is @deck.gl/mapbox's `LayerOverlayProps`, which the package
     // neither exports from its entry point nor merges into deck's own
     // `LayerProps` — so it is spread in rather than written as a key, and
@@ -1109,6 +1133,7 @@ export default function VoterMapCanvas({
     routeGeometry,
     drawPoints,
     drawColor,
+    drawOverCap,
     locationFix,
     location.approximate,
     labelBeforeId,
@@ -1208,7 +1233,7 @@ export default function VoterMapCanvas({
     drawActiveRef.current = true
     setDrawing(true)
     drawPointsRef.current = []
-    addOrderRef.current = []
+    undoStackRef.current = []
     setDrawPoints([])
     onDrawPointCountRef.current?.(0)
     onPolygonChangeRef.current(null)
@@ -1219,25 +1244,40 @@ export default function VoterMapCanvas({
   useEffect(() => {
     if (undoDrawToken === 0) return
     // Settle any in-flight drag first, or it would keep writing to an index
-    // this undo is about to remove.
+    // this undo is about to remove — and would leak a move entry recorded
+    // against the vertex we're about to drop.
     endDragRef.current?.()
-    // Still "drop the vertex you just placed", but that is no longer the last
-    // element of the ring: a tap splices into the nearest edge, so placement
-    // order is read off addOrderRef instead. Repeated bumps keep walking back
-    // through the placements, which is what the array's own order used to give
-    // for free. An empty record has nothing to undo rather than throwing.
-    const order = [...addOrderRef.current]
-    const removed = order.pop()
-    if (removed === undefined) return
-    addOrderRef.current = order.map((added) =>
-      added > removed ? added - 1 : added,
+    const stack = [...undoStackRef.current]
+    const op = stack.pop()
+    if (!op) return
+    undoStackRef.current = stack
+    if (op.type === 'add') {
+      // Every stored index past the removed vertex shifts down by one, so
+      // moves recorded before this add still point at the same physical
+      // vertex on the next undo.
+      undoStackRef.current = stack.map((entry) =>
+        entry.index > op.index ? { ...entry, index: entry.index - 1 } : entry,
+      )
+      const next = drawPointsRef.current.filter(
+        (_, index) => index !== op.index,
+      )
+      drawPointsRef.current = next
+      setDrawPoints(next)
+      onDrawPointCountRef.current?.(next.length)
+      // Same gate the click handler uses: undoing from 3 points to 2 drops
+      // the polygon (and with it the counts) rather than leaving stale
+      // ones up.
+      onPolygonChangeRef.current(next.length >= 3 ? next : null)
+      return
+    }
+    // Move: restore the vertex to where it was before this drag. The point
+    // count doesn't change, but the geometry does — emit so the page's
+    // stats recompute.
+    const next = drawPointsRef.current.map((point, index) =>
+      index === op.index ? op.from : point,
     )
-    const next = drawPointsRef.current.filter((_, index) => index !== removed)
     drawPointsRef.current = next
     setDrawPoints(next)
-    onDrawPointCountRef.current?.(next.length)
-    // Same gate the click handler uses, so undoing from 3 points to 2 drops
-    // the polygon (and with it the counts) rather than leaving stale ones up.
     onPolygonChangeRef.current(next.length >= 3 ? next : null)
   }, [undoDrawToken])
 
@@ -1286,7 +1326,7 @@ export default function VoterMapCanvas({
     drawActiveRef.current = false
     setDrawing(false)
     drawPointsRef.current = []
-    addOrderRef.current = []
+    undoStackRef.current = []
     setDrawPoints([])
     onDrawPointCountRef.current?.(0)
     onPolygonChangeRef.current(null)
@@ -1357,80 +1397,6 @@ export default function VoterMapCanvas({
               )}
             </IconButton>
           )}
-          {/* The drawing surface's Undo + count pill, slotted in as the
-              fourth (visually bottom) row of the cluster. Undo is on the
-              left, the "N selected" pill sits immediately to its right,
-              same gap-2 the vertical stack uses. Only rendered when a
-              caller provides `onUndoPoint` — every other surface leaves
-              the slot empty. */}
-          {onUndoPoint && (
-            <div className="flex items-center gap-2">
-              <IconButton
-                ref={undoRef}
-                type="button"
-                variant="outline"
-                aria-label="Undo"
-                className="bg-card hover:bg-card"
-                onAnimationEnd={() => {
-                  undoRef.current?.classList.remove('animate-shake')
-                }}
-                onClick={() => {
-                  if (!hasPointToUndo) {
-                    // Same feedback path as the drawing surface's other
-                    // "nothing to act on" gestures: toast says what
-                    // happened, shake says the tap reached the control
-                    // and it deliberately did nothing. Reflow trick so
-                    // React re-render with the same class doesn't
-                    // swallow the restart.
-                    toast('There is nothing to undo')
-                    const el = undoRef.current
-                    if (el) {
-                      el.classList.remove('animate-shake')
-                      void el.offsetWidth
-                      el.classList.add('animate-shake')
-                    }
-                    return
-                  }
-                  onUndoPoint()
-                }}
-              >
-                <Undo2Icon className="size-[18px]" />
-              </IconButton>
-              {/* Forced open over the cap: the pill turning red is the
-                  whole explanation otherwise, and a colour is not a
-                  limit. */}
-              <Tooltip open={drawStopsOverCap ? true : undefined}>
-                <TooltipTrigger asChild>
-                  <span
-                    ref={pillRef}
-                    onAnimationEnd={(e) =>
-                      e.currentTarget.classList.remove('animate-shake')
-                    }
-                    className={`inline-flex h-9 items-center rounded-full border bg-card px-3.5 text-sm font-semibold ${
-                      drawStopsOverCap
-                        ? 'border-destructive text-destructive'
-                        : 'border-border text-foreground'
-                    }`}
-                  >
-                    {drawStopCount.toLocaleString()} selected
-                  </span>
-                </TooltipTrigger>
-                {/* Stops, not doors: the 150 is a cap on the stops the
-                    router visits, and a limit quoted in a unit it is
-                    not measured in is a limit nobody can act on.
-
-                    `align="start"` shifts the tooltip body rightward so
-                    it clears the vertical button stack directly above
-                    the pill (Zoom In / Zoom Out / Locate / Undo).
-                    Radix's Arrow tracks the trigger's center, so it
-                    stays pointing at the pill even as the tooltip
-                    extends to the right. */}
-                <TooltipContent side="top" align="start">
-                  Limit is 150 stops per list
-                </TooltipContent>
-              </Tooltip>
-            </div>
-          )}
         </div>
       )}
       {/* The switch is an icon, and the two ways it can fail look exactly like
@@ -1446,13 +1412,7 @@ export default function VoterMapCanvas({
           role="status"
           aria-live="polite"
           className="pointer-events-none absolute left-4 right-4 z-20 mx-auto max-w-xs rounded-md bg-card/95 px-3 py-2 text-center text-sm shadow-md transition-[bottom] duration-200 ease-out"
-          style={{
-            bottom:
-              controlsBottomPx +
-              (onUndoPoint
-                ? LOCATION_NOTICE_GAP_WITH_UNDO_PX
-                : LOCATION_NOTICE_GAP_BASE_PX),
-          }}
+          style={{ bottom: controlsBottomPx + LOCATION_NOTICE_GAP_PX }}
         >
           {locationMessage}
         </div>
