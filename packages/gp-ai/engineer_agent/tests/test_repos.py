@@ -201,3 +201,40 @@ def test_the_image_ships_the_bun_the_prompt_promises():
     version = re.search(r"bun@(\d+\.\d+\.\d+)", build_capability_prompt(MARKETING))
     assert version, "the marketing briefing no longer pins a bun version"
     assert f"bun-v{version.group(1)}" in dockerfile
+
+
+class TestTheLimitOfItsOwnCredentials:
+    """A push the App cannot make, told to the model before it tries.
+
+    The bot pushes as a GitHub App installed org-wide with write on code and
+    pull requests, and NOT on workflows. GitHub rejects a push whose commits
+    touch .github/workflows/ without that permission, and rejects the whole
+    branch rather than the file — so a run whose fix happens to be one line of
+    YAML does not produce a partial PR, it produces nothing, after paying for
+    the entire investigation.
+
+    Nothing else in the run can catch that. The permission is granted outside
+    this repository, the failure arrives from a git remote at the very end, and
+    the model has no way to test for it beforehand.
+    """
+
+    def test_the_model_is_told_before_it_spends_a_run_finding_out(self):
+        prompt = build_capability_prompt()
+        assert ".github/workflows/" in prompt
+        assert "workflows" in prompt
+        # The escape hatch has to be named, or being told the push will fail
+        # just leaves the run stuck with a diagnosis and nowhere to put it.
+        assert "needs-human" in prompt
+
+    def test_every_repo_gets_the_same_warning(self):
+        # The App's permissions are org-wide, so this is not a per-repo hazard
+        # and must not live in one repo's briefing.
+        for repo in (OMNI, MARKETING):
+            assert ".github/workflows/" in build_capability_prompt(repo)
+
+    def test_it_does_not_read_as_do_not_touch_ci(self):
+        # The rule is about the workflow FILES and nothing else. A model that
+        # over-read it as "CI is off limits" would stop reading the logs that
+        # usually hold the answer, which costs far more than the rule saves — so
+        # the prompt has to say so out loud, next to the prohibition.
+        assert "not about CI" in build_capability_prompt()
