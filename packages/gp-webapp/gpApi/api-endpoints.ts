@@ -888,6 +888,14 @@ export type APIEndpoints = {
     Response: Priority[]
   }
 
+  // Creates a `user_stated` priority — the source is set server-side, so the
+  // body carries only what the official wrote. `description` is required by
+  // CreatePriorityInputSchema.
+  'POST /v1/priorities': {
+    Request: { title: string; description: string; targetDate?: string | null }
+    Response: Priority
+  }
+
   'GET /v1/ordinances/:slug': {
     Request: {}
     Response: Ordinance

@@ -27,6 +27,15 @@ vi.mock('../data/use-dashboard', () => ({
   useOnboardingCards: () => onboardingMock(),
 }))
 
+const prioritiesMock = vi.fn()
+vi.mock('../data/use-priorities', () => ({
+  usePriorities: () => prioritiesMock(),
+}))
+
+vi.mock('./PriorityChoiceStep', () => ({
+  default: () => <div data-testid="priority-choice-step" />,
+}))
+
 vi.mock('../data/use-chat-history', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../data/use-chat-history')>()),
   useChatHistory: () => ({ data: [] }),
@@ -87,6 +96,10 @@ beforeEach(() => {
   organizationMock.mockReturnValue({ slug: 'eo-asheville', electedOfficeId: 7 })
   cardsMock.mockReturnValue(loaded([]))
   onboardingMock.mockReturnValue({ data: [] })
+  prioritiesMock.mockReturnValue({
+    data: [{ id: 'p1' }],
+    isPending: false,
+  })
 })
 
 afterEach(() => {
@@ -209,5 +222,51 @@ describe('ChiefOfStaffChatHome', () => {
     await screen.findByRole('heading', { name: /pick up where you left off/ })
     expect(screen.queryByText(/all caught up/i)).not.toBeInTheDocument()
     expect(screen.queryByTestId('task-list-empty')).not.toBeInTheDocument()
+  })
+
+  describe('first-run', () => {
+    // Which step the official is on is derived from their priorities, not
+    // stored — the same approach the onboarding-cards service takes.
+    it('asks what they are working on when they have no priorities', async () => {
+      cardsMock.mockReturnValue(loaded([card()]))
+      onboardingMock.mockReturnValue({ data: [onboardingCard('priorities')] })
+      prioritiesMock.mockReturnValue({ data: [], isPending: false })
+      render(<ChiefOfStaffChatHome />)
+
+      expect(
+        await screen.findByTestId('priority-choice-step'),
+      ).toBeInTheDocument()
+      // Nothing competes with the first question, including the task cards and
+      // the get-started card that duplicates it.
+      expect(
+        screen.queryByRole('link', { name: /Planning Commission/ }),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /What's most urgent this week/ }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('shows the week once a priority exists', async () => {
+      cardsMock.mockReturnValue(loaded([card()]))
+      render(<ChiefOfStaffChatHome />)
+
+      await screen.findByRole('link', { name: /Planning Commission/ })
+      expect(
+        screen.queryByTestId('priority-choice-step'),
+      ).not.toBeInTheDocument()
+    })
+
+    // An unresolved read must not flash the first question at an official who
+    // already answered it.
+    it('does not ask while the priorities read is pending', async () => {
+      cardsMock.mockReturnValue(loaded([card()]))
+      prioritiesMock.mockReturnValue({ data: undefined, isPending: true })
+      render(<ChiefOfStaffChatHome />)
+
+      await screen.findByRole('link', { name: /Planning Commission/ })
+      expect(
+        screen.queryByTestId('priority-choice-step'),
+      ).not.toBeInTheDocument()
+    })
   })
 })

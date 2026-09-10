@@ -11,9 +11,11 @@ import { chiefOfStaffChatApi } from '../data/chat-api'
 import { HISTORY_KEY } from '../data/use-chat-history'
 import { ONBOARDING_CARDS } from './onboardingCardsConfig'
 import ChiefOfStaffHero from './ChiefOfStaffHero'
+import PriorityChoiceStep from './PriorityChoiceStep'
 import ChiefOfStaffTaskCards, {
   useChiefOfStaffTaskCards,
 } from './ChiefOfStaffTaskCards'
+import { usePriorities } from '../data/use-priorities'
 import type { OnboardingCardKey } from '../data/contracts'
 
 // Chips and task cards must never share a turn, so the home hands the body an
@@ -44,6 +46,13 @@ export default function ChiefOfStaffChatHome(): React.JSX.Element {
     onOpenCard,
   })
 
+  // Which onboarding step the official is on is derived from their priorities,
+  // not stored — the same approach the onboarding-cards service takes
+  // server-side. No priorities means we have no idea what they are working on,
+  // so asking that is the only thing worth putting on screen.
+  const { data: priorities, isPending: prioritiesPending } = usePriorities()
+  const needsFirstPriority = !prioritiesPending && priorities?.length === 0
+
   const config = useMemo<ConversationalHomeConfig>(
     () => ({
       chatApi: chiefOfStaffChatApi,
@@ -66,15 +75,25 @@ export default function ChiefOfStaffChatHome(): React.JSX.Element {
       openerKey={openerKey}
       leadingSlot={<ChiefOfStaffHero />}
       trailingSlot={
-        <ChiefOfStaffTaskCards
-          cards={cards}
-          isPending={isPending}
-          isError={isError}
-        />
+        needsFirstPriority ? (
+          // Nothing competes with the first question, including the
+          // get-started cards — the `priorities` one is this step, in card
+          // form.
+          <PriorityChoiceStep firstName={firstName} />
+        ) : (
+          <ChiefOfStaffTaskCards
+            cards={cards}
+            isPending={isPending}
+            isError={isError}
+          />
+        )
       }
-      // Suppressed while the rail has cards; the body's own Chief of Staff
-      // starter prompts take over when it does not.
-      suggestions={cards.length > 0 ? NO_SUGGESTIONS : undefined}
+      // Suppressed while the rail has cards or is asking the first question;
+      // the body's own Chief of Staff starter prompts take over when it is
+      // neither.
+      suggestions={
+        needsFirstPriority || cards.length > 0 ? NO_SUGGESTIONS : undefined
+      }
     />
   )
 }

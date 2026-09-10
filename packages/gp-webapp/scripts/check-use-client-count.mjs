@@ -373,7 +373,13 @@ import { dirname, join, relative } from 'node:path'
 //   - ChiefOfStaffChatHome: owns the active get-started opener.
 //   - ChiefOfStaffHero / ChiefOfStaffTaskCards: read the dashboard-card and
 //     onboarding-card queries (React Query) to build the week's rail.
-const BASELINE = 593
+// 2026-09-10: 593 -> 594 for PriorityChoiceStep — the first onboarding
+// question. It holds the write-your-own input state and fires the two priority
+// mutations, so it cannot render on the server. Exactly +1: the two data
+// modules added beside it (use-priorities, use-community-issues) are hook
+// modules whose directive sits under a doc comment, and this ratchet only
+// counts files whose FIRST non-empty line is the directive.
+const BASELINE = 594
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
