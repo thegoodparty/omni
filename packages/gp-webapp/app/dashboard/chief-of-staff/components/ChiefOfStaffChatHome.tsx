@@ -40,9 +40,9 @@ export default function ChiefOfStaffChatHome(): React.JSX.Element {
     (key: OnboardingCardKey) => setOpenerKey(key),
     [],
   )
-  const { cards, isPending, isError, isAllCaughtUp } = useChiefOfStaffTaskCards(
-    { onOpenCard },
-  )
+  const { cards, isPending, isError } = useChiefOfStaffTaskCards({
+    onOpenCard,
+  })
 
   const config = useMemo<ConversationalHomeConfig>(
     () => ({
@@ -70,7 +70,6 @@ export default function ChiefOfStaffChatHome(): React.JSX.Element {
           cards={cards}
           isPending={isPending}
           isError={isError}
-          isAllCaughtUp={isAllCaughtUp}
         />
       }
       // Suppressed while the rail has cards; the body's own Chief of Staff

@@ -54,8 +54,6 @@ interface UseTaskCardsResult {
   cards: TaskCardData[]
   isPending: boolean
   isError: boolean
-  /** No active cards and no get-started cards left. */
-  isAllCaughtUp: boolean
 }
 
 /**
@@ -102,16 +100,7 @@ export function useChiefOfStaffTaskCards({
     })
   }
 
-  return {
-    cards: out,
-    isPending,
-    isError,
-    // Mirrors the card home's rule: don't claim "all caught up" while the
-    // get-started cards are still showing or still loading, which reads as a
-    // contradiction.
-    isAllCaughtUp:
-      !isPending && !isError && out.length === 0 && onboarding !== undefined,
-  }
+  return { cards: out, isPending, isError }
 }
 
 function TaskCard({ card }: { card: TaskCardData }): React.JSX.Element {
@@ -186,12 +175,18 @@ function TaskCard({ card }: { card: TaskCardData }): React.JSX.Element {
  * dismisses it, but the rail is one turn in a conversation rather than a
  * standing list, so per-card dismissal has nowhere sensible to land. Dismissal
  * stays on the card home and the archive until the design says otherwise.
+ *
+ * There is deliberately no "you're all caught up" state. The card home ends
+ * there, which leaves an official on a dead-end page; a chief of staff with
+ * nothing queued should still be saying what changed and what to move forward
+ * on. Until the digest and the next-step rail exist this renders nothing and
+ * the agent's own starter prompts take the turn, which is a worse home but not
+ * a dead end.
  */
 export default function ChiefOfStaffTaskCards({
   cards,
   isPending,
   isError,
-  isAllCaughtUp,
 }: UseTaskCardsResult): React.JSX.Element | null {
   if (isPending) {
     return (
@@ -211,20 +206,6 @@ export default function ChiefOfStaffTaskCards({
       <div className={cn('flex flex-col', ASSISTANT_INDENT)}>
         <p className="text-sm text-muted-foreground">
           We could not load your tasks right now.
-        </p>
-      </div>
-    )
-  }
-
-  if (isAllCaughtUp) {
-    return (
-      <div className={cn('flex flex-col', ASSISTANT_INDENT)}>
-        <p
-          className="text-sm text-muted-foreground"
-          data-testid="task-list-empty"
-        >
-          You&apos;re all caught up. New tasks appear here as your briefings are
-          ready.
         </p>
       </div>
     )

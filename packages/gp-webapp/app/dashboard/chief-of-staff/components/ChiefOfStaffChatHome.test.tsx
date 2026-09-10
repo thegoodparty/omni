@@ -201,11 +201,13 @@ describe('ChiefOfStaffChatHome', () => {
     expect(createMock).not.toHaveBeenCalled()
   })
 
-  it('keeps the all-caught-up line back until the get-started cards resolve', async () => {
-    onboardingMock.mockReturnValue({ data: undefined })
+  // The card home ends on "you're all caught up", which is a dead end. The
+  // rail renders nothing instead and the agent's starter prompts take the turn.
+  it('never claims all caught up', async () => {
     render(<ChiefOfStaffChatHome />)
 
     await screen.findByRole('heading', { name: /pick up where you left off/ })
+    expect(screen.queryByText(/all caught up/i)).not.toBeInTheDocument()
     expect(screen.queryByTestId('task-list-empty')).not.toBeInTheDocument()
   })
 })
