@@ -15,12 +15,12 @@ import type { TcrCompliance } from 'helpers/types'
  * banner, the texting-compliance surfaces, the progress section, the first-run
  * "meet your campaign manager" card, and the top tracker tasks.
  *
- * The compliance pair mirrors the legacy home (components/campaignManager/
- * CampaignManager.tsx): TextingSetupBanner prompts the candidates who never
- * started 10DLC, and ProUpgrade3ComplianceCard carries every post-start state
- * (PIN entry, in review, approved, denied). Both are required — the banner
- * hides itself once a TCR record exists, so shipping it alone leaves a
- * candidate awaiting their PIN with no compliance surface here at all.
+ * The two compliance surfaces split the TCR states between them and never
+ * co-render: TextingSetupBanner owns the retryable `error` record, and
+ * ProUpgrade3ComplianceCard owns everything else — the no-record "get started"
+ * card plus every post-start state (PIN entry, in review, approved, denied).
+ * Both are required; the card alone would have no retry prompt, and the banner
+ * alone would leave a candidate awaiting their PIN with no surface here.
  *
  * The persistent footer chat bar and the chat surface are NOT rendered here —
  * they live in the always-present dock (CampaignManagerChatProvider, mounted in
@@ -40,7 +40,7 @@ export default function CampaignManagerHome({
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6">
         <ProUpgradeBanner />
         <TextingSetupBanner tcrCompliance={tcrCompliance} />
-        <ProUpgrade3ComplianceCard />
+        <ProUpgrade3ComplianceCard tcrCompliance={tcrCompliance} />
         <VoterContactsProvider>
           <CampaignUpdateHistoryProvider>
             <ProgressSection />

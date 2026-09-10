@@ -10,14 +10,14 @@ import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/
 import ComplianceCardArt from 'app/dashboard/profile/texting-compliance-agentic/components/ComplianceCardArt'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
-// Top-of-dashboard prompt for Pro candidates who never started 10DLC texting
-// compliance (no TCR record, or a retryable `error` record). Post-start
-// statuses have dedicated surfaces in ProUpgrade3Compliance (PIN entry,
-// in-review, approved, denied), so a "start" prompt would be wrong there.
-// For the no-record/error case this deliberately doubles with that
-// component's "Set up texting compliance" fallthrough card (ENG-10858
-// product decision: the banner is additive, the card stays). Renders in the
-// slot ProUpgradeBanner vacates once the candidate is Pro — the two never
+// Top-of-dashboard retry prompt for Pro candidates whose 10DLC registration
+// was attempted and failed (a retryable `error` TCR record). A candidate with
+// no record at all has not started, and gets ProUpgrade3Compliance's "Set up
+// texting compliance" card instead; the later statuses have their own surfaces
+// there (PIN entry, in-review, approved, denied). Exactly one compliance
+// prompt shows at a time — ProUpgrade3ComplianceCard suppresses its
+// fallthrough for the `error` case this banner owns. Renders in the slot
+// ProUpgradeBanner vacates once the candidate is Pro — the two never
 // co-render. The election-filing form it links to also collects the
 // candidate's bio and policy issues when those are missing.
 export default function TextingSetupBanner({
@@ -28,9 +28,7 @@ export default function TextingSetupBanner({
   const [campaign] = useCampaign()
   const isPro = campaign?.isPro ?? false
 
-  const show =
-    isPro &&
-    (!tcrCompliance || tcrCompliance.status === TCR_COMPLIANCE_STATUS.ERROR)
+  const show = isPro && tcrCompliance?.status === TCR_COMPLIANCE_STATUS.ERROR
 
   useEffect(() => {
     if (show) {
