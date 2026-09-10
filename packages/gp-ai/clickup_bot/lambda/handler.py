@@ -1474,9 +1474,25 @@ def dedup_check_then_trigger(task_id: str, matched_tag: str | None, from_async_w
         # goes NOWHERE — a bare 500 dict would permanently drop the tag event
         # with zero feedback on the ticket.
         if is_atomic_dedup_configured():
-            # The comment check is best-effort; the atomic conditional write
-            # still guards duplicates. Dropping verified work is worse than
-            # skipping a best-effort check: proceed with empty comments.
+            # The dedup half of this read is best-effort, and the atomic
+            # conditional write still guards duplicates. THE ROUTING HALF IS
+            # NOT. target_repo reads the redirect marker out of these comments,
+            # so an empty list is not a skipped check, it is a wrong answer: a
+            # ticket an analysis moved to another repo silently reverts to the
+            # list's guess and the implement run opens a PR in the codebase the
+            # analysis had already ruled out.
+            #
+            # So implement fails closed here for the same reason it does on the
+            # task fetch above — a wasted run is cheaper than a wrong one — and
+            # analyze still proceeds, because analyze opens no PR and the marker
+            # only decides where a PR would go.
+            if config["label"] == IMPLEMENT_LABEL:
+                post_failure_comment(
+                    task_id,
+                    f"{type(e).__name__} fetching ClickUp comments, so this ticket cannot be routed safely "
+                    "(see CloudWatch logs)",
+                )
+                return {"statusCode": 500, "body": json.dumps({"error": "failed to get comments for routing"})}
             comments = []
         else:
             # No atomic backstop: launching blind is unbounded duplicate risk,

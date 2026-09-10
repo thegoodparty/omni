@@ -56,9 +56,15 @@ def log(monkeypatch):
 class FakeClickUpClient:
     """Records tag writes. Constructed via a factory, used as a context manager."""
 
-    def __init__(self, task: dict | None = None, get_task_error: Exception | None = None):
+    def __init__(
+        self,
+        task: dict | None = None,
+        get_task_error: Exception | None = None,
+        add_tag_error: Exception | None = None,
+    ):
         self._task = task if task is not None else {"id": TASK_ID, "tags": []}
         self._get_task_error = get_task_error
+        self._add_tag_error = add_tag_error
         self.added_tags: list[tuple[str, str]] = []
         self.comments: list[tuple[str, str]] = []
         self.writes: list[tuple[str, str]] = []
@@ -74,6 +80,8 @@ class FakeClickUpClient:
         return FakeTask(self._task)
 
     def add_tag_to_task(self, task_id: str, tag_name: str):
+        if self._add_tag_error is not None:
+            raise self._add_tag_error
         # Appends to the SAME list the comment writer uses, so a test can assert
         # the order of the two. That order is load-bearing: the tag launches the
         # implement run and the comment tells it where to go.
@@ -740,3 +748,60 @@ def test_an_unknown_repo_leaves_the_routing_alone(monkeypatch):
 
     assert outcome == "escalated"
     assert client.comments == []
+
+
+def test_a_failed_tag_write_retracts_the_redirect_it_already_announced(monkeypatch):
+    """The comment cannot be unwritten, so it has to be corrected.
+
+    The redirect note goes on the ticket BEFORE the tag, because the tag is what
+    launches the run and the run reads the note (see the ordering test above).
+    That ordering has a cost: if the tag write then fails, the ticket carries a
+    note announcing an implementation run that nobody queued, and ClickUpClient
+    has no delete to take it back with.
+
+    Left alone that note is worse than noise, because it is machine-read. A human
+    retrying the escalation by hand gets routed by a note written for a run that
+    never happened, to a repo chosen by an analysis they may not have read.
+
+    So the ticket gets a correction where the claim is, not just a line in
+    CloudWatch that nobody is watching.
+    """
+    monkeypatch.setenv(escalation.ESCALATION_REPOS_ENV, f"{OMNI},{MARKETING}")
+    client = FakeClickUpClient(add_tag_error=RuntimeError("clickup 429"))
+
+    outcome = maybe_escalate(
+        analysis(f"GPBOT-REPO: {MARKETING}\nGPBOT-VERDICT: fix"),
+        "analyze",
+        factory_for(client),
+        target_repo=OMNI,
+    )
+
+    assert outcome == "escalation failed"
+    assert client.added_tags == []
+    kinds = [kind for kind, _ in client.writes]
+    assert kinds == ["comment", "comment"], "the redirect was announced, so a correction is owed"
+    correction = client.comments[-1][1]
+    assert "never queued" in correction
+    assert "not in effect" in correction
+
+
+def test_the_correction_note_cannot_itself_be_read_as_a_redirect(monkeypatch):
+    """It names a repo, and a note that names a repo must not route anything.
+
+    The correction has to say which repo the retracted note pointed at, or it
+    does not tell the reader what to check. But the Lambda finds redirects by
+    scanning comment text for the marker phrase, so a correction that happened to
+    carry that phrase would re-assert the very routing it exists to withdraw.
+    """
+    monkeypatch.setenv(escalation.ESCALATION_REPOS_ENV, f"{OMNI},{MARKETING}")
+    client = FakeClickUpClient(add_tag_error=RuntimeError("clickup 500"))
+
+    maybe_escalate(
+        analysis(f"GPBOT-REPO: {MARKETING}\nGPBOT-VERDICT: fix"),
+        "analyze",
+        factory_for(client),
+        target_repo=OMNI,
+    )
+
+    correction = client.comments[-1][1]
+    assert escalation.REPO_MARKER_PREFIX not in correction

@@ -1694,6 +1694,38 @@ def test_async_comment_fetch_failure_with_atomic_backstop_still_launches(
     assert "Failed to get comments" in out
 
 
+def test_async_comment_fetch_failure_with_atomic_backstop_still_blocks_implement(
+    fake_clickup, fake_ecs, ecs_env, monkeypatch, capsys
+):
+    # Same failure as the test above, and the opposite answer, because the two
+    # tags need different things out of the same read.
+    #
+    # For ANALYZE the comments are only dedup, the atomic write covers that, and
+    # proceeding is right. For IMPLEMENT they also carry the ROUTING: a redirect
+    # left by an earlier analysis lives in a comment, and target_repo cannot see
+    # it in an empty list. Proceeding there does not skip a best-effort check, it
+    # reverts the redirect and opens a PR in the repo the analysis ruled out.
+    #
+    # Wrong is more expensive than late, so implement refuses and says so on the
+    # ticket — the same trade the task fetch above already makes.
+    monkeypatch.setenv("DEDUP_TABLE_NAME", "clickup-bot-dedup-test")
+    fake_clickup.get_comments_error = HTTPError("http://x", 500, "err", {}, None)
+
+    resp = handler.handler(async_worker_event(matched_tag="gpbot-work"), None)
+
+    assert resp["statusCode"] == 500
+    assert response_body(resp)["error"] == "failed to get comments for routing"
+    assert fake_ecs.run_task_calls == []
+    # ClickUp already has its 200, so this return value is read by nobody. The
+    # comment is the only thing that tells the tagger anything happened.
+    failure_comments = [
+        text for text in fake_clickup.posted_comment_texts if text.startswith("[GP-Bot] Failed to start processing")
+    ]
+    assert len(failure_comments) == 1
+    assert "cannot be routed safely" in failure_comments[0]
+    assert_alarm_log_emitted(capsys)
+
+
 def test_async_comment_fetch_failure_without_backstop_posts_failure_comment(fake_clickup, fake_ecs, ecs_env, capsys):
     # ASYNC path, NO atomic backstop configured: launching blind would be
     # unbounded duplicate risk, and returning a 500 dict would silently drop

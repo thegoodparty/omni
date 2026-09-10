@@ -334,7 +334,8 @@ def maybe_escalate(result: dict, label: str, client_factory: Any = None, target_
             # that run's repo by reading this comment. Written afterwards, the
             # webhook could arrive first and the run would start against the
             # list's guess — the exact redirect this exists to perform.
-            if repo != routed:
+            redirected = repo != routed
+            if redirected:
                 logger.info(f"Analysis moved {task_id} from {routed} to {repo}")
                 client.create_task_comment(
                     task_id,
@@ -343,7 +344,33 @@ def maybe_escalate(result: dict, label: str, client_factory: Any = None, target_
                     f"`{repo}`. Delete this comment to send the implementation run back to `{routed}`.",
                 )
 
-            client.add_tag_to_task(task_id, IMPLEMENT_TAG)
+            try:
+                client.add_tag_to_task(task_id, IMPLEMENT_TAG)
+            except Exception:
+                # The comment is already on the ticket and cannot be taken back:
+                # ClickUpClient has no delete, and writing the comment first is
+                # what makes the redirect work at all (see the note above).
+                #
+                # So a failed tag write leaves a ticket that ANNOUNCES a run
+                # nobody queued, and the announcement is machine-read — a human
+                # retrying by hand gets pointed at `repo` by a comment written
+                # for a run that never happened. Say so on the ticket, next to
+                # the claim it is correcting, rather than only in a log: the
+                # person who has to act on it is reading the ticket.
+                if redirected:
+                    try:
+                        client.create_task_comment(
+                            task_id,
+                            f"[GP-Bot] Correction: the implementation run above was never queued (tagging "
+                            f"`{IMPLEMENT_TAG}` failed). The routing note above is not in effect. Delete it "
+                            f"before retrying unless `{repo}` is still where the fix belongs, then add the "
+                            f"`{IMPLEMENT_TAG}` tag by hand.",
+                        )
+                    except Exception as note_err:
+                        # Best-effort by definition — this runs because ClickUp
+                        # is already failing. The log is the last resort.
+                        logger.error(f"Could not post the correction note on {task_id}: {note_err}")
+                raise
     except Exception as e:
         # Alarm-matching, and swallowed: see the docstring. The recovery is a
         # human adding the tag, which is what they did before this existed.

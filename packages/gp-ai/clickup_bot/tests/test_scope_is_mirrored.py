@@ -216,6 +216,35 @@ def test_quoting_the_verdict_menu_cannot_order_a_pr():
     assert escalation.parse_verdict(handler.ANALYZE_INSTRUCTION) != escalation.VERDICT_FIX
 
 
+def test_the_repo_marker_writer_and_reader_agree():
+    """The redirect crosses a process boundary as prose, and prose can drift.
+
+    escalation writes the marker comment; the Lambda finds it again with a
+    regex. They are two independent string literals in two packages that cannot
+    import each other, and there is a THIRD copy in test_handler.py's fixture.
+    All three agree today. Reword the writer for clarity and the reader stops
+    matching it — at which point every redirect silently reverts to the list's
+    guess, which is the failure this whole mechanism exists to prevent and the
+    one that leaves no trace when it happens.
+
+    So the writer's real comment is built here from its own constant and run
+    through the reader's own function, in the one test session that imports
+    both.
+    """
+    repo = handler.MARKETING_REPO
+    routed = handler.OMNI_REPO
+    # Copied from escalation.maybe_escalate deliberately: pinning the whole
+    # sentence, not just the prefix, catches a reader that only ever matched
+    # because of where the prefix happened to sit in it.
+    comment_text = (
+        f"{escalation.REPO_MARKER_PREFIX} `{repo}`, not `{routed}`. "
+        f"The ticket's list pointed here at `{routed}`; the analysis above found the cause in "
+        f"`{repo}`. Delete this comment to send the implementation run back to `{routed}`."
+    )
+
+    assert handler.repo_named_by_bot([{"id": "1", "comment_text": comment_text}]) == repo
+
+
 def test_the_mirror_is_never_the_only_thing_holding():
     # A reminder in executable form: the Lambda checks scope itself, on the task
     # it fetches itself, whatever the agent decided earlier. If this assertion
