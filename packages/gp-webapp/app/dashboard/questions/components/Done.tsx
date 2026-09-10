@@ -14,7 +14,7 @@ export default function Done(): React.JSX.Element {
     <div className="flex flex-col h-[calc(100vh-216px)] items-center justify-center">
       <H1 className="text-center">You&apos;re all set!</H1>
       <Button asChild size="large" className="mt-10">
-        <Link href="/dashboard/content">Back to Dashboard</Link>
+        <Link href="/dashboard">Back to Dashboard</Link>
       </Button>
       <Confetti />
     </div>

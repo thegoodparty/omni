@@ -198,7 +198,6 @@ export const EVENTS = {
       ClickDashboard: 'Navigation - Dashboard: Click Dashboard',
       ClickVoterData: 'Navigation - Dashboard: Click Voter Data',
       ClickDoorKnocking: 'Navigation - Dashboard: Click Door Knocking',
-      ClickContentBuilder: 'Navigation - Dashboard: Click Content Builder',
       ClickMyProfile: 'Navigation - Dashboard: Click My Profile',
       ClickCampaignTeam: 'Navigation - Dashboard: Click Campaign Team',
       ClickCommunity: 'Navigation - Dashboard: Click Community',
@@ -518,28 +517,6 @@ export const EVENTS = {
     // { field, from, to } — never on a failed PATCH. Win-only surface (Opt In
     // Status is read-only, no event), so there is no ConstituentData variant.
     ContactStatusChanged: 'Voter Data - Contact Status Changed',
-  },
-  ContentBuilder: {
-    ClickContinueQuestions: 'Content Builder: Click Continue Questions',
-    ClickGenerate: 'Content Builder: Click Generate',
-    SelectTemplate: 'Content Builder: Select Template',
-    CloseAdditionalInputs: 'Content Builder: Close Additional Inputs',
-    SubmitAdditionalInputs: 'Content Builder: Submit Additional Inputs',
-    ClickContent: 'Content Builder: Click Content',
-    Editor: {
-      ClickRegenerate: 'Content Builder - Editor: Click Regenerate',
-      SubmitRegenerate: 'Content Builder - Editor: Submit Regenerate',
-      ClickCopy: 'Content Builder - Editor: Click Copy',
-      ClickTranslate: 'Content Builder - Editor: Click Translate',
-      SubmitTranslate: 'Content Builder - Editor: Submit Translate',
-      OpenVersionPicker: 'Content Builder - Editor: Open Version Picker',
-      SelectVersion: 'Content Builder - Editor: Select Version',
-    },
-    OpenKebabMenu: 'Content Builder - Editor: Open Kebab Menu',
-    KebabMenu: {
-      ClickRename: 'Content Builder - Editor: Click Rename',
-      ClickDelete: 'Content Builder - Editor: Click Delete',
-    },
   },
   Profile: {
     CampaignDetails: {
