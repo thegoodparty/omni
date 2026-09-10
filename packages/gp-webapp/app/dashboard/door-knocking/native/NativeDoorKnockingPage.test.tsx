@@ -892,6 +892,10 @@ describe('NativeDoorKnockingPage create flow', () => {
       target: { value: 'Introduction walk' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    // The talking-points step, whose own Continue leads to the route. The
+    // draft endpoint is unmocked here on purpose: a failed card must not stand
+    // between the candidate and the route, so its CTA is live either way.
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
     fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
 
     // The design hands straight over to the walk: the list was created to be

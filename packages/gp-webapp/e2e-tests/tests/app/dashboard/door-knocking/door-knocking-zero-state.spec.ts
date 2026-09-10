@@ -58,7 +58,8 @@ test.describe('native door-knocking zero state', () => {
     // is what the stepper still exposes with its label hidden.
     const stepper = page.getByRole('progressbar', { name: 'Progress' })
     await expect(stepper).toHaveAttribute('aria-valuenow', '1')
-    await expect(stepper).toHaveAttribute('aria-valuemax', '5')
+    // Six since the talking-points step landed between confirm and route.
+    await expect(stepper).toHaveAttribute('aria-valuemax', '6')
 
     // And the rail's own Create list is not the way in any more — the design
     // disables the empty state's card and lets the flow open instead.

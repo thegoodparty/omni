@@ -271,6 +271,18 @@ describe('door-knocking routes', () => {
     return res.data as { id: number; doorCount: number }
   }
 
+  // The envelope for a turf, reached the only way there is: the route points
+  // at the turf and the envelope points at the route, so there is no turf
+  // column to join from.
+  const envelopeFor = async (turfId: number) => {
+    const route = await service.prisma.doorKnockingRoute.findFirstOrThrow({
+      where: { doorKnockingTurfId: turfId },
+    })
+    return service.prisma.outreach.findFirstOrThrow({
+      where: { doorKnockingRouteId: route.id },
+    })
+  }
+
   // The 1:1:1 chain read back from the database, which is also how these
   // tests reach the envelope: the response is a turf, and the envelope is two
   // hops behind it.
@@ -769,6 +781,48 @@ describe('door-knocking routes', () => {
       expect(
         spy.mock.calls.filter(([url]) => String(url).includes('routeplanner')),
       ).toHaveLength(1)
+    })
+
+    // The wizard's talking-points step: the purpose lands on the turf beside
+    // the audience it selected, and the card lands on the envelope's `script`
+    // column — the same one every other outreach channel keeps its script in.
+    // Frozen here, in the transaction that buys the route, for the reason the
+    // door list is: everyone works from the same plan.
+    it('freezes the purpose and the talking points with the walk', async () => {
+      stubVendors()
+      const talkingPoints = [
+        'What would you fix around here first?',
+        'Fix our roads with a real maintenance plan, not patchwork.',
+        'Point them to janedoe.org to learn more.',
+        'Ask whether we can count on them in November.',
+      ].join('\n')
+
+      const res = await postTurf({
+        purpose: 'election_day_turnout',
+        talkingPoints,
+      })
+
+      expect(res.status).toBe(201)
+      const turf = await service.prisma.doorKnockingTurf.findUniqueOrThrow({
+        where: { id: res.data.id },
+      })
+      expect(turf.purpose).toBe('election_day_turnout')
+      expect((await envelopeFor(turf.id)).script).toBe(talkingPoints)
+    })
+
+    // Both fields are optional, and every list created before the step existed
+    // has neither. A walk must still be buyable without a card.
+    it('creates a turf with no purpose and no points', async () => {
+      stubVendors()
+
+      const res = await postTurf()
+
+      expect(res.status).toBe(201)
+      const turf = await service.prisma.doorKnockingTurf.findUniqueOrThrow({
+        where: { id: res.data.id },
+      })
+      expect(turf.purpose).toBeNull()
+      expect((await envelopeFor(turf.id)).script).toBeNull()
     })
 
     // A vendor outage is the failure mode the flow is built to absorb: nothing

@@ -106,6 +106,11 @@ const advanceToRoute = (
   fireEvent.change(screen.getByLabelText('Campaign name'), {
     target: { value: campaignName },
   })
+  // Confirm now advances to the talking points, which the route step sits
+  // behind — a test that jumped straight to `route` would skip the step that
+  // fires the draft and so would not see the card at all.
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+  rerender(<CreateListFlow {...baseProps} {...props} step="points" />)
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
   rerender(<CreateListFlow {...baseProps} {...props} step="route" />)
 }
@@ -725,7 +730,7 @@ describe('CreateListFlow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to lists' }))
 
     expect(audiencePicker()).toBeInTheDocument()
-    expectStep(2, 5)
+    expectStep(2, 6)
   })
 
   // The canvas puts Top issue first in the shared filter pool. We hold no
@@ -838,7 +843,9 @@ describe('CreateListFlow', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(onStepChange).toHaveBeenCalledWith('route')
+    // The talking-points step, not the route: the name is settled, and the
+    // card is the last thing reviewed before any money moves.
+    expect(onStepChange).toHaveBeenCalledWith('points')
     expect(posts).toBe(0)
   })
 
@@ -950,7 +957,7 @@ describe('CreateListFlow', () => {
   })
 })
 
-// The step machinery the canvas asks for: one path of five steps to a bought
+// The step machinery the canvas asks for: one path of six steps to a bought
 // route. Everything here is about the stepper being FIXED — door knocking has
 // no ending that skips the boundary and the route, so no choice of audience
 // may renumber the flow underneath the candidate making it.
@@ -974,30 +981,30 @@ describe('CreateListFlow steps', () => {
     // equivalent on a channel that sends a message.
     expect(screen.getByText('Encourage early voting')).toBeInTheDocument()
     expect(screen.getByText('Turn out my supporters')).toBeInTheDocument()
-    expectStep(1, 5)
+    expectStep(1, 6)
 
     fireEvent.click(
       screen.getByRole('button', { name: /Encourage early voting/ }),
     )
     expect(heading('Who do you want to reach?')).toBeInTheDocument()
-    expectStep(2, 5)
+    expectStep(2, 6)
   })
 
   // The reported defect, walked end to end at the step it was reported from:
   // totalSteps was derived from the audience, so touching a single filter pill
-  // renumbered the flow underneath the candidate — "Step 2 of 5" became
+  // renumbered the flow underneath the candidate — "Step 2 of 6" became
   // "Step 2 of 3", promising an ending that saved a list and stopped. Both
   // audiences are walked because the old branch keyed off exactly the
   // difference between them.
-  it('stays five steps long whether the audience is picked or cut by hand', async () => {
+  it('stays six steps long whether the audience is picked or cut by hand', async () => {
     const onStepChange = vi.fn()
     const props = { ...baseProps, savedLists, onStepChange }
 
     const { rerender } = await renderAtWho(props)
-    expectStep(2, 5)
+    expectStep(2, 6)
 
     await pickList(/Super voters/)
-    expectStep(2, 5)
+    expectStep(2, 6)
 
     // The other audience: pills cut against the whole contact universe, with
     // no saved list behind them to shorten anything.
@@ -1009,7 +1016,7 @@ describe('CreateListFlow steps', () => {
         filters={{ partyDemocrat: true }}
       />,
     )
-    expectStep(2, 5)
+    expectStep(2, 6)
 
     // And it really does continue to the map rather than to an ending of its
     // own — the stepper's promise and the flow's behaviour are the same claim.
@@ -1023,7 +1030,7 @@ describe('CreateListFlow steps', () => {
         filters={{ partyDemocrat: true }}
       />,
     )
-    expectStep(3, 5)
+    expectStep(3, 6)
   })
 
   // One name per pass through the flow, and it is the campaign's. A hand-cut
@@ -1046,17 +1053,20 @@ describe('CreateListFlow steps', () => {
     expect(screen.queryByLabelText('List name')).toBeNull()
   })
 
-  it('numbers the draw, confirm and route steps as the last three of five', () => {
+  it('numbers the draw, confirm, points and route steps as the last four of six', () => {
     const { rerender } = render(
       <CreateListFlow {...baseProps} step="draw" filters={{}} />,
     )
-    expectStep(3, 5)
+    expectStep(3, 6)
 
     rerender(<CreateListFlow {...baseProps} step="confirm" filters={{}} />)
-    expectStep(4, 5)
+    expectStep(4, 6)
+
+    rerender(<CreateListFlow {...baseProps} step="points" filters={{}} />)
+    expectStep(5, 6)
 
     rerender(<CreateListFlow {...baseProps} step="route" filters={{}} />)
-    expectStep(5, 5)
+    expectStep(6, 6)
   })
 
   // The #1385 lesson: a card label doubling as a default title renamed live
@@ -1383,7 +1393,7 @@ describe('CreateListFlow steps', () => {
 
   // Back from the route step returns to the confirm step, which is the last
   // place the campaign's name can still be changed before it is bought.
-  it('returns from the route step to the campaign name', () => {
+  it('returns from the route step to the talking points, and on to the name', () => {
     const onStepChange = vi.fn()
     const props = { onStepChange }
 
@@ -1393,8 +1403,14 @@ describe('CreateListFlow steps', () => {
     advanceToRoute(rerender, props, 'Lakeview blitz')
 
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(onStepChange).toHaveBeenLastCalledWith('points')
+
+    rerender(<CreateListFlow {...baseProps} {...props} step="points" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(onStepChange).toHaveBeenLastCalledWith('confirm')
 
+    // The name survives the round trip, which is the point of the flow staying
+    // mounted for its whole length.
     rerender(<CreateListFlow {...baseProps} {...props} step="confirm" />)
     expect(screen.getByLabelText('Campaign name')).toHaveValue('Lakeview blitz')
   })
@@ -1433,7 +1449,7 @@ describe('CreateListFlow preselected list', () => {
     expect(onFiltersChange).toHaveBeenCalledWith({ partyDemocrat: true })
     // Arriving with the audience already chosen skips no step of the flow:
     // the boundary and the route are still ahead of it.
-    expectStep(2, 5)
+    expectStep(2, 6)
   })
 
   // The four ways a query param can be wrong that survive the parser — an id
@@ -1457,8 +1473,8 @@ describe('CreateListFlow preselected list', () => {
     expect(picker).toHaveTextContent('Choose a voter list')
     expect(onFiltersChange).not.toHaveBeenCalled()
     // A missed preselection is the ordinary flow and nothing else — same
-    // audience the flow opens on, same five steps in front of it.
-    expectStep(2, 5)
+    // audience the flow opens on, same six steps in front of it.
+    expectStep(2, 6)
   })
 
   it('leaves the flow untouched with no list carried in', async () => {
