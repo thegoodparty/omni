@@ -1,3 +1,34 @@
+// Exactly PhoneBankingPurpose's nine values, and deliberately not a
+// door-knocking-shaped vocabulary of its own.
+//
+// This channel used to carry a local six-value list, and
+// doorKnockingPurposes.ts records why it stopped: recommended lists key every
+// universe on the shared OUTREACH_PURPOSE_VALUES intent vocabulary, and SMS,
+// robocall and phone banking were consolidated onto it precisely so a fourth
+// translation table would not exist. The wizard already picks a shared slug —
+// this stores what it already picks.
+//
+// The union of the two rails: OUTREACH_PURPOSE_VALUES (Win) plus
+// SERVE_OUTREACH_PURPOSE_VALUES, overlapping on introduce_myself,
+// event_invite and custom. Door knocking has ONE route for both surfaces, so
+// unlike phone banking there is nowhere to split them.
+//
+// What IS door knocking's own is the wording, which lives in
+// DOOR_KNOCKING_PURPOSE_LABELS and its Serve twin — a label is copy on a
+// card, and this is a slug on a row.
+enum DoorKnockingPurpose {
+  introduce_myself
+  persuade_voters
+  event_invite
+  early_voting
+  election_day_turnout
+  custom
+  // Serve-only, matching PhoneBankingPurpose's own split.
+  explain_decision
+  community_input
+  share_resource
+}
+
 model DoorKnockingTurf {
   id                Int               @id @default(autoincrement())
   createdAt         DateTime          @default(now()) @map("created_at")
@@ -8,6 +39,17 @@ model DoorKnockingTurf {
   // The turf names the walk; the filter names the audience.
   name              String
   color             String
+  // The goal the candidate picked on the wizard's first step, which until now
+  // decided nothing but a suggested list name and was thrown away on submit.
+  // Persisted because the talking points are generated from it, and because a
+  // regeneration surface added later would otherwise have no way to know what
+  // the list was for.
+  //
+  // Nullable, and staying that way: every turf created before this shipped
+  // predates the question. The generated points fall back to the static build
+  // for exactly those lists, which is what makes this shippable without a
+  // backfill.
+  purpose           DoorKnockingPurpose?
   /// [GeoJsonPolygon]
   geoPoly           Json              @map("geo_poly")
   // Optional only because the FK lives on the child. Since 3.0 the route is
