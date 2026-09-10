@@ -719,12 +719,49 @@ list that collects several products' bugs cannot be a routing key, however
 obvious its name looks.
 
 Even a clean list is a record of where a human filed a ticket, not of where the
-code is, so the guess is also allowed to fail out loud. Every repo briefing
-tells the agent that if the behaviour is produced by code somewhere else, it
-must return `needs-human`, name the repo it believes the bug belongs to, and
-stop — explicitly rather than hunting for something local to change. That guard
-is what caught the ticket above, on the first real run: it read gp-marketing,
-found no email code, and said so instead of inventing a fix.
+code is. So the guess is allowed to be wrong, and the run corrects it.
+
+### Correcting the guess
+
+The agent used to be told to stop at the repo boundary: if the cause was
+somewhere else, say `needs-human` and hand it back. That was safe and not very
+useful. It stopped on exactly the tickets where working out *where* the bug
+lived was the whole job, and a human then restarted the investigation from
+nothing — which is what happened to the marketing ticket above.
+
+The boundary now applies to **writes, not reads**:
+
+- Every run is given every repo's briefing, with one marked as the repo it was
+  routed to. It may read any of them — clone, grep, read the docs — to find the
+  cause. Reading gp-marketing knowing a green build proves nothing there is very
+  different from reading it not knowing that, which is why it gets the briefing
+  and not just the name.
+- It may open a PR in **one** repo: the one the run is for. A confident fix in
+  the wrong codebase is still the most expensive thing it can produce.
+- When the cause is elsewhere, it says so on a machine-read line,
+  `GPBOT-REPO: owner/name`, next to the verdict.
+
+That line has to survive a process boundary, which is the fiddly part. An
+implement run is launched by a ClickUp tag; a tag cannot carry a repo; and the
+analyze run that worked out the answer has exited by then. So `maybe_escalate`
+writes the answer onto the ticket as a comment, **before** adding the tag — the
+tag is what fires the webhook, so a marker written afterwards can lose the race
+and the run starts against the list's guess. `repo_named_by_bot` reads it back,
+and a redirect outranks `REPO_BY_LIST_ID`.
+
+Three things keep that safe. The model's string is **allowlisted twice** —
+resolved against `REPO_PROFILES` before it is written, and checked against
+`BASE_BRANCH_BY_REPO` when read — so only a repo the agent has a briefing for
+can ever be named, and the text written to the ticket comes from the profile
+rather than from the model. The **ramp is applied to the repo the fix is in**,
+not the one that was read; otherwise a marketing bug filed into an omni list
+would be waved through by omni's ramp and open a PR in a repo still marked
+analyze-only. And **deleting the comment undoes the redirect**, which is why it
+is a comment rather than something only the bot can see.
+
+A fix that genuinely needs coordinated changes in two repos is still
+`needs-human`. One run opens one PR, so that is not something this pipeline can
+deliver, and pretending otherwise would produce half a fix.
 
 `needs-human` rather than a new verdict token, deliberately: `parse_verdict`
 drops anything outside `KNOWN_VERDICTS`, so an invented one reads as no verdict
