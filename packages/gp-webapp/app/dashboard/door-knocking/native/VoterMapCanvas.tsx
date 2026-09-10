@@ -796,7 +796,18 @@ export default function VoterMapCanvas({
       // the underlying touchmove (registered non-passive) is prevented.
       if (moveDrag(event.lngLat)) event.originalEvent.preventDefault()
     })
-    map.on('touchend', endDrag)
+    // Same rule as `mouseup` above — a completed touch drag (or a tap that
+    // began as a drag) is followed by a synthetic click, and left un-eaten
+    // it lands near enough to the just-grabbed vertex to defeat the
+    // exact-coordinate duplicate-point guard and place a second point next
+    // to the one under the thumb. `touchstart` clears the flag on the next
+    // gesture, so setting it here still bounds its life to the one click
+    // it exists to catch.
+    map.on('touchend', () => {
+      const wasDragging = dragIndexRef.current !== null
+      endDrag()
+      if (wasDragging) justDraggedRef.current = true
+    })
     map.on('touchcancel', endDrag)
 
     // Read at mount only: this names the opening view, not a controlled

@@ -88,6 +88,9 @@ const gl = vi.hoisted(() => {
     // canvasser does. Keyed by layer so the vertex picking the drag handlers
     // do is unaffected.
     pickedPin: null as { object: RoutePin } | null,
+    // Stands a vertex under the pointer for the drag handlers — `pickVertex`
+    // reads `info.index` (not `.object`), so this shape matches.
+    pickedVertex: null as { index: number } | null,
     lastPick: null as PickParams | null,
     // Real deck.gl's `LayersList` allows `null`/`false`/`undefined` entries
     // (a layer that opts itself out for this render) — `voter-dots` is one of
@@ -105,7 +108,9 @@ const gl = vi.hoisted(() => {
     },
     pickObject: (params: PickParams) => {
       overlay.lastPick = params
-      return params.layerIds.includes('route-pins') ? overlay.pickedPin : null
+      if (params.layerIds.includes('route-pins')) return overlay.pickedPin
+      if (params.layerIds.includes('draw-vertices')) return overlay.pickedVertex
+      return null
     },
   }
   return {
@@ -304,6 +309,7 @@ describe('VoterMapCanvas drawing', () => {
     gl.handlers.clear()
     gl.overlay.layers = []
     gl.overlay.pickedPin = null
+    gl.overlay.pickedVertex = null
     gl.overlay.lastPick = null
     gl.overlay.options = null
     gl.style.layers = []
@@ -530,6 +536,74 @@ describe('VoterMapCanvas drawing', () => {
     // The third bump has nothing left to drop rather than throwing.
     expect(onDrawPointCount).toHaveBeenLastCalledWith(0)
     expect(layerData('draw-vertices')).toEqual([])
+  })
+
+  // Undo covers vertex drags on the same stack as placements, so a canvasser
+  // who corrected a vertex by moving it can walk that move back rather than
+  // re-dragging. This exercises the `type: 'move'` branch of the undo
+  // effect: beginDrag → moveDrag → endDrag → undoDrawToken, and expects the
+  // vertex to land at its pre-drag coordinate.
+  it('undoes a vertex drag, restoring the pre-drag coordinate', () => {
+    const onPolygonChange = vi.fn()
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+    POINTS.slice(0, 3).forEach(clickMap)
+    const original = POINTS[1] as [number, number]
+    const moved: [number, number] = [-87.6, 41.94]
+
+    // Stand a vertex under the pointer for beginDrag, then walk the drag
+    // through the same event names maplibre would fire.
+    gl.overlay.pickedVertex = { index: 1 }
+    const preventDefault = vi.fn()
+    act(() => {
+      gl.handlers.get('mousedown')?.({
+        lngLat: { lng: original[0], lat: original[1] },
+        point: { x: 0, y: 0 },
+        preventDefault,
+      })
+      gl.handlers.get('mousemove')?.({
+        lngLat: { lng: moved[0], lat: moved[1] },
+        point: { x: 0, y: 0 },
+        preventDefault,
+      })
+      gl.handlers.get('mouseup')?.({
+        lngLat: { lng: moved[0], lat: moved[1] },
+        point: { x: 0, y: 0 },
+        preventDefault,
+      })
+    })
+
+    expect(layerData('draw-vertices')?.[1]).toEqual(moved)
+    // The drag lands on the polygon-change callback in its new position, so
+    // the page can recompute stats.
+    expect(onPolygonChange).toHaveBeenLastCalledWith([
+      POINTS[0],
+      moved,
+      POINTS[2],
+    ])
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        undoDrawToken={1}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={vi.fn()}
+      />,
+    )
+
+    // Vertex back at its pre-drag coordinate, and the polygon-change
+    // callback carries the restored ring.
+    expect(layerData('draw-vertices')?.[1]).toEqual(original)
+    expect(onPolygonChange).toHaveBeenLastCalledWith([
+      POINTS[0],
+      original,
+      POINTS[2],
+    ])
   })
 
   // Clear is a restarted drawing session, not an exit from one: the canvasser
