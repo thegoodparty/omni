@@ -823,6 +823,18 @@ export {
   PhoneBankingScriptDraftResponseSchema,
   type PhoneBankingScriptDraftResponse,
 } from './outreach/PhoneBankingScript.schema'
+
+export {
+  DoorKnockingTalkingPointsPurposeSchema,
+  type DoorKnockingTalkingPointsPurpose,
+  ServeDoorKnockingTalkingPointsPurposeSchema,
+  type ServeDoorKnockingTalkingPointsPurpose,
+  DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH,
+  DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH,
+  DOOR_KNOCKING_INSTRUCTIONS_MAX_LENGTH,
+  DoorKnockingTalkingPointsDraftResponseSchema,
+  type DoorKnockingTalkingPointsDraftResponse,
+} from './outreach/DoorKnockingTalkingPoints.schema'
 export {
   ROBOCALL_PURPOSE_VALUES,
   RobocallPurposeSchema,
@@ -1052,6 +1064,8 @@ export {
   type DoorKnockingRouteHeader,
   DoorKnockingModeSchema,
   type DoorKnockingMode,
+  DoorKnockingPurposeSchema,
+  type DoorKnockingPurpose,
 } from './doorKnocking/DoorKnockingTurf.schema'
 
 export {

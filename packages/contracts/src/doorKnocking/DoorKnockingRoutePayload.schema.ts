@@ -382,6 +382,20 @@ export const DoorKnockingRoutePayloadSchema = z.object({
   // this as best-effort, because a walk is worth more than an opener and
   // election-api being down is not a reason a canvasser cannot knock.
   representing: RoutePayloadRepresentingSchema.optional(),
+  // The list's frozen talking points, plain text, one line per section.
+  //
+  // Riding the payload rather than fetched by a hook, for the reason `isServe`
+  // gives above and `history` gives at length: the printable walk sheet and
+  // the PDF render server-side from this payload alone, and the person sheet
+  // is deliberately fetch-free because the moment a canvasser needs it is the
+  // moment they are standing on a porch in the dead zone this whole feature is
+  // shaped around.
+  //
+  // Optional, and never `.default('')`, like every field above it: absent
+  // means a list created before this shipped, and the door script falls back
+  // to the static build for exactly those. Absent must render identically to
+  // empty.
+  talkingPoints: z.string().optional(),
 })
 
 export type DoorKnockingRoutePayload = z.infer<
