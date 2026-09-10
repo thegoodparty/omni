@@ -229,7 +229,7 @@ states with a comment asserting "a known name still introduces the candidate" �
 a premise that is false and permanent on this path. Both need the volunteer
 case.
 
-### PR 2 — Close the issue-store gap (live gap, all compose channels)
+### PR 2 — Close the issue-store gap (for door knocking only)
 
 `buildCampaignContext` reads `campaign.details.customIssues`. Current onboarding
 writes the candidate's issues to `website.content.about.issues` via
@@ -253,10 +253,19 @@ direction via `combineIssues`. Consider the same union in
 `doorScriptContent.ts`'s `buildScriptIssues`, which has the identical gap on the
 static path.
 
-**This is its own PR because it changes SMS, social, robocall, and phone banking
-output too.** That is the point — every compose surface has been running on a
-store most candidates never write — but it deserves its own review and its own
-before/after sample rather than arriving inside a door-knocking feature.
+**The union is opt-in, and door knocking is the only caller that opts in**
+(`buildCampaignContext(campaign, { includeWebsiteIssues: true })`). Turning it
+on for everyone would change what SMS, social, robocall and phone banking
+generate, for every campaign onboarded through the current flow, on the day it
+merged. Every compose surface has been running on a store most candidates never
+write and all four should eventually be fixed — but that is a change with its
+own before/after review, not a side effect of shipping door knocking. Door
+knocking is new, so there is no output to change, and the Context section is
+the one line on the card that is worth nothing without issue material.
+
+`outreachPhoneBanking.test.ts` holds a test asserting phone banking does *not*
+read the website store. It is there to be deleted deliberately, by whoever
+widens this.
 
 ### PR 3 — Describe a filter in words, server-side
 
@@ -573,9 +582,10 @@ Plus the website issues store, and the Segment funnel for
 
 **The Context line is still the weak one.** Sections 1, 3, 4 and 5 are robust to
 a campaign with no materials; section 2 is not, and it is the persuasion beat.
-PR 2 is the mitigation. If the measured fill rate stays low after it, the honest
-options are to omit the Context bullet rather than pad it, or to prompt the
-candidate for a one-line core message in the wizard step itself.
+PR 2 is the mitigation, and because that union is opt-in, door knocking is the
+only channel that gets it. If the measured fill rate stays low after it, the
+honest options are to omit the Context bullet rather than pad it, or to prompt
+the candidate for a one-line core message in the wizard step itself.
 
 **Generated points replace the candidate's own issue stances on the card.** That
 follows from the fallback decision. Showing the stances beneath the five lines
