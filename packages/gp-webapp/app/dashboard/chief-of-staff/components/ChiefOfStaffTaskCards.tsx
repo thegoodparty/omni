@@ -1,10 +1,10 @@
 'use client'
 
-import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
 import { cn } from '@styleguide'
 import { SparklesIcon } from '@styleguide/components/ui/icons'
 import type { LucideIcon } from 'lucide-react'
+import WideChip, { ASSISTANT_INDENT } from './WideChip'
 import { cardCategory } from './cardCategory'
 import {
   ONBOARDING_CARDS,
@@ -13,12 +13,6 @@ import {
 import { useDashboardCards, useOnboardingCards } from '../data/use-dashboard'
 import type { OnboardingCardKey } from '../data/contracts'
 
-// Aligns the rail to the assistant column so the cards hang under the
-// preceding message's bubble rather than under its avatar. The design specifies
-// 44px off a 34px avatar; the shared AssistantRow is still 24px + 8px gap, so
-// this tracks what is actually rendered and moves to pl-11 when the avatar does.
-const ASSISTANT_INDENT = 'pl-8'
-
 const formatDue = (iso: string): string | null => {
   try {
     return format(parseISO(iso), 'EEE, MMM d')
@@ -26,11 +20,6 @@ const formatDue = (iso: string): string | null => {
     return null
   }
 }
-
-const isExternalHref = (href: string): boolean =>
-  /^(https?:)?\/\//.test(href) ||
-  href.startsWith('mailto:') ||
-  href.startsWith('tel:')
 
 export interface TaskCardData {
   key: string
@@ -103,64 +92,6 @@ export function useChiefOfStaffTaskCards({
   return { cards: out, isPending, isError }
 }
 
-function TaskCard({ card }: { card: TaskCardData }): React.JSX.Element {
-  const body = (
-    <>
-      <span className="mt-0.5 shrink-0 text-primary">
-        <card.Icon className="size-[18px]" aria-hidden />
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-        <span className="text-[14.5px] font-semibold leading-[1.35] text-card-foreground">
-          {card.title}
-        </span>
-        {/* Clamped: the design's why line is one or two lines, but an agent
-            writes a full paragraph, which turns a wide chip into a wall. */}
-        <span className="line-clamp-2 text-[13px] font-normal leading-[1.45] text-muted-foreground">
-          {card.why}
-        </span>
-        {card.impact && (
-          <span className="text-xs font-semibold tracking-[.02em] text-primary">
-            {card.impact}
-          </span>
-        )}
-      </span>
-    </>
-  )
-
-  // The design's wide chip, measured off the prototype's computed styles:
-  // 14px/16px padding, 56px min height, radius-md (6px), 15px/500 container
-  // type, 12px gap, flex-start, and only border-color transitioning at 150ms.
-  const className = cn(
-    'flex w-full min-h-14 items-start gap-3 rounded-md border border-border',
-    'bg-card px-4 py-3.5 text-left text-[15px] font-medium',
-    'transition-colors duration-150 hover:border-primary',
-    'focus-visible:border-primary',
-  )
-
-  if (card.href) {
-    return isExternalHref(card.href) ? (
-      <a
-        className={className}
-        href={card.href}
-        target="_blank"
-        rel="noreferrer"
-      >
-        {body}
-      </a>
-    ) : (
-      <Link className={className} href={card.href}>
-        {body}
-      </Link>
-    )
-  }
-
-  return (
-    <button type="button" className={className} onClick={card.onSelect}>
-      {body}
-    </button>
-  )
-}
-
 /**
  * The task-card rail: the week's prioritized work as wide rows hanging under
  * the agent's last message, which is the returning official's main entry point.
@@ -216,7 +147,15 @@ export default function ChiefOfStaffTaskCards({
   return (
     <div className={cn('flex flex-col gap-2.5', ASSISTANT_INDENT)}>
       {cards.map((card) => (
-        <TaskCard key={card.key} card={card} />
+        <WideChip
+          key={card.key}
+          Icon={card.Icon}
+          title={card.title}
+          why={card.why}
+          impact={card.impact}
+          href={card.href}
+          onSelect={card.onSelect}
+        />
       ))}
     </div>
   )

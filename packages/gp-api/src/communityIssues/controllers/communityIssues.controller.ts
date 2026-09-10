@@ -48,6 +48,7 @@ const toApi = (record: Priority): PriorityDto => ({
   title: record.title,
   description: record.description,
   source: record.source,
+  stage: record.stage,
   sourceCampaignPositionId: record.sourceCampaignPositionId,
   targetDate: toDateOnlyString(record.targetDate) ?? null,
   createdAt: record.createdAt.toISOString(),

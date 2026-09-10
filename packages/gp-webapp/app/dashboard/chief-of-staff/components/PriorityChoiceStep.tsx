@@ -3,13 +3,10 @@
 import { useState } from 'react'
 import { Button, cn, Input } from '@styleguide'
 import { ASSISTANT_BUBBLE, AssistantRow } from '../../shared/agent-chat/chatUI'
+import WideChip, { ASSISTANT_INDENT } from './WideChip'
 import { categoryDisplay } from 'app/dashboard/community-issues/components/categoryDisplay'
 import { useTopCommunityIssues } from '../data/use-community-issues'
 import { useCreatePriority, usePrioritizeIssue } from '../data/use-priorities'
-
-// Matches the rail: the choices hang under the agent's question rather than
-// under its avatar.
-const ASSISTANT_INDENT = 'pl-8'
 
 interface Props {
   /** The official's name, for the greeting. */
@@ -82,36 +79,15 @@ export default function PriorityChoiceStep({
         {offered.map((issue) => {
           const { label, Icon } = categoryDisplay(issue.category)
           return (
-            <button
+            <WideChip
               key={issue.id}
-              type="button"
+              Icon={Icon}
+              title={issue.title}
+              why={issue.summary}
+              impact={label}
               disabled={busy}
-              onClick={() => prioritize.mutate(issue.id)}
-              // Same wide-chip metrics as the task rail: 14/16 padding, 56px
-              // min height, radius-md, 15px/500.
-              className={cn(
-                'flex w-full min-h-14 items-start gap-3 rounded-md border border-border',
-                'bg-card px-4 py-3.5 text-left text-[15px] font-medium',
-                'transition-colors duration-150 hover:border-primary',
-                'focus-visible:border-primary',
-                'disabled:pointer-events-none disabled:opacity-50',
-              )}
-            >
-              <span className="mt-0.5 shrink-0 text-primary">
-                <Icon className="size-[18px]" aria-hidden />
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                <span className="text-[14.5px] font-semibold leading-[1.35] text-card-foreground">
-                  {issue.title}
-                </span>
-                <span className="line-clamp-2 text-[13px] font-normal leading-[1.45] text-muted-foreground">
-                  {issue.summary}
-                </span>
-                <span className="text-xs font-semibold tracking-[.02em] text-primary">
-                  {label}
-                </span>
-              </span>
-            </button>
+              onSelect={() => prioritize.mutate(issue.id)}
+            />
           )
         })}
 

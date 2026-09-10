@@ -23,6 +23,7 @@ import type {
   SaveOrdinanceClarifyAnswerRequest,
   UpdateOrdinanceRequest,
   Priority,
+  PriorityStage,
   ChatAnchor,
   RaceOpponentSourceType,
   RaceOpponentCollectionStatus,
@@ -893,6 +894,20 @@ export type APIEndpoints = {
   // CreatePriorityInputSchema.
   'POST /v1/priorities': {
     Request: { title: string; description: string; targetDate?: string | null }
+    Response: Priority
+  }
+
+  // Partial update. `stage` is how far along the official is; it rides this
+  // existing route rather than a dedicated one because the route was already
+  // here and the schema is already partial.
+  'PUT /v1/priorities/:id': {
+    Request: {
+      id: string
+      title?: string
+      description?: string
+      stage?: PriorityStage
+      targetDate?: string | null
+    }
     Response: Priority
   }
 

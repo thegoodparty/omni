@@ -40,6 +40,7 @@ const toApi = (record: Priority): PriorityDto => ({
   description: record.description,
   source: record.source,
   sourceCampaignPositionId: record.sourceCampaignPositionId,
+  stage: record.stage,
   targetDate: toDateOnlyString(record.targetDate) ?? null,
   createdAt: record.createdAt.toISOString(),
   updatedAt: record.updatedAt.toISOString(),
@@ -88,6 +89,7 @@ export class PrioritiesController {
     const updated = await this.prioritiesService.update(id, electedOffice.id, {
       title: body.title,
       description: body.description,
+      stage: body.stage,
       targetDate:
         body.targetDate === undefined
           ? undefined

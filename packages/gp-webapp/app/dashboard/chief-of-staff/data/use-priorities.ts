@@ -17,7 +17,7 @@ import {
 } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
-import type { Priority } from '@goodparty_org/contracts'
+import type { Priority, PriorityStage } from '@goodparty_org/contracts'
 
 export const PRIORITIES_KEY = ['chief-of-staff', 'priorities'] as const
 
@@ -67,6 +67,36 @@ export const usePrioritizeIssue = () => {
       reportErrorToSentry(err, {
         surface: 'chief-of-staff-onboarding',
         phase: 'prioritize-issue',
+      }),
+  })
+}
+
+/**
+ * Records how far along the official is. Persisted rather than remembered
+ * locally so the agent reads it through `crud_priorities` on its next turn and
+ * does not ask again.
+ */
+export const useSetPriorityStage = () => {
+  const invalidate = useInvalidateAfterWrite()
+  return useMutation({
+    mutationFn: async ({
+      id,
+      stage,
+    }: {
+      id: string
+      stage: PriorityStage
+    }): Promise<Priority> => {
+      const { data } = await clientRequest('PUT /v1/priorities/:id', {
+        id,
+        stage,
+      })
+      return data
+    },
+    onSuccess: invalidate,
+    onError: (err) =>
+      reportErrorToSentry(err, {
+        surface: 'chief-of-staff-onboarding',
+        phase: 'set-priority-stage',
       }),
   })
 }

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { Prisma, PrioritySource } from '../../generated/prisma'
+import { Prisma, PrioritySource, PriorityStage } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 
 export type CreatePriorityData = {
@@ -11,6 +11,7 @@ export type CreatePriorityData = {
 export type UpdatePriorityData = {
   title?: string
   description?: string
+  stage?: PriorityStage
   targetDate?: Date | null
 }
 
@@ -49,6 +50,7 @@ export class PrioritiesService extends createPrismaBase(MODELS.Priority) {
         ...(patch.description !== undefined
           ? { description: patch.description }
           : {}),
+        ...(patch.stage !== undefined ? { stage: patch.stage } : {}),
         ...(patch.targetDate !== undefined
           ? { targetDate: patch.targetDate }
           : {}),

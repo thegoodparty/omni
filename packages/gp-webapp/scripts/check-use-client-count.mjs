@@ -379,7 +379,13 @@ import { dirname, join, relative } from 'node:path'
 // modules added beside it (use-priorities, use-community-issues) are hook
 // modules whose directive sits under a doc comment, and this ratchet only
 // counts files whose FIRST non-empty line is the directive.
-const BASELINE = 594
+// 2026-09-10: 594 -> 596 for the second onboarding question and the shared
+// chip it introduced:
+//   - PriorityStageStep: fires the stage mutation on click.
+//   - WideChip: renders a Link/button with a click handler, and is the one
+//     place the design's wide-chip metrics live now that three surfaces use
+//     them.
+const BASELINE = 596
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

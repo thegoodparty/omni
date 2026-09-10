@@ -12,6 +12,7 @@ import { HISTORY_KEY } from '../data/use-chat-history'
 import { ONBOARDING_CARDS } from './onboardingCardsConfig'
 import ChiefOfStaffHero from './ChiefOfStaffHero'
 import PriorityChoiceStep from './PriorityChoiceStep'
+import PriorityStageStep from './PriorityStageStep'
 import ChiefOfStaffTaskCards, {
   useChiefOfStaffTaskCards,
 } from './ChiefOfStaffTaskCards'
@@ -48,10 +49,23 @@ export default function ChiefOfStaffChatHome(): React.JSX.Element {
 
   // Which onboarding step the official is on is derived from their priorities,
   // not stored — the same approach the onboarding-cards service takes
-  // server-side. No priorities means we have no idea what they are working on,
-  // so asking that is the only thing worth putting on screen.
+  // server-side. No priorities means we have no idea what they are working on;
+  // a priority with no stage means we know the problem but not how far along
+  // they are. `stage` is null for every row that predates the question and for
+  // anything the agent or a Win import created, so this reads as "not asked".
   const { data: priorities, isPending: prioritiesPending } = usePriorities()
   const needsFirstPriority = !prioritiesPending && priorities?.length === 0
+  // The newest un-staged one: the list comes back createdAt ascending, so the
+  // priority they just picked is the last match.
+  //
+  // Strictly `=== null`, not falsy, on purpose. An API that predates the
+  // `stage` column returns the field absent rather than null, and treating
+  // that as unanswered would ask the question against a deployment that cannot
+  // store the answer — so the step stays hidden until the column is really
+  // there.
+  const needsStage = prioritiesPending
+    ? undefined
+    : priorities?.filter((p) => p.stage === null).at(-1)
 
   const config = useMemo<ConversationalHomeConfig>(
     () => ({
@@ -80,6 +94,8 @@ export default function ChiefOfStaffChatHome(): React.JSX.Element {
           // get-started cards — the `priorities` one is this step, in card
           // form.
           <PriorityChoiceStep firstName={firstName} />
+        ) : needsStage ? (
+          <PriorityStageStep priority={needsStage} />
         ) : (
           <ChiefOfStaffTaskCards
             cards={cards}
@@ -88,11 +104,12 @@ export default function ChiefOfStaffChatHome(): React.JSX.Element {
           />
         )
       }
-      // Suppressed while the rail has cards or is asking the first question;
-      // the body's own Chief of Staff starter prompts take over when it is
-      // neither.
+      // Suppressed while the rail has cards or is asking a question; the
+      // body's own Chief of Staff starter prompts take over when it is neither.
       suggestions={
-        needsFirstPriority || cards.length > 0 ? NO_SUGGESTIONS : undefined
+        needsFirstPriority || needsStage || cards.length > 0
+          ? NO_SUGGESTIONS
+          : undefined
       }
     />
   )
