@@ -842,19 +842,18 @@ describe('CreateListFlow', () => {
     expect(posts).toBe(0)
   })
 
-  // The whole of what the press does is said under the title, because it is
-  // the one press in the flow that cannot be undone.
-  it('says what Build route buys on the route step', () => {
+  // Why the travel mode is being asked for at all is said under the title,
+  // since the answer is what shapes the route that gets built.
+  it('says why the travel mode matters on the route step', () => {
     const { rerender } = render(
       <CreateListFlow {...baseProps} step="confirm" />,
     )
     advanceToRoute(rerender, {}, 'Lakeview blitz')
 
-    expect(heading('Do you want to walk or drive?')).toBeInTheDocument()
+    expect(heading('Will you be walking or driving?')).toBeInTheDocument()
     expect(
-      screen.getByText(/We’ll build your route and freeze it/),
+      screen.getByText(/most efficient route for you based on how/),
     ).toBeInTheDocument()
-    expect(screen.getByText(/working with the same list/)).toBeInTheDocument()
   })
 
   // The one press that spends money, so it says so while it is spending and
