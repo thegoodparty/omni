@@ -385,7 +385,10 @@ import { dirname, join, relative } from 'node:path'
 //   - WideChip: renders a Link/button with a click handler, and is the one
 //     place the design's wide-chip metrics live now that three surfaces use
 //     them.
-const BASELINE = 596
+// 2026-09-10: 596 -> 597 for PriorityNextStep — the standing next-step push on
+// a priority. It holds the phone-banking sheet's open state and mounts that
+// flow inline, so it cannot render on the server.
+const BASELINE = 597
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

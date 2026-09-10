@@ -13,6 +13,7 @@ import { ONBOARDING_CARDS } from './onboardingCardsConfig'
 import ChiefOfStaffHero from './ChiefOfStaffHero'
 import PriorityChoiceStep from './PriorityChoiceStep'
 import PriorityStageStep from './PriorityStageStep'
+import PriorityNextStep from './PriorityNextStep'
 import ChiefOfStaffTaskCards, {
   useChiefOfStaffTaskCards,
 } from './ChiefOfStaffTaskCards'
@@ -66,6 +67,15 @@ export default function ChiefOfStaffChatHome(): React.JSX.Element {
   const needsStage = prioritiesPending
     ? undefined
     : priorities?.filter((p) => p.stage === null).at(-1)
+  // The newest priority we DO know the stage of. Its next step is a standing
+  // recommendation, not a step that completes: nothing links a priority to the
+  // outreach done about it, so there is no "already did this" to derive.
+  //
+  // `!= null` so an absent field counts as unknown, not as staged. The strict
+  // check above and this loose one are the two halves of the same rule: an API
+  // without the column asks nothing and recommends nothing, rather than
+  // suppressing the starter chips for a turn that renders empty.
+  const staged = priorities?.filter((p) => p.stage != null).at(-1)
 
   const config = useMemo<ConversationalHomeConfig>(
     () => ({
@@ -97,17 +107,22 @@ export default function ChiefOfStaffChatHome(): React.JSX.Element {
         ) : needsStage ? (
           <PriorityStageStep priority={needsStage} />
         ) : (
-          <ChiefOfStaffTaskCards
-            cards={cards}
-            isPending={isPending}
-            isError={isError}
-          />
+          <div className="flex flex-col gap-5">
+            {staged?.stage != null && (
+              <PriorityNextStep priority={{ ...staged, stage: staged.stage }} />
+            )}
+            <ChiefOfStaffTaskCards
+              cards={cards}
+              isPending={isPending}
+              isError={isError}
+            />
+          </div>
         )
       }
       // Suppressed while the rail has cards or is asking a question; the
       // body's own Chief of Staff starter prompts take over when it is neither.
       suggestions={
-        needsFirstPriority || needsStage || cards.length > 0
+        needsFirstPriority || needsStage || staged || cards.length > 0
           ? NO_SUGGESTIONS
           : undefined
       }

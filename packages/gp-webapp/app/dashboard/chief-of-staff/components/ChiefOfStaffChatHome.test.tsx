@@ -36,6 +36,14 @@ vi.mock('./PriorityChoiceStep', () => ({
   default: () => <div data-testid="priority-choice-step" />,
 }))
 
+vi.mock('./PriorityStageStep', () => ({
+  default: () => <div data-testid="priority-stage-step" />,
+}))
+
+vi.mock('./PriorityNextStep', () => ({
+  default: () => <div data-testid="priority-next-step" />,
+}))
+
 vi.mock('../data/use-chat-history', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../data/use-chat-history')>()),
   useChatHistory: () => ({ data: [] }),
@@ -97,7 +105,7 @@ beforeEach(() => {
   cardsMock.mockReturnValue(loaded([]))
   onboardingMock.mockReturnValue({ data: [] })
   prioritiesMock.mockReturnValue({
-    data: [{ id: 'p1' }],
+    data: [{ id: 'p1', stage: 'shaping' }],
     isPending: false,
   })
 })
@@ -182,7 +190,11 @@ describe('ChiefOfStaffChatHome', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('falls back to the starter chips when there is nothing to show', async () => {
+  // The chips are the degraded fallback, not an empty state: with priorities
+  // loaded the home always has either a question or a next step. They show when
+  // the priorities read gives us nothing to reason about.
+  it('falls back to the starter chips when the priorities read fails', async () => {
+    prioritiesMock.mockReturnValue({ data: undefined, isPending: false })
     render(<ChiefOfStaffChatHome />)
 
     expect(
@@ -246,14 +258,63 @@ describe('ChiefOfStaffChatHome', () => {
       ).not.toBeInTheDocument()
     })
 
-    it('shows the week once a priority exists', async () => {
+    it('asks how far along they are once a priority exists', async () => {
       cardsMock.mockReturnValue(loaded([card()]))
+      prioritiesMock.mockReturnValue({
+        data: [{ id: 'p1', stage: null }],
+        isPending: false,
+      })
       render(<ChiefOfStaffChatHome />)
 
-      await screen.findByRole('link', { name: /Planning Commission/ })
+      expect(
+        await screen.findByTestId('priority-stage-step'),
+      ).toBeInTheDocument()
       expect(
         screen.queryByTestId('priority-choice-step'),
       ).not.toBeInTheDocument()
+    })
+
+    it('pushes the next step once the stage is known', async () => {
+      cardsMock.mockReturnValue(loaded([card()]))
+      prioritiesMock.mockReturnValue({
+        data: [{ id: 'p1', stage: 'shaping' }],
+        isPending: false,
+      })
+      render(<ChiefOfStaffChatHome />)
+
+      expect(
+        await screen.findByTestId('priority-next-step'),
+      ).toBeInTheDocument()
+      // The week's work still shows below it — the next-step push is additive,
+      // not a step that replaces the rail.
+      expect(
+        screen.getByRole('link', { name: /Planning Commission/ }),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByTestId('priority-stage-step'),
+      ).not.toBeInTheDocument()
+    })
+
+    // An API without the stage column returns the field absent. That must read
+    // as unknown, not as staged, or the home suppresses the starter chips for a
+    // turn that renders nothing.
+    it('neither asks nor recommends when the stage field is absent', async () => {
+      cardsMock.mockReturnValue(loaded([]))
+      prioritiesMock.mockReturnValue({
+        data: [{ id: 'p1' }],
+        isPending: false,
+      })
+      render(<ChiefOfStaffChatHome />)
+
+      expect(
+        await screen.findByRole('button', {
+          name: /What's most urgent this week/,
+        }),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByTestId('priority-stage-step'),
+      ).not.toBeInTheDocument()
+      expect(screen.queryByTestId('priority-next-step')).not.toBeInTheDocument()
     })
 
     // An unresolved read must not flash the first question at an official who
