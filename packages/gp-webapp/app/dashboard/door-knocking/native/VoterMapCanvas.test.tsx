@@ -28,6 +28,10 @@ vi.mock('appEnv', () => ({ NEXT_PUBLIC_GEOAPIFY_TILES_KEY: 'test-tiles-key' }))
 interface MapEvent {
   lngLat: { lng: number; lat: number }
   point: { x: number; y: number }
+  // maplibre's real MapMouseEvent carries this; the mousedown handler calls
+  // it when beginDrag succeeds, so the fixture has to provide it or the
+  // drag path throws before it can be exercised.
+  preventDefault?: () => void
 }
 
 interface MockLayerProps {
@@ -578,7 +582,7 @@ describe('VoterMapCanvas drawing', () => {
       })
     })
 
-    expect(layerData('draw-vertices')?.[1]).toEqual(moved)
+    expect((layerData('draw-vertices') as PolygonRing)[1]).toEqual(moved)
     // The drag lands on the polygon-change callback in its new position, so
     // the page can recompute stats.
     expect(onPolygonChange).toHaveBeenLastCalledWith([
@@ -598,7 +602,7 @@ describe('VoterMapCanvas drawing', () => {
 
     // Vertex back at its pre-drag coordinate, and the polygon-change
     // callback carries the restored ring.
-    expect(layerData('draw-vertices')?.[1]).toEqual(original)
+    expect((layerData('draw-vertices') as PolygonRing)[1]).toEqual(original)
     expect(onPolygonChange).toHaveBeenLastCalledWith([
       POINTS[0],
       original,
