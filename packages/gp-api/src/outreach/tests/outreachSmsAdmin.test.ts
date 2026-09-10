@@ -1,4 +1,5 @@
 import { HttpStatus } from '@nestjs/common'
+import { addDays, format } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
@@ -9,6 +10,13 @@ import { OutreachSmsAdminService } from '../services/outreachSmsAdmin.service'
 import { OutreachStatus, OutreachType, UserRole } from '../../generated/prisma'
 
 const service = useTestService()
+
+// Relative, not absolute: cancelOutreach 400s once the send time passes,
+// so a pinned fixture date is a timebomb for the cancel tests (main went
+// red 2026-09-10 when the original literal expired). One shared constant
+// so the fixture and the approve assertion can't straddle midnight.
+const SEND_DATE = addDays(new Date(), 7)
+const SEND_LOCAL_DATE = format(SEND_DATE, 'yyyy-MM-dd')
 
 const requestCanvassers = vi.fn()
 const activateJob = vi.fn()
@@ -131,8 +139,8 @@ const seedOutreach = (
       script:
         'Hello {first_name}, this is Jane, candidate for City Council. ' +
         'Vote!\n\nPaid for by Friends of Jane.\nReply STOP to opt out.',
-      date: new Date('2026-09-10T15:00:00Z'),
-      scheduledLocalDate: '2026-09-10',
+      date: SEND_DATE,
+      scheduledLocalDate: SEND_LOCAL_DATE,
       textCount: 1200,
       billableTextCount: 1200,
       ...overrides,
@@ -239,7 +247,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
 
       expect(res.status).toBe(HttpStatus.CREATED)
       expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
-        date: '2026-09-10',
+        date: SEND_LOCAL_DATE,
       })
       expect(res.data.approvalStatus).toBe('canvass_requested')
       const updated = await service.prisma.outreach.findFirstOrThrow({
