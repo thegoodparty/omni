@@ -7,12 +7,14 @@ import {
   DoorKnockStatus,
   NotAVoterReason,
   RoutePayloadAddress,
+  RoutePayloadRepresenting,
   RoutePayloadTarget,
   RoutePayloadTargetNotes,
   RouteTargetActivity,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { OrganizationsService } from '@/organizations/services/organizations.service'
 import {
   DoorKnockingStopTarget,
   Organization,
@@ -91,6 +93,11 @@ export class DoorKnockingServeService extends createPrismaBase(
     private readonly status: DoorKnockingStatusService,
     private readonly activity: DoorKnockingActivityService,
     private readonly notes: DoorKnockingNotesService,
+    // For the position name behind the door script's opener. Injected rather
+    // than reached through `moduleRef` like the assignment check below:
+    // OrganizationsModule is a plain import of this module with no cycle
+    // through it, so there is nothing here for a lazy lookup to break.
+    private readonly organizations: OrganizationsService,
     private readonly moduleRef: ModuleRef,
   ) {
     super()
@@ -161,6 +168,7 @@ export class DoorKnockingServeService extends createPrismaBase(
       notAVoterReasons,
       historyByPersonId,
       notesByPersonId,
+      representing,
     ] = await Promise.all([
       this.status.latestKnockStatuses(organization.slug, targetPersonIds),
       this.status.doNotKnockPersonIds(organization.slug, targetPersonIds),
@@ -169,6 +177,7 @@ export class DoorKnockingServeService extends createPrismaBase(
       // Every target's notes in one query, alongside the other live reads
       // rather than per target inside the map below — see ADR 0011.
       this.notes.notesByPersonId(organization.slug, targetPersonIds),
+      this.resolveRepresenting(organization),
     ])
 
     return {
@@ -215,6 +224,45 @@ export class DoorKnockingServeService extends createPrismaBase(
         }
       }),
       isServe,
+      representing,
+    }
+  }
+
+  // Whose campaign or office this walk is for. The owner is the candidate on
+  // Win and the office holder on Serve — the same person `useUser()` resolves
+  // to on the dashboard walk, which is why a candidate knocking their own turf
+  // reads the identical opener whether it came from here or from their session.
+  //
+  // Best-effort by design: `resolvePositionNameByOrganizationSlug` calls
+  // election-api when the org carries a `positionId`, and a canvasser standing
+  // on a porch should not lose their walk because that call failed. A thrown
+  // error or a missing name yields `undefined`, which the contract documents as
+  // "fall back to the pre-ship opener" rather than an error state.
+  private async resolveRepresenting(
+    organization: Organization,
+  ): Promise<RoutePayloadRepresenting | undefined> {
+    try {
+      const [owner, office] = await Promise.all([
+        this.client.user.findUnique({
+          where: { id: organization.ownerId },
+          select: { firstName: true, lastName: true, name: true },
+        }),
+        this.organizations.resolvePositionNameByOrganizationSlug(
+          organization.slug,
+        ),
+      ])
+      const name =
+        [owner?.firstName, owner?.lastName].filter(Boolean).join(' ').trim() ||
+        (owner?.name ?? '').trim()
+      // The name is what makes this key worth sending. An office without one
+      // cannot be said out loud — "a volunteer for , your City Council
+      // Member" — so `buildVolunteerIntro` drops the whole clause and falls
+      // back to the bare "Hi, I'm {volunteer}" this feature exists to fix.
+      // Sending it anyway would look like a resolution that worked.
+      if (!name) return undefined
+      return { name, office: office ?? '' }
+    } catch {
+      return undefined
     }
   }
 

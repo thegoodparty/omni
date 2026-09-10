@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
@@ -15,6 +16,40 @@ vi.mocked(useSnackbar).mockReturnValue({
   successSnackbar: vi.fn(),
   errorSnackbar: vi.fn(),
 } as unknown as ReturnType<typeof useSnackbar>)
+
+// The seam this page exists to wire. `DoorKnockingSurface` is the provider
+// every door-script decision reads from, and the volunteer walk is the one
+// caller that states it from the route payload rather than from
+// `useOrganization()`/`useCampaign()` — neither of which a volunteer can
+// read. Stubbed to expose the three props, so a payload that carries a rail
+// and a candidate cannot silently arrive as the Win default with no one to
+// name. The opener those props produce is covered in useDoorScript.test.tsx.
+vi.mock('app/dashboard/door-knocking/native/doorKnockingSurface', () => ({
+  DoorKnockingSurface: ({
+    serveMode,
+    officeName,
+    canvasser,
+    children,
+  }: {
+    serveMode: boolean
+    officeName: string
+    canvasser: {
+      isVolunteer: boolean
+      representing: { name: string; office: string } | null
+    }
+    children: ReactNode
+  }) => (
+    <div
+      data-testid="surface"
+      data-serve-mode={String(serveMode)}
+      data-office-name={officeName}
+      data-is-volunteer={String(canvasser.isVolunteer)}
+      data-representing={JSON.stringify(canvasser.representing)}
+    >
+      {children}
+    </div>
+  ),
+}))
 
 // deck.gl and maplibre don't run in jsdom — same stub shape
 // NativeDoorKnockingPage.test.tsx uses, pared to what this page reads.
@@ -222,6 +257,75 @@ describe('VolunteerWalkPage', () => {
       screen.getByRole('link', { name: 'Back to your assignments' }),
     ).toHaveAttribute('href', '/volunteer')
     expect(packRequested).toBe(false)
+  })
+
+  // A payload with neither field: the shape every route served before this
+  // shipped, and the reason both are optional on the schema. The volunteer
+  // still gets the Win rail and no one to name, which is exactly today's
+  // behaviour rather than a crash.
+  it('falls back to the Win rail when the payload names no one', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id', { status: 200, data: turf })
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: routePayload,
+    })
+
+    render(<VolunteerWalkPage turfId={7} />)
+
+    const surface = await screen.findByTestId('surface')
+    expect(surface).toHaveAttribute('data-serve-mode', 'false')
+    expect(surface).toHaveAttribute('data-representing', 'null')
+    // Always true on this page — it is the volunteer walk.
+    expect(surface).toHaveAttribute('data-is-volunteer', 'true')
+  })
+
+  // A Win route for a volunteer: the case the opener bug was reported on.
+  it('carries the candidate the payload names', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id', { status: 200, data: turf })
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routePayload,
+        representing: { name: 'Jane Doe', office: 'City Council' },
+      },
+    })
+
+    render(<VolunteerWalkPage turfId={7} />)
+
+    const surface = await screen.findByTestId('surface')
+    expect(surface).toHaveAttribute('data-serve-mode', 'false')
+    expect(surface).toHaveAttribute(
+      'data-representing',
+      JSON.stringify({ name: 'Jane Doe', office: 'City Council' }),
+    )
+  })
+
+  // The second latent bug this page fixes. With no organization to read, an
+  // elected official's volunteer got the Win rail's opener — which would
+  // introduce a sitting official as a candidate for their own seat. The rail
+  // has to come off the payload, and `officeName` has to come off the same
+  // `representing.office` the opener uses so one route cannot describe its
+  // office two ways.
+  it('takes the Serve rail and its office from the payload', async () => {
+    api.mock('GET /v1/door-knocking/turfs/:id', { status: 200, data: turf })
+    api.mock('GET /v1/door-knocking/turfs/:id/route', {
+      status: 200,
+      data: {
+        ...routePayload,
+        isServe: true,
+        representing: { name: 'Sam Rivera', office: 'Town Supervisor' },
+      },
+    })
+
+    render(<VolunteerWalkPage turfId={7} />)
+
+    const surface = await screen.findByTestId('surface')
+    expect(surface).toHaveAttribute('data-serve-mode', 'true')
+    expect(surface).toHaveAttribute('data-office-name', 'Town Supervisor')
+    expect(surface).toHaveAttribute(
+      'data-representing',
+      JSON.stringify({ name: 'Sam Rivera', office: 'Town Supervisor' }),
+    )
   })
 
   it('shows a not-assigned card when the route itself is revoked', async () => {
