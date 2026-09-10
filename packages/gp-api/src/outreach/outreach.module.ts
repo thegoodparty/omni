@@ -29,6 +29,8 @@ import { OutreachSocialController } from './outreachSocial.controller'
 import { OutreachServeSocialController } from './outreachServeSocial.controller'
 import { OutreachPhoneBankingController } from './outreachPhoneBanking.controller'
 import { OutreachServePhoneBankingController } from './outreachServePhoneBanking.controller'
+import { OutreachDoorKnockingController } from './outreachDoorKnocking.controller'
+import { OutreachServeDoorKnockingController } from './outreachServeDoorKnocking.controller'
 import { OutreachRobocallController } from './outreachRobocall.controller'
 import { OutreachRobocallAudioController } from './outreachRobocallAudio.controller'
 import { OutreachNotificationInterceptor } from './interceptors/outreachNotification.interceptor'
@@ -40,6 +42,7 @@ import { OutreachService } from './services/outreach.service'
 import { OutreachSocialService } from './services/outreachSocial.service'
 import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
 import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
+import { OutreachDoorKnockingGenerationService } from './services/outreachDoorKnockingGeneration.service'
 import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
 import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
 import { OutreachRobocallService } from './services/outreachRobocall.service'
@@ -108,6 +111,8 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     OutreachServeSocialController,
     OutreachPhoneBankingController,
     OutreachServePhoneBankingController,
+    OutreachDoorKnockingController,
+    OutreachServeDoorKnockingController,
     OutreachSmsController,
     OutreachRobocallController,
     OutreachRobocallAudioController,
@@ -119,6 +124,7 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     OutreachSocialService,
     OutreachSocialGenerationService,
     OutreachPhoneBankingGenerationService,
+    OutreachDoorKnockingGenerationService,
     OutreachSmsGenerationService,
     OutreachRobocallGenerationService,
     OutreachRobocallService,
