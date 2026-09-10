@@ -48,16 +48,43 @@ class TestPickingTheRepo:
 
 
 class TestTheBriefingTheModelReads:
-    def test_only_the_target_repo_is_described(self):
-        # The whole point of routing. A prompt carrying every repo and trusting
-        # the model to choose is the single-repo prompt with extra steps.
+    def test_every_repo_is_described_so_a_cause_can_be_chased_across_repos(self):
+        """This reverses the rule that only the routed repo was described.
+
+        That rule was meant to stop the model working confidently in the wrong
+        codebase. It stopped the wrong thing: a bug is reported by symptom, and
+        a symptom does not know which repo produced it, so the model gave up on
+        exactly the tickets where finding the cause WAS the job. The boundary
+        now applies to writes. See the PR-target tests below for the half that
+        still holds.
+        """
         marketing_prompt = build_capability_prompt(MARKETING)
         assert MARKETING in marketing_prompt
-        assert "packages/gp-webapp" not in marketing_prompt
+        assert "gp-webapp" in marketing_prompt, "omni's layout has to be readable from a marketing run"
 
         omni_prompt = build_capability_prompt(OMNI)
         assert OMNI in omni_prompt
-        assert MARKETING not in omni_prompt
+        assert MARKETING in omni_prompt
+
+    @pytest.mark.parametrize("repo", sorted(REPO_PROFILES))
+    def test_only_the_routed_repo_may_receive_a_pr(self, repo):
+        # The half of the old rule that survives, and now the only thing
+        # separating "read everything" from "write anywhere". Every other repo
+        # is explicitly marked as read-only for this run.
+        prompt = build_capability_prompt(repo)
+
+        assert "Any PR you open goes there" in prompt
+        assert "Read anywhere, write in one place" in prompt
+        assert "Do not open a PR in one" in prompt
+
+    @pytest.mark.parametrize("repo", sorted(REPO_PROFILES))
+    def test_the_routed_repo_is_named_unambiguously(self, repo):
+        # With every briefing present, "which one am I allowed to push to?" is
+        # answerable only if the routed repo is stated as such. Naming it once
+        # among N briefings is not enough.
+        prompt = build_capability_prompt(repo)
+
+        assert f"This run is about **{repo}**" in prompt
 
     def test_each_repo_states_the_branch_a_pr_targets(self):
         # gp-marketing's default is `develop`, not `main`. A PR opened against
@@ -128,18 +155,30 @@ class TestBeingPointedAtTheWrongRepo:
     """
 
     @pytest.mark.parametrize("repo", sorted(REPO_PROFILES))
-    def test_every_repo_is_told_it_might_be_the_wrong_one(self, repo):
+    def test_every_repo_is_told_its_routing_was_a_guess(self, repo):
         prompt = build_capability_prompt(repo)
 
-        assert "not in this repo" in prompt
+        assert "good guess, not a fact" in prompt
 
     @pytest.mark.parametrize("repo", sorted(REPO_PROFILES))
-    def test_the_way_out_is_a_verdict_the_pipeline_already_understands(self, repo):
-        # needs-human, not a new token: parse_verdict drops anything outside
-        # KNOWN_VERDICTS, so an invented verdict would read as no verdict at
-        # all — silence, exactly where the model was trying to raise a hand.
+    def test_the_way_out_is_to_name_the_repo_not_to_stop(self, repo):
+        # This replaced "say so and stop". Stopping was a dead end: it handed a
+        # human an investigation to start over. GPBOT-REPO is machine-read and
+        # points the implementation run at the repo it names, so naming the
+        # right repo is what makes the redirect actually happen.
         prompt = build_capability_prompt(repo)
 
+        assert "GPBOT-REPO" in prompt
+        assert "follow the cause wherever it goes" in prompt.lower()
+
+    @pytest.mark.parametrize("repo", sorted(REPO_PROFILES))
+    def test_a_fix_needing_two_repos_is_handed_back(self, repo):
+        # One run opens one PR. A defect that genuinely needs coordinated
+        # changes in two repos cannot be delivered by this pipeline at all, so
+        # the honest answer is the verdict that asks for a person.
+        prompt = build_capability_prompt(repo)
+
+        assert "spans two repos" in prompt
         assert "needs-human" in prompt
 
 

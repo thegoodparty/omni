@@ -4022,3 +4022,112 @@ def test_ci_fix_is_not_reachable_from_a_clickup_tag():
     # them workspace-wide. A tag that could launch a PR-pushing run against an
     # arbitrary PR number has no business existing.
     assert handler.CI_FIX_LABEL not in {config["label"] for config in handler.TAG_CONFIG.values()}
+
+
+# ---------------------------------------------------------------------------
+# A redirect written by an analyze run outranks the list the ticket sits in.
+#
+# The list records where a human filed the ticket. An analyze run that read
+# actual code and found the cause elsewhere is better evidence, but it has
+# exited by the time the implement run is launched — and the launch is a
+# ClickUp tag, which cannot carry a repo. So it leaves a marker on the ticket
+# and this is the half that reads it back.
+# ---------------------------------------------------------------------------
+
+
+def repo_marker_comment(repo: str, routed: str = "thegoodparty/omni") -> dict:
+    # The exact sentence engineer_agent.escalation writes. Written by code from
+    # an allowlisted profile name, never straight from the model.
+    text = (
+        f"[GP-Bot] Implementation will run against `{repo}`, not `{routed}`. "
+        f"The ticket's list pointed here at `{routed}`; the analysis above found the cause in "
+        f"`{repo}`. Delete this comment to send the implementation run back to `{routed}`."
+    )
+    return {
+        "id": "90130291038680",
+        "comment": [{"text": text}],
+        "comment_text": text,
+        "user": {"id": 105985359, "username": "Collin Park"},
+        "date": str(int(time.time() * 1000)),
+        "reply_count": 0,
+    }
+
+
+def test_an_implement_run_follows_the_redirect_not_the_list(fake_clickup, fake_ecs, ecs_env, monkeypatch):
+    monkeypatch.setenv(handler.IMPLEMENT_REPOS_ENV, "thegoodparty/omni,thegoodparty/gp-marketing")
+    # An ordinary omni ticket by its list, which an analysis moved.
+    fake_clickup.comments_response = {"comments": [repo_marker_comment(handler.MARKETING_REPO)]}
+
+    handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
+
+    assert engineer_agent_env(fake_ecs.run_task_calls[0])["TARGET_REPO"] == handler.MARKETING_REPO
+
+
+def test_the_ramp_is_applied_to_the_repo_the_redirect_names(fake_clickup, fake_ecs, ecs_env, monkeypatch):
+    # The dangerous case, and the reason the ramp check had to move below the
+    # comments fetch. Judged on the list alone this is an omni ticket, and omni
+    # is past its ramp — so it would launch a run that opens a PR in a repo
+    # still marked analyze-only.
+    monkeypatch.setenv(handler.IMPLEMENT_REPOS_ENV, "thegoodparty/omni")
+    fake_clickup.comments_response = {"comments": [repo_marker_comment(handler.MARKETING_REPO)]}
+
+    resp = handler.handler(make_event(tag_updated_body(tags=("gpbot-work",))), None)
+
+    assert response_body(resp)["skipped"] == "repo is analyze-only"
+    assert fake_ecs.run_task_calls == []
+
+
+def test_a_re_analysis_also_follows_the_redirect(fake_clickup, fake_ecs, ecs_env):
+    # Re-tagging gpbot-analyze on a ticket the bot already redirected should
+    # look where the bot said to look, not where the list still points.
+    fake_clickup.comments_response = {"comments": [repo_marker_comment(handler.MARKETING_REPO)]}
+
+    handler.handler(make_event(tag_updated_body(tags=("gpbot-analyze",))), None)
+
+    assert engineer_agent_env(fake_ecs.run_task_calls[0])["TARGET_REPO"] == handler.MARKETING_REPO
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[GP-Bot] Implementation will run against `thegoodparty/gp-data-platform`, not `thegoodparty/omni`.",
+        "[GP-Bot] Implementation will run against `evil-fork/omni`, not `thegoodparty/omni`.",
+        "[GP-Bot] Analysis: I think this belongs in thegoodparty/gp-marketing",
+        "Implementation will run against `thegoodparty/gp-marketing`",
+    ],
+)
+def test_only_the_exact_marker_naming_a_known_repo_redirects_anything(text, fake_clickup, fake_ecs, ecs_env):
+    # Prose that merely mentions a repo must not move a run, and a repo with no
+    # profile must not either — the agent could not have worked there. Both
+    # leave the list's routing standing.
+    comment = {"id": "1", "comment_text": text, "comment": [{"text": text}], "date": str(int(time.time() * 1000))}
+    fake_clickup.comments_response = {"comments": [comment]}
+
+    handler.handler(make_event(tag_updated_body(tags=("gpbot-analyze",))), None)
+
+    assert engineer_agent_env(fake_ecs.run_task_calls[0])["TARGET_REPO"] == handler.OMNI_REPO
+
+
+def test_the_last_redirect_wins(fake_clickup, fake_ecs, ecs_env):
+    # ClickUp returns comments oldest-first. A re-analysis that changed its mind
+    # must not be overruled by the answer it replaced.
+    fake_clickup.comments_response = {
+        "comments": [
+            repo_marker_comment(handler.MARKETING_REPO),
+            repo_marker_comment(handler.OMNI_REPO, routed=handler.MARKETING_REPO),
+        ]
+    }
+
+    handler.handler(make_event(tag_updated_body(tags=("gpbot-analyze",))), None)
+
+    assert engineer_agent_env(fake_ecs.run_task_calls[0])["TARGET_REPO"] == handler.OMNI_REPO
+
+
+def test_deleting_the_marker_returns_the_ticket_to_its_list(fake_clickup, fake_ecs, ecs_env):
+    # The documented escape hatch, and the reason the redirect is a comment
+    # rather than something only the bot can see.
+    fake_clickup.comments_response = {"comments": []}
+
+    handler.handler(make_event(tag_updated_body(tags=("gpbot-analyze",))), None)
+
+    assert engineer_agent_env(fake_ecs.run_task_calls[0])["TARGET_REPO"] == handler.OMNI_REPO

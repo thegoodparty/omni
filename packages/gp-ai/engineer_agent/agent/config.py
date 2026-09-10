@@ -2,7 +2,7 @@ import math
 import os
 from dataclasses import dataclass
 
-from .repos import resolve_repo
+from .repos import other_profiles, resolve_repo
 
 BOT_PREFIX = "[GP-Bot]"
 
@@ -84,13 +84,20 @@ CAPABILITIES = {
 
 
 def build_capability_prompt(target_repo: str | None = None) -> str:
-    """The system prompt, briefed for the one repo this run is about.
+    """The system prompt, briefed for the repo this run is about and the rest.
 
-    Only the target repo's briefing is included. Handing the model every repo it
-    could theoretically touch and trusting it to pick invites exactly the mistake
-    that is most expensive here — working confidently in the wrong codebase.
+    Every repo's briefing is included, with the routed one marked as the only
+    place a PR may be opened. That is a deliberate reversal: showing one briefing
+    and one only was meant to stop the model working confidently in the wrong
+    codebase, which is still the expensive mistake.
+
+    It stopped the wrong thing. A bug is reported by symptom, and the symptom does
+    not know which repo produced it, so a run that must stop at the repo boundary
+    stops on exactly the tickets where finding the cause was the whole job. The
+    boundary now applies to writes rather than reads — see repos.other_profiles.
     """
     profile = resolve_repo(target_repo)
+    other_briefings = "\n\n".join(p.briefing for p in other_profiles(profile))
     return f"""You are an expert software engineer.
 
 ## TOOLS AVAILABLE
@@ -101,19 +108,48 @@ def build_capability_prompt(target_repo: str | None = None) -> str:
 
 ## THE REPO FOR THIS TASK
 
-This run is about **{profile.full_name}**. Work in that repo and no other, and
-open any PR against its `{profile.base_branch}` branch.
+This run is about **{profile.full_name}**. Any PR you open goes there, against
+its `{profile.base_branch}` branch, and nowhere else.
 
-**If the bug is not in this repo, say so and stop.** You were pointed here by
-the ClickUp list the ticket was filed in. That is a good guess, not a fact: the
-same list collects bugs whose code lives elsewhere — an email template, an API,
-a data pipeline. If the behaviour described is produced by code in another repo,
-give the verdict `needs-human`, name the repo you believe it belongs in, and say
-what evidence pointed you there. Do not go looking for something in this repo to
-change instead. A confident fix in the wrong codebase is the most expensive
-thing you can produce here, because it looks exactly like work.
+**You were pointed here by the ClickUp list the ticket was filed in. That is a
+good guess, not a fact.** Bugs are reported by symptom, and a symptom does not
+know which repo produced it: the same list collects bugs whose cause is an email
+template, an API, or a data pipeline. The first marketing ticket this bot ever
+saw was routed here by its list and turned out to be a gp-api email.
+
+**So follow the cause wherever it goes.** Read any repo below that you need to.
+Clone it, grep it, read its docs. Finding out that the cause is elsewhere is a
+real answer and a useful one — much more useful than stopping at the boundary
+and handing a human an investigation to start over.
+
+Two rules bound that freedom, and they are what keep it safe:
+
+1. **Read anywhere, write in one place.** You may examine every repo below. You
+   may open a PR only in **{profile.full_name}**. A confident fix in the wrong
+   codebase is the most expensive thing you can produce, because it looks
+   exactly like work.
+2. **Name where the fix belongs**, on the `GPBOT-REPO:` line described with the
+   verdict in your task instruction. If the cause is not in
+   {profile.full_name}, do not look for something here to change instead. Say
+   where it is. That line is machine-read, and the implementation run is pointed
+   at the repo it names — so naming the right repo is how a fix actually reaches
+   the right codebase.
+
+**When a bug genuinely spans two repos** — a link in one pointing at a page in
+another, a caller and its API — work out which side actually has the defect.
+Usually only one does, and that side is your answer. Only when the fix truly
+cannot be made in a single repo does it need coordinated PRs: say so, describe
+what each side needs, and give the verdict `needs-human`. Do not guess at half
+of it.
 
 {profile.briefing}
+
+### Other repos you may read
+
+You were not routed to these. Do not open a PR in one. They are here so that if
+the cause turns out to live in one, you can read it knowing how it works.
+
+{other_briefings}
 
 **Databricks** (read-only): `python -m engineer_agent.scripts.query_db --help`
 Default catalog: goodparty_data_catalog.dbt

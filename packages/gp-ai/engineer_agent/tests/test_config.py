@@ -61,12 +61,16 @@ def test_capability_prompt_omits_people_api_from_live_packages():
 
 
 def test_capability_prompt_targets_omni_main_for_prs():
-    # `develop` was deleted in the single-trunk migration; a PR opened against
-    # it fails at the gh call after the agent has already done all the work.
-    # The negative assertion is the load-bearing half.
+    # `develop` was deleted from omni in the single-trunk migration; a PR opened
+    # against it fails at the gh call after all the work is done.
+    #
+    # The assertion used to be that the word `develop` appeared nowhere. It
+    # cannot be any more: gp-marketing's briefing is now included for reading
+    # and its default branch IS develop. So this pins the thing that actually
+    # matters — the branch stated for THIS run's PR.
     prompt = build_capability_prompt()
-    assert "`main`" in prompt
-    assert "develop" not in prompt
+    assert "against\nits `main` branch" in prompt
+    assert "`develop` branch" not in prompt
 
 
 # ---------------------------------------------------------------------------

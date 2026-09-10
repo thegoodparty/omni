@@ -28,6 +28,7 @@ from typing import Any
 from shared.logger import get_logger
 
 from .config import ANALYZE_LABEL
+from .repos import UnknownRepoError, resolve_repo
 
 logger = get_logger(__name__)
 
@@ -89,6 +90,45 @@ def escalation_enabled_for(repo: str, env: dict[str, str] | None = None) -> bool
     if not escalation_enabled(env):
         return False
     return (repo or "").strip() in escalation_repos(env)
+
+
+# Where the analysis says a fix belongs, when that is not where the run was
+# pointed. Same tolerance as the verdict pattern and for the same reason.
+REPO_PATTERN = re.compile(r"GPBOT-REPO:\s*([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)")
+
+# The comment that carries the repo decision from this process to the next one.
+# The implement run is launched by a ClickUp tag, and a tag cannot say which
+# repo it is about, so the Lambda reads this line off the ticket instead — see
+# repo_named_by_bot in clickup_bot/lambda/handler.py.
+#
+# WRITTEN BY THIS CODE, not by the model. The model names a repo in prose that
+# is parsed and allowlisted here first, and only a resolved profile's own
+# full_name is ever written back out. That keeps the string the Lambda reads
+# deterministic and known-good rather than whatever the model happened to type.
+REPO_MARKER_PREFIX = "[GP-Bot] Implementation will run against"
+
+
+def parse_repo(result_text: Any) -> str | None:
+    """The repo an analysis named as the home of the fix, or None.
+
+    Allowlisted against REPO_PROFILES, so an unrecognised name is None and the
+    caller keeps the repo it was already using. That is the safe direction: the
+    cost is a redirect that did not happen and a ticket a human re-routes, where
+    honouring an unknown name would point a run at a repo the agent has no
+    briefing for and could not have worked in anyway.
+    """
+    if not isinstance(result_text, str):
+        return None
+    matches = REPO_PATTERN.findall(result_text)
+    if not matches:
+        return None
+    # LAST match for the same reason as the verdict: the response may quote the
+    # instruction's own example before giving the real answer.
+    try:
+        return resolve_repo(matches[-1]).full_name
+    except UnknownRepoError:
+        logger.info(f"Analysis named repo {matches[-1]!r}, which has no profile; keeping the routed repo")
+        return None
 
 
 def parse_verdict(result_text: Any) -> str | None:
@@ -267,7 +307,18 @@ def maybe_escalate(result: dict, label: str, client_factory: Any = None, target_
             # Empty means nobody routed this run, which resolve_repo() reads as
             # omni; read it the same way rather than failing a run that worked
             # before the field existed.
-            repo = (target_repo or "").strip() or DEFAULT_ESCALATION_REPOS[0]
+            routed = (target_repo or "").strip() or DEFAULT_ESCALATION_REPOS[0]
+
+            # THE ANALYSIS OUTRANKS THE LIST THAT ROUTED IT. The list records
+            # where a human filed the ticket; the analysis is the only thing here
+            # that actually read code. When they disagree, the run that just
+            # spent its budget establishing the cause is the better evidence.
+            repo = parse_repo(result.get("result")) or routed
+
+            # Against the repo the FIX is in, not the one this run read. A
+            # marketing bug filed into an omni list would otherwise be waved
+            # through by omni's ramp and open a PR in a repo still marked
+            # analyze-only — the ramp would be measuring the wrong repo.
             if not escalation_enabled_for(repo):
                 logger.info(
                     f"Analysis verdict 'fix' for {task_id} in {repo}; that repo is analyze-only, not escalating"
@@ -277,6 +328,21 @@ def maybe_escalate(result: dict, label: str, client_factory: Any = None, target_
             if already_queued(task):
                 logger.info(f"Task {task_id} already carries {IMPLEMENT_TAG}; not re-tagging")
                 return "already queued"
+
+            # BEFORE THE TAG, and that order is the whole correctness of this.
+            # The tag is what launches the implement run, and the Lambda decides
+            # that run's repo by reading this comment. Written afterwards, the
+            # webhook could arrive first and the run would start against the
+            # list's guess — the exact redirect this exists to perform.
+            if repo != routed:
+                logger.info(f"Analysis moved {task_id} from {routed} to {repo}")
+                client.create_task_comment(
+                    task_id,
+                    f"{REPO_MARKER_PREFIX} `{repo}`, not `{routed}`. "
+                    f"The ticket's list pointed here at `{routed}`; the analysis above found the cause in "
+                    f"`{repo}`. Delete this comment to send the implementation run back to `{routed}`.",
+                )
+
             client.add_tag_to_task(task_id, IMPLEMENT_TAG)
     except Exception as e:
         # Alarm-matching, and swallowed: see the docstring. The recovery is a

@@ -259,6 +259,26 @@ GPBOT-VERDICT: needs-human
 
 Pick the conservative verdict when torn. `needs-human` costs a human a read;
 `fix` on a bug you have not actually understood costs a human a wrong PR.
+
+## WHICH REPO THE FIX BELONGS IN (required whenever it is not the one you were routed to)
+
+You were routed to a repo by the ClickUp list this ticket sits in, and that is a
+guess. If your investigation put the cause somewhere else, add this line
+directly above the verdict:
+
+```
+GPBOT-REPO: thegoodparty/gp-marketing
+```
+
+Use the repo's full `owner/name`, exactly as the briefing spells it, and name
+exactly one — the repo a PR would have to change. This is machine-read: the
+implementation run is pointed at the repo it names instead of at the list's
+guess, which is the only way a fix reaches a codebase the list did not know
+about. An unrecognised name is ignored and the list's guess stands, so a typo
+costs you the redirect.
+
+Leave it out when the cause is in the repo you were routed to. Saying so again
+changes nothing, and the line exists to correct the guess, not to confirm it.
 """
 
 IMPLEMENT_INSTRUCTION = """## YOUR TASK: Implement and Create PR
@@ -710,10 +730,59 @@ def implement_repos() -> frozenset:
     return named or DEFAULT_IMPLEMENT_REPOS
 
 
-def target_repo(task: Any) -> str:
+# How an analyze run tells this Lambda that the list routed its ticket wrong.
+#
+# The redirect has to survive a process boundary. An implement run is launched
+# by a ClickUp tag, a tag cannot carry a repo, and the analysis that worked out
+# where the cause actually lives has exited by then. So it leaves the answer on
+# the ticket and this reads it back.
+#
+# WRITTEN BY CODE, NOT BY THE MODEL. engineer_agent's escalation parses the repo
+# the model named, resolves it against the profile table, and writes only a
+# resolved full_name — so the string matched here is deterministic, and the
+# allowlist below is a second check on an already-checked value rather than the
+# only one. A human can delete the comment to undo the redirect, which is the
+# documented escape hatch.
+REPO_MARKER_PATTERN = re.compile(r"\[GP-Bot\] Implementation will run against `([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)`")
+
+
+def repo_named_by_bot(comments: list[dict]) -> str | None:
+    """The repo a bot analysis redirected this ticket to, or None.
+
+    Allowlisted against BASE_BRANCH_BY_REPO, so an unknown name leaves the
+    list's routing standing rather than pointing a run at a repo the agent has
+    no briefing for.
+    """
+    named = None
+    for comment in comments:
+        if not isinstance(comment, dict):
+            continue
+        text = comment.get("comment_text")
+        if not isinstance(text, str) or not text:
+            continue
+        match = REPO_MARKER_PATTERN.search(text)
+        # Keeps scanning rather than returning, so the LAST marker wins: a
+        # re-analysis that changed its mind should not be overruled by the
+        # first answer, and ClickUp returns comments oldest-first.
+        if match and match.group(1) in BASE_BRANCH_BY_REPO:
+            named = match.group(1)
+    return named
+
+
+def target_repo(task: Any, comments: list[dict] | None = None) -> str:
     # Which repo this ticket's fix belongs in. Shape-defensive and defaulting to
     # omni: an unreadable list is the same as an unrouted one, and omni is where
     # every ticket went before this existed.
+    #
+    # A bot redirect outranks the list. The list records where a human filed the
+    # ticket; the redirect is written only after a run has read actual code and
+    # found the cause somewhere else. Comments are optional because the analyze
+    # path has no reason to pay for them — nothing has analysed the ticket yet,
+    # so there is nothing to read.
+    if comments:
+        named = repo_named_by_bot(comments)
+        if named:
+            return named
     if not isinstance(task, dict):
         return DEFAULT_REPO
     task_list = task.get("list")
@@ -1383,21 +1452,6 @@ def dedup_check_then_trigger(task_id: str, matched_tag: str | None, from_async_w
             print(f"Task {task_id} out of scope for {IMPLEMENT_LABEL}: {skip_reason}")
             return {"statusCode": 200, "body": json.dumps({"skipped": "out of scope"})}
 
-        # AFTER the scope check, matching the same ordering and the same reason
-        # in escalation.maybe_escalate. The ramp's skip count is its own
-        # measurement — while a repo is analyze-only, counting these answers
-        # "how many PRs would this repo have opened if it were on?", and that is
-        # the number the flip decision rests on. A data ticket refused for being
-        # data work would never have become a PR either way, so letting it land
-        # in this bucket inflates the answer.
-        ticket_repo = target_repo(task)
-        if ticket_repo not in implement_repos():
-            # Quiet, like the scope guard above: this is the ramp working, not a
-            # fault. The analysis still runs and still posts; only the code
-            # writing is held back.
-            print(f"Task {task_id} routes to {ticket_repo}, which is analyze-only; not launching {IMPLEMENT_LABEL}")
-            return {"statusCode": 200, "body": json.dumps({"skipped": "repo is analyze-only"})}
-
     try:
         comments = get_task_comments(task_id)
     except Exception as e:
@@ -1428,6 +1482,28 @@ def dedup_check_then_trigger(task_id: str, matched_tag: str | None, from_async_w
             post_failure_comment(task_id, f"{type(e).__name__} fetching ClickUp comments (see CloudWatch logs)")
             return {"statusCode": 500, "body": json.dumps({"error": "failed to get comments"})}
 
+    # WHICH REPO THIS RUN IS ABOUT, decided once and used for both the ramp gate
+    # and the launch so the two can never disagree.
+    #
+    # Needs the comments, which is why it is here and not up with the scope
+    # guard: an analyze run that found the cause in another repo leaves a marker
+    # comment saying so, and that outranks the list this ticket was filed in.
+    # The scope guard stays above the comments GET on purpose — an out-of-scope
+    # ticket must cost one ClickUp call and must never be acked.
+    ticket_repo = target_repo(task, comments)
+
+    # BEFORE the dedup claim, as it was before: a claim burned on a ticket this
+    # then refuses would outlive the delivery and suppress a real re-trigger for
+    # the whole TTL.
+    if config["label"] == IMPLEMENT_LABEL and ticket_repo not in implement_repos():
+        # Quiet, like the scope guard: this is the ramp working, not a fault.
+        # The analysis still runs and still posts; only the code writing is held
+        # back. The count is the ramp's own measurement — while a repo is
+        # analyze-only it answers "how many PRs would this repo have opened if
+        # it were on?", which is the number the flip decision rests on.
+        print(f"Task {task_id} routes to {ticket_repo}, which is analyze-only; not launching {IMPLEMENT_LABEL}")
+        return {"statusCode": 200, "body": json.dumps({"skipped": "repo is analyze-only"})}
+
     if has_processing_started_comment(comments, config["label"]):
         print(f"Task {task_id} already has a recent {PROCESSING_STARTED_PREFIX} ({config['label']}) comment, skipping")
         return {"statusCode": 200, "body": json.dumps({"skipped": "already processed"})}
@@ -1449,7 +1525,7 @@ def dedup_check_then_trigger(task_id: str, matched_tag: str | None, from_async_w
         config["label"],
         config["model"],
         retry_ack=from_async_worker,
-        repo=target_repo(task),
+        repo=ticket_repo,
     )
     if result.get("statusCode") != 200:
         # Launch failed: release the claim so the documented retry contract
