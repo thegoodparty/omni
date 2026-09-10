@@ -850,16 +850,11 @@ describe('CreateListFlow', () => {
     )
     advanceToRoute(rerender, {}, 'Lakeview blitz')
 
-    expect(heading('How will you knock?')).toBeInTheDocument()
+    expect(heading('Do you want to walk or drive?')).toBeInTheDocument()
     expect(
-      screen.getByText(/This builds the route and locks the turf/),
+      screen.getByText(/We’ll build your route and freeze it/),
     ).toBeInTheDocument()
-    expect(
-      screen.getByText(/frozen so everyone works from the same plan/),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText(/You only do this once per turf/),
-    ).toBeInTheDocument()
+    expect(screen.getByText(/working with the same list/)).toBeInTheDocument()
   })
 
   // The one press that spends money, so it says so while it is spending and

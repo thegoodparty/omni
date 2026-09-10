@@ -162,6 +162,9 @@ export interface CreateListSurfaceProps {
   // from three points, so this is the only thing that knows there is a one- or
   // two-point shape to undo.
   drawPointCount: number
+  // Drop the most recently placed vertex. Threaded through to the drawing
+  // surface's Undo button.
+  onUndoPoint: () => void
   // Whether the map is uncovered and live. Owned by `useCreateListDraw` above
   // — it is a fact about the canvas, which outlives this surface.
   drawFullScreen: boolean
@@ -215,6 +218,7 @@ export default function CreateListSurface({
   ring,
   turfStats,
   drawPointCount,
+  onUndoPoint,
   drawFullScreen,
   onDrawFullScreenChange,
   onRestartDrawing,
@@ -375,6 +379,7 @@ export default function CreateListSurface({
       // nothing would go out.
       onRetryAddresses={() => void previewQuery.refetch()}
       drawPointCount={drawPointCount}
+      onUndoPoint={onUndoPoint}
       drawFullScreen={drawFullScreen}
       onDrawFullScreenChange={onDrawFullScreenChange}
       onRestartDrawing={onRestartDrawing}

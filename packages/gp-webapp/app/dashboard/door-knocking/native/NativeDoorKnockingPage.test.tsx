@@ -115,6 +115,7 @@ vi.mock('./VoterMapCanvas', () => ({
     selectedStopId,
     initialZoom,
     drawColor,
+    drawOverCap,
     frameDrawToken,
     frameDrawBottomPct,
     controlsHidden,
@@ -122,10 +123,6 @@ vi.mock('./VoterMapCanvas', () => ({
     location,
     liveLocationEnabled,
     onToggleLiveLocation,
-    onUndoPoint,
-    hasPointToUndo,
-    drawStopCount,
-    drawStopsOverCap,
     onPolygonChange,
     onDrawPointCount,
     onRoutePinClick,
@@ -136,6 +133,7 @@ vi.mock('./VoterMapCanvas', () => ({
     selectedStopId: number | null
     initialZoom?: number
     drawColor: string
+    drawOverCap?: boolean
     frameDrawToken: number
     frameDrawBottomPct: number
     controlsHidden?: boolean
@@ -143,10 +141,6 @@ vi.mock('./VoterMapCanvas', () => ({
     location: { status: string }
     liveLocationEnabled?: boolean
     onToggleLiveLocation?: (next: boolean) => void
-    onUndoPoint?: () => void
-    hasPointToUndo?: boolean
-    drawStopCount?: number
-    drawStopsOverCap?: boolean
     onPolygonChange: (ring: Array<[number, number]> | null) => void
     onDrawPointCount?: (count: number) => void
     onRoutePinClick?: (pin: { stopId: number }) => void
@@ -180,6 +174,10 @@ vi.mock('./VoterMapCanvas', () => ({
       // choosing the colour their list will be drawn in has nothing to judge it
       // by unless the shape on screen is already wearing it.
       data-draw-color={drawColor}
+      // Whether the drawn shape is over the 150-stop cap. The canvas swaps
+      // the boundary's hue to destructive red when true; observable here so
+      // the page-level wiring can be asserted without pulling in maplibre.
+      data-draw-over-cap={String(Boolean(drawOverCap))}
       // Bumped by a step that has just covered part of the map, with the covered
       // fraction beside it so the fit lands in the band that is left.
       data-frame={String(frameDrawToken)}
@@ -229,24 +227,6 @@ vi.mock('./VoterMapCanvas', () => ({
           {`tap pin ${pin.stopId}`}
         </button>
       ))}
-      {/* Undo + count pill, only when the drawing surface is up (the
-          page passes `onUndoPoint` there and nowhere else). Match the
-          real cluster's contents so tests can find the button and
-          assert on the pill's text without touching the real canvas
-          module. */}
-      {onUndoPoint && (
-        <div
-          data-testid="draw-undo-cluster"
-          data-can-undo={String(hasPointToUndo ?? false)}
-        >
-          <button type="button" aria-label="Undo" onClick={() => onUndoPoint()}>
-            undo
-          </button>
-          <span data-over-cap={String(drawStopsOverCap ?? false)}>
-            {(drawStopCount ?? 0).toLocaleString()} selected
-          </span>
-        </div>
-      )}
     </div>
   ),
 }))
