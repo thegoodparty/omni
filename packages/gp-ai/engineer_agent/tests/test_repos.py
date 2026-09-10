@@ -131,14 +131,19 @@ class TestTheBriefingTheModelReads:
         # ai-rules/ is a submodule and CI runs a check out of it.
         assert "--recurse-submodules" in build_capability_prompt(MARKETING)
 
-    def test_reading_the_marketing_repo_does_not_wait_on_an_admin(self):
-        # The repo is public. If the GitHub App installation does not cover it
-        # yet, an authenticated clone is refused — and without this fallback the
-        # entire analyze ramp would be blocked behind a GitHub org admin doing
-        # something, for a repo anyone can already read.
+    def test_a_refused_clone_does_not_end_a_marketing_analysis(self):
+        # The App is installed org-wide with write to code and pull requests, so
+        # a refused clone here means a broken token, not a repo the bot is not
+        # allowed in. Either way the repo is public and readable, and an analysis
+        # that stops at a credential error costs a human the whole investigation
+        # for a repo anyone can already read.
         prompt = build_capability_prompt(MARKETING)
         assert "https://github.com/thegoodparty/gp-marketing.git" in prompt
-        assert "PUBLIC" in prompt
+        assert "public" in prompt
+        # Read-only is the fallback's limit, and the model has to be told: a
+        # branch pushed from an unauthenticated clone fails, and silently
+        # retrying it burns the run instead of asking for the token to be fixed.
+        assert "cannot push" in prompt
 
 
 class TestBeingPointedAtTheWrongRepo:

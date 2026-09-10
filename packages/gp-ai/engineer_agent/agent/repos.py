@@ -70,14 +70,17 @@ git clone --depth 1 --recurse-submodules https://x-access-token:$GITHUB_TOKEN@gi
 ```
 Clone WITH submodules: `ai-rules/` is a submodule and CI runs a check out of it.
 
-If that clone is refused (403, or "repository not found"), the GitHub App
-installation does not cover this repo yet. It is PUBLIC, so read it without
-credentials rather than giving up:
+The App is installed org-wide with write access to code and pull requests, so
+that clone and a later push should both work here. If the clone is refused
+anyway (403, or "repository not found"), treat it as a broken token rather than
+a repo you are not allowed in, and do not give up on the analysis — the repo is
+public, so read it without credentials:
 ```bash
 git clone --depth 1 --recurse-submodules https://github.com/thegoodparty/gp-marketing.git /workspace/gp-marketing
 ```
-An analysis can be finished that way. Pushing a branch cannot — if you need to
-push and the authenticated clone was refused, say so on the ticket and stop.
+That finishes an analysis but cannot push a branch. If you needed to push, say
+on the ticket that the credential failed and stop, so a human fixes the token
+instead of re-running into the same wall.
 
 Single Next.js 15 App Router app (React 19, TypeScript, Tailwind 4) — NOT a
 monorepo, so there is one root `package.json` and no `packages/` directory.
