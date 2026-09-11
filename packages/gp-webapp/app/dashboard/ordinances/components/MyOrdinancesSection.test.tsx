@@ -21,6 +21,7 @@ const inProgress: OrdinanceSummary = {
   status: 'in_progress',
   draftTitle: null,
   goalText: 'Reduce late-night noise',
+  sourcePriorityId: null,
   lastViewedStep: 'authority',
 }
 
@@ -31,6 +32,7 @@ const drafted: OrdinanceSummary = {
   status: 'draft',
   draftTitle: 'An Ordinance Levying a Sugar Tax',
   goalText: 'Sugar tax',
+  sourcePriorityId: null,
   lastViewedStep: 'draft',
 }
 

@@ -26,6 +26,7 @@ model Priority {
 
   briefingItemLinks MeetingBriefingItemLink[]
   profileIssues     PersonProfileIssue[]
+  ordinances        Ordinance[]
 
   @@index([electedOfficeId, archivedAt])
   @@map("priority")

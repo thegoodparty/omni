@@ -11,6 +11,13 @@ model Ordinance {
   sourceLink String? @map("source_link")
   goalText   String? @map("goal_text") @db.Text
 
+  // The priority this was seeded from, when it was. Not unique: one priority
+  // can reasonably produce more than one ordinance over a term. SetNull rather
+  // than Cascade — archiving a priority must not delete a draft written under
+  // it.
+  sourcePriorityId String?   @map("source_priority_id")
+  sourcePriority   Priority? @relation(fields: [sourcePriorityId], references: [id], onDelete: SetNull)
+
   // AI-generated / gathered step artifacts. JsonB, validated by the matching
   // @goodparty_org/contracts schema at write time and never queried by shape
   // (same justification as MeetingBriefing.artifact, rules.mdc Rule 25). If a
@@ -79,6 +86,7 @@ model Ordinance {
   // without this it seq-scans the table.
   @@index([qualityLoopStatus, qualityLoopUpdatedAt])
   @@index([electedOfficeId, deletedAt, updatedAt])
+  @@index([sourcePriorityId])
   @@map("ordinance")
 }
 

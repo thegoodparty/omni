@@ -154,6 +154,7 @@ const makeOrdinance = (overrides: Partial<Ordinance> = {}): Ordinance =>
     status: 'draft',
     draftTitle: 'Draft amendment to Chapter 12',
     goalText: 'Add camera guardrails',
+    sourcePriorityId: null,
     draftBody: 'Original body.',
     draftSources: null,
     qualityReport: null,

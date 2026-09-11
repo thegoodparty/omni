@@ -62,8 +62,15 @@ export function useChiefOfStaffTaskCards({
 
   const out: TaskCardData[] = []
 
-  const activeOnboarding = ONBOARDING_CARD_ORDER.filter((key) =>
-    onboarding?.some((c) => c.key === key && c.status === 'active'),
+  // `meet` is dropped on this surface. Its whole job is to get an official
+  // into the chat, and on this home they are already in it — and its
+  // completion test is "has a chief-of-staff conversation", which this home
+  // does not create until the first send, so the card would sit in the rail
+  // inviting someone to meet the agent they are looking at.
+  const activeOnboarding = ONBOARDING_CARD_ORDER.filter(
+    (key) =>
+      key !== 'meet' &&
+      onboarding?.some((c) => c.key === key && c.status === 'active'),
   )
   for (const key of activeOnboarding) {
     const config = ONBOARDING_CARDS[key]

@@ -2,13 +2,11 @@
  * Whether a priority already has an ordinance being drafted for it, and how to
  * start one if not.
  *
- * There is no foreign key between the two. Seeding an ordinance from a priority
- * copies the priority's title into `goalText` (see MyPriorityIssuesSection),
- * so that is the join: a soft one, matched on exact text. It reliably finds an
- * ordinance seeded from this priority and deliberately will not find one the
- * official started by hand with different wording — in which case the worst
- * case is offering to start one, not losing their draft. A real
- * `sourcePriorityId` column would replace this.
+ * Matched on `sourcePriorityId`, which seeding now sets. The title-text
+ * fallback below is for rows created before that column existed: seeding has
+ * always copied the priority's title into `goalText`, so an older draft is
+ * still findable, and dropping the fallback would orphan every ordinance
+ * started before this. New rows never need it.
  */
 
 'use client'
@@ -57,16 +55,21 @@ export const usePriorityOrdinance = (
     },
   })
 
-  const existing = data?.find(
-    (row) =>
-      row.goalText && normalize(row.goalText) === normalize(priority.title),
-  )
+  const existing =
+    data?.find((row) => row.sourcePriorityId === priority.id) ??
+    data?.find(
+      (row) =>
+        row.sourcePriorityId === null &&
+        row.goalText &&
+        normalize(row.goalText) === normalize(priority.title),
+    )
 
   const start = useMutation({
     mutationFn: async (): Promise<string> => {
       const ordinance = await createOrdinance({
         seedType: 'new',
         goalText: priority.title,
+        sourcePriorityId: priority.id,
       })
       return `/dashboard/ordinances/solve/${ordinance.slug}/clarify`
     },

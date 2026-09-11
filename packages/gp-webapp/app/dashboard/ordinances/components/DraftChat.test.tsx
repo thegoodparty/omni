@@ -40,6 +40,7 @@ const ordinance = {
   slug: 'public-safety-cameras',
   draftTitle: 'Draft amendment',
   goalText: 'Add camera guardrails',
+  sourcePriorityId: null,
 } as unknown as Ordinance
 
 const message = (id: string, role: 'user' | 'assistant', content: string) => ({

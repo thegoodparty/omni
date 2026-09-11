@@ -202,4 +202,22 @@ describe('PriorityNextStep', () => {
       ).toBeInTheDocument()
     })
   })
+
+  // The lookup keys on sourcePriorityId now that seeding sets it. The goalText
+  // fallback only exists for drafts created before that column, so a row that
+  // carries an id must not be matched by text.
+  it('resumes by source priority id, not by title text', () => {
+    ordinanceMock.mockReturnValue({
+      existing: { slug: 'by-id', lastViewedStep: null },
+      isPending: false,
+      start: startOrdinanceMock,
+      isStarting: false,
+      hasError: false,
+    })
+    render(<PriorityNextStep priority={priority('ready_for_vote')} />)
+
+    expect(
+      screen.getByRole('link', { name: /Pick your draft back up/ }),
+    ).toHaveAttribute('href', '/dashboard/ordinances/solve/by-id/clarify')
+  })
 })

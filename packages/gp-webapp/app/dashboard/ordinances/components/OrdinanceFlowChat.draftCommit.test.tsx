@@ -22,6 +22,7 @@ const ordinance: Ordinance = {
   issueSlug: 'public-safety-cameras',
   sourceLink: null,
   goalText: 'Expand public safety cameras with guardrails',
+  sourcePriorityId: null,
   existingLaw: null,
   clarify: null,
   clarifyAnswers: null,

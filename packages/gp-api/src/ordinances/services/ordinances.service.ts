@@ -88,6 +88,7 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
         issueSlug: dto.issueSlug ?? null,
         sourceLink: dto.sourceLink ?? null,
         goalText: dto.goalText ?? null,
+        sourcePriorityId: dto.sourcePriorityId ?? null,
       },
     })
     return this.toResponse(record)
@@ -581,6 +582,7 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
       seedType: record.seedType,
       draftTitle: record.draftTitle,
       goalText: record.goalText,
+      sourcePriorityId: record.sourcePriorityId,
       lastViewedStep: record.lastViewedStep,
       qualityLoopStatus: record.qualityLoopStatus,
       createdAt: record.createdAt.toISOString(),

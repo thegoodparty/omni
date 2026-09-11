@@ -372,6 +372,9 @@ export const OrdinanceSchema = z.object({
   issueSlug: z.string().nullable(),
   sourceLink: z.string().nullable(),
   goalText: z.string().nullable(),
+  // The priority this was seeded from, when it was. Lets a surface find the
+  // in-flight draft for a priority instead of matching on goal text.
+  sourcePriorityId: z.string().nullable(),
   existingLaw: OrdinanceExistingLawSchema.nullable(),
   clarify: OrdinanceClarifySchema.nullable(),
   clarifyAnswers: OrdinanceClarifyAnswersSchema.nullable(),
@@ -400,6 +403,7 @@ export const OrdinanceSummarySchema = OrdinanceSchema.pick({
   seedType: true,
   draftTitle: true,
   goalText: true,
+  sourcePriorityId: true,
   lastViewedStep: true,
   createdAt: true,
   updatedAt: true,
@@ -428,6 +432,7 @@ export const CreateOrdinanceRequestSchema = z
     issueSlug: z.string().optional(),
     sourceLink: z.string().url().optional(),
     goalText: z.string().optional(),
+    sourcePriorityId: z.string().optional(),
   })
   .refine((v) => v.seedType !== 'issue' || Boolean(v.issueSlug), {
     message: 'issueSlug is required when seedType is "issue"',
