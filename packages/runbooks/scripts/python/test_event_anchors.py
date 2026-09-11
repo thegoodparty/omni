@@ -1305,3 +1305,33 @@ def test_collect_candidates_skips_a_govern_anchored_new_row_silently(tmp_path, c
     assert ea.collect_candidates(
         repo, {}, run_query=_fake_run_query(_GOVERN_ANCHORED_ROW)) == []
     assert "Already Anchored" not in capsys.readouterr().err
+
+
+def test_review_artifact_header_tells_the_reviewer_where_to_edit_and_how_to_hand_it_back():
+    """The Slack digest links straight to this file, so the file has to close the loop on
+    its own. A queue that says "12 anchors need review" and then does not say what to edit
+    or what happens next is a dead end."""
+    text = ea.render_review_artifact(
+        {"E": {"fires_on": "x", "url": "/y", "confidence": "high", "flag_reason": "",
+               "evidence": "a.tsx:1", "disposition": "new", "reason": ""}},
+        "2026-09-11")
+    assert "instrumentation_data/event-anchors-review.md" in text   # where it lives
+    assert "--load-review" in text                                   # how to hand it back
+    assert "disposition" in text                                     # what to fill in
+    assert "Amplitude Govern" in text                                # what it does NOT do
+
+
+def test_bare_review_artifact_flag_writes_the_copy_the_digest_links_to(tmp_path, monkeypatch):
+    """`--review-artifact` with no path must render the committed file the Slack link
+    targets. With `nargs="?"` but no `const` the bare flag renders to None and the digest's
+    link points at a file nothing ever writes."""
+    state = {"E": {"fires_on": "x", "url": "/y", "confidence": "high", "flag_reason": "",
+                   "evidence": "a.tsx:1", "disposition": "new", "reason": ""}}
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps(state))
+    target = tmp_path / "event-anchors-review.md"
+    monkeypatch.setattr(ea, "DEFAULT_REVIEW_ARTIFACT", target)
+
+    assert ea.main(["--state", str(state_path), "--review-artifact",
+                    "--today", "2026-09-11"]) == 0
+    assert "## E" in target.read_text()

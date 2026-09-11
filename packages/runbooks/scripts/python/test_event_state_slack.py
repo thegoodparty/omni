@@ -717,3 +717,46 @@ def test_legacy_layout_unchanged_when_triage_none():
     explicit = slk.build_digest_blocks(result, changes, {}, set(), gap=None, triage=None)
     assert legacy == explicit
     assert "Needs action" not in _flatten_text(legacy[0])
+
+
+# --- anchors review entry point (DATA-2426) ----------------------------------
+
+
+def test_anchor_block_carries_both_links_and_is_silent_on_an_empty_queue():
+    """The block exists to be an entry point: a count plus where to read and where to edit.
+    An empty queue renders nothing rather than posting a zero."""
+    assert slk.build_anchor_blocks({"queued": 0, "flagged": 0}) == []
+
+    blocks = slk.build_anchor_blocks({"queued": 12, "flagged": 9})
+    body = blocks[0]["text"]["text"]
+    assert "12 drafted anchor(s) queued, 9 flagged" in body
+    # The reviewer has to be told what to DO, not just that work exists.
+    assert "disposition" in body
+    links = blocks[-1]["elements"][0]["text"]
+    assert slk.anchors_review_url() in links
+
+
+def test_anchor_queue_counts_only_undecided_rows(tmp_path):
+    """A reviewed row must leave the queue, or the digest nags forever about work that is
+    done. `open` is deliberately still queued — it is the "come back to this" disposition."""
+    state = {
+        "A": {"disposition": "new", "confidence": "low"},
+        "B": {"disposition": "open", "confidence": "high"},
+        "C": {"disposition": "accepted", "confidence": "low"},
+        "D": {"disposition": "dismissed", "confidence": "low"},
+    }
+    path = tmp_path / "event_anchors.json"
+    path.write_text(json.dumps(state))
+    assert slk.load_anchor_queue(path) == {"queued": 2, "flagged": 1}
+
+
+def test_anchor_queue_survives_a_missing_or_corrupt_state_file(tmp_path):
+    """Pre-seed the file does not exist, and a bad hand-edit must not take the digest down
+    with it — both degrade to a skipped block, never an exception."""
+    assert slk.load_anchor_queue(tmp_path / "absent.json") == {"queued": 0, "flagged": 0}
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+    assert slk.load_anchor_queue(bad) == {"queued": 0, "flagged": 0}
+    listish = tmp_path / "list.json"
+    listish.write_text("[]")
+    assert slk.load_anchor_queue(listish) == {"queued": 0, "flagged": 0}

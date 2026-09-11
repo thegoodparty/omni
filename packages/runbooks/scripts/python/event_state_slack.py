@@ -24,8 +24,10 @@ injectable ``transport`` so the network call is faked in tests.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+from pathlib import Path
 from typing import Any, Callable
 
 import requests
@@ -208,6 +210,79 @@ def build_gap_thread_blocks(gap: dict) -> list[dict]:
     ) if b]
     if links:
         blocks.append(_context(" · ".join(links)))
+    return blocks
+
+
+ANCHOR_STATE_PATH = (Path(__file__).parent / "instrumentation_data" / "event_anchors.json")
+ANCHOR_REVIEW_URL = ("https://github.com/thegoodparty/omni/blob/main/packages/runbooks/"
+                     "scripts/python/instrumentation_data/event-anchors-review.md")
+
+
+def anchors_review_url() -> str:
+    """The rendered review queue on main — the file a reviewer actually edits. Mirrors
+    gaps_feedback_url, except it points at the rendered markdown rather than the state
+    JSON: the markdown carries its own instructions, so the link is not a dead end."""
+    return os.environ.get("GP_ANCHORS_REVIEW_URL") or ANCHOR_REVIEW_URL
+
+
+def anchors_browse_url() -> str | None:
+    """Read-only anchors tab in the event-state sheet. Mirrors gaps_browse_url; None when
+    no sheet id is set, and the post then omits the link."""
+    explicit = os.environ.get("GP_ANCHORS_BROWSE_URL")
+    if explicit:
+        return explicit
+    sheet_id = os.environ.get("GP_EVENT_STATE_SHEET_ID")
+    if not sheet_id:
+        return None
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
+    gid = os.environ.get("GP_ANCHORS_TAB_GID")
+    return f"{url}#gid={gid}" if gid else url
+
+
+def load_anchor_queue(path: Path | None = None) -> dict:
+    """Counts for the anchor block, read straight from the committed state file.
+
+    Read here rather than imported from event_anchors because that module imports
+    analytics_event_health, which imports this one — going the other way would close an
+    import cycle. Counting two dispositions needs no shared code.
+
+    A missing file is the pre-seed state and yields zeros, so the block is skipped. An
+    unreadable one yields zeros too: a malformed state file must not take the whole digest
+    down, and the anchors tab refresh already warns about it separately.
+    """
+    path = path or ANCHOR_STATE_PATH
+    try:
+        state = json.loads(Path(path).read_text())
+    except (OSError, json.JSONDecodeError):
+        return {"queued": 0, "flagged": 0}
+    if not isinstance(state, dict):
+        return {"queued": 0, "flagged": 0}
+    open_rows = [e for e in state.values()
+                 if isinstance(e, dict) and e.get("disposition") in ("new", "open")]
+    return {
+        "queued": len(open_rows),
+        "flagged": sum(1 for e in open_rows if e.get("confidence") == "low"),
+    }
+
+
+def build_anchor_blocks(queue: dict) -> list[dict]:
+    """One thread block: how many drafted anchors are waiting, and the two links — where to
+    read them and where to edit them. Empty when nothing is queued, so a fully reviewed
+    queue goes quiet instead of posting a zero."""
+    queued = queue.get("queued", 0)
+    if not queued:
+        return []
+    flagged = queue.get("flagged", 0)
+    body = (f"*Where-it-fires anchors awaiting review*\n"
+            f"• {queued} drafted anchor(s) queued, {flagged} flagged low-confidence\n"
+            f"Edit `fires_on` / `url` and set `disposition` in the review file, then ask "
+            f"Claude to load it back.")
+    blocks = [_section(body)]
+    links = [b for b in (
+        f"<{anchors_browse_url()}|📄 Browse anchors>" if anchors_browse_url() else None,
+        f"<{anchors_review_url()}|✍️ Review and edit>",
+    ) if b]
+    blocks.append(_context(" · ".join(links)))
     return blocks
 
 
@@ -444,6 +519,7 @@ def build_digest_blocks(
     if gap is not None:
         parent.append(_context(build_gap_summary_line(gap)))
         thread.extend(build_gap_thread_blocks(gap))
+    thread.extend(build_anchor_blocks(load_anchor_queue()))
     triage_line = build_triage_invocation(result, gap)
     if triage_line:
         thread.append(_context(triage_line))
@@ -523,6 +599,7 @@ def _build_tiered_blocks(
         thread.append(_section("No additional detail."))
     if gap is not None:
         thread.extend(build_gap_thread_blocks(gap))
+    thread.extend(build_anchor_blocks(load_anchor_queue()))
     triage_line = build_triage_invocation(result, gap)
     if triage_line:
         thread.append(_context(triage_line))

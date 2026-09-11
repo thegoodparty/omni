@@ -39,7 +39,7 @@ Two top-level Claude Code skills (auto-discovered, in `.claude/skills/`) own the
 
 ## Analytics governance surfaces
 
-The event-state spreadsheet is generated, never hand-edited. `scripts/python/event_state_gsheet.py` writes every tab: `refresh` (events), `refresh-gaps` (gaps), `refresh-questions` (questions), `refresh-anchors` (anchors, DATA-2426). The scheduled `analytics-governance` workflow runs the first three; `refresh-anchors` is a manual-only read surface over `event_anchors.py`'s review queue until DATA-2426's pilot is read.
+The event-state spreadsheet is generated, never hand-edited. `scripts/python/event_state_gsheet.py` writes every tab: `refresh` (events), `refresh-gaps` (gaps), `refresh-questions` (questions), `refresh-anchors` (anchors, DATA-2426). The scheduled `analytics-governance` workflow runs the first three; `refresh-anchors` stays manual, and mirrors `event_anchors.py`'s review queue read-only. Anchors are reviewed in the committed markdown queue at `scripts/python/instrumentation_data/event-anchors-review.md`, which the Slack digest links to; the `anchors` tab is for browsing, not editing.
 
 Questions are not intaken from the spreadsheet. The source of truth is the ClickUp Analytics Questions list: `scripts/python/question_intake.py` reads accepted questions into `scripts/python/monitored_events.yaml`, and `event_state_gsheet.py writeback-questions` pushes each question's answer state and last-checked date back onto its ClickUp task. See `books/refresh-event-state-surface.md`.
 
