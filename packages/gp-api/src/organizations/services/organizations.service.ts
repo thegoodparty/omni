@@ -57,11 +57,28 @@ export type FriendlyOrganization = {
  * opinion in the client, where it could disagree with the order the picker
  * actually displays.
  *
- * Only a HELD office leads. `isHeldOffice` is the same term-date check behind
- * the `status` the picker greys out as "Past", so this cannot promote a seat
- * the picker is calling over, and a former office holder running again is not
- * stranded in a dashboard for an office they no longer hold. An office with no
- * term dates yet counts as not held, by that same rule.
+ * Only an office that has BEGUN and not yet ended leads:
+ *
+ * - Not ended: `isHeldOffice`, the same term-date predicate behind the `status`
+ *   the picker greys out as "Past", so this can never promote a seat the picker
+ *   is calling over, and a former office holder running again is not stranded
+ *   in a dashboard for an office they no longer hold. An office with no term
+ *   dates yet is not held by that same rule.
+ * - Begun: `isHeldOffice` derives from `termEndDate` alone and does not look at
+ *   `termStartDate` (see `deriveIsActive`), so an office whose term starts in
+ *   the future already reads as held — its end date is years out. That is not
+ *   hypothetical: `selectPreferredOfficeHolder` deliberately prefers a term
+ *   starting within the next FUTURE_OFFICEHOLDER_WINDOW_MONTHS when prefilling
+ *   a provisioned office, and nothing downstream filters it. Leading with it
+ *   would drop someone into the Serve dashboard weeks before they take office,
+ *   so the start bound is checked here.
+ *
+ * The start check is deliberately local to this ordering rather than folded
+ * into `deriveIsActive`: that predicate also produces the `isActive` field on
+ * every elected-office response and the `status` on every org list, so teaching
+ * it about start dates would change what a not-yet-sworn-in official sees
+ * across the app. That is a product decision, and a separate change. This one
+ * only declines to promote such an office, which changes nothing else about it.
  *
  * Everything else keeps the query's order, so this is a no-op for the many
  * users who hold no office at all, and it never reorders one campaign against
@@ -74,8 +91,17 @@ export const sortOrganizations = <
   organizations: T[],
   now: Date,
 ): T[] => {
+  // A null termStartDate is "no start bound", not "starts now": it preserves
+  // today's behavior for the offices that simply lack term data.
+  const hasBegun = (office: ElectedOffice) =>
+    office.termStartDate === null ||
+    office.termStartDate.getTime() <= now.getTime()
   const rank = (org: T) =>
-    org.electedOffice && isHeldOffice(org.electedOffice, now) ? 0 : 1
+    org.electedOffice &&
+    isHeldOffice(org.electedOffice, now) &&
+    hasBegun(org.electedOffice)
+      ? 0
+      : 1
   // toSorted, not sort: the input is Prisma's own result array, and reordering
   // it in place is a side effect no caller asked for. Both are stable, so
   // same-rank orgs keep the query's ordering.

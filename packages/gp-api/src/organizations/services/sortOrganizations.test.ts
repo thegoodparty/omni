@@ -4,8 +4,14 @@ import { ElectedOffice } from '../../generated/prisma'
 
 const NOW = new Date('2026-06-01T00:00:00Z')
 
-const office = (termEndDate: string | null) =>
-  ({ termEndDate: termEndDate ? new Date(termEndDate) : null }) as ElectedOffice
+const office = (
+  termEndDate: string | null,
+  termStartDate: string | null = null,
+) =>
+  ({
+    termEndDate: termEndDate ? new Date(termEndDate) : null,
+    termStartDate: termStartDate ? new Date(termStartDate) : null,
+  }) as ElectedOffice
 
 const org = (slug: string, electedOffice: ElectedOffice | null = null) => ({
   slug,
@@ -122,5 +128,47 @@ describe('sortOrganizations', () => {
     const sorted = sortOrganizations([org('campaign-1'), endsToday], NOW)
 
     expect(sorted.map((o) => o.slug)).toEqual(['campaign-1', 'eo-9'])
+  })
+
+  it('does not lead with a term that has not started yet', () => {
+    // isHeldOffice derives from termEndDate alone, so an office starting in six
+    // weeks already reads as held — its end date is four years out. Provisioning
+    // reaches this state on purpose: selectPreferredOfficeHolder prefers a term
+    // starting within the next three months when prefilling a provisioned
+    // office. Leading with it would drop someone into Serve before they take
+    // office.
+    const notYetSworn = org('eo-9', office('2030-01-01', '2026-07-15'))
+
+    const sorted = sortOrganizations([org('campaign-1'), notYetSworn], NOW)
+
+    expect(sorted.map((o) => o.slug)).toEqual(['campaign-1', 'eo-9'])
+  })
+
+  it('leads with a term that has already started', () => {
+    const sworn = org('eo-9', office('2030-01-01', '2025-01-01'))
+
+    const sorted = sortOrganizations([org('campaign-1'), sworn], NOW)
+
+    expect(sorted.map((o) => o.slug)).toEqual(['eo-9', 'campaign-1'])
+  })
+
+  it('leads on the first day of the term', () => {
+    // The start bound is inclusive: the term is [start, end), so the office is
+    // held from the start date itself.
+    const startsToday = org('eo-9', office('2030-01-01', '2026-06-01'))
+
+    const sorted = sortOrganizations([org('campaign-1'), startsToday], NOW)
+
+    expect(sorted.map((o) => o.slug)).toEqual(['eo-9', 'campaign-1'])
+  })
+
+  it('still leads when only the end date is known', () => {
+    // A null termStartDate is "no start bound", not "starts now" — an office
+    // with an end date but no start keeps behaving as it does today.
+    const noStart = org('eo-9', office('2030-01-01', null))
+
+    const sorted = sortOrganizations([org('campaign-1'), noStart], NOW)
+
+    expect(sorted.map((o) => o.slug)).toEqual(['eo-9', 'campaign-1'])
   })
 })
