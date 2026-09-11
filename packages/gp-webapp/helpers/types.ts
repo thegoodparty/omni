@@ -188,6 +188,7 @@ export interface TcrCompliance {
   updatedAt: Date | string
   campaignId: number
   peerlyIdentityId?: string | null
+  cvValidationFailedAt?: Date | string | null
   peerlyCvStatus?: PeerlyCvVerificationStatus | null
   peerlyRegistrationLink?: string | null
   peerlyIdentityProfileLink?: string | null
