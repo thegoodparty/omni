@@ -37,16 +37,26 @@ cheap; keep it that way.
 
 ## The flag
 
-`serve-chief-of-staff-chat-home` exists in both Amplitude projects, Active, at
-**0% rollout** — live and wired, but serving no one.
+`serve-chief-of-staff-chat-home` exists in both Amplitude projects, Active.
 
-| Env | Flag config |
-| --- | --- |
-| dev (`703396`) | https://app.amplitude.com/experiment/goodparty/703396/config/1434818 |
-| prod (`694490`) | https://app.amplitude.com/experiment/goodparty/694490/config/1434819 |
+| Env | Rollout | Flag config |
+| --- | --- | --- |
+| dev (`703396`) | **100%** (development) | https://app.amplitude.com/experiment/goodparty/703396/config/1434818 |
+| prod (`694490`) | 0% (dark) | https://app.amplitude.com/experiment/goodparty/694490/config/1434819 |
 
-Releasing is a UI step — the MCP can only set rollout at create time. Open the
-flag and set rollout to 100%; GoodParty does not do partial rollouts.
+Dev is at 100% so local development sees the surface without per-browser
+cookie fiddling; **drop it back to 0% before promoting** if dev should mirror
+prod. Rollout is changeable through the Amplitude MCP (`use_amp_flags`,
+`action: "update"`, `percentage`), not only the UI. GoodParty does not do
+partial rollouts: 0 or 100.
+
+**Which local setup you run decides whether the flag resolves at all.**
+`npm run dev-dev` (what `.claude/launch.json` uses) points at the remote dev
+API, which has a real Amplitude key and honors the dev rollout above.
+`npm run dev` points at a local gp-api, which runs the `.env.example`
+placeholder key; `getAllVariants` short-circuits that to `{}`, so **every flag
+reads off** and the `e2e-flag-overrides` cookie is the only way on. Note the
+asymmetry: `isFeatureEnabled` short-circuits the same placeholder to `true`.
 
 **Dev has only a client deployment**, and gp-api resolves flags
 server-to-server, so a dev-only server deployment gap would bite any flag read

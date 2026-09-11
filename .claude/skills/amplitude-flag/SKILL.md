@@ -43,10 +43,11 @@ Two independent things decide whether a flag serves a user:
   is the real on/off control. GoodParty does **not** do partial rollouts for feature flags: **off =
   0%, on = 100%**, nothing in between.
 
-**The MCP can only set rollout % at creation — no MCP tool changes it afterward** (`update_flag`
-exposes only `enabled`/name/description, and its schema rejects a percentage field). That's the
-whole reason this skill is create-only: it creates the flag Active at the rollout you choose, and
-flipping prod to 100% later happens in the Amplitude UI.
+**Rollout is changeable after creation.** The unified `use_amp_flags` tool takes `percentage` and
+`rolloutWeights` on `action: "update"`, so a flag can be flipped to 100% (or back to 0%) without the
+UI: `{"action":"update","flagId":"<id>","percentage":100,"rolloutWeights":{"on":1}}`. The older
+`update_flag` tool exposed only `enabled`/name/description, which is why this skill used to be
+create-only. Verified 2026-09-11 by taking a dev flag from 0% to 100%.
 
 ## Deployments — attach or the flag can't serve
 
@@ -127,18 +128,22 @@ same `key` is used in both the dev and prod projects.
 ## Releasing in prod (always tell the user this)
 
 After creating, tell the user plainly: the flag exists and is Active in prod, but at **0% rollout**,
-so no prod user gets it yet. **The MCP cannot change rollout, so when they're ready to release in
-prod they must do it in the Amplitude UI** — open the prod flag and set its rollout to 100%. Give
-them the direct link: `https://app.amplitude.com/experiment/goodparty/694490/config/<prod-flag-id>`
-(the `create_flags` result includes the prod flag's id).
+so no prod user gets it yet. Always give them the direct link:
+`https://app.amplitude.com/experiment/goodparty/694490/config/<prod-flag-id>` (the create result
+includes the prod flag's id).
+
+Turning prod on is a real release, so **never do it as a side effect** of another task — only when
+the user explicitly asks for that flag to go live. When they do, it can be done through the MCP
+(`action: "update"`, `percentage: 100`) or in the UI; prefer whichever leaves them a record they
+expect.
 
 ## Common mistakes
 
 - **Inactive serves nothing.** That's why every flag is created Active (`enabled: true`); on/off is
   the rollout %, not the Active toggle.
 - **No deployment → can't serve.** Attach all of the project's deployments at create time.
-- **Trying to flip prod on through the MCP.** Not possible — rollout is create-only via the MCP.
-  Direct the user to the UI.
+- **Flipping prod on without being asked.** Technically possible through the MCP, which is exactly
+  why it needs an explicit request — creating a flag is not permission to release it.
 - **Creating in only one project.** Always create both, same key.
 - **Skipping the `{product}-{feature-slug}` convention.** Always ask whether the flag is for `win`
   or `serve` and prefix the key with it.
