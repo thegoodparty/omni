@@ -66,6 +66,19 @@ describe('SignUpForm phone capture', () => {
     )
   })
 
+  it('ignores a digit past the cap instead of eating the last one', async () => {
+    const user = userEvent.setup()
+    render(<SignUpForm />)
+
+    const phone = screen.getByPlaceholderText('Phone')
+    // 11 digits fills the field (leading country code).
+    await user.type(phone, '15551234567')
+    expect(phone).toHaveValue('1 (555) 123-4567')
+
+    await user.type(phone, '8')
+    expect(phone).toHaveValue('1 (555) 123-4567')
+  })
+
   it('keeps the submit button disabled until the phone is complete', async () => {
     const user = userEvent.setup()
     render(<SignUpForm />)

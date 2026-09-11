@@ -36,10 +36,12 @@ export default function SignUpPhoneForm() {
   }, [isLoaded, isSignedIn, user])
 
   const handleChange = (next: string) => {
-    const digits = next.replace(/\D/g, '').slice(0, 11)
+    const digits = next.replace(/\D/g, '')
     // AsYouType puts back the ')' a backspace just removed, so a keystroke
     // that leaves the digit count unchanged was a delete of punctuation.
-    setPhone(digits === phone ? digits.slice(0, -1) : digits)
+    // Compare before capping: capping an over-long input leaves the count
+    // unchanged too, and reading that as a delete would eat a real digit.
+    setPhone(digits === phone ? phone.slice(0, -1) : digits.slice(0, 11))
     setError(null)
   }
 
