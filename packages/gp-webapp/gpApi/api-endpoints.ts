@@ -4,8 +4,11 @@ import type {
   DoorKnockingArchiveRequest,
   DoorKnockingQuotaResponse,
   DoorKnockingRoutePayload,
+  DoorKnockingTalkingPointsDraftResponse,
+  DoorKnockingTalkingPointsPurpose,
   DoorKnockingTurf,
   GeoJsonPolygon,
+  ServeDoorKnockingTalkingPointsPurpose,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionResponse,
   SetDoNotKnock,
@@ -441,6 +444,37 @@ export type APIEndpoints = {
   'POST /v1/outreach/serve/phone-banking/draft': {
     Request: ServePhoneBankingScriptDraftRequest
     Response: PhoneBankingScriptDraftResponse
+  }
+
+  // Stateless talking-points draft/improve for the door-knocking create flow.
+  // Two things differ from the phone-banking pair above. There is no `tone`:
+  // the output is notes a canvasser paraphrases, not prose with a voice to
+  // pick. And the audience travels inline as `filters` rather than by id,
+  // because the wizard files its VoterFileFilter row inside the create
+  // mutation — at draft time a hand-cut audience has no id yet. That half is
+  // typed the way `POST /v1/door-knocking/address-preview` types the same
+  // unsaved-draft grammar, since the schema lives in gp-api; the response is
+  // a contracts schema. 502 on model failure.
+  'POST /v1/outreach/door-knocking/draft': {
+    Request: {
+      purpose: DoorKnockingTalkingPointsPurpose
+      filters: Record<string, unknown>
+      currentDraft?: string
+      previousDraft?: string
+      instructions?: string
+    }
+    Response: DoorKnockingTalkingPointsDraftResponse
+  }
+
+  'POST /v1/outreach/serve/door-knocking/draft': {
+    Request: {
+      purpose: ServeDoorKnockingTalkingPointsPurpose
+      filters: Record<string, unknown>
+      currentDraft?: string
+      previousDraft?: string
+      instructions?: string
+    }
+    Response: DoorKnockingTalkingPointsDraftResponse
   }
 
   // Robocall AI script draft — stateless, same shape as social/phone-banking

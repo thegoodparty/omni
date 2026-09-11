@@ -38,10 +38,11 @@ const ROUTE_INCLUDE = {
     orderBy: { seq: Prisma.SortOrder.asc },
     include: { targets: true },
   },
-  // Just the id, to resolve a volunteer's OutreachAssignment (ENG-11051) —
-  // every route has exactly one envelope (the 1:1:1 invariant), so this
-  // never widens the response payload.
-  outreach: { select: { id: true } },
+  // The id resolves a volunteer's OutreachAssignment (ENG-11051); `script`
+  // is the talking-points card the candidate froze with the list. Every route
+  // has exactly one envelope (the 1:1:1 invariant), so neither costs a query
+  // and neither can arrive twice.
+  outreach: { select: { id: true, script: true } },
 } as const satisfies Prisma.DoorKnockingRouteInclude
 
 type LiveAddress = DoorKnockingResidentsResponse['addresses'][number]
@@ -225,6 +226,14 @@ export class DoorKnockingServeService extends createPrismaBase(
       }),
       isServe,
       representing,
+      // Omitted rather than sent as '' when the envelope has no script, which
+      // is every list created before the wizard's points step shipped and
+      // every list whose candidate skipped it. The client falls back to the
+      // static card on both, so absent and empty must not be distinguishable
+      // — see the field's note on the payload schema.
+      ...(route.outreach.script
+        ? { talkingPoints: route.outreach.script }
+        : {}),
     }
   }
 

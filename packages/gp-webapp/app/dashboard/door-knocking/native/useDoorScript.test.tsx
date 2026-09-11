@@ -30,6 +30,16 @@ vi.mock('./doorKnockingSurface', () => ({
 }))
 
 import { useDoorScript } from './useDoorScript'
+import { DEPARTURE_NOTE } from './talkingPointsCard'
+
+// A card as the wizard froze it: the four sections in order, newline
+// separated, exactly as `Outreach.script` holds them.
+const STORED = [
+  'What would you fix around here first?',
+  'Fix our roads with a real maintenance plan.',
+  'Point them to janedoe.org to learn more.',
+  'Ask whether we can count on them in November.',
+].join('\n')
 
 // No name columns on the campaign payload — the intro's name comes from the
 // user, so the fixtures keep the two sources apart.
@@ -203,7 +213,11 @@ describe('useDoorScript', () => {
     // only a loading state — a volunteer, for whom the campaign is null
     // permanently rather than briefly, takes the branch covered below instead
     // of resolving here.
-    expect(result.current).toEqual({ intro: "Hi, I'm Jane Doe.", issues: [] })
+    expect(result.current).toEqual({
+      intro: "Hi, I'm Jane Doe.",
+      issues: [],
+      points: [],
+    })
   })
 
   it('is silent until either source has loaded', () => {
@@ -212,7 +226,7 @@ describe('useDoorScript', () => {
 
     const { result } = renderHook(() => useDoorScript(), { wrapper })
 
-    expect(result.current).toEqual({ intro: '', issues: [] })
+    expect(result.current).toEqual({ intro: '', issues: [], points: [] })
   })
 
   // The volunteer walk, which had no branch here at all. `useCampaign()` is
@@ -280,7 +294,11 @@ describe('useDoorScript', () => {
 
       const { result } = renderHook(() => useDoorScript(), { wrapper })
 
-      expect(result.current).toEqual({ intro: "Hi, I'm Sam Reed.", issues: [] })
+      expect(result.current).toEqual({
+        intro: "Hi, I'm Sam Reed.",
+        issues: [],
+        points: [],
+      })
     })
 
     // The office clause drops on its own, the same way it does in the two
@@ -304,6 +322,122 @@ describe('useDoorScript', () => {
 
       expect(clientRequestMock).not.toHaveBeenCalled()
       expect(result.current.issues).toEqual([])
+    })
+
+    // The card is on the route payload precisely so this path can read it: a
+    // volunteer cannot call the positions endpoint, so before the wizard's
+    // points step they had an opener and nothing under it.
+    it('reads the stored card the same as the candidate does', () => {
+      asVolunteer({ name: 'Jane Doe', office: 'City Council' })
+
+      const { result } = renderHook(() => useDoorScript(STORED), { wrapper })
+
+      expect(result.current.intro).toContain('volunteer')
+      expect(result.current.points).toEqual([
+        'What would you fix around here first?',
+        'Fix our roads with a real maintenance plan.',
+        'Point them to janedoe.org to learn more.',
+        'Ask whether we can count on them in November.',
+        DEPARTURE_NOTE,
+      ])
+    })
+  })
+
+  // The card the candidate wrote for this LIST, frozen with it and served on
+  // the route payload.
+  describe('with a stored card', () => {
+    it('reads the four stored lines under the opener, and closes', () => {
+      const { result } = renderHook(() => useDoorScript(STORED), { wrapper })
+
+      expect(result.current.intro).toBe(
+        "Hi, I'm Jane Doe, running for City Council.",
+      )
+      expect(result.current.points).toEqual([
+        'What would you fix around here first?',
+        'Fix our roads with a real maintenance plan.',
+        'Point them to janedoe.org to learn more.',
+        'Ask whether we can count on them in November.',
+        DEPARTURE_NOTE,
+      ])
+    })
+
+    // Both are answers to "what do I say here" and a door is not the place to
+    // read two. The stances are the fallback, so the fetch is not spent either
+    // — the same argument the serve and volunteer branches make.
+    it('replaces the issue stances rather than joining them', async () => {
+      useCampaignMock.mockReturnValue([
+        campaign({
+          details: {
+            customIssues: [{ title: 'Transit', position: 'Restore the bus.' }],
+          },
+        } as Partial<Campaign>),
+      ])
+
+      const { result } = renderHook(() => useDoorScript(STORED), { wrapper })
+
+      await waitFor(() => expect(result.current.points).not.toHaveLength(0))
+      expect(result.current.issues).toEqual([])
+      expect(clientRequestMock).not.toHaveBeenCalled()
+    })
+
+    // An official's canvasser gets the card too — the Serve rail's opener with
+    // the list's own lines under it, where before it was the opener alone.
+    it('gives an official the card under the serve opener', () => {
+      useDoorKnockingServeModeMock.mockReturnValue(true)
+
+      const { result } = renderHook(() => useDoorScript(STORED), { wrapper })
+
+      expect(result.current.intro).toBe(
+        "Hi, I'm Jane Doe, your City Council Member.",
+      )
+      expect(result.current.points).toHaveLength(5)
+    })
+
+    // Every list frozen before the points step shipped, plus anything this
+    // version cannot read. Both fall back to the static build rather than to
+    // half a card.
+    it('falls back to the stances for a list with no card', async () => {
+      useCampaignMock.mockReturnValue([
+        campaign({
+          details: {
+            customIssues: [{ title: 'Transit', position: 'Restore the bus.' }],
+          },
+        } as Partial<Campaign>),
+      ])
+
+      const { result } = renderHook(() => useDoorScript(undefined), { wrapper })
+
+      await waitFor(() =>
+        expect(result.current.issues.map((issue) => issue.title)).toEqual([
+          'Transit',
+        ]),
+      )
+      expect(result.current.points).toEqual([])
+    })
+
+    it('falls back for a stored value it cannot parse', () => {
+      const { result } = renderHook(
+        () => useDoorScript('Hi, this is Jane calling about…'),
+        { wrapper },
+      )
+
+      expect(result.current.points).toEqual([])
+    })
+
+    // A blank section drops out rather than printing an empty bullet at a
+    // door — a campaign with no website on file has no call to action.
+    it('drops a section the candidate left blank', () => {
+      const { result } = renderHook(
+        () => useDoorScript('Question?\nContext.\n\nAsk.'),
+        { wrapper },
+      )
+
+      expect(result.current.points).toEqual([
+        'Question?',
+        'Context.',
+        'Ask.',
+        DEPARTURE_NOTE,
+      ])
     })
   })
 })

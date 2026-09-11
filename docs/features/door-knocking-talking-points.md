@@ -505,6 +505,16 @@ leaves the building. Talking points are campaign copy rather than voter data, so
 the argument does not obviously apply — but both surfaces read the same payload
 and will receive the field whether or not they render it.
 
+**Decided: not on paper, in this PR.** The reason is layout rather than
+privacy. Both paper surfaces repeat their header on every printed page — the
+sheet by riding it in the `thead`, the PDF through a `fixed` `Header` — so a
+five-bullet block placed there repeats with it and eats a third of every page,
+and the alternative is a one-time pre-table block that paged media makes
+fragile. The card is also identical at every door, so the canvasser who wants
+it on paper is holding the same page N times. Both surfaces receive the field
+today and render nothing with it, which is a design decision to revisit with
+design rather than a gap to close by dropping it into `SheetHeader`.
+
 ## Testing
 
 **Draft endpoint** — mirror `outreach/tests/outreachPhoneBanking.test.ts`, which
