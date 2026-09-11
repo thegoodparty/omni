@@ -41,13 +41,36 @@ const PROTOCOL = [
   '',
   'When the step is genuinely settled, and only then:',
   '```' + DIRECTIVE_FENCE,
-  '{"settled": "two or three sentences on what we decided here, in my words, so the next step can build on it", "verify": {"who": "the people whose answer would tell us whether this is actually right", "ask": "the one question to put to them"}}',
+  '{"settled": "two or three sentences on what we decided here, in my words, so the next step can build on it", "outreach": {"who": "the group, as you found them in my contact data", "count": 260, "channel": "phone_banking", "why": "one line on why these people and this channel", "message": "the actual thing to say to them, ready for me to review"}}',
   '```',
-  'Always include verify when you settle. What we just agreed is my read, not',
-  'theirs, and the whole point of this flow is that the two match: name the',
-  'specific group this outcome lands on hardest (not "constituents"), and the',
-  'single question whose answer would confirm it or break it.',
+  'Always include outreach when you settle, and do the work to make it real',
+  'rather than asking me who to talk to. Before you settle: call',
+  'describe_filter_dimensions, then count_contacts, to find the group in my',
+  'actual contact data whose answer would confirm or break what we just',
+  'agreed, and say how many there are. Pick the channel they are most likely',
+  'to answer on ("phone_banking" for a conversation or an older group,',
+  '"social" for reach and for people not in the file). Write the message',
+  'itself: short, in my voice, one clear question.',
+  'Include orgs too, one to three of them, whenever a real local',
+  'organization would reach people my contact file will not, or would give',
+  'me a better informed answer: a neighbourhood association, a tenants',
+  'union, a business association, a service provider, an advocacy group',
+  'already working this issue. Name real ones for my jurisdiction, look',
+  'them up rather than inventing a plausible-sounding name, and say who to',
+  'approach there and how. These are as much the answer as the direct',
+  'outreach is, not a footnote to it.',
   'Never settle on the first turn of a step. Work it first.',
+  '',
+  'After you settle, your next turn asks whether to run it, with exactly these',
+  'two options: "Yes, set it up" and "Skip it for now". If I skip, note in one',
+  'line what goes unchecked and move on. If I say yes, create the list with',
+  'crud_saved_filters (confirm the count first, name it for this priority),',
+  'then hand off with nothing else in the turn:',
+  '```' + DIRECTIVE_FENCE,
+  '{"handoff": {"channel": "phone_banking", "listId": 123, "listName": "Flood blocks renters", "message": "the same message, final"}}',
+  '```',
+  'If the list cannot be created, hand off without listId and say so in the',
+  'prose: I will pick the audience myself on the next screen.',
 ].join('\n')
 
 const HOUSE_RULES =
@@ -173,31 +196,6 @@ const RESEARCH_STEPS: PriorityFlowStep[] = [
   'options',
   'method',
 ]
-
-// Sent when the user takes the check-with-constituents offer on a settled
-// step. It reopens the same step: the agent designs the check, offers the four
-// routes, and settles again with whatever came back.
-export const buildVerifyPrompt = (
-  settled: string,
-  plan: { who: string; ask: string },
-): string =>
-  [
-    `We settled this step: ${settled}`,
-    `You proposed checking it with: ${plan.who}, by asking: "${plan.ask}"`,
-    'Set that check up with me now. Say how many of them there are and the ' +
-      'most practical way to reach them, name anyone likely missing from my ' +
-      'contact data and how I would reach them instead, then ask me how I ' +
-      'want to do it with these as the options: run it from here, record ' +
-      'what I have already heard, do it but not yet, or move on without it. ' +
-      'If I pick "not yet", ask when and what would trigger it. If I pick ' +
-      '"move on", say once in two sentences what it costs me that the people ' +
-      'this lands on were not asked, then let it go. When it is decided, ' +
-      'settle the step again: the same outcome if nothing changed, the ' +
-      'revised one if it did, and say plainly whether it has been checked ' +
-      'with anyone or not.',
-    HOUSE_RULES,
-    PROTOCOL,
-  ].join('\n\n')
 
 export const buildStepPrompt = (
   step: PriorityFlowStep,

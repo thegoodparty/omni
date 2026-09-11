@@ -11,6 +11,7 @@ changing anything here.
 | The list, create, seed lane | Real. `GET/POST /v1/priorities`, `POST /v1/community-issues/:id/prioritize`                                                                                               |
 | The flow's content          | Real. Every step sends its ask to the live agent with the user's own priority in it, so the questions, evidence, options, and plan are about that priority                 |
 | The step interaction        | Real. Each step asks before it can settle, and the Continue row appears only once the agent says the step is settled. The ordinance flow does this with tools; here the agent ends each turn with a fenced block the client parses (`data/stepProtocol.ts`) |
+| The outreach handoff        | Real. Settling proposes who to hear from and which local organizations reach further; on a yes the agent builds the list with its own `crud_saved_filters` tool and the flow opens Constituent Outreach on the drafted message |
 | The flow's scope            | Borrowed. It runs on `chief_of_staff`, so flow conversations land in that history and the answers come back as prose, not the design's structured cards                    |
 | Step state                  | `useState` in `PriorityFlowShell`, and the conversation is per visit. A reload starts over. Both land properly once gp-api owns a `priority_flow` scope and a flow record  |
 | Rank                        | Display order of what the API returns. `Priority` has no `rank` column, so there is no reorder control yet; the first three rows carry the top-N marker                    |
@@ -44,6 +45,32 @@ is on screen here.
   offers the choice — see the design doc's build note.
 - **The flow ends in a decision and a handoff, not an artifact.** The plan step
   points at Ordinances rather than drafting anything here.
+
+## The outreach loop
+
+A step that settles on the official's own read is half done: the flow's whole
+argument is that their read and the affected group's read are two different
+things. So settling carries a proposal rather than a prompt to go find one.
+
+- **Direct**, from the contact data the agent actually queried: the group, how
+  many, the channel they are likeliest to answer on, and the message itself.
+- **Through organizations**, from research: one to three real local groups who
+  reach the people a contact file never will, with who to approach and how.
+  These are half the answer, not a footnote, because the people most affected
+  by a decision are usually the ones missing from the file.
+
+The agent then asks yes or skip. On a yes it creates the saved list itself
+(it has `crud_saved_filters`) and emits a `handoff` directive; the shell
+navigates to `/dashboard/constituent-outreach?flow=…&listId=…&message=…`, which
+opens that channel's flow with the list preselected and the message loaded, so
+the official lands on the screen where they review what gets said. On a skip
+the agent notes in one line what goes unchecked.
+
+`PhoneBankingFlow` grew one prop for this (`initialScript`) alongside the
+`preselectedListId` it already had; both default to the old behaviour, so the
+Win hub is untouched. The flow only jumps to the script step once the
+preselected list actually resolved, since a script with no audience behind it
+strands the caller on a step whose Continue cannot pass.
 
 ## Chrome comes from Ordinances
 

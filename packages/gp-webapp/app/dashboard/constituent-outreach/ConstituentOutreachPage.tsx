@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import type { OutreachDetail } from '@goodparty_org/contracts'
 import DashboardLayout from '../shared/DashboardLayout'
 import { NAV_LABELS } from '../shared/navLabels'
@@ -43,11 +43,28 @@ const isDrawerRow = (row: HistoryRow): boolean =>
 
 const ConstituentOutreachContent = () => {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [outreaches, setOutreaches] = useOutreach()
   const [detailsRow, setDetailsRow] = useState<HistoryRow | null>(null)
   const [socialFlowOpen, setSocialFlowOpen] = useState(false)
   const [phoneBankingFlowOpen, setPhoneBankingFlowOpen] = useState(false)
   const seedOutreachDetail = useSeedOutreachDetail()
+
+  // The priority flow's handoff: it has already decided the channel, built
+  // the list, and drafted the message, so the flow opens on the message
+  // rather than making the official rebuild the same three decisions.
+  const handoffFlow = searchParams?.get('flow') ?? null
+  const handoffMessage = searchParams?.get('message') ?? null
+  const handoffListId = Number(searchParams?.get('listId'))
+  const preselectedListId =
+    Number.isInteger(handoffListId) && handoffListId > 0
+      ? handoffListId
+      : undefined
+
+  useEffect(() => {
+    if (handoffFlow === 'phone_banking') setPhoneBankingFlowOpen(true)
+    if (handoffFlow === 'social') setSocialFlowOpen(true)
+  }, [handoffFlow])
 
   // Mirrors OutreachHubPage's cache seeding: the save response is the
   // created row, so the drawer and the "N platforms" metric never refetch
@@ -108,6 +125,10 @@ const ConstituentOutreachContent = () => {
         onClose={() => setPhoneBankingFlowOpen(false)}
         onSaved={handlePhoneBankingSaved}
         surface={SERVE_PHONE_BANKING_SURFACE}
+        {...(preselectedListId !== undefined ? { preselectedListId } : {})}
+        {...(handoffFlow === 'phone_banking' && handoffMessage
+          ? { initialScript: handoffMessage }
+          : {})}
       />
       <OutreachHistoryTable
         rows={outreaches ?? []}

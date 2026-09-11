@@ -222,6 +222,11 @@ interface PhoneBankingFlowProps {
   // A ?listId= deep link's saved list, handed over by the hub tile's click —
   // applied to the who step's picker once the saved lists resolve.
   preselectedListId?: number
+  // A script handed over with the audience, by a caller that already knows
+  // what this call is for (the priority flow's outreach handoff). Applied
+  // once per open; with a list that actually resolves, the flow opens on the
+  // script step so the first thing seen is the message to review.
+  initialScript?: string
 }
 
 // Flow state is flat client state owned here (phase 1 TDD, same convention
@@ -234,6 +239,7 @@ export const PhoneBankingFlow = ({
   onSaved,
   surface = WIN_PHONE_BANKING_SURFACE,
   preselectedListId,
+  initialScript,
 }: PhoneBankingFlowProps) => {
   const router = useRouter()
   const [stepId, setStepId] = useState<StepId>('purpose')
@@ -375,6 +381,10 @@ export const PhoneBankingFlow = ({
     preselectSpentRef.current = true
     if (audienceLists.some((list) => list.id === preselectedListId)) {
       selectAudienceList(preselectedListId)
+      // Only once the audience is genuinely selected: a handed-over script
+      // with no audience behind it would strand the caller on a step whose
+      // Continue cannot pass.
+      if (initialScript) setStepId('script')
     }
   }, [
     open,
@@ -382,7 +392,21 @@ export const PhoneBankingFlow = ({
     audienceLists,
     audienceListsFetching,
     selectAudienceList,
+    initialScript,
   ])
+
+  // The handed-over script itself, applied once per open and independent of
+  // whether the list resolved: the draft is worth keeping either way.
+  const scriptSpentRef = useRef(false)
+  useEffect(() => {
+    if (!open) {
+      scriptSpentRef.current = false
+      return
+    }
+    if (scriptSpentRef.current || !initialScript) return
+    scriptSpentRef.current = true
+    setScript(initialScript)
+  }, [open, initialScript])
 
   // Sizes the default sheet count to the audience once it resolves, instead
   // of leaving it at 1 (ENG-10941) — reachableCount counts PEOPLE while

@@ -23,23 +23,60 @@ describe('parseTurnText', () => {
     expect(parseTurnText(settled).directive).toEqual({
       kind: 'synthesis',
       settled: 'We agreed on renters.',
-      verify: null,
+      outreach: null,
+      orgs: [],
     })
   })
 
-  it('reads the check the agent proposes alongside a settled step', () => {
-    const withVerify =
-      '```priority\n{"settled": "Renters on the flood blocks.", "verify": ' +
-      '{"who": "Renters on Oak and Third", "ask": "Did the flooding reach ' +
-      'your unit this year?"}}\n```'
-    expect(parseTurnText(withVerify).directive).toEqual({
+  it('reads the outreach the agent proposes off a settled step', () => {
+    const withPlan =
+      '```priority\n{"settled": "Renters on the flood blocks.", "outreach": ' +
+      '{"who": "Renters on Oak and Third", "count": 260, "channel": ' +
+      '"phone_banking", "why": "They answer a call", "message": "Did the ' +
+      'flooding reach your unit this year?"}, "orgs": [{"name": "Oak Street ' +
+      'Tenants Union", "why": "Reaches renters who are not in the file", ' +
+      '"how": "Email their organizer"}]}\n```'
+    expect(parseTurnText(withPlan).directive).toEqual({
       kind: 'synthesis',
       settled: 'Renters on the flood blocks.',
-      verify: {
+      outreach: {
         who: 'Renters on Oak and Third',
-        ask: 'Did the flooding reach your unit this year?',
+        count: 260,
+        channel: 'phone_banking',
+        why: 'They answer a call',
+        message: 'Did the flooding reach your unit this year?',
+      },
+      orgs: [
+        {
+          name: 'Oak Street Tenants Union',
+          why: 'Reaches renters who are not in the file',
+          how: 'Email their organizer',
+        },
+      ],
+    })
+  })
+
+  it('reads the handoff once the user has said yes', () => {
+    const handoff =
+      '```priority\n{"handoff": {"channel": "phone_banking", "listId": 42, ' +
+      '"listName": "Flood blocks renters", "message": "Did the flooding ' +
+      'reach your unit?"}}\n```'
+    expect(parseTurnText(handoff).directive).toEqual({
+      kind: 'handoff',
+      handoff: {
+        channel: 'phone_banking',
+        listId: 42,
+        listName: 'Flood blocks renters',
+        message: 'Did the flooding reach your unit?',
       },
     })
+  })
+
+  it('refuses a handoff to a channel this flow cannot open', () => {
+    const bad =
+      '```priority\n{"handoff": {"channel": "carrier_pigeon", "message": ' +
+      '"hi"}}\n```'
+    expect(parseTurnText(bad).directive).toBeNull()
   })
 
   it('withholds a block that has opened but not closed', () => {

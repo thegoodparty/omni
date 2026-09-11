@@ -25,28 +25,88 @@ const QuestionDirectiveSchema = z.object({
   notes: z.array(z.string()).optional(),
 })
 
+export const OUTREACH_CHANNELS = ['phone_banking', 'social'] as const
+
+const OutreachPlanSchema = z.object({
+  // The group in plain language, as the agent described it from the contact
+  // data it actually queried.
+  who: z.string().min(1),
+  // How many of them there are, if the agent counted.
+  count: z.number().int().nonnegative().optional(),
+  channel: z.enum(OUTREACH_CHANNELS),
+  // Why this group and this channel, in one line.
+  why: z.string().min(1),
+  // The thing to actually say to them, ready to review.
+  message: z.string().min(1),
+})
+
+// A local organization worth approaching, and why. The other half of hearing
+// from people: a coalition reaches the people a contact file never will, and
+// the official often has a relationship to trade on.
+const OutreachOrgSchema = z.object({
+  name: z.string().min(1),
+  why: z.string().min(1),
+  // Who to approach there and how, in one line.
+  how: z.string().min(1),
+})
+
 const SynthesisDirectiveSchema = z.object({
   settled: z.string().min(1),
-  // How to check what was just settled against the people it lands on. The
-  // agent proposes it; the user decides whether to run it.
-  verify: z
-    .object({
-      who: z.string().min(1),
-      ask: z.string().min(1),
-    })
-    .optional(),
+  // Who to hear from about what was just settled, proposed rather than
+  // waited for: the flow's argument is that the official's read and the
+  // affected group's read are two different things.
+  outreach: OutreachPlanSchema.optional(),
+  // Organizations to go through, alongside the direct outreach rather than
+  // instead of it.
+  orgs: z.array(OutreachOrgSchema).max(3).optional(),
+})
+
+// The user said yes to the proposal and the agent has built the list. This is
+// the handoff into the outreach flow that owns the channel.
+const HandoffDirectiveSchema = z.object({
+  handoff: z.object({
+    channel: z.enum(OUTREACH_CHANNELS),
+    // The saved list the agent created with crud_saved_filters.
+    listId: z.number().int().positive().optional(),
+    listName: z.string().optional(),
+    message: z.string().min(1),
+  }),
 })
 
 const DirectiveSchema = z.union([
   QuestionDirectiveSchema,
+  HandoffDirectiveSchema,
   SynthesisDirectiveSchema,
 ])
 
-export type VerifyPlan = { who: string; ask: string }
+export type OutreachChannel = (typeof OUTREACH_CHANNELS)[number]
+
+export type OutreachPlan = {
+  who: string
+  count: number | null
+  channel: OutreachChannel
+  why: string
+  message: string
+}
+
+export type OutreachOrg = { name: string; why: string; how: string }
+
+export type OutreachHandoff = {
+  channel: OutreachChannel
+  listId: number | null
+  listName: string | null
+  message: string
+}
 
 export type PriorityDirective =
   | { kind: 'question'; ask: string; options: string[]; notes: string[] }
-  | { kind: 'synthesis'; settled: string; verify: VerifyPlan | null }
+  | {
+      kind: 'synthesis'
+      settled: string
+      outreach: OutreachPlan | null
+      orgs: OutreachOrg[]
+    }
+  | { kind: 'handoff'; handoff: OutreachHandoff }
 
 const FENCE_OPEN = '```' + DIRECTIVE_FENCE
 
@@ -59,18 +119,33 @@ const toDirective = (raw: string): PriorityDirective | null => {
   }
   const parsed = DirectiveSchema.safeParse(value)
   if (!parsed.success) return null
-  return 'settled' in parsed.data
-    ? {
-        kind: 'synthesis',
-        settled: parsed.data.settled,
-        verify: parsed.data.verify ?? null,
-      }
-    : {
-        kind: 'question',
-        ask: parsed.data.ask,
-        options: parsed.data.options,
-        notes: parsed.data.notes ?? [],
-      }
+  if ('handoff' in parsed.data) {
+    const { channel, listId, listName, message } = parsed.data.handoff
+    return {
+      kind: 'handoff',
+      handoff: {
+        channel,
+        listId: listId ?? null,
+        listName: listName ?? null,
+        message,
+      },
+    }
+  }
+  if ('settled' in parsed.data) {
+    const plan = parsed.data.outreach
+    return {
+      kind: 'synthesis',
+      settled: parsed.data.settled,
+      outreach: plan ? { ...plan, count: plan.count ?? null } : null,
+      orgs: parsed.data.orgs ?? [],
+    }
+  }
+  return {
+    kind: 'question',
+    ask: parsed.data.ask,
+    options: parsed.data.options,
+    notes: parsed.data.notes ?? [],
+  }
 }
 
 /**

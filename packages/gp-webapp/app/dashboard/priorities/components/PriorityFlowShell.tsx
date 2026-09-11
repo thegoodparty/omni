@@ -17,14 +17,16 @@ import {
 import { segmentsToLive } from '../../shared/agent-chat/streaming'
 import {
   splitSegments,
+  type OutreachHandoff,
+  type OutreachOrg,
+  type OutreachPlan,
   type PriorityDirective,
-  type VerifyPlan,
 } from '../data/stepProtocol'
 import PriorityQuestion from './PriorityQuestion'
 import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
 import { priorityFlowChatApi } from '../data/chat-api'
-import { buildStepPrompt, buildVerifyPrompt } from '../data/stepPrompts'
+import { buildStepPrompt } from '../data/stepPrompts'
 import {
   PRIORITY_NEXT_STEP_CTA,
   PRIORITY_STEP_CAPTIONS,
@@ -42,6 +44,13 @@ import PriorityStepper from './PriorityStepper'
 // Step state lives here: the flow has no backend, so nothing is persisted and a
 // reload starts the conversation over. Once gp-api owns the record, `step`
 // becomes a route segment the way ordinances/solve/[slug]/[step] does.
+// The outreach channels this flow can hand off to, named the way the
+// Constituent Outreach hub names them.
+const CHANNEL_LABELS: Record<OutreachHandoff['channel'], string> = {
+  phone_banking: 'Phone banking',
+  social: 'Social media',
+}
+
 export default function PriorityFlowShell({
   priority,
   issues,
@@ -155,28 +164,31 @@ export default function PriorityFlowShell({
       ).directive
     : null
   const settled = latestDirective?.kind === 'synthesis'
+  const latestHandoff =
+    latestAssistant && latestDirective?.kind === 'handoff'
+      ? { id: latestAssistant.id, handoff: latestDirective.handoff }
+      : null
   // Nothing visible from this turn yet: hold the shimmer rather than an empty
   // gap under the step's question.
   const working = sending && liveSplit.segments.length === 0
+
+  // A handoff is the agent acting on the yes the user already gave, so it
+  // opens the outreach flow rather than rendering one more button. Guarded by
+  // id so a re-render or a scroll-back cannot fire it twice.
+  const handedOffRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!latestHandoff || handedOffRef.current === latestHandoff.id) return
+    handedOffRef.current = latestHandoff.id
+    const { channel, listId, message } = latestHandoff.handoff
+    const params = new URLSearchParams({ flow: channel, message })
+    if (listId !== null) params.set('listId', String(listId))
+    router.push(`/dashboard/constituent-outreach?${params.toString()}`)
+  }, [latestHandoff, router])
 
   const answerQuestion = (messageId: string, answer: string): void => {
     if (!conversationId || isStreaming()) return
     setAnswers((prev) => ({ ...prev, [messageId]: answer }))
     void send(conversationId, answer)
-  }
-
-  // Take the check-with-constituents offer on a settled step. It reopens the
-  // step rather than advancing: the point is to find out whether what we
-  // settled is what the people it lands on would say.
-  const startVerify = (): void => {
-    if (!conversationId || isStreaming()) return
-    if (latestDirective?.kind !== 'synthesis' || !latestDirective.verify) return
-    const prompt = buildVerifyPrompt(
-      latestDirective.settled,
-      latestDirective.verify,
-    )
-    setHiddenSent((prev) => [...prev, prompt])
-    void send(conversationId, prompt, { hidden: true })
   }
 
   return (
@@ -235,11 +247,12 @@ export default function PriorityFlowShell({
                   {split.directive?.kind === 'synthesis' ? (
                     <SettledCard
                       text={split.directive.settled}
-                      verify={split.directive.verify}
-                      // Only the newest settle is actionable; an earlier one
-                      // is a record of what that round decided.
-                      onVerify={isLatest && !sending ? startVerify : null}
+                      outreach={split.directive.outreach}
+                      orgs={split.directive.orgs}
                     />
+                  ) : null}
+                  {split.directive?.kind === 'handoff' ? (
+                    <HandoffCard handoff={split.directive.handoff} />
                   ) : null}
                 </AssistantRow>
               )
@@ -303,17 +316,18 @@ export default function PriorityFlowShell({
 }
 
 // What the step settled on, the visible half of this flow's save_synthesis,
-// plus the offer to check it against the people it lands on. That offer is the
-// loop the whole flow turns on: what we agreed here is the official's read,
-// and the step is not really done until it survives contact with theirs.
+// with the outreach it recommends off the back of it. The recommendation is
+// proposed, not waited for: what was agreed here is the official's read, and
+// the step is not really done until it survives contact with the people it
+// lands on.
 function SettledCard({
   text,
-  verify,
-  onVerify,
+  outreach,
+  orgs,
 }: {
   text: string
-  verify: VerifyPlan | null
-  onVerify: (() => void) | null
+  outreach: OutreachPlan | null
+  orgs: OutreachOrg[]
 }): React.JSX.Element {
   return (
     <div className="flex w-full flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-sm">
@@ -323,27 +337,61 @@ function SettledCard({
         </span>
         <p className="text-sm text-foreground">{text}</p>
       </div>
-      {verify ? (
+      {outreach ? (
         <div className="flex flex-col gap-2 border-t border-border pt-3">
           <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Worth checking with
+            Worth hearing from
           </span>
-          <p className="text-sm text-foreground">{verify.who}</p>
-          <p className="text-sm text-muted-foreground">
-            &ldquo;{verify.ask}&rdquo;
+          <p className="text-sm font-medium text-foreground">
+            {outreach.who}
+            {outreach.count !== null ? ` (${outreach.count})` : ''}
           </p>
-          {onVerify ? (
-            <Button
-              size="small"
-              variant="outline"
-              className="mt-1 self-start rounded-full"
-              onClick={onVerify}
-            >
-              Check this with them
-            </Button>
-          ) : null}
+          <p className="text-sm text-muted-foreground">{outreach.why}</p>
+          <div className="rounded-lg border border-border bg-muted/40 p-3">
+            <span className="text-xs uppercase tracking-wide text-muted-foreground">
+              {CHANNEL_LABELS[outreach.channel]}
+            </span>
+            <p className="mt-1 text-sm text-foreground">{outreach.message}</p>
+          </div>
         </div>
       ) : null}
+      {orgs.length > 0 ? (
+        <div className="flex flex-col gap-2 border-t border-border pt-3">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Groups who can reach further than your list
+          </span>
+          {orgs.map((org) => (
+            <div key={org.name} className="flex flex-col gap-0.5">
+              <span className="text-sm font-medium text-foreground">
+                {org.name}
+              </span>
+              <span className="text-sm text-muted-foreground">{org.why}</span>
+              <span className="text-sm text-foreground">{org.how}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+// The agent built the list and is sending them across. The card is the record
+// of what went; the navigation already happened.
+function HandoffCard({
+  handoff,
+}: {
+  handoff: OutreachHandoff
+}): React.JSX.Element {
+  return (
+    <div className="flex w-full flex-col gap-1 rounded-lg border border-primary/40 bg-primary/5 p-4 shadow-sm">
+      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Opening {CHANNEL_LABELS[handoff.channel]}
+      </span>
+      <p className="text-sm text-foreground">
+        {handoff.listName
+          ? `Your list "${handoff.listName}" is ready, with the message drafted for you to review.`
+          : 'The message is drafted. Pick who it goes to on the next screen.'}
+      </p>
     </div>
   )
 }
