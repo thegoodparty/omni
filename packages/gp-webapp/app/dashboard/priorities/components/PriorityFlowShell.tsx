@@ -17,7 +17,7 @@ import {
 import { segmentsToLive } from '../../shared/agent-chat/streaming'
 import {
   splitSegments,
-  type OutreachHandoff,
+  type OutreachChannel,
   type OutreachOrg,
   type OutreachPlan,
   type PriorityDirective,
@@ -46,7 +46,7 @@ import PriorityStepper from './PriorityStepper'
 // becomes a route segment the way ordinances/solve/[slug]/[step] does.
 // The outreach channels this flow can hand off to, named the way the
 // Constituent Outreach hub names them.
-const CHANNEL_LABELS: Record<OutreachHandoff['channel'], string> = {
+const CHANNEL_LABELS: Record<OutreachChannel, string> = {
   phone_banking: 'Phone banking',
   social: 'Social media',
 }
@@ -164,26 +164,21 @@ export default function PriorityFlowShell({
       ).directive
     : null
   const settled = latestDirective?.kind === 'synthesis'
-  const latestHandoff =
-    latestAssistant && latestDirective?.kind === 'handoff'
-      ? { id: latestAssistant.id, handoff: latestDirective.handoff }
-      : null
   // Nothing visible from this turn yet: hold the shimmer rather than an empty
   // gap under the step's question.
   const working = sending && liveSplit.segments.length === 0
 
-  // A handoff is the agent acting on the yes the user already gave, so it
-  // opens the outreach flow rather than rendering one more button. Guarded by
-  // id so a re-render or a scroll-back cannot fire it twice.
-  const handedOffRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (!latestHandoff || handedOffRef.current === latestHandoff.id) return
-    handedOffRef.current = latestHandoff.id
-    const { channel, listId, message } = latestHandoff.handoff
-    const params = new URLSearchParams({ flow: channel, message })
-    if (listId !== null) params.set('listId', String(listId))
+  // The agent has already built the list and drafted the message, so this is
+  // not permission to do the work: it is the official taking work that is
+  // done. It opens the channel's own flow on the message to review.
+  const openOutreach = (plan: OutreachPlan): void => {
+    const params = new URLSearchParams({
+      flow: plan.channel,
+      message: plan.message,
+    })
+    if (plan.listId !== null) params.set('listId', String(plan.listId))
     router.push(`/dashboard/constituent-outreach?${params.toString()}`)
-  }, [latestHandoff, router])
+  }
 
   const answerQuestion = (messageId: string, answer: string): void => {
     if (!conversationId || isStreaming()) return
@@ -249,10 +244,8 @@ export default function PriorityFlowShell({
                       text={split.directive.settled}
                       outreach={split.directive.outreach}
                       orgs={split.directive.orgs}
+                      onOutreach={openOutreach}
                     />
-                  ) : null}
-                  {split.directive?.kind === 'handoff' ? (
-                    <HandoffCard handoff={split.directive.handoff} />
                   ) : null}
                 </AssistantRow>
               )
@@ -324,10 +317,12 @@ function SettledCard({
   text,
   outreach,
   orgs,
+  onOutreach,
 }: {
   text: string
   outreach: OutreachPlan | null
   orgs: OutreachOrg[]
+  onOutreach: (plan: OutreachPlan) => void
 }): React.JSX.Element {
   return (
     <div className="flex w-full flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-sm">
@@ -353,6 +348,18 @@ function SettledCard({
             </span>
             <p className="mt-1 text-sm text-foreground">{outreach.message}</p>
           </div>
+          <Button
+            size="small"
+            className="self-start rounded-full"
+            onClick={() => onOutreach(outreach)}
+          >
+            Reach out to them
+          </Button>
+          {outreach.listId === null ? (
+            <span className="text-xs text-muted-foreground">
+              You will pick who it goes to on the next screen.
+            </span>
+          ) : null}
         </div>
       ) : null}
       {orgs.length > 0 ? (
@@ -371,27 +378,6 @@ function SettledCard({
           ))}
         </div>
       ) : null}
-    </div>
-  )
-}
-
-// The agent built the list and is sending them across. The card is the record
-// of what went; the navigation already happened.
-function HandoffCard({
-  handoff,
-}: {
-  handoff: OutreachHandoff
-}): React.JSX.Element {
-  return (
-    <div className="flex w-full flex-col gap-1 rounded-lg border border-primary/40 bg-primary/5 p-4 shadow-sm">
-      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        Opening {CHANNEL_LABELS[handoff.channel]}
-      </span>
-      <p className="text-sm text-foreground">
-        {handoff.listName
-          ? `Your list "${handoff.listName}" is ready, with the message drafted for you to review.`
-          : 'The message is drafted. Pick who it goes to on the next screen.'}
-      </p>
     </div>
   )
 }

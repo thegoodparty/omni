@@ -28,14 +28,15 @@ describe('parseTurnText', () => {
     })
   })
 
-  it('reads the outreach the agent proposes off a settled step', () => {
+  it('reads the outreach the agent built off a settled step', () => {
     const withPlan =
       '```priority\n{"settled": "Renters on the flood blocks.", "outreach": ' +
       '{"who": "Renters on Oak and Third", "count": 260, "channel": ' +
       '"phone_banking", "why": "They answer a call", "message": "Did the ' +
-      'flooding reach your unit this year?"}, "orgs": [{"name": "Oak Street ' +
-      'Tenants Union", "why": "Reaches renters who are not in the file", ' +
-      '"how": "Email their organizer"}]}\n```'
+      'flooding reach your unit this year?", "listId": 42, "listName": ' +
+      '"Flood blocks renters"}, "orgs": [{"name": "Oak Street Tenants ' +
+      'Union", "why": "Reaches renters who are not in the file", "how": ' +
+      '"Email their organizer"}]}\n```'
     expect(parseTurnText(withPlan).directive).toEqual({
       kind: 'synthesis',
       settled: 'Renters on the flood blocks.',
@@ -45,6 +46,8 @@ describe('parseTurnText', () => {
         channel: 'phone_banking',
         why: 'They answer a call',
         message: 'Did the flooding reach your unit this year?',
+        listId: 42,
+        listName: 'Flood blocks renters',
       },
       orgs: [
         {
@@ -56,26 +59,23 @@ describe('parseTurnText', () => {
     })
   })
 
-  it('reads the handoff once the user has said yes', () => {
-    const handoff =
-      '```priority\n{"handoff": {"channel": "phone_banking", "listId": 42, ' +
-      '"listName": "Flood blocks renters", "message": "Did the flooding ' +
-      'reach your unit?"}}\n```'
-    expect(parseTurnText(handoff).directive).toEqual({
-      kind: 'handoff',
-      handoff: {
-        channel: 'phone_banking',
-        listId: 42,
-        listName: 'Flood blocks renters',
-        message: 'Did the flooding reach your unit?',
-      },
+  it('still reads a plan whose list could not be built', () => {
+    const noList =
+      '```priority\n{"settled": "Renters.", "outreach": {"who": "Renters", ' +
+      '"channel": "social", "why": "Reach", "message": "Tell me"}}\n```'
+    const directive = parseTurnText(noList).directive
+    expect(directive).toMatchObject({
+      kind: 'synthesis',
+      outreach: { listId: null, listName: null, count: null },
     })
   })
 
-  it('refuses a handoff to a channel this flow cannot open', () => {
+  it('refuses a channel this flow cannot open', () => {
     const bad =
-      '```priority\n{"handoff": {"channel": "carrier_pigeon", "message": ' +
-      '"hi"}}\n```'
+      '```priority\n{"settled": "x", "outreach": {"who": "w", "channel": ' +
+      '"carrier_pigeon", "why": "y", "message": "m"}}\n```'
+    // The plan is the part that fails, so the whole directive is refused
+    // rather than rendering a card with a channel nothing can open.
     expect(parseTurnText(bad).directive).toBeNull()
   })
 

@@ -38,6 +38,10 @@ const OutreachPlanSchema = z.object({
   why: z.string().min(1),
   // The thing to actually say to them, ready to review.
   message: z.string().min(1),
+  // The saved list the agent built before proposing, so the offer is a
+  // finished piece of work rather than a suggestion to go and do one.
+  listId: z.number().int().positive().optional(),
+  listName: z.string().optional(),
 })
 
 // A local organization worth approaching, and why. The other half of hearing
@@ -61,21 +65,8 @@ const SynthesisDirectiveSchema = z.object({
   orgs: z.array(OutreachOrgSchema).max(3).optional(),
 })
 
-// The user said yes to the proposal and the agent has built the list. This is
-// the handoff into the outreach flow that owns the channel.
-const HandoffDirectiveSchema = z.object({
-  handoff: z.object({
-    channel: z.enum(OUTREACH_CHANNELS),
-    // The saved list the agent created with crud_saved_filters.
-    listId: z.number().int().positive().optional(),
-    listName: z.string().optional(),
-    message: z.string().min(1),
-  }),
-})
-
 const DirectiveSchema = z.union([
   QuestionDirectiveSchema,
-  HandoffDirectiveSchema,
   SynthesisDirectiveSchema,
 ])
 
@@ -87,16 +78,11 @@ export type OutreachPlan = {
   channel: OutreachChannel
   why: string
   message: string
+  listId: number | null
+  listName: string | null
 }
 
 export type OutreachOrg = { name: string; why: string; how: string }
-
-export type OutreachHandoff = {
-  channel: OutreachChannel
-  listId: number | null
-  listName: string | null
-  message: string
-}
 
 export type PriorityDirective =
   | { kind: 'question'; ask: string; options: string[]; notes: string[] }
@@ -106,7 +92,6 @@ export type PriorityDirective =
       outreach: OutreachPlan | null
       orgs: OutreachOrg[]
     }
-  | { kind: 'handoff'; handoff: OutreachHandoff }
 
 const FENCE_OPEN = '```' + DIRECTIVE_FENCE
 
@@ -119,24 +104,19 @@ const toDirective = (raw: string): PriorityDirective | null => {
   }
   const parsed = DirectiveSchema.safeParse(value)
   if (!parsed.success) return null
-  if ('handoff' in parsed.data) {
-    const { channel, listId, listName, message } = parsed.data.handoff
-    return {
-      kind: 'handoff',
-      handoff: {
-        channel,
-        listId: listId ?? null,
-        listName: listName ?? null,
-        message,
-      },
-    }
-  }
   if ('settled' in parsed.data) {
     const plan = parsed.data.outreach
     return {
       kind: 'synthesis',
       settled: parsed.data.settled,
-      outreach: plan ? { ...plan, count: plan.count ?? null } : null,
+      outreach: plan
+        ? {
+            ...plan,
+            count: plan.count ?? null,
+            listId: plan.listId ?? null,
+            listName: plan.listName ?? null,
+          }
+        : null,
       orgs: parsed.data.orgs ?? [],
     }
   }

@@ -11,7 +11,7 @@ changing anything here.
 | The list, create, seed lane | Real. `GET/POST /v1/priorities`, `POST /v1/community-issues/:id/prioritize`                                                                                               |
 | The flow's content          | Real. Every step sends its ask to the live agent with the user's own priority in it, so the questions, evidence, options, and plan are about that priority                 |
 | The step interaction        | Real. Each step asks before it can settle, and the Continue row appears only once the agent says the step is settled. The ordinance flow does this with tools; here the agent ends each turn with a fenced block the client parses (`data/stepProtocol.ts`) |
-| The outreach handoff        | Real. Settling proposes who to hear from and which local organizations reach further; on a yes the agent builds the list with its own `crud_saved_filters` tool and the flow opens Constituent Outreach on the drafted message |
+| The outreach handoff        | Real. Settling comes with the list already built (the agent has `crud_saved_filters`), the channel picked and the message drafted; one action opens Constituent Outreach on it |
 | The flow's scope            | Borrowed. It runs on `chief_of_staff`, so flow conversations land in that history and the answers come back as prose, not the design's structured cards                    |
 | Step state                  | `useState` in `PriorityFlowShell`, and the conversation is per visit. A reload starts over. Both land properly once gp-api owns a `priority_flow` scope and a flow record  |
 | Rank                        | Display order of what the API returns. `Priority` has no `rank` column, so there is no reorder control yet; the first three rows carry the top-N marker                    |
@@ -59,12 +59,15 @@ things. So settling carries a proposal rather than a prompt to go find one.
   These are half the answer, not a footnote, because the people most affected
   by a decision are usually the ones missing from the file.
 
-The agent then asks yes or skip. On a yes it creates the saved list itself
-(it has `crud_saved_filters`) and emits a `handoff` directive; the shell
-navigates to `/dashboard/constituent-outreach?flow=…&listId=…&message=…`, which
+**The work is done before the offer, not after it.** The agent queries the
+filter dimensions, counts the group, creates the saved list, picks the channel
+and writes the message, all before it settles, and then says what it found and
+why it is worth doing. There is no permission question: asking "should I set up
+the list?" puts the work back on the official and wastes what the flow knows
+about their contact data that they do not. The only action is taking it, which
+navigates to `/dashboard/constituent-outreach?flow=…&listId=…&message=…` and
 opens that channel's flow with the list preselected and the message loaded, so
-the official lands on the screen where they review what gets said. On a skip
-the agent notes in one line what goes unchecked.
+they land on the screen where they review what gets said.
 
 `PhoneBankingFlow` grew one prop for this (`initialScript`) alongside the
 `preselectedListId` it already had; both default to the old behaviour, so the
@@ -116,6 +119,13 @@ so the two Serve workflows feel like one product.
   ask when the id lands, so a kickoff aborted by React's dev double-mount fires
   again on the mount that survives. You will still see one extra empty
   conversation per visit in dev from that double-mount.
+- **The flow has to tell the agent where it is.** It borrows the
+  `chief_of_staff` scope, whose prompt opens a sitting: it greets, introduces
+  itself, and leads with what changed since last time. Inside a priority that
+  reads as the agent losing its place, so every step ask opens with
+  `FLOW_CONTEXT` suppressing it. That is the client arguing with a server
+  prompt, which is the wrong place for it: the durable fix is a `priority`
+  chat anchor gp-api reads to drop those blocks, and it lands with the scope.
 - **Turns are slow and cost money.** A step's ask is a full agent turn with
   research behind it, 10 to 40 seconds, against whatever API the webapp points
   at. Do not add an ask that fires on render.

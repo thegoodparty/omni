@@ -41,37 +41,52 @@ const PROTOCOL = [
   '',
   'When the step is genuinely settled, and only then:',
   '```' + DIRECTIVE_FENCE,
-  '{"settled": "two or three sentences on what we decided here, in my words, so the next step can build on it", "outreach": {"who": "the group, as you found them in my contact data", "count": 260, "channel": "phone_banking", "why": "one line on why these people and this channel", "message": "the actual thing to say to them, ready for me to review"}}',
+  '{"settled": "two or three sentences on what we decided here, in my words, so the next step can build on it", "outreach": {"who": "the group, as you found them in my contact data", "count": 260, "channel": "phone_banking", "why": "one line on why these people and this channel", "message": "the actual thing to say to them, ready for me to review", "listId": 123, "listName": "Flood blocks renters"}, "orgs": [{"name": "the organization", "why": "who they reach that my contact file does not", "how": "who to approach there and how"}]}',
   '```',
-  'Always include outreach when you settle, and do the work to make it real',
-  'rather than asking me who to talk to. Before you settle: call',
-  'describe_filter_dimensions, then count_contacts, to find the group in my',
-  'actual contact data whose answer would confirm or break what we just',
-  'agreed, and say how many there are. Pick the channel they are most likely',
-  'to answer on ("phone_banking" for a conversation or an older group,',
-  '"social" for reach and for people not in the file). Write the message',
-  'itself: short, in my voice, one clear question.',
-  'Include orgs too, one to three of them, whenever a real local',
-  'organization would reach people my contact file will not, or would give',
-  'me a better informed answer: a neighbourhood association, a tenants',
-  'union, a business association, a service provider, an advocacy group',
-  'already working this issue. Name real ones for my jurisdiction, look',
-  'them up rather than inventing a plausible-sounding name, and say who to',
-  'approach there and how. These are as much the answer as the direct',
-  'outreach is, not a footnote to it.',
-  'Never settle on the first turn of a step. Work it first.',
   '',
-  'After you settle, your next turn asks whether to run it, with exactly these',
-  'two options: "Yes, set it up" and "Skip it for now". If I skip, note in one',
-  'line what goes unchecked and move on. If I say yes, create the list with',
-  'crud_saved_filters (confirm the count first, name it for this priority),',
-  'then hand off with nothing else in the turn:',
-  '```' + DIRECTIVE_FENCE,
-  '{"handoff": {"channel": "phone_banking", "listId": 123, "listName": "Flood blocks renters", "message": "the same message, final"}}',
-  '```',
-  'If the list cannot be created, hand off without listId and say so in the',
-  'prose: I will pick the audience myself on the next screen.',
+  'DO THE OUTREACH WORK BEFORE YOU SETTLE. Never ask whether to set it up, and',
+  'never offer to go and find people: by the time you settle, you have already',
+  'found them. In the turn where you settle:',
+  '1. describe_filter_dimensions, then count_contacts, to find the group in my',
+  'real contact data whose answer would confirm or break what we just agreed.',
+  '2. crud_saved_filters to actually create that list, named for this',
+  'priority, and put its id in listId and its name in listName.',
+  '3. Pick the channel they are likeliest to answer on ("phone_banking" for a',
+  'conversation or an older group, "social" for reach and for people not in',
+  'the file), and write the message: short, in my voice, one clear question.',
+  'If the list genuinely cannot be built, still propose the group and message',
+  'and leave listId out, saying in one line why.',
+  '',
+  'Include orgs too, one to three of them, whenever a real local organization',
+  'would reach people my contact file will not, or would give me a better',
+  'informed answer: a neighbourhood association, a tenants union, a business',
+  'association, a service provider, an advocacy group already working this',
+  'issue. Name real ones for my jurisdiction, look them up rather than',
+  'inventing a plausible-sounding name, and say who to approach there. These',
+  'are as much the answer as the direct outreach is, not a footnote to it.',
+  '',
+  'Your prose in that turn tells me what you found and why it is worth doing,',
+  'in two or three sentences, as something already done rather than something',
+  'proposed: "I pulled the 260 renters on the flood blocks, they are the ones',
+  'who would know whether this is actually the problem." I take it from there.',
+  'Never settle on the first turn of a step. Work it first.',
 ].join('\n')
+
+// The flow borrows the chief_of_staff scope, whose prompt is written for that
+// surface's home: it opens a sitting, introduces itself, and leads with what
+// changed since last time. Inside a priority, mid-task, all of that is noise,
+// so every step ask opens by saying where the user already is.
+//
+// This is the client fighting a server prompt, which is the wrong place for
+// it. The durable fix is a `priority` chat anchor that gp-api reads to drop
+// the onboarding, session-opener and first-run blocks, and it lands with the
+// priority_flow scope.
+const FLOW_CONTEXT =
+  'Context: I am not opening a session with you. I am already inside the ' +
+  'Priorities flow, on this one priority, mid-task, and I can see the step ' +
+  'I am on. Do not greet me, do not introduce yourself, do not summarize my ' +
+  'priorities or what has changed since last time, and do not tell me what ' +
+  'we are about to do. Start on the work of this step.'
 
 const HOUSE_RULES =
   'Rules for this answer: be specific to my district and this priority, ' +
@@ -204,6 +219,7 @@ export const buildStepPrompt = (
 ): string => {
   const feed = RESEARCH_STEPS.includes(step) ? issuesBlock(issues) : null
   return [
+    FLOW_CONTEXT,
     `My priority: "${priority.title}".`,
     `How I describe it: ${priority.description}`,
     ...(feed ? [feed] : []),
