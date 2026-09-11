@@ -73,6 +73,10 @@ export const EVENTS = {
     // HubSpot company record. Peerly's 10DLC Slack notifications reference
     // only this id, so it's the shared key Campaign Success matches on.
     PeerlyIdentityIdCreated: 'Peerly Identity ID Created',
+    // Fired when GoodParty staff approve a queued outreach campaign from the
+    // admin console. Carries `channel` so SMS and robocall approvals share one
+    // event.
+    CampaignApproved: 'Voter Outreach - Campaign Approved',
   },
   AiContent: {
     GenerationStarted: 'Content Builder: Generation Started',
@@ -87,6 +91,9 @@ export const EVENTS = {
   // on-demand landing check skips this gate (see meetingBriefings.service).
   BriefingAssistant: {
     DispatchSkipped: 'Briefing Assistant - Dispatch Skipped',
+    // Terminal outcome of a briefing run, one or the other, never both.
+    AgendaCreated: 'Briefing Assistant - Agenda Created',
+    AgendaNotCreated: 'Briefing Assistant - Agenda Not Created',
   },
   Campaigns: {
     FollowOnCreated: 'Campaign - Follow-On Created',

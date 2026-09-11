@@ -424,6 +424,22 @@ export const EVENTS = {
       PinEntryViewed: 'Pro Upgrade - PIN Entry Viewed',
     },
   },
+  // Candidate questions flow. The event string is snake_case, predating the
+  // 'Product Area - Action' convention; the name is kept exactly as ingested so
+  // moving it into the registry stays a no-op for Amplitude and HubSpot.
+  Questions: {
+    Completed: 'question_complete',
+  },
+  // Peer-to-peer texting upsell modal, a sibling of ProUpgrade.Modal above with
+  // its own event family. Every event carries `variant` (P2PModalVariant) so the
+  // two upsell copies are a property filter, not separate events.
+  P2PUpgrade: {
+    Modal: {
+      Shown: 'P2P Upgrade - Modal: Modal Shown',
+      Exit: 'P2P Upgrade - Modal: Exit',
+      ClickButton: 'P2P Upgrade - Modal: Click Button',
+    },
+  },
   // Shared Serve (elected office) + Win (campaign) contacts experience, both on
   // the People API. Every event carries a `context: 'win' | 'serve'` property
   // (sourced from ContactsTableProvider's isWinContext) so Win adoption of the

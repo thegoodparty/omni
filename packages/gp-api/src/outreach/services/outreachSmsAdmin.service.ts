@@ -17,6 +17,7 @@ import {
 } from '@goodparty_org/contracts'
 import { addDays, format, subDays } from 'date-fns'
 import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
+import { EVENTS } from 'src/vendors/segment/segment.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
 import { OutreachService } from './outreach.service'
@@ -400,7 +401,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     if (updated.campaign?.user) {
       await this.tryTrack(
         updated.campaign.user.id,
-        'Voter Outreach - Campaign Approved',
+        EVENTS.Outreach.CampaignApproved,
         { channel: 'sms' },
       )
     }
