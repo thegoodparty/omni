@@ -55,6 +55,7 @@ const ConstituentOutreachContent = () => {
   // rather than making the official rebuild the same three decisions.
   const handoffFlow = searchParams?.get('flow') ?? null
   const handoffMessage = searchParams?.get('message') ?? null
+  const handoffName = searchParams?.get('name') ?? null
   const handoffListId = Number(searchParams?.get('listId'))
   const preselectedListId =
     Number.isInteger(handoffListId) && handoffListId > 0
@@ -128,6 +129,9 @@ const ConstituentOutreachContent = () => {
         {...(preselectedListId !== undefined ? { preselectedListId } : {})}
         {...(handoffFlow === 'phone_banking' && handoffMessage
           ? { initialScript: handoffMessage }
+          : {})}
+        {...(handoffFlow === 'phone_banking' && handoffName
+          ? { initialName: handoffName }
           : {})}
       />
       <OutreachHistoryTable

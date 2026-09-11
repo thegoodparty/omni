@@ -191,9 +191,16 @@ export default function PriorityFlowShell({
       ).directive
     : null
   const settled = latestDirective?.kind === 'synthesis'
-  // Nothing visible from this turn yet: hold the shimmer rather than an empty
-  // gap under the step's question.
-  const working = sending && liveSplit.segments.length === 0
+  // A settle turn can run for the better part of a minute: dimensions, a
+  // count, a list create, then research. The tool pills shimmer while a tool
+  // is actually in flight, but the gaps between them (the model thinking, or
+  // writing a long block the parser is holding back) were silent, and silence
+  // reads as a hang. So something is always moving while the turn is open.
+  const lastSegment = liveSplit.segments[liveSplit.segments.length - 1]
+  const toolRunning = lastSegment?.kind === 'tool' && lastSegment.running
+  const working = sending && !toolRunning
+  const workingLabel =
+    liveSplit.segments.length === 0 ? 'Thinking...' : 'Still working on it...'
 
   // The agent has already built the list and drafted the message, so this is
   // not permission to do the work: it is the official taking work that is
@@ -204,6 +211,7 @@ export default function PriorityFlowShell({
       message: plan.message,
     })
     if (plan.listId !== null) params.set('listId', String(plan.listId))
+    if (plan.campaignName !== null) params.set('name', plan.campaignName)
     router.push(`/dashboard/constituent-outreach?${params.toString()}`)
   }
 
@@ -286,7 +294,7 @@ export default function PriorityFlowShell({
                     toolLabel={toolLabel}
                   />
                 ) : null}
-                {working ? <ThinkingRow /> : null}
+                {working ? <ThinkingRow label={workingLabel} /> : null}
               </AssistantRow>
             ) : null}
 

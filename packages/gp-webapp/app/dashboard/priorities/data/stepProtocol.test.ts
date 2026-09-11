@@ -48,6 +48,7 @@ describe('parseTurnText', () => {
         message: 'Did the flooding reach your unit this year?',
         listId: 42,
         listName: 'Flood blocks renters',
+        campaignName: null,
       },
       orgs: [
         {
@@ -66,7 +67,12 @@ describe('parseTurnText', () => {
     const directive = parseTurnText(noList).directive
     expect(directive).toMatchObject({
       kind: 'synthesis',
-      outreach: { listId: null, listName: null, count: null },
+      outreach: {
+        listId: null,
+        listName: null,
+        count: null,
+        campaignName: null,
+      },
     })
   })
 

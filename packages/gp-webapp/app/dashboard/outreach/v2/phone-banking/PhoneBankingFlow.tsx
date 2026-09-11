@@ -227,6 +227,10 @@ interface PhoneBankingFlowProps {
   // once per open; with a list that actually resolves, the flow opens on the
   // script step so the first thing seen is the message to review.
   initialScript?: string
+  // A campaign name from the same caller. Counts as typed, so the script
+  // step's own suggestion does not overwrite a name that came out of a real
+  // conversation about what this call is for.
+  initialName?: string
 }
 
 // Flow state is flat client state owned here (phase 1 TDD, same convention
@@ -240,6 +244,7 @@ export const PhoneBankingFlow = ({
   surface = WIN_PHONE_BANKING_SURFACE,
   preselectedListId,
   initialScript,
+  initialName,
 }: PhoneBankingFlowProps) => {
   const router = useRouter()
   const [stepId, setStepId] = useState<StepId>('purpose')
@@ -407,6 +412,20 @@ export const PhoneBankingFlow = ({
     scriptSpentRef.current = true
     setScript(initialScript)
   }, [open, initialScript])
+
+  // The handed-over campaign name, marked as edited so the suggestion effect
+  // leaves it alone.
+  const nameSpentRef = useRef(false)
+  useEffect(() => {
+    if (!open) {
+      nameSpentRef.current = false
+      return
+    }
+    if (nameSpentRef.current || !initialName) return
+    nameSpentRef.current = true
+    setName(initialName)
+    setNameEdited(true)
+  }, [open, initialName])
 
   // Sizes the default sheet count to the audience once it resolves, instead
   // of leaving it at 1 (ENG-10941) — reachableCount counts PEOPLE while

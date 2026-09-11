@@ -42,6 +42,8 @@ const OutreachPlanSchema = z.object({
   // finished piece of work rather than a suggestion to go and do one.
   listId: z.number().int().positive().optional(),
   listName: z.string().optional(),
+  // What to call the outreach itself, so the next screen opens named.
+  campaignName: z.string().max(80).optional(),
 })
 
 // A local organization worth approaching, and why. The other half of hearing
@@ -80,6 +82,7 @@ export type OutreachPlan = {
   message: string
   listId: number | null
   listName: string | null
+  campaignName: string | null
 }
 
 export type OutreachOrg = { name: string; why: string; how: string }
@@ -115,6 +118,7 @@ const toDirective = (raw: string): PriorityDirective | null => {
             count: plan.count ?? null,
             listId: plan.listId ?? null,
             listName: plan.listName ?? null,
+            campaignName: plan.campaignName ?? null,
           }
         : null,
       orgs: parsed.data.orgs ?? [],

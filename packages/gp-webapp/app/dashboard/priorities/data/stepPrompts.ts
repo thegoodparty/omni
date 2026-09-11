@@ -41,7 +41,7 @@ const PROTOCOL = [
   '',
   'When the step is genuinely settled, and only then:',
   '```' + DIRECTIVE_FENCE,
-  '{"settled": "two or three sentences on what we decided here, in my words, so the next step can build on it", "outreach": {"who": "the group, as you found them in my contact data", "count": 260, "channel": "phone_banking", "why": "one line on why these people and this channel", "message": "the actual thing to say to them, ready for me to review", "listId": 123, "listName": "Flood blocks renters"}, "orgs": [{"name": "the organization", "why": "who they reach that my contact file does not", "how": "who to approach there and how"}]}',
+  '{"settled": "two or three sentences on what we decided here, in my words, so the next step can build on it", "outreach": {"who": "the group, as you found them in my contact data", "count": 260, "channel": "phone_banking", "why": "one line on why these people and this channel", "message": "the actual thing to say to them, ready for me to review", "listId": 123, "listName": "Flood blocks renters", "campaignName": "Flock cameras: what renters say"}, "orgs": [{"name": "the organization", "why": "who they reach that my contact file does not", "how": "who to approach there and how"}]}',
   '```',
   '',
   'DO THE OUTREACH WORK BEFORE YOU SETTLE. Never ask whether to set it up, and',
@@ -51,6 +51,9 @@ const PROTOCOL = [
   'real contact data whose answer would confirm or break what we just agreed.',
   '2. crud_saved_filters to actually create that list, named for this',
   'priority, and put its id in listId and its name in listName.',
+  'Name the outreach itself in campaignName, from what we have actually been',
+  'talking about, short enough to scan in a list of past outreach. It is what',
+  'the next screen opens with, so I never have to name it myself.',
   '3. Pick the channel they are likeliest to answer on ("phone_banking" for a',
   'conversation or an older group, "social" for reach and for people not in',
   'the file), and write the message: short, in my voice, one clear question.',
@@ -99,7 +102,10 @@ const HOUSE_RULES =
   'respects my time: lead with the answer, keep the prose under 150 words, ' +
   'no filler opener, no recap of what I asked, no caveats I did not ask ' +
   'for. However much research you do, the prose I see is at most three ' +
-  'short paragraphs: put the rest into the options. Never narrate why ' +
+  'short paragraphs: put the rest into the options. When you call tools ' +
+  'partway through a turn, carry on from where you left off rather than ' +
+  'restating what you already told me: I can see it above, and reading it ' +
+  'twice looks like a bug. Never narrate why ' +
   'something matters ("that is relevant context", ' +
   '"what this tells you is"): say the thing and stop. Talk about my ' +
   'neighbourhoods and the people who show up, not "the population" or "your ' +
