@@ -331,7 +331,8 @@ def should_post(
     renders anchor content, so the gate has to know anchors exist or a run whose only news
     is a freshly drafted anchor is suppressed and the review link never appears. It gates on
     newly drafted anchors, not on the queue's size — see load_anchor_queue. Passed in for
-    testability; read from the committed state when omitted."""
+    testability by post_digest, which is the one place it is read from disk; omitted means
+    no anchor news, never "go and look"."""
     if red_open:
         return True
     if any(changes.get(k) for k in ("new", "escalated", "resolved")):
@@ -340,8 +341,6 @@ def should_post(
         return True
     if gap_has_news(gap):
         return True
-    if anchor_queue is None:
-        anchor_queue = load_anchor_queue(run_date=result.get("run_date"))
     return anchor_has_news(anchor_queue)
 
 
@@ -465,6 +464,7 @@ def build_digest_blocks(
     prior_anomalous: set[str] | None = None,
     gap: dict | None = None,
     triage: dict | None = None,
+    anchor_queue: dict | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Return ``(parent_blocks, thread_blocks)`` for a Source B health-digest post.
 
@@ -482,7 +482,8 @@ def build_digest_blocks(
     / FYI layout; ``None`` keeps this byte-identical to the legacy delta-led digest.
     """
     if triage is not None:
-        return _build_tiered_blocks(result, changes, prior_anomalous, gap, triage)
+        return _build_tiered_blocks(result, changes, prior_anomalous, gap, triage,
+                                    anchor_queue)
 
     n_changes = sum(len(changes.get(k, [])) for k in ("new", "escalated", "resolved"))
     anomalies = _new_anomalies(result, prior_anomalous)
@@ -544,8 +545,7 @@ def build_digest_blocks(
     if gap is not None:
         parent.append(_context(build_gap_summary_line(gap)))
         thread.extend(build_gap_thread_blocks(gap))
-    thread.extend(build_anchor_blocks(
-        load_anchor_queue(run_date=result.get("run_date"))))
+    thread.extend(build_anchor_blocks(anchor_queue or {}))
     triage_line = build_triage_invocation(result, gap)
     if triage_line:
         thread.append(_context(triage_line))
@@ -559,6 +559,7 @@ def _build_tiered_blocks(
     prior_anomalous: set[str] | None,
     gap: dict | None,
     triage: dict,
+    anchor_queue: dict | None = None,
 ) -> tuple[list[dict], list[dict]]:
     red = _tier_items(triage, "red")
     yellow = _tier_items(triage, "yellow")
@@ -625,8 +626,7 @@ def _build_tiered_blocks(
         thread.append(_section("No additional detail."))
     if gap is not None:
         thread.extend(build_gap_thread_blocks(gap))
-    thread.extend(build_anchor_blocks(
-        load_anchor_queue(run_date=result.get("run_date"))))
+    thread.extend(build_anchor_blocks(anchor_queue or {}))
     triage_line = build_triage_invocation(result, gap)
     if triage_line:
         thread.append(_context(triage_line))
@@ -682,6 +682,7 @@ def post_digest(
     prior_anomalous: set[str] | None = None,
     gap: dict | None = None,
     triage: dict | None = None,
+    anchor_queue: dict | None = None,
 ) -> str | None:
     """Post the health digest: parent message, then the detail as a threaded reply.
     No-op (returns None) when the quiet gate says nothing changed. ``gap`` (Task 4's
@@ -691,10 +692,17 @@ def post_digest(
     on an otherwise quiet run."""
     red_open = bool(triage) and any(
         i.get("tier") == "red" for i in triage.get("items") or [])
-    if not should_post(result, changes, prior_anomalous, gap, red_open=red_open):
+    # The one place the anchor queue is read from disk. Loading it here rather than inside
+    # the gate and the two builders keeps all three pure — the module's contract — and means
+    # a test of any of them controls the anchor content by fixture instead of inheriting
+    # whatever the committed state file happens to hold that day.
+    if anchor_queue is None:
+        anchor_queue = load_anchor_queue(run_date=result.get("run_date"))
+    if not should_post(result, changes, prior_anomalous, gap, red_open=red_open,
+                       anchor_queue=anchor_queue):
         return None
     parent, thread = build_digest_blocks(result, changes, prior_state, prior_anomalous,
-                                         gap, triage)
+                                         gap, triage, anchor_queue)
     # Fallback text mirrors whichever header the parent actually rendered — the tiered
     # layout dropped "& instrumentation gaps" from its header (Task 5 folded gaps into a
     # context line, not the title), so the legacy string is stale once triage is present.

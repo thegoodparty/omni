@@ -488,9 +488,13 @@ def test_post_digest_survives_thread_failure_and_returns_parent_ts():
 
 def test_post_digest_noop_when_quiet():
     tx = _FakeTransport()
-    # quiet: no status changes and the anomaly persisted from last run
+    # quiet: no status changes and the anomaly persisted from last run. The anchor queue is
+    # injected rather than left to load from the committed file — otherwise this passes only
+    # because no committed row happens to carry RESULT's run_date, and the next seeding run
+    # on that date would flip it.
     ts = slk.post_digest(RESULT, QUIET, PRIOR, token="xoxb-t", channel="C0BECEK0603",
-                         transport=tx, prior_anomalous={"donation_submitted"})
+                         transport=tx, prior_anomalous={"donation_submitted"},
+                         anchor_queue={"queued": 0, "flagged": 0, "new": 0})
     assert ts is None
     assert tx.calls == []
 
@@ -770,6 +774,9 @@ def test_a_run_whose_only_news_is_a_freshly_drafted_anchor_still_posts():
     result = {"run_date": "2026-09-11", "events": []}
     quiet = {"new": [], "escalated": [], "resolved": [], "still_open": []}
     assert slk.should_post(result, quiet, set(), None, anchor_queue={"queued": 0, "new": 0}) is False
+    # Omitted is "no anchor news", never "go and read the file" — the builders and the gate
+    # are pure, and post_digest is the only place the queue is read from disk.
+    assert slk.should_post(result, quiet, set(), None) is False
     assert slk.should_post(result, quiet, set(), None,
                            anchor_queue={"queued": 5, "new": 5}) is True
 
@@ -797,3 +804,33 @@ def test_anchor_news_counts_only_rows_first_drafted_on_this_run(tmp_path):
         "queued": 2, "flagged": 1, "new": 1}
     # No run date (an older caller) means nothing reads as new, never everything.
     assert slk.load_anchor_queue(path)["new"] == 0
+
+
+def test_builders_and_gate_never_touch_disk_for_the_anchor_queue(monkeypatch):
+    """The module's contract is that the gate and the block builders are pure. Reading the
+    committed state inside them made every existing builder test read a 100KB+ file and
+    inherit whatever anchors happened to be queued that day — including making
+    test_post_digest_noop_when_quiet pass only because no row carried its run_date."""
+    def explode(*a, **k):
+        raise AssertionError("load_anchor_queue must not be called from a builder or the gate")
+    monkeypatch.setattr(slk, "load_anchor_queue", explode)
+
+    result = {"run_date": "2026-09-11", "events": []}
+    quiet = {"new": [], "escalated": [], "resolved": [], "still_open": []}
+    slk.should_post(result, quiet, set(), None)
+    slk.build_digest_blocks(result, quiet, None)
+    slk.build_digest_blocks(result, quiet, None, None, None,
+                            {"items": [], "run_date": "2026-09-11"})
+
+
+def test_post_digest_threads_the_injected_queue_into_the_thread():
+    """post_digest is the IO boundary, so an injected queue has to reach the block that
+    renders the review link — otherwise the parameter is decoration."""
+    tx = _FakeTransport()
+    result = {"run_date": "2026-09-11", "events": [], "status_counts": {"active": 1}}
+    changes = {"new": ["E"], "escalated": [], "resolved": [], "still_open": []}
+    slk.post_digest(result, changes, None, token="t", channel="C", transport=tx,
+                    anchor_queue={"queued": 7, "flagged": 4, "new": 7})
+    thread_text = json.dumps(tx.calls)
+    assert "7 drafted anchor(s) queued" in thread_text
+    assert slk.anchors_review_url() in thread_text
