@@ -9,6 +9,7 @@ import {
   SendIcon,
   SparklesIcon,
   SwordsIcon,
+  TargetIcon,
   UsersRoundIcon,
 } from '@styleguide/components/ui/icons'
 
@@ -30,6 +31,7 @@ export const NAV_HEADER_ICONS = {
   book: BookOpenIcon,
   profile: CircleUserRoundIcon,
   megaphone: MegaphoneIcon,
+  target: TargetIcon,
 }
 
 export type NavHeaderIconKey = keyof typeof NAV_HEADER_ICONS

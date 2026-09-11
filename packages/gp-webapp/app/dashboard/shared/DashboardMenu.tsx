@@ -234,7 +234,7 @@ const PRIORITIES_MENU_ITEM: MenuItem = {
   label: 'Priorities',
   link: '/dashboard/priorities',
   icon: <MdFileOpen />,
-  v2Icon: NAV_HEADER_ICONS.clipboard,
+  v2Icon: NAV_HEADER_ICONS.target,
   v2Category: 'elected-office',
 }
 

@@ -33,7 +33,7 @@ export default async function Page(): Promise<React.JSX.Element> {
       pathname="/dashboard/priorities"
       showAlert={false}
       wrapperClassName="!p-0"
-      navHeader={{ icon: 'clipboard', label: 'Priorities' }}
+      navHeader={{ icon: 'target', label: 'Priorities' }}
     >
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-10 px-4 pb-28 pt-6 md:px-6 md:pt-8">
         <PrioritiesHub priorities={priorities} seedIssues={issues} />
