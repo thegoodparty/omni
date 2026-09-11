@@ -810,6 +810,41 @@ cacheable, nothing on the Serve surface can select it once the filter control
 and the saved-list re-expansion are gated webapp-side, and removing it would
 fork the district cache. `PACK_FORMAT_REVISION` does not move.
 
+### The talking-points card
+
+The payload carries `talkingPoints` when the list has one: the card the
+candidate wrote in the wizard, read at every door on the walk. It is one
+string, four sections newline-separated, off `Outreach.script` — the column
+every other outreach channel already keeps its script in, which is why this
+feature added no column of its own. `ROUTE_INCLUDE` selects it beside the
+envelope id the volunteer assignment check already needed, so it costs no
+query. The field is **optional and never `''`**: absent means a list frozen
+before this shipped or a candidate who skipped the step, and the door script
+falls back to the static build for both, so absent and empty must not be
+distinguishable.
+
+**The card is five sections and only three of them were written by a model.**
+Sections 1a (the identity clause — "Hi, I'm Jane Doe, running for City
+Council") and 5 (the thank-you) are composed at RENDER time by the webapp,
+because they depend on who is reading the card rather than on which list it
+is: a candidate freezing a list on a laptop cannot write the opener a
+volunteer will speak at a door three weeks later. Section 3 (the call to
+action) is composed at CREATE time from `campaign.details.website` and stored,
+because it is real data a model asked to phrase it could equally well invent.
+Sections 1b (the engagement question), 2 (context) and 4 (the ask) are the
+generated ones. `POST /v1/outreach/door-knocking/draft` and its `serve/`
+sibling return exactly those three; the wizard stores four (those plus the
+composed CTA) in card order.
+
+**The list's purpose and its audience are the whole prompt input that is
+specific to this channel.** `DoorKnockingTurf.purpose` takes the same nine
+slugs phone banking uses, and the audience reaches the prompt through
+`describeFilterForTalkingPoints` (`src/contacts/utils/describeFilter.util.ts`)
+rather than as raw filter columns — an allowlist of conversational dimensions,
+which is how **party never reaches the prompt** on either rail. The filters
+select and order what the candidate already believes; they are never used to
+make a claim about the person opening the door.
+
 ### The Serve door's own answer
 
 A Serve canvasser is asked neither Win question at the door — a constituent has

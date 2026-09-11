@@ -247,11 +247,16 @@ interface PersonSheetProps {
   // surfaces with no organization provider above them, and the payload is the
   // one thing every reader of a served route already holds.
   isServe: boolean
+  // The talking-points card frozen with the list, off the same payload and
+  // for the same reason. Absent for every list created before the wizard had
+  // a points step, which is what the static script still exists for.
+  talkingPoints?: string
 }
 
 // The demo's person sheet: a right panel on desktop, a bottom sheet on
-// small screens. Talking points are the candidate's own saved issues, not the
-// AI copy the demo implied.
+// small screens. The talking points are the card the candidate wrote for this
+// LIST — or, for a list frozen before that step existed, their own saved issue
+// stances. Neither is the per-voter AI copy the demo implied.
 //
 // Phones are live-only and screen-only. The route payload carries them for a
 // target that still has a live row, which is the same rule mayHaveMoved is
@@ -314,6 +319,7 @@ export default function PersonSheet({
   onOpenNextStop,
   stopSeq,
   isServe,
+  talkingPoints,
 }: PersonSheetProps) {
   const targets = stop.addresses.flatMap((address) => address.targets)
   // The chevrons move the sheet from door to door without unmounting it, so the
@@ -328,7 +334,7 @@ export default function PersonSheet({
   useEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = 0
   }, [stop.id])
-  const script = useDoorScript()
+  const script = useDoorScript(talkingPoints)
   // Serve's script is the opener alone: the bulleted stances under it are the
   // candidate's own, from an issues editor an elected official has no campaign
   // to have written in. `useDoorScript` builds the Serve sentence from the
@@ -547,6 +553,7 @@ export default function PersonSheet({
             <DoorScript
               intro={script.intro}
               issues={script.issues}
+              points={script.points}
               isServe={serveMode}
             />
           )}

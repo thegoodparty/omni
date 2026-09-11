@@ -163,6 +163,11 @@ export class DoorKnockingCreateService extends createPrismaBase(
             name: input.name,
             color: input.color,
             geoPoly: input.geoPoly,
+            // Why the list was walked, kept on the turf beside the audience
+            // it selected. Optional because every turf created before the
+            // talking-points step existed has none, and because the wizard
+            // does not require a purpose to route a walk.
+            purpose: input.purpose,
           },
         })
 
@@ -284,6 +289,11 @@ export class DoorKnockingCreateService extends createPrismaBase(
             voterFileFilterId: filter.id,
             doorKnockingRouteId: route.id,
             date: new Date(),
+            // The talking points, frozen with the walk on the same column
+            // every other channel already stores its script in. Frozen for
+            // the same reason the route is: a canvasser who started the list
+            // and a canvasser who picks it up next week read the same card.
+            script: input.talkingPoints,
           },
         })
 

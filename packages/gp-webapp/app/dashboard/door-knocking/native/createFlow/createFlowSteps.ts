@@ -7,18 +7,35 @@
 // session — the canvas would never enter draw_polygon.
 //
 // `CreateFlowStage` is the FLOW's own word, and it is what the design draws:
-// purpose → who → draw → confirm → route. The two pre-draw stages both live
-// inside the page's single `filters` step, which is what lets that phase grow
-// a stage without the orchestrator learning about it. `filters` is therefore
-// read as "the phase that decides the audience", not as "the filter pills" —
-// the pills are one half of one stage of two.
-export type CreateFlowStep = 'filters' | 'draw' | 'confirm' | 'route'
+// purpose → who → draw → confirm → points → route. The two pre-draw stages
+// both live inside the page's single `filters` step, which is what lets that
+// phase grow a stage without the orchestrator learning about it. `filters` is
+// therefore read as "the phase that decides the audience", not as "the filter
+// pills" — the pills are one half of one stage of two.
+//
+// `points` is the talking-points stage. It sits second-to-last: the purpose
+// slug and the audience it writes from are settled well before it, the list
+// is already named (so the stage needs no name field of its own), and `route`
+// is the paid press that must stay last. Reviewing the card is therefore the
+// last thing that happens before any money moves.
+//
+// It is a `CreateFlowStep` of its own rather than another lodger inside an
+// existing one, which means it must be named in `CreateListFlow`'s
+// orphan-filter guard alongside `confirm` and `route` — those three are the
+// retry zone a failed create can be walked back into, and releasing the
+// minted filter there would strand the retry.
+export type CreateFlowStep = 'filters' | 'draw' | 'confirm' | 'points' | 'route'
 
 export const PRE_DRAW_STAGES = ['purpose', 'who'] as const
 
 export type PreDrawStage = (typeof PRE_DRAW_STAGES)[number]
 
-export type CreateFlowStage = PreDrawStage | 'draw' | 'confirm' | 'route'
+export type CreateFlowStage =
+  | PreDrawStage
+  | 'draw'
+  | 'confirm'
+  | 'points'
+  | 'route'
 
 // The design's own limit on the name this flow asks for. Deliberately tighter
 // than `MAX_TURF_NAME_LENGTH`, which is what `EditTurfDialog` has to go on
@@ -33,7 +50,10 @@ export const flowStage = (
 // The page step a stage reports back, so a stage change and a step change are
 // one decision rather than two that can disagree.
 export const stageStep = (stage: CreateFlowStage): CreateFlowStep =>
-  stage === 'draw' || stage === 'confirm' || stage === 'route'
+  stage === 'draw' ||
+  stage === 'points' ||
+  stage === 'confirm' ||
+  stage === 'route'
     ? stage
     : 'filters'
 
@@ -42,7 +62,7 @@ export interface StepperPosition {
   totalSteps: number
 }
 
-// One path of five steps, always. There is no short path that ends at a saved
+// One path of six steps, always. There is no short path that ends at a saved
 // list, and building a new audience does not make one: this is door knocking,
 // so every route through the flow draws a boundary and buys a route. Choosing
 // "Create a new list" picks the audience, it does not finish the job.
@@ -54,15 +74,17 @@ export interface StepperPosition {
 export const stepperPosition = (stage: CreateFlowStage): StepperPosition => {
   switch (stage) {
     case 'purpose':
-      return { currentStep: 1, totalSteps: 5 }
+      return { currentStep: 1, totalSteps: 6 }
     case 'who':
-      return { currentStep: 2, totalSteps: 5 }
+      return { currentStep: 2, totalSteps: 6 }
     case 'draw':
-      return { currentStep: 3, totalSteps: 5 }
+      return { currentStep: 3, totalSteps: 6 }
     case 'confirm':
-      return { currentStep: 4, totalSteps: 5 }
+      return { currentStep: 4, totalSteps: 6 }
+    case 'points':
+      return { currentStep: 5, totalSteps: 6 }
     case 'route':
-      return { currentStep: 5, totalSteps: 5 }
+      return { currentStep: 6, totalSteps: 6 }
   }
 }
 
@@ -80,7 +102,9 @@ export const previousStage = (
       return 'who'
     case 'confirm':
       return 'draw'
-    case 'route':
+    case 'points':
       return 'confirm'
+    case 'route':
+      return 'points'
   }
 }

@@ -949,6 +949,7 @@ export default function WalkView({
           stop={sheetStop}
           stopSeq={sheetStop.seq}
           isServe={isServe}
+          talkingPoints={routeQuery.data?.talkingPoints}
           // The chevrons use `openStopFromChevron` — the sheet is already
           // open here, so moving to the neighbouring stop keeps opening
           // PersonSheet on the first resident worth knocking, and also

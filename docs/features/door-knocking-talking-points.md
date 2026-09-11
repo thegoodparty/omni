@@ -437,11 +437,20 @@ engagement question secondarily.
 
 This copy is a *steer*, not text that ships: it tells the model what commitment
 to aim at, and the model writes the note. That is the whole reason it can be
-prompt copy rather than the per-purpose constants we first reached for. Product
-still owns it — `doorKnockingPurposes.ts` and its Serve twin both record that
-robocall and phone banking shipped with copy pasted from social and had to be
-corrected in #1379 — but a wrong steer shifts output rather than putting words
-in a canvasser's mouth.
+prompt copy rather than the per-purpose constants we first reached for, and why
+we wrote it ourselves rather than blocking on product. A wrong steer shifts
+output; it does not put words in a canvasser's mouth the way the shipped
+per-purpose copy does — `doorKnockingPurposes.ts` and its Serve twin both
+record that robocall and phone banking shipped with copy pasted from social and
+had to be corrected in #1379. Grade it with the eval set and change it there.
+
+What the *shape* of a door ask is turned out not to be a per-purpose question,
+so it is stated once, in `ASK_RULE`: one request and no more, answerable where
+the resident is standing, a recordable yes-or-no where the purpose seeks a
+commitment and a single question where the purpose is listening. Two requests
+in one line is the failure it guards — "vote early and take a yard sign" gets a
+nod and neither. The per-purpose copy's job is only to name which one
+commitment.
 
 `custom` follows phone banking exactly: fresh generation is refused with a 400
 and only the improve path is allowed.
@@ -495,6 +504,16 @@ deliberately carry neither notes nor phones nor demographics, because paper
 leaves the building. Talking points are campaign copy rather than voter data, so
 the argument does not obviously apply — but both surfaces read the same payload
 and will receive the field whether or not they render it.
+
+**Decided: not on paper, in this PR.** The reason is layout rather than
+privacy. Both paper surfaces repeat their header on every printed page — the
+sheet by riding it in the `thead`, the PDF through a `fixed` `Header` — so a
+five-bullet block placed there repeats with it and eats a third of every page,
+and the alternative is a one-time pre-table block that paged media makes
+fragile. The card is also identical at every door, so the canvasser who wants
+it on paper is holding the same page N times. Both surfaces receive the field
+today and render nothing with it, which is a design decision to revisit with
+design rather than a gap to close by dropping it into `SheetHeader`.
 
 ## Testing
 
