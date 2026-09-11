@@ -2,6 +2,11 @@
 
 Post-signup onboarding flow. New users land here after registration to pick the office they're running for, fill in basic campaign info, and reach a "complete" state that hands off to the dashboard.
 
+**Copy.** Every step's title, description, and `whyThisMatters` aside live in
+`components/onboardingConfig.ts` and follow `docs/product-copy.md`: a question
+as the title, one sentence under it. This flow is a reference implementation
+for that standard, so hold the line when editing it.
+
 ## Key files
 
 | File | Role |

@@ -2,6 +2,13 @@
 
 Voter outreach hub. Lets a campaign create text/voicemail/script/social outreach to voter audiences and tracks impact. Note: the directory is `outreach/` even though the tech design refers to it as "voter-outreach."
 
+**Copy.** This hub's flows are the reference implementation for
+`docs/product-copy.md`. Step titles are questions ("Who do you want to
+reach?", "When should it go out?"), captions are one short sentence, and
+shared strings live in `v2/*Purposes.ts` / `v2/channelMeta.tsx` /
+`constants.tsx`. Read that file before adding or editing any string here, and
+reuse an existing phrase over inventing a new one.
+
 ## The outreach hub
 
 `page.tsx` (server component, fetches rows + compliance) renders

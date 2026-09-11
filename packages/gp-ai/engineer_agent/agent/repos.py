@@ -70,14 +70,17 @@ git clone --depth 1 --recurse-submodules https://x-access-token:$GITHUB_TOKEN@gi
 ```
 Clone WITH submodules: `ai-rules/` is a submodule and CI runs a check out of it.
 
-If that clone is refused (403, or "repository not found"), the GitHub App
-installation does not cover this repo yet. It is PUBLIC, so read it without
-credentials rather than giving up:
+The App is installed org-wide with write access to code and pull requests, so
+that clone and a later push should both work here. If the clone is refused
+anyway (403, or "repository not found"), treat it as a broken token rather than
+a repo you are not allowed in, and do not give up on the analysis — the repo is
+public, so read it without credentials:
 ```bash
 git clone --depth 1 --recurse-submodules https://github.com/thegoodparty/gp-marketing.git /workspace/gp-marketing
 ```
-An analysis can be finished that way. Pushing a branch cannot — if you need to
-push and the authenticated clone was refused, say so on the ticket and stop.
+That finishes an analysis but cannot push a branch. If you needed to push, say
+on the ticket that the credential failed and stop, so a human fixes the token
+instead of re-running into the same wall.
 
 Single Next.js 15 App Router app (React 19, TypeScript, Tailwind 4) — NOT a
 monorepo, so there is one root `package.json` and no `packages/` directory.
@@ -134,6 +137,28 @@ DEFAULT_REPO = OMNI
 
 class UnknownRepoError(ValueError):
     """A repo was named that this agent has no briefing for."""
+
+
+def other_profiles(routed: RepoProfile) -> list[RepoProfile]:
+    """Every repo except the one this run was pointed at, in a stable order.
+
+    The model is given these too. That reverses the original rule of showing it
+    one briefing and one only, which was meant to stop it working confidently in
+    the wrong codebase — a real risk, and still the expensive one.
+
+    What changed is the evidence. The first marketing ticket the bot ever saw was
+    routed by its ClickUp list to gp-marketing and turned out to be a gp-api
+    email; told to stop at the boundary, it stopped, and a human had to do the
+    whole investigation again somewhere else. Bugs are reported by symptom, and
+    the symptom rarely knows which repo produced it.
+
+    So the boundary now applies to WRITES, not to READS: the model may read any
+    repo to find the cause, and may open a PR in one — the repo the run is for.
+    Handing it a briefing for a repo it may read is not an invitation to work
+    there, it is the difference between reading gp-marketing knowing that a
+    green build proves nothing and reading it not knowing that.
+    """
+    return [REPO_PROFILES[name] for name in sorted(REPO_PROFILES) if name != routed.full_name]
 
 
 def resolve_repo(name: str | None) -> RepoProfile:

@@ -247,8 +247,8 @@ const STAGE_META: Record<
 type CreateFlowPurpose = DoorKnockingPurpose | ServeDoorKnockingPurpose
 
 const ROUTE_CAPTION =
-  'We’ll build your route and freeze it so you and your team are working ' +
-  'with the same list.'
+  'This helps us draw the most efficient route for you based on how ' +
+  'you’re getting there.'
 
 export default function CreateListFlow({
   step,
@@ -827,7 +827,7 @@ export default function CreateListFlow({
 
   const title =
     stage === 'route'
-      ? 'Do you want to walk or drive?'
+      ? 'Will you be walking or driving?'
       : STAGE_META[stage].title
   const caption = stage === 'route' ? ROUTE_CAPTION : STAGE_META[stage].caption
   const { currentStep, totalSteps } = stepperPosition(stage)
