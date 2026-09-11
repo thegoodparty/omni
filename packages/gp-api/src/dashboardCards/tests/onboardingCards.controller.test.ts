@@ -62,6 +62,23 @@ describe('GET /v1/dashboard/onboarding-cards', () => {
     expect(statusOf(res.data.cards, 'priorities')).toBe('completed')
   })
 
+  // Committing a surfaced community issue is the official telling us what they
+  // are working on, same as writing their own — it is what the conversational
+  // home's first question does, and what "Add to my priorities" has always
+  // done. Counting only user_stated left the card inviting them to answer a
+  // question they had just answered.
+  it('marks priorities completed from a committed community issue', async () => {
+    const orgSlug = 'eo-onboarding-priorities-issue'
+    const eo = await seedElectedOffice(orgSlug)
+    await seedPriority(eo.id, PrioritySource.community_issue)
+
+    const res = await service.client.get(
+      '/v1/dashboard/onboarding-cards',
+      orgHeader(orgSlug),
+    )
+    expect(statusOf(res.data.cards, 'priorities')).toBe('completed')
+  })
+
   it('win-imported and archived priorities do not complete the card', async () => {
     const orgSlug = 'eo-onboarding-priorities-win'
     const eo = await seedElectedOffice(orgSlug)

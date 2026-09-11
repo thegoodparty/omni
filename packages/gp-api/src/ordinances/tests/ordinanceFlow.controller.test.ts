@@ -95,6 +95,50 @@ const waitForRunStatus = (
   )
 
 describe('Ordinances endpoints', () => {
+  // The Serve home finds the in-flight draft for a priority by this id rather
+  // than by matching goal text, so it has to persist on create and come back on
+  // the list rows the lookup reads.
+  it('persists sourcePriorityId and returns it on the list row', async () => {
+    const orgSlug = 'eo-ordinances-source-priority'
+    const eo = await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const priority = await service.prisma.priority.create({
+      data: {
+        electedOfficeId: eo.id,
+        title: 'Short-term rentals',
+        description: 'desc',
+        source: 'user_stated',
+      },
+    })
+
+    const created = await service.client.post(
+      '/v1/ordinances',
+      {
+        seedType: 'new',
+        goalText: priority.title,
+        sourcePriorityId: priority.id,
+      },
+      header,
+    )
+    expect(created.status).toBe(201)
+    expect(created.data.sourcePriorityId).toBe(priority.id)
+
+    const listed = await service.client.get('/v1/ordinances', header)
+    expect(listed.data.items[0].sourcePriorityId).toBe(priority.id)
+  })
+
+  it('defaults sourcePriorityId to null when none is given', async () => {
+    const orgSlug = 'eo-ordinances-no-source-priority'
+    await seedElectedOffice(orgSlug)
+
+    const created = await service.client.post(
+      '/v1/ordinances',
+      { seedType: 'new', goalText: 'Tree canopy' },
+      orgHeader(orgSlug),
+    )
+    expect(created.data.sourcePriorityId).toBeNull()
+  })
+
   it('creates, lists, reads, updates, and soft-deletes an ordinance', async () => {
     const orgSlug = 'eo-ordinances-crud'
     await seedElectedOffice(orgSlug)
