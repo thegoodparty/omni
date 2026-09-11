@@ -21,15 +21,26 @@ export default async function seedContentful(prisma: PrismaClient) {
     accessToken: CONTENTFUL_ACCESS_TOKEN,
   })
 
+  // gp-api's contentful.service requires both vars at boot, so a local .env
+  // copied from .env.example carries the placeholder values rather than blanks
+  // — which sails past the check above and then 401s here. CMS-derived rows are
+  // optional for local work, so a fetch failure warns instead of failing the
+  // whole seed run.
   const allEntries: Entry<EntrySkeletonType>[] = []
-  for (let i = 0; i < PAGES; i++) {
-    const page = await client.getEntries({
-      limit: LIMIT,
-      include: 10,
-      skip: i * LIMIT,
-    })
-    allEntries.push(...page.items)
-    if (page.items.length < LIMIT) break
+  try {
+    for (let i = 0; i < PAGES; i++) {
+      const page = await client.getEntries({
+        limit: LIMIT,
+        include: 10,
+        skip: i * LIMIT,
+      })
+      allEntries.push(...page.items)
+      if (page.items.length < LIMIT) break
+    }
+  } catch (e) {
+    const reason = e instanceof Error ? e.message.split('\n')[0] : String(e)
+    console.log(`Skipping Contentful sync (fetch failed): ${reason}`)
+    return
   }
 
   const recognized = allEntries.filter((entry) =>
