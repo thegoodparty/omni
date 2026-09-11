@@ -1,9 +1,10 @@
 'use client'
 
-import { type FormEvent, type ReactNode, useState } from 'react'
+import { type FormEvent, type ReactNode, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useSignUp } from '@clerk/nextjs/legacy'
+import { AsYouType } from 'libphonenumber-js'
 import {
   Button,
   Checkbox,
@@ -14,6 +15,7 @@ import {
   InputOTPSlot,
   Label,
 } from '@styleguide'
+import { isValidPhone } from '@shared/inputs/PhoneInput'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { GoogleIcon } from './GoogleIcon'
 
@@ -55,6 +57,9 @@ export default function SignUpForm() {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
+  // Digits only; AsYouType renders the punctuation, and gp-api and HubSpot
+  // both want the bare number.
+  const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [agreed, setAgreed] = useState(false)
 
@@ -63,10 +68,26 @@ export default function SignUpForm() {
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const phoneRef = useRef<HTMLInputElement>(null)
+
+  const phoneReady = isValidPhone(phone)
+
+  const handlePhoneChange = (next: string) => {
+    const digits = next.replace(/\D/g, '').slice(0, 11)
+    // AsYouType puts back the ')' a backspace just removed, so a keystroke
+    // that leaves the digit count unchanged was a delete of punctuation.
+    setPhone(digits === phone ? digits.slice(0, -1) : digits)
+    setError(null)
+  }
 
   const handleDetailsSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!clerk.isLoaded || submitting) return
+    if (!phoneReady) {
+      setError('Please enter your phone number to continue.')
+      phoneRef.current?.focus()
+      return
+    }
     setError(null)
     setSubmitting(true)
     try {
@@ -78,6 +99,10 @@ export default function SignUpForm() {
         firstName,
         lastName,
         legalAccepted: agreed,
+        // The Clerk instance has no phone attribute enabled (that would force
+        // SMS verification on every signup); gp-api reads the number back off
+        // here when it provisions the user, and syncs it to HubSpot.
+        unsafeMetadata: { phone },
       })
 
       // Instances without required email verification complete the sign-up on
@@ -126,6 +151,8 @@ export default function SignUpForm() {
     if (!clerk.isLoaded || submitting) return
     setError(null)
     try {
+      // No phone gate here — Google stays one click, and the SSO callback
+      // forwards to /sign-up/phone to collect it after the handshake.
       await clerk.signUp.authenticateWithRedirect({
         strategy: 'oauth_google',
         redirectUrl: SSO_CALLBACK_URL,
@@ -274,6 +301,23 @@ export default function SignUpForm() {
           />
         </Field>
 
+        <Field label="Phone">
+          <Input
+            ref={phoneRef}
+            name="phone"
+            type="tel"
+            autoComplete="tel"
+            placeholder="Phone"
+            value={new AsYouType('US').input(phone)}
+            onChange={(e) => handlePhoneChange(e.target.value)}
+            aria-invalid={phone.length > 0 && !phoneReady}
+            required
+          />
+          <p className="text-xs leading-4 text-muted-foreground">
+            So we can reach you if you need help.
+          </p>
+        </Field>
+
         <Field label="Password">
           <Input
             name="password"
@@ -330,7 +374,7 @@ export default function SignUpForm() {
           type="submit"
           className="w-full"
           loading={submitting}
-          disabled={!agreed || !clerk.isLoaded}
+          disabled={!agreed || !phoneReady || !clerk.isLoaded}
           data-testid="signup-submit"
         >
           Sign Up

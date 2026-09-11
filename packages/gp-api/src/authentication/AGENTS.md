@@ -71,6 +71,22 @@ Auth state is enforced globally via three guards registered in order. Most route
   subject from `req.user`.
 - `AdminAudit.interceptor.ts` only fires when explicitly applied — it is **not** global. Routes that mutate user data should opt in.
 - The `services/` directory exists but is empty. Don't be surprised; the only service lives at the module root for historical reasons.
+- **The sign-up phone arrives in Clerk `unsafeMetadata`, not as a Clerk
+  phone attribute.** Enabling the real attribute would force SMS
+  verification on every signup, so the email/password form writes
+  `unsafeMetadata.phone` and `ClerkAuthService.getUser` reads it back
+  (preferring `primaryPhoneNumber` if the instance ever starts issuing
+  one). `findOrProvisionByClerk` copies it onto `User.phone` at provision
+  time and backfills it onto a row that has none; from there the existing
+  HubSpot sync (`users/services/crmUsers.service.ts`) carries it. Blank-only
+  backfill — a number the user edited in their profile always wins.
+- **Google signups take a different route to the same field.** OAuth can't
+  carry a phone, so the webapp's `/sign-up/phone` step collects it after the
+  handshake and `PUT`s it to `/v1/users/me` directly — it does not rely on
+  the provisioning read above, because `SessionGuard.resolveUser` returns
+  early on a `clerkId` hit and never re-reads the Clerk profile once the row
+  exists. Both paths land the number before `POST /v1/users/me/crm-registration`
+  fires, which is what puts it on the HubSpot contact.
 - **`SessionGuard` calls Clerk only to verify the session token.** Identity
   fields (email, name, avatar) come from Postgres, which is authoritative;
   there is no per-request Clerk profile fetch. `verifyToken` and `m2m.verify`

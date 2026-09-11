@@ -47,6 +47,22 @@ function isActorClaim(
   )
 }
 
+// The sign-up form collects a phone before the Clerk instance has the phone
+// attribute (and its SMS verification) turned on, so it rides along in
+// unsafeMetadata. Prefer a real verified number if the instance ever starts
+// issuing one, and fall back to the metadata the form wrote.
+const phoneOf = (clerkUser: {
+  primaryPhoneNumber?: { phoneNumber?: string | null } | null
+  unsafeMetadata?: Record<string, unknown> | null
+}): string | undefined => {
+  const native = clerkUser.primaryPhoneNumber?.phoneNumber
+  if (native) return native
+  const fromMetadata = clerkUser.unsafeMetadata?.phone
+  return typeof fromMetadata === 'string' && fromMetadata.trim()
+    ? fromMetadata.trim()
+    : undefined
+}
+
 @Injectable()
 export class ClerkAuthService implements AuthProvider {
   constructor(
@@ -138,6 +154,7 @@ export class ClerkAuthService implements AuthProvider {
     firstName?: string
     lastName?: string
     avatarUrl?: string
+    phone?: string
   } | null> {
     try {
       const clerkUser = await clerkCall(
@@ -156,6 +173,7 @@ export class ClerkAuthService implements AuthProvider {
         // hasImage is false while Clerk is serving a generated placeholder,
         // which is not worth copying into our bucket.
         avatarUrl: clerkUser.hasImage ? clerkUser.imageUrl : undefined,
+        phone: phoneOf(clerkUser),
       }
     } catch (err) {
       this.logger.error(

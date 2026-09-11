@@ -277,6 +277,14 @@ export type APIEndpoints = {
     Response: User
   }
 
+  // Partial profile update. /sign-up/phone uses it to land the Google
+  // signup's phone on the user row before the registration form below
+  // submits, so HubSpot's contact carries it from the start.
+  'PUT /v1/users/me': {
+    Request: Partial<Pick<User, 'firstName' | 'lastName' | 'phone' | 'zip'>>
+    Response: User
+  }
+
   // Submits the HubSpot registration form with the visitor's hubspotutk so
   // the contact gets web/paid original-source attribution instead of the
   // "offline sources" Segment's server-side destination would assign.
