@@ -26,6 +26,12 @@ export interface ChiefOfStaffContext {
   termStartDate: Date | null
   termEndDate: Date | null
   party: string | null
+  // True when this is the only chief-of-staff conversation this official has,
+  // which is what gates the one-time bootstrap research. A real count rather
+  // than letting the model decide whether it is "the first message": the
+  // conversational home opens a new conversation every session, so a model
+  // reading an empty transcript would redo the research every visit.
+  isFirstConversation: boolean
   priorities: PriorityRecord[]
   anchor: ChatAnchor | null
   // Server-bound district predicate for constituent-data queries. The context
@@ -74,6 +80,17 @@ export class ChiefOfStaffContextService extends createPrismaBase(
 
     const priorities = await port.listActive(electedOffice.id)
 
+    // The current conversation already exists by the time the prompt is built,
+    // so "first" means this one is the only one on file.
+    const conversationCount = await this.client.chatConversation.count({
+      where: {
+        ownerUserId: userId,
+        organizationSlug: conversation.organizationSlug ?? '',
+        scope: ChatScope.chief_of_staff,
+        deletedAt: null,
+      },
+    })
+
     const rawAnchor = conversation.anchor
     const anchorParsed = rawAnchor
       ? ChatAnchorSchema.safeParse(rawAnchor)
@@ -102,6 +119,7 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       termStartDate: electedOffice.termStartDate,
       termEndDate: electedOffice.termEndDate,
       party: electedOffice.party,
+      isFirstConversation: conversationCount <= 1,
       priorities,
       anchor,
       districtFilters: null,

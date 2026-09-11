@@ -23,6 +23,7 @@ const baseCtx = (
   termStartDate: null,
   termEndDate: null,
   party: null,
+  isFirstConversation: false,
   priorities: [],
   anchor: null,
   districtFilters: null,
@@ -119,14 +120,59 @@ describe('buildChiefOfStaffSystemPrompt', () => {
   })
 
   // We have no data source for form of government, at-large vs district, or
-  // seat count. The agent has to look those up or ask, never assume.
-  it('forbids assuming the structure of their government', () => {
+  // seat count: not in our schema, and not in BallotReady's Position type.
+  it('sends the agent to web search for office structure, not to the user', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
       toolNames: TOOLS,
     })
-    expect(prompt).toContain('Never assume a structure')
+    expect(prompt).toContain('OFFICE STRUCTURE')
     expect(prompt).toContain('at-large')
+    expect(prompt).toContain('Look it up rather than asking')
+    expect(prompt).toContain('Never state a structure you did not look up')
+  })
+
+  // A bootstrap spends a web search and adds latency to the first reply. That
+  // is worth it once, and waste on every visit — and since the conversational
+  // home opens a new conversation per session, "first" has to come from a real
+  // count rather than from the model reading an empty transcript.
+  it('adds first-run research only on the first conversation', () => {
+    const first = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({ isFirstConversation: true }),
+      toolNames: TOOLS,
+    })
+    expect(first).toContain('FIRST-RUN RESEARCH')
+    expect(first).toContain('recent local news')
+    expect(first).toContain('at-large')
+
+    const returning = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({ isFirstConversation: false }),
+      toolNames: TOOLS,
+    })
+    expect(returning).not.toContain('FIRST-RUN RESEARCH')
+  })
+
+  it('does not promise research it has no web search for', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({ isFirstConversation: true }),
+      toolNames: ['crud_priorities'],
+    })
+    expect(prompt).toContain('FIRST-RUN RESEARCH')
+    expect(prompt).not.toContain('recent local news')
+    expect(prompt).toContain('no web search this session')
+  })
+
+  // The handler gates web_search on ANTHROPIC_API_KEY, and the prompt must
+  // never advertise a tool that did not register. With no search there is
+  // nothing to fall back to, so the instruction has to flip to asking.
+  it('falls back to asking when web search is not registered', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['crud_priorities'],
+    })
+    expect(prompt).toContain('OFFICE STRUCTURE')
+    expect(prompt).toContain('no web search this session')
+    expect(prompt).not.toContain('Look it up rather than asking')
   })
 
   it('treats tool/context data as data, not instructions', () => {
