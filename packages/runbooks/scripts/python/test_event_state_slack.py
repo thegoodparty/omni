@@ -863,3 +863,34 @@ def test_anchors_review_url_prefers_an_explicit_override(monkeypatch):
     assert slk.ANCHOR_REVIEW_URL.startswith(
         "https://github.com/thegoodparty/omni/blob/main/")
     assert slk.ANCHOR_REVIEW_URL.endswith("event-anchors-review.md")
+
+
+def test_anchors_browse_url_covers_all_three_paths(monkeypatch):
+    """Mirrors the three sheet_url tests. The block omits the browse link when this returns
+    None, so a typo in the env name or the #gid= derivation would otherwise just show up as
+    a quietly missing link in Slack."""
+    monkeypatch.setenv("GP_EVENT_STATE_SHEET_ID", "abc123")
+
+    monkeypatch.setenv("GP_ANCHORS_BROWSE_URL", "https://example.test/browse")
+    assert slk.anchors_browse_url() == "https://example.test/browse"
+
+    monkeypatch.delenv("GP_ANCHORS_BROWSE_URL", raising=False)
+    monkeypatch.delenv("GP_ANCHORS_TAB_GID", raising=False)
+    assert slk.anchors_browse_url() == "https://docs.google.com/spreadsheets/d/abc123/edit"
+
+    monkeypatch.setenv("GP_ANCHORS_TAB_GID", "999")
+    assert slk.anchors_browse_url() == (
+        "https://docs.google.com/spreadsheets/d/abc123/edit#gid=999")
+
+    monkeypatch.delenv("GP_EVENT_STATE_SHEET_ID", raising=False)
+    assert slk.anchors_browse_url() is None
+
+
+def test_anchor_block_renders_the_browse_link_when_a_sheet_is_configured(monkeypatch):
+    """The happy path the other block test cannot see: with no sheet id configured the
+    browse link is legitimately omitted, so that test proves nothing about it."""
+    monkeypatch.setenv("GP_EVENT_STATE_SHEET_ID", "abc123")
+    monkeypatch.setenv("GP_ANCHORS_TAB_GID", "999")
+    links = slk.build_anchor_blocks({"queued": 3, "flagged": 1})[-1]["elements"][0]["text"]
+    assert "#gid=999" in links
+    assert "Browse anchors" in links
