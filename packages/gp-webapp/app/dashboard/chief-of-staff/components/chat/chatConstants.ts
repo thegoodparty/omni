@@ -19,16 +19,32 @@ export const COS_INTRO_MESSAGES: string[] = [
  */
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
   web_search: 'Searching the web',
+  brave_search: 'Searching the web',
+  fetch_url: 'Reading a page',
   crud_priorities: 'Working on your priorities',
   list_briefings: 'Reading your briefings',
   get_briefing: 'Reading your briefings',
   constituent_data: 'Reviewing district data',
   query_constituent_data: 'Reviewing district data',
   describe_constituent_data: 'Reviewing district data',
+  read_community_issues: 'Reading community issues',
+  count_contacts: 'Counting your contacts',
+  describe_filter_dimensions: 'Checking your contact data',
+  crud_saved_filters: 'Working on your lists',
 }
 
+// An unmapped tool used to print its own identifier at the user
+// ("read_community_issues"). Nothing in the product should ever show an
+// internal name, so the fallback humanizes the snake_case rather than
+// surfacing it: a missing entry now reads as slightly generic instead of
+// broken. Add the real label above when you add a tool.
 export function toolDisplayName(toolName: string): string {
-  return TOOL_DISPLAY_NAMES[toolName] ?? toolName
+  const mapped = TOOL_DISPLAY_NAMES[toolName]
+  if (mapped) return mapped
+  const words = toolName.replace(/[_-]+/g, ' ').trim()
+  return words.length === 0
+    ? 'Working'
+    : words.charAt(0).toUpperCase() + words.slice(1)
 }
 
 /**

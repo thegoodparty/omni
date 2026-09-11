@@ -1,6 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import { toolDisplayName, toolStatusLabel } from './chatConstants'
 
+describe('toolDisplayName', () => {
+  it('gives every tool the agent can call a human label', () => {
+    expect(toolDisplayName('read_community_issues')).toBe(
+      'Reading community issues',
+    )
+    expect(toolDisplayName('count_contacts')).toBe('Counting your contacts')
+  })
+
+  it('never shows a raw identifier for a tool nobody mapped', () => {
+    // The failure this replaces: an unmapped tool printed
+    // "read_community_issues" at the user, mid-conversation.
+    const label = toolDisplayName('some_new_tool')
+    expect(label).toBe('Some new tool')
+    expect(label).not.toContain('_')
+  })
+})
+
 describe('toolStatusLabel', () => {
   it('labels crud_priorities by its action', () => {
     expect(toolStatusLabel('crud_priorities', 'list')).toBe(

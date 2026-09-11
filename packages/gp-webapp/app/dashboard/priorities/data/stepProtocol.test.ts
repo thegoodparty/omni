@@ -23,6 +23,22 @@ describe('parseTurnText', () => {
     expect(parseTurnText(settled).directive).toEqual({
       kind: 'synthesis',
       settled: 'We agreed on renters.',
+      verify: null,
+    })
+  })
+
+  it('reads the check the agent proposes alongside a settled step', () => {
+    const withVerify =
+      '```priority\n{"settled": "Renters on the flood blocks.", "verify": ' +
+      '{"who": "Renters on Oak and Third", "ask": "Did the flooding reach ' +
+      'your unit this year?"}}\n```'
+    expect(parseTurnText(withVerify).directive).toEqual({
+      kind: 'synthesis',
+      settled: 'Renters on the flood blocks.',
+      verify: {
+        who: 'Renters on Oak and Third',
+        ask: 'Did the flooding reach your unit this year?',
+      },
     })
   })
 

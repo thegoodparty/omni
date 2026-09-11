@@ -41,8 +41,12 @@ const PROTOCOL = [
   '',
   'When the step is genuinely settled, and only then:',
   '```' + DIRECTIVE_FENCE,
-  '{"settled": "two or three sentences on what we decided here, in my words, so the next step can build on it"}',
+  '{"settled": "two or three sentences on what we decided here, in my words, so the next step can build on it", "verify": {"who": "the people whose answer would tell us whether this is actually right", "ask": "the one question to put to them"}}',
   '```',
+  'Always include verify when you settle. What we just agreed is my read, not',
+  'theirs, and the whole point of this flow is that the two match: name the',
+  'specific group this outcome lands on hardest (not "constituents"), and the',
+  'single question whose answer would confirm it or break it.',
   'Never settle on the first turn of a step. Work it first.',
 ].join('\n')
 
@@ -169,6 +173,31 @@ const RESEARCH_STEPS: PriorityFlowStep[] = [
   'options',
   'method',
 ]
+
+// Sent when the user takes the check-with-constituents offer on a settled
+// step. It reopens the same step: the agent designs the check, offers the four
+// routes, and settles again with whatever came back.
+export const buildVerifyPrompt = (
+  settled: string,
+  plan: { who: string; ask: string },
+): string =>
+  [
+    `We settled this step: ${settled}`,
+    `You proposed checking it with: ${plan.who}, by asking: "${plan.ask}"`,
+    'Set that check up with me now. Say how many of them there are and the ' +
+      'most practical way to reach them, name anyone likely missing from my ' +
+      'contact data and how I would reach them instead, then ask me how I ' +
+      'want to do it with these as the options: run it from here, record ' +
+      'what I have already heard, do it but not yet, or move on without it. ' +
+      'If I pick "not yet", ask when and what would trigger it. If I pick ' +
+      '"move on", say once in two sentences what it costs me that the people ' +
+      'this lands on were not asked, then let it go. When it is decided, ' +
+      'settle the step again: the same outcome if nothing changed, the ' +
+      'revised one if it did, and say plainly whether it has been checked ' +
+      'with anyone or not.',
+    HOUSE_RULES,
+    PROTOCOL,
+  ].join('\n\n')
 
 export const buildStepPrompt = (
   step: PriorityFlowStep,

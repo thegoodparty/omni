@@ -15,12 +15,16 @@ import {
   UserBubble,
 } from '../../shared/agent-chat/chatUI'
 import { segmentsToLive } from '../../shared/agent-chat/streaming'
-import { splitSegments, type PriorityDirective } from '../data/stepProtocol'
+import {
+  splitSegments,
+  type PriorityDirective,
+  type VerifyPlan,
+} from '../data/stepProtocol'
 import PriorityQuestion from './PriorityQuestion'
 import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
 import { priorityFlowChatApi } from '../data/chat-api'
-import { buildStepPrompt } from '../data/stepPrompts'
+import { buildStepPrompt, buildVerifyPrompt } from '../data/stepPrompts'
 import {
   PRIORITY_NEXT_STEP_CTA,
   PRIORITY_STEP_CAPTIONS,
@@ -161,6 +165,20 @@ export default function PriorityFlowShell({
     void send(conversationId, answer)
   }
 
+  // Take the check-with-constituents offer on a settled step. It reopens the
+  // step rather than advancing: the point is to find out whether what we
+  // settled is what the people it lands on would say.
+  const startVerify = (): void => {
+    if (!conversationId || isStreaming()) return
+    if (latestDirective?.kind !== 'synthesis' || !latestDirective.verify) return
+    const prompt = buildVerifyPrompt(
+      latestDirective.settled,
+      latestDirective.verify,
+    )
+    setHiddenSent((prev) => [...prev, prompt])
+    void send(conversationId, prompt, { hidden: true })
+  }
+
   return (
     <div className="flex h-[calc(100dvh-4rem)] w-full flex-col bg-background lg:h-dvh">
       <div
@@ -215,7 +233,13 @@ export default function PriorityFlowShell({
                     />
                   ) : null}
                   {split.directive?.kind === 'synthesis' ? (
-                    <SettledCard text={split.directive.settled} />
+                    <SettledCard
+                      text={split.directive.settled}
+                      verify={split.directive.verify}
+                      // Only the newest settle is actionable; an earlier one
+                      // is a record of what that round decided.
+                      onVerify={isLatest && !sending ? startVerify : null}
+                    />
                   ) : null}
                 </AssistantRow>
               )
@@ -278,14 +302,48 @@ export default function PriorityFlowShell({
   )
 }
 
-// What the step settled on, the visible half of this flow's save_synthesis.
-function SettledCard({ text }: { text: string }): React.JSX.Element {
+// What the step settled on, the visible half of this flow's save_synthesis,
+// plus the offer to check it against the people it lands on. That offer is the
+// loop the whole flow turns on: what we agreed here is the official's read,
+// and the step is not really done until it survives contact with theirs.
+function SettledCard({
+  text,
+  verify,
+  onVerify,
+}: {
+  text: string
+  verify: VerifyPlan | null
+  onVerify: (() => void) | null
+}): React.JSX.Element {
   return (
-    <div className="flex w-full flex-col gap-1 rounded-lg border border-border bg-card p-4 shadow-sm">
-      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        What this step settled
-      </span>
-      <p className="text-sm text-foreground">{text}</p>
+    <div className="flex w-full flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-sm">
+      <div className="flex flex-col gap-1">
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          What this step settled
+        </span>
+        <p className="text-sm text-foreground">{text}</p>
+      </div>
+      {verify ? (
+        <div className="flex flex-col gap-2 border-t border-border pt-3">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Worth checking with
+          </span>
+          <p className="text-sm text-foreground">{verify.who}</p>
+          <p className="text-sm text-muted-foreground">
+            &ldquo;{verify.ask}&rdquo;
+          </p>
+          {onVerify ? (
+            <Button
+              size="small"
+              variant="outline"
+              className="mt-1 self-start rounded-full"
+              onClick={onVerify}
+            >
+              Check this with them
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }

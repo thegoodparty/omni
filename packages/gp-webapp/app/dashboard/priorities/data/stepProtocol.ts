@@ -27,6 +27,14 @@ const QuestionDirectiveSchema = z.object({
 
 const SynthesisDirectiveSchema = z.object({
   settled: z.string().min(1),
+  // How to check what was just settled against the people it lands on. The
+  // agent proposes it; the user decides whether to run it.
+  verify: z
+    .object({
+      who: z.string().min(1),
+      ask: z.string().min(1),
+    })
+    .optional(),
 })
 
 const DirectiveSchema = z.union([
@@ -34,9 +42,11 @@ const DirectiveSchema = z.union([
   SynthesisDirectiveSchema,
 ])
 
+export type VerifyPlan = { who: string; ask: string }
+
 export type PriorityDirective =
   | { kind: 'question'; ask: string; options: string[]; notes: string[] }
-  | { kind: 'synthesis'; settled: string }
+  | { kind: 'synthesis'; settled: string; verify: VerifyPlan | null }
 
 const FENCE_OPEN = '```' + DIRECTIVE_FENCE
 
@@ -50,7 +60,11 @@ const toDirective = (raw: string): PriorityDirective | null => {
   const parsed = DirectiveSchema.safeParse(value)
   if (!parsed.success) return null
   return 'settled' in parsed.data
-    ? { kind: 'synthesis', settled: parsed.data.settled }
+    ? {
+        kind: 'synthesis',
+        settled: parsed.data.settled,
+        verify: parsed.data.verify ?? null,
+      }
     : {
         kind: 'question',
         ask: parsed.data.ask,
