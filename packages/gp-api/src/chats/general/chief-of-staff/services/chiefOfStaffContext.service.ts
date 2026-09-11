@@ -18,6 +18,18 @@ export interface ChiefOfStaffContext {
   officeTitle: string | null
   jurisdiction: string | null
   swornInDate: Date | null
+  // Already on the ElectedOffice row and previously unused by the prompt. The
+  // agent cannot tell a first-term official eight weeks in from a last-term
+  // official eight weeks out without these.
+  electedDate: Date | null
+  termStartDate: Date | null
+  termEndDate: Date | null
+  party: string | null
+  // Whether this is the official's first conversation on this surface, counted
+  // here rather than judged by the model: the home opens a new conversation per
+  // visit, so an agent asked whether a message "looks like a first" would redo
+  // its first-run research every time.
+  isFirstConversation: boolean
   priorities: PriorityRecord[]
   anchor: ChatAnchor | null
   // Server-bound district predicate for constituent-data queries. The context
@@ -63,6 +75,17 @@ export class ChiefOfStaffContextService extends createPrismaBase(
 
     const priorities = await port.listActive(electedOffice.id)
 
+    // This conversation is already on the row, so one total means it is the
+    // first.
+    const conversationCount = await this.model.count({
+      where: {
+        ownerUserId: userId,
+        organizationSlug: conversation.organizationSlug,
+        scope: ChatScope.chief_of_staff,
+        deletedAt: null,
+      },
+    })
+
     const rawAnchor = conversation.anchor
     const anchorParsed = rawAnchor
       ? ChatAnchorSchema.safeParse(rawAnchor)
@@ -87,6 +110,11 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       officeTitle: electedOffice.organization.customPositionName,
       jurisdiction: null,
       swornInDate: electedOffice.swornInDate,
+      electedDate: electedOffice.electedDate,
+      termStartDate: electedOffice.termStartDate,
+      termEndDate: electedOffice.termEndDate,
+      party: electedOffice.party,
+      isFirstConversation: conversationCount <= 1,
       priorities,
       anchor,
       districtFilters: null,

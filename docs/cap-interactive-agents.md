@@ -225,6 +225,35 @@ Two prompt sources:
   `[[token]]` placeholders with campaign data + live race metrics. User input is run
   through `sanitizeUntrustedContent` to strip prompt-injection delimiters.
 
+### The house voice (shared by every surface)
+
+`src/ai/prompt/voiceBlocks.ts` holds the blocks every conversation surface
+carries: length and register, never handing back a dead end, the chunking shape,
+and the writing mechanics (sentence case, no em-dashes, sparing bold). Append
+them with `houseVoiceBlocks()` **last** in an assembly, after the tool rules:
+every tool-specific block pulls toward more detail, and these are what hold a
+reply short, so they are the last instruction the model reads. Pass
+`{ chunking: false }` for a surface whose client does not split a turn into
+bubbles, so the model is not told to emit labels nothing renders (the ordinance
+flow, whose cards carry the structure).
+
+Two things that only look cosmetic:
+
+- **The chunking shape is a contract with the client**, which splits a turn on a
+  short label alone on its line. Change the label shape in the block and the
+  split silently stops firing.
+- **Prompt prose is training data for the reply.** A prompt that bans em-dashes
+  in blocks full of them is arguing with itself, so the surfaces that carry the
+  rule keep their own prose clean. `ordinanceFlowPrompt.ts` still has ~90 and is
+  the outstanding one.
+
+`officeStructureBlock(hasWebSearch)` lives there too: form of government (strong
+or weak mayor, council-manager, at-large or district seat, body size) is in
+neither our schema nor BallotReady's `Position`, so an agent that needs it will
+invent one. The governance surfaces include it and are told to look it up and
+cite it. It takes the flag because a prompt must never advertise a tool the
+session does not have.
+
 ## Crossover with the background system
 
 This is the one seam between the two halves of CAP, and it is **one-directional and

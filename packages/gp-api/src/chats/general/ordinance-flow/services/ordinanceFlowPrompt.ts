@@ -1,3 +1,4 @@
+import { houseVoiceBlocks, officeStructureBlock } from '@/ai/prompt/voiceBlocks'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import type {
   BallotReadyPositionLevel,
@@ -487,6 +488,13 @@ export const buildOrdinanceFlowSystemPrompt = (args: {
     ...(ctx.sourceLink && ctx.sourceLink.trim().length > 0
       ? [legislative ? SOURCE_LINK_RULES_STATE : SOURCE_LINK_RULES]
       : []),
+    // Who must say yes and who sets the agenda decide how a draft actually
+    // moves, and the form of government is in none of our data.
+    ...(legislative ? [] : [officeStructureBlock(true)]),
     INSTRUCTIONS_BLOCK,
+    // The house voice last, after every rule block that pulls toward detail.
+    // Chunking is off here: this surface's cards carry the structure, so
+    // markdown section labels in the prose would compete with them.
+    ...houseVoiceBlocks({ chunking: false }),
   ].join('\n\n')
 }

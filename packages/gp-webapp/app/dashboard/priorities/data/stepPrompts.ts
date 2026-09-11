@@ -6,7 +6,7 @@ import type { PriorityFlowStep } from './steps'
 // This is the step prompt's job done from the client, because the flow has no
 // backend: each one is a miniature of its rule block in
 // docs/serve-priority-flow-prompt.md. When gp-api owns the flow, these move
-// server-side into the real prompt and this file goes away — so keep each one
+// server-side into the real prompt and this file goes away, so keep each one
 // faithful to its block rather than drifting into something easier to ask for.
 
 const METHOD_MENU =
@@ -14,14 +14,22 @@ const METHOD_MENU =
   'intergovernmental agreement, task force, partnership, community ' +
   'education, advocacy, plan, ballot measure'
 
-// Every step carries these, since the agent is a general Chief of Staff here
-// and has no flow prompt holding the line for it.
+// The same house voice gp-api's prompts carry (src/ai/prompt/voiceBlocks.ts),
+// said in one paragraph because this rides a general agent that has no flow
+// prompt of its own. Keep the two in step: if the shared blocks change, this
+// changes.
 const HOUSE_RULES =
   'Rules for this answer: be specific to my district and this priority, ' +
   'never invent a figure, a statute, or a citation, and say plainly when ' +
   'something is unverified and where I should confirm it. Advise me on ' +
-  'method, not on what position to hold. Keep it under 200 words and skip ' +
-  'the preamble.'
+  'method, not on what position to hold. Write like a colleague who ' +
+  'respects my time: lead with the answer, keep it under 200 words, no ' +
+  'filler opener, no recap of what I asked, no caveats I did not ask for. ' +
+  'End on something I can act on or one question worth answering, never a ' +
+  'dead end. If the answer covers several distinct things, break it into ' +
+  'short sections with a two-to-four word sentence-case label alone on its ' +
+  'line as a markdown heading. No em-dashes: use a colon, comma, period, ' +
+  'or parentheses.'
 
 const STEP_ASKS: Record<PriorityFlowStep, string> = {
   intro:

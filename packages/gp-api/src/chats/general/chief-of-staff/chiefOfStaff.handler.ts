@@ -135,6 +135,7 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     return buildChiefOfStaffSystemPrompt({
       ctx,
       toolNames: Object.keys(this.assembleTools(ctx)),
+      isFirstConversation: ctx.isFirstConversation,
     })
   }
 

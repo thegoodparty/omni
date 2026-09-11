@@ -4,6 +4,7 @@ import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import type { StoryState } from './campaignStoryIntake.service'
 import type { BallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
+import { houseVoiceBlocks } from '@/ai/prompt/voiceBlocks'
 
 export type { BallotStatus }
 
@@ -342,7 +343,7 @@ const dataBlock = (ctx: CampaignManagerContext): string | null =>
       'Call describe first to see valid dimensions. Results are aggregate ' +
       'counts only; never claim to identify or contact an individual voter. ' +
       'Party registration and modeled partisanship breakdowns ARE allowed ' +
-      'for this campaign — being nonpartisan means you favor no party, not ' +
+      'for this campaign. Being nonpartisan means you favor no party, not ' +
       'that party data is off-limits. Describe the people in these rows as ' +
       'voters, never as constituents.'
     : null
@@ -369,7 +370,7 @@ const crmToolsBlock = (ctx: CampaignManagerContext): string | null => {
     'run count_contacts on the same filter and confirm the size with the ' +
     'candidate. List names are capped at 40 characters. A list that has ' +
     'already been used for outreach is locked: it cannot be edited or ' +
-    'deleted, only duplicated into a new list — if the tool returns that ' +
+    'deleted, only duplicated into a new list. If the tool returns that ' +
     'error, explain it instead of retrying.'
   )
 }
@@ -432,6 +433,10 @@ export const buildCampaignManagerSystemPrompt = (
     dataBlock(ctx),
     crmToolsBlock(ctx),
     GUARDRAILS,
+    // The house voice last, after every block that pulls toward detail. No
+    // office-structure block: this surface advises candidates, who do not hold
+    // an office whose organization would bear on the answer.
+    ...houseVoiceBlocks(),
   ]
     .filter((b): b is string => b !== null)
     .join('\n\n')

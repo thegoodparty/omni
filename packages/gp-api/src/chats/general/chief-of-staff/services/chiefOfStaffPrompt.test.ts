@@ -19,6 +19,11 @@ const baseCtx = (
   officeTitle: 'City Council Member',
   jurisdiction: null,
   swornInDate: null,
+  electedDate: null,
+  termStartDate: null,
+  termEndDate: null,
+  party: null,
+  isFirstConversation: false,
   priorities: [],
   anchor: null,
   districtFilters: null,
@@ -128,7 +133,7 @@ describe('buildChiefOfStaffSystemPrompt', () => {
       toolNames: TOOLS,
     })
     expect(prompt).toContain('treat it as in scope')
-    expect(prompt).toContain('answer what you can — never decline outright')
+    expect(prompt).toContain('answer what you can; never decline outright')
   })
 
   it('states averages as averages, never as shares of constituents', () => {
