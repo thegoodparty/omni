@@ -18,6 +18,14 @@ export interface ChiefOfStaffContext {
   officeTitle: string | null
   jurisdiction: string | null
   swornInDate: Date | null
+  // Already on the ElectedOffice row and, until now, never reaching the
+  // prompt: the agent could not say when the official was last elected or how
+  // much of the term is left, which is the frame for almost every "what should
+  // I do next" answer.
+  electedDate: Date | null
+  termStartDate: Date | null
+  termEndDate: Date | null
+  party: string | null
   priorities: PriorityRecord[]
   anchor: ChatAnchor | null
   // Server-bound district predicate for constituent-data queries. The context
@@ -90,6 +98,10 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       officeTitle: electedOffice.organization.customPositionName,
       jurisdiction: null,
       swornInDate: electedOffice.swornInDate,
+      electedDate: electedOffice.electedDate,
+      termStartDate: electedOffice.termStartDate,
+      termEndDate: electedOffice.termEndDate,
+      party: electedOffice.party,
       priorities,
       anchor,
       districtFilters: null,

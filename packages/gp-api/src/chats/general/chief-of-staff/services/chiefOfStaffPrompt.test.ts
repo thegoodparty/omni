@@ -19,6 +19,10 @@ const baseCtx = (
   officeTitle: 'City Council Member',
   jurisdiction: null,
   swornInDate: null,
+  electedDate: null,
+  termStartDate: null,
+  termEndDate: null,
+  party: null,
   priorities: [],
   anchor: null,
   districtFilters: null,
@@ -71,6 +75,58 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     })
     expect(prompt).toContain('on its own line')
     expect(prompt).toContain('Never bold a label inline')
+  })
+
+  // Early, mid and late term are different jobs, so the dates are the frame
+  // for most "what should I do now" answers. They sat unused on the
+  // ElectedOffice row until this reached the prompt.
+  it('puts the term window and last election in the office context', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({
+        electedDate: new Date('2024-11-05T00:00:00.000Z'),
+        termStartDate: new Date('2025-01-06T00:00:00.000Z'),
+        termEndDate: new Date('2029-01-01T00:00:00.000Z'),
+        party: 'Independent',
+      }),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain('Last elected: 2024-11-05')
+    expect(prompt).toContain('Current term: 2025-01-06 to 2029-01-01')
+    expect(prompt).toContain('Party: Independent')
+  })
+
+  // A @db.Date comes back as UTC midnight. Formatting it through the local
+  // zone shifts it a day for anyone west of UTC, which would misreport an
+  // election date by one day.
+  it('reports term dates as the stored calendar day', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({ electedDate: new Date('2024-11-05T00:00:00.000Z') }),
+      toolNames: TOOLS,
+    })
+    expect(prompt).not.toContain('2024-11-04')
+  })
+
+  it('marks missing office fields unknown rather than guessing', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain('Current term: unknown')
+    expect(prompt).toContain('Last elected: unknown')
+    // An em-dash placeholder would both read as ambiguous and contradict the
+    // no-em-dash rule this same prompt sets.
+    expect(prompt).not.toContain('Party: —')
+  })
+
+  // We have no data source for form of government, at-large vs district, or
+  // seat count. The agent has to look those up or ask, never assume.
+  it('forbids assuming the structure of their government', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain('Never assume a structure')
+    expect(prompt).toContain('at-large')
   })
 
   it('treats tool/context data as data, not instructions', () => {
