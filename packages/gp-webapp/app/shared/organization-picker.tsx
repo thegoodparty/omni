@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   type ReactNode,
 } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -112,6 +113,7 @@ export const OrganizationProvider = ({
   initialSlug = null,
 }: OrganizationProviderProps) => {
   const queryClient = useQueryClient()
+  const router = useRouter()
 
   const { data: organizations } = useQuery({
     queryKey: ORGANIZATIONS_QUERY_KEY,
@@ -133,20 +135,41 @@ export const OrganizationProvider = ({
     [organizations, selectedSlug],
   )
 
+  // Fires at most once per mount: a repaired cookie can only be repaired once,
+  // and a browser that refuses the write (cookies blocked) must not be able to
+  // drive an endless refresh loop.
+  const staleCookieRepaired = useRef(false)
+
   // If the resolved slug diverges from the cookie (e.g. cookie pointed at an
-  // org the user no longer has access to, so pickSlug fell back to
-  // organizations[0]), rewrite the cookie. gpFetch, clientFetch, and middleware
-  // read the cookie directly for the X-Organization-Slug header, so a stale
-  // cookie would make the API see the wrong slug while the UI shows the
-  // fallback. This fires only on a genuine mismatch — SSR/client agree on
-  // first render because initialSlug is sourced from the cookie server-side.
+  // org the user no longer has access to, so resolveOrgSlug fell back), rewrite
+  // the cookie. gpFetch, clientFetch, and middleware read the cookie directly
+  // for the X-Organization-Slug header, so a stale cookie would make the API
+  // see the wrong slug while the UI shows the fallback.
+  //
+  // Because `resolveOrgSlug` returns the cookie untouched whenever it is valid,
+  // a divergence here means exactly one thing: the cookie named no org this
+  // user can see. The server component tree that produced the current page ran
+  // against that same unusable cookie, so its data is answering for the wrong
+  // org (or for none) while this client tree has already moved on to the right
+  // one — the split that renders campaign-manager content beneath a Serve
+  // sidebar after an impersonation hand-off. Refreshing re-runs those server
+  // components against the repaired cookie so both halves agree.
+  //
+  // `router.refresh()` deliberately, not a redirect: it re-runs the route the
+  // user is already on and preserves client state. No route decision is made or
+  // second-guessed here, so this cannot introduce a redirect cycle with the
+  // gates that own those decisions (serveAccess, candidateAccess).
   useEffect(() => {
     const resolved = selectedOrganization?.slug
     if (!resolved) return
-    if (resolved !== getCookie(ORG_SLUG_COOKIE)) {
-      setCookie(ORG_SLUG_COOKIE, resolved)
-    }
-  }, [selectedOrganization?.slug])
+    if (resolved === getCookie(ORG_SLUG_COOKIE)) return
+
+    setCookie(ORG_SLUG_COOKIE, resolved)
+
+    if (staleCookieRepaired.current) return
+    staleCookieRepaired.current = true
+    router.refresh()
+  }, [selectedOrganization?.slug, router])
 
   const setSelectedSlug = useCallback(
     (slug: string) => {

@@ -6,6 +6,7 @@ import { getCookie } from 'helpers/cookieHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { Organization } from 'gpApi/api-endpoints'
 import { ORGANIZATIONS_QUERY_KEY } from '@shared/organization-picker'
+import { resolveOrgSlug } from '@shared/organizations/resolveOrgSlug'
 
 // After a fresh login, the first SSR pass renders with the user's real
 // organizations (passed as initialOrganizations from the server), but
@@ -48,13 +49,10 @@ export const useSelectedOrgSlug = (
   return [selectedSlug, setSelectedSlug] as const
 }
 
-const pickSlug = (
-  organizations: Organization[],
-  candidate: string | null | false,
-): string | null => {
-  const isValid = candidate && organizations.some((o) => o.slug === candidate)
-  return isValid ? (candidate as string) : (organizations[0]?.slug ?? null)
-}
+// The selection rule itself lives in `resolveOrgSlug`, which carries no
+// browser or server dependency, so callers outside this client-only module
+// (the impersonation hand-off) can apply the identical rule.
+const pickSlug = resolveOrgSlug
 
 export const resolveSlug = (organizations: Organization[]): string | null =>
-  pickSlug(organizations, getCookie(ORG_SLUG_COOKIE) || null)
+  resolveOrgSlug(organizations, getCookie(ORG_SLUG_COOKIE) || null)

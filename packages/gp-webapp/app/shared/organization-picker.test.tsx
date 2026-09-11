@@ -16,6 +16,7 @@ import {
 
 const mockRouterPush = vi.fn()
 const mockRouterReplace = vi.fn()
+const mockRouterRefresh = vi.fn()
 
 vi.mock('next/navigation', async (importOriginal) => {
   const actual = await importOriginal<typeof import('next/navigation')>()
@@ -24,6 +25,7 @@ vi.mock('next/navigation', async (importOriginal) => {
     useRouter: vi.fn(() => ({
       push: mockRouterPush,
       replace: mockRouterReplace,
+      refresh: mockRouterRefresh,
     })),
     usePathname: vi.fn(() => '/dashboard'),
   }
@@ -97,6 +99,7 @@ beforeEach(() => {
   mockGetCookie.mockReset().mockReturnValue(false)
   mockRouterPush.mockClear()
   mockRouterReplace.mockClear()
+  mockRouterRefresh.mockClear()
   vi.mocked(trackEvent).mockClear()
   mockUseFlagOn.mockReset().mockReturnValue({ ready: true, on: true })
 })
@@ -114,6 +117,8 @@ describe('OrganizationProvider', () => {
       </OrganizationProvider>,
     )
 
+    // gp-api orders the list so the default org is first — see
+    // listOrganizations. The client does not re-rank it.
     expect(screen.getByTestId('org')).toHaveTextContent('org-one')
   })
 
@@ -939,5 +944,121 @@ describe('X-Organization-Slug header attachment', () => {
       'X-Organization-Slug',
       expect.anything(),
     )
+  })
+})
+
+// The split this whole change exists to prevent: the server component tree
+// rendered against a cookie that names no org this user can see, while the
+// client resolved a different one — campaign-manager content beneath a Serve
+// sidebar, neither chat dock mounted. Repairing the cookie is not enough on its
+// own; the already-rendered server half has to be re-run against it.
+describe('stale org cookie repair (server/client divergence)', () => {
+  const Probe = () => {
+    const org = useOrganization()
+    return <div data-testid="org">{org?.slug}</div>
+  }
+
+  it('rewrites the cookie and refreshes when the cookie names an unknown org', async () => {
+    // A slug left behind by a previous session — the shape an impersonating
+    // staff member's browser carries into the impersonated user's session.
+    mockGetCookie.mockImplementation((name: string) =>
+      name === 'organization-slug' ? 'org-from-another-user' : false,
+    )
+
+    render(
+      <OrganizationProvider
+        initialOrganizations={orgs}
+        initialSlug="org-from-another-user"
+      >
+        <Probe />
+      </OrganizationProvider>,
+    )
+
+    await waitFor(() => {
+      expect(mockSetCookie).toHaveBeenCalledWith('organization-slug', 'org-one')
+    })
+    expect(mockRouterRefresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not refresh when the cookie is valid', async () => {
+    mockGetCookie.mockImplementation((name: string) =>
+      name === 'organization-slug' ? 'org-one' : false,
+    )
+
+    render(
+      <OrganizationProvider initialOrganizations={orgs} initialSlug="org-one">
+        <Probe />
+      </OrganizationProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('org')).toHaveTextContent('org-one')
+    })
+    expect(mockRouterRefresh).not.toHaveBeenCalled()
+    expect(mockSetCookie).not.toHaveBeenCalled()
+  })
+
+  it('does not refresh when the user picks an org from the switcher', async () => {
+    const user = userEvent.setup()
+    mockGetCookie.mockImplementation((name: string) =>
+      name === 'organization-slug' ? 'org-one' : false,
+    )
+
+    render(
+      <SidebarProvider>
+        <OrganizationProvider initialOrganizations={orgs} initialSlug="org-one">
+          <OrganizationPicker />
+        </OrganizationProvider>
+      </SidebarProvider>,
+    )
+
+    await user.click(screen.getByRole('button', { name: /Organization One/ }))
+    // setSelectedSlug writes the cookie itself, so the sync effect sees a
+    // matching value and must stay out of the way — a refresh here would
+    // re-run the server tree on top of the switcher's own router.push.
+    mockGetCookie.mockImplementation((name: string) =>
+      name === 'organization-slug' ? 'org-two' : false,
+    )
+    await user.click(screen.getByText('Organization Two'))
+
+    await waitFor(() => {
+      expect(mockSetCookie).toHaveBeenCalledWith('organization-slug', 'org-two')
+    })
+    expect(mockRouterRefresh).not.toHaveBeenCalled()
+  })
+
+  it('refreshes at most once even if the cookie write never lands', async () => {
+    // Cookies blocked: getCookie keeps reporting the stale value however many
+    // times we write it. The repair must not become a refresh loop.
+    mockGetCookie.mockImplementation((name: string) =>
+      name === 'organization-slug' ? 'org-from-another-user' : false,
+    )
+
+    const { rerender } = render(
+      <OrganizationProvider
+        initialOrganizations={orgs}
+        initialSlug="org-from-another-user"
+      >
+        <Probe />
+      </OrganizationProvider>,
+    )
+
+    await waitFor(() => expect(mockRouterRefresh).toHaveBeenCalledTimes(1))
+
+    // Re-render the way a completed refresh does: same unusable cookie, a new
+    // organizations array identity from the fresh server pass.
+    rerender(
+      <OrganizationProvider
+        initialOrganizations={[...orgs]}
+        initialSlug="org-from-another-user"
+      >
+        <Probe />
+      </OrganizationProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('org')).toHaveTextContent('org-one')
+    })
+    expect(mockRouterRefresh).toHaveBeenCalledTimes(1)
   })
 })
