@@ -62,6 +62,13 @@ INSTRUMENTATION_PATHS = [
 # name to the key-path we count call sites for.
 ANALYTICS_HELPER_PATH = "packages/gp-webapp/helpers/analyticsHelper.ts"
 
+# Backend event-name registry, the same ``EVENTS`` const shape. Reading only the frontend
+# one left every gp-api event with a null call-site signal, indistinguishable from an event
+# whose call site had been deleted (DATA-2427).
+SEGMENT_TYPES_PATH = "packages/gp-api/src/vendors/segment/segment.types.ts"
+
+EVENT_REGISTRY_PATHS = [ANALYTICS_HELPER_PATH, SEGMENT_TYPES_PATH]
+
 # Events came online in Amplitude ~2025-05; the EVENTS map + segment wiring landed
 # ~2025-02. Bounding the walk here skips the large pre-2024 scaffold-era diffs while
 # keeping an 8-month margin before real instrumentation. None walks full history.
@@ -153,6 +160,11 @@ def slugify_event(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", stripped).strip("_")
 
 
+# The three JS string delimiters, and only those. Deliberately not _QUOTE_CHARS, which
+# also carries curly quotes for slug normalization -- a curly apostrophe in prose is not
+# a delimiter, and treating it as one would reopen the DATA-2427 swallow.
+_JS_STRING_DELIMITERS = "'\"`"
+
 _MAP_COMMENT_RE = re.compile(r"//[^\n]*|/\*.*?\*/", re.DOTALL)
 # A key (ident or quoted) immediately followed by ':'; an opening/closing brace; or a
 # standalone quoted string value. Ordered so a quoted key matches as 'key', not 'str'.
@@ -167,8 +179,15 @@ _MAP_TOKEN_RE = re.compile(
 def _slice_braced(text: str, open_idx: int) -> str:
     """Return the text strictly inside the braces, given the index of the opening ``{``.
 
-    Counts brace depth while skipping over quoted strings so a brace inside a string value
-    cannot end the slice early.
+    Counts brace depth while skipping over quoted strings and comments, so neither a brace
+    inside a string value nor one inside a comment can end the slice early.
+
+    Comment awareness is not cosmetic (DATA-2427). An apostrophe in prose (``wizard's``)
+    is not a string delimiter, but a quote-skipping scan pairs it with the next apostrophe
+    in the file and swallows everything between -- including braces. Two such apostrophes
+    around an opening brace leave the depth count one short, and the next closing brace
+    ends the const early. On ``analyticsHelper.ts`` that silently dropped 156 of 369
+    events, a partial result indistinguishable from a correct one.
     """
     depth = 0
     i = open_idx
@@ -176,7 +195,15 @@ def _slice_braced(text: str, open_idx: int) -> str:
     start = open_idx + 1
     while i < n:
         ch = text[i]
-        if ch in "'\"":
+        if ch == "/" and i + 1 < n and text[i + 1] == "/":
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "*":
+            close = text.find("*/", i + 2)
+            i = n if close == -1 else close + 2
+            continue
+        if ch in _JS_STRING_DELIMITERS:
             i += 1
             while i < n and text[i] != ch:
                 i += 1
@@ -286,21 +313,26 @@ def count_call_sites(file_texts: Sequence[str], key_paths: Sequence[str]) -> dic
 
 
 def compute_call_site_fields(
-    events_map: Mapping[str, str],
+    events_map: Mapping[str, Sequence[str]],
     file_texts: Sequence[str],
     retired_lookup: Callable[[str], str | None],
 ) -> dict[str, dict]:
     """Per-event call-site fields: count at the ref, plus a retirement date for dead ones.
 
+    An event maps to a *list* of key-paths because it may be declared in more than one
+    registry (a frontend/backend twin). Counts sum across them, so neither declaration
+    shadows the other; the retirement date is the first one any dead path resolves.
+
     ``retired_lookup`` is invoked ONLY for key-paths with zero call sites (the small subset
     worth a targeted ``git log -S`` to attribute when the last call site was removed). Live
     events get a null retired date with no git work.
     """
-    counts = count_call_sites(file_texts, list(events_map.values()))
+    all_paths = [path for paths in events_map.values() for path in paths]
+    counts = count_call_sites(file_texts, all_paths)
     out: dict[str, dict] = {}
-    for name, path in events_map.items():
-        count = counts.get(path, 0)
-        retired = retired_lookup(path) if count == 0 else None
+    for name, paths in events_map.items():
+        count = sum(counts.get(path, 0) for path in paths)
+        retired = next((r for p in paths if (r := retired_lookup(p))), None) if count == 0 else None
         out[name] = {"call_site_count": count, "call_site_retired_date": retired}
     return out
 
@@ -784,32 +816,32 @@ def augment_call_site_columns(
 ) -> None:
     """Populate ``call_site_count`` / ``call_site_retired_date`` on each row, in place.
 
-    Resolves the EVENTS map at ``ref``, counts call sites at ``ref`` over the full contents
-    of every EVENTS-mentioning file (wrap- and alias-tolerant, see ``count_call_sites``),
-    and looks up the retirement date only for zero-count events. Events with no resolvable
-    key-path (backend/dynamic) get None for both -- null, never zero, so they are never
-    flagged.
+    Resolves every EVENTS registry at ``ref`` (frontend and backend), counts call sites at
+    ``ref`` over the full contents of every EVENTS-mentioning file (wrap- and alias-tolerant,
+    see ``count_call_sites``), and looks up the retirement date only for zero-count events.
+    Events with no resolvable key-path (dynamic dispatch, or fired from outside this repo)
+    get None for both -- null, never zero, so they are never flagged.
 
-    If ``analyticsHelper.ts`` is absent at ``ref`` (renamed/moved, or a ``--ref`` at an old
-    commit), return early and leave the rows' call-site columns untouched rather than aborting
-    the whole walk after the expensive ``git log`` pass -- the CSV/watermark must still get
-    written. This mirrors ``parse_events_map`` returning ``{}`` on a missing const: no key-path
-    resolves, so call-site data is simply unknown (None), consistent with the backend/dynamic
-    contract.
+    A registry absent at ``ref`` (renamed/moved, or a ``--ref`` at an old commit) is skipped
+    rather than aborting the whole walk after the expensive ``git log`` pass -- the
+    CSV/watermark must still get written, and the other registry's events keep their signal.
+    Only when NO registry yields a single event is the run unusable, and that warns loudly:
+    silently nulling every count is indistinguishable from a correct run over a codebase
+    that happens to reference nothing.
     """
-    try:
-        ts_text = git_show_file(root, ref, ANALYTICS_HELPER_PATH)
-    except subprocess.CalledProcessError:
-        return
-    events_map = parse_events_map(ts_text)
+    events_map: dict[str, list[str]] = {}
+    for registry in EVENT_REGISTRY_PATHS:
+        try:
+            ts_text = git_show_file(root, ref, registry)
+        except subprocess.CalledProcessError:
+            continue
+        for name, key_path in parse_events_map(ts_text).items():
+            events_map.setdefault(name, []).append(key_path)
     if not events_map:
-        # File present but the EVENTS const is missing/renamed/empty: every row would get a
-        # null call-site signal, indistinguishable from backend/dynamic events, silently
-        # suppressing the zero-call-site flag for the whole run. Warn loudly instead of letting
-        # the watermark advance on an unchecked CSV with no signal.
         print(
-            f"WARNING: parse_events_map returned empty for {ANALYTICS_HELPER_PATH} at {ref} — "
-            "EVENTS const not found or empty; call_site_count left as None for all events.",
+            f"WARNING: parse_events_map returned empty for every registry "
+            f"({', '.join(EVENT_REGISTRY_PATHS)}) at {ref} — EVENTS const not found or empty; "
+            "call_site_count left as None for all events.",
             file=sys.stderr,
         )
         return

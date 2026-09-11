@@ -2,13 +2,13 @@
 import Confetti from './Confetti'
 import H1 from '@shared/typography/H1'
 import { useEffect } from 'react'
-import { trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { Button } from '@styleguide'
 import Link from 'next/link'
 
 export default function Done(): React.JSX.Element {
   useEffect(() => {
-    trackEvent('question_complete', { complete: true })
+    trackEvent(EVENTS.Questions.Completed, { complete: true })
   }, [])
   return (
     <div className="flex flex-col h-[calc(100vh-216px)] items-center justify-center">

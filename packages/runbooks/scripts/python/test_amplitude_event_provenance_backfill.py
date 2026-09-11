@@ -287,7 +287,7 @@ def test_count_call_sites_wrapped_alias_assignment_resolves():
 
 
 def test_compute_call_site_fields_live_event_has_no_retired_date():
-    events_map = {"Dash Viewed": "EVENTS.Dashboard.Viewed"}
+    events_map = {"Dash Viewed": ["EVENTS.Dashboard.Viewed"]}
     file_texts = ["trackEvent(EVENTS.Dashboard.Viewed)\n"]
     calls = []
     fields = compute_call_site_fields(events_map, file_texts, lambda p: calls.append(p) or "2099-01-01")
@@ -296,9 +296,17 @@ def test_compute_call_site_fields_live_event_has_no_retired_date():
 
 
 def test_compute_call_site_fields_zero_count_resolves_retired_date():
-    events_map = {"Dash Viewed": "EVENTS.Dashboard.Viewed"}
+    events_map = {"Dash Viewed": ["EVENTS.Dashboard.Viewed"]}
     fields = compute_call_site_fields(events_map, [], lambda p: "2026-06-13")
     assert fields["Dash Viewed"] == {"call_site_count": 0, "call_site_retired_date": "2026-06-13"}
+
+
+def test_compute_call_site_fields_sums_twin_declarations():
+    """One name, two registries: both key-paths count (DATA-2427)."""
+    events_map = {"Pro Submitted": ["EVENTS.Pro.Submitted", "EVENTS.Billing.Submitted"]}
+    file_texts = ["trackEvent(EVENTS.Pro.Submitted)\n", "track(EVENTS.Billing.Submitted)\n"]
+    fields = compute_call_site_fields(events_map, file_texts, lambda p: "2026-06-13")
+    assert fields["Pro Submitted"] == {"call_site_count": 2, "call_site_retired_date": None}
 
 
 def test_make_call_site_retired_lookup_returns_last_removal_date(monkeypatch):
@@ -341,7 +349,8 @@ def test_augment_call_site_columns_populates_rows(monkeypatch):
     # Exercise the full augment chain (git_show_file -> parse_events_map ->
     # git_call_site_file_texts -> compute_call_site_fields -> row mutation) with the git IO stubbed.
     ts_src = "\nexport const EVENTS = {\n  Dashboard: { Viewed: 'Dash Viewed' },\n} as const\n"
-    monkeypatch.setattr(bf, "git_show_file", lambda *a, **k: ts_src)
+    # Only the frontend registry declares it; the backend one is absent at this ref.
+    monkeypatch.setattr(bf, "git_show_file", _registry_reader({bf.ANALYTICS_HELPER_PATH: ts_src}))
     monkeypatch.setattr(bf, "git_call_site_file_texts", lambda *a, **k: ["trackEvent(EVENTS.Dashboard.Viewed)\n"])
     monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter([]))
     rows = [{c: None for c in bf.PROVENANCE_COLUMNS} | {"event_type": "Dash Viewed", "event_type_slug": "dash_viewed"}]
@@ -1827,3 +1836,185 @@ def test_merge_provenance_entry_preserves_retired_author_email():
     new_entry = {"instrumented": None, "retired": None, "last_change": None}
     merged = bf.merge_provenance_entry(existing, new_entry, present_before_window=True)
     assert merged["retired"]["email"] == "remover@goodparty.org"
+
+
+# --------------------------------------------------------------------------- #
+# parse_events_map -- comment-aware brace scanning (DATA-2427)
+# --------------------------------------------------------------------------- #
+
+# Reduced from the real analyticsHelper.ts. Two apostrophes in comments ("group's",
+# "wizard's") pair with each other under a quote-skipping scan, so the ConstituentData
+# opening brace between them is swallowed and the depth count runs one short. The next
+# closing brace then ends the const early. On the real file this silently dropped 156 of
+# 369 events -- a partial result indistinguishable from a correct one.
+_COMMENT_APOSTROPHE_TS = """
+export const EVENTS = {
+  Contacts: {
+    ListWizard: {
+      Created: 'Contacts - List Created',
+    },
+  },
+  // product-specific by nav surface - "Voter Data" (Win) vs "Constituent
+  // Data" (Serve) - a deliberate exception to the Contacts group's
+  ConstituentData: {
+    // ENG-10709: crm/wizard's two create branches + the list-detail download
+    Searched: 'Constituent Data - Contact Searched',
+  },
+  VoterData: {
+    Searched: 'Voter Data - Contact Searched',
+  },
+} as const
+"""
+
+
+def test_parse_events_map_survives_apostrophes_in_comments():
+    out = parse_events_map(_COMMENT_APOSTROPHE_TS)
+    assert out["Contacts - List Created"] == "EVENTS.Contacts.ListWizard.Created"
+    assert out["Constituent Data - Contact Searched"] == "EVENTS.ConstituentData.Searched"
+    assert out["Voter Data - Contact Searched"] == "EVENTS.VoterData.Searched"
+
+
+def test_parse_events_map_ignores_braces_inside_comments():
+    """A brace in a comment ("fires with { resultCount }") must not count toward depth."""
+    text = """
+export const EVENTS = {
+  Contacts: {
+    // fires with { resultCount } on success, never on failure
+    Searched: 'Contacts - Searched',
+  },
+  Later: {
+    Fired: 'Later - Fired',
+  },
+} as const
+"""
+    out = parse_events_map(text)
+    assert out["Contacts - Searched"] == "EVENTS.Contacts.Searched"
+    assert out["Later - Fired"] == "EVENTS.Later.Fired"
+
+
+def test_parse_events_map_ignores_block_comment_contents():
+    text = """
+export const EVENTS = {
+  /* The CRM brief's naming exception: { resultCount } is the payload. */
+  Contacts: {
+    Searched: 'Contacts - Searched',
+  },
+} as const
+"""
+    assert parse_events_map(text)["Contacts - Searched"] == "EVENTS.Contacts.Searched"
+
+
+# --------------------------------------------------------------------------- #
+# Both event registries -- webapp and gp-api (DATA-2427)
+# --------------------------------------------------------------------------- #
+
+_WEBAPP_TS = "\nexport const EVENTS = {\n  Dashboard: { Viewed: 'Dash Viewed' },\n} as const\n"
+_API_TS = "\nexport const EVENTS = {\n  Outreach: { Approved: 'Voter Outreach - Campaign Approved' },\n}\n"
+
+
+def _registry_reader(sources):
+    """git_show_file stub keyed by repo path; raises CalledProcessError for absent files."""
+
+    def read(root, ref, path):
+        if path not in sources:
+            raise subprocess.CalledProcessError(128, ["git", "show"])
+        return sources[path]
+
+    return read
+
+
+def _rows(*event_types):
+    return [
+        {c: None for c in bf.PROVENANCE_COLUMNS} | {"event_type": e, "event_type_slug": e.lower()}
+        for e in event_types
+    ]
+
+
+def test_augment_call_site_columns_counts_backend_registry_events(monkeypatch):
+    """A gp-api event resolves a key-path too -- segment.types.ts is a registry (DATA-2427).
+
+    Only the webapp registry was ever read, so every backend event fell into the
+    "no resolvable key-path" branch and got a null count, indistinguishable from an
+    event whose call site had been deleted.
+    """
+    monkeypatch.setattr(
+        bf,
+        "git_show_file",
+        _registry_reader({bf.ANALYTICS_HELPER_PATH: _WEBAPP_TS, bf.SEGMENT_TYPES_PATH: _API_TS}),
+    )
+    monkeypatch.setattr(
+        bf,
+        "git_call_site_file_texts",
+        lambda *a, **k: [
+            "trackEvent(EVENTS.Dashboard.Viewed)\n",
+            "this.analytics.track(EVENTS.Outreach.Approved)\n",
+        ],
+    )
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter([]))
+    rows = _rows("Dash Viewed", "Voter Outreach - Campaign Approved")
+    bf.augment_call_site_columns(rows, "/root", "origin/main")
+    assert rows[0]["call_site_count"] == 1
+    assert rows[1]["call_site_count"] == 1
+
+
+def test_augment_call_site_columns_survives_one_missing_registry(monkeypatch):
+    """One registry absent at the ref must not blank the other's counts."""
+    monkeypatch.setattr(
+        bf, "git_show_file", _registry_reader({bf.ANALYTICS_HELPER_PATH: _WEBAPP_TS})
+    )
+    monkeypatch.setattr(
+        bf, "git_call_site_file_texts", lambda *a, **k: ["trackEvent(EVENTS.Dashboard.Viewed)\n"]
+    )
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter([]))
+    rows = _rows("Dash Viewed")
+    bf.augment_call_site_columns(rows, "/root", "origin/main")
+    assert rows[0]["call_site_count"] == 1
+
+
+def test_augment_call_site_columns_sums_an_event_declared_in_both_registries(monkeypatch):
+    """A name in both registries counts both key-paths, rather than one shadowing the other."""
+    monkeypatch.setattr(
+        bf,
+        "git_show_file",
+        _registry_reader(
+            {
+                bf.ANALYTICS_HELPER_PATH: (
+                    "\nexport const EVENTS = {\n  Pro: { Submitted: 'Pro Upgrade - Submitted' },\n} as const\n"
+                ),
+                bf.SEGMENT_TYPES_PATH: (
+                    "\nexport const EVENTS = {\n  Billing: { Submitted: 'Pro Upgrade - Submitted' },\n}\n"
+                ),
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        bf,
+        "git_call_site_file_texts",
+        lambda *a, **k: [
+            "trackEvent(EVENTS.Pro.Submitted)\n",
+            "this.analytics.track(EVENTS.Billing.Submitted)\n",
+        ],
+    )
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter([]))
+    rows = _rows("Pro Upgrade - Submitted")
+    bf.augment_call_site_columns(rows, "/root", "origin/main")
+    assert rows[0]["call_site_count"] == 2
+
+
+def test_augment_call_site_columns_warns_only_when_every_registry_is_empty(monkeypatch, capsys):
+    """The loud-warning guard covers the whole registry set, not just the webapp one."""
+    monkeypatch.setattr(
+        bf,
+        "git_show_file",
+        _registry_reader(
+            {
+                bf.ANALYTICS_HELPER_PATH: "const OTHER = { a: 'b' }\n",
+                bf.SEGMENT_TYPES_PATH: "const OTHER = { a: 'b' }\n",
+            }
+        ),
+    )
+    rows = _rows("Dash Viewed")
+    rows[0]["call_site_count"] = "5"
+    bf.augment_call_site_columns(rows, "/root", "origin/main")
+    assert rows[0]["call_site_count"] == "5"  # untouched
+    assert "returned empty" in capsys.readouterr().err
