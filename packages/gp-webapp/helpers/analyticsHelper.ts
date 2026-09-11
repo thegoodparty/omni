@@ -743,6 +743,10 @@ export const EVENTS = {
   // (left having logged none). RouteBuildFailed is the funnel's only real
   // failure, since building a route is the one step that calls a paid vendor.
   //
+  // RouteBuildFailed has no success twin: the route is bought inside the
+  // list-creation transaction, so ListCreated is that success and a second
+  // event would count one press twice.
+  //
   // Session Completed also fires the canonical
   // Dashboard.VoterContact.CampaignCompleted with medium 'doorKnocking' —
   // that's the event the door-knocking activation metric counts, and the
@@ -751,16 +755,13 @@ export const EVENTS = {
     ListCreated: 'Door Knocking - List Created',
     ListEdited: 'Door Knocking - List Edited',
     ListDeleted: 'Door Knocking - List Deleted',
-    RouteBuilt: 'Door Knocking - Route Built',
     RouteBuildFailed: 'Door Knocking - Route Build Failed',
     SessionStarted: 'Door Knocking - Session Started',
     SessionCompleted: 'Door Knocking - Session Completed',
     SessionAbandoned: 'Door Knocking - Session Abandoned',
     DoorLogged: 'Door Knocking - Door Logged',
-    // ADR 0007. Both directions, because the ratio is the signal: a rising
-    // clear rate means the button is being mis-tapped, not that voters changed
-    // their minds.
-    DoNotKnockSet: 'Door Knocking - Do Not Knock Set',
+    // ADR 0007, clear direction only: the walk's door is read-only-plus-Undo
+    // (DoNotKnockControl), so nothing in the product sets the flag.
     DoNotKnockCleared: 'Door Knocking - Do Not Knock Cleared',
     // ADR 0008. Both directions for the same reason, and the Set event carries
     // which reason was given: the follow-up is optional, so how often it is
