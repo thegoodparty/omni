@@ -3,17 +3,17 @@
 The Serve Priorities tab: where an elected official holds what they want to get
 done, and where they open one to work it forward. Gated by `serveAccess()`.
 
-**Half of this is real and half is scripted.** Read the table before changing
-anything here.
+**The content is real; the plumbing is borrowed.** Read the table before
+changing anything here.
 
-| Piece                       | State                                                                                                                                                                       |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The list, create, seed lane | Real. `GET/POST /v1/priorities`, `POST /v1/community-issues/:id/prioritize`                                                                                                  |
-| Rank                        | Display order of what the API returns. `Priority` has no `rank` column, so there is no reorder control yet; the first three rows carry the top-N marker                      |
-| The public toggle           | Session state in the flow header. No `isPublic` column either, so it resets on reload                                                                                        |
-| The guided flow             | Scripted. No backend, no persistence, no agent. `StepPanel` and `ListeningStep` are stand-ins shaped like the cards the agent will fill                                      |
-| The composer                | Disabled, with a placeholder saying so. It is there because the shell is chat-shaped and an empty bottom bar reads as broken                                                  |
-| Step state                  | `useState` in `PriorityFlowShell`. Becomes a route segment once gp-api owns the record, the way `ordinances/solve/[slug]/[step]` does                                        |
+| Piece                       | State                                                                                                                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| The list, create, seed lane | Real. `GET/POST /v1/priorities`, `POST /v1/community-issues/:id/prioritize`                                                                                               |
+| The flow's content          | Real. Every step sends its ask to the live agent with the user's own priority in it, so the questions, evidence, options, and plan are about that priority                 |
+| The flow's scope            | Borrowed. It runs on `chief_of_staff`, so flow conversations land in that history and the answers come back as prose, not the design's structured cards                    |
+| Step state                  | `useState` in `PriorityFlowShell`, and the conversation is per visit. A reload starts over. Both land properly once gp-api owns a `priority_flow` scope and a flow record  |
+| Rank                        | Display order of what the API returns. `Priority` has no `rank` column, so there is no reorder control yet; the first three rows carry the top-N marker                    |
+| The public toggle           | Session state in the flow header. No `isPublic` column either, so it resets on reload                                                                                     |
 
 ## Files
 
@@ -23,9 +23,9 @@ anything here.
 | `[priorityId]/page.tsx`         | One priority. There is no `GET /v1/priorities/:id`, so it finds the record in the list |
 | `components/PrioritiesHub.tsx`  | The list: lane chips, rows, and the community-issue seed lane below                     |
 | `components/AddPriorityForm.tsx`| Inline create, opened by the header button                                             |
-| `components/PriorityFlowShell.tsx` | The chat shell: scroll region, stepper, title, visibility toggle, pinned composer   |
-| `components/StepPanel.tsx`      | Scripted output per step, rendered as assistant turns                                  |
-| `components/ListeningStep.tsx`  | The listening step, with all four answers: run it, already heard, not yet, move on     |
+| `components/PriorityFlowShell.tsx` | The chat wrapper: conversation bootstrap, a hidden ask per step, transcript, composer |
+| `data/stepPrompts.ts`           | What each step asks the agent for, with the priority in it. Each one is a miniature of its rule block in the design doc |
+| `data/chat-api.ts`              | The flow's chat client, bound to `chief_of_staff` until the flow has its own scope      |
 | `data/steps.ts`                 | Step order, stage grouping, labels, and CTAs. The only source of the spine until contracts owns the step union |
 
 ## Why the flow looks like this
@@ -35,11 +35,12 @@ blocks, and the product decisions behind them. Two of those decide most of what
 is on screen here.
 
 - **Listening is asked once per stage, never once per turn, and it is not a
-  gate.** "Not yet" is a first-class answer that gets held and brought back at
-  the method and plan steps. A flat no gets one honest line and then gets out of
-  the way. `ListeningStep` models all four outcomes on purpose.
+  gate.** The two listening steps ask who should be heard from and then offer
+  the routes; "not yet" is a first-class answer. Holding a deferral across
+  sessions needs state this flow does not have yet, so today the agent only
+  offers the choice — see the design doc's build note.
 - **The flow ends in a decision and a handoff, not an artifact.** The plan step
-  hands off to Ordinances rather than drafting anything here.
+  points at Ordinances rather than drafting anything here.
 
 ## Chrome comes from Ordinances
 
@@ -53,10 +54,10 @@ so the two Serve workflows feel like one product.
   statuses, since a priority has no status yet.
 - **The flow** mirrors `OrdinanceFlowChat`: a full-height column, the stepper and
   title scrolling away with the conversation, and the composer pinned at the
-  bottom. Turns are built from `shared/agent-chat/chatUI` (`AssistantRow`,
-  `ASSISTANT_BUBBLE`, `UserBubble`, `ChatComposer`) so a scripted turn is
-  structurally identical to a streamed one. The advance affordance is the same
-  full-width outline row, and its label comes from the DESTINATION step.
+  bottom. It runs on the one chat kit (`useStreamingTurn` + `chatUI`) rather
+  than a second stream loop, per `shared/agent-chat/AGENTS.md`. The advance
+  affordance is the same full-width outline row, and its label comes from the
+  DESTINATION step.
 - The flow route passes no `navHeader`, like `ordinances/solve/[slug]/[step]`:
   the shell owns the viewport and carries its own title.
 
@@ -72,3 +73,19 @@ so the two Serve workflows feel like one product.
 - The nav entry, mobile title, and serve-route prefix all have to be added
   together: `shared/DashboardMenu.tsx`, `MOBILE_PAGE_TITLES` in
   `shared/DashboardLayout.tsx`, `shared/serveRoutes.ts`.
+
+## Gotchas
+
+- **Step asks are sent hidden and filtered by content.** `hiddenSent` collects
+  each prompt and the transcript drops any message whose content matches, the
+  same trick the Chief of Staff body uses. Change how a prompt is built and the
+  filter still works, because both read the same builder.
+- **The bootstrap effects take no dependencies on purpose.** `askStep`'s identity
+  changes every turn; with it in the create effect's deps, each turn opened a
+  new conversation. The create runs once and a separate effect fires the first
+  ask when the id lands, so a kickoff aborted by React's dev double-mount fires
+  again on the mount that survives. You will still see one extra empty
+  conversation per visit in dev from that double-mount.
+- **Turns are slow and cost money.** A step's ask is a full agent turn with
+  research behind it, 10 to 40 seconds, against whatever API the webapp points
+  at. Do not add an ask that fires on render.
