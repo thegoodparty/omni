@@ -216,10 +216,14 @@ export const buildStepPrompt = (
   step: PriorityFlowStep,
   priority: { title: string; description: string },
   issues: { id: string; title: string }[] = [],
+  // Only when the API refused the priority anchor, which is the signal that
+  // its prompt does not yet know this flow exists. Once every environment is
+  // on an anchor-aware gp-api, this and FLOW_CONTEXT both go.
+  opts: { declareFlowContext?: boolean } = {},
 ): string => {
   const feed = RESEARCH_STEPS.includes(step) ? issuesBlock(issues) : null
   return [
-    FLOW_CONTEXT,
+    ...(opts.declareFlowContext ? [FLOW_CONTEXT] : []),
     `My priority: "${priority.title}".`,
     `How I describe it: ${priority.description}`,
     ...(feed ? [feed] : []),

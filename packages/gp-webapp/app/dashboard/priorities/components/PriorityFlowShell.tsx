@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@styleguide'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
-import type { Priority } from '@goodparty_org/contracts'
+import type { ChatAnchor, Priority } from '@goodparty_org/contracts'
 import { toolDisplayName } from '../../chief-of-staff/components/chat/chatConstants'
 import {
   ASSISTANT_BUBBLE,
@@ -65,6 +65,9 @@ export default function PriorityFlowShell({
   const [composer, setComposer] = useState('')
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [startError, setStartError] = useState<string | null>(null)
+  // False once the API has refused the priority anchor, which means its prompt
+  // does not know about this flow and the step asks have to say so themselves.
+  const [anchorAccepted, setAnchorAccepted] = useState(true)
   const [streamError, setStreamError] = useState<string | null>(null)
   // The step asks are sent hidden, so their persisted user turns have to be
   // dropped from the transcript by content — the engine reconciles against the
@@ -89,11 +92,13 @@ export default function PriorityFlowShell({
 
   const askStep = useCallback(
     (target: PriorityFlowStep, id: string): void => {
-      const prompt = buildStepPrompt(target, priority, issues)
+      const prompt = buildStepPrompt(target, priority, issues, {
+        declareFlowContext: !anchorAccepted,
+      })
       setHiddenSent((prev) => [...prev, prompt])
       void send(id, prompt, { hidden: true })
     },
-    [priority, issues, send],
+    [priority, issues, anchorAccepted, send],
   )
   // Held in a ref so the bootstrap effects don't take it as a dependency.
   const askStepRef = useRef(askStep)
@@ -108,14 +113,36 @@ export default function PriorityFlowShell({
     if (creatingRef.current) return
     creatingRef.current = true
     void (async () => {
+      // The anchor is what tells gp-api's prompt that this is the flow
+      // borrowing its scope, so it drops the greeting, the session opener and
+      // the first-run research. An API that predates the anchor type rejects
+      // it, so fall back to an unanchored conversation and let the step asks
+      // carry the suppression themselves.
+      const anchor: ChatAnchor = {
+        resourceType: 'priority',
+        resourceId: priority.id,
+        url: `/dashboard/priorities/${priority.id}`,
+        snapshot: {
+          title: priority.title,
+          summary: priority.description,
+        },
+        step: 'define',
+      }
       try {
         const { conversationId: id } =
-          await priorityFlowChatApi.createConversation()
+          await priorityFlowChatApi.createConversation(anchor)
         setConversationId(id)
       } catch {
-        setStartError(
-          "We couldn't start work on this priority. Please try again.",
-        )
+        try {
+          const { conversationId: id } =
+            await priorityFlowChatApi.createConversation()
+          setConversationId(id)
+          setAnchorAccepted(false)
+        } catch {
+          setStartError(
+            "We couldn't start work on this priority. Please try again.",
+          )
+        }
       }
     })()
   }, [])

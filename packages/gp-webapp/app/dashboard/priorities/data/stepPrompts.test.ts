@@ -35,12 +35,19 @@ describe('buildStepPrompt', () => {
     }
   })
 
-  it('tells the agent it is mid-flow, not opening a session', () => {
-    // The chief_of_staff prompt this rides opens a sitting and introduces
-    // itself; inside a priority that reads as the agent losing its place.
-    const prompt = buildStepPrompt('define', priority)
-    expect(prompt).toContain('I am not opening a session with you')
-    expect(prompt).toContain('do not introduce yourself')
+  it('says it is mid-flow only when the API could not be told', () => {
+    // An anchor-aware gp-api drops its own session-opening blocks, so saying
+    // it again here would be the client arguing with a prompt that already
+    // agrees. The declaration is the fallback for an API that refused the
+    // priority anchor.
+    expect(buildStepPrompt('define', priority)).not.toContain(
+      'I am not opening a session with you',
+    )
+    const fallback = buildStepPrompt('define', priority, [], {
+      declareFlowContext: true,
+    })
+    expect(fallback).toContain('I am not opening a session with you')
+    expect(fallback).toContain('do not introduce yourself')
   })
 
   it('holds the define step to at least two questions', () => {

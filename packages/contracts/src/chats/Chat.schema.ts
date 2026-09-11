@@ -40,9 +40,22 @@ export const OrdinanceChatAnchorSchema = z.object({
   step: OrdinanceFlowStepSchema,
 })
 
+// priority anchors a Chief of Staff chat to one priority and the step of the
+// guided flow it is on. The scope is borrowed until the flow has its own, and
+// the anchor is what tells the prompt the user is mid-task inside a flow
+// rather than opening a session on the Chief of Staff home.
+export const PriorityChatAnchorSchema = z.object({
+  resourceType: z.literal('priority'),
+  resourceId: z.string(),
+  url: z.string(),
+  snapshot: ChatAnchorSnapshotSchema,
+  step: z.string().max(64),
+})
+
 export const ChatAnchorSchema = z.discriminatedUnion('resourceType', [
   CommunityIssueChatAnchorSchema,
   OrdinanceChatAnchorSchema,
+  PriorityChatAnchorSchema,
 ])
 export type ChatAnchor = z.infer<typeof ChatAnchorSchema>
 

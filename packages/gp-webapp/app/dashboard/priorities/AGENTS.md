@@ -119,13 +119,15 @@ so the two Serve workflows feel like one product.
   ask when the id lands, so a kickoff aborted by React's dev double-mount fires
   again on the mount that survives. You will still see one extra empty
   conversation per visit in dev from that double-mount.
-- **The flow has to tell the agent where it is.** It borrows the
+- **The anchor is what tells the agent where it is.** The flow borrows the
   `chief_of_staff` scope, whose prompt opens a sitting: it greets, introduces
-  itself, and leads with what changed since last time. Inside a priority that
-  reads as the agent losing its place, so every step ask opens with
-  `FLOW_CONTEXT` suppressing it. That is the client arguing with a server
-  prompt, which is the wrong place for it: the durable fix is a `priority`
-  chat anchor gp-api reads to drop those blocks, and it lands with the scope.
+  itself, and leads with what changed since last time. The conversation is
+  created with a `priority` anchor, and `chiefOfStaffPrompt` swaps the
+  onboarding, session-opener and first-run blocks for `PRIORITY_FLOW_BLOCK`
+  plus `<anchored_priority>` when it sees one. An API that predates the anchor
+  type rejects it, so the create falls back to an unanchored conversation and
+  the step asks carry `FLOW_CONTEXT` themselves. Delete that fallback (and
+  `FLOW_CONTEXT`) once every environment is on an anchor-aware gp-api.
 - **Turns are slow and cost money.** A step's ask is a full agent turn with
   research behind it, 10 to 40 seconds, against whatever API the webapp points
   at. Do not add an ask that fires on render.

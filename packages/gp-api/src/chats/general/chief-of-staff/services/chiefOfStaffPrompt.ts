@@ -133,6 +133,26 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     'manage saved contact lists (list/create/update/delete); returns ids, names, and counts only',
 }
 
+// A conversation anchored to a priority is the guided flow borrowing this
+// scope: the user is mid-task inside it, not opening a sitting here. The
+// blocks that introduce the agent and lead with what changed since last time
+// are wrong in that context, so this replaces them.
+const PRIORITY_FLOW_BLOCK = `YOU ARE INSIDE THE PRIORITIES FLOW (see <anchored_priority>)
+- The user is working one priority, on the step named in the anchor, and can see that step on screen. They did not come here to start a session with you.
+- Do not greet them, do not introduce yourself, do not summarize their priorities or what has changed since they were last here, and do not narrate what the two of you are about to do. Open on the work of the step.
+- The flow owns the shape of the conversation: follow the step's instructions in the user's message, including how it asks you to end a turn.`
+
+const anchoredPriorityBlock = (
+  anchor: Extract<ChatAnchor, { resourceType: 'priority' }>,
+): string =>
+  [
+    '<anchored_priority>',
+    `Priority: ${sanitizeUntrustedContent(anchor.snapshot.title)}`,
+    `How they describe it: ${sanitizeUntrustedContent(anchor.snapshot.summary)}`,
+    `Step: ${sanitizeUntrustedContent(anchor.step)}`,
+    '</anchored_priority>',
+  ].join('\n')
+
 const anchoredIssueBlock = (anchor: ChatAnchor): string => {
   const { title, summary, highlightedText } = anchor.snapshot
   const lines = [
@@ -246,15 +266,26 @@ export const buildChiefOfStaffSystemPrompt = (args: {
 }): string => {
   const { ctx, toolNames, isFirstConversation = false } = args
   const hasWebSearch = toolNames.includes('web_search')
+  // The guided flow borrows this scope. When it does, the session-opening
+  // blocks are suppressed rather than argued with from the client.
+  const inPriorityFlow = ctx.anchor?.resourceType === 'priority'
   const blocks = [
     ROLE_CLARIFIERS_BLOCK,
     GUARDRAILS_BLOCK,
     PROFESSIONAL_ADVICE_BLOCK,
-    ONBOARDING_BLOCK,
-    ...(isFirstConversation ? [firstRunResearchBlock(hasWebSearch)] : []),
+    ...(inPriorityFlow ? [PRIORITY_FLOW_BLOCK] : [ONBOARDING_BLOCK]),
+    ...(isFirstConversation && !inPriorityFlow
+      ? [firstRunResearchBlock(hasWebSearch)]
+      : []),
     officeContextBlock(ctx),
     prioritiesBlock(ctx.priorities),
-    ...(ctx.anchor ? [anchoredIssueBlock(ctx.anchor)] : []),
+    ...(ctx.anchor
+      ? [
+          ctx.anchor.resourceType === 'priority'
+            ? anchoredPriorityBlock(ctx.anchor)
+            : anchoredIssueBlock(ctx.anchor),
+        ]
+      : []),
     toolBlock(toolNames),
     ...(toolNames.includes('crud_priorities') ? [PRIORITIES_RULES] : []),
     ...(hasWebSearch ? [WEB_SEARCH_RULES] : []),
@@ -275,7 +306,7 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     // The house voice goes last: every tool rule above pulls toward more
     // detail, and these are what hold a reply short and land it on something
     // actionable.
-    SESSION_OPENER_BLOCK,
+    ...(inPriorityFlow ? [] : [SESSION_OPENER_BLOCK]),
     ...houseVoiceBlocks(),
   ]
   return blocks.join('\n\n')

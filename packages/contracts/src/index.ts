@@ -700,6 +700,7 @@ export {
   type ChatAnchorSnapshot,
   CommunityIssueChatAnchorSchema,
   OrdinanceChatAnchorSchema,
+  PriorityChatAnchorSchema,
   ChatAnchorSchema,
   type ChatAnchor,
   CreateChatRequestSchema,

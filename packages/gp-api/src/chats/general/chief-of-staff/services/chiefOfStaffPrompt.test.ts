@@ -38,7 +38,44 @@ const TOOLS = [
   'get_briefing',
 ]
 
+const PRIORITY_ANCHOR = {
+  resourceType: 'priority' as const,
+  resourceId: 'p-1',
+  url: '/dashboard/priorities/p-1',
+  snapshot: {
+    title: 'Remove the flock cameras',
+    summary: 'The contract is up in January.',
+  },
+  step: 'define',
+}
+
 describe('buildChiefOfStaffSystemPrompt', () => {
+  it('drops the session-opening blocks inside the priorities flow', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx({ anchor: PRIORITY_ANCHOR, isFirstConversation: true }),
+      toolNames: TOOLS,
+    })
+    // The flow opens mid-task on a step the user can already see, so a
+    // greeting, a session opener, or first-run research all read as the agent
+    // losing its place.
+    expect(prompt).toContain('YOU ARE INSIDE THE PRIORITIES FLOW')
+    expect(prompt).toContain('<anchored_priority>')
+    expect(prompt).toContain('Step: define')
+    expect(prompt).not.toContain('ONBOARDING')
+    expect(prompt).not.toContain('OPENING A SESSION')
+    expect(prompt).not.toContain('FIRST-RUN RESEARCH')
+  })
+
+  it('keeps them everywhere else', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain('ONBOARDING')
+    expect(prompt).toContain('OPENING A SESSION')
+    expect(prompt).not.toContain('YOU ARE INSIDE THE PRIORITIES FLOW')
+  })
+
   it('frames the assistant as a governance chief of staff', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
