@@ -121,14 +121,17 @@ describe('off-center baseline marker coupling', () => {
     }
   })
 
+  // Asserted by name: the 12-state set is small enough that a count would
+  // pass while marking the wrong columns.
   it('carries the coverage marker on a known vintage-limited column', () => {
     const all = Object.values(DISTRICT_TOPICS_CATALOG).flatMap((t) => t.columns)
-    const known = all.find(
-      (c) => c.name === 'hs_social_security_tax_increase_support',
-    )
+    const known = all.find((c) => c.name === 'hs_mass_deportations_support')
     expect(known?.meaning).toContain(COVERAGE_MARKER)
     const marked = all.filter((c) => c.meaning.includes(COVERAGE_MARKER))
-    expect(marked.length).toBeGreaterThan(20)
+    expect(marked.map((c) => c.name).sort()).toEqual([
+      'hs_mass_deportations_oppose',
+      'hs_mass_deportations_support',
+    ])
   })
 })
 
@@ -147,7 +150,9 @@ describe('chief-of-staff catalog mirror', () => {
     const shared = Object.values(DISTRICT_TOPICS_CATALOG)
       .flatMap((t) => t.columns)
       .filter((c) => c.name.startsWith('hs_') && cosByName.has(c.name))
-    expect(shared.length).toBeGreaterThan(100)
+    // The label-equality loop below is the real invariant; this floor only
+    // guards against the overlap collapsing to nothing.
+    expect(shared.length).toBeGreaterThan(80)
     for (const col of shared) {
       expect(lowerFirst(col.meaning), col.name).toBe(
         lowerFirst(cosByName.get(col.name) ?? ''),

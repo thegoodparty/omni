@@ -73,19 +73,20 @@ describe('serve suggested dimensions — mark coupling with HS_SCORE_SEMANTICS',
     expect(offCenter.sort()).toEqual(['hs_any_home_buyer', 'hs_new_home_buyer'])
   })
 
-  it('marks the 51 columns still limited to the 12-state December 2025 delivery', () => {
+  it('marks the 2 columns still limited to the 12-state December 2025 delivery', () => {
     const twelveStateOnly = hsEntries.filter((d) =>
       d.label.includes('limited coverage: data exists in only 12 states'),
     )
-    expect(twelveStateOnly.length).toBe(51)
-    expect(twelveStateOnly.map((d) => d.name)).toContain(
-      'hs_conspiracy_believer',
-    )
+    expect(twelveStateOnly.length).toBe(2)
+    expect(twelveStateOnly.map((d) => d.name).sort()).toEqual([
+      'hs_mass_deportations_oppose',
+      'hs_mass_deportations_support',
+    ])
     // The surviving phrasing must be the only mark — catches a
     // reintroduced retired-phrasing label on the cleaned columns.
     expect(
       hsEntries.filter((d) => d.label.includes('limited coverage')),
-    ).toHaveLength(51)
+    ).toHaveLength(2)
     // Full-coverage columns must stay unmarked. hs_doge_support is the trap:
     // it is schema-absent from the 12-state staging set but has real data in
     // all 51 states, so coverage (not schema presence) decides the mark.

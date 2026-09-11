@@ -27,7 +27,32 @@ describe('win constituent scope', () => {
   it('advertises the partisan block (Win-specific decision)', () => {
     const names = WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS.map((d) => d.name)
     expect(names).toContain('Parties_Description')
-    expect(names).toContain('hs_ideology_overall_party_dem')
+    expect(names).toContain(
+      'hs_ideology_partisanship_partisanship_overall_party_dem',
+    )
+  })
+
+  // Mirrors the Serve pin at constituentSuggestedDimensions.serveAgentVoters
+  // .test.ts. Without it, stripping the caveat here passes CI silently and
+  // the agent recommends these columns in the 38+ states where they are null.
+  it('marks the 2 mass-deportations columns with the 12-state coverage caveat', () => {
+    const twelveStateOnly = WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS.filter((d) =>
+      d.label.includes('limited coverage: data exists in only 12 states'),
+    )
+    expect(twelveStateOnly.map((d) => d.name).sort()).toEqual([
+      'hs_mass_deportations_oppose',
+      'hs_mass_deportations_support',
+    ])
+  })
+
+  // The label is the model's only cue for which way a score points, and a
+  // noun phrase ("Mass Deportations Oppose") does not say whether a high
+  // score is the voter opposing or being opposed.
+  it('states the stance direction in the mass-deportations labels', () => {
+    const labelFor = (name: string) =>
+      WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS.find((d) => d.name === name)?.label
+    expect(labelFor('hs_mass_deportations_oppose')).toMatch(/^Opposes /)
+    expect(labelFor('hs_mass_deportations_support')).toMatch(/^Supports /)
   })
 
   it('does not forbid partisan columns, only identity backstops', () => {

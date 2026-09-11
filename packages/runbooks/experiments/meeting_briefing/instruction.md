@@ -549,7 +549,7 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 
 `hs_new_home_buyer`/`hs_any_home_buyer` are deliberately excluded: ~60-baseline propensity models (recently/ever bought a home), not polarized sentiment — never select or cite them as constituent sentiment (see the score rule in CRITICAL RULES).
 
-**taxes** — Tax cuts, gas tax, social security tax, minimum wage, fiscal ideology
+**taxes** — Tax cuts, gas tax, fiscal ideology
 
 | Column                                    | Meaning                                |
 | ----------------------------------------- | -------------------------------------- |
@@ -557,11 +557,7 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 | `hs_tax_cuts_oppose`                      | opposes tax cuts                       |
 | `hs_gas_tax_support`                      | supports the gas tax                   |
 | `hs_gas_tax_oppose`                       | opposes the gas tax                    |
-| `hs_social_security_tax_increase_support` | supports raising social security taxes |
-| `hs_social_security_tax_increase_oppose`  | opposes raising social security taxes  |
-| `hs_min_wage_15_increase_support`         | supports raising min wage to $15       |
-| `hs_min_wage_15_increase_oppose`          | opposes raising min wage to $15        |
-| `hs_ideology_fiscal_conserv`              | fiscally conservative ideology         |
+| `hs_ideology_fiscal_conservative`              | fiscally conservative ideology         |
 | `hs_ideology_fiscal_liberal`              | fiscally liberal ideology              |
 
 **education** — School choice, school funding, charter schools, teachers union views
@@ -576,10 +572,8 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 | `hs_charter_schools_oppose`         | opposes charter schools          |
 | `hs_teachers_union_positive`        | positive view of teachers unions |
 | `hs_teachers_union_negative`        | negative view of teachers unions |
-| `hs_community_college_free_support` | supports free community college  |
-| `hs_community_college_free_oppose`  | opposes free community college   |
 
-**healthcare** — Medicaid expansion, Medicare for All, ACA, family medical leave, opioid policy
+**healthcare** — Medicaid expansion, Medicare for All, ACA
 
 | Column                            | Meaning                                         |
 | --------------------------------- | ----------------------------------------------- |
@@ -590,12 +584,8 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 | `hs_obamacare_aca_expand`         | supports expanding the ACA                      |
 | `hs_obamacare_aca_protect`        | supports protecting ACA                         |
 | `hs_obamacare_aca_oppose`         | opposes the ACA                                 |
-| `hs_family_medical_leave_support` | supports paid family/medical leave              |
-| `hs_family_medical_leave_oppose`  | opposes paid family/medical leave               |
-| `hs_opioid_crisis_treat`          | treats opioid crisis as a health issue          |
-| `hs_opioid_crisis_enforce`        | treats opioid crisis as a law-enforcement issue |
 
-**climate_energy** — Climate change belief, EVs, solar, fracking, federal lands, Green New Deal
+**climate_energy** — Climate change belief, EVs, solar, fracking, Green New Deal
 
 | Column                             | Meaning                                 |
 | ---------------------------------- | --------------------------------------- |
@@ -609,25 +599,23 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 | `hs_pipeline_fracking_oppose`      | opposes pipelines/fracking              |
 | `hs_green_new_deal_support`        | supports the Green New Deal             |
 | `hs_green_new_deal_oppose`         | opposes the Green New Deal              |
-| `hs_sell_federal_lands_support`    | supports selling federal lands          |
-| `hs_sell_federal_lands_oppose`     | opposes selling federal lands           |
 
 **immigration** — Mass deportations, border wall, immigration policy views
 
 | Column                          | Meaning                                |
 | ------------------------------- | -------------------------------------- |
-| `hs_mass_deporations_support`   | supports mass deportations             |
-| `hs_mass_deporations_oppose`    | opposes mass deportations              |
+| `hs_mass_deportations_support`   | supports mass deportations             |
+| `hs_mass_deportations_oppose`    | opposes mass deportations              |
 | `hs_mexican_wall_support`       | supports a border wall                 |
 | `hs_mexican_wall_oppose`        | opposes a border wall                  |
-| `hs_immigration_process_unfair` | sees the immigration process as unfair |
-| `hs_immigration_undesirable`    | sees more immigration as undesirable   |
+| `hs_illegal_imm_process_unfair` | sees the immigration process as unfair |
+| `hs_illegal_imm_undesirable`    | sees more immigration as undesirable   |
 
 **crime_safety** — Violent crime concern, gun control, police trust, death penalty
 
 | Column                          | Meaning                          |
 | ------------------------------- | -------------------------------- |
-| `hs_violent_crime_very_worried` | very worried about violent crime |
+| `hs_violent_crime_worried`      | worried about violent crime      |
 | `hs_violent_crime_not_worried`  | not worried about violent crime  |
 | `hs_gun_control_support`        | supports gun control             |
 | `hs_gun_control_oppose`         | opposes gun control              |
