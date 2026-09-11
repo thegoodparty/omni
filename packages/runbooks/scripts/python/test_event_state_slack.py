@@ -834,3 +834,17 @@ def test_post_digest_threads_the_injected_queue_into_the_thread():
     thread_text = json.dumps(tx.calls)
     assert "7 drafted anchor(s) queued" in thread_text
     assert slk.anchors_review_url() in thread_text
+
+
+def test_tiered_layout_renders_the_anchor_block_too():
+    """The tiered layout is the one the governance workflow actually posts, so the anchor
+    entry point has to be covered there and not only on the legacy branch."""
+    result = {"run_date": "2026-09-11", "events": [], "status_counts": {"active": 1}}
+    quiet = {"new": [], "escalated": [], "resolved": [], "still_open": []}
+    triage = {"items": [], "run_date": "2026-09-11"}
+    _parent, thread = slk.build_digest_blocks(
+        result, quiet, None, None, None, triage,
+        {"queued": 9, "flagged": 6, "new": 0})
+    text = json.dumps(thread)
+    assert "9 drafted anchor(s) queued, 6 flagged" in text
+    assert slk.anchors_review_url() in text

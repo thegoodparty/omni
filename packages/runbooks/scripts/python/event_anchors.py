@@ -959,6 +959,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.review_artifact:
+        # The rendered file is now a committed, linked review surface a human edits in
+        # place, and the render is built from state — which does not carry their
+        # dispositions until --load-review has run. So an unconditional overwrite silently
+        # destroys filled-in review work with no recovery short of git checkout. Refuse
+        # instead, and name the command that makes the file safe to re-render.
+        if args.review_artifact.exists():
+            filled = sorted(
+                event_id
+                for event_id, fields in parse_review_artifact(
+                    args.review_artifact.read_text()).items()
+                if fields.get("disposition"))
+            if filled:
+                print(f"event-anchors: refusing to overwrite {args.review_artifact} — it "
+                      f"carries {len(filled)} filled-in disposition(s) that are not in the "
+                      f"state yet ({', '.join(filled[:3])}"
+                      f"{', …' if len(filled) > 3 else ''}). Load them first:\n"
+                      f"  uv run python event_anchors.py --load-review "
+                      f"{args.review_artifact}", file=sys.stderr)
+                return 2
         args.review_artifact.write_text(render_review_artifact(state, today))
         print(f"wrote review artifact to {args.review_artifact}")
         return 0

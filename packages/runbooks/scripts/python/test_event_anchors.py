@@ -1335,3 +1335,31 @@ def test_bare_review_artifact_flag_writes_the_copy_the_digest_links_to(tmp_path,
     assert ea.main(["--state", str(state_path), "--review-artifact",
                     "--today", "2026-09-11"]) == 0
     assert "## E" in target.read_text()
+
+
+def test_rendering_refuses_to_clobber_a_filled_in_review_file(tmp_path, capsys):
+    """The rendered file is a committed surface a human edits in place, and the render is
+    built from state — which does not carry their dispositions until --load-review runs. An
+    unconditional overwrite therefore destroys review work with no recovery but git."""
+    state = {"E": {"fires_on": "x", "url": "/y", "confidence": "high", "flag_reason": "",
+                   "evidence": "a.tsx:1", "disposition": "new", "reason": ""}}
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps(state))
+    target = tmp_path / "event-anchors-review.md"
+
+    assert ea.main(["--state", str(state_path), "--review-artifact", str(target),
+                    "--today", "2026-09-11"]) == 0
+    reviewed = target.read_text().replace("- disposition:", "- disposition: accepted")
+    target.write_text(reviewed)
+
+    assert ea.main(["--state", str(state_path), "--review-artifact", str(target),
+                    "--today", "2026-09-12"]) == 2
+    assert "refusing to overwrite" in capsys.readouterr().err
+    assert "- disposition: accepted" in target.read_text()
+
+    # Once loaded, the dispositions live in state and the file is safe to re-render.
+    assert ea.main(["--state", str(state_path), "--load-review", str(target),
+                    "--today", "2026-09-12"]) == 0
+    target.unlink()
+    assert ea.main(["--state", str(state_path), "--review-artifact", str(target),
+                    "--today", "2026-09-12"]) == 0
