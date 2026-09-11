@@ -13,7 +13,10 @@ import {
   PhoneBankingFlow,
   SERVE_PHONE_BANKING_SURFACE,
 } from 'app/dashboard/outreach/v2/phone-banking/PhoneBankingFlow'
-import { ASSISTANT_BUBBLE, AssistantRow } from '../../shared/agent-chat/chatUI'
+import {
+  PROTO_ASSISTANT_BUBBLE as ASSISTANT_BUBBLE,
+  ProtoAssistantRow as AssistantRow,
+} from './chat/prototypeChrome'
 import WideChip, { ASSISTANT_INDENT } from './WideChip'
 import {
   ordinanceHref,

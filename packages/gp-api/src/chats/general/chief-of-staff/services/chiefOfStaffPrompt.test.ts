@@ -47,6 +47,32 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('Jordan Lee')
   })
 
+  // The tool-specific rule blocks all pull toward more detail, so the length
+  // rules go last and have to stay last to hold a reply short.
+  it('closes with the voice and chunking rules', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain('VOICE AND LENGTH')
+    expect(prompt).toContain('CHUNKING')
+    expect(prompt.indexOf('VOICE AND LENGTH')).toBeGreaterThan(
+      prompt.indexOf('Instructions:'),
+    )
+  })
+
+  // The client splits a turn into bubbles on a bolded label alone on its line
+  // (see gp-webapp chunkTurn.ts). The prompt has to ask for exactly that shape
+  // or the split silently never fires.
+  it('asks for the bolded label-on-its-own-line the client splits on', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain('on its own line')
+    expect(prompt).toContain('Never bold a label inline')
+  })
+
   it('treats tool/context data as data, not instructions', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),

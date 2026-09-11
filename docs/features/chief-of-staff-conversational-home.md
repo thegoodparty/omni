@@ -29,6 +29,8 @@ alone carries no metrics, and guessing from it is how the first pass shipped
 | Onboarding step 2 | `chief-of-staff/components/PriorityStageStep.tsx` |
 | Next-step push | `chief-of-staff/components/PriorityNextStep.tsx` |
 | Branch point | `chief-of-staff/components/DashboardContent.tsx` |
+| Turn chrome contract | `chat/chatChrome.tsx` (`ChatChrome`, `DEFAULT_CHAT_CHROME`) |
+| Serve-only chrome | `chat/prototypeChrome.tsx` + `prototypeChrome.css` |
 | Slots added to the shared body | `chat/ChiefOfStaffChatBody.tsx` (`leadingSlot`, `trailingSlot`) |
 
 `ConversationalHome` takes its scope as a config object, so Win's Campaign
@@ -122,6 +124,49 @@ position rather than by content match.
   enforced by `@UseElectedOffice()` on the API and by the door-knocking gate
   treating an `eo-` org as license-equivalent.
 
+## The turn chrome is forked, deliberately
+
+The design's chat chrome is Serve-only and **must not reach Win**. The pieces it
+restyles live in `shared/agent-chat/chatUI.tsx`, which Win's campaign manager,
+the ordinance flow and dock, the briefing Ask-AI panel and the CRM assistant all
+render through, so editing them there would have redesigned four products by
+accident.
+
+So `ChiefOfStaffChatBody` takes its chrome as data (`ChatChrome`). Omitting the
+prop gives `DEFAULT_CHAT_CHROME`, which is the shared look; `ConversationalHome`
+passes `PROTOTYPE_CHAT_CHROME`. Every other consumer passes nothing and is
+unchanged — there are tests on both halves of that, and they are the point of
+the indirection rather than decoration.
+
+This was chosen over forking the 800-line body: the streaming, deferred create,
+history handoff and pinned autoscroll in there are not things to keep in two
+places.
+
+Values verified against the running app, not read off the markup:
+
+| Spec | Design | Rendered |
+| --- | --- | --- |
+| Avatar | 34px, cream | 34px, `#fcf8f3` |
+| Row gap | 10px | 10px |
+| Assistant bubble | `#f7fafb`, 1px border, 16/16/16/4 | same |
+| User bubble | mirrored asymmetry | 16/16/4/16 |
+| Quick reply | pill | fully rounded, 13px, 8/14 padding |
+
+Two things to know about that bubble colour. `--muted` is **unset at `:root`** in
+this app, so Tailwind's `bg-muted` falls back to `#f8fafc` — close enough to pass
+a glance, wrong against the spec. The exact value is already live as
+`--semantic-surface-subtle`, so `.proto-bubble` reads it from there; `bg-muted`
+stays as a fallback if that stylesheet ever fails to load. The same root cause
+makes `border-border` resolve to slate-200 rather than the brand `#d1d8df`
+app-wide, which is worth fixing properly but is not this branch's job.
+
+Bubble padding and type scale are inherited from the shared bubble: those were
+not in the measured set, so they are not yet the design's.
+
+The keyframes live in `prototypeChrome.css` rather than `globals.css` or the
+styleguide, so deleting the two prototype files removes the experiment whole.
+Both animations are disabled under `prefers-reduced-motion`.
+
 ## Schema added
 
 Two nullable, additive columns. Nothing needs backfilling.
@@ -152,7 +197,7 @@ org with no priorities.
 | Gap | Note |
 | --- | --- |
 | Session digest ("what changed since last time") | The highest-value item left. Plan below. |
-| Shared chat chrome | 34px cream avatar, `#f7fafb` bubble with a border and `16/16/16/4` corners, 10px rise-and-fade entrance, bouncing-dot typing indicator, pill quick-replies, the 44px indent that depends on the 34px avatar, composer blur wash. **All in `shared/agent-chat/chatUI.tsx`, so it ships to Win, ordinances and the CRM assistant at once.** This is most of why the surface does not yet look like the prototype. |
+| Composer blur wash on scroll-under | The bar has its own ground, but the transcript still stops above it rather than scrolling under. |
 | Response action row | Copy / read aloud / thumbs. Same shared file. The design's rule: an AI message qualifies if it has an artifact card, came from an action, or directly follows a user message. |
 | Artifacts as cards opening a bottom sheet | Frontend seam exists (`onEvent`); the cost is a tool contract per artifact type. Artifact card is pinned at 380px, not full width. |
 | Constituent list for an issue | Step 4, skipped. See dead ends. |

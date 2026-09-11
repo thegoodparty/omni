@@ -11,6 +11,7 @@ import { useOrganization } from '@shared/organization-picker'
 import ChiefOfStaffChatBody, {
   type ChatSuggestion,
 } from './ChiefOfStaffChatBody'
+import { PROTOTYPE_CHAT_CHROME } from './prototypeChrome'
 import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
 
 /**
@@ -160,7 +161,16 @@ export default function ConversationalHome({
   return (
     // No background of its own: the home sits directly on the shell's #f5f5f5
     // canvas, and only the bubbles, cards and composer carry a surface.
-    <div className="flex min-h-0 flex-1 flex-col">
+    //
+    // The height is definite on purpose. `flex-1` here resolved against the
+    // shell's `min-h-svh` wrapper, which is a MINIMUM: a transcript taller
+    // than the viewport grew the wrapper instead of scrolling, so the column
+    // never bounded, `overflow-y: auto` never engaged, and the composer was
+    // pushed below the fold. It happened to fit on a desktop viewport, which
+    // is why it only showed up narrow. Subtracting the shell chrome (64px
+    // mobile top bar, 56px nav header from `lg` up) bounds it, so the
+    // transcript scrolls inside and the composer stays put on every viewport.
+    <div className="flex h-[calc(100svh-4rem)] min-h-0 flex-col overflow-hidden lg:h-[calc(100svh-3.5rem)]">
       <ChiefOfStaffChatBody
         // Remount on a conversation switch (a history pick, an org change, or a
         // new opener) so the body loads that transcript against a clean
@@ -184,6 +194,10 @@ export default function ConversationalHome({
         composerRef={composerRef}
         leadingSlot={leadingSlot}
         trailingSlot={trailingSlot}
+        // This surface's own chrome. Scoped here rather than in the shared
+        // agent-chat kit so Win's campaign manager, the ordinance docks, the
+        // briefing Ask-AI panel and the CRM assistant keep the look they have.
+        chrome={PROTOTYPE_CHAT_CHROME}
         // The 608px measure the whole surface shares: transcript, cards, hero
         // and composer all sit on it, so nothing reads ragged. Gutters step
         // 12/16/24px at sm/md/above.

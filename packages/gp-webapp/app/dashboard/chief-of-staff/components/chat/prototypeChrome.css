@@ -1,0 +1,75 @@
+/* Serve-only prototype chat chrome.
+ *
+ * Deliberately NOT in the styleguide or globals.css. The conversation-first
+ * Chief of Staff home is a design iteration that must not reach Win, the
+ * ordinance flow or the CRM assistant, and those share the styleguide. Keeping
+ * the keyframes here means deleting prototypeChrome.tsx + this file removes the
+ * whole experiment with nothing left behind.
+ */
+
+/* The spec puts bubbles and cards on --color-card / --color-surface-muted over
+ * an #f5f5f5 canvas. Surface-subtle (#f7fafb) was the wrong read: against
+ * #f5f5f5 it is a 2-unit difference, so the bubbles all but vanished. This is
+ * the "gray" bubble tone: #eef3f6, which actually separates from the canvas.
+ *
+ * Read from the token rather than hardcoded, and unlayered so it beats
+ * Tailwind's utilities layer without !important.
+ */
+.proto-bubble {
+  background-color: var(--semantic-surface-muted);
+}
+
+/* Each turn rises as it fades in. The design's measured distance is 10px; the
+ * decelerating curve is what stops a long reply from feeling like it snaps. */
+@keyframes proto-turn-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The spec's motion budget is 120-200ms ease with no bounce, so this sits at
+ * the top of that range rather than the 260ms expo curve it started at. */
+.proto-turn-in {
+  animation: proto-turn-in 200ms ease-out both;
+}
+
+/* Typing indicator: three dots on a staggered bounce. Replaces the shared
+ * shimmering "Thinking..." label, which reads as text the agent wrote. */
+@keyframes proto-dot {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  40% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.proto-dot {
+  animation: proto-dot 1.2s ease-in-out infinite both;
+}
+
+.proto-dot:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.proto-dot:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+/* An entrance animation on every turn is exactly the kind of motion that makes
+ * a chat unusable for a vestibular disorder, and a dot loop never stops. */
+@media (prefers-reduced-motion: reduce) {
+  .proto-turn-in,
+  .proto-dot {
+    animation: none;
+  }
+}

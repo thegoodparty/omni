@@ -10,16 +10,9 @@ import {
   type RefObject,
 } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Badge, Button } from '@styleguide'
-import {
-  ASSISTANT_BUBBLE,
-  AssistantMarkdown,
-  AssistantRow,
-  ChatComposer,
-  InlineSegments,
-  ThinkingRow,
-  UserBubble,
-} from '../../../shared/agent-chat/chatUI'
+import { Button } from '@styleguide'
+import { ChatComposer } from '../../../shared/agent-chat/chatUI'
+import { DEFAULT_CHAT_CHROME, type ChatChrome } from './chatChrome'
 import { segmentsToLive } from '../../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
@@ -110,6 +103,14 @@ interface Props {
    */
   leadingSlot?: ReactNode
   /**
+   * Turn chrome: avatar, bubbles, typing indicator, quick-reply pill, composer
+   * bar. Defaults to the shared agent-chat look that Win's campaign manager,
+   * the ordinance docks and community issues all render with. The
+   * conversation-first home passes its own so it can restyle every turn
+   * element without that reaching them.
+   */
+  chrome?: ChatChrome
+  /**
    * Content rendered at the end of the transcript's scroll flow, below the last
    * turn — the conversational home's task-card rail. Deliberately NOT gated on
    * a pristine transcript the way the starter chips are: the manager resumes one
@@ -175,7 +176,17 @@ export default function ChiefOfStaffChatBody({
   hiddenMessageContents = NO_HIDDEN_CONTENTS,
   leadingSlot,
   trailingSlot,
+  chrome = DEFAULT_CHAT_CHROME,
 }: Props): React.JSX.Element {
+  const {
+    AssistantRow,
+    AssistantMarkdown,
+    UserBubble,
+    ThinkingRow,
+    InlineSegments,
+    QuickReply,
+    assistantBubble,
+  } = chrome
   const queryClient = useQueryClient()
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
@@ -656,7 +667,7 @@ export default function ChiefOfStaffChatBody({
         {showIntro &&
           introParts.map((text, i) => (
             <AssistantRow key={`intro-${i}`}>
-              <div className={ASSISTANT_BUBBLE}>{text}</div>
+              <div className={assistantBubble}>{text}</div>
             </AssistantRow>
           ))}
 
@@ -712,7 +723,7 @@ export default function ChiefOfStaffChatBody({
           className={
             suggestionsAsCards
               ? 'mx-auto flex w-full max-w-[608px] flex-col gap-2 px-3 pb-1 pt-2'
-              : 'mx-auto flex w-full max-w-[608px] flex-wrap gap-2 px-3 pb-1 pt-2'
+              : chrome.quickReplyRowClassName
           }
         >
           {effectiveSuggestions.map((s) =>
@@ -734,45 +745,29 @@ export default function ChiefOfStaffChatBody({
                 )}
               </button>
             ) : (
-              <Badge
+              <QuickReply
                 key={s.label}
-                asChild
-                variant="soft"
-                shape="pill"
-                className="h-auto border-border bg-grayscale-50 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
+                disabled={busy}
+                onClick={() => onSuggestionClick(s)}
               >
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => onSuggestionClick(s)}
-                >
-                  {s.label}
-                </button>
-              </Badge>
+                {s.label}
+              </QuickReply>
             ),
           )}
         </div>
       )}
 
-      <div className="border-t border-border px-3 py-3">
+      <div className={chrome.composerBarClassName}>
         {quickPrompts && quickPrompts.length > 0 && showStarters && (
           <div className="mx-auto mb-3 flex w-full max-w-[608px] flex-wrap gap-2">
             {quickPrompts.map((prompt) => (
-              <Badge
+              <QuickReply
                 key={prompt}
-                asChild
-                variant="soft"
-                shape="pill"
-                className="h-auto border-border bg-grayscale-50 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
+                disabled={busy}
+                onClick={() => void sendContent(prompt)}
               >
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void sendContent(prompt)}
-                >
-                  {prompt}
-                </button>
-              </Badge>
+                {prompt}
+              </QuickReply>
             ))}
           </div>
         )}

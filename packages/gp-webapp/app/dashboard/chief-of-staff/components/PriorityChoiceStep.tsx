@@ -2,7 +2,10 @@
 
 import { useState } from 'react'
 import { Button, cn, Input } from '@styleguide'
-import { ASSISTANT_BUBBLE, AssistantRow } from '../../shared/agent-chat/chatUI'
+import {
+  PROTO_ASSISTANT_BUBBLE as ASSISTANT_BUBBLE,
+  ProtoAssistantRow as AssistantRow,
+} from './chat/prototypeChrome'
 import WideChip, { ASSISTANT_INDENT } from './WideChip'
 import { categoryDisplay } from 'app/dashboard/community-issues/components/categoryDisplay'
 import { useTopCommunityIssues } from '../data/use-community-issues'

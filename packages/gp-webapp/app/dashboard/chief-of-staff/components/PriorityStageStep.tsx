@@ -9,7 +9,10 @@ import {
 } from '@styleguide/components/ui/icons'
 import type { LucideIcon } from 'lucide-react'
 import type { Priority, PriorityStage } from '@goodparty_org/contracts'
-import { ASSISTANT_BUBBLE, AssistantRow } from '../../shared/agent-chat/chatUI'
+import {
+  PROTO_ASSISTANT_BUBBLE as ASSISTANT_BUBBLE,
+  ProtoAssistantRow as AssistantRow,
+} from './chat/prototypeChrome'
 import WideChip, { ASSISTANT_INDENT } from './WideChip'
 import { useSetPriorityStage } from '../data/use-priorities'
 

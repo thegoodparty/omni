@@ -9,6 +9,7 @@ import type {
   ChatStreamEvent,
 } from '../../../shared/agent-chat/chatClient'
 import ChiefOfStaffChatBody from './ChiefOfStaffChatBody'
+import { PROTOTYPE_CHAT_CHROME } from './prototypeChrome'
 import { COS_INTRO_MESSAGES } from './chatConstants'
 
 const createMock = vi.fn()
@@ -77,6 +78,39 @@ describe('<ChiefOfStaffChatBody>', () => {
         expect(screen.getByText(COS_INTRO_MESSAGES[0]!)).toBeInTheDocument(),
       { timeout: 4000 },
     )
+  })
+
+  // The body is shared with Win's campaign manager, the ordinance docks, the
+  // briefing Ask-AI panel and community issues. Every one of them omits
+  // `chrome`, so the default has to stay the shared look — the conversational
+  // home's 34px cream avatar and bordered bubble must not leak into them.
+  it('renders the shared chrome when no chrome is passed', async () => {
+    listConversationsMock.mockResolvedValue([])
+    const { container } = render(<ChiefOfStaffChatBody active />)
+    await waitFor(
+      () =>
+        expect(screen.getByText(COS_INTRO_MESSAGES[0]!)).toBeInTheDocument(),
+      { timeout: 4000 },
+    )
+
+    expect(container.querySelector('.size-6')).not.toBeNull()
+    expect(container.querySelector('.size-\\[34px\\]')).toBeNull()
+    expect(container.querySelector('.proto-turn-in')).toBeNull()
+  })
+
+  it('renders the passed chrome instead of the shared one', async () => {
+    listConversationsMock.mockResolvedValue([])
+    const { container } = render(
+      <ChiefOfStaffChatBody active chrome={PROTOTYPE_CHAT_CHROME} />,
+    )
+    await waitFor(
+      () =>
+        expect(screen.getByText(COS_INTRO_MESSAGES[0]!)).toBeInTheDocument(),
+      { timeout: 4000 },
+    )
+
+    expect(container.querySelector('.size-\\[34px\\]')).not.toBeNull()
+    expect(container.querySelector('.proto-turn-in')).not.toBeNull()
   })
 
   it('does not play the intro once the user has prior conversations', async () => {

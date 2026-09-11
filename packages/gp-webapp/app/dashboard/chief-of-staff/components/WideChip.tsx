@@ -17,11 +17,11 @@ const CHIP = [
   'disabled:pointer-events-none disabled:opacity-50',
 ].join(' ')
 
-// The rail hangs under the preceding message's bubble, not under its avatar.
-// The design specifies 44px off a 34px avatar; the shared AssistantRow is still
-// 24px + 8px gap, so this tracks what is actually rendered and moves to pl-11
-// when the avatar does.
-export const ASSISTANT_INDENT = 'pl-8'
+// The rail hangs under the preceding message's bubble, not under its avatar:
+// 34px avatar + the row's 10px gap. Tied to prototypeChrome's avatar size —
+// change one and this has to move with it, or every card in the rail hangs off
+// the wrong edge.
+export const ASSISTANT_INDENT = 'pl-11'
 
 const isExternalHref = (href: string): boolean =>
   /^(https?:)?\/\//.test(href) ||
