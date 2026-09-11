@@ -229,6 +229,15 @@ const PUBLIC_PROFILE_MENU_ITEM: MenuItem = {
   v2Category: 'elected-office',
 }
 
+const PRIORITIES_MENU_ITEM: MenuItem = {
+  id: 'priorities-dashboard',
+  label: 'Priorities',
+  link: '/dashboard/priorities',
+  icon: <MdFileOpen />,
+  v2Icon: NAV_HEADER_ICONS.clipboard,
+  v2Category: 'elected-office',
+}
+
 const ORDINANCES_MENU_ITEM: MenuItem = {
   id: 'ordinances-dashboard',
   label: 'Ordinances',
@@ -313,6 +322,13 @@ export const getDashboardMenuItems = (
     menuItems.unshift(CHIEF_OF_STAFF_MENU_ITEM)
   }
 
+  // Priorities sits directly under Chief of Staff: it is where an official
+  // picks up the work, and Chief of Staff is where they ask about it.
+  const prioritiesShown = isElectedOffice
+  if (prioritiesShown) {
+    menuItems.splice(chiefOfStaffShown ? 1 : 0, 0, PRIORITIES_MENU_ITEM)
+  }
+
   // Campaign Manager (dashboard home) is index 0, pushed down by each item
   // unshifted above it: BRIEFINGS and COMMUNITY_ISSUES for an elected office,
   // then Chief of Staff when shown. Insert the Plan/Tracker item right after
@@ -323,7 +339,8 @@ export const getDashboardMenuItems = (
     (isElectedOffice ? 1 : 0) +
     (communityIssuesShown ? 1 : 0) +
     (ordinancesShown ? 1 : 0) +
-    (chiefOfStaffShown ? 1 : 0)
+    (chiefOfStaffShown ? 1 : 0) +
+    (prioritiesShown ? 1 : 0)
 
   // The campaign tracker tab, and the "Your Story" tab just above it (the
   // story is what the tracker + plan are generated from).

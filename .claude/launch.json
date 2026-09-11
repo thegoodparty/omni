@@ -2,6 +2,13 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "webapp-dev-api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev-dev", "-w", "packages/gp-webapp"],
+      "port": 4000,
+      "autoPort": false
+    },
+    {
       "name": "storybook",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "storybook", "-w", "packages/gp-webapp"],

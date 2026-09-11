@@ -185,6 +185,7 @@ const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/dashboard/chief-of-staff', 'Chief of Staff'],
   ['/dashboard/briefings', 'Briefing Assistant'],
   ['/dashboard/community-issues', 'Community Issues'],
+  ['/dashboard/priorities', 'Priorities'],
   ['/dashboard/public-profile', NAV_LABELS.publicProfile],
   ['/dashboard/ordinances', 'Ordinances'],
   ['/dashboard/constituent-outreach', NAV_LABELS.constituentOutreach],

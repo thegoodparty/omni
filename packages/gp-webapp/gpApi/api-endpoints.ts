@@ -26,6 +26,8 @@ import type {
   SaveOrdinanceClarifyAnswerRequest,
   UpdateOrdinanceRequest,
   Priority,
+  CreatePriorityInput,
+  UpdatePriorityInput,
   ChatAnchor,
   RaceOpponentSourceType,
   RaceOpponentCollectionStatus,
@@ -920,6 +922,26 @@ export type APIEndpoints = {
   'GET /v1/priorities': {
     Request: {}
     Response: Priority[]
+  }
+
+  // The write half of the priorities CRUD gp-api has always exposed. Until the
+  // Priorities page there was no client for it: priorities were created by the
+  // Chief of Staff's crud_priorities tool and by prioritizing a community
+  // issue, both server-side.
+  'POST /v1/priorities': {
+    Request: CreatePriorityInput
+    Response: Priority
+  }
+
+  'PUT /v1/priorities/:id': {
+    Request: UpdatePriorityInput & { id: string }
+    Response: Priority
+  }
+
+  // Archives rather than hard-deletes, and answers 204.
+  'DELETE /v1/priorities/:id': {
+    Request: { id: string }
+    Response: undefined
   }
 
   'GET /v1/ordinances/:slug': {

@@ -6,6 +6,7 @@
  */
 export const SERVE_ROUTE_PREFIXES = [
   '/dashboard/chief-of-staff',
+  '/dashboard/priorities',
   '/dashboard/briefings',
   '/dashboard/polls',
   '/dashboard/ordinances',
