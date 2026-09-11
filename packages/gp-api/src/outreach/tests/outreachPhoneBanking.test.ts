@@ -123,6 +123,41 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     expect(userPrompt).toContain('Housing: Build more affordable units')
   })
 
+  // **Phone banking reads ONE issue store, and that is deliberate.**
+  // Onboarding writes the candidate's issues to `website.content.about.issues`
+  // (`saveAboutFields({ issues })`), not to `details.customIssues`, so this
+  // prompt is missing them for most campaigns. That is a real gap and worth
+  // closing — but closing it here changes what a shipped channel generates
+  // for every campaign onboarded through the current flow, which is not a
+  // door-knocking feature's change to make. `buildCampaignContext` takes
+  // `includeWebsiteIssues`, and door knocking is the only caller that passes
+  // it. If you are widening that, this test is the one to delete, and the
+  // before/after review is the reason it exists.
+  it('does not read the website issue store', async () => {
+    await service.prisma.website.create({
+      data: {
+        campaignId: campaign.id,
+        vanityPath: `issues-${Date.now()}`,
+        content: {
+          about: {
+            issues: [{ title: 'Transit', description: 'Restore the bus.' }],
+          },
+        },
+      },
+    })
+
+    mockDraft('A grounded script.')
+
+    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).not.toContain('Transit')
+  })
+
   it('includes the volunteer opener and compliance ban in the system prompt', async () => {
     mockDraft('A script.')
 

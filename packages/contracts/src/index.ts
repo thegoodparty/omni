@@ -1070,6 +1070,8 @@ export {
   type RoutePayloadAddress,
   RoutePayloadStopSchema,
   type RoutePayloadStop,
+  RoutePayloadRepresentingSchema,
+  type RoutePayloadRepresenting,
   DoorKnockingRoutePayloadSchema,
   type DoorKnockingRoutePayload,
   RoutePathGeometrySchema,

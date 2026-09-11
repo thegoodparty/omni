@@ -2392,6 +2392,103 @@ describe('door-knocking routes', () => {
         expect((await serveTurf('flag')).data.isServe).toBe(true)
         expect((await knockAndServe()).res.data.isServe).toBe(false)
       })
+
+      // Whose campaign the walk is for, riding the payload for the same reason
+      // `isServe` above does with a sharper case: a volunteer's session has no
+      // campaign at all (`GET /v1/campaigns/mine` 403s them, ENG-11072), so
+      // this is the only way their door script can name the candidate. Without
+      // it the card read "Hi, I'm {volunteer}." under a "Talking points"
+      // heading.
+      it('carries the campaign identity behind the door script opener', async () => {
+        await service.prisma.organization.update({
+          where: { slug: orgSlug },
+          // No positionId on this fixture, so the name resolves off the org
+          // itself and the served payload owes nothing to election-api.
+          data: { customPositionName: 'Town Board of Commissioners' },
+        })
+        const owner = await service.prisma.user.findUniqueOrThrow({
+          where: { id: service.user.id },
+          select: { firstName: true, lastName: true, name: true },
+        })
+
+        const { res } = await knockAndServe()
+
+        expect(res.data.representing).toEqual({
+          // The org OWNER, never the requesting user — on a volunteer's walk
+          // those are two different people, which is the whole point.
+          name:
+            [owner.firstName, owner.lastName]
+              .filter(Boolean)
+              .join(' ')
+              .trim() || (owner.name ?? '').trim(),
+          office: 'Town Board of Commissioners',
+        })
+      })
+
+      // Best-effort by contract: an org with neither a resolvable office nor a
+      // named owner sends no key at all, rather than a pair of empty strings a
+      // renderer would have to tell apart from a real answer.
+      it('omits the campaign identity when nothing resolves', async () => {
+        // The owner is blanked in place rather than swapped for a nameless
+        // one: both creating a turf and reading its route are gated on the
+        // requesting user's claim to the org, so reassigning ownership makes
+        // the whole path 404 and tests nothing about name resolution. Restored
+        // in `finally` because two other cases in this file assert on this
+        // user's name.
+        const owner = await service.prisma.user.findUniqueOrThrow({
+          where: { id: service.user.id },
+          select: { firstName: true, lastName: true, name: true },
+        })
+        await service.prisma.user.update({
+          where: { id: service.user.id },
+          data: { firstName: '', lastName: '', name: '' },
+        })
+        await service.prisma.organization.update({
+          where: { slug: orgSlug },
+          data: { customPositionName: null },
+        })
+
+        try {
+          const { res } = await knockAndServe()
+
+          expect(res.status).toBe(200)
+          expect(res.data.representing).toBeUndefined()
+        } finally {
+          await service.prisma.user.update({
+            where: { id: service.user.id },
+            data: owner,
+          })
+        }
+      })
+
+      // The one half-resolved case, and the reason the guard is on the name
+      // alone. An office with no name in front of it cannot be said out loud,
+      // so sending it would only make a failed resolution look like a real
+      // answer — and the opener would drop it and fall back to the bare
+      // "Hi, I'm {volunteer}" this whole path exists to fix.
+      it('omits the campaign identity when only the office resolves', async () => {
+        const owner = await service.prisma.user.findUniqueOrThrow({
+          where: { id: service.user.id },
+          select: { firstName: true, lastName: true, name: true },
+        })
+        await service.prisma.user.update({
+          where: { id: service.user.id },
+          data: { firstName: '', lastName: '', name: '' },
+        })
+
+        try {
+          // customPositionName is left alone, so the office still resolves.
+          const { res } = await knockAndServe()
+
+          expect(res.status).toBe(200)
+          expect(res.data.representing).toBeUndefined()
+        } finally {
+          await service.prisma.user.update({
+            where: { id: service.user.id },
+            data: owner,
+          })
+        }
+      })
     })
 
     // The routeless turf this used to guard against no longer exists — a turf

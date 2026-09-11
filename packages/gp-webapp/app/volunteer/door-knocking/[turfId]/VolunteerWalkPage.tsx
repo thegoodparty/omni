@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
@@ -26,6 +26,7 @@ import { useWalkSession } from 'app/dashboard/door-knocking/native/useWalkSessio
 import { useLiveLocation } from 'app/dashboard/door-knocking/native/useLiveLocation'
 import { useWalkCompletion } from 'app/dashboard/door-knocking/native/walkCompletion'
 import { routeQueryOptions } from 'app/dashboard/door-knocking/native/turfQueries'
+import { DoorKnockingSurface } from 'app/dashboard/door-knocking/native/doorKnockingSurface'
 
 // Same seam VoterMapCanvas has behind `NativeDoorKnockingPage` — this page is
 // the second mount site (ENG-11055), so it needs its own dynamic import to
@@ -121,6 +122,35 @@ export default function VolunteerWalkPage({
   const location = useLiveLocation(locationEnabled)
   const [mapControlsOffset, setMapControlsOffset] = useState<number | null>(16)
 
+  // The door script's two questions, both answered off the route payload
+  // because this page can answer neither from the session.
+  //
+  // `isServe`: the dashboard reads its rail from `useOrganization()`, which a
+  // volunteer has no access to — so without this the surface defaulted to Win
+  // and an official's volunteer got a candidate's opener.
+  //
+  // `representing`: whose campaign this walk is for. `useCampaign()` is null
+  // here (ENG-11072), which is exactly why the volunteer opener could not name
+  // the candidate and collapsed to the volunteer's own name.
+  //
+  // Memoized on the two strings rather than on the `representing` object: a
+  // background refetch deserializes an equal-but-new object, and depending on
+  // it would rebuild the context value — and re-render the whole walk under
+  // it — every time the window regains focus.
+  const isServe = routeQuery.data?.isServe ?? false
+  const representingName = routeQuery.data?.representing?.name
+  const representingOffice = routeQuery.data?.representing?.office
+  const canvasser = useMemo(
+    () => ({
+      isVolunteer: true,
+      representing:
+        representingName === undefined && representingOffice === undefined
+          ? null
+          : { name: representingName ?? '', office: representingOffice ?? '' },
+    }),
+    [representingName, representingOffice],
+  )
+
   // Starts the walk session once, the moment the turf resolves — there is no
   // second entry point onto this page the way `?walkTurfId=` and `?create=1`
   // both land on the dashboard's orchestrator, so there is nothing to
@@ -174,53 +204,64 @@ export default function VolunteerWalkPage({
   }
 
   return (
-    // 3.5rem = the volunteer top bar's fixed `h-14`, at every width — unlike
-    // the dashboard's mobile menu bar (`lg:hidden`), so a bare calc here does
-    // not carry the breakpoint trap `app/dashboard/door-knocking/AGENTS.md`
-    // documents for that page.
-    <div className="relative h-[calc(100dvh-3.5rem)] w-full">
-      <VoterMapCanvas
-        pack={null}
-        filterResult={null}
-        turfs={[]}
-        routePins={walkMap.routePins}
-        selectedStopId={walkMap.selectedStopId}
-        routeLoop={walkMap.routeLoop}
-        routeGeometry={walkMap.routeGeometry}
-        focusTurf={null}
-        // Draw-mode props this page never activates — there is no create
-        // surface here, so every token stays at its rest value.
-        startDrawToken={0}
-        clearDrawToken={0}
-        undoDrawToken={0}
-        drawColor={INERT_DRAW_COLOR}
-        frameDrawToken={0}
-        frameDrawBottomPct={0}
-        controlsHidden={mapControlsOffset === null}
-        controlsBottomPx={mapControlsOffset ?? 16}
-        location={location}
-        liveLocationEnabled={locationEnabled}
-        onToggleLiveLocation={setLocationEnabled}
-        // Off, same as the candidate/manager walk: the sheet's own line
-        // already reports a blocked permission or a coarse fix.
-        locationNotice={false}
-        // No create surface here to drive it — the canvas requires the prop
-        // regardless.
-        onPolygonChange={noop}
-        onRoutePinClick={walkMap.onPinTap}
-      />
-      <WalkMapHint visible={walkMap.hintVisible} />
-      <WalkSurface
-        turfId={walk.turf.id}
-        turfName={walk.turf.name}
-        onExit={endWalk}
-        onMapControlsOffsetChange={setMapControlsOffset}
-        onKnockRecorded={walk.recordDoor}
-        openStopRequest={walkMap.openStopRequest}
-        selectedStopId={walkMap.selectedStopId}
-        onSelectStop={walkMap.selectStop}
-        liveLocation={location}
-      />
-    </div>
+    // The same surface the dashboard page states around its own walk, stated
+    // here from the payload instead of the organization — see `canvasser`
+    // above. `officeName` is the Serve opener's clause, and it comes from the
+    // same `representing.office` the volunteer opener uses, so one route
+    // cannot describe its office two ways.
+    <DoorKnockingSurface
+      serveMode={isServe}
+      officeName={representingOffice ?? ''}
+      canvasser={canvasser}
+    >
+      {/* 3.5rem = the volunteer top bar's fixed `h-14`, at every width —
+          unlike the dashboard's mobile menu bar (`lg:hidden`), so a bare calc
+          here does not carry the breakpoint trap
+          `app/dashboard/door-knocking/AGENTS.md` documents for that page. */}
+      <div className="relative h-[calc(100dvh-3.5rem)] w-full">
+        <VoterMapCanvas
+          pack={null}
+          filterResult={null}
+          turfs={[]}
+          routePins={walkMap.routePins}
+          selectedStopId={walkMap.selectedStopId}
+          routeLoop={walkMap.routeLoop}
+          routeGeometry={walkMap.routeGeometry}
+          focusTurf={null}
+          // Draw-mode props this page never activates — there is no create
+          // surface here, so every token stays at its rest value.
+          startDrawToken={0}
+          clearDrawToken={0}
+          undoDrawToken={0}
+          drawColor={INERT_DRAW_COLOR}
+          frameDrawToken={0}
+          frameDrawBottomPct={0}
+          controlsHidden={mapControlsOffset === null}
+          controlsBottomPx={mapControlsOffset ?? 16}
+          location={location}
+          liveLocationEnabled={locationEnabled}
+          onToggleLiveLocation={setLocationEnabled}
+          // Off, same as the candidate/manager walk: the sheet's own line
+          // already reports a blocked permission or a coarse fix.
+          locationNotice={false}
+          // No create surface here to drive it — the canvas requires the prop
+          // regardless.
+          onPolygonChange={noop}
+          onRoutePinClick={walkMap.onPinTap}
+        />
+        <WalkMapHint visible={walkMap.hintVisible} />
+        <WalkSurface
+          turfId={walk.turf.id}
+          turfName={walk.turf.name}
+          onExit={endWalk}
+          onMapControlsOffsetChange={setMapControlsOffset}
+          onKnockRecorded={walk.recordDoor}
+          openStopRequest={walkMap.openStopRequest}
+          selectedStopId={walkMap.selectedStopId}
+          onSelectStop={walkMap.selectStop}
+          liveLocation={location}
+        />
+      </div>
+    </DoorKnockingSurface>
   )
 }

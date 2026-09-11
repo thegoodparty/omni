@@ -324,6 +324,30 @@ export const RoutePathGeometrySchema = z.union([
 
 export type RoutePathGeometry = z.infer<typeof RoutePathGeometrySchema>
 
+// Whose door-knocking this is: the candidate or official the canvasser names
+// at the door, and the office they are running for or already hold.
+//
+// It rides the payload for the same reason `isServe` below does, with a
+// sharper case. A volunteer's walk has no campaign context at all —
+// `GET /v1/campaigns/mine` 403s a volunteer (ENG-11072), so `useCampaign()`
+// resolves null and the door script had no way to learn whose campaign the
+// person holding the phone was canvassing for. The route is the one thing a
+// volunteer can always read, so the answer travels with it.
+//
+// `name` is the org owner's, not the reader's: on a candidate's own walk the
+// two are the same person, and on a volunteer's they are emphatically not.
+// `office` is the resolved position name — the seat sought on Win, the seat
+// held on Serve — which is the same string `NativeDoorKnockingPage` passes
+// into `DoorKnockingSurface` from the organization.
+export const RoutePayloadRepresentingSchema = z.object({
+  name: z.string(),
+  office: z.string(),
+})
+
+export type RoutePayloadRepresenting = z.infer<
+  typeof RoutePayloadRepresentingSchema
+>
+
 // The full serve response: the frozen route plus live enrichment. Phones
 // snapshot this offline; there is no navigate block — the phone builds deep
 // links from lat/lng.
@@ -348,6 +372,16 @@ export const DoorKnockingRoutePayloadSchema = z.object({
   // parsing on a phone that cannot refetch. Absent reads as Win, which is the
   // surface every route frozen before this shipped belonged to.
   isServe: z.boolean().optional(),
+  // Optional for the reason every field above it is: a service worker's
+  // pre-ship snapshot carries no such key and has to keep parsing on a phone
+  // that cannot refetch. Absent means the door script falls back to what it
+  // built before this shipped — the candidate's own opener on the dashboard,
+  // and the bare "Hi, I'm {volunteer}." on the volunteer walk.
+  //
+  // Also absent when the position name cannot be resolved: `serve()` treats
+  // this as best-effort, because a walk is worth more than an opener and
+  // election-api being down is not a reason a canvasser cannot knock.
+  representing: RoutePayloadRepresentingSchema.optional(),
 })
 
 export type DoorKnockingRoutePayload = z.infer<
