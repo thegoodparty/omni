@@ -25,6 +25,7 @@ import {
 
 import { OrgDistrict } from '../organizations.types'
 import { getUserFullName } from '@/users/util/users.util'
+import { isHeldOffice } from '@/campaigns/util/eligibility.util'
 
 export type FriendlyOrganization = {
   slug: string
@@ -43,6 +44,42 @@ export type FriendlyOrganization = {
   district: OrgDistrict | null
   campaign: Campaign | null
   electedOffice: ElectedOffice | null
+}
+
+/**
+ * Puts an office the user currently holds at the head of their org list.
+ *
+ * The order of this list is the answer to "which organization am I in" for a
+ * user who has not picked one: the webapp selects the first entry, the org
+ * switcher lists them in this order, and the post-login redirect seeds the
+ * org-slug cookie from it. Somebody who holds office should land in Serve, so
+ * that rule lives here — one ordering, at the source — rather than as a second
+ * opinion in the client, where it could disagree with the order the picker
+ * actually displays.
+ *
+ * Only a HELD office leads. `isHeldOffice` is the same term-date check behind
+ * the `status` the picker greys out as "Past", so this cannot promote a seat
+ * the picker is calling over, and a former office holder running again is not
+ * stranded in a dashboard for an office they no longer hold. An office with no
+ * term dates yet counts as not held, by that same rule.
+ *
+ * Everything else keeps the query's order, so this is a no-op for the many
+ * users who hold no office at all, and it never reorders one campaign against
+ * another. A user's own pick always outranks it: the webapp only consults this
+ * order when the org-slug cookie names nothing that user can see.
+ */
+export const sortOrganizations = <
+  T extends { electedOffice: ElectedOffice | null },
+>(
+  organizations: T[],
+  now: Date,
+): T[] => {
+  const rank = (org: T) =>
+    org.electedOffice && isHeldOffice(org.electedOffice, now) ? 0 : 1
+  // toSorted, not sort: the input is Prisma's own result array, and reordering
+  // it in place is a side effect no caller asked for. Both are stable, so
+  // same-rank orgs keep the query's ordering.
+  return organizations.toSorted((a, b) => rank(a) - rank(b))
 }
 
 @Injectable()
@@ -88,6 +125,13 @@ export class OrganizationsService extends createPrismaBase(
       where: {
         OR: [{ ownerId: userId }, { memberships: { some: { userId } } }],
       },
+      // Oldest first, slug (the @id, so unique) to break exact-timestamp ties.
+      // Without an explicit order Postgres may return these rows in any order,
+      // and heap order moves — an UPDATE can relocate a row — so the list
+      // silently reshuffled over a user's lifetime, taking the default org and
+      // the picker's order with it. See `sortOrganizations` for why the order
+      // of this list is load-bearing.
+      orderBy: [{ createdAt: 'asc' }, { slug: 'asc' }],
       include: {
         campaign: true,
         electedOffice: true,
@@ -98,7 +142,7 @@ export class OrganizationsService extends createPrismaBase(
       },
     })
     return await Promise.all(
-      orgs.map(async (org) => {
+      sortOrganizations(orgs, new Date()).map(async (org) => {
         const friendly = await this.makeFriendly(org)
         return {
           ...friendly,
