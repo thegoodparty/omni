@@ -25,6 +25,7 @@ import {
 
 import { OrgDistrict } from '../organizations.types'
 import { getUserFullName } from '@/users/util/users.util'
+import { isHeldOffice } from '@/campaigns/util/eligibility.util'
 
 export type FriendlyOrganization = {
   slug: string
@@ -43,6 +44,68 @@ export type FriendlyOrganization = {
   district: OrgDistrict | null
   campaign: Campaign | null
   electedOffice: ElectedOffice | null
+}
+
+/**
+ * Puts an office the user currently holds at the head of their org list.
+ *
+ * The order of this list is the answer to "which organization am I in" for a
+ * user who has not picked one: the webapp selects the first entry, the org
+ * switcher lists them in this order, and the post-login redirect seeds the
+ * org-slug cookie from it. Somebody who holds office should land in Serve, so
+ * that rule lives here — one ordering, at the source — rather than as a second
+ * opinion in the client, where it could disagree with the order the picker
+ * actually displays.
+ *
+ * Only an office that has BEGUN and not yet ended leads:
+ *
+ * - Not ended: `isHeldOffice`, the same term-date predicate behind the `status`
+ *   the picker greys out as "Past", so this can never promote a seat the picker
+ *   is calling over, and a former office holder running again is not stranded
+ *   in a dashboard for an office they no longer hold. An office with no term
+ *   dates yet is not held by that same rule.
+ * - Begun: `isHeldOffice` derives from `termEndDate` alone and does not look at
+ *   `termStartDate` (see `deriveIsActive`), so an office whose term starts in
+ *   the future already reads as held — its end date is years out. That is not
+ *   hypothetical: `selectPreferredOfficeHolder` deliberately prefers a term
+ *   starting within the next FUTURE_OFFICEHOLDER_WINDOW_MONTHS when prefilling
+ *   a provisioned office, and nothing downstream filters it. Leading with it
+ *   would drop someone into the Serve dashboard weeks before they take office,
+ *   so the start bound is checked here.
+ *
+ * The start check is deliberately local to this ordering rather than folded
+ * into `deriveIsActive`: that predicate also produces the `isActive` field on
+ * every elected-office response and the `status` on every org list, so teaching
+ * it about start dates would change what a not-yet-sworn-in official sees
+ * across the app. That is a product decision, and a separate change. This one
+ * only declines to promote such an office, which changes nothing else about it.
+ *
+ * Everything else keeps the query's order, so this is a no-op for the many
+ * users who hold no office at all, and it never reorders one campaign against
+ * another. A user's own pick always outranks it: the webapp only consults this
+ * order when the org-slug cookie names nothing that user can see.
+ */
+export const sortOrganizations = <
+  T extends { electedOffice: ElectedOffice | null },
+>(
+  organizations: T[],
+  now: Date,
+): T[] => {
+  // A null termStartDate is "no start bound", not "starts now": it preserves
+  // today's behavior for the offices that simply lack term data.
+  const hasBegun = (office: ElectedOffice) =>
+    office.termStartDate === null ||
+    office.termStartDate.getTime() <= now.getTime()
+  const rank = (org: T) =>
+    org.electedOffice &&
+    isHeldOffice(org.electedOffice, now) &&
+    hasBegun(org.electedOffice)
+      ? 0
+      : 1
+  // toSorted, not sort: the input is Prisma's own result array, and reordering
+  // it in place is a side effect no caller asked for. Both are stable, so
+  // same-rank orgs keep the query's ordering.
+  return organizations.toSorted((a, b) => rank(a) - rank(b))
 }
 
 @Injectable()
@@ -88,6 +151,13 @@ export class OrganizationsService extends createPrismaBase(
       where: {
         OR: [{ ownerId: userId }, { memberships: { some: { userId } } }],
       },
+      // Oldest first, slug (the @id, so unique) to break exact-timestamp ties.
+      // Without an explicit order Postgres may return these rows in any order,
+      // and heap order moves — an UPDATE can relocate a row — so the list
+      // silently reshuffled over a user's lifetime, taking the default org and
+      // the picker's order with it. See `sortOrganizations` for why the order
+      // of this list is load-bearing.
+      orderBy: [{ createdAt: 'asc' }, { slug: 'asc' }],
       include: {
         campaign: true,
         electedOffice: true,
@@ -98,7 +168,7 @@ export class OrganizationsService extends createPrismaBase(
       },
     })
     return await Promise.all(
-      orgs.map(async (org) => {
+      sortOrganizations(orgs, new Date()).map(async (org) => {
         const friendly = await this.makeFriendly(org)
         return {
           ...friendly,
