@@ -747,16 +747,53 @@ def test_anchor_queue_counts_only_undecided_rows(tmp_path):
     }
     path = tmp_path / "event_anchors.json"
     path.write_text(json.dumps(state))
-    assert slk.load_anchor_queue(path) == {"queued": 2, "flagged": 1}
+    assert slk.load_anchor_queue(path) == {"queued": 2, "flagged": 1, "new": 0}
 
 
 def test_anchor_queue_survives_a_missing_or_corrupt_state_file(tmp_path):
     """Pre-seed the file does not exist, and a bad hand-edit must not take the digest down
     with it — both degrade to a skipped block, never an exception."""
-    assert slk.load_anchor_queue(tmp_path / "absent.json") == {"queued": 0, "flagged": 0}
+    empty = {"queued": 0, "flagged": 0, "new": 0}
+    assert slk.load_anchor_queue(tmp_path / "absent.json") == empty
     bad = tmp_path / "bad.json"
     bad.write_text("{not json")
-    assert slk.load_anchor_queue(bad) == {"queued": 0, "flagged": 0}
+    assert slk.load_anchor_queue(bad) == empty
     listish = tmp_path / "list.json"
     listish.write_text("[]")
-    assert slk.load_anchor_queue(listish) == {"queued": 0, "flagged": 0}
+    assert slk.load_anchor_queue(listish) == empty
+
+
+def test_a_run_whose_only_news_is_a_freshly_drafted_anchor_still_posts():
+    """The thread renders anchor content, so the gate has to know anchors exist. This is
+    the gap-sweep first-run regression one queue over: without it the digest goes quiet on
+    exactly the run that introduces the review link."""
+    result = {"run_date": "2026-09-11", "events": []}
+    quiet = {"new": [], "escalated": [], "resolved": [], "still_open": []}
+    assert slk.should_post(result, quiet, set(), None, anchor_queue={"queued": 0, "new": 0}) is False
+    assert slk.should_post(result, quiet, set(), None,
+                           anchor_queue={"queued": 5, "new": 5}) is True
+
+
+def test_a_standing_anchor_backlog_is_not_news():
+    """362 queued anchors must not force a post on every run until the last one is
+    reviewed — a digest that shouts the same number every time is one the channel learns
+    to skip. The block still renders when the digest posts for another reason."""
+    result = {"run_date": "2026-09-14", "events": []}
+    quiet = {"new": [], "escalated": [], "resolved": [], "still_open": []}
+    backlog = {"queued": 362, "flagged": 185, "new": 0}
+    assert slk.should_post(result, quiet, set(), None, anchor_queue=backlog) is False
+    assert slk.build_anchor_blocks(backlog) != []
+
+
+def test_anchor_news_counts_only_rows_first_drafted_on_this_run(tmp_path):
+    state = {
+        "A": {"disposition": "new", "confidence": "low", "first_seen": "2026-09-11"},
+        "B": {"disposition": "new", "confidence": "high", "first_seen": "2026-09-04"},
+        "C": {"disposition": "accepted", "confidence": "low", "first_seen": "2026-09-11"},
+    }
+    path = tmp_path / "event_anchors.json"
+    path.write_text(json.dumps(state))
+    assert slk.load_anchor_queue(path, run_date="2026-09-11") == {
+        "queued": 2, "flagged": 1, "new": 1}
+    # No run date (an older caller) means nothing reads as new, never everything.
+    assert slk.load_anchor_queue(path)["new"] == 0
