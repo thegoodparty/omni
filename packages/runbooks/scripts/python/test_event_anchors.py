@@ -1305,3 +1305,101 @@ def test_collect_candidates_skips_a_govern_anchored_new_row_silently(tmp_path, c
     assert ea.collect_candidates(
         repo, {}, run_query=_fake_run_query(_GOVERN_ANCHORED_ROW)) == []
     assert "Already Anchored" not in capsys.readouterr().err
+
+
+def test_review_artifact_header_tells_the_reviewer_where_to_edit_and_how_to_hand_it_back():
+    """The Slack digest links straight to this file, so the file has to close the loop on
+    its own. A queue that says "12 anchors need review" and then does not say what to edit
+    or what happens next is a dead end."""
+    text = ea.render_review_artifact(
+        {"E": {"fires_on": "x", "url": "/y", "confidence": "high", "flag_reason": "",
+               "evidence": "a.tsx:1", "disposition": "new", "reason": ""}},
+        "2026-09-11")
+    assert "instrumentation_data/event-anchors-review.md" in text   # where it lives
+    assert "--load-review" in text                                   # how to hand it back
+    assert "disposition" in text                                     # what to fill in
+    assert "Amplitude Govern" in text                                # what it does NOT do
+
+
+def test_bare_review_artifact_flag_writes_the_copy_the_digest_links_to(tmp_path, monkeypatch):
+    """`--review-artifact` with no path must render the committed file the Slack link
+    targets. With `nargs="?"` but no `const` the bare flag renders to None and the digest's
+    link points at a file nothing ever writes."""
+    state = {"E": {"fires_on": "x", "url": "/y", "confidence": "high", "flag_reason": "",
+                   "evidence": "a.tsx:1", "disposition": "new", "reason": ""}}
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps(state))
+    target = tmp_path / "event-anchors-review.md"
+    monkeypatch.setattr(ea, "DEFAULT_REVIEW_ARTIFACT", target)
+
+    assert ea.main(["--state", str(state_path), "--review-artifact",
+                    "--today", "2026-09-11"]) == 0
+    assert "## E" in target.read_text()
+
+
+def test_rendering_refuses_to_clobber_a_filled_in_review_file(tmp_path, capsys):
+    """The rendered file is a committed surface a human edits in place, and the render is
+    built from state — which does not carry their dispositions until --load-review runs. An
+    unconditional overwrite therefore destroys review work with no recovery but git."""
+    state = {"E": {"fires_on": "x", "url": "/y", "confidence": "high", "flag_reason": "",
+                   "evidence": "a.tsx:1", "disposition": "new", "reason": ""}}
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps(state))
+    target = tmp_path / "event-anchors-review.md"
+
+    assert ea.main(["--state", str(state_path), "--review-artifact", str(target),
+                    "--today", "2026-09-11"]) == 0
+    reviewed = target.read_text().replace("- disposition:", "- disposition: accepted")
+    target.write_text(reviewed)
+
+    assert ea.main(["--state", str(state_path), "--review-artifact", str(target),
+                    "--today", "2026-09-12"]) == 2
+    assert "refusing to overwrite" in capsys.readouterr().err
+    assert "- disposition: accepted" in target.read_text()
+
+    # Once loaded, the dispositions live in state and the file is safe to re-render.
+    assert ea.main(["--state", str(state_path), "--load-review", str(target),
+                    "--today", "2026-09-12"]) == 0
+    target.unlink()
+    assert ea.main(["--state", str(state_path), "--review-artifact", str(target),
+                    "--today", "2026-09-12"]) == 0
+
+
+def test_clobber_guard_covers_text_edits_and_still_allows_a_plain_re_render(tmp_path, capsys):
+    """Correcting a `fires_on` line and leaving the disposition blank is a normal way to
+    review, and losing that text is the same data loss as losing a disposition.
+
+    The other half matters just as much: `fires_on`/`url` are *populated* by the render, so
+    a presence check would read every row of an untouched file as edited and make the queue
+    impossible to re-render. They are compared against state, not tested for emptiness.
+    """
+    state = {"E": {"fires_on": "draft line", "url": "/y", "confidence": "high",
+                   "flag_reason": "", "evidence": "a.tsx:1", "disposition": "new",
+                   "reason": ""}}
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps(state))
+    target = tmp_path / "event-anchors-review.md"
+    render = ["--state", str(state_path), "--review-artifact", str(target),
+              "--today", "2026-09-11"]
+
+    assert ea.main(render) == 0
+    # Untouched: re-rendering is the ordinary case and must keep working.
+    assert ea.main(render) == 0
+
+    target.write_text(target.read_text().replace(
+        "- fires_on: draft line", "- fires_on: Admin queue, Approve & book send"))
+    assert ea.main(render) == 2
+    assert "refusing to overwrite" in capsys.readouterr().err
+    assert "Approve & book send" in target.read_text()
+
+    assert ea.main(["--state", str(state_path), "--load-review", str(target),
+                    "--today", "2026-09-11"]) == 0
+    assert json.loads(state_path.read_text())["E"]["fires_on"] == (
+        "Admin queue, Approve & book send")
+
+
+def test_unsaved_edits_ignores_a_row_the_state_has_never_heard_of():
+    """A hand-added block for an unknown event has no state to compare against, so every
+    field reads as an edit — which is the safe direction: refuse rather than overwrite."""
+    parsed = {"Unknown": {"fires_on": "something"}}
+    assert ea._unsaved_edits(parsed, {}) == ["Unknown"]

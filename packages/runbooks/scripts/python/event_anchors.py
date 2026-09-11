@@ -589,6 +589,10 @@ def judge_anchors(candidates: Sequence[dict], *, api_key: str | None, model: str
 # --- State and the review artifact -----------------------------------------------
 
 DEFAULT_STATE = Path(__file__).parent / "instrumentation_data" / "event_anchors.json"
+# The rendered queue is committed alongside the state so the Slack digest can link to a
+# file on main. A link to a path that only exists on somebody's laptop is a dead end.
+DEFAULT_REVIEW_ARTIFACT = (Path(__file__).parent / "instrumentation_data"
+                          / "event-anchors-review.md")
 VALID_DISPOSITIONS = {"new", "open", "accepted", "dismissed"}
 
 # Fields the reviewer owns. A re-run refreshes the machine-derived fields but must never
@@ -602,14 +606,29 @@ _KNOWN_METADATA_PREFIXES = ("evidence:", "confidence:")
 
 _ARTIFACT_HEADER = """# Event anchors — review queue ({today})
 
-Edit the `- fires_on:` and `- url:` lines directly when a draft is wrong; whatever text is
-on them when you load this back is what the event will carry. Then set `- disposition:` to
-`accepted` or `dismissed`. Leaving it blank keeps the row queued for next time.
+**This file is the review surface.** It lives at
+`packages/runbooks/scripts/python/instrumentation_data/event-anchors-review.md` on `main`,
+and the Slack digest links here. Edit it and the edits become the anchors.
 
-Keep each edited value on one line. A value wrapped onto a second line is not understood as
-part of it — it is reported instead of guessed at, and the rest of the edit is lost.
+**How to review a row.** Edit the `- fires_on:` and `- url:` lines directly when a draft is
+wrong; whatever text is on them when this file is loaded back is what the event will carry.
+Then set `- disposition:` to `accepted` or `dismissed`. Leaving it blank keeps the row
+queued for next time, which is the right answer for anything you are unsure about.
 
-The `evidence` line is the call site the draft came from — open it to check the claim.
+**How to hand it back.** Either edit it on GitHub (pencil icon, commit to a branch, open a
+PR) or edit your local copy, then ask Claude to load the queue — it runs
+`uv run python event_anchors.py --load-review <this file>` from
+`packages/runbooks/scripts/python`, which applies your edits and dispositions to the
+committed state. Nothing reaches Amplitude Govern from this file; that write is a separate,
+later step.
+
+**Two mechanics worth knowing.** Keep each edited value on one line — a value wrapped onto
+a second line is not understood as part of it, and is reported rather than guessed at, so
+the rest of that edit is lost. And the `evidence` line is the call site the draft came from:
+open it to check the claim before accepting it.
+
+`confidence: LOW` means the draft is a flagged guess and names why. A flagged row is doing
+its job; it is not an error to fix before accepting.
 """
 
 
@@ -719,6 +738,31 @@ def parse_review_artifact(text: str) -> dict[str, dict]:
                   f"at (a wrapped continuation must stay on one line): {stripped!r}",
                   file=sys.stderr)
     return out
+
+
+def _unsaved_edits(parsed: Mapping[str, dict], state: Mapping) -> list[str]:
+    """Event ids whose rendered block carries reviewer work the state does not have yet.
+
+    All four reviewer-owned fields count, not just `disposition`: correcting a `fires_on`
+    line and leaving the disposition blank is a normal way to review, and losing that text
+    is the same data loss.
+
+    But `fires_on` and `url` cannot be tested for mere presence the way `disposition` and
+    `reason` can — the render *populates* them with the draft, so "non-empty" is true for
+    every row of an untouched file and would make the queue impossible to ever re-render.
+    They are compared against the state instead: differing means edited, matching means
+    that is just the draft we wrote.
+    """
+    changed: list[str] = []
+    for event_id, fields in parsed.items():
+        if fields.get("disposition") or fields.get("reason"):
+            changed.append(event_id)
+            continue
+        entry = state.get(event_id) or {}
+        if any(field in fields and fields[field] != (entry.get(field) or "")
+               for field in ("fires_on", "url")):
+            changed.append(event_id)
+    return changed
 
 
 def apply_review(state: dict, parsed: Mapping[str, dict], today: str) -> dict:
@@ -917,7 +961,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                              "judge runs). Existing skips still apply to a named event.")
     parser.add_argument("--no-judge", action="store_true")
     parser.add_argument("--list-new", action="store_true")
-    parser.add_argument("--review-artifact", type=Path)
+    parser.add_argument("--review-artifact", type=Path, nargs="?",
+                        const=DEFAULT_REVIEW_ARTIFACT,
+                        help="render the queue for review; bare flag writes the "
+                             "committed copy the Slack digest links to")
     parser.add_argument("--load-review", type=Path)
     parser.add_argument("--json", type=Path)
     args = parser.parse_args(argv)
@@ -937,6 +984,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.review_artifact:
+        # The rendered file is now a committed, linked review surface a human edits in
+        # place, and the render is built from state — which does not carry their
+        # dispositions until --load-review has run. So an unconditional overwrite silently
+        # destroys filled-in review work with no recovery short of git checkout. Refuse
+        # instead, and name the command that makes the file safe to re-render.
+        if args.review_artifact.exists():
+            unsaved = sorted(_unsaved_edits(
+                parse_review_artifact(args.review_artifact.read_text()), state))
+            if unsaved:
+                print(f"event-anchors: refusing to overwrite {args.review_artifact} — it "
+                      f"carries edits to {len(unsaved)} row(s) that are not in the state "
+                      f"yet ({', '.join(unsaved[:3])}"
+                      f"{', …' if len(unsaved) > 3 else ''}). Load them first:\n"
+                      f"  uv run python event_anchors.py --load-review "
+                      f"{args.review_artifact}", file=sys.stderr)
+                return 2
         args.review_artifact.write_text(render_review_artifact(state, today))
         print(f"wrote review artifact to {args.review_artifact}")
         return 0
