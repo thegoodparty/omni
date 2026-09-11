@@ -13,7 +13,8 @@ changing anything here.
 | The step interaction        | Real. Each step asks before it can settle, and the Continue row appears only once the agent says the step is settled. The ordinance flow does this with tools; here the agent ends each turn with a fenced block the client parses (`data/stepProtocol.ts`) |
 | The outreach handoff        | Real. Settling comes with the list already built (the agent has `crud_saved_filters`), the channel picked and the message drafted; one action opens Constituent Outreach on it |
 | The flow's scope            | Borrowed. It runs on `chief_of_staff`, so flow conversations land in that history and the answers come back as prose, not the design's structured cards                    |
-| Step state                  | `useState` in `PriorityFlowShell`, and the conversation is per visit. A reload starts over. Both land properly once gp-api owns a `priority_flow` scope and a flow record  |
+| Step state                  | Persisted, via the conversation. gp-api find-or-creates on the priority anchor, so reopening a priority resumes its one thread; the step comes back off a marker in the transcript |
+| Waiting on the real world   | Persisted the same way. A step that needs a council meeting or an attorney records what it is waiting on, and the next visit opens by asking how it went                    |
 | Rank                        | Display order of what the API returns. `Priority` has no `rank` column, so there is no reorder control yet; the first three rows carry the top-N marker                    |
 | The public toggle           | Session state in the flow header. No `isPublic` column either, so it resets on reload                                                                                     |
 
@@ -74,6 +75,32 @@ they land on the screen where they review what gets said.
 Win hub is untouched. The flow only jumps to the script step once the
 preselected list actually resolved, since a script with no audience behind it
 strands the caller on a step whose Continue cannot pass.
+
+## State lives in the conversation
+
+The flow has no record of its own yet, and it does not need one to be durable:
+the conversation is the state.
+
+- **One conversation per priority.** The shell creates it with a `priority`
+  anchor and gp-api find-or-creates on `resourceId`, exactly as the ordinance
+  flow resumes a step's thread. So the create call is also the resume call.
+- **The transcript is the step.** Every hidden step ask carries `[step:<id>]`,
+  and a resumed conversation reads the last one back. That marker is the only
+  durable record of position until gp-api owns the flow, so do not drop it from
+  `buildStepPrompt`.
+- **A parked step is recorded, not lost.** Work that waits on a council
+  meeting, an attorney or two weeks of outreach cannot settle in the app, so
+  the agent emits a `waiting` directive instead of settling or looping. The
+  next visit reads it off the last assistant turn and opens by asking how it
+  went, which is the whole reason for recording it.
+- **Back goes back.** The rail offers every step the flow has reached, and
+  picking one re-opens it rather than scrolling to it: revisiting usually means
+  something changed, and the agent has the conversation to pick that up from.
+
+The one thing this does not survive is an API that predates the anchor: the
+create falls back to an unanchored conversation, which cannot be found again,
+so that session does not resume. It is the same fallback that carries
+`FLOW_CONTEXT`, and it goes at the same time.
 
 ## Chrome comes from Ordinances
 

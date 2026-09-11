@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { buildStepPrompt } from './stepPrompts'
+import {
+  buildResumePrompt,
+  buildStepPrompt,
+  stepFromMarker,
+} from './stepPrompts'
 import { PRIORITY_FLOW_STEP_VALUES } from './steps'
 
 const priority = {
@@ -48,6 +52,29 @@ describe('buildStepPrompt', () => {
     })
     expect(fallback).toContain('I am not opening a session with you')
     expect(fallback).toContain('do not introduce yourself')
+  })
+
+  it('marks every step ask so a resumed transcript knows where it stopped', () => {
+    for (const step of PRIORITY_FLOW_STEP_VALUES) {
+      const prompt = buildStepPrompt(step, priority)
+      expect(prompt).toContain(`[step:${step}]`)
+      expect(stepFromMarker(prompt, PRIORITY_FLOW_STEP_VALUES)).toBe(step)
+    }
+  })
+
+  it('reads no step out of a transcript that carries no marker', () => {
+    expect(
+      stepFromMarker('just a message', PRIORITY_FLOW_STEP_VALUES),
+    ).toBeNull()
+    expect(
+      stepFromMarker('[step:not_a_step]', PRIORITY_FLOW_STEP_VALUES),
+    ).toBeNull()
+  })
+
+  it('nudges on what the priority was waiting for when it resumes', () => {
+    const prompt = buildResumePrompt('the engineer estimate')
+    expect(prompt).toContain('the engineer estimate')
+    expect(prompt).toContain('Do not re-run the step')
   })
 
   it('holds the define step to at least two questions', () => {

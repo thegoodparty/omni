@@ -67,8 +67,23 @@ const SynthesisDirectiveSchema = z.object({
   orgs: z.array(OutreachOrgSchema).max(3).optional(),
 })
 
+// A step that cannot be settled in the app, because what it needs happens at a
+// council meeting, in an attorney's inbox, or in the two weeks it takes
+// outreach to come back. Recording it is what lets the flow pick the thread up
+// later instead of asking the same question again.
+const WaitingDirectiveSchema = z.object({
+  waiting: z.object({
+    on: z.string().min(1),
+    // What unblocks the step when it arrives.
+    unblocks: z.string().min(1),
+    // Roughly when, in the user's words ("after the March 11 meeting").
+    when: z.string().optional(),
+  }),
+})
+
 const DirectiveSchema = z.union([
   QuestionDirectiveSchema,
+  WaitingDirectiveSchema,
   SynthesisDirectiveSchema,
 ])
 
@@ -87,8 +102,15 @@ export type OutreachPlan = {
 
 export type OutreachOrg = { name: string; why: string; how: string }
 
+export type WaitingOn = {
+  on: string
+  unblocks: string
+  when: string | null
+}
+
 export type PriorityDirective =
   | { kind: 'question'; ask: string; options: string[]; notes: string[] }
+  | { kind: 'waiting'; waiting: WaitingOn }
   | {
       kind: 'synthesis'
       settled: string
@@ -107,6 +129,10 @@ const toDirective = (raw: string): PriorityDirective | null => {
   }
   const parsed = DirectiveSchema.safeParse(value)
   if (!parsed.success) return null
+  if ('waiting' in parsed.data) {
+    const { on, unblocks, when } = parsed.data.waiting
+    return { kind: 'waiting', waiting: { on, unblocks, when: when ?? null } }
+  }
   if ('settled' in parsed.data) {
     const plan = parsed.data.outreach
     return {

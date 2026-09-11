@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Button } from '@styleguide'
+import { Button, cn } from '@styleguide'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
 import type { ChatAnchor, Priority } from '@goodparty_org/contracts'
 import { toolDisplayName } from '../../chief-of-staff/components/chat/chatConstants'
@@ -15,23 +15,34 @@ import {
   UserBubble,
 } from '../../shared/agent-chat/chatUI'
 import { segmentsToLive } from '../../shared/agent-chat/streaming'
+import type { ChatMessageDto } from '../../shared/agent-chat/chatTypes'
 import {
+  parseTurnText,
   splitSegments,
   type OutreachChannel,
   type OutreachOrg,
   type OutreachPlan,
   type PriorityDirective,
+  type WaitingOn,
 } from '../data/stepProtocol'
 import PriorityQuestion from './PriorityQuestion'
 import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
 import { priorityFlowChatApi } from '../data/chat-api'
-import { buildStepPrompt } from '../data/stepPrompts'
 import {
+  buildResumePrompt,
+  buildStepPrompt,
+  stepFromMarker,
+} from '../data/stepPrompts'
+import {
+  PRIORITY_FLOW_STEP_VALUES,
   PRIORITY_NEXT_STEP_CTA,
+  PRIORITY_NUMBERED_STEPS,
   PRIORITY_STEP_CAPTIONS,
   PRIORITY_STEP_LABELS,
+  PRIORITY_STEP_SHORT_LABELS,
   nextPriorityStep,
+  priorityStepNumber,
   type PriorityFlowStep,
 } from '../data/steps'
 import PriorityStepper from './PriorityStepper'
@@ -44,6 +55,70 @@ import PriorityStepper from './PriorityStepper'
 // Step state lives here: the flow has no backend, so nothing is persisted and a
 // reload starts the conversation over. Once gp-api owns the record, `step`
 // becomes a route segment the way ordinances/solve/[slug]/[step] does.
+// Every step this priority has reached, so an official can go back to one
+// when the ground moves under a decision. A step ahead of the current one is
+// not offered: the flow settles them in order.
+function StepRail({
+  current,
+  onPick,
+  disabled,
+}: {
+  current: PriorityFlowStep
+  onPick: (step: PriorityFlowStep) => void
+  disabled: boolean
+}): React.JSX.Element {
+  const currentNumber = priorityStepNumber(current)
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {PRIORITY_NUMBERED_STEPS.map((candidate) => {
+        const number = priorityStepNumber(candidate) ?? 0
+        const reached = currentNumber !== null && number <= currentNumber
+        const isCurrent = candidate === current
+        return (
+          <Button
+            key={candidate}
+            type="button"
+            size="small"
+            variant="outline"
+            disabled={disabled || !reached || isCurrent}
+            onClick={() => onPick(candidate)}
+            className={cn(
+              '!h-7 rounded-full px-3 text-xs font-normal',
+              isCurrent && 'border-primary bg-primary/5 text-foreground',
+              !reached && 'opacity-40',
+            )}
+          >
+            {PRIORITY_STEP_SHORT_LABELS[candidate]}
+          </Button>
+        )
+      })}
+    </div>
+  )
+}
+
+// Which step a resumed conversation is on: the last step ask carries a marker
+// (data/stepPrompts.ts), and the asks are hidden, so this is reading the
+// flow's own footprints rather than guessing from the prose.
+const resumedStep = (messages: ChatMessageDto[]): PriorityFlowStep | null => {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]
+    if (!message || message.role !== 'user') continue
+    const step = stepFromMarker(message.content, PRIORITY_FLOW_STEP_VALUES)
+    if (step) return step
+  }
+  return null
+}
+
+// What the priority stopped on, if it stopped waiting for the world. Only the
+// last assistant turn counts: an older wait has already been picked back up.
+const resumedWaiting = (messages: ChatMessageDto[]): WaitingOn | null => {
+  const assistant = messages.filter((m) => m.role === 'assistant')
+  const last = assistant[assistant.length - 1]
+  if (!last) return null
+  const directive = parseTurnText(last.content).directive
+  return directive?.kind === 'waiting' ? directive.waiting : null
+}
+
 // The outreach channels this flow can hand off to, named the way the
 // Constituent Outreach hub names them.
 const CHANNEL_LABELS: Record<OutreachChannel, string> = {
@@ -68,6 +143,9 @@ export default function PriorityFlowShell({
   // False once the API has refused the priority anchor, which means its prompt
   // does not know about this flow and the step asks have to say so themselves.
   const [anchorAccepted, setAnchorAccepted] = useState(true)
+  // The transcript this priority already has: null until it has been read,
+  // empty for a conversation that is genuinely new.
+  const [resumed, setResumed] = useState<ChatMessageDto[] | null>(null)
   const [streamError, setStreamError] = useState<string | null>(null)
   // The step asks are sent hidden, so their persisted user turns have to be
   // dropped from the transcript by content — the engine reconciles against the
@@ -83,7 +161,7 @@ export default function PriorityFlowShell({
     return toolDisplayName(name)
   }, [])
 
-  const { messages, visibleSegments, sending, send, isStreaming } =
+  const { messages, setMessages, visibleSegments, sending, send, isStreaming } =
     useStreamingTurn(priorityFlowChatApi, {
       toolLabel,
       onTurnStart: () => setStreamError(null),
@@ -106,18 +184,15 @@ export default function PriorityFlowShell({
     askStepRef.current = askStep
   }, [askStep])
 
-  // One conversation for the whole flow session. Opened on mount, with no deps:
-  // askStep's identity changes with every turn, and having it here opened a
-  // fresh conversation per change.
+  // One conversation per priority, resumed rather than recreated: the work
+  // spans days and some of it waits on a meeting, so re-asking the same
+  // questions on every visit is the thing this has to avoid. gp-api
+  // find-or-creates on the anchor's resourceId, so the create call is also
+  // the resume call.
   useEffect(() => {
     if (creatingRef.current) return
     creatingRef.current = true
     void (async () => {
-      // The anchor is what tells gp-api's prompt that this is the flow
-      // borrowing its scope, so it drops the greeting, the session opener and
-      // the first-run research. An API that predates the anchor type rejects
-      // it, so fall back to an unanchored conversation and let the step asks
-      // carry the suppression themselves.
       const anchor: ChatAnchor = {
         resourceType: 'priority',
         resourceId: priority.id,
@@ -128,34 +203,76 @@ export default function PriorityFlowShell({
         },
         step: 'define',
       }
-      try {
-        const { conversationId: id } =
-          await priorityFlowChatApi.createConversation(anchor)
-        setConversationId(id)
-      } catch {
+      const open = async (): Promise<string | null> => {
         try {
           const { conversationId: id } =
-            await priorityFlowChatApi.createConversation()
-          setConversationId(id)
-          setAnchorAccepted(false)
+            await priorityFlowChatApi.createConversation(anchor)
+          return id
         } catch {
-          setStartError(
-            "We couldn't start work on this priority. Please try again.",
-          )
+          // An API that predates the priority anchor. No resume from here:
+          // an unanchored conversation cannot be found again.
+          try {
+            const { conversationId: id } =
+              await priorityFlowChatApi.createConversation()
+            setAnchorAccepted(false)
+            return id
+          } catch {
+            return null
+          }
         }
       }
+      const id = await open()
+      if (!id) {
+        setStartError(
+          "We couldn't start work on this priority. Please try again.",
+        )
+        return
+      }
+      setConversationId(id)
+      try {
+        const prior = await priorityFlowChatApi.listMessages(id)
+        if (prior.length > 0) setMessages(prior)
+        setResumed(prior)
+      } catch {
+        // A transcript we cannot read is a fresh start, not a dead end.
+        setResumed([])
+      }
     })()
-  }, [])
+  }, [priority, setMessages])
 
-  // Kick off the first step once the conversation exists. Separate from the
-  // create so a kickoff aborted on unmount (React's dev double-mount does this)
-  // fires again on the mount that survives.
+  // With a transcript in hand: a fresh conversation gets the first step's ask,
+  // a resumed one gets picked up where it stopped. Nothing is re-asked.
   const kickedOffRef = useRef(false)
   useEffect(() => {
-    if (!conversationId || kickedOffRef.current) return
+    if (!conversationId || resumed === null || kickedOffRef.current) return
     kickedOffRef.current = true
-    askStepRef.current('define', conversationId)
-  }, [conversationId])
+
+    if (resumed.length === 0) {
+      askStepRef.current('define', conversationId)
+      return
+    }
+
+    const lastStep = resumedStep(resumed)
+    if (lastStep) setStep(lastStep)
+
+    // The point of having recorded it: if the last thing this priority did was
+    // wait on something outside the app, open by asking how that went.
+    const pending = resumedWaiting(resumed)
+    if (pending) {
+      const prompt = buildResumePrompt(pending.on)
+      setHiddenSent((prev) => [...prev, prompt])
+      void send(conversationId, prompt, { hidden: true })
+    }
+  }, [conversationId, resumed, send])
+
+  // Going back re-opens an earlier step rather than scrolling to it: the
+  // point of revisiting is usually that something has changed, and the agent
+  // has the whole conversation to pick it up from.
+  const goToStep = (target: PriorityFlowStep): void => {
+    if (isStreaming() || !conversationId || target === step) return
+    setStep(target)
+    askStep(target, conversationId)
+  }
 
   const advance = (destination: PriorityFlowStep): void => {
     if (isStreaming() || !conversationId) return
@@ -234,6 +351,7 @@ export default function PriorityFlowShell({
             <h1 className="text-xl font-semibold text-foreground">
               {priority.title}
             </h1>
+            <StepRail current={step} onPick={goToStep} disabled={sending} />
           </header>
 
           <div className="flex flex-col gap-3">
@@ -273,6 +391,9 @@ export default function PriorityFlowShell({
                       disabled={sending || !isLatest}
                       onAnswer={(answer) => answerQuestion(message.id, answer)}
                     />
+                  ) : null}
+                  {split.directive?.kind === 'waiting' ? (
+                    <WaitingCard waiting={split.directive.waiting} />
                   ) : null}
                   {split.directive?.kind === 'synthesis' ? (
                     <SettledCard
@@ -339,6 +460,24 @@ export default function PriorityFlowShell({
           />
         </div>
       </div>
+    </div>
+  )
+}
+
+// A step parked on the real world. Rendering it is half the point: the other
+// half is that the flow reads it back on the next visit and opens by asking
+// how it went.
+function WaitingCard({ waiting }: { waiting: WaitingOn }): React.JSX.Element {
+  return (
+    <div className="flex w-full flex-col gap-1 rounded-lg border border-warning/40 bg-warning/5 p-4 shadow-sm">
+      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Waiting on
+      </span>
+      <p className="text-sm font-medium text-foreground">{waiting.on}</p>
+      <p className="text-sm text-muted-foreground">{waiting.unblocks}</p>
+      {waiting.when ? (
+        <p className="text-sm text-muted-foreground">Expected {waiting.when}</p>
+      ) : null}
     </div>
   )
 }

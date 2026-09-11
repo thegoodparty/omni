@@ -85,6 +85,21 @@ describe('parseTurnText', () => {
     expect(parseTurnText(bad).directive).toBeNull()
   })
 
+  it('reads a step parked on the real world', () => {
+    const waiting =
+      '```priority\n{"waiting": {"on": "the engineer estimate", "unblocks": ' +
+      '"costing the culvert option", "when": "after the March 11 meeting"}}' +
+      '\n```'
+    expect(parseTurnText(waiting).directive).toEqual({
+      kind: 'waiting',
+      waiting: {
+        on: 'the engineer estimate',
+        unblocks: 'costing the culvert option',
+        when: 'after the March 11 meeting',
+      },
+    })
+  })
+
   it('withholds a block that has opened but not closed', () => {
     // Mid-stream: half a JSON object must never reach the screen, and the step
     // must not read as settled until the block is whole.

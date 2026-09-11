@@ -90,11 +90,28 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     params: ResolveConversationParams,
     userId: number,
   ): Promise<ResolveConversationResult> {
-    // Chief of Staff supports multiple conversations, so every "new chat"
-    // creates a fresh one rather than resuming the most recent. Resuming a
-    // prior chat goes through its conversation id directly (history →
-    // listMessages → stream), never through here — so find-or-create here would
-    // collapse every new chat onto the latest existing conversation.
+    // A priority anchor is the guided flow, which has exactly one conversation
+    // per priority and has to resume it: the work spans days, and some of it
+    // waits on a council meeting or an attorney. Find-or-create on the anchor's
+    // resource, the same way the ordinance flow resumes a step's thread.
+    if (params.anchor?.resourceType === 'priority') {
+      const candidates = await this.store.findByAnchorResource({
+        ownerUserId: userId,
+        organizationSlug: params.organizationSlug,
+        scope: ChatScope.chief_of_staff,
+        resourceId: params.anchor.resourceId,
+      })
+      const existing = candidates[0]
+      if (existing) {
+        return { conversationId: existing.id, created: false }
+      }
+    }
+
+    // Everywhere else, Chief of Staff supports multiple conversations, so every
+    // "new chat" creates a fresh one rather than resuming the most recent.
+    // Resuming a prior chat goes through its conversation id directly (history
+    // → listMessages → stream), never through here — so find-or-create here
+    // would collapse every new chat onto the latest existing conversation.
     const created = await this.store.createScopedConversation({
       ownerUserId: userId,
       organizationSlug: params.organizationSlug,

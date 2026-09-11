@@ -73,6 +73,16 @@ const PROTOCOL = [
   'proposed: "I pulled the 260 renters on the flood blocks, they are the ones',
   'who would know whether this is actually the problem." I take it from there.',
   'Never settle on the first turn of a step. Work it first.',
+  '',
+  'When the step cannot be finished in this conversation because it needs',
+  'something from the real world (a council meeting, an attorney, a staff',
+  'report, outreach that takes two weeks to come back), do not settle and do',
+  'not keep asking. Say so and record it:',
+  '```' + DIRECTIVE_FENCE,
+  '{"waiting": {"on": "the engineer estimate from public works", "unblocks": "what this step still needs it for", "when": "after the March 11 meeting"}}',
+  '```',
+  'That is how I get picked up where I left off, so be specific about what is',
+  'outstanding and who owes it.',
 ].join('\n')
 
 // The flow borrows the chief_of_staff scope, whose prompt is written for that
@@ -218,6 +228,35 @@ const RESEARCH_STEPS: PriorityFlowStep[] = [
   'method',
 ]
 
+// Each step ask carries a marker the client reads back off a resumed
+// transcript to work out which step the conversation is on. It sits in the
+// hidden prompt, so the user never sees it, and it is the only durable record
+// of the step until gp-api owns the flow.
+export const STEP_MARKER = (step: PriorityFlowStep): string => `[step:${step}]`
+
+export const stepFromMarker = (
+  text: string,
+  steps: readonly PriorityFlowStep[],
+): PriorityFlowStep | null => {
+  const match = text.match(/\[step:([a-z_]+)\]/)
+  const found = match?.[1]
+  return found && (steps as readonly string[]).includes(found)
+    ? (found as PriorityFlowStep)
+    : null
+}
+
+// Sent on returning to a priority whose last turn was waiting on something
+// outside the app. The nudge is the point of recording it.
+export const buildResumePrompt = (waitingOn: string): string =>
+  [
+    `I am back. Last time we were waiting on: ${waitingOn}`,
+    'Open by asking how that went, in one short line, and give me options ' +
+      'that cover it having happened, not having happened yet, and having ' +
+      'changed. Do not re-run the step or repeat what we already settled.',
+    HOUSE_RULES,
+    PROTOCOL,
+  ].join('\n\n')
+
 export const buildStepPrompt = (
   step: PriorityFlowStep,
   priority: { title: string; description: string },
@@ -229,6 +268,7 @@ export const buildStepPrompt = (
 ): string => {
   const feed = RESEARCH_STEPS.includes(step) ? issuesBlock(issues) : null
   return [
+    STEP_MARKER(step),
     ...(opts.declareFlowContext ? [FLOW_CONTEXT] : []),
     `My priority: "${priority.title}".`,
     `How I describe it: ${priority.description}`,
