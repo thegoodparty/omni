@@ -1,6 +1,7 @@
 import { useFlagOn } from './FeatureFlagsProvider'
 
-export const CHIEF_OF_STAFF_CHAT_HOME_FLAG_KEY = 'chief-of-staff-chat-home'
+export const CHIEF_OF_STAFF_CHAT_HOME_FLAG_KEY =
+  'serve-chief-of-staff-chat-home'
 
 interface UseChiefOfStaffChatHomeFlagResult {
   ready: boolean

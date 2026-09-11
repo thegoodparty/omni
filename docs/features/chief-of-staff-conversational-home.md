@@ -1,7 +1,7 @@
 # Chief of Staff conversational home (prototype)
 
 Working note for the conversation-first Serve home, behind
-`chief-of-staff-chat-home`. **Delete this file before the prototype merges to
+`serve-chief-of-staff-chat-home`. **Delete this file before the prototype merges to
 `main`.**
 
 Branch: `claude/campaign-manager-ai-prototype-t4dgn6` (named before the pivot).
@@ -35,8 +35,25 @@ alone carries no metrics, and guessing from it is how the first pass shipped
 Manager can render it later with no fork. That is what made the pivot off Win
 cheap; keep it that way.
 
-The flag still has to be created in Amplitude Experiment (dev + prod) via the
-`amplitude-flag` skill. **Nothing ships without it.**
+## The flag
+
+`serve-chief-of-staff-chat-home` exists in both Amplitude projects, Active, at
+**0% rollout** — live and wired, but serving no one.
+
+| Env | Flag config |
+| --- | --- |
+| dev (`703396`) | https://app.amplitude.com/experiment/goodparty/703396/config/1434818 |
+| prod (`694490`) | https://app.amplitude.com/experiment/goodparty/694490/config/1434819 |
+
+Releasing is a UI step — the MCP can only set rollout at create time. Open the
+flag and set rollout to 100%; GoodParty does not do partial rollouts.
+
+**Dev has only a client deployment**, and gp-api resolves flags
+server-to-server, so a dev-only server deployment gap would bite any flag read
+through `getFlagVariants` in a server component. This one is read from the
+client provider, which is seeded by gp-api's resolution, and `serve-crm` works
+the same way — but it is the reason to reach for the `e2e-flag-overrides`
+cookie rather than the rollout when testing locally.
 
 ## The flow, and why it is client-driven
 

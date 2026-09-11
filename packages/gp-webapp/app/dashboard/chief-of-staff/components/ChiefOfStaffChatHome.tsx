@@ -29,7 +29,8 @@ const NO_SUGGESTIONS: ChatSuggestion[] = []
  * Serve's binding of the conversational home: the Chief of Staff scope's chat
  * config, the returning-official hero, and the week's task-card rail.
  *
- * Rendered instead of the card stack when `chief-of-staff-chat-home` is on.
+ * Rendered instead of the card stack when the
+ * `serve-chief-of-staff-chat-home` flag is on.
  * Nothing here touches a prompt: the agent's scope, system prompt and tools are
  * exactly what the drawer already used, and the get-started openers are the
  * same display-only copy the card home passes to the drawer.
