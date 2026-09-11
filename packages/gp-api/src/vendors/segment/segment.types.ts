@@ -199,16 +199,16 @@ export const EVENTS = {
     // messageId `<outreachId>:receipt` so a replay dedups to one email.
     Receipt: 'Robocall - Receipt',
   },
-  // Native door knocking (Win). One rollup event carrying the org's running
-  // canvassing totals, not one event per knock: HubSpot workflows can copy a
-  // value onto a property but cannot sum across events, so the running total
+  // Native door knocking (Win and Serve). One rollup event carrying the org's
+  // running canvassing totals, not one event per knock: HubSpot workflows can
+  // copy a value onto a property but cannot sum across events, so the total
   // has to arrive already summed. Same shape as CampaignPlan.WeeklyTasksDigest
   // above. Fired on turf create, turf complete, and a daily sweep — see
-  // `doorKnockingStats.service.ts` for the nine metric definitions and
+  // `doorKnockingStats.service.ts` for the ten metric definitions and
   // HUBSPOT_INTEGRATION.md for the property list CS keys the workflow on.
   //
   //  ⚠️  DO NOT MODIFY - A HubSpot workflow triggers on this exact string to
-  //  copy the nine canvassing totals onto the contact and its company
+  //  copy the ten canvassing totals onto the contact and its company
   DoorKnocking: {
     CanvassingTotalsUpdated: 'Door Knocking - Canvassing Totals Updated',
   },

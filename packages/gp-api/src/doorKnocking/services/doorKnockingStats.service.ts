@@ -9,10 +9,13 @@ import { EASTERN_TIMEZONE } from '@/shared/util/date.util'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { Prisma } from '../../generated/prisma'
 
-// The nine running totals from the HubSpot canvassing-properties doc, all
+// The ten running totals from the HubSpot canvassing-properties doc, all
 // org-scoped and all-time. Every one of them is a RUNNING TOTAL rather than a
 // delta, because HubSpot workflows can copy a value onto a property but cannot
 // sum across events — so whatever arrives here is what the property will read.
+// "Running total" here means an absolute value rather than a monotonic one:
+// `needsFollowUp` falls as follow-ups are resolved and the turf-derived numbers
+// fall on a tombstone, and a SET-from-event property carries that correctly.
 export type DoorKnockingCanvassingTotals = {
   uniqueDoorsKnocked: number
   doorAttempts: number
@@ -20,6 +23,7 @@ export type DoorKnockingCanvassingTotals = {
   totalContactsMade: number
   committedVoters: number
   votersPersuaded: number
+  needsFollowUp: number
   uniqueTurfsCreated: number
   uniqueTurfsCompleted: number
   lastCanvassActivityAt: Date | null
@@ -104,8 +108,8 @@ export class DoorKnockingStatsService extends createPrismaBase(
     )
   }
 
-  // One statement for all nine numbers. They share the org's whole knock
-  // history, so nine queries would scan the same rows nine times; the `knock`
+  // One statement for all ten numbers. They share the org's whole knock
+  // history, so ten queries would scan the same rows ten times; the `knock`
   // CTE is referenced repeatedly, which is exactly the case Postgres
   // materializes rather than inlining.
   async canvassingTotals(
@@ -119,7 +123,8 @@ export class DoorKnockingStatsService extends createPrismaBase(
           id,
           outcome::text AS outcome,
           support_answer::text AS support_answer,
-          will_vote::text AS will_vote
+          will_vote::text AS will_vote,
+          follow_up::text AS follow_up
         FROM contact_interaction_door_knock
         WHERE organization_slug = ${organizationSlug}
       ),
@@ -213,6 +218,24 @@ export class DoorKnockingStatsService extends createPrismaBase(
         FROM knock
         WHERE will_vote IS NOT NULL
         ORDER BY person_id, occurred_at DESC, id DESC
+      ),
+      -- The Serve surface's only outcome answer, and the reason this rollup
+      -- says anything at all about an elected official's canvassing: a Serve
+      -- canvasser is never asked about support or turnout, so committedVoters
+      -- and votersPersuaded are structurally 0 for an eo- org.
+      --
+      -- Latest-answer, and therefore CURRENT STATE rather than history — the
+      -- deliberate opposite of votersPersuaded next to it. That one asks what
+      -- HAPPENED, so a persuaded voter who flips back stays counted; the
+      -- persuasion is a past event and cannot unhappen. This one asks how many
+      -- constituents are awaiting follow-up RIGHT NOW, so a later visit
+      -- answering no takes the person back out. A number that only ever grew
+      -- would be a worklist nobody could ever finish.
+      latest_follow_up AS (
+        SELECT DISTINCT ON (person_id) person_id, follow_up
+        FROM knock
+        WHERE follow_up IS NOT NULL
+        ORDER BY person_id, occurred_at DESC, id DESC
       )
       SELECT
         (SELECT COUNT(*) FROM door)::int AS "uniqueDoorsKnocked",
@@ -232,6 +255,7 @@ export class DoorKnockingStatsService extends createPrismaBase(
           WHERE ls.support_answer = 'supporter' AND lw.will_vote = 'yes'
         )::int AS "committedVoters",
         (SELECT COUNT(*) FROM persuaded)::int AS "votersPersuaded",
+        (SELECT COUNT(*) FROM latest_follow_up WHERE follow_up = 'yes')::int AS "needsFollowUp",
         (SELECT COUNT(*) FROM turf)::int AS "uniqueTurfsCreated",
         (SELECT COUNT(*) FROM completed_turf)::int AS "uniqueTurfsCompleted",
         (SELECT MAX(occurred_at) FROM knock) AS "lastCanvassActivityAt"
