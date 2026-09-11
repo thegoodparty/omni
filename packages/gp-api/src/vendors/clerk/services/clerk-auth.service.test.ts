@@ -270,6 +270,20 @@ describe('ClerkAuthService', () => {
       })
     })
 
+    it('drops a metadata phone that is not a real number', async () => {
+      // unsafeMetadata is user-writable through Clerk's client SDK, so this
+      // path must not trust it — PhoneSchema guards only the HTTP routes.
+      getUser.mockResolvedValue({
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
+        unsafeMetadata: { phone: 'ARBITRARY-INJECTED-VALUE' },
+      })
+
+      await expect(service.getUser('user_1')).resolves.toMatchObject({
+        phone: undefined,
+      })
+    })
+
     it('returns null when the Clerk lookup fails', async () => {
       getUser.mockRejectedValue(new Error('clerk down'))
 

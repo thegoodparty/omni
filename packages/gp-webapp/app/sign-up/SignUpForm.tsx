@@ -16,6 +16,7 @@ import {
   Label,
 } from '@styleguide'
 import { isValidPhone } from '@shared/inputs/PhoneInput'
+import { nextPhoneDigits } from './phoneUtils'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { GoogleIcon } from './GoogleIcon'
 
@@ -73,12 +74,7 @@ export default function SignUpForm() {
   const phoneReady = isValidPhone(phone)
 
   const handlePhoneChange = (next: string) => {
-    const digits = next.replace(/\D/g, '')
-    // AsYouType puts back the ')' a backspace just removed, so a keystroke
-    // that leaves the digit count unchanged was a delete of punctuation.
-    // Compare before capping: capping an over-long input leaves the count
-    // unchanged too, and reading that as a delete would eat a real digit.
-    setPhone(digits === phone ? phone.slice(0, -1) : digits.slice(0, 11))
+    setPhone(nextPhoneDigits(phone, next))
     setError(null)
   }
 
