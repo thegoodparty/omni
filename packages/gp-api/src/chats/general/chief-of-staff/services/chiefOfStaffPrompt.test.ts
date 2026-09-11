@@ -132,6 +132,19 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('Never state a structure you did not look up')
   })
 
+  // The conversational home fires a session opener on load precisely so an
+  // official is never left on a silent page, so the prompt has to forbid the
+  // dead-end reply that would waste it.
+  it('forbids a dead-end reply', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain('PROACTIVITY')
+    expect(prompt).toContain("You're all caught up")
+    expect(prompt).toContain('never a blank page')
+  })
+
   // A bootstrap spends a web search and adds latency to the first reply. That
   // is worth it once, and waste on every visit — and since the conversational
   // home opens a new conversation per session, "first" has to come from a real

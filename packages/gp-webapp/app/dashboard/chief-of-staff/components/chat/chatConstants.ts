@@ -13,6 +13,24 @@ export const COS_INTRO_MESSAGES: string[] = [
 ]
 
 /**
+ * Fired once per session on the conversational home so an official never lands
+ * on a silent page. The home defers conversation creation until the first send,
+ * so without this a returning official sees a hero and nothing else and has to
+ * open the conversation themselves.
+ *
+ * Real English rather than a sentinel, because it stays in the transcript: a
+ * hidden message's reply is dropped by the reload path (see
+ * CampaignManagerChatProvider's hiddenMessageContents note), so hiding this
+ * would erase the agent's opener on every reload. Sent with the kickoff's
+ * hidden flag, so no user bubble appears live, and it reads as a question the
+ * official plausibly asked when the thread is replayed.
+ *
+ * Worded to fit both cases: a first-timer gets oriented off the prompt's
+ * first-run research, a returning official gets a recap.
+ */
+export const COS_SESSION_OPENER = 'Get me up to speed for this week.'
+
+/**
  * Tool names map to a human status line shown while the agent runs them. The
  * server emits these tool names in `tool_call` SSE events; unknown names fall
  * back to the raw name.

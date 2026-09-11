@@ -715,7 +715,16 @@ export default function ChiefOfStaffChatBody({
           </div>
         )}
 
-        {trailingSlot && !sending && !streamError ? trailingSlot : null}
+        {/* Hidden while a turn is in flight so the rail doesn't jump around a
+            streaming reply, but NOT on the opening turn: the home fires a
+            session opener on load, and suppressing the rail for it would blank
+            the surface at the moment it has the most to say.
+            Shown on a stream error for the same reason. A failed opener used to
+            take the rail down with it, which left an official looking at an
+            error and nothing to do. */}
+        {trailingSlot && (!sending || visibleMessages.length === 0)
+          ? trailingSlot
+          : null}
       </div>
 
       {showStarters && (

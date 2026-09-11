@@ -32,6 +32,13 @@ export interface ConversationalHomeConfig {
   disclaimer?: string
   /** Sentinels to drop from a reloaded transcript. */
   hiddenMessageContents?: string[]
+  /**
+   * Fired once per session, on a session that has no conversation yet, so the
+   * agent opens instead of waiting to be spoken to. Deliberately NOT listed in
+   * `hiddenMessageContents`: the reload path drops the assistant turn after a
+   * hidden message, which would erase the opener it produced.
+   */
+  sessionOpenerKickoff?: string
 }
 
 interface Props {
@@ -158,6 +165,17 @@ export default function ConversationalHome({
   // session was in the middle of.
   const activeConversationId = openerKey ? null : conversationId
 
+  // Open the session rather than waiting to be spoken to. Only when this
+  // session has no conversation yet, so it fires once a sitting and not on
+  // every navigation back: the first turn stores an id, and later mounts
+  // resume it. An explicit kickoff (a task-card CTA) is more specific, so it
+  // wins; a played opener is already the agent speaking first.
+  const kickoff =
+    pendingKickoff ??
+    (activeConversationId === null && !openerKey && !opener
+      ? config.sessionOpenerKickoff
+      : undefined)
+
   return (
     // No background of its own: the home sits directly on the shell's #f5f5f5
     // canvas, and only the bubbles, cards and composer carry a surface.
@@ -190,7 +208,7 @@ export default function ConversationalHome({
         composerPlaceholder={config.composerPlaceholder}
         disclaimer={config.disclaimer}
         hiddenMessageContents={config.hiddenMessageContents}
-        pendingKickoff={pendingKickoff}
+        pendingKickoff={kickoff}
         composerRef={composerRef}
         leadingSlot={leadingSlot}
         trailingSlot={trailingSlot}

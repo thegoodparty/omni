@@ -101,6 +101,16 @@ beforeEach(() => {
   createMock.mockReset()
   listMessagesMock.mockReset()
   streamMessageMock.mockReset()
+  // The home fires a session opener on load, so every test here runs a turn
+  // whether it cares about one or not. Without a stream to consume it throws
+  // and the surface renders its error state instead of what the test is about.
+  listMessagesMock.mockResolvedValue([])
+  createMock.mockResolvedValue({ conversationId: 'c-opener' })
+  streamMessageMock.mockReturnValue(
+    (async function* () {
+      yield { type: 'done' } as never
+    })(),
+  )
   organizationMock.mockReturnValue({ slug: 'eo-asheville', electedOfficeId: 7 })
   cardsMock.mockReturnValue(loaded([]))
   onboardingMock.mockReturnValue({ data: [] })
@@ -119,10 +129,17 @@ describe('ChiefOfStaffChatHome', () => {
     render(<ChiefOfStaffChatHome />)
 
     await screen.findByRole('heading', { name: /pick up where you left off/ })
-    // Nothing is resolved or created on load: a resumed thread would put months
-    // of scroll above the week's cards. The first send mints the conversation.
-    expect(createMock).not.toHaveBeenCalled()
-    expect(listMessagesMock).not.toHaveBeenCalled()
+    // A new conversation per session, never a resumed one: replaying months of
+    // scroll above the week's cards is the thing to avoid. The session opener
+    // is what mints it, so creation on load is expected and reading an
+    // existing transcript is not.
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    // Whatever it reads back is the turn it just ran, never a prior thread.
+    // (That a stored session conversation is resumed rather than re-opened is
+    // covered in ConversationalHome.test.tsx.)
+    for (const call of listMessagesMock.mock.calls) {
+      expect(call[0]).toBe('c-opener')
+    }
     // The home IS the chat, so there is no drawer.
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
@@ -209,11 +226,16 @@ describe('ChiefOfStaffChatHome', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ChiefOfStaffChatHome />)
 
-    await user.click(
-      await screen.findByRole('button', {
-        name: /most important issues you're facing/,
-      }),
-    )
+    const cardButton = await screen.findByRole('button', {
+      name: /most important issues you're facing/,
+    })
+    // The session opener has already run one turn by now, so what matters is
+    // that the card's opener adds none of its own.
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    const streamsBefore = streamMessageMock.mock.calls.length
+    const createsBefore = createMock.mock.calls.length
+
+    await user.click(cardButton)
 
     // The opener is display-only agent copy, so it types in without a model
     // call — no prompt is involved.
@@ -222,8 +244,8 @@ describe('ChiefOfStaffChatHome', () => {
         screen.getByText(/focused on what matters most to you/),
       ).toBeInTheDocument(),
     )
-    expect(streamMessageMock).not.toHaveBeenCalled()
-    expect(createMock).not.toHaveBeenCalled()
+    expect(streamMessageMock.mock.calls.length).toBe(streamsBefore)
+    expect(createMock.mock.calls.length).toBe(createsBefore)
   })
 
   // The card home ends on "you're all caught up", which is a dead end. The

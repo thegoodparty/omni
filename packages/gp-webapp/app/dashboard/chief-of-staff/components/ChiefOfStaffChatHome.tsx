@@ -6,7 +6,7 @@ import ConversationalHome, {
   type ConversationalHomeConfig,
 } from './chat/ConversationalHome'
 import type { ChatSuggestion } from './chat/ChiefOfStaffChatBody'
-import { COS_INTRO_MESSAGES } from './chat/chatConstants'
+import { COS_INTRO_MESSAGES, COS_SESSION_OPENER } from './chat/chatConstants'
 import { chiefOfStaffChatApi } from '../data/chat-api'
 import { HISTORY_KEY } from '../data/use-chat-history'
 import { ONBOARDING_CARDS } from './onboardingCardsConfig'
@@ -78,6 +78,13 @@ export default function ChiefOfStaffChatHome(): React.JSX.Element {
   // suppressing the starter chips for a turn that renders empty.
   const staged = priorities?.filter((p) => p.stage != null).at(-1)
 
+  // An onboarding step is already a question on screen, so the agent must not
+  // open with one on top of it. Held back while the priorities read is still
+  // pending too: firing then, only to render step 1 underneath, would ask two
+  // different things at once.
+  const stepIsAsking =
+    prioritiesPending || needsFirstPriority || needsStage !== undefined
+
   const config = useMemo<ConversationalHomeConfig>(
     () => ({
       chatApi: chiefOfStaffChatApi,
@@ -88,8 +95,9 @@ export default function ChiefOfStaffChatHome(): React.JSX.Element {
         ? `Hi ${firstName}, how can I help?`
         : 'How can I help?',
       disclaimer: 'Chief of Staff can make mistakes. Check important details.',
+      sessionOpenerKickoff: stepIsAsking ? undefined : COS_SESSION_OPENER,
     }),
-    [firstName],
+    [firstName, stepIsAsking],
   )
 
   return (
