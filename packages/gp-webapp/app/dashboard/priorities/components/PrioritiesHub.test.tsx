@@ -1,5 +1,6 @@
+import { describe, expect, it } from 'vitest'
 import { render } from 'helpers/test-utils/render'
-import { screen } from '@testing-library/react'
+import { fireEvent, screen } from '@testing-library/react'
 import type { Priority } from '@goodparty_org/contracts'
 import type { CommunityIssueCard } from 'gpApi/api-endpoints'
 import PrioritiesHub from './PrioritiesHub'
@@ -65,7 +66,7 @@ describe('PrioritiesHub', () => {
     expect(screen.queryByText('Already mine')).not.toBeInTheDocument()
   })
 
-  it('badges where a priority came from, and stays quiet about ones the user typed', () => {
+  it('badges each row with the lane it came from', () => {
     render(
       <PrioritiesHub
         priorities={[
@@ -75,7 +76,23 @@ describe('PrioritiesHub', () => {
         seedIssues={[]}
       />,
     )
+    // The lane chips carry a count, the row badges do not, so the badge is the
+    // bare label.
     expect(screen.getByText('From your community')).toBeInTheDocument()
-    expect(screen.queryByText('From your campaign')).not.toBeInTheDocument()
+    expect(screen.getByText('Yours')).toBeInTheDocument()
+  })
+
+  it('filters to one lane and empties honestly when it holds nothing', () => {
+    render(
+      <PrioritiesHub
+        priorities={[priority({ source: 'user_stated' })]}
+        seedIssues={[]}
+      />,
+    )
+    fireEvent.click(screen.getByText('From your community (0)'))
+    expect(screen.getByText('Nothing in this lane yet.')).toBeInTheDocument()
+    expect(
+      screen.queryByText('Fix the flooding on Oak Street'),
+    ).not.toBeInTheDocument()
   })
 })

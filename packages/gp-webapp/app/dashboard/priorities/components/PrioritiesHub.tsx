@@ -1,29 +1,47 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { Badge, Button, IconButton, Label, Switch, cn } from '@styleguide'
-import {
-  ChevronDownIcon,
-  ChevronRightIcon,
-  ChevronUpIcon,
-} from '@styleguide/components/ui/icons'
+import Link from 'next/link'
+import { format } from 'date-fns'
+import { Badge, Button, cn } from '@styleguide'
+import { ChevronRightIcon } from '@styleguide/components/ui/icons'
 import type { Priority, PrioritySource } from '@goodparty_org/contracts'
 import type { CommunityIssueCard } from 'gpApi/api-endpoints'
 import AddPriorityForm from './AddPriorityForm'
 import { prioritizeCommunityIssue } from '../data/priorities-api'
 
-// The top N an official can actually hold in their head at once. Anything
-// below the line still lives here, it just does not read as a focus.
+// The top N an official can actually hold in their head at once. Below the line
+// a priority still lives here, it just does not read as a focus.
 const TOP_N = 3
 
-// Where a priority came from, in the user's terms. Nothing for one they typed
-// in themselves, since the badge would only tell them what they just did.
-const SOURCE_BADGES: Record<PrioritySource, string | null> = {
-  win_import: 'From your campaign',
-  community_issue: 'From your community',
-  user_stated: null,
+// Where a priority came from, in the user's terms. The filter chips and the row
+// badge read from the same place, so a lane cannot be named two ways.
+const SOURCE_META: Record<
+  PrioritySource,
+  { label: string; pillClass: string; activeClass: string }
+> = {
+  win_import: {
+    label: 'From your campaign',
+    pillClass: 'border-info/50 bg-info/10 text-info-dark',
+    activeClass: 'border-info bg-info/20 text-info-dark',
+  },
+  community_issue: {
+    label: 'From your community',
+    pillClass: 'border-success/50 bg-success/10 text-success-dark',
+    activeClass: 'border-success bg-success/20 text-success-dark',
+  },
+  user_stated: {
+    label: 'Yours',
+    pillClass: 'border-border bg-muted text-muted-foreground',
+    activeClass: 'border-foreground/40 bg-muted text-foreground',
+  },
 }
+
+const SOURCE_ORDER: PrioritySource[] = [
+  'user_stated',
+  'community_issue',
+  'win_import',
+]
 
 export default function PrioritiesHub({
   priorities,
@@ -32,37 +50,26 @@ export default function PrioritiesHub({
   priorities: Priority[]
   seedIssues: CommunityIssueCard[]
 }): React.JSX.Element {
-  const router = useRouter()
   const [items, setItems] = useState<Priority[]>(priorities)
-  // Rank and visibility have no columns on Priority yet, so both live here for
-  // the session. A change the user makes will not be here when they come back.
-  const [publicIds, setPublicIds] = useState<Set<string>>(new Set())
+  const [filter, setFilter] = useState<PrioritySource | null>(null)
+  const [adding, setAdding] = useState(false)
   const [pendingIssueId, setPendingIssueId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const counts = useMemo(() => {
+    const tally: Record<string, number> = {}
+    for (const item of items) {
+      tally[item.source] = (tally[item.source] ?? 0) + 1
+    }
+    return tally
+  }, [items])
+
+  const visible = filter ? items.filter((p) => p.source === filter) : items
 
   const unseeded = useMemo(
     () => seedIssues.filter((issue) => !issue.prioritized).slice(0, 4),
     [seedIssues],
   )
-
-  const move = (index: number, delta: number): void => {
-    const target = index + delta
-    if (target < 0 || target >= items.length) return
-    const next = [...items]
-    const [moved] = next.splice(index, 1)
-    if (!moved) return
-    next.splice(target, 0, moved)
-    setItems(next)
-  }
-
-  const toggleVisibility = (id: string): void => {
-    setPublicIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
 
   const addFromIssue = async (issue: CommunityIssueCard): Promise<void> => {
     if (pendingIssueId) return
@@ -81,122 +88,107 @@ export default function PrioritiesHub({
   return (
     <>
       <section className="flex flex-col gap-4">
-        <div>
-          <h2 className="text-base font-semibold text-foreground">
-            What are you working on?
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            Your top {TOP_N} sit at the front. Everything else waits its turn.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">
+              My priorities
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              What you&apos;re working on this term, most important first.
+            </p>
+          </div>
+          <Button
+            className="rounded-full text-sm"
+            onClick={() => setAdding(true)}
+            disabled={adding}
+          >
+            Add a priority
+          </Button>
+        </div>
+
+        {adding ? (
+          <AddPriorityForm
+            onCreated={(created) => {
+              setItems((prev) => [...prev, created])
+              setAdding(false)
+            }}
+            onCancel={() => setAdding(false)}
+          />
+        ) : null}
+
+        <div className="flex flex-wrap gap-2">
+          {SOURCE_ORDER.map((source) => {
+            const meta = SOURCE_META[source]
+            const active = filter === source
+            return (
+              <button
+                key={source}
+                type="button"
+                onClick={() => setFilter(active ? null : source)}
+                aria-pressed={active}
+                className={cn(
+                  'rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-wide transition-colors',
+                  active ? meta.activeClass : meta.pillClass,
+                )}
+              >
+                {meta.label} ({counts[source] ?? 0})
+              </button>
+            )
+          })}
         </div>
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-        {items.length === 0 ? (
+        {visible.length === 0 ? (
           <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
-            Nothing here yet. Add what you want to get done, or pull one in from
-            the issues your community is raising.
+            {filter
+              ? 'Nothing in this lane yet.'
+              : 'Nothing here yet. Add what you want to get done, or pull one in from the issues your community is raising.'}
           </div>
         ) : (
-          <ol className="flex flex-col gap-3">
-            {items.map((priority, index) => (
-              <li
-                key={priority.id}
-                className={cn(
-                  'flex gap-3 rounded-xl border bg-card p-4',
-                  index < TOP_N ? 'border-primary/40' : 'border-border',
-                )}
-              >
-                <div className="flex flex-col items-center gap-1 pt-0.5">
+          <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+            {visible.map((priority, index) => {
+              const meta = SOURCE_META[priority.source]
+              return (
+                <Link
+                  key={priority.id}
+                  href={`/dashboard/priorities/${priority.id}`}
+                  className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/50"
+                >
                   <span
                     className={cn(
-                      'flex size-6 items-center justify-center rounded-full text-xs font-semibold',
-                      index < TOP_N
+                      'flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
+                      !filter && index < TOP_N
                         ? 'bg-primary text-primary-foreground'
                         : 'bg-muted text-muted-foreground',
                     )}
                   >
                     {index + 1}
                   </span>
-                  <IconButton
-                    variant="ghost"
-                    size="small"
-                    className="!size-6"
-                    aria-label={`Move ${priority.title} up`}
-                    onClick={() => move(index, -1)}
-                    disabled={index === 0}
-                  >
-                    <ChevronUpIcon className="size-4" aria-hidden />
-                  </IconButton>
-                  <IconButton
-                    variant="ghost"
-                    size="small"
-                    className="!size-6"
-                    aria-label={`Move ${priority.title} down`}
-                    onClick={() => move(index, 1)}
-                    disabled={index === items.length - 1}
-                  >
-                    <ChevronDownIcon className="size-4" aria-hidden />
-                  </IconButton>
-                </div>
-
-                <div className="flex min-w-0 flex-1 flex-col gap-2">
-                  <div className="flex items-start justify-between gap-3">
-                    <h3 className="text-sm font-medium text-foreground">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">
                       {priority.title}
-                    </h3>
-                    {SOURCE_BADGES[priority.source] ? (
-                      <Badge variant="secondary" className="shrink-0">
-                        {SOURCE_BADGES[priority.source]}
-                      </Badge>
-                    ) : null}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {priority.targetDate
+                        ? `Target ${format(new Date(priority.targetDate), 'MMM d, yyyy')}`
+                        : 'No target date'}
+                    </p>
                   </div>
-                  <p className="line-clamp-2 text-sm text-muted-foreground">
-                    {priority.description}
-                  </p>
-
-                  <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        id={`visibility-${priority.id}`}
-                        checked={publicIds.has(priority.id)}
-                        onCheckedChange={() => toggleVisibility(priority.id)}
-                      />
-                      <Label
-                        htmlFor={`visibility-${priority.id}`}
-                        className="text-sm font-normal text-muted-foreground"
-                      >
-                        {publicIds.has(priority.id)
-                          ? 'On your public page'
-                          : 'Just for you'}
-                      </Label>
-                    </div>
-
-                    <Button
-                      size="small"
-                      variant="ghost"
-                      iconPosition="right"
-                      onClick={() =>
-                        router.push(`/dashboard/priorities/${priority.id}`)
-                      }
-                    >
-                      Work on this
-                      <ChevronRightIcon className="size-4" aria-hidden />
-                    </Button>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ol>
+                  <Badge
+                    className={cn('shrink-0 rounded-full', meta.pillClass)}
+                  >
+                    {meta.label}
+                  </Badge>
+                  <ChevronRightIcon
+                    className="size-4 shrink-0 text-muted-foreground"
+                    aria-hidden
+                  />
+                </Link>
+              )
+            })}
+          </div>
         )}
-
-        <p className="text-xs text-muted-foreground">
-          Order and visibility are not saved yet, so they reset when you leave.
-        </p>
-
-        <AddPriorityForm
-          onCreated={(created) => setItems((prev) => [...prev, created])}
-        />
       </section>
 
       {unseeded.length > 0 ? (
@@ -206,7 +198,7 @@ export default function PrioritiesHub({
               What your community is raising
             </h2>
             <p className="text-sm text-muted-foreground">
-              Issues from your district you have not picked up yet.
+              Issues from your district you haven&apos;t picked up yet.
             </p>
           </div>
 
@@ -227,7 +219,7 @@ export default function PrioritiesHub({
                 <Button
                   size="small"
                   variant="outline"
-                  className="mt-auto self-start"
+                  className="mt-auto self-start rounded-full"
                   onClick={() => void addFromIssue(issue)}
                   disabled={pendingIssueId !== null}
                   loading={pendingIssueId === issue.id}

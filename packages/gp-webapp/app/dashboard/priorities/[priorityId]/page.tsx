@@ -31,15 +31,14 @@ export default async function Page({
   if (!priority) notFound()
 
   return (
+    // No navHeader: the flow owns the full viewport height and carries its own
+    // stepper and title, the same as ordinances/solve/[slug]/[step].
     <DashboardLayout
       pathname="/dashboard/priorities"
       showAlert={false}
       wrapperClassName="!p-0"
-      navHeader={{ icon: 'clipboard', label: 'Priorities' }}
     >
-      <div className="mx-auto flex w-full max-w-2xl flex-col px-4 pb-28 pt-6 md:px-6 md:pt-8">
-        <PriorityFlowShell priority={priority} />
-      </div>
+      <PriorityFlowShell priority={priority} />
     </DashboardLayout>
   )
 }

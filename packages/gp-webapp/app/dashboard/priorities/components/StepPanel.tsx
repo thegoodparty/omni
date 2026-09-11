@@ -3,22 +3,36 @@
 import { useState } from 'react'
 import { Badge, Button, RadioCardItem, RadioGroup, cn } from '@styleguide'
 import { CheckIcon, TriangleAlertIcon } from '@styleguide/components/ui/icons'
-import type { PriorityFlowStep } from '../data/steps'
+import {
+  ASSISTANT_BUBBLE,
+  AssistantRow,
+  UserBubble,
+} from '../../shared/agent-chat/chatUI'
+import {
+  PRIORITY_STEP_CAPTIONS,
+  PRIORITY_STEP_LABELS,
+  type PriorityFlowStep,
+} from '../data/steps'
 import ListeningStep from './ListeningStep'
 
 // Scripted stand-ins for the agent's step output, so the whole spine can be
-// clicked through before the flow's backend exists. Every panel here is shaped
-// like the card the agent will fill: same fields, same order, same decision at
-// the bottom. The copy is illustrative and names a made-up street on purpose.
+// clicked through before the flow's backend exists. These render as real
+// assistant turns (avatar, bubble, then the structured cards below it) because
+// the shape of the turn is half of what we are testing. Every card here is
+// shaped like the one the agent will fill: same fields, same order, same
+// decision at the bottom. The copy is illustrative and names a made-up street.
 //
 // Design doc: docs/serve-priority-flow-prompt.md
 
-function LeadIn({
-  children,
-}: {
-  children: React.ReactNode
-}): React.JSX.Element {
-  return <p className="text-sm text-foreground">{children}</p>
+// The step's question and caption, spoken by the agent rather than printed as a
+// page heading — the ordinance flow puts the same content in its opening turn.
+function StepOpener({ step }: { step: PriorityFlowStep }): React.JSX.Element {
+  return (
+    <div className={ASSISTANT_BUBBLE}>
+      <p className="font-medium">{PRIORITY_STEP_LABELS[step]}</p>
+      <p>{PRIORITY_STEP_CAPTIONS[step]}</p>
+    </div>
+  )
 }
 
 function Card({
@@ -31,12 +45,24 @@ function Card({
   return (
     <div
       className={cn(
-        'flex flex-col gap-3 rounded-xl border border-border bg-card p-4',
+        'flex w-full flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-sm',
         className,
       )}
     >
       {children}
     </div>
+  )
+}
+
+function CardTitle({
+  children,
+}: {
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      {children}
+    </span>
   )
 }
 
@@ -89,9 +115,7 @@ function FindingRow({
 }): React.JSX.Element {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </span>
+      <CardTitle>{label}</CardTitle>
       <ul className="flex flex-col gap-1">
         {items.map((item) => (
           <li key={item} className="text-sm text-foreground">
@@ -177,12 +201,10 @@ const PLAN = [
 
 export default function StepPanel({
   step,
-  onAdvance,
-  advanceLabel,
+  advance,
 }: {
   step: PriorityFlowStep
-  onAdvance: (() => void) | null
-  advanceLabel: string
+  advance: React.ReactNode
 }): React.JSX.Element {
   const [answers, setAnswers] = useState<(string | null)[]>([null, null])
 
@@ -190,81 +212,98 @@ export default function StepPanel({
     setAnswers((prev) => prev.map((a, i) => (i === index ? answer : a)))
   }
 
-  const advance = onAdvance ? (
-    <Button className="self-start" onClick={onAdvance}>
-      {advanceLabel}
-    </Button>
-  ) : null
-
   if (step === 'define') {
     const askedCount = answers[0] === null ? 1 : 2
     const settled = answers[0] !== null && answers[1] !== null
     return (
-      <div className="flex flex-col gap-4">
-        <LeadIn>Let us start with who this actually lands on.</LeadIn>
-        {DEFINE_QUESTIONS.slice(0, askedCount).map((q, index) => (
+      <>
+        <AssistantRow>
+          <StepOpener step={step} />
+          <div className={ASSISTANT_BUBBLE}>
+            <p>Let us start with who this actually lands on.</p>
+          </div>
           <QuestionCard
-            key={q.question}
-            question={q.question}
-            options={q.options}
-            answer={answers[index] ?? null}
-            onAnswer={(answer) => recordAnswer(index, answer)}
-            idPrefix={`define-q${index}`}
+            question={DEFINE_QUESTIONS[0]!.question}
+            options={DEFINE_QUESTIONS[0]!.options}
+            answer={answers[0] ?? null}
+            onAnswer={(answer) => recordAnswer(0, answer)}
+            idPrefix="define-q0"
           />
-        ))}
+        </AssistantRow>
+
+        {answers[0] ? <UserBubble>{answers[0]}</UserBubble> : null}
+
+        {askedCount === 2 ? (
+          <AssistantRow>
+            <QuestionCard
+              question={DEFINE_QUESTIONS[1]!.question}
+              options={DEFINE_QUESTIONS[1]!.options}
+              answer={answers[1] ?? null}
+              onAnswer={(answer) => recordAnswer(1, answer)}
+              idPrefix="define-q1"
+            />
+          </AssistantRow>
+        ) : null}
+
+        {answers[1] ? <UserBubble>{answers[1]}</UserBubble> : null}
+
         {settled ? (
-          <>
+          <AssistantRow>
             <Card>
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                The problem, as you described it
-              </span>
+              <CardTitle>The problem, as you described it</CardTitle>
               <p className="text-sm text-foreground">
                 Repeat flooding on the low blocks is hitting{' '}
                 {answers[0]?.toLowerCase()}, and you will count this as solved
                 when there is {answers[1]?.toLowerCase()}.
               </p>
             </Card>
-            {advance}
-          </>
+          </AssistantRow>
         ) : null}
-      </div>
+
+        {settled ? advance : null}
+      </>
     )
   }
 
   if (step === 'evidence') {
     return (
-      <div className="flex flex-col gap-4">
-        <LeadIn>
-          Here is what your district data and the public record already say.
-        </LeadIn>
-        <Card>
-          <FindingRow
-            label="Established"
-            items={[
-              '412 households sit in the two blocks that flooded twice last year',
-              'The drainage chapter has not been amended since 1998',
-              'Three of your last five meetings had public comment on this',
-            ]}
-          />
-          <FindingRow
-            label="Likely"
-            items={[
-              'Renters are the majority in the worst-hit block, which changes who you hear from',
-            ]}
-          />
-          <FindingRow
-            label="Not known"
-            items={[
-              'What the culvert work would actually cost',
-              'Whether the county considers the channel theirs',
-            ]}
-          />
-          <p className="text-xs text-muted-foreground">
-            The two unknowns are the ones a colleague will ask about first.
-          </p>
-        </Card>
+      <>
+        <AssistantRow>
+          <StepOpener step={step} />
+          <div className={ASSISTANT_BUBBLE}>
+            <p>
+              Here is what your district data and the public record already say.
+            </p>
+          </div>
+          <Card>
+            <FindingRow
+              label="Established"
+              items={[
+                '412 households sit in the two blocks that flooded twice last year',
+                'The drainage chapter has not been amended since 1998',
+                'Three of your last five meetings had public comment on this',
+              ]}
+            />
+            <FindingRow
+              label="Likely"
+              items={[
+                'Renters are the majority in the worst-hit block, which changes who you hear from',
+              ]}
+            />
+            <FindingRow
+              label="Not known"
+              items={[
+                'What the culvert work would actually cost',
+                'Whether the county considers the channel theirs',
+              ]}
+            />
+            <p className="text-xs text-muted-foreground">
+              The two unknowns are the ones a colleague will ask about first.
+            </p>
+          </Card>
+        </AssistantRow>
         {advance}
-      </div>
+      </>
     )
   }
 
@@ -272,199 +311,223 @@ export default function StepPanel({
     return (
       <ListeningStep
         variant={step === 'listen_problem' ? 'problem' : 'options'}
-        onAdvance={onAdvance}
-        advanceLabel={advanceLabel}
+        opener={<StepOpener step={step} />}
+        advance={advance}
       />
     )
   }
 
   if (step === 'options') {
     return (
-      <div className="flex flex-col gap-4">
-        <LeadIn>
-          Three ways to act on this, with what each one costs you.
-        </LeadIn>
-        {OPTIONS.map((option) => (
-          <Card key={option.title}>
-            <div className="flex flex-col gap-1">
-              <h3 className="text-sm font-medium text-foreground">
-                {option.title}
-              </h3>
-              <p className="text-sm text-muted-foreground">{option.summary}</p>
-            </div>
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-              <div>
-                <dt className="text-xs text-muted-foreground">
-                  Who has to say yes
-                </dt>
-                <dd className="text-foreground">{option.saysYes}</dd>
+      <>
+        <AssistantRow>
+          <StepOpener step={step} />
+          <div className={ASSISTANT_BUBBLE}>
+            <p>Three ways to act on this, with what each one costs you.</p>
+          </div>
+          {OPTIONS.map((option) => (
+            <Card key={option.title}>
+              <div className="flex flex-col gap-1">
+                <h3 className="text-sm font-medium text-foreground">
+                  {option.title}
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  {option.summary}
+                </p>
               </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Rough cost</dt>
-                <dd className="text-foreground">{option.cost}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Time</dt>
-                <dd className="text-foreground">{option.time}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Main risk</dt>
-                <dd className="text-foreground">{option.risk}</dd>
-              </div>
-            </dl>
-            <p className="text-xs text-muted-foreground">{option.precedent}</p>
-          </Card>
-        ))}
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <div>
+                  <dt className="text-xs text-muted-foreground">
+                    Who has to say yes
+                  </dt>
+                  <dd className="text-foreground">{option.saysYes}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Rough cost</dt>
+                  <dd className="text-foreground">{option.cost}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Time</dt>
+                  <dd className="text-foreground">{option.time}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Main risk</dt>
+                  <dd className="text-foreground">{option.risk}</dd>
+                </div>
+              </dl>
+              <p className="text-xs text-muted-foreground">
+                {option.precedent}
+              </p>
+            </Card>
+          ))}
+        </AssistantRow>
         {advance}
-      </div>
+      </>
     )
   }
 
   if (step === 'method') {
     return (
-      <div className="flex flex-col gap-4">
-        <LeadIn>
-          First, what you are allowed to do here. Then what I would pick.
-        </LeadIn>
-        <Card className="border-warning/40 bg-warning/5">
-          <div className="flex items-center gap-2">
-            <TriangleAlertIcon
-              className="size-4 text-warning-dark"
-              aria-hidden
-            />
-            <span className="text-sm font-medium text-foreground">
-              You can act, with one limit
-            </span>
+      <>
+        <AssistantRow>
+          <StepOpener step={step} />
+          <div className={ASSISTANT_BUBBLE}>
+            <p>
+              First, what you are allowed to do here. Then what I would pick.
+            </p>
           </div>
-          <p className="text-sm text-foreground">
-            Your council can set retention standards for new building. It cannot
-            compel the county to take the channel, and your charter puts the
-            capital line on the budget calendar, so the funding path is next
-            cycle rather than now.
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Your city attorney should confirm the charter reading before you
-            rely on it.
-          </p>
-        </Card>
-        <Card>
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            What I would pick
-          </span>
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2">
-                <Badge>1</Badge>
-                <span className="text-sm font-medium text-foreground">
-                  Ordinance, on the retention standard
-                </span>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                It is the piece you control, it stops the problem growing, and
-                it needs nobody outside your council.
-              </p>
+          <Card className="border-warning/40 bg-warning/5">
+            <div className="flex items-center gap-2">
+              <TriangleAlertIcon
+                className="size-4 text-warning-dark"
+                aria-hidden
+              />
+              <span className="text-sm font-medium text-foreground">
+                You can act, with one limit
+              </span>
             </div>
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary">2</Badge>
-                <span className="text-sm font-medium text-foreground">
-                  Budget request, for the culvert
-                </span>
+            <p className="text-sm text-foreground">
+              Your council can set retention standards for new building. It
+              cannot compel the county to take the channel, and your charter
+              puts the capital line on the budget calendar, so the funding path
+              is next cycle rather than now.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Your city attorney should confirm the charter reading before you
+              rely on it.
+            </p>
+          </Card>
+          <Card>
+            <CardTitle>What I would pick</CardTitle>
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <Badge>1</Badge>
+                  <span className="text-sm font-medium text-foreground">
+                    Ordinance, on the retention standard
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  It is the piece you control, it stops the problem growing, and
+                  it needs nobody outside your council.
+                </p>
               </div>
-              <p className="text-sm text-muted-foreground">
-                The fix for the blocks flooding today, but it lives or dies on
-                the calendar.
-              </p>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">2</Badge>
+                  <span className="text-sm font-medium text-foreground">
+                    Budget request, for the culvert
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  The fix for the blocks flooding today, but it lives or dies on
+                  the calendar.
+                </p>
+              </div>
             </div>
-          </div>
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Button size="small">Take the ordinance path</Button>
-            <Button size="small" variant="outline">
-              Take the budget path
-            </Button>
-          </div>
-        </Card>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <Button size="small">Take the ordinance path</Button>
+              <Button size="small" variant="outline">
+                Take the budget path
+              </Button>
+            </div>
+          </Card>
+        </AssistantRow>
         {advance}
-      </div>
+      </>
     )
   }
 
   if (step === 'plan') {
     return (
-      <div className="flex flex-col gap-4">
-        <LeadIn>Here is the order I would work it in.</LeadIn>
-        <Card>
-          <ol className="flex flex-col divide-y divide-border">
-            {PLAN.map((item, index) => (
-              <li
-                key={item.what}
-                className={cn(
-                  'flex items-start gap-3 py-3',
-                  index === 0 && 'pt-0',
-                )}
-              >
-                <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
-                  {index + 1}
-                </span>
-                <div className="flex min-w-0 flex-col">
-                  <span className="text-sm text-foreground">{item.what}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {item.who} · {item.when}
+      <>
+        <AssistantRow>
+          <StepOpener step={step} />
+          <div className={ASSISTANT_BUBBLE}>
+            <p>Here is the order I would work it in.</p>
+          </div>
+          <Card>
+            <ol className="flex flex-col divide-y divide-border">
+              {PLAN.map((item, index) => (
+                <li
+                  key={item.what}
+                  className={cn(
+                    'flex items-start gap-3 py-3',
+                    index === 0 && 'pt-0',
+                  )}
+                >
+                  <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+                    {index + 1}
                   </span>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </Card>
-        <Card>
-          <span className="text-sm font-medium text-foreground">
-            Draft the ordinance
-          </span>
-          <p className="text-sm text-muted-foreground">
-            Ordinances takes it from here and keeps the decisions you made.
-          </p>
-          <Button size="small" variant="outline" className="self-start">
-            Open it in Ordinances
-          </Button>
-        </Card>
+                  <div className="flex min-w-0 flex-col">
+                    <span className="text-sm text-foreground">{item.what}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {item.who} · {item.when}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </Card>
+          <Card>
+            <span className="text-sm font-medium text-foreground">
+              Draft the ordinance
+            </span>
+            <p className="text-sm text-muted-foreground">
+              Ordinances takes it from here and keeps the decisions you made.
+            </p>
+            <Button size="small" variant="outline" className="self-start">
+              Open it in Ordinances
+            </Button>
+          </Card>
+        </AssistantRow>
         {advance}
-      </div>
+      </>
     )
   }
 
   // track
   return (
-    <div className="flex flex-col gap-4">
-      <LeadIn>Nothing has moved on this in three weeks.</LeadIn>
-      <Card>
-        <div className="flex items-center gap-2">
-          <CheckIcon className="size-4 text-success-dark" aria-hidden />
-          <span className="text-sm text-foreground">
-            Retention ordinance drafted and with your attorney
-          </span>
+    <>
+      <AssistantRow>
+        <StepOpener step={step} />
+        <div className={ASSISTANT_BUBBLE}>
+          <p>Nothing has moved on this in three weeks.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <TriangleAlertIcon className="size-4 text-warning-dark" aria-hidden />
-          <span className="text-sm text-foreground">
-            The engineer estimate you asked for is 12 days late
+        <Card>
+          <div className="flex items-center gap-2">
+            <CheckIcon className="size-4 text-success-dark" aria-hidden />
+            <span className="text-sm text-foreground">
+              Retention ordinance drafted and with your attorney
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <TriangleAlertIcon
+              className="size-4 text-warning-dark"
+              aria-hidden
+            />
+            <span className="text-sm text-foreground">
+              The engineer estimate you asked for is 12 days late
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            The agenda deadline is the thing to protect. Everything else can
+            slip a week.
+          </p>
+        </Card>
+        <Card>
+          <span className="text-sm font-medium text-foreground">
+            Tell people where this stands
           </span>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          The agenda deadline is the thing to protect. Everything else can slip
-          a week.
-        </p>
-      </Card>
-      <Card>
-        <span className="text-sm font-medium text-foreground">
-          Tell people where this stands
-        </span>
-        <p className="text-sm text-muted-foreground">
-          A short update in plain language, for you to edit and send.
-        </p>
-        <Button size="small" variant="outline" className="self-start">
-          Draft an update
-        </Button>
-      </Card>
-    </div>
+          <p className="text-sm text-muted-foreground">
+            A short update in plain language, for you to edit and send.
+          </p>
+          <Button size="small" variant="outline" className="self-start">
+            Draft an update
+          </Button>
+        </Card>
+      </AssistantRow>
+      {advance}
+    </>
   )
 }

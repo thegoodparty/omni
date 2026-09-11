@@ -2,16 +2,16 @@
 
 import { useState } from 'react'
 import { Button, Input, Label, Textarea } from '@styleguide'
-import { PlusIcon } from '@styleguide/components/ui/icons'
 import type { Priority } from '@goodparty_org/contracts'
 import { createPriority } from '../data/priorities-api'
 
 export default function AddPriorityForm({
   onCreated,
+  onCancel,
 }: {
   onCreated: (priority: Priority) => void
+  onCancel: () => void
 }): React.JSX.Element {
-  const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [saving, setSaving] = useState(false)
@@ -21,7 +21,7 @@ export default function AddPriorityForm({
     setTitle('')
     setDescription('')
     setError(null)
-    setOpen(false)
+    onCancel()
   }
 
   const submit = async (): Promise<void> => {
@@ -42,20 +42,6 @@ export default function AddPriorityForm({
     } finally {
       setSaving(false)
     }
-  }
-
-  if (!open) {
-    return (
-      <Button
-        variant="outline"
-        size="small"
-        className="self-start"
-        onClick={() => setOpen(true)}
-      >
-        <PlusIcon className="size-4" aria-hidden />
-        Add a priority
-      </Button>
-    )
   }
 
   return (
