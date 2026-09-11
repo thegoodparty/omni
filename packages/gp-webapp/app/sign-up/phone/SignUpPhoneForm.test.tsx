@@ -29,7 +29,19 @@ beforeEach(() => {
     value: { ...window.location, replace: replaceSpy },
   })
   api.mock('PUT /v1/users/me', { status: 200, data: {} as never })
+  api.mock('GET /v1/users/me', { status: 200, data: { phone: null } as never })
 })
+
+// The step asks gp-api whether a number is already on record before it
+// renders anything, so every test that touches the form has to let that
+// settle first.
+const renderForm = async () => {
+  const utils = render(<SignUpPhoneForm />)
+  await waitFor(() =>
+    expect(screen.getByTestId('signup-phone-form')).toBeInTheDocument(),
+  )
+  return utils
+}
 
 describe('SignUpPhoneForm', () => {
   it('saves the number to gp-api and Clerk, then continues', async () => {
@@ -39,7 +51,7 @@ describe('SignUpPhoneForm', () => {
       sentBody = body
       return { status: 200, data: {} as never }
     })
-    render(<SignUpPhoneForm />)
+    await renderForm()
 
     await user.type(screen.getByPlaceholderText('Phone'), '5551234567')
     await user.click(screen.getByTestId('signup-phone-submit'))
@@ -60,7 +72,7 @@ describe('SignUpPhoneForm', () => {
   it('keeps the user here when the save fails', async () => {
     const user = userEvent.setup()
     api.mock('PUT /v1/users/me', { status: 500, data: {} })
-    render(<SignUpPhoneForm />)
+    await renderForm()
 
     await user.type(screen.getByPlaceholderText('Phone'), '5551234567')
     await user.click(screen.getByTestId('signup-phone-submit'))
@@ -76,7 +88,7 @@ describe('SignUpPhoneForm', () => {
   it('continues anyway when only the Clerk copy fails', async () => {
     const user = userEvent.setup()
     update.mockRejectedValue(new Error('clerk down'))
-    render(<SignUpPhoneForm />)
+    await renderForm()
 
     await user.type(screen.getByPlaceholderText('Phone'), '5551234567')
     await user.click(screen.getByTestId('signup-phone-submit'))
@@ -88,8 +100,11 @@ describe('SignUpPhoneForm', () => {
     )
   })
 
-  it('does not ask again when the user already has a number', async () => {
-    mockUseUser.mockReturnValue(signedInAs({ phone: '5559876543' }))
+  it('does not ask an account that already has a number on record', async () => {
+    api.mock('GET /v1/users/me', {
+      status: 200,
+      data: { phone: '5559876543' } as never,
+    })
     render(<SignUpPhoneForm />)
 
     await waitFor(() =>
@@ -97,14 +112,32 @@ describe('SignUpPhoneForm', () => {
         '/post-auth-redirect?source=signup',
       ),
     )
+    expect(screen.queryByTestId('signup-phone-form')).not.toBeInTheDocument()
   })
 
-  it('still asks when the stored metadata phone is blank or junk', async () => {
-    // unsafeMetadata is user-writable via Clerk's client SDK, so a blank or
-    // nonsense value must not count as "already has a number".
-    for (const value of ['', '   ', 'nope']) {
+  it('ignores Clerk metadata and trusts the user row', async () => {
+    // unsafeMetadata is user-writable through Clerk's client SDK, so it must
+    // not be able to wave the step through on its own.
+    mockUseUser.mockReturnValue(signedInAs({ phone: '5551112222' }))
+    api.mock('GET /v1/users/me', {
+      status: 200,
+      data: { phone: null } as never,
+    })
+    render(<SignUpPhoneForm />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('signup-phone-form')).toBeInTheDocument(),
+    )
+    expect(replaceSpy).not.toHaveBeenCalled()
+  })
+
+  it('still asks when the number on record is blank or junk', async () => {
+    for (const value of [null, '', '   ', 'nope']) {
       replaceSpy.mockClear()
-      mockUseUser.mockReturnValue(signedInAs({ phone: value }))
+      api.mock('GET /v1/users/me', {
+        status: 200,
+        data: { phone: value } as never,
+      })
       const { unmount } = render(<SignUpPhoneForm />)
       await waitFor(() =>
         expect(screen.getByTestId('signup-phone-form')).toBeInTheDocument(),
@@ -112,6 +145,16 @@ describe('SignUpPhoneForm', () => {
       expect(replaceSpy).not.toHaveBeenCalled()
       unmount()
     }
+  })
+
+  it('shows the form when the lookup fails rather than stranding the user', async () => {
+    api.mock('GET /v1/users/me', { status: 500, data: {} })
+    render(<SignUpPhoneForm />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('signup-phone-form')).toBeInTheDocument(),
+    )
+    expect(replaceSpy).not.toHaveBeenCalled()
   })
 
   it('sends a signed-out visitor back to sign up', async () => {
@@ -127,7 +170,7 @@ describe('SignUpPhoneForm', () => {
 
   it('keeps Continue disabled until the number is complete', async () => {
     const user = userEvent.setup()
-    render(<SignUpPhoneForm />)
+    await renderForm()
 
     expect(screen.getByTestId('signup-phone-submit')).toBeDisabled()
     await user.type(screen.getByPlaceholderText('Phone'), '555123')

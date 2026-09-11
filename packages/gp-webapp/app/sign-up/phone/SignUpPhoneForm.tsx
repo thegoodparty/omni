@@ -18,11 +18,18 @@ export default function SignUpPhoneForm() {
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const leavingRef = useRef(false)
+  const [checking, setChecking] = useState(true)
 
   const phoneReady = isValidPhone(phone)
 
-  // Only Google signups are routed here, but a direct hit or a returning
-  // user who already has a number shouldn't be asked again.
+  // Only Google signups are routed here, but the page has no server-side
+  // auth gate, so anyone signed in can reach it directly — and submitting
+  // overwrites User.phone unconditionally. So the question "do they already
+  // have a number?" is asked of the user row itself, the same field this
+  // step writes. Clerk metadata is no substitute: it is user-writable, and
+  // every account created before this step existed has a phone in the
+  // database and nothing in metadata, which a metadata-only check would
+  // answer wrongly and then clobber on submit.
   useEffect(() => {
     if (!isLoaded || leavingRef.current) return
     if (!isSignedIn) {
@@ -30,14 +37,32 @@ export default function SignUpPhoneForm() {
       window.location.replace('/sign-up')
       return
     }
-    // Must be a real number, not merely a string: unsafeMetadata is
-    // user-writable through Clerk's client SDK, and a hand-written '' would
-    // otherwise skip collection for that account permanently.
-    if (isValidPhone(String(user?.unsafeMetadata?.phone ?? ''))) {
-      leavingRef.current = true
-      window.location.replace(NEXT_PATH)
+
+    let cancelled = false
+    const skipIfAlreadyOnRecord = async () => {
+      const res = await clientRequest(
+        'GET /v1/users/me',
+        {},
+        { ignoreResponseError: true },
+      )
+      if (cancelled || leavingRef.current) return
+      const onRecord = res.ok
+        ? ((res.data as { phone?: string | null }).phone ?? '')
+        : ''
+      if (isValidPhone(onRecord)) {
+        leavingRef.current = true
+        window.location.replace(NEXT_PATH)
+        return
+      }
+      // Fails open: a lookup that errored shows the form rather than
+      // stranding a genuine new signup on a spinner.
+      setChecking(false)
     }
-  }, [isLoaded, isSignedIn, user])
+    void skipIfAlreadyOnRecord()
+    return () => {
+      cancelled = true
+    }
+  }, [isLoaded, isSignedIn])
 
   const handleChange = (next: string) => {
     setPhone(nextPhoneDigits(phone, next))
@@ -78,7 +103,7 @@ export default function SignUpPhoneForm() {
     window.location.replace(NEXT_PATH)
   }
 
-  if (!isLoaded) {
+  if (!isLoaded || checking) {
     return <Spinner />
   }
 
