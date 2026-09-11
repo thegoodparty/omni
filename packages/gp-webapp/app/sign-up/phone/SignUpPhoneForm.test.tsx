@@ -131,8 +131,26 @@ describe('SignUpPhoneForm', () => {
     expect(replaceSpy).not.toHaveBeenCalled()
   })
 
+  it('does not re-collect over a non-US number on record', async () => {
+    // PhoneSchema admits these, isValidPhone does not — so the guard must
+    // not treat a stored foreign number as "no number on file" and let the
+    // submit overwrite it.
+    api.mock('GET /v1/users/me', {
+      status: 200,
+      data: { phone: '33612345678' } as never,
+    })
+    render(<SignUpPhoneForm />)
+
+    await waitFor(() =>
+      expect(replaceSpy).toHaveBeenCalledWith(
+        '/post-auth-redirect?source=signup',
+      ),
+    )
+    expect(screen.queryByTestId('signup-phone-form')).not.toBeInTheDocument()
+  })
+
   it('still asks when the number on record is blank or junk', async () => {
-    for (const value of [null, '', '   ', 'nope']) {
+    for (const value of [null, '', '   ']) {
       replaceSpy.mockClear()
       api.mock('GET /v1/users/me', {
         status: 200,

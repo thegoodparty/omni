@@ -49,7 +49,11 @@ export default function SignUpPhoneForm() {
       const onRecord = res.ok
         ? ((res.data as { phone?: string | null }).phone ?? '')
         : ''
-      if (isValidPhone(onRecord)) {
+      // Any stored value counts, not just one isValidPhone likes: every
+      // path that writes User.phone has already validated it, and
+      // PhoneSchema admits non-US numbers that isValidPhone rejects — so
+      // asking isValidPhone here would re-collect over a real number.
+      if (onRecord.trim()) {
         leavingRef.current = true
         window.location.replace(NEXT_PATH)
         return
