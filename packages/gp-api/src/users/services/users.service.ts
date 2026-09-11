@@ -332,8 +332,11 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   ): Promise<User> {
     if (!phone || user.phone) return user
 
+    // Both flavours of blank, matching maybeIngestAvatar below: the guard
+    // above treats '' as empty, so a null-only predicate would match no rows
+    // for a legacy '' row and drop the number without saying so.
     const updated = await this.model.updateMany({
-      where: { id: user.id, phone: null },
+      where: { id: user.id, OR: [{ phone: null }, { phone: '' }] },
       data: { phone },
     })
     return updated.count > 0 ? { ...user, phone } : user

@@ -1617,6 +1617,31 @@ describe('UsersService', () => {
       expect(after?.phone).toBe('5559876543')
     })
 
+    it('backfills over a legacy empty-string phone, not just null', async () => {
+      const existing = await service.prisma.user.create({
+        data: {
+          email: 'phone-empty-string@test.goodparty.org',
+          clerkId: 'user_phone_empty_string',
+          phone: '',
+        },
+      })
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_phone_empty_string',
+        email: 'phone-empty-string@test.goodparty.org',
+        firstName: 'Phone',
+        lastName: 'Empty',
+        phone: '5554443333',
+      })
+
+      expect(result?.id).toBe(existing.id)
+      expect(result?.phone).toBe('5554443333')
+      const after = await service.prisma.user.findUnique({
+        where: { id: existing.id },
+      })
+      expect(after?.phone).toBe('5554443333')
+    })
+
     it('never overwrites a phone the user already has', async () => {
       const existing = await service.prisma.user.create({
         data: {
