@@ -99,6 +99,21 @@ describe('SignUpPhoneForm', () => {
     )
   })
 
+  it('still asks when the stored metadata phone is blank or junk', async () => {
+    // unsafeMetadata is user-writable via Clerk's client SDK, so a blank or
+    // nonsense value must not count as "already has a number".
+    for (const value of ['', '   ', 'nope']) {
+      replaceSpy.mockClear()
+      mockUseUser.mockReturnValue(signedInAs({ phone: value }))
+      const { unmount } = render(<SignUpPhoneForm />)
+      await waitFor(() =>
+        expect(screen.getByTestId('signup-phone-form')).toBeInTheDocument(),
+      )
+      expect(replaceSpy).not.toHaveBeenCalled()
+      unmount()
+    }
+  })
+
   it('sends a signed-out visitor back to sign up', async () => {
     mockUseUser.mockReturnValue({
       isLoaded: true,

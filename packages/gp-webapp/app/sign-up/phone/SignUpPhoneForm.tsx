@@ -30,7 +30,10 @@ export default function SignUpPhoneForm() {
       window.location.replace('/sign-up')
       return
     }
-    if (typeof user?.unsafeMetadata?.phone === 'string') {
+    // Must be a real number, not merely a string: unsafeMetadata is
+    // user-writable through Clerk's client SDK, and a hand-written '' would
+    // otherwise skip collection for that account permanently.
+    if (isValidPhone(String(user?.unsafeMetadata?.phone ?? ''))) {
       leavingRef.current = true
       window.location.replace(NEXT_PATH)
     }
