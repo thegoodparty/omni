@@ -166,6 +166,7 @@ export class SessionGuard implements CanActivate {
         firstName: providerUser.firstName ?? '',
         lastName: providerUser.lastName ?? '',
         avatarUrl: providerUser.avatarUrl,
+        phone: providerUser.phone,
       })
     } catch (err) {
       this.logger.error(

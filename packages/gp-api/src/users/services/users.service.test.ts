@@ -1583,6 +1583,86 @@ describe('UsersService', () => {
       expect(after?.avatar).toBe('https://assets.test/uploads/11/avatar.png')
     })
 
+    it('stores the sign-up phone on the row it provisions', async () => {
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_phone_create',
+        email: 'phone-create@test.goodparty.org',
+        firstName: 'Phone',
+        lastName: 'Create',
+        phone: '5551234567',
+      })
+
+      expect(result?.phone).toBe('5551234567')
+    })
+
+    it('backfills the phone onto an existing row that has none', async () => {
+      const existing = await createUser(
+        'phone-backfill@test.goodparty.org',
+        'user_phone_backfill',
+      )
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_phone_backfill',
+        email: 'phone-backfill@test.goodparty.org',
+        firstName: 'Phone',
+        lastName: 'Backfill',
+        phone: '5559876543',
+      })
+
+      expect(result?.id).toBe(existing.id)
+      expect(result?.phone).toBe('5559876543')
+      const after = await service.prisma.user.findUnique({
+        where: { id: existing.id },
+      })
+      expect(after?.phone).toBe('5559876543')
+    })
+
+    it('backfills over a legacy empty-string phone, not just null', async () => {
+      const existing = await service.prisma.user.create({
+        data: {
+          email: 'phone-empty-string@test.goodparty.org',
+          clerkId: 'user_phone_empty_string',
+          phone: '',
+        },
+      })
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_phone_empty_string',
+        email: 'phone-empty-string@test.goodparty.org',
+        firstName: 'Phone',
+        lastName: 'Empty',
+        phone: '5554443333',
+      })
+
+      expect(result?.id).toBe(existing.id)
+      expect(result?.phone).toBe('5554443333')
+      const after = await service.prisma.user.findUnique({
+        where: { id: existing.id },
+      })
+      expect(after?.phone).toBe('5554443333')
+    })
+
+    it('never overwrites a phone the user already has', async () => {
+      const existing = await service.prisma.user.create({
+        data: {
+          email: 'phone-keep@test.goodparty.org',
+          clerkId: 'user_phone_keep',
+          phone: '5550001111',
+        },
+      })
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_phone_keep',
+        email: 'phone-keep@test.goodparty.org',
+        firstName: 'Phone',
+        lastName: 'Keep',
+        phone: '5552223333',
+      })
+
+      expect(result?.id).toBe(existing.id)
+      expect(result?.phone).toBe('5550001111')
+    })
+
     it('keeps a self-uploaded avatar when binding a legacy unlinked user', async () => {
       const avatars = service.app.get(UserAvatarService)
       const ingest = vi
