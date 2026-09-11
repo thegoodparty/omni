@@ -740,6 +740,31 @@ def parse_review_artifact(text: str) -> dict[str, dict]:
     return out
 
 
+def _unsaved_edits(parsed: Mapping[str, dict], state: Mapping) -> list[str]:
+    """Event ids whose rendered block carries reviewer work the state does not have yet.
+
+    All four reviewer-owned fields count, not just `disposition`: correcting a `fires_on`
+    line and leaving the disposition blank is a normal way to review, and losing that text
+    is the same data loss.
+
+    But `fires_on` and `url` cannot be tested for mere presence the way `disposition` and
+    `reason` can — the render *populates* them with the draft, so "non-empty" is true for
+    every row of an untouched file and would make the queue impossible to ever re-render.
+    They are compared against the state instead: differing means edited, matching means
+    that is just the draft we wrote.
+    """
+    changed: list[str] = []
+    for event_id, fields in parsed.items():
+        if fields.get("disposition") or fields.get("reason"):
+            changed.append(event_id)
+            continue
+        entry = state.get(event_id) or {}
+        if any(field in fields and fields[field] != (entry.get(field) or "")
+               for field in ("fires_on", "url")):
+            changed.append(event_id)
+    return changed
+
+
 def apply_review(state: dict, parsed: Mapping[str, dict], today: str) -> dict:
     """Apply the reviewer's edits and dispositions onto state, for ids that exist.
 
@@ -965,16 +990,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         # destroys filled-in review work with no recovery short of git checkout. Refuse
         # instead, and name the command that makes the file safe to re-render.
         if args.review_artifact.exists():
-            filled = sorted(
-                event_id
-                for event_id, fields in parse_review_artifact(
-                    args.review_artifact.read_text()).items()
-                if fields.get("disposition"))
-            if filled:
+            unsaved = sorted(_unsaved_edits(
+                parse_review_artifact(args.review_artifact.read_text()), state))
+            if unsaved:
                 print(f"event-anchors: refusing to overwrite {args.review_artifact} — it "
-                      f"carries {len(filled)} filled-in disposition(s) that are not in the "
-                      f"state yet ({', '.join(filled[:3])}"
-                      f"{', …' if len(filled) > 3 else ''}). Load them first:\n"
+                      f"carries edits to {len(unsaved)} row(s) that are not in the state "
+                      f"yet ({', '.join(unsaved[:3])}"
+                      f"{', …' if len(unsaved) > 3 else ''}). Load them first:\n"
                       f"  uv run python event_anchors.py --load-review "
                       f"{args.review_artifact}", file=sys.stderr)
                 return 2

@@ -737,7 +737,10 @@ def test_anchor_block_carries_both_links_and_is_silent_on_an_empty_queue():
     # The reviewer has to be told what to DO, not just that work exists.
     assert "disposition" in body
     links = blocks[-1]["elements"][0]["text"]
-    assert slk.anchors_review_url() in links
+    # Asserted against the literal constant, not against anchors_review_url() — calling the
+    # same function for stimulus and oracle only proves it returns something.
+    assert slk.ANCHOR_REVIEW_URL in links
+    assert "Review and edit" in links
 
 
 def test_anchor_queue_counts_only_undecided_rows(tmp_path):
@@ -833,7 +836,7 @@ def test_post_digest_threads_the_injected_queue_into_the_thread():
                     anchor_queue={"queued": 7, "flagged": 4, "new": 7})
     thread_text = json.dumps(tx.calls)
     assert "7 drafted anchor(s) queued" in thread_text
-    assert slk.anchors_review_url() in thread_text
+    assert slk.ANCHOR_REVIEW_URL in thread_text
 
 
 def test_tiered_layout_renders_the_anchor_block_too():
@@ -847,4 +850,16 @@ def test_tiered_layout_renders_the_anchor_block_too():
         {"queued": 9, "flagged": 6, "new": 0})
     text = json.dumps(thread)
     assert "9 drafted anchor(s) queued, 6 flagged" in text
-    assert slk.anchors_review_url() in text
+    assert slk.ANCHOR_REVIEW_URL in text
+
+
+def test_anchors_review_url_prefers_an_explicit_override(monkeypatch):
+    """Mirrors test_sheet_url_prefers_explicit_override: the env hook and the committed
+    fallback each need their own assertion against a literal."""
+    monkeypatch.setenv("GP_ANCHORS_REVIEW_URL", "https://example.test/queue.md")
+    assert slk.anchors_review_url() == "https://example.test/queue.md"
+    monkeypatch.delenv("GP_ANCHORS_REVIEW_URL", raising=False)
+    assert slk.anchors_review_url() == slk.ANCHOR_REVIEW_URL
+    assert slk.ANCHOR_REVIEW_URL.startswith(
+        "https://github.com/thegoodparty/omni/blob/main/")
+    assert slk.ANCHOR_REVIEW_URL.endswith("event-anchors-review.md")

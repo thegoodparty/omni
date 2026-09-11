@@ -1363,3 +1363,43 @@ def test_rendering_refuses_to_clobber_a_filled_in_review_file(tmp_path, capsys):
     target.unlink()
     assert ea.main(["--state", str(state_path), "--review-artifact", str(target),
                     "--today", "2026-09-12"]) == 0
+
+
+def test_clobber_guard_covers_text_edits_and_still_allows_a_plain_re_render(tmp_path, capsys):
+    """Correcting a `fires_on` line and leaving the disposition blank is a normal way to
+    review, and losing that text is the same data loss as losing a disposition.
+
+    The other half matters just as much: `fires_on`/`url` are *populated* by the render, so
+    a presence check would read every row of an untouched file as edited and make the queue
+    impossible to re-render. They are compared against state, not tested for emptiness.
+    """
+    state = {"E": {"fires_on": "draft line", "url": "/y", "confidence": "high",
+                   "flag_reason": "", "evidence": "a.tsx:1", "disposition": "new",
+                   "reason": ""}}
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps(state))
+    target = tmp_path / "event-anchors-review.md"
+    render = ["--state", str(state_path), "--review-artifact", str(target),
+              "--today", "2026-09-11"]
+
+    assert ea.main(render) == 0
+    # Untouched: re-rendering is the ordinary case and must keep working.
+    assert ea.main(render) == 0
+
+    target.write_text(target.read_text().replace(
+        "- fires_on: draft line", "- fires_on: Admin queue, Approve & book send"))
+    assert ea.main(render) == 2
+    assert "refusing to overwrite" in capsys.readouterr().err
+    assert "Approve & book send" in target.read_text()
+
+    assert ea.main(["--state", str(state_path), "--load-review", str(target),
+                    "--today", "2026-09-11"]) == 0
+    assert json.loads(state_path.read_text())["E"]["fires_on"] == (
+        "Admin queue, Approve & book send")
+
+
+def test_unsaved_edits_ignores_a_row_the_state_has_never_heard_of():
+    """A hand-added block for an unknown event has no state to compare against, so every
+    field reads as an edit — which is the safe direction: refuse rather than overwrite."""
+    parsed = {"Unknown": {"fires_on": "something"}}
+    assert ea._unsaved_edits(parsed, {}) == ["Unknown"]
