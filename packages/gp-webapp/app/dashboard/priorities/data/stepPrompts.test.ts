@@ -24,10 +24,21 @@ describe('buildStepPrompt', () => {
     }
   })
 
-  it('asks the define step for one question with options, not for an answer', () => {
+  it('makes every step ask before it can settle', () => {
+    for (const step of PRIORITY_FLOW_STEP_VALUES) {
+      const prompt = buildStepPrompt(step, priority)
+      // The interaction contract: one question per turn, in a block the
+      // client can render, and no settling on the opening turn.
+      expect(prompt).toContain('Ask ONE question per turn')
+      expect(prompt).toContain('Never settle on the first turn of a step')
+      expect(prompt).toContain('```priority')
+    }
+  })
+
+  it('holds the define step to at least two questions', () => {
     const prompt = buildStepPrompt('define', priority)
-    expect(prompt).toContain('ONE question')
-    expect(prompt).toContain('do not answer it yourself')
+    expect(prompt).toContain('at least two questions')
+    expect(prompt).toContain('settle the step with the problem in my own words')
   })
 
   it('asks the method step to search for the bar rather than infer it', () => {

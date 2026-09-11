@@ -28,17 +28,19 @@ export const PRIORITY_STAGE_LABELS: Record<PriorityFlowStage, string> = {
   execute: 'Get it done',
 }
 
-// Step titles are questions the user can answer, per docs/product-copy.md.
+// How the agent opens a step. These are invitations into a conversation, not
+// headings over a form: the step is about to ask real questions, so the opener
+// should sound like someone sitting down with you rather than a section label.
 export const PRIORITY_STEP_LABELS: Record<PriorityFlowStep, string> = {
-  intro: 'What do you want to change?',
-  define: "What's the problem, exactly?",
-  evidence: 'What do you already know?',
-  listen_problem: 'Who should you hear from?',
-  options: 'What are your options?',
-  listen_options: 'Which option do people back?',
-  method: 'How will you make it happen?',
-  plan: 'What has to happen next?',
-  track: 'Where does this stand?',
+  intro: "Let's start with what you want to change",
+  define: "Let's get the shape of this",
+  evidence: "Let's see what we already know",
+  listen_problem: "Let's work out who to hear from",
+  options: "Let's look at how you could do this",
+  listen_options: "Let's find out which way people lean",
+  method: "Let's pick how you'll make it happen",
+  plan: "Let's turn this into a plan",
+  track: "Let's see where this stands",
 }
 
 // Short names for the rail, where the question would wrap three lines.
@@ -55,15 +57,15 @@ export const PRIORITY_STEP_SHORT_LABELS: Record<PriorityFlowStep, string> = {
 }
 
 export const PRIORITY_STEP_CAPTIONS: Record<PriorityFlowStep, string> = {
-  intro: 'Tell me what you want to change and I will take it from here.',
-  define: 'Pin down who this hits and what solved would look like.',
-  evidence: 'I will pull what your district data and the public record say.',
-  listen_problem: 'Who this lands on hardest, and how to reach those people.',
-  options: 'A few real ways to act, with what each one costs you.',
-  listen_options: 'Ask the people it affects which way to go.',
-  method: 'I will check what you are allowed to do, then we pick the path.',
-  plan: 'Turn the decision into dated steps with names on them.',
-  track: 'What moved, what is stuck, and what to tell constituents.',
+  intro: 'Tell me the change you want and I will take it from here.',
+  define: 'A few questions, so we both know what solving this would look like.',
+  evidence: 'What your data and the public record say, and where it is thin.',
+  listen_problem: 'Who this lands on hardest, and how you would reach them.',
+  options: 'A few real ways to act, and what each one would cost you.',
+  listen_options: 'The people whose answer would actually change your mind.',
+  method: 'What you are allowed to do here, then the path that fits.',
+  plan: 'The next few things that have to happen, with names and dates.',
+  track: 'What moved, what is stuck, and what to tell people.',
 }
 
 export const PRIORITY_STEP_STAGE: Record<PriorityFlowStep, PriorityFlowStage> =

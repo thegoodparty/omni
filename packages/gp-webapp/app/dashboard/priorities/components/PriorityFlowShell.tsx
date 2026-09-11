@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Button, Label, Switch } from '@styleguide'
+import { Button } from '@styleguide'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
 import type { Priority } from '@goodparty_org/contracts'
 import { toolDisplayName } from '../../chief-of-staff/components/chat/chatConstants'
@@ -15,6 +15,8 @@ import {
   UserBubble,
 } from '../../shared/agent-chat/chatUI'
 import { segmentsToLive } from '../../shared/agent-chat/streaming'
+import { splitSegments, type PriorityDirective } from '../data/stepProtocol'
+import PriorityQuestion from './PriorityQuestion'
 import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
 import { priorityFlowChatApi } from '../data/chat-api'
@@ -38,13 +40,16 @@ import PriorityStepper from './PriorityStepper'
 // becomes a route segment the way ordinances/solve/[slug]/[step] does.
 export default function PriorityFlowShell({
   priority,
+  issues,
 }: {
   priority: Priority
+  // Community issues on file for the district, handed to the research steps so
+  // the agent can read them rather than starting from a web search.
+  issues: { id: string; title: string }[]
 }): React.JSX.Element {
   const router = useRouter()
   const [step, setStep] = useState<PriorityFlowStep>('define')
   const [composer, setComposer] = useState('')
-  const [isPublic, setIsPublic] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [startError, setStartError] = useState<string | null>(null)
   const [streamError, setStreamError] = useState<string | null>(null)
@@ -52,6 +57,10 @@ export default function PriorityFlowShell({
   // dropped from the transcript by content — the engine reconciles against the
   // raw server history, which includes them.
   const [hiddenSent, setHiddenSent] = useState<string[]>([])
+  // Answers to the step questions, keyed by the turn that asked. An answered
+  // widget locks and keeps the choice highlighted, the way the ordinance
+  // flow's clarify widget does.
+  const [answers, setAnswers] = useState<Record<string, string>>({})
   const creatingRef = useRef(false)
 
   const toolLabel = useCallback((name: string): string => {
@@ -67,11 +76,11 @@ export default function PriorityFlowShell({
 
   const askStep = useCallback(
     (target: PriorityFlowStep, id: string): void => {
-      const prompt = buildStepPrompt(target, priority)
+      const prompt = buildStepPrompt(target, priority, issues)
       setHiddenSent((prev) => [...prev, prompt])
       void send(id, prompt, { hidden: true })
     },
-    [priority, send],
+    [priority, issues, send],
   )
   // Held in a ref so the bootstrap effects don't take it as a dependency.
   const askStepRef = useRef(askStep)
@@ -126,9 +135,31 @@ export default function PriorityFlowShell({
   ])
 
   const destination = nextPriorityStep(step)
+  const liveSplit = useMemo(
+    () => splitSegments(visibleSegments),
+    [visibleSegments],
+  )
+  const assistantTurns = visibleMessages.filter((m) => m.role === 'assistant')
+  const latestAssistant = assistantTurns[assistantTurns.length - 1]
+  const latestAssistantId = latestAssistant?.id ?? null
+  // The step advances only once the agent says it is settled, which is this
+  // flow's offer_next_step: a step that is still asking does not get a
+  // Continue button.
+  const latestDirective: PriorityDirective | null = latestAssistant
+    ? splitSegments(
+        segmentsToLive(latestAssistant.segments ?? [], latestAssistant.content),
+      ).directive
+    : null
+  const settled = latestDirective?.kind === 'synthesis'
   // Nothing visible from this turn yet: hold the shimmer rather than an empty
   // gap under the step's question.
-  const working = sending && visibleSegments.length === 0
+  const working = sending && liveSplit.segments.length === 0
+
+  const answerQuestion = (messageId: string, answer: string): void => {
+    if (!conversationId || isStreaming()) return
+    setAnswers((prev) => ({ ...prev, [messageId]: answer }))
+    void send(conversationId, answer)
+  }
 
   return (
     <div className="flex h-[calc(100dvh-4rem)] w-full flex-col bg-background lg:h-dvh">
@@ -140,26 +171,9 @@ export default function PriorityFlowShell({
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
           <header className="flex flex-col gap-3">
             <PriorityStepper current={step} />
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h1 className="text-xl font-semibold text-foreground">
-                {priority.title}
-              </h1>
-              {/* Visibility has no column on Priority yet, so this holds for
-                  the session only. */}
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="priority-visibility"
-                  checked={isPublic}
-                  onCheckedChange={setIsPublic}
-                />
-                <Label
-                  htmlFor="priority-visibility"
-                  className="text-sm font-normal text-muted-foreground"
-                >
-                  {isPublic ? 'On your public page' : 'Just for you'}
-                </Label>
-              </div>
-            </div>
+            <h1 className="text-xl font-semibold text-foreground">
+              {priority.title}
+            </h1>
           </header>
 
           <div className="flex flex-col gap-3">
@@ -172,27 +186,46 @@ export default function PriorityFlowShell({
               </div>
             </AssistantRow>
 
-            {visibleMessages.map((message) =>
-              message.role === 'user' ? (
-                <UserBubble key={message.id}>{message.content}</UserBubble>
-              ) : (
+            {visibleMessages.map((message) => {
+              if (message.role === 'user') {
+                return (
+                  <UserBubble key={message.id}>{message.content}</UserBubble>
+                )
+              }
+              const split = splitSegments(
+                segmentsToLive(message.segments ?? [], message.content),
+              )
+              const isLatest = message.id === latestAssistantId
+              return (
                 <AssistantRow key={message.id}>
                   <InlineSegments
-                    segments={segmentsToLive(
-                      message.segments ?? [],
-                      message.content,
-                    )}
+                    segments={split.segments}
                     toolLabel={toolLabel}
                   />
+                  {split.directive?.kind === 'question' ? (
+                    <PriorityQuestion
+                      directive={split.directive}
+                      {...(answers[message.id] !== undefined
+                        ? { answer: answers[message.id] }
+                        : {})}
+                      // Only the newest question takes input; earlier ones
+                      // render read-only in place.
+                      disabled={sending || !isLatest}
+                      onAnswer={(answer) => answerQuestion(message.id, answer)}
+                    />
+                  ) : null}
+                  {split.directive?.kind === 'synthesis' ? (
+                    <SettledCard text={split.directive.settled} />
+                  ) : null}
                 </AssistantRow>
-              ),
-            )}
+              )
+            })}
 
-            {visibleSegments.length > 0 || working ? (
+            {liveSplit.segments.length > 0 || working ? (
               <AssistantRow>
-                {visibleSegments.length > 0 ? (
+                {liveSplit.segments.length > 0 ? (
                   <InlineSegments
-                    segments={visibleSegments}
+                    segments={liveSplit.segments}
                     toolLabel={toolLabel}
                   />
                 ) : null}
@@ -207,7 +240,7 @@ export default function PriorityFlowShell({
               <p className="text-sm text-destructive">{streamError}</p>
             ) : null}
 
-            {!sending && !startError ? (
+            {settled && !sending && !startError ? (
               <NextStepRow
                 label={
                   destination
@@ -241,6 +274,18 @@ export default function PriorityFlowShell({
           />
         </div>
       </div>
+    </div>
+  )
+}
+
+// What the step settled on, the visible half of this flow's save_synthesis.
+function SettledCard({ text }: { text: string }): React.JSX.Element {
+  return (
+    <div className="flex w-full flex-col gap-1 rounded-lg border border-border bg-card p-4 shadow-sm">
+      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        What this step settled
+      </span>
+      <p className="text-sm text-foreground">{text}</p>
     </div>
   )
 }
