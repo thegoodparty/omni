@@ -1372,6 +1372,7 @@ dependencies = [
     { name = "claude-agent-sdk" },
     { name = "gp-shared" },
     { name = "httpx" },
+    { name = "pyjwt", extra = ["crypto"] },
 ]
 
 [package.metadata]
@@ -1380,6 +1381,7 @@ requires-dist = [
     { name = "claude-agent-sdk", specifier = "==0.2.87" },
     { name = "gp-shared", editable = "shared" },
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.9" },
 ]
 
 [[package]]
