@@ -266,6 +266,55 @@ class TestErrorHandling:
             with pytest.raises(AmplitudeFlagError, match="rejected the API key"):
                 client.get_flag("win-flag")
 
+    def test_server_error_on_create_raises_amplitude_flag_error(self):
+        error_response = MagicMock()
+        error_response.status_code = 503
+        error_response.text = "service unavailable"
+
+        with (
+            patch(
+                "autopilot.agent.amplitude_flags.httpx.get",
+                side_effect=[empty_list_response(), empty_list_response()],
+            ),
+            patch("autopilot.agent.amplitude_flags.httpx.post", return_value=error_response),
+        ):
+            client = AmplitudeFlagClient()
+            with pytest.raises(AmplitudeFlagError, match="HTTP 503"):
+                client.create_feature_flag("win-flag", "desc")
+
+    def test_rate_limit_on_patch_raises_amplitude_flag_error(self):
+        rate_limited = MagicMock()
+        rate_limited.status_code = 429
+        rate_limited.text = "too many requests"
+
+        with (
+            patch(
+                "autopilot.agent.amplitude_flags.httpx.get",
+                side_effect=[empty_list_response(), empty_list_response()],
+            ),
+            patch("autopilot.agent.amplitude_flags.httpx.post", return_value=create_response("dev-flag-1")),
+            patch("autopilot.agent.amplitude_flags.httpx.patch", return_value=rate_limited),
+        ):
+            client = AmplitudeFlagClient()
+            with pytest.raises(AmplitudeFlagError, match="HTTP 429"):
+                client.create_feature_flag("win-flag", "desc")
+
+    def test_create_response_without_id_raises_amplitude_flag_error(self):
+        no_id_response = MagicMock()
+        no_id_response.status_code = 200
+        no_id_response.json.return_value = {"url": "https://experiment.amplitude.com/x/whatever"}
+
+        with (
+            patch(
+                "autopilot.agent.amplitude_flags.httpx.get",
+                side_effect=[empty_list_response(), empty_list_response()],
+            ),
+            patch("autopilot.agent.amplitude_flags.httpx.post", return_value=no_id_response),
+        ):
+            client = AmplitudeFlagClient()
+            with pytest.raises(AmplitudeFlagError, match="no 'id'"):
+                client.create_feature_flag("win-flag", "desc")
+
     def test_server_error_on_lookup_raises_amplitude_flag_error(self):
         response = MagicMock()
         response.status_code = 503

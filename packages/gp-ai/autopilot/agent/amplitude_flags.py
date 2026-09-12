@@ -160,6 +160,10 @@ class AmplitudeFlagClient:
         self, env: _EnvConfig, flag_key: str, description: str, rollout_percentage: int
     ) -> EnvironmentFlagState:
         created = self._create(env, flag_key, description)
+        if "id" not in created:
+            raise AmplitudeFlagError(
+                f"Amplitude create flag {flag_key!r} in {env.label} returned a 2xx response with no 'id': {created!r}"
+            )
         flag_id = str(created["id"])
         self._patch(env, flag_id, enabled=True, rollout_percentage=rollout_percentage)
         return EnvironmentFlagState(
