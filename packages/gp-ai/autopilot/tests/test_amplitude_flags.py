@@ -344,12 +344,14 @@ class TestErrorHandling:
                 client.create_feature_flag("win-flag", "desc")
 
     def test_list_flag_without_id_raises_amplitude_flag_error(self):
-        malformed = flag_object("x", "win-flag", enabled=True, rollout_percentage=100)
-        del malformed["id"]
+        malformed_dev = flag_object("x", "win-flag", enabled=True, rollout_percentage=100)
+        del malformed_dev["id"]
+        malformed_prod = flag_object("x", "win-flag", enabled=True, rollout_percentage=0, project_id="694490")
+        del malformed_prod["id"]
 
         with patch(
             "autopilot.agent.amplitude_flags.httpx.get",
-            side_effect=[list_response(malformed), empty_list_response()],
+            side_effect=[list_response(malformed_dev), list_response(malformed_prod)],
         ):
             client = AmplitudeFlagClient()
             with pytest.raises(AmplitudeFlagError, match="no 'id'"):
