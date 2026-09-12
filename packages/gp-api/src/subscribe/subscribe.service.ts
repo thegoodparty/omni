@@ -6,16 +6,7 @@ import { CrmUsersService } from '../users/services/crmUsers.service'
 export class SubscribeService {
   constructor(private readonly crm: CrmUsersService) {}
   async subscribeEmail(body: SubscribeEmailSchema) {
-    const {
-      email,
-      uri,
-      name,
-      formId,
-      pageName,
-      firstName,
-      lastName,
-      additionalFields,
-    } = body
+    const { email, uri, name, formId, pageName, firstName, lastName } = body
 
     let { phone } = body
 
@@ -56,18 +47,6 @@ export class SubscribeService {
       })
     }
 
-    if (additionalFields) {
-      // JSON.parse returns unknown — no way to infer parsed shape at compile time
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-      const fields = JSON.parse(additionalFields) as Array<{
-        name: string
-        value: string
-        objectTypeId: string
-      }>
-      for (const field of fields) {
-        crmFields.push(field)
-      }
-    }
     const page = pageName || 'homePage'
 
     this.crm.submitCrmForm(id, crmFields, page, uri)
