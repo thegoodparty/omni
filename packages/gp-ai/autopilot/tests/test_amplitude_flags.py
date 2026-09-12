@@ -315,6 +315,46 @@ class TestErrorHandling:
             with pytest.raises(AmplitudeFlagError, match="no 'id'"):
                 client.create_feature_flag("win-flag", "desc")
 
+    def test_non_json_2xx_on_lookup_raises_amplitude_flag_error(self):
+        html_response = MagicMock()
+        html_response.status_code = 200
+        html_response.text = "<html>maintenance</html>"
+        html_response.json.side_effect = ValueError("not json")
+
+        with patch("autopilot.agent.amplitude_flags.httpx.get", return_value=html_response):
+            client = AmplitudeFlagClient()
+            with pytest.raises(AmplitudeFlagError, match="non-JSON 2xx"):
+                client.get_flag("win-flag")
+
+    def test_non_json_2xx_on_create_raises_amplitude_flag_error(self):
+        html_response = MagicMock()
+        html_response.status_code = 200
+        html_response.text = "<html>maintenance</html>"
+        html_response.json.side_effect = ValueError("not json")
+
+        with (
+            patch(
+                "autopilot.agent.amplitude_flags.httpx.get",
+                side_effect=[empty_list_response(), empty_list_response()],
+            ),
+            patch("autopilot.agent.amplitude_flags.httpx.post", return_value=html_response),
+        ):
+            client = AmplitudeFlagClient()
+            with pytest.raises(AmplitudeFlagError, match="non-JSON 2xx"):
+                client.create_feature_flag("win-flag", "desc")
+
+    def test_list_flag_without_id_raises_amplitude_flag_error(self):
+        malformed = flag_object("x", "win-flag", enabled=True, rollout_percentage=100)
+        del malformed["id"]
+
+        with patch(
+            "autopilot.agent.amplitude_flags.httpx.get",
+            side_effect=[list_response(malformed), empty_list_response()],
+        ):
+            client = AmplitudeFlagClient()
+            with pytest.raises(AmplitudeFlagError, match="no 'id'"):
+                client.get_flag("win-flag")
+
     def test_server_error_on_lookup_raises_amplitude_flag_error(self):
         response = MagicMock()
         response.status_code = 503

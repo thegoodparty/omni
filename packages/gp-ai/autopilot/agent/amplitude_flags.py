@@ -190,7 +190,13 @@ class AmplitudeFlagClient:
             timeout=self._timeout,
         )
         self._raise_for_auth_or_bad_request(response, f"create flag {flag_key!r} in {env.label}")
-        return response.json()
+        try:
+            return response.json()
+        except Exception as exc:
+            raise AmplitudeFlagError(
+                f"Amplitude management API returned a non-JSON 2xx body while trying to create flag "
+                f"{flag_key!r} in {env.label}: {response.text[:200]!r}"
+            ) from exc
 
     def _patch(self, env: _EnvConfig, flag_id: str, *, enabled: bool, rollout_percentage: int) -> None:
         response = httpx.patch(
@@ -209,7 +215,14 @@ class AmplitudeFlagClient:
             timeout=self._timeout,
         )
         self._raise_for_auth_or_bad_request(response, f"look up flag {flag_key!r} in {env.label}")
-        flags = response.json().get("flags", [])
+        try:
+            payload = response.json()
+        except Exception as exc:
+            raise AmplitudeFlagError(
+                f"Amplitude management API returned a non-JSON 2xx body while trying to look up flag "
+                f"{flag_key!r} in {env.label}: {response.text[:200]!r}"
+            ) from exc
+        flags = payload.get("flags", [])
         # Pin the project on the response object too: if the projectId query
         # param is not a server-side filter, a key-only match would report the
         # flag as existing in both environments after a single-project create.
@@ -239,6 +252,8 @@ class AmplitudeFlagClient:
 
     @staticmethod
     def _state_from_flag(project_id: str, flag: dict[str, Any]) -> EnvironmentFlagState:
+        if "id" not in flag:
+            raise AmplitudeFlagError(f"Amplitude list response returned a flag object with no 'id': {flag!r}")
         return EnvironmentFlagState(
             project_id=project_id,
             flag_id=str(flag["id"]),
