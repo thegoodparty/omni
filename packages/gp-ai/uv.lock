@@ -11,6 +11,7 @@ resolution-markers = [
 [manifest]
 members = [
     "gp-ai-projects",
+    "gp-autopilot",
     "gp-broker",
     "gp-clickup-bot",
     "gp-ddhq-matcher",
@@ -1360,6 +1361,25 @@ dev = [
     { name = "pytest", specifier = ">=8.4.2" },
     { name = "pytest-asyncio", specifier = ">=0.24.0" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20250915" },
+]
+
+[[package]]
+name = "gp-autopilot"
+version = "0.1.0"
+source = { virtual = "autopilot" }
+dependencies = [
+    { name = "boto3" },
+    { name = "claude-agent-sdk" },
+    { name = "gp-shared" },
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = ">=1.40.50" },
+    { name = "claude-agent-sdk", specifier = "==0.2.87" },
+    { name = "gp-shared", editable = "shared" },
+    { name = "httpx", specifier = ">=0.28.1" },
 ]
 
 [[package]]

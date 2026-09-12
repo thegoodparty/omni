@@ -57,7 +57,7 @@ dev = [
 ]
 
 [tool.uv.workspace]
-members = ["shared", "serve/v1_pipeline", "hubspot_ddhq_match", "clickup_bot", "engineer_agent", "pmf_engine", "broker"]
+members = ["shared", "serve/v1_pipeline", "hubspot_ddhq_match", "clickup_bot", "engineer_agent", "pmf_engine", "broker", "autopilot"]
 
 [build-system]
 requires = ["hatchling"]

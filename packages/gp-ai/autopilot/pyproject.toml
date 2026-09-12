@@ -1,0 +1,19 @@
+[project]
+name = "gp-autopilot"
+version = "0.1.0"
+description = "Autopilot: ClickUp-triggered conductor + agent stage runner"
+requires-python = ">=3.11"
+dependencies = [
+    "gp-shared",
+    "claude-agent-sdk==0.2.87",
+    "boto3>=1.40.50",
+    "httpx>=0.28.1",
+]
+
+[tool.uv.sources]
+gp-shared = { workspace = true }
+
+# No [build-system]: like the other Lambda members (clickup_bot, engineer_agent,
+# pmf_engine), autopilot is a virtual workspace member — its code ships in a
+# Docker/zip artifact, not an installed wheel. Declaring hatchling here makes
+# `uv run` try to build a wheel and fail.
