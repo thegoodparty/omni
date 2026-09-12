@@ -33,13 +33,21 @@ def transition(actor_user_id, from_status, to_status, transitioned_at="170000000
     )
 
 
-def event(kind="statusUpdated", task_id="task-1", list_id=FEATURE_LIST_ID, current_status=None, transitions=None):
+def event(
+    kind="statusUpdated",
+    task_id="task-1",
+    list_id=FEATURE_LIST_ID,
+    current_status=None,
+    transitions=None,
+    event_ts=None,
+):
     return router.RoutableEvent(
         kind=kind,
         task_id=task_id,
         list_id=list_id,
         current_status=current_status,
         transitions=transitions or [],
+        event_ts=event_ts,
     )
 
 
@@ -166,11 +174,13 @@ def test_bot_actor_feedback_needed_to_in_progress_dispatches_nothing():
 
 
 def test_comment_posted_while_feedback_needed_dispatches_resume():
+    # A real taskCommentPosted delivery carries NO history_items; the dedup
+    # key must come from the top-level delivery timestamp.
     e = event(
         kind="commentPosted",
         list_id=STORY_LIST_ID,
         current_status=router.STATUS_FEEDBACK_NEEDED,
-        transitions=[transition(HUMAN_USER_ID, None, None, transitioned_at="1700000099000")],
+        event_ts="1700000099000",
     )
 
     decisions = router.route(e)
@@ -188,7 +198,7 @@ def test_comment_posted_by_bot_while_feedback_needed_still_dispatches():
         kind="commentPosted",
         list_id=STORY_LIST_ID,
         current_status=router.STATUS_FEEDBACK_NEEDED,
-        transitions=[transition(BOT_USER_ID, None, None)],
+        event_ts="1700000100000",
     )
 
     assert len(router.route(e)) == 1

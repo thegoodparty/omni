@@ -82,7 +82,15 @@ def env(monkeypatch):
     monkeypatch.setenv("SECURITY_GROUP_ID", "sg-1")
 
 
-def make_event(list_id, transitions, kind="statusUpdated", current_status=None, epic_task_id=None, task_id=TASK_ID):
+def make_event(
+    list_id,
+    transitions,
+    kind="statusUpdated",
+    current_status=None,
+    epic_task_id=None,
+    task_id=TASK_ID,
+    event_ts=None,
+):
     return handler.AutopilotEvent(
         kind=kind,
         task_id=task_id,
@@ -90,6 +98,7 @@ def make_event(list_id, transitions, kind="statusUpdated", current_status=None, 
         transitions=transitions,
         current_status=current_status,
         epic_task_id=epic_task_id,
+        event_ts=event_ts,
     )
 
 
@@ -204,12 +213,14 @@ def test_feedback_needed_to_in_progress_dispatches_resume(fake_ecs):
 
 
 def test_comment_posted_while_feedback_needed_dispatches_resume(fake_ecs):
+    # Production shape: taskCommentPosted has no history_items at all.
     event = make_event(
         STORY_LIST_ID,
-        [transition(HUMAN_USER_ID, None, None, transitioned_at="1700000555000")],
+        [],
         kind="commentPosted",
         current_status=router.STATUS_FEEDBACK_NEEDED,
         epic_task_id="epic-should-not-appear",
+        event_ts="1700000555000",
     )
 
     handler.route_event(event)

@@ -171,6 +171,25 @@ def test_valid_signature_self_invoke_carries_the_parsed_event(fake_lambda):
     ]
 
 
+def test_comment_posted_body_without_history_items_carries_event_ts(fake_lambda):
+    # Production taskCommentPosted deliveries have no history_items; the
+    # top-level date (int or str) must survive into the async payload so the
+    # router can key the resume dedup claim on it.
+    body = {
+        "event": "taskCommentPosted",
+        "task_id": "task-abc123",
+        "list_id": IN_SCOPE_LIST_ID,
+        "date": 1700000099000,
+    }
+    handler.handler(make_event(body), None)
+
+    payload = fake_lambda.invoke_payloads[0]
+    assert payload["kind"] == "commentPosted"
+    assert payload["transitions"] == []
+    assert payload["event_ts"] == "1700000099000"
+    assert handler.AutopilotEvent.from_payload(payload).event_ts == "1700000099000"
+
+
 def test_self_invoke_uses_event_invocation_type(fake_lambda):
     handler.handler(make_event(status_updated_body()), None)
 

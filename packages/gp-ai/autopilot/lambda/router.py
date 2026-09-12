@@ -103,6 +103,9 @@ class RoutableEvent:
     list_id: str | None
     current_status: str | None
     transitions: list[Transition]
+    # Top-level delivery timestamp; the only dedup key source for kinds that
+    # carry no history_items (commentPosted).
+    event_ts: str | None = None
 
 
 @dataclass(frozen=True)
@@ -165,7 +168,9 @@ def route(event: RoutableEvent) -> list[RoutingDecision]:
         # commentPosted carries no status transition — the trigger is the
         # CURRENT status at delivery time, not a before/after pair.
         if card_type == STORY_CARD and event.current_status == STATUS_FEEDBACK_NEEDED:
-            transitioned_at = event.transitions[0].transitioned_at if event.transitions else None
+            # A real taskCommentPosted delivery has no history_items, so the
+            # dedup key must come from the top-level delivery timestamp.
+            transitioned_at = event.event_ts
             return [
                 RoutingDecision(
                     stage=STAGE_RESUME,

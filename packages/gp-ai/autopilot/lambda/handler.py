@@ -133,6 +133,10 @@ class AutopilotEvent:
     # task 14's board-schema work owns the real ClickUp field this maps to
     # (likely the story's parent task).
     epic_task_id: str | None = None
+    # Top-level delivery timestamp (ClickUp's `date` on the webhook body).
+    # commentPosted carries no history_items, so this is the only timestamp
+    # available to key that kind's dedup claim.
+    event_ts: str | None = None
 
     def to_payload(self) -> dict[str, Any]:
         # autopilot_async is the internal-dispatch marker handler() checks for
@@ -146,6 +150,7 @@ class AutopilotEvent:
             "transitions": [t.to_dict() for t in self.transitions],
             "current_status": self.current_status,
             "epic_task_id": self.epic_task_id,
+            "event_ts": self.event_ts,
         }
 
     @classmethod
@@ -157,6 +162,7 @@ class AutopilotEvent:
             transitions=[StatusTransition.from_dict(t) for t in payload.get("transitions", [])],
             current_status=payload.get("current_status"),
             epic_task_id=payload.get("epic_task_id"),
+            event_ts=payload.get("event_ts"),
         )
 
 
@@ -259,6 +265,11 @@ def parse_webhook_event(body: dict) -> AutopilotEvent | None:
     if not isinstance(epic_task_id, str):
         epic_task_id = None
 
+    raw_date = body.get("date")
+    # ClickUp sends the delivery timestamp as an epoch-ms value, sometimes a
+    # string and sometimes a number; normalize to a string key.
+    event_ts = str(raw_date) if isinstance(raw_date, (str, int)) and str(raw_date) else None
+
     return AutopilotEvent(
         kind=kind,
         task_id=task_id,
@@ -266,6 +277,7 @@ def parse_webhook_event(body: dict) -> AutopilotEvent | None:
         transitions=parse_history_items(body.get("history_items")),
         current_status=current_status,
         epic_task_id=epic_task_id,
+        event_ts=event_ts,
     )
 
 
@@ -283,6 +295,7 @@ def route_event(event: AutopilotEvent) -> None:
         task_id=event.task_id,
         list_id=event.list_id,
         current_status=event.current_status,
+        event_ts=event.event_ts,
         transitions=[
             router.Transition(
                 actor_user_id=t.actor_user_id,
