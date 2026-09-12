@@ -186,7 +186,6 @@ class AmplitudeFlagClient:
             timeout=self._timeout,
         )
         self._raise_for_auth_or_bad_request(response, f"create flag {flag_key!r} in {env.label}")
-        response.raise_for_status()
         return response.json()
 
     def _patch(self, env: _EnvConfig, flag_id: str, *, enabled: bool, rollout_percentage: int) -> None:
@@ -197,7 +196,6 @@ class AmplitudeFlagClient:
             timeout=self._timeout,
         )
         self._raise_for_auth_or_bad_request(response, f"configure flag {flag_id} in {env.label}")
-        response.raise_for_status()
 
     def _get_flag_by_key(self, env: _EnvConfig, flag_key: str) -> dict[str, Any] | None:
         response = httpx.get(
@@ -207,9 +205,17 @@ class AmplitudeFlagClient:
             timeout=self._timeout,
         )
         self._raise_for_auth_or_bad_request(response, f"look up flag {flag_key!r} in {env.label}")
-        response.raise_for_status()
         flags = response.json().get("flags", [])
-        matches = [f for f in flags if f.get("key") == flag_key and not f.get("deleted", False)]
+        # Pin the project on the response object too: if the projectId query
+        # param is not a server-side filter, a key-only match would report the
+        # flag as existing in both environments after a single-project create.
+        matches = [
+            f
+            for f in flags
+            if f.get("key") == flag_key
+            and str(f.get("projectId", "")) == env.project_id
+            and not f.get("deleted", False)
+        ]
         return matches[0] if matches else None
 
     def _raise_for_auth_or_bad_request(self, response: httpx.Response, action: str) -> None:
@@ -217,6 +223,12 @@ class AmplitudeFlagClient:
             raise AmplitudeFlagError(f"Amplitude management API rejected the API key while trying to {action}")
         if response.status_code == 400:
             raise AmplitudeFlagError(f"Amplitude management API rejected the request to {action}: {response.text}")
+        if response.status_code >= 300:
+            # Callers are told to catch AmplitudeFlagError; letting 403/429/5xx
+            # escape as httpx.HTTPStatusError would bypass that contract.
+            raise AmplitudeFlagError(
+                f"Amplitude management API returned HTTP {response.status_code} while trying to {action}: {response.text}"
+            )
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._api_key}"}

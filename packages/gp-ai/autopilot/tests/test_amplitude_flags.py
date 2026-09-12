@@ -58,13 +58,14 @@ def patch_response() -> MagicMock:
     return response
 
 
-def flag_object(flag_id: str, key: str, enabled: bool, rollout_percentage: float) -> dict:
+def flag_object(flag_id: str, key: str, enabled: bool, rollout_percentage: float, project_id: str = "703396") -> dict:
     return {
         "id": flag_id,
         "key": key,
         "enabled": enabled,
         "rolloutPercentage": rollout_percentage,
         "deleted": False,
+        "projectId": project_id,
     }
 
 
@@ -177,7 +178,7 @@ class TestCreateFreshFlag:
 class TestCreateExistingFlagIsIdempotent:
     def test_existing_flag_is_verified_not_recreated(self):
         dev_flag = flag_object("dev-flag-1", "win-flag", enabled=True, rollout_percentage=100)
-        prod_flag = flag_object("prod-flag-1", "win-flag", enabled=True, rollout_percentage=0)
+        prod_flag = flag_object("prod-flag-1", "win-flag", enabled=True, rollout_percentage=0, project_id="694490")
 
         with (
             patch(
@@ -200,7 +201,7 @@ class TestCreateExistingFlagIsIdempotent:
         # resumed create must report that state, not silently reset it —
         # and definitely must not error.
         dev_flag = flag_object("dev-flag-1", "win-flag", enabled=True, rollout_percentage=100)
-        prod_flag = flag_object("prod-flag-1", "win-flag", enabled=True, rollout_percentage=50)
+        prod_flag = flag_object("prod-flag-1", "win-flag", enabled=True, rollout_percentage=50, project_id="694490")
 
         with (
             patch(
@@ -239,7 +240,7 @@ class TestGetFlagPartialExistence:
                 client.get_flag("win-flag")
 
     def test_present_in_prod_only_raises(self):
-        prod_flag = flag_object("prod-flag-1", "win-flag", enabled=True, rollout_percentage=0)
+        prod_flag = flag_object("prod-flag-1", "win-flag", enabled=True, rollout_percentage=0, project_id="694490")
 
         with patch(
             "autopilot.agent.amplitude_flags.httpx.get",
@@ -264,6 +265,28 @@ class TestErrorHandling:
             client = AmplitudeFlagClient()
             with pytest.raises(AmplitudeFlagError, match="rejected the API key"):
                 client.get_flag("win-flag")
+
+    def test_server_error_on_lookup_raises_amplitude_flag_error(self):
+        response = MagicMock()
+        response.status_code = 503
+        response.text = "service unavailable"
+
+        with patch("autopilot.agent.amplitude_flags.httpx.get", return_value=response):
+            client = AmplitudeFlagClient()
+            with pytest.raises(AmplitudeFlagError, match="HTTP 503"):
+                client.get_flag("win-flag")
+
+    def test_flag_from_another_project_is_ignored(self):
+        # If the projectId query param is not a server-side filter, a key-only
+        # match would report a dev-only flag as existing in prod too.
+        foreign_flag = flag_object("other-1", "win-flag", enabled=True, rollout_percentage=100, project_id="999999")
+
+        with patch(
+            "autopilot.agent.amplitude_flags.httpx.get",
+            side_effect=[list_response(foreign_flag), list_response(foreign_flag)],
+        ):
+            client = AmplitudeFlagClient()
+            assert client.get_flag("win-flag") is None
 
     def test_400_on_create_raises_amplitude_flag_error(self):
         bad_response = MagicMock()
