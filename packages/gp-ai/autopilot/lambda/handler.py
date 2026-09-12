@@ -147,7 +147,12 @@ def verify_webhook_signature(body: str, signature: str) -> bool:
 
 def in_scope_list_ids() -> frozenset[str]:
     raw = os.environ.get("AUTOPILOT_LIST_IDS", "")
-    return frozenset(part.strip() for part in raw.split(",") if part.strip())
+    ids = frozenset(part.strip() for part in raw.split(",") if part.strip())
+    if not ids:
+        # Without this signal a missing env var turns the whole service into a
+        # silent no-op: every event 200-skips as "list not in scope".
+        print("ERROR: No AUTOPILOT_LIST_IDS configured, all events will be dropped")
+    return ids
 
 
 def _status_label(value: Any) -> str | None:

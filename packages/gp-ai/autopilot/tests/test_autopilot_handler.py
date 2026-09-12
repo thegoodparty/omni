@@ -243,6 +243,18 @@ def test_out_of_scope_list_id_is_acked_and_dropped(fake_lambda):
     assert fake_lambda.invoke_calls == []
 
 
+def test_unset_list_ids_env_drops_all_events_and_logs(monkeypatch, fake_lambda, capsys):
+    monkeypatch.delenv("AUTOPILOT_LIST_IDS", raising=False)
+    event = make_event(status_updated_body())
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["skipped"] == "list not in scope"
+    assert fake_lambda.invoke_calls == []
+    assert "ERROR: No AUTOPILOT_LIST_IDS configured" in capsys.readouterr().out
+
+
 def test_missing_list_id_is_acked_and_dropped(fake_lambda):
     event = make_event(status_updated_body(list_id=None))
 
