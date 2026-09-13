@@ -299,3 +299,20 @@ def test_missing_transitioned_at_refuses_dispatch(fake_ecs, capsys):
 
     assert fake_ecs.run_task_calls == []
     assert "refusing to dispatch" in capsys.readouterr().out
+
+
+def test_comment_posted_without_event_ts_refuses_dispatch(fake_ecs, capsys):
+    # A taskCommentPosted delivery with a malformed or missing date yields
+    # comment_trigger_key(None) -> None, which must hit the same guard.
+    event = make_event(
+        STORY_LIST_ID,
+        [],
+        kind="commentPosted",
+        current_status=router.STATUS_FEEDBACK_NEEDED,
+        event_ts=None,
+    )
+
+    handler.route_event(event)
+
+    assert fake_ecs.run_task_calls == []
+    assert "refusing to dispatch" in capsys.readouterr().out
