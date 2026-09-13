@@ -192,6 +192,25 @@ def test_comment_posted_body_without_history_items_carries_event_ts(fake_lambda)
     assert handler.AutopilotEvent.from_payload(payload).event_ts == "1700000099000"
 
 
+def test_numeric_history_item_date_normalizes(fake_lambda):
+    # history_items[].date arrives as a number on some deliveries; dropping
+    # it to None would make the dispatch guard refuse every such transition.
+    body = status_updated_body(
+        history_items=[
+            {
+                "user": {"id": 42},
+                "before": {"status": "open"},
+                "after": {"status": "in progress"},
+                "date": 1700000000000,
+            }
+        ]
+    )
+    handler.handler(make_event(body), None)
+
+    payload = fake_lambda.invoke_payloads[0]
+    assert payload["transitions"][0]["transitioned_at"] == "1700000000000"
+
+
 def test_float_date_and_object_current_status_still_parse(fake_lambda):
     # json.loads can hand back the epoch as a float, and ClickUp status
     # fields arrive as {"status": ...} objects on some surfaces — neither

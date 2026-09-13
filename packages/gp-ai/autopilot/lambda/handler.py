@@ -217,6 +217,18 @@ def _status_label(value: Any) -> str | None:
     return None
 
 
+def _normalize_ts(value: Any) -> str | None:
+    """ClickUp timestamps arrive as epoch-ms strings or numbers (json.loads
+    can yield a float); bool is excluded as an int subclass. A dropped
+    timestamp downstream means a refused dispatch, so every real shape must
+    normalize."""
+    if isinstance(value, str) and value:
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(int(value))
+    return None
+
+
 def parse_history_items(history_items: Any) -> list[StatusTransition]:
     if not isinstance(history_items, list):
         return []
@@ -234,7 +246,7 @@ def parse_history_items(history_items: Any) -> list[StatusTransition]:
                 actor_user_id=actor_user_id,
                 from_status=_status_label(item.get("before")),
                 to_status=_status_label(item.get("after")),
-                transitioned_at=date if isinstance(date, str) else None,
+                transitioned_at=_normalize_ts(date),
             )
         )
     return transitions
@@ -266,17 +278,7 @@ def parse_webhook_event(body: dict) -> AutopilotEvent | None:
     if not isinstance(epic_task_id, str):
         epic_task_id = None
 
-    raw_date = body.get("date")
-    # ClickUp sends the delivery timestamp as an epoch-ms value, sometimes a
-    # string and sometimes a number (json.loads can yield a float); normalize
-    # to a string key. bool is excluded: it is an int subclass but never a
-    # timestamp.
-    if isinstance(raw_date, str) and raw_date:
-        event_ts = raw_date
-    elif isinstance(raw_date, (int, float)) and not isinstance(raw_date, bool):
-        event_ts = str(int(raw_date))
-    else:
-        event_ts = None
+    event_ts = _normalize_ts(body.get("date"))
 
     return AutopilotEvent(
         kind=kind,

@@ -275,3 +275,27 @@ def test_story_done_calls_supervisor_stub_not_fargate(fake_ecs, capsys):
 
     assert fake_ecs.run_task_calls == []
     assert "supervisor not yet implemented" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Guard - missing transitioned_at refuses dispatch without a dedup key
+# ---------------------------------------------------------------------------
+
+
+def test_missing_transitioned_at_refuses_dispatch(fake_ecs, capsys):
+    event = make_event(
+        FEATURE_LIST_ID,
+        [
+            handler.StatusTransition(
+                actor_user_id=HUMAN_USER_ID,
+                from_status=router.STATUS_APPROVED_TDD,
+                to_status=router.STATUS_IN_PROGRESS,
+                transitioned_at=None,
+            )
+        ],
+    )
+
+    handler.route_event(event)
+
+    assert fake_ecs.run_task_calls == []
+    assert "refusing to dispatch" in capsys.readouterr().out
