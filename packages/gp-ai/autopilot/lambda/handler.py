@@ -17,15 +17,46 @@ there is no secrets-outage degrade mode to reproduce either.
 
 import hashlib
 import hmac
+import importlib.util
 import json
 import os
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 import boto3
 from botocore.config import Config
 
 EventKind = Literal["statusUpdated", "taskCreated", "commentPosted"]
+
+
+def _load_sibling_module(stem: str) -> Any:
+    """Loads router.py / dispatch.py from this file's own directory by path.
+
+    A plain `import router` would only work if this Lambda's packaging puts
+    lambda/ on sys.path, which isn't guaranteed across deploy topologies —
+    and definitely isn't true under pytest, where conftest.py loads THIS file
+    the same way (necessary because `lambda` is a keyword, so
+    `autopilot.lambda.handler` cannot be a real dotted import). Loading every
+    module in this directory by path, under one private sys.modules key,
+    works the same way regardless of what's on sys.path, and lets tests
+    monkeypatch the exact module object this handler uses.
+    """
+    module_name = f"autopilot_conductor_{stem}"
+    if module_name in sys.modules:
+        return sys.modules[module_name]
+    module_path = Path(__file__).resolve().parent / f"{stem}.py"
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+router = _load_sibling_module("router")
+dispatch = _load_sibling_module("dispatch")
 
 # ClickUp's own webhook `event` values, mapped to autopilot's internal kind
 # names. Kept as an explicit table (not a string transform) so an event
@@ -93,6 +124,19 @@ class AutopilotEvent:
     task_id: str
     list_id: str | None
     transitions: list[StatusTransition]
+    # Current board status at delivery time. Only meaningful for kinds with
+    # no before/after pair of their own (commentPosted): the router uses it
+    # to catch "a comment landed while the card sits in feedback needed".
+    # task 14's board-schema work owns the real ClickUp field this maps to.
+    current_status: str | None = None
+    # Which epic this card's stage run belongs to (story/qa stages only).
+    # task 14's board-schema work owns the real ClickUp field this maps to
+    # (likely the story's parent task).
+    epic_task_id: str | None = None
+    # Top-level delivery timestamp (ClickUp's `date` on the webhook body).
+    # commentPosted carries no history_items, so this is the only timestamp
+    # available to key that kind's dedup claim.
+    event_ts: str | None = None
 
     def to_payload(self) -> dict[str, Any]:
         # autopilot_async is the internal-dispatch marker handler() checks for
@@ -104,6 +148,9 @@ class AutopilotEvent:
             "task_id": self.task_id,
             "list_id": self.list_id,
             "transitions": [t.to_dict() for t in self.transitions],
+            "current_status": self.current_status,
+            "epic_task_id": self.epic_task_id,
+            "event_ts": self.event_ts,
         }
 
     @classmethod
@@ -113,6 +160,9 @@ class AutopilotEvent:
             task_id=payload["task_id"],
             list_id=payload.get("list_id"),
             transitions=[StatusTransition.from_dict(t) for t in payload.get("transitions", [])],
+            current_status=payload.get("current_status"),
+            epic_task_id=payload.get("epic_task_id"),
+            event_ts=payload.get("event_ts"),
         )
 
 
@@ -167,6 +217,23 @@ def _status_label(value: Any) -> str | None:
     return None
 
 
+def _normalize_ts(value: Any) -> str | None:
+    """ClickUp timestamps arrive as epoch-ms strings or numbers (json.loads
+    can yield a float); bool is excluded as an int subclass. A dropped
+    timestamp downstream means a refused dispatch, so every real shape must
+    normalize."""
+    if isinstance(value, str) and value:
+        # A float-formatted string ("...000.0") must not survive into the
+        # dedup key path where int() would raise and drop the dispatch.
+        try:
+            return str(int(float(value)))
+        except ValueError:
+            return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(int(value))
+    return None
+
+
 def parse_history_items(history_items: Any) -> list[StatusTransition]:
     if not isinstance(history_items, list):
         return []
@@ -184,7 +251,7 @@ def parse_history_items(history_items: Any) -> list[StatusTransition]:
                 actor_user_id=actor_user_id,
                 from_status=_status_label(item.get("before")),
                 to_status=_status_label(item.get("after")),
-                transitioned_at=date if isinstance(date, str) else None,
+                transitioned_at=_normalize_ts(date),
             )
         )
     return transitions
@@ -207,22 +274,81 @@ def parse_webhook_event(body: dict) -> AutopilotEvent | None:
     if not isinstance(list_id, str):
         list_id = None
 
+    # Reuse the history-item normalizer: ClickUp status fields arrive as
+    # either a bare string or a {"status": ...} object depending on the
+    # surface, and commentPosted routing depends entirely on this value.
+    current_status = _status_label(body.get("current_status"))
+
+    epic_task_id = body.get("epic_task_id")
+    if not isinstance(epic_task_id, str):
+        epic_task_id = None
+
+    event_ts = _normalize_ts(body.get("date"))
+
     return AutopilotEvent(
         kind=kind,
         task_id=task_id,
         list_id=list_id,
         transitions=parse_history_items(body.get("history_items")),
+        current_status=current_status,
+        epic_task_id=epic_task_id,
+        event_ts=event_ts,
     )
 
 
 def route_event(event: AutopilotEvent) -> None:
     """Routes a validated autopilot event to the stage-runner pipeline.
 
-    STUBBED for this task — the next task in the epic implements real
-    routing/dispatch. This only logs receipt so the conductor's fast-ack +
-    self-invoke wiring can be exercised end-to-end before routing exists.
+    Maps the parsed event into router.route()'s decoupled shapes, then for
+    each decision either hands it to the (stubbed) supervisor or claims the
+    transition and launches its Fargate stage run. See router.py and
+    dispatch.py for the routing table / gate / claim / dispatch logic
+    itself — this function is just the wiring between them.
     """
-    print(f"Autopilot event received (routing not yet implemented): kind={event.kind} task_id={event.task_id}")
+    routable_event = router.RoutableEvent(
+        kind=event.kind,
+        task_id=event.task_id,
+        list_id=event.list_id,
+        current_status=event.current_status,
+        event_ts=event.event_ts,
+        transitions=[
+            router.Transition(
+                actor_user_id=t.actor_user_id,
+                from_status=t.from_status,
+                to_status=t.to_status,
+                transitioned_at=t.transitioned_at,
+            )
+            for t in event.transitions
+        ],
+    )
+
+    for decision in router.route(routable_event):
+        if decision.to_supervisor:
+            router.dispatch_to_supervisor(decision)
+            continue
+
+        if decision.transitioned_at is None:
+            # A genuine ClickUp delivery for a matched transition always
+            # carries a timestamp; without one there is no stable dedup key
+            # to claim, so refuse rather than dispatch unclaimed.
+            print(
+                "ERROR: routed decision missing transitioned_at, refusing to dispatch: "
+                f"task_id={event.task_id} stage={decision.stage}"
+            )
+            continue
+
+        ceiling = router.STAGE_CEILINGS[decision.stage]
+        epic_task_id = event.epic_task_id if decision.stage in router.EPIC_SCOPED_STAGES else None
+
+        envelope = dispatch.StageEnvelope(
+            stage=decision.stage,
+            task_id=event.task_id,
+            epic_task_id=epic_task_id,
+            model=router.DEFAULT_AGENT_MODEL,
+            max_budget_usd=ceiling.max_budget_usd,
+            deadline_seconds=ceiling.deadline_seconds,
+        )
+        dispatch.dispatch_stage(event.task_id, decision.stage, decision.transitioned_at, envelope)
 
 
 def enqueue_async_processing(autopilot_event: AutopilotEvent) -> bool:

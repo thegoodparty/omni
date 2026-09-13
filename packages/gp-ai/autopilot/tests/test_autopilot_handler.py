@@ -171,6 +171,79 @@ def test_valid_signature_self_invoke_carries_the_parsed_event(fake_lambda):
     ]
 
 
+def test_comment_posted_body_without_history_items_carries_event_ts(fake_lambda):
+    # Production taskCommentPosted deliveries have no history_items; the
+    # top-level date (int or str) must survive into the async payload so the
+    # router can key the resume dedup claim on it.
+    body = {
+        "event": "taskCommentPosted",
+        "task_id": "task-abc123",
+        "list_id": IN_SCOPE_LIST_ID,
+        "date": 1700000099000,
+        "current_status": "feedback needed",
+    }
+    handler.handler(make_event(body), None)
+
+    payload = fake_lambda.invoke_payloads[0]
+    assert payload["kind"] == "commentPosted"
+    assert payload["transitions"] == []
+    assert payload["event_ts"] == "1700000099000"
+    assert payload["current_status"] == "feedback needed"
+    assert handler.AutopilotEvent.from_payload(payload).event_ts == "1700000099000"
+
+
+def test_numeric_history_item_date_normalizes(fake_lambda):
+    # history_items[].date arrives as a number on some deliveries; dropping
+    # it to None would make the dispatch guard refuse every such transition.
+    body = status_updated_body(
+        history_items=[
+            {
+                "user": {"id": 42},
+                "before": {"status": "open"},
+                "after": {"status": "in progress"},
+                "date": 1700000000000,
+            }
+        ]
+    )
+    handler.handler(make_event(body), None)
+
+    payload = fake_lambda.invoke_payloads[0]
+    assert payload["transitions"][0]["transitioned_at"] == "1700000000000"
+
+
+def test_float_string_date_normalizes_and_junk_string_drops(fake_lambda):
+    # A float-formatted STRING date must normalize like a real float, and a
+    # non-numeric string must drop to None rather than raise downstream.
+    for raw, expected in [("1700000099000.0", "1700000099000"), ("not-a-timestamp", None)]:
+        fake_lambda.invoke_calls.clear()
+        body = {
+            "event": "taskCommentPosted",
+            "task_id": "task-abc123",
+            "list_id": IN_SCOPE_LIST_ID,
+            "date": raw,
+        }
+        handler.handler(make_event(body), None)
+        assert fake_lambda.invoke_payloads[0]["event_ts"] == expected
+
+
+def test_float_date_and_object_current_status_still_parse(fake_lambda):
+    # json.loads can hand back the epoch as a float, and ClickUp status
+    # fields arrive as {"status": ...} objects on some surfaces — neither
+    # shape may silently drop the routing signals.
+    body = {
+        "event": "taskCommentPosted",
+        "task_id": "task-abc123",
+        "list_id": IN_SCOPE_LIST_ID,
+        "date": 1700000099000.0,
+        "current_status": {"status": "feedback needed"},
+    }
+    handler.handler(make_event(body), None)
+
+    payload = fake_lambda.invoke_payloads[0]
+    assert payload["event_ts"] == "1700000099000"
+    assert payload["current_status"] == "feedback needed"
+
+
 def test_self_invoke_uses_event_invocation_type(fake_lambda):
     handler.handler(make_event(status_updated_body()), None)
 
