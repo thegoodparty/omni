@@ -444,6 +444,9 @@ jobs:
       - name: apply dev/agent-run-inputs
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/agent-run-inputs
+      - name: apply dev/autopilot-agent-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/autopilot-agent-fargate autopilot-agent-${{ needs.await-checks.outputs.sha }} autopilot-agent-playwright-${{ needs.await-checks.outputs.sha }}
       - name: apply dev/pmf-vpc-endpoints
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/pmf-vpc-endpoints
@@ -480,6 +483,9 @@ jobs:
       - name: reverify dev/agent-run-inputs
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/agent-run-inputs
+      - name: reverify dev/autopilot-agent-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/autopilot-agent-fargate autopilot-agent-${{ needs.await-checks.outputs.sha }} autopilot-agent-playwright-${{ needs.await-checks.outputs.sha }}
       - name: reverify dev/pmf-vpc-endpoints
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-vpc-endpoints
@@ -975,7 +981,7 @@ jobs:
           set -euo pipefail
           found=0; missing=0; absent=""
           # KEEP IN SYNC with the "Build service matrix" step in gp-ai.yml.
-          for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent; do
+          for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent autopilot-agent autopilot-agent-playwright; do
             if aws ecr describe-images --repository-name gp-ai-projects \
                  --image-ids "imageTag=$s-$SHA" --region "$AWS_REGION" >/dev/null 2>&1; then
               found=$((found+1))
@@ -985,10 +991,10 @@ jobs:
           done
           if [ "$missing" -eq 0 ]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
-            echo "All 5 gp-ai images present for $SHA; promoting gp-ai."
+            echo "All 7 gp-ai images present for $SHA; promoting gp-ai."
           elif [ "$found" -eq 0 ]; then
             echo "deploy=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::No gp-ai images for $SHA. gp-ai.yml builds all five on every main push, so for a recent main commit this is UNEXPECTED and means the build failed or never pushed — investigate. It is only expected for a workflow_dispatch of a SHA predating unconditional builds. Skipping gp-ai promotion."
+            echo "::warning::No gp-ai images for $SHA. gp-ai.yml builds all seven on every main push, so for a recent main commit this is UNEXPECTED and means the build failed or never pushed — investigate. It is only expected for a workflow_dispatch of a SHA predating unconditional builds. Skipping gp-ai promotion."
           else
             echo "::error::Partial gp-ai image set for $SHA ($found present,$absent missing). A build failed; refusing to promote a mixed set."
             exit 1
@@ -1062,6 +1068,9 @@ jobs:
       - name: apply prod/agent-run-inputs
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/agent-run-inputs
+      - name: apply prod/autopilot-agent-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/autopilot-agent-fargate autopilot-agent-${{ needs.await-checks.outputs.sha }} autopilot-agent-playwright-${{ needs.await-checks.outputs.sha }}
       - name: apply prod/campaign-plan-lambda
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/campaign-plan-lambda
@@ -1098,6 +1107,9 @@ jobs:
       - name: reverify prod/agent-run-inputs
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/agent-run-inputs
+      - name: reverify prod/autopilot-agent-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/autopilot-agent-fargate autopilot-agent-${{ needs.await-checks.outputs.sha }} autopilot-agent-playwright-${{ needs.await-checks.outputs.sha }}
       - name: reverify prod/campaign-plan-lambda
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/campaign-plan-lambda

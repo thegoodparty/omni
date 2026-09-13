@@ -1,0 +1,20 @@
+# Docker only reads a .dockerignore from the root of the build context. This
+# Dockerfile builds with context=packages/gp-ai (see its header comment), so
+# the file that actually governs this build is packages/gp-ai/.dockerignore
+# one level up — its **/tests/, __pycache__/, and .venv/ patterns are
+# recursive and already exclude the equivalent paths under autopilot/. Its
+# bare *.md / !README.md pair is NOT recursive (an unprefixed *.md only
+# matches at the context root), so nested files like autopilot/README.md and
+# autopilot/agent/stages/*.md pass through either way — which is what you
+# want, since main.py reads the stage *.md files at container run time. This
+# file is a safety net for the same tests/__pycache__/.venv excludes if this
+# Dockerfile is ever built with context=packages/gp-ai/autopilot directly
+# instead.
+__pycache__/
+*.py[cod]
+.venv/
+*.md
+!README.md
+**/tests/
+**/test_*.py
+**/*_test.py
