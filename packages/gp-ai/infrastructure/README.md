@@ -138,6 +138,38 @@ Application Load Balancer              S3 Notification
 - **IAM Roles**: ECS execution and task roles
 - **Security Groups**: ECS task network access
 
+## CI guard: simulated apply-time IAM permissions
+
+`terraform plan` in CI runs with the same deploy role (`github-actions-pulumi-deploy`)
+apply uses, but `plan` never calls the mutating IAM/service APIs that `apply` does —
+so a missing permission only surfaces post-merge, on the release train's real
+`terraform apply`. `scripts/ci-simulate-apply-perms.sh` closes that gap: it reads
+every dev root's plan JSON (written by `ci-plan-root.sh` alongside the human-readable
+plan), maps each planned create/update/delete to the IAM actions and (predicted)
+resource ARN `apply` will call, and runs those through
+`aws iam simulate-principal-policy` against the deploy role. Any action that isn't
+`allowed` fails the PR's `gp-ai` check with a table of exactly what's missing.
+
+The resource type → IAM action/ARN table lives in `scripts/simulate_apply_perms.py`
+and only covers resource types gp-ai's terraform actually creates today; an
+unmapped type logs a visible "no action mapping, skipped" line instead of silently
+passing — extend the table there as new resource types show up. Where the real ARN
+depends on something AWS only assigns at apply time (a random secret suffix, an
+ECS task-definition revision, an ALB's generated ID), the check simulates against
+`*` (or the narrowest real ARN shape available) rather than guessing.
+
+**Fail-open, by design:** if the simulate call itself comes back `AccessDenied` —
+meaning the CI runner lacks `iam:SimulatePrincipalPolicy` /
+`iam:GetContextKeysForPrincipalPolicy` on its own role — the guard prints a loud
+warning and exits 0. It must never brick every PR because of its own bootstrap
+permission; grant those two actions on `github-actions-pulumi-deploy` to itself to
+turn the guard on for real. Any other error (bad input, a role that doesn't exist)
+is NOT treated as fail-open and fails the job.
+
+Run `python3 infrastructure/scripts/simulate_apply_perms.py --self-test` (stdlib
+only, no `uv run` needed) for a self-contained check of the mapping/verdict/
+fail-open logic against canned plan JSON — no AWS credentials required.
+
 ## Deployment Workflow
 
 ### Prerequisites
