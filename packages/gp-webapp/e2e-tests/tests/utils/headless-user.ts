@@ -53,7 +53,12 @@ const isRetriableGatewayError = (error: unknown): boolean => {
   return RETRIABLE_STATUSES.has(status)
 }
 
-const GATEWAY_RETRY_ATTEMPTS = 5
+// 7 attempts against a 20s ceiling ride out up to ~50s of exhausted Clerk
+// budget. The 429 windows this retries through are made by whole concurrent
+// E2E runs (another PR's shards, the release train, the test-user sweep), so
+// they last tens of seconds, not the ~15s the previous 5x8s schedule could
+// survive (ENG-11105). Still well inside the 120s per-test timeout.
+const GATEWAY_RETRY_ATTEMPTS = 7
 
 export const withGatewayRetry = async <T>(
   label: string,
@@ -75,7 +80,7 @@ export const withGatewayRetry = async <T>(
       // window at once, so a purely exponential schedule marches them back in
       // lockstep and they collide again on each attempt; the random half
       // decorrelates them without changing the expected wait.
-      const ceiling = Math.min(1_000 * 2 ** (attempt - 1), 8_000)
+      const ceiling = Math.min(1_000 * 2 ** (attempt - 1), 20_000)
       const backoffMs = Math.round(ceiling / 2 + Math.random() * (ceiling / 2))
       if (process.env.DEBUG) {
         console.log(
