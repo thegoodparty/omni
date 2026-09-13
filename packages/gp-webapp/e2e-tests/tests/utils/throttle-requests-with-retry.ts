@@ -41,7 +41,10 @@ export const throttleRequestsWithRetry = (
     'failed',
     async (error: RateLimitError, jobInfo): Promise<number | void> => {
       if (jobInfo.retryCount < maxRetries && is429(error)) {
-        const retryAfter = error.retryAfter || 1
+        // A missing Retry-After must still wait out the whole rate window:
+        // a 1s fallback would re-hammer an exhausted budget seven times in
+        // one window and burn every retry inside the same burst.
+        const retryAfter = error.retryAfter || 10
         const waitMs = retryAfter * 1000
         console.log(
           `[${label}] 429 hit — attempt ` +
@@ -74,8 +77,13 @@ const CLERK_RATE_WINDOW_MS = 10_000
 // instance and any concurrency at all tips Clerk into 429s, which gp-api
 // surfaces as bare 401s on test setup (ENG-11105). Locally there is one
 // unsharded 4-worker process. The 0.5 safety factor then caps one full run
-// at ~48 req/10s, leaving the other half of the budget for everything else;
-// residual bursts are absorbed by withGatewayRetry's backoff.
+// at ~48 req/10s, leaving the other half of the budget for everything else.
+// Residual bursts are absorbed by retries on both paths: withGatewayRetry
+// covers the gp-api HTTP calls, and this limiter's own 429 retry covers the
+// direct Clerk SDK calls (createUser, createSession, getToken) — Clerk
+// errors are not axios errors, so withGatewayRetry never sees them. 7
+// retries x 10s Retry-After give the SDK path a window comparable to
+// withGatewayRetry's ~51s.
 const TOTAL_RUN_WORKERS = process.env.CI ? 16 : 4
 
 export const clerkThrottle = throttleRequestsWithRetry({
@@ -83,6 +91,6 @@ export const clerkThrottle = throttleRequestsWithRetry({
   windowMs: CLERK_RATE_WINDOW_MS,
   workerCount: TOTAL_RUN_WORKERS,
   safetyFactor: 0.5,
-  maxRetries: 3,
+  maxRetries: 7,
   label: 'clerk-limiter',
 })
