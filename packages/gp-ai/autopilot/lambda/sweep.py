@@ -286,15 +286,22 @@ def handle_sweep(event: dict) -> dict:
             if transition is None:
                 continue
 
+            parent_id = task.get("parent")
+            epic_task_id = parent_id if isinstance(parent_id, str) else None
             routable = router.RoutableEvent(
                 kind="statusUpdated",
                 task_id=task_id,
                 list_id=list_id,
                 current_status=current_status,
                 transitions=[transition],
+                # Without this, a story reaching "done" (card_type STORY_CARD,
+                # no ROUTING_TABLE row involved at all — see router.route()'s
+                # dedicated story-done branch) would route to the supervisor
+                # with RoutingDecision.epic_task_id always None, and
+                # handle_routed_event refuses to act on a decision with no
+                # epic id — silently no-opping this whole backstop path.
+                epic_task_id=epic_task_id,
             )
-            parent_id = task.get("parent")
-            epic_task_id = parent_id if isinstance(parent_id, str) else None
 
             for decision in router.route(routable):
                 if triggered >= cap:

@@ -51,6 +51,12 @@ SLACK_BOT_TOKEN_ENV = "SLACK_BOT_TOKEN"
 SLACK_CHANNEL_ENV = "AUTOPILOT_SLACK_CHANNEL"
 
 EPIC_CLAIM_PREFIX = "epic#"
+EPIC_CLOSE_OUT_PREFIX = "epic-closed#"
+# Long-lived, unlike the in-flight claim's TTL: close-out is a one-time
+# terminal action, not a per-run transition with a natural deadline to size
+# a TTL against. 30 days comfortably outlives any operator's incident
+# window while still letting the table eventually reclaim the item.
+EPIC_CLOSE_OUT_TTL_SECONDS = 30 * 24 * 60 * 60
 
 
 def _load_sibling_module(stem: str) -> Any:
@@ -199,6 +205,18 @@ def load_epic_stories(epic_task_id: str) -> list[Story]:
 # ---------------------------------------------------------------------------
 
 
+def _order_key(order_index: str) -> float:
+    # ClickUp's real orderindex is a large decimal-like string (a Trello-
+    # style fractional position, not a small sequential integer), so a plain
+    # string sort would misorder it past a handful of stories — "10" sorts
+    # before "2" lexicographically. Parse numerically; an unparseable value
+    # (missing/malformed) sorts last rather than crashing the tick.
+    try:
+        return float(order_index)
+    except ValueError:
+        return float("inf")
+
+
 def select_next_story(stories: list[Story]) -> Story | None:
     done_ids = {s.task_id for s in stories if s.is_done}
     candidates = [s for s in stories if s.status == router.STATUS_TO_DO and s.depends_on <= done_ids]
@@ -209,7 +227,7 @@ def select_next_story(stories: list[Story]) -> Story | None:
     # "Dependency links first": prefer a candidate that unblocks the most
     # other not-yet-done work, board order (orderindex) only as the tiebreak.
     blocks_count = {c.task_id: sum(1 for s in not_done if c.task_id in s.depends_on) for c in candidates}
-    return sorted(candidates, key=lambda c: (-blocks_count[c.task_id], c.order_index))[0]
+    return sorted(candidates, key=lambda c: (-blocks_count[c.task_id], _order_key(c.order_index)))[0]
 
 
 # ---------------------------------------------------------------------------
@@ -322,27 +340,34 @@ def get_epic_claim_item(epic_task_id: str) -> dict | None:
     return item if isinstance(item, dict) else None
 
 
-def mark_epic_claim_alerted(epic_task_id: str) -> None:
-    """Unconditionally (re-)writes the epic claim item with alerted_at set,
-    rather than an UpdateItem gated on the item already existing. A story
-    can be discovered already in flight (e.g. a manual ClickUp drag, or a
-    dispatch whose claim write failed) with NO claim item ever written for
-    it — an UpdateItem there would either upsert a pk with no expires_at
-    (permanently jamming claim_epic_in_flight's own condition, which can
-    never be satisfied against a missing expires_at) or, conditioned on
-    existence, silently no-op every tick and alert on every single sweep
-    pass forever. A full PutItem sidesteps both: it always leaves a valid,
-    TTL'd claim behind, and overwriting an existing one only EXTENDS its
-    protection window (recomputed fresh from now), never shortens it.
+def try_claim_stall_alert(epic_task_id: str) -> bool:
+    """Atomically claims the right to post ONE stall alert for this epic.
+    Returns whether this call won. The DynamoDB write happens BEFORE the
+    Slack post (see check_for_stalls) rather than after a separate read
+    that decided whether to post: a webhook-triggered tick and the sweep's
+    own unconditional per-executing-card pass (sweep.py) can run against the
+    same epic at effectively the same time, and a read-then-write here would
+    let both see "not yet alerted" and both post.
+
+    A full PutItem, not an UpdateItem gated on the item already existing: a
+    story can be discovered already in flight (e.g. a manual ClickUp drag,
+    or a dispatch whose claim write failed) with NO claim item ever written
+    for it, and an UpdateItem there would either upsert a pk with no
+    expires_at (permanently jamming claim_epic_in_flight's own condition,
+    which can never be satisfied against a missing expires_at) or,
+    conditioned on existence, silently never claim and alert on every single
+    tick forever. The condition below covers both "no item yet" and "item
+    exists but has not alerted yet" in one atomic write, and preserves
+    story_task_id from any existing claim: overwriting it away would make
+    the NEXT tick's claimed_story_task_id read back None, forgetting which
+    story this claim is protecting and letting that tick dispatch a
+    duplicate for a story that is stalled, not finished.
     """
     table_name = os.environ.get("AUTOPILOT_DEDUP_TABLE")
     if not table_name:
-        return
+        print("ERROR: AUTOPILOT_DEDUP_TABLE not configured; refusing to alert")
+        return False
 
-    # Preserve story_task_id from any existing claim: overwriting it away
-    # here would make the NEXT tick's claimed_story_task_id read back None,
-    # forgetting which story this claim is protecting and letting that tick
-    # dispatch a duplicate for a story that is stalled, not finished.
     existing = get_epic_claim_item(epic_task_id)
     item = {
         "pk": {"S": epic_claim_pk(epic_task_id)},
@@ -354,9 +379,20 @@ def mark_epic_claim_alerted(epic_task_id: str) -> None:
         item["story_task_id"] = existing["story_task_id"]
 
     try:
-        dispatch.get_dynamodb_client().put_item(TableName=table_name, Item=item)
+        dispatch.get_dynamodb_client().put_item(
+            TableName=table_name,
+            Item=item,
+            ConditionExpression="attribute_not_exists(pk) OR attribute_not_exists(alerted_at)",
+        )
+        return True
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            return False  # another tick already claimed this alert
+        print(f"ERROR: failed to record stall alert for {epic_task_id}: {type(e).__name__}")
+        return False
     except Exception as e:
         print(f"ERROR: failed to record stall alert for {epic_task_id}: {type(e).__name__}")
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -432,16 +468,66 @@ def check_for_stalls(epic_task_id: str, stories: list[Story]) -> None:
         elapsed = _seconds_in_current_status(story.task_id)
         if elapsed is None or elapsed < ttl:
             continue
-        claim_item = get_epic_claim_item(epic_task_id)
-        if claim_item is not None and "alerted_at" in claim_item:
-            continue  # already alerted once for this in-flight story
-        post_stall_alert(epic_task_id, story)
-        mark_epic_claim_alerted(epic_task_id)
+        # Claim first, post second: see try_claim_stall_alert for why this
+        # order (not a read-then-decide) is what makes "exactly one alert"
+        # hold under two ticks racing on the same stalled story.
+        if try_claim_stall_alert(epic_task_id):
+            post_stall_alert(epic_task_id, story)
 
 
 # ---------------------------------------------------------------------------
 # Close-out
 # ---------------------------------------------------------------------------
+
+
+def epic_close_out_pk(epic_task_id: str) -> str:
+    return f"{EPIC_CLOSE_OUT_PREFIX}{epic_task_id}"
+
+
+def claim_epic_close_out(epic_task_id: str) -> str | None:
+    """Conditionally claims "this epic has started closing out" so a
+    redelivered webhook or an overlapping tick (the story-done path carries
+    no per-transition dedup claim of its own, unlike a Fargate stage
+    dispatch) can never file a second flag-cleanup ticket or post a second
+    Slack summary for the same epic. None = this call won the claim and
+    must proceed; a non-None string is the failure reason
+    ("already closed" | "dedup table not configured" | "dedup table
+    unavailable") — the caller must not proceed either way."""
+    table_name = os.environ.get("AUTOPILOT_DEDUP_TABLE")
+    if not table_name:
+        print("ERROR: AUTOPILOT_DEDUP_TABLE not configured; refusing epic close-out")
+        return "dedup table not configured"
+
+    pk = epic_close_out_pk(epic_task_id)
+    expires_at = int(time.time() + EPIC_CLOSE_OUT_TTL_SECONDS)
+    try:
+        dispatch.get_dynamodb_client().put_item(
+            TableName=table_name,
+            Item={"pk": {"S": pk}, "epic_task_id": {"S": epic_task_id}, "expires_at": {"N": str(expires_at)}},
+            ConditionExpression="attribute_not_exists(pk)",
+        )
+        return None
+    except ClientError as e:
+        if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            print(f"Epic already closed out, skipping duplicate close-out: {pk}")
+            return "already closed"
+        print(f"ERROR: dedup table unavailable, refusing epic close-out: {e}")
+        return "dedup table unavailable"
+    except Exception as e:
+        print(f"ERROR: dedup table unavailable, refusing epic close-out: {e}")
+        return "dedup table unavailable"
+
+
+def release_epic_close_out_claim(epic_task_id: str) -> None:
+    table_name = os.environ.get("AUTOPILOT_DEDUP_TABLE")
+    if not table_name:
+        return
+    try:
+        dispatch.get_dynamodb_client().delete_item(
+            TableName=table_name, Key={"pk": {"S": epic_close_out_pk(epic_task_id)}}
+        )
+    except Exception as e:
+        print(f"ERROR: failed to release epic close-out claim for {epic_task_id}: {type(e).__name__}")
 
 
 def file_flag_cleanup_ticket(epic_task_id: str) -> str | None:
@@ -485,6 +571,21 @@ def post_close_out_summary(epic_task_id: str, cleanup_task_id: str | None) -> No
 
 
 def close_out_epic(epic_task_id: str) -> None:
+    """Runs exactly once per epic. Reached from two call sites in
+    run_supervisor_tick (both once nothing is left in flight, and both fed
+    purely by ClickUp's own story statuses — neither the epic-in-flight
+    claim nor its own release protects a duplicate CALL to this function),
+    and the story-done path that lands here carries no dedup claim of its
+    own the way a Fargate stage dispatch does. A redelivered webhook for the
+    final story reaching done, or a webhook tick racing an overlapping sweep
+    tick, would otherwise file a second flag-cleanup ticket and post a
+    second Slack summary — claim_epic_close_out is this function's own,
+    dedicated guard against exactly that.
+    """
+    claim_reason = claim_epic_close_out(epic_task_id)
+    if claim_reason is not None:
+        return
+
     release_epic_claim(epic_task_id)
     try:
         move_task_status(epic_task_id, router.STATUS_DONE)
@@ -492,8 +593,10 @@ def close_out_epic(epic_task_id: str) -> None:
         # Don't file a cleanup ticket or announce completion for a card that
         # was never actually marked done — a partial close-out would be
         # worse than none (a "complete" Slack post for a card still sitting
-        # in executing).
+        # in executing). Release the claim too: nothing real happened yet,
+        # so a later tick must be free to retry the whole close-out.
         print(f"ERROR: failed to move epic {epic_task_id} to done: {type(e).__name__}")
+        release_epic_close_out_claim(epic_task_id)
         return
     cleanup_task_id = file_flag_cleanup_ticket(epic_task_id)
     post_close_out_summary(epic_task_id, cleanup_task_id)

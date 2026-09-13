@@ -25,16 +25,27 @@ class FakeDynamoDBClient:
     def __init__(self):
         self.items: dict[str, dict] = {}
 
+    # supervisor.py uses three distinct ConditionExpression strings across
+    # its three DynamoDB claims (in-flight, stall-alert, close-out) — each
+    # must be evaluated on its own real semantics, not one blanket rule, or
+    # this fake would validate atomicity the production code doesn't
+    # actually have.
     def put_item(self, TableName, Item, ConditionExpression=None, **kwargs):
         pk = Item["pk"]["S"]
         existing = self.items.get(pk)
-        now = int(time.time())
-        # Real DynamoDB only enforces a ConditionExpression when one is
-        # given — an unconditional PutItem (mark_epic_claim_alerted) always
-        # overwrites, same as production.
-        if ConditionExpression is not None and existing is not None and int(existing["expires_at"]["N"]) >= now:
+        if ConditionExpression is not None and not self._condition_met(ConditionExpression, existing):
             raise ClientError({"Error": {"Code": "ConditionalCheckFailedException", "Message": "claimed"}}, "PutItem")
         self.items[pk] = Item
+
+    def _condition_met(self, expression, existing):
+        now = int(time.time())
+        if expression == "attribute_not_exists(pk)":
+            return existing is None
+        if expression == "attribute_not_exists(pk) OR #exp < :now":
+            return existing is None or int(existing["expires_at"]["N"]) < now
+        if expression == "attribute_not_exists(pk) OR attribute_not_exists(alerted_at)":
+            return existing is None or "alerted_at" not in existing
+        raise AssertionError(f"fake does not know how to evaluate condition: {expression!r}")
 
     def get_item(self, TableName, Key, **kwargs):
         item = self.items.get(Key["pk"]["S"])
@@ -42,14 +53,6 @@ class FakeDynamoDBClient:
 
     def delete_item(self, TableName, Key, **kwargs):
         self.items.pop(Key["pk"]["S"], None)
-
-    def update_item(self, TableName, Key, UpdateExpression, ExpressionAttributeValues, ConditionExpression=None):
-        pk = Key["pk"]["S"]
-        if pk not in self.items:
-            raise ClientError(
-                {"Error": {"Code": "ConditionalCheckFailedException", "Message": "missing"}}, "UpdateItem"
-            )
-        self.items[pk]["alerted_at"] = ExpressionAttributeValues[":now"]
 
 
 class FakeECSClient:
@@ -161,6 +164,18 @@ def register_epic(fake_clickup, story_ids, stories):
 # ---------------------------------------------------------------------------
 # Next-story selection
 # ---------------------------------------------------------------------------
+
+
+def test_select_next_story_orders_numerically_not_lexicographically():
+    # ClickUp's real orderindex is a large decimal-like string, not a small
+    # sequential integer — "10" must sort AFTER "2", where a plain string
+    # sort would put it first.
+    stories = [
+        supervisor.Story("s10", router.STATUS_TO_DO, "10", frozenset()),
+        supervisor.Story("s2", router.STATUS_TO_DO, "2", frozenset()),
+    ]
+
+    assert supervisor.select_next_story(stories).task_id == "s2"
 
 
 def test_select_next_story_prefers_board_order_when_no_dependencies():
@@ -370,6 +385,31 @@ def test_all_done_closes_out_epic(fake_clickup, fake_ecs):
     assert "cleanup-1" in fake_clickup.slack_posts[0]["text"] or "complete" in fake_clickup.slack_posts[0]["text"]
 
 
+def test_redelivered_story_done_event_does_not_double_close_out(fake_clickup, fake_ecs):
+    # A redelivered webhook (or a webhook tick racing an overlapping sweep
+    # tick) can call run_supervisor_tick for an already-closed-out epic a
+    # second time — the story-done path carries no per-transition dedup
+    # claim of its own (unlike a Fargate stage dispatch), so close_out_epic
+    # is the only guard against filing a second cleanup ticket and posting
+    # a second Slack summary.
+    register_epic(
+        fake_clickup,
+        ["s1"],
+        {"s1": story_task("s1", router.STATUS_DONE)},
+    )
+    fake_clickup.responses[f"/task/{EPIC_ID}"] = {"id": EPIC_ID, "name": "Ship the thing", "list": {"id": "list-1"}}
+    fake_clickup.responses["/list/list-1/task"] = {"id": "cleanup-1"}
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+    supervisor.run_supervisor_tick(EPIC_ID)
+
+    move_calls = [c for c in fake_clickup.calls if c[0] == "PUT" and c[1] == f"/task/{EPIC_ID}"]
+    cleanup_calls = [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"]
+    assert len(move_calls) == 1
+    assert len(cleanup_calls) == 1
+    assert len(fake_clickup.slack_posts) == 1
+
+
 def test_empty_backlog_none_in_flight_none_unblocked_closes_out(fake_clickup, fake_ecs):
     # Every story already done — nothing left to dispatch and nothing in
     # flight. This is the same "empty backlog" path as test_all_done, kept
@@ -400,9 +440,47 @@ def test_close_out_failure_does_not_file_cleanup_ticket_or_announce(fake_clickup
     assert "ERROR: failed to move epic" in capsys.readouterr().out
 
 
+def test_close_out_retries_after_a_failed_move(fake_clickup, fake_ecs):
+    # The close-out claim only PROTECTS a completed close-out; a move that
+    # fails before anything real happened must release it, or a genuinely
+    # transient ClickUp outage would permanently strand the epic un-closed.
+    register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_DONE)})
+    attempts = []
+
+    def flaky_move(method, endpoint, data):
+        if method == "PUT":
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise RuntimeError("ClickUp unavailable")
+            return {}
+        return {"id": EPIC_ID, "name": "Epic", "list": {"id": "list-1"}}
+
+    fake_clickup.responses[f"/task/{EPIC_ID}"] = flaky_move
+    fake_clickup.responses["/list/list-1/task"] = {"id": "cleanup-1"}
+
+    supervisor.run_supervisor_tick(EPIC_ID)  # fails, must not strand the claim
+    supervisor.run_supervisor_tick(EPIC_ID)  # retries and succeeds
+
+    assert len(attempts) == 2
+    assert len(fake_clickup.slack_posts) == 1
+
+
 # ---------------------------------------------------------------------------
 # Stall detection
 # ---------------------------------------------------------------------------
+
+
+def test_try_claim_stall_alert_is_atomic_across_racing_ticks(fake_dynamodb):
+    # Models a webhook tick and the sweep's own unconditional
+    # per-executing-card pass racing on the same stalled story: both would
+    # see "not yet alerted" under a read-then-write design. The claim itself
+    # must be the single source of truth, so only the first of two
+    # back-to-back calls may win.
+    first = supervisor.try_claim_stall_alert(EPIC_ID)
+    second = supervisor.try_claim_stall_alert(EPIC_ID)
+
+    assert first is True
+    assert second is False
 
 
 def test_stalled_story_alerts_once_across_repeated_sweeps(fake_clickup, fake_ecs):

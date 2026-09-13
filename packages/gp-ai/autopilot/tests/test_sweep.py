@@ -289,6 +289,7 @@ def test_story_done_hands_off_to_supervisor_not_fargate(fake_clickup, fake_ecs, 
     assert fake_ecs.run_task_calls == []
     assert len(calls) == 1
     assert calls[0].task_id == "story-1"
+    assert calls[0].epic_task_id == "epic-1"
 
 
 # ---------------------------------------------------------------------------
