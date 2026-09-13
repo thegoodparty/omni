@@ -211,6 +211,21 @@ def test_numeric_history_item_date_normalizes(fake_lambda):
     assert payload["transitions"][0]["transitioned_at"] == "1700000000000"
 
 
+def test_float_string_date_normalizes_and_junk_string_drops(fake_lambda):
+    # A float-formatted STRING date must normalize like a real float, and a
+    # non-numeric string must drop to None rather than raise downstream.
+    for raw, expected in [("1700000099000.0", "1700000099000"), ("not-a-timestamp", None)]:
+        fake_lambda.invoke_calls.clear()
+        body = {
+            "event": "taskCommentPosted",
+            "task_id": "task-abc123",
+            "list_id": IN_SCOPE_LIST_ID,
+            "date": raw,
+        }
+        handler.handler(make_event(body), None)
+        assert fake_lambda.invoke_payloads[0]["event_ts"] == expected
+
+
 def test_float_date_and_object_current_status_still_parse(fake_lambda):
     # json.loads can hand back the epoch as a float, and ClickUp status
     # fields arrive as {"status": ...} objects on some surfaces — neither

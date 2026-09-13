@@ -223,7 +223,12 @@ def _normalize_ts(value: Any) -> str | None:
     timestamp downstream means a refused dispatch, so every real shape must
     normalize."""
     if isinstance(value, str) and value:
-        return value
+        # A float-formatted string ("...000.0") must not survive into the
+        # dedup key path where int() would raise and drop the dispatch.
+        try:
+            return str(int(float(value)))
+        except ValueError:
+            return None
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return str(int(value))
     return None
