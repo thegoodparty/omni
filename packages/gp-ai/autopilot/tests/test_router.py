@@ -41,6 +41,7 @@ def event(
     current_status=None,
     transitions=None,
     event_ts=None,
+    epic_task_id=None,
 ):
     return router.RoutableEvent(
         kind=kind,
@@ -49,6 +50,7 @@ def event(
         current_status=current_status,
         transitions=transitions or [],
         event_ts=event_ts,
+        epic_task_id=epic_task_id,
     )
 
 
@@ -259,10 +261,11 @@ def test_comment_posted_on_feature_card_dispatches_nothing():
 # ---------------------------------------------------------------------------
 
 
-def test_story_done_routes_to_supervisor_stub(capsys):
+def test_story_done_routes_to_supervisor_with_its_epic(monkeypatch):
     e = event(
         list_id=STORY_LIST_ID,
         transitions=[transition(HUMAN_USER_ID, router.STATUS_QA, router.STATUS_DONE)],
+        epic_task_id="epic-7",
     )
 
     decisions = router.route(e)
@@ -270,11 +273,46 @@ def test_story_done_routes_to_supervisor_stub(capsys):
     assert len(decisions) == 1
     assert decisions[0].to_supervisor is True
     assert decisions[0].stage == router.STAGE_SUPERVISOR
+    assert decisions[0].epic_task_id == "epic-7"
+
+    # dispatch_to_supervisor's actual epic-conductor logic is exercised in
+    # test_supervisor.py; here it is enough to confirm router hands the
+    # decision to whichever module _load_supervisor_module resolves.
+    calls = []
+    fake_supervisor = type("FakeSupervisor", (), {"handle_routed_event": staticmethod(calls.append)})()
+    monkeypatch.setattr(router, "_load_supervisor_module", lambda: fake_supervisor)
 
     router.dispatch_to_supervisor(decisions[0])
-    out = capsys.readouterr().out
-    assert "supervisor not yet implemented" in out
-    assert "task-1" in out
+
+    assert calls == [decisions[0]]
+
+
+def test_breakdown_review_to_executing_dispatches_to_supervisor_with_own_id():
+    # The feature card IS the epic here — no separate epic_task_id field to
+    # read, unlike a story-done decision.
+    e = event(
+        list_id=FEATURE_LIST_ID,
+        task_id="epic-42",
+        transitions=[transition(HUMAN_USER_ID, router.STATUS_BREAKDOWN_REVIEW, router.STATUS_EXECUTING)],
+    )
+
+    decisions = router.route(e)
+
+    assert len(decisions) == 1
+    assert decisions[0].to_supervisor is True
+    assert decisions[0].stage == router.STAGE_SUPERVISOR
+    assert decisions[0].epic_task_id == "epic-42"
+
+
+def test_breakdown_review_to_executing_by_bot_dispatches_nothing():
+    # STATUS_EXECUTING is in GATE_TO_STATUSES; the human-actor gate applies
+    # to the supervisor kickoff exactly like every other gated transition.
+    e = event(
+        list_id=FEATURE_LIST_ID,
+        transitions=[transition(BOT_USER_ID, router.STATUS_BREAKDOWN_REVIEW, router.STATUS_EXECUTING)],
+    )
+
+    assert router.route(e) == []
 
 
 def test_story_done_by_bot_still_routes_to_supervisor_stub():

@@ -311,6 +311,7 @@ def route_event(event: AutopilotEvent) -> None:
         list_id=event.list_id,
         current_status=event.current_status,
         event_ts=event.event_ts,
+        epic_task_id=event.epic_task_id,
         transitions=[
             router.Transition(
                 actor_user_id=t.actor_user_id,
@@ -401,6 +402,12 @@ def handle_async_processing(event: dict) -> dict:
 
 
 def handler(event: dict, context: Any) -> dict:
+    # INTERNAL SWEEP DISPATCH: .github/workflows/autopilot-sweep.yml invokes
+    # this function directly with {"autopilot_sweep": true} on a cron. Same
+    # unspoofable-through-the-ALB reasoning as the async marker below.
+    if event.get("autopilot_sweep") and "headers" not in event and "requestContext" not in event:
+        return sweep.handle_sweep(event)
+
     # INTERNAL ASYNC DISPATCH: the fast-ack path re-invokes this same function
     # asynchronously with {"autopilot_async": true, ...}. Only dispatch to the
     # trusted worker path when the marker is top-level AND the event carries
@@ -452,3 +459,15 @@ def handler(event: dict, context: Any) -> dict:
         "statusCode": 200,
         "body": json.dumps({"status": "accepted", "task_id": autopilot_event.task_id, "kind": autopilot_event.kind}),
     }
+
+
+# Loaded here, at the very BOTTOM of the file rather than alongside router/
+# dispatch above: both supervisor.py and sweep.py load handler.py back (for
+# _normalize_ts/_status_label) using the exact same by-path loader. That is
+# only safe because every name they read off this module — every function
+# above this line — is already bound by the time either is first loaded. Load
+# them any earlier and a nested handler-loads-supervisor-loads-handler
+# reentry would hand supervisor.py a handler module that has not defined
+# those functions yet.
+supervisor = _load_sibling_module("supervisor")
+sweep = _load_sibling_module("sweep")

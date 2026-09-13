@@ -40,3 +40,8 @@ def _load(stem: str, module_name: str) -> None:
 _load("router", "autopilot_conductor_router")
 _load("dispatch", "autopilot_conductor_dispatch")
 _load("handler", "autopilot_conductor_handler")
+# Loaded by handler.py itself as a side effect of the line above (see the
+# comment at the bottom of handler.py) — these two calls are then no-ops that
+# just register the names explicitly, the same way router/dispatch are above.
+_load("supervisor", "autopilot_conductor_supervisor")
+_load("sweep", "autopilot_conductor_sweep")
