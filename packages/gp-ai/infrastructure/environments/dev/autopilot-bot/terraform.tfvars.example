@@ -1,8 +1,9 @@
 # autopilot-bot dev variables
 #
-# The defaults in main.tf are already correct for a clean dev apply — you do
-# NOT need a terraform.tfvars file. This example exists only to document the
-# variables, and to show what to set once task 14 supplies real board IDs.
+# The real board/Slack values are wired in terraform.auto.tfvars (committed —
+# see that file and this directory's README.md), so you do NOT need a
+# terraform.tfvars file for a normal dev apply. This example exists only to
+# document the variables and their placeholder defaults in main.tf.
 
 # Comma-separated ClickUp list IDs in scope. Placeholder default "" means
 # every webhook event 200-skips as "list not in scope" until this is set.

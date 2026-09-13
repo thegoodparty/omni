@@ -84,6 +84,7 @@ def env(monkeypatch):
     monkeypatch.setenv("AUTOPILOT_DEDUP_TABLE", "autopilot-dedup-test")
     monkeypatch.setenv("ECS_CLUSTER_ARN", "arn:aws:ecs:us-west-2:1:cluster/autopilot")
     monkeypatch.setenv("ECS_TASK_DEFINITION", "autopilot-agent:1")
+    monkeypatch.setenv("ECS_TASK_DEFINITION_PLAYWRIGHT", "autopilot-agent-playwright:1")
     monkeypatch.setenv("SUBNET_IDS", "subnet-1,subnet-2")
     monkeypatch.setenv("SECURITY_GROUP_ID", "sg-1")
     monkeypatch.setenv("AUTOPILOT_CLICKUP_API_KEY", "test-clickup-key")
