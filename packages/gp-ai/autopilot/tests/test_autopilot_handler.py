@@ -180,6 +180,7 @@ def test_comment_posted_body_without_history_items_carries_event_ts(fake_lambda)
         "task_id": "task-abc123",
         "list_id": IN_SCOPE_LIST_ID,
         "date": 1700000099000,
+        "current_status": "feedback needed",
     }
     handler.handler(make_event(body), None)
 
@@ -187,7 +188,26 @@ def test_comment_posted_body_without_history_items_carries_event_ts(fake_lambda)
     assert payload["kind"] == "commentPosted"
     assert payload["transitions"] == []
     assert payload["event_ts"] == "1700000099000"
+    assert payload["current_status"] == "feedback needed"
     assert handler.AutopilotEvent.from_payload(payload).event_ts == "1700000099000"
+
+
+def test_float_date_and_object_current_status_still_parse(fake_lambda):
+    # json.loads can hand back the epoch as a float, and ClickUp status
+    # fields arrive as {"status": ...} objects on some surfaces — neither
+    # shape may silently drop the routing signals.
+    body = {
+        "event": "taskCommentPosted",
+        "task_id": "task-abc123",
+        "list_id": IN_SCOPE_LIST_ID,
+        "date": 1700000099000.0,
+        "current_status": {"status": "feedback needed"},
+    }
+    handler.handler(make_event(body), None)
+
+    payload = fake_lambda.invoke_payloads[0]
+    assert payload["event_ts"] == "1700000099000"
+    assert payload["current_status"] == "feedback needed"
 
 
 def test_self_invoke_uses_event_invocation_type(fake_lambda):

@@ -257,9 +257,10 @@ def parse_webhook_event(body: dict) -> AutopilotEvent | None:
     if not isinstance(list_id, str):
         list_id = None
 
-    current_status = body.get("current_status")
-    if not isinstance(current_status, str):
-        current_status = None
+    # Reuse the history-item normalizer: ClickUp status fields arrive as
+    # either a bare string or a {"status": ...} object depending on the
+    # surface, and commentPosted routing depends entirely on this value.
+    current_status = _status_label(body.get("current_status"))
 
     epic_task_id = body.get("epic_task_id")
     if not isinstance(epic_task_id, str):
@@ -267,8 +268,15 @@ def parse_webhook_event(body: dict) -> AutopilotEvent | None:
 
     raw_date = body.get("date")
     # ClickUp sends the delivery timestamp as an epoch-ms value, sometimes a
-    # string and sometimes a number; normalize to a string key.
-    event_ts = str(raw_date) if isinstance(raw_date, (str, int)) and str(raw_date) else None
+    # string and sometimes a number (json.loads can yield a float); normalize
+    # to a string key. bool is excluded: it is an int subclass but never a
+    # timestamp.
+    if isinstance(raw_date, str) and raw_date:
+        event_ts = raw_date
+    elif isinstance(raw_date, (int, float)) and not isinstance(raw_date, bool):
+        event_ts = str(int(raw_date))
+    else:
+        event_ts = None
 
     return AutopilotEvent(
         kind=kind,

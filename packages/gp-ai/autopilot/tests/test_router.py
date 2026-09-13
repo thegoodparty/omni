@@ -307,3 +307,6 @@ def test_stage_ceilings_match_ticket_defaults():
     assert router.STAGE_CEILINGS[router.STAGE_EPIC_CREATE] == router.StageCeiling(10.0, 30 * 60)
     assert router.STAGE_CEILINGS[router.STAGE_STORY] == router.StageCeiling(15.0, 45 * 60)
     assert router.STAGE_CEILINGS[router.STAGE_QA] == router.StageCeiling(8.0, 30 * 60)
+    # resume inherits story's ceiling by design (the ticket carves out no
+    # separate budget for it) — a change to either side must break this.
+    assert router.STAGE_CEILINGS[router.STAGE_RESUME] == router.STAGE_CEILINGS[router.STAGE_STORY]
