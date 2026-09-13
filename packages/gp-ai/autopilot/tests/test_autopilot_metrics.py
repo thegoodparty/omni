@@ -74,6 +74,25 @@ class TestOutcomes:
 
         assert fields["outcome"] == "error"
 
+    def test_a_run_that_parked_for_feedback_reports_that_outcome_not_success(self):
+        parked_result = dict(SUCCESS_RESULT, parked_stage="epic-create")
+
+        fields = parsed(format_metric_line(parked_result, "epic-create", 90.0))
+
+        assert fields["outcome"] == "feedback_parked"
+        # Parking is still a clean, billable run — its cost is not discarded
+        # just because the outcome label changed.
+        assert fields["cost_usd"] == 3.71
+
+    def test_parked_stage_on_a_failed_run_does_not_claim_a_clean_park(self):
+        # apply_park_outcome only ever tags a successful run (see
+        # autopilot.agent.feedback), but this pins the metric's own half of
+        # that contract: a non-success status always wins over a stray
+        # parked_stage field.
+        fields = parsed(format_metric_line(dict(GENERIC_ERROR_RESULT, parked_stage="epic-create"), "epic-create", 12.0))
+
+        assert fields["outcome"] == "error"
+
 
 class TestUnknownIsNotZero:
     def test_a_missing_cost_is_null_rather_than_free(self):
