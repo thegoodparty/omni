@@ -80,11 +80,14 @@ def claim_pk(task_id: str, stage: str, transitioned_at: str) -> str:
     return f"{task_id}#{stage}#{transitioned_at}"
 
 
-def claim_transition(task_id: str, stage: str, transitioned_at: str, ttl_seconds: float) -> bool:
+def claim_transition(task_id: str, stage: str, transitioned_at: str, ttl_seconds: float) -> str | None:
     """Conditionally claims (task_id, stage, transition timestamp) so retries
-    and sweeps can never double-dispatch. True = this call won the claim and
-    must proceed with the launch; False = already claimed, or the table is
-    unusable — either way the caller must not launch.
+    and sweeps can never double-dispatch. None = this call won the claim and
+    must proceed with the launch; a non-None string is the failure reason
+    ("already claimed", "dedup table not configured", "dedup table
+    unavailable") — either way the caller must not launch. Distinct reasons
+    matter operationally: a missing env var must not read as a phantom
+    duplicate in CloudWatch.
 
     The transition timestamp in the key is deliberate: a genuine human
     re-entry (a fresh status transition) gets a fresh key, rather than being
@@ -101,7 +104,7 @@ def claim_transition(task_id: str, stage: str, transitioned_at: str, ttl_seconds
         # check), this claim is autopilot's ONLY dedup layer — see module
         # docstring. Fails CLOSED on purpose.
         print("ERROR: AUTOPILOT_DEDUP_TABLE not configured; refusing to dispatch")
-        return False
+        return "dedup table not configured"
 
     pk = claim_pk(task_id, stage, transitioned_at)
     expires_at = int(time.time() + ttl_seconds)
@@ -118,19 +121,19 @@ def claim_transition(task_id: str, stage: str, transitioned_at: str, ttl_seconds
             ExpressionAttributeNames={"#exp": "expires_at"},
             ExpressionAttributeValues={":now": {"N": str(int(time.time()))}},
         )
-        return True
+        return None
     except ClientError as e:
         # Match on Error.Code, not the exception class: boto3 raises
         # factory-generated subclasses, and the code string is the stable
         # contract.
         if e.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
             print(f"Transition already claimed, skipping dispatch: {pk}")
-            return False
+            return "already claimed"
         print(f"ERROR: dedup table unavailable, refusing to dispatch: {e}")
-        return False
+        return "dedup table unavailable"
     except Exception as e:
         print(f"ERROR: dedup table unavailable, refusing to dispatch: {e}")
-        return False
+        return "dedup table unavailable"
 
 
 def launch_fargate_stage(envelope: StageEnvelope) -> dict:
@@ -205,8 +208,9 @@ def dispatch_stage(task_id: str, stage: str, transitioned_at: str, envelope: Sta
     recovery path for a stranded claim.
     """
     ttl_seconds = envelope.deadline_seconds + DEDUP_TTL_GRACE_SECONDS
-    if not claim_transition(task_id, stage, transitioned_at, ttl_seconds):
-        return {"dispatched": False, "reason": "already claimed"}
+    reason = claim_transition(task_id, stage, transitioned_at, ttl_seconds)
+    if reason is not None:
+        return {"dispatched": False, "reason": reason}
 
     result = launch_fargate_stage(envelope)
     if not result["launched"]:

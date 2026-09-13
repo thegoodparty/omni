@@ -175,9 +175,8 @@ def test_bot_actor_feedback_needed_to_in_progress_dispatches_nothing():
 
 
 def test_comment_posted_while_feedback_needed_dispatches_resume():
-    # A real taskCommentPosted delivery carries NO history_items, and every
-    # comment in one feedback phase must share ONE dedup key: distinct
-    # per-delivery timestamps would launch concurrent resume runs.
+    # A real taskCommentPosted delivery carries NO history_items; the dedup
+    # key comes from the bucketed delivery timestamp.
     e = event(
         kind="commentPosted",
         list_id=STORY_LIST_ID,
@@ -189,10 +188,11 @@ def test_comment_posted_while_feedback_needed_dispatches_resume():
 
     assert len(decisions) == 1
     assert decisions[0].stage == router.STAGE_RESUME
-    assert decisions[0].transitioned_at == router.COMMENT_TRIGGER_KEY
+    assert decisions[0].transitioned_at == router.comment_trigger_key("1700000099000")
 
 
-def test_two_comment_deliveries_share_one_dedup_key():
+def test_burst_comment_deliveries_share_one_dedup_key():
+    # 1700000099000 and 1700000200000 are 101s apart — same 10-minute bucket.
     decisions = [
         router.route(
             event(
@@ -206,6 +206,15 @@ def test_two_comment_deliveries_share_one_dedup_key():
     ]
 
     assert decisions[0].transitioned_at == decisions[1].transitioned_at
+
+
+def test_later_feedback_round_gets_a_fresh_dedup_key():
+    # 20 minutes apart — a second feedback phase must not be swallowed by the
+    # claim a completed run left behind.
+    first = router.comment_trigger_key("1700000099000")
+    second = router.comment_trigger_key(str(1700000099000 + 20 * 60 * 1000))
+
+    assert first != second
 
 
 def test_orphaned_story_list_id_logs_error(monkeypatch, capsys):

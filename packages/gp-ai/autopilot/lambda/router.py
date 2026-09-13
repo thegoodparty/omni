@@ -117,13 +117,24 @@ class RoutingDecision:
     to_supervisor: bool = False
 
 
-# Fixed dedup-key component for comment-triggered resumes: every comment
-# delivered while a story sits in feedback needed shares ONE claim, so a
-# burst of answers (or a webhook redelivery) launches one resume run, not
-# one per comment. A later feedback round re-resumes once the prior claim's
-# TTL (stage deadline + grace) expires; the resume run reads the whole
-# comment thread anyway, so coalescing loses nothing.
-COMMENT_TRIGGER_KEY = "comment-trigger"
+# Comment-triggered resume dedup window: comments delivered within the same
+# 10-minute bucket share one claim (coalescing a burst or a webhook
+# redelivery into one resume run), while a later feedback round — a comment
+# after the bucket rolls over — gets a fresh key instead of being silently
+# swallowed by a claim from a run that already exited. Two spaced comments in
+# one long feedback phase can still each trigger a run; the resume stage
+# re-reads the whole thread, so the second run is redundant but harmless.
+COMMENT_TRIGGER_BUCKET_MS = 10 * 60 * 1000
+
+
+def comment_trigger_key(event_ts: str | None) -> str | None:
+    if event_ts is None:
+        return None
+    try:
+        bucket = int(event_ts) // COMMENT_TRIGGER_BUCKET_MS
+    except ValueError:
+        return None
+    return f"comment-{bucket}"
 
 
 def story_list_ids() -> frozenset[str]:
@@ -185,15 +196,15 @@ def route(event: RoutableEvent) -> list[RoutingDecision]:
         # commentPosted carries no status transition — the trigger is the
         # CURRENT status at delivery time, not a before/after pair.
         if card_type == STORY_CARD and event.current_status == STATUS_FEEDBACK_NEEDED:
-            # Not the delivery timestamp: distinct comments would each mint a
-            # fresh dedup key and launch concurrent resume runs (see
-            # COMMENT_TRIGGER_KEY).
+            # Bucketed, not the raw delivery timestamp: distinct comments in a
+            # burst would each mint a fresh key and launch concurrent resume
+            # runs (see COMMENT_TRIGGER_BUCKET_MS).
             return [
                 RoutingDecision(
                     stage=STAGE_RESUME,
                     card_type=card_type,
                     task_id=event.task_id,
-                    transitioned_at=COMMENT_TRIGGER_KEY,
+                    transitioned_at=comment_trigger_key(event.event_ts),
                 )
             ]
         return []

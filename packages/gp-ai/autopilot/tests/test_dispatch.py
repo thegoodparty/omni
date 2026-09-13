@@ -197,7 +197,7 @@ def test_unconfigured_dedup_table_refuses_dispatch_and_logs(monkeypatch, fake_ec
 
     result = dispatch.dispatch_stage(TASK_ID, STAGE, TRANSITIONED_AT, envelope())
 
-    assert result == {"dispatched": False, "reason": "already claimed"}
+    assert result == {"dispatched": False, "reason": "dedup table not configured"}
     assert fake_ecs.run_task_calls == []
     assert "ERROR: AUTOPILOT_DEDUP_TABLE not configured" in capsys.readouterr().out
 
@@ -217,7 +217,7 @@ def test_dynamodb_table_unreachable_refuses_dispatch_and_logs(fake_dynamodb, fak
 
     result = dispatch.dispatch_stage(TASK_ID, STAGE, TRANSITIONED_AT, envelope())
 
-    assert result == {"dispatched": False, "reason": "already claimed"}
+    assert result == {"dispatched": False, "reason": "dedup table unavailable"}
     assert fake_ecs.run_task_calls == []
     assert "ERROR: dedup table unavailable, refusing to dispatch" in capsys.readouterr().out
 
