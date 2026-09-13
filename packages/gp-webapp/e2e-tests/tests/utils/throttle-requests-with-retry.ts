@@ -58,8 +58,15 @@ export const throttleRequestsWithRetry = (
     },
   )
 
+  // Bottleneck never launches a job whose weight exceeds
+  // reservoirRefreshAmount — the reservoir is SET to that value on refresh,
+  // not topped up, so the job waits forever. clerk.signIn is weighted 5 (its
+  // internal request fan-out), which deadlocked every browser sign-in for
+  // 120s once the CI per-worker reservoir dropped to 3 (ENG-11105). Clamp
+  // instead: an over-weighted job consumes the whole window, slightly
+  // under-counting its true cost rather than hanging.
   return <T>(fn: () => Promise<T>, weight?: number): Promise<T> =>
-    limiter.schedule({ weight: weight ?? 1 }, fn)
+    limiter.schedule({ weight: Math.min(weight ?? 1, perWorkerLimit) }, fn)
 }
 
 // https://clerk.com/docs/guides/how-clerk-works/system-limits#backend-api-requests
