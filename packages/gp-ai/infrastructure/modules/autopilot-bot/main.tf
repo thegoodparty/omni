@@ -478,8 +478,12 @@ resource "aws_sns_topic_subscription" "shared_slack_notifier" {
 }
 
 resource "aws_lambda_permission" "allow_sns_invoke_slack" {
-  count         = var.shared_slack_notifier_lambda_arn != "" ? 1 : 0
-  statement_id  = "AllowSNSInvokeFromAutopilotBotFailures"
+  count = var.shared_slack_notifier_lambda_arn != "" ? 1 : 0
+  # The notifier lambda is ONE shared function across environments
+  # (shared/slack-notifier state), and permission statement ids are unique per
+  # function — an un-suffixed id lets whichever environment applies first win
+  # and fails the other with ResourceConflictException (prod, run 34764275079).
+  statement_id  = "AllowSNSInvokeFromAutopilotBotFailures-${var.environment}"
   action        = "lambda:InvokeFunction"
   function_name = var.shared_slack_notifier_lambda_arn
   principal     = "sns.amazonaws.com"
