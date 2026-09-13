@@ -166,9 +166,40 @@ permission; grant those two actions on `github-actions-pulumi-deploy` to itself 
 turn the guard on for real. Any other error (bad input, a role that doesn't exist)
 is NOT treated as fail-open and fails the job.
 
+**Create/update denials block the PR; delete-side denials only warn.** In
+practice, simulating `ecs:DeregisterTaskDefinition` on every task-definition
+replace (i.e. every routine image-tag deploy, across all six Fargate
+services) comes back denied even though the release train's real `apply`
+performs it successfully every day. The working theory is that the deploy
+role's actual grant depends on IAM condition keys (e.g. a resource tag)
+`simulate-principal-policy` can't evaluate without the real runtime context,
+so it conservatively denies — an empirical false-positive risk specific to
+delete-side actions, not something we've observed on create/update. Since the
+actual incidents that motivated this guard (three autopilot slices,
+2026-09-13) were all missing create/update permissions, not deletes, the
+verdict is split: a denial on a `create` or `update`-sourced action still
+fails the PR, while a denial that comes ONLY from a `delete`-sourced action
+(a pure delete, or the delete-half of a replace) is printed in the same table
+but as a `::warning::`, and does not fail the job. See
+`Verdict.create_side` in `simulate_apply_perms.py` for the exact rule.
+
+**`iam:PassRole` is resource-scoped to the role, not the thing being
+created.** `aws_ecs_task_definition` sets `execution_role_arn` and
+`task_role_arn`, and `RegisterTaskDefinition` calls `iam:PassRole` for both —
+but that permission's `Resource` is the role ARN, not the task-definition
+ARN every other action on that resource gets simulated against. Checking it
+against the task-definition ARN would never match any real `PassRole`
+statement and would be a permanent false blocker, so it's simulated against
+`*` instead (see `ACTIONS_FORCED_TO_STAR`).
+
 Run `python3 infrastructure/scripts/simulate_apply_perms.py --self-test` (stdlib
-only, no `uv run` needed) for a self-contained check of the mapping/verdict/
-fail-open logic against canned plan JSON — no AWS credentials required.
+only, no `uv run` needed; it's wired as the first step of
+`ci-simulate-apply-perms.sh`, so a regression here fails the PR before the
+real AWS calls run) for a self-contained check of the mapping/verdict/
+fail-open logic against canned plan JSON — no AWS credentials required. Its
+own output is captured and neutralized (`self-test> ` prefix, every `::`
+broken up) so its canned `::warning::`/`::error::` scenarios never appear as
+real workflow-command annotations in a CI job log.
 
 ## Deployment Workflow
 

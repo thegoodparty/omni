@@ -14,14 +14,18 @@ it, just to make one paginated API call. Plain `python3` avoids that entirely
 and keeps this guard fast and dependency-free.
 
 Exit codes:
-  0  every simulated action was "allowed" (or the guard fail-opened — see below)
-  1  at least one action was NOT allowed, or plan JSON could not be read
+  0  every create/update action was "allowed" (a delete/replace-side denial is
+     reported as a warning, not a failure — see the README) — or the guard
+     fail-opened, see below
+  1  at least one create/update action was NOT allowed, or plan JSON could not be read
   2  usage error
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -281,11 +285,24 @@ TYPE_MAP: dict[str, ResourceMapping] = {
         arn=_ecs_cluster_arn,
     ),
     "aws_ecs_task_definition": ResourceMapping(
-        create=["ecs:RegisterTaskDefinition"],
+        # iam:PassRole is required whenever execution_role_arn/task_role_arn
+        # are set (all of gp-ai's Fargate modules set both) — RegisterTaskDefinition
+        # calls it for each role. Its resource is the ROLE being passed, not
+        # this task definition, so it's forced to "*" in collect_checks below
+        # rather than getting the task-definition ARN every other action here
+        # gets; the role ARNs are themselves same-plan outputs (no random
+        # suffix), but "*" keeps this consistent with the rest of the table's
+        # server-assigned-value handling instead of threading a second ARN
+        # source through the mapping.
+        create=["ecs:RegisterTaskDefinition", "iam:PassRole"],
         delete=["ecs:DeregisterTaskDefinition"],
         arn=_ecs_task_definition_arn,
     ),
     "aws_ecs_service": ResourceMapping(
+        # No iam:PassRole here: unlike aws_ecs_task_definition, none of gp-ai's
+        # aws_ecs_service resources set the (deprecated, ECS-classic-only)
+        # `iam_role` argument — the Fargate modules all pass roles via the
+        # task definition, not the service.
         create=["ecs:CreateService"],
         update=["ecs:UpdateService"],
         delete=["ecs:DeleteService"],
@@ -414,12 +431,21 @@ BATCH_SIZE = 20  # simulate-principal-policy accepts up to 100 action names, but
 # of a transient API hiccup) small.
 
 
+# Actions whose resource is never the resource_change's own (predicted) ARN.
+# iam:PassRole's Resource is the ROLE being passed to the service, not the
+# thing being created with that role — checking it against e.g. a
+# task-definition ARN would never match any real PassRole policy statement,
+# producing a permanent false blocker rather than a real finding.
+ACTIONS_FORCED_TO_STAR = {"iam:PassRole"}
+
+
 @dataclass
 class Check:
     action: str
     resource_arn: str
     resource_address: str
     resource_type: str
+    verb: str  # "create" | "update" | "delete" — which planned change produced this check
 
 
 @dataclass
@@ -429,6 +455,19 @@ class Verdict:
     decision: str
     matched_statement: str
     sources: list[str] = field(default_factory=list)
+    verbs: set[str] = field(default_factory=set)
+
+    @property
+    def create_side(self) -> bool:
+        # A verdict produced ONLY by delete verbs is the empirical
+        # false-positive class (see README): unevaluated IAM condition keys
+        # have made simulate-principal-policy deny delete/replace-side actions
+        # (e.g. ecs:DeregisterTaskDefinition on every task-definition replace)
+        # that the real apply performs successfully every day. create/update
+        # denials are the class that actually broke deploys (three autopilot
+        # slices, 2026-09-13), so only those hard-fail; a delete-only denial
+        # is downgraded to a warning in main().
+        return bool(self.verbs - {"delete"})
 
 
 def collect_checks(plan: dict[str, Any], account_id: str, region: str, warn: Callable[[str], None]) -> list[Check]:
@@ -461,7 +500,16 @@ def collect_checks(plan: dict[str, Any], account_id: str, region: str, warn: Cal
                 warn(f"no {verb}-action mapping for {rtype}, skipping this change on {address}")
                 continue
             for action in iam_actions:
-                checks.append(Check(action=action, resource_arn=arn, resource_address=address, resource_type=rtype))
+                resource_arn = "*" if action in ACTIONS_FORCED_TO_STAR else arn
+                checks.append(
+                    Check(
+                        action=action,
+                        resource_arn=resource_arn,
+                        resource_address=address,
+                        resource_type=rtype,
+                        verb=verb,
+                    )
+                )
     return checks
 
 
@@ -479,8 +527,10 @@ def simulate(
     """
     del role_arn  # bound into `call` by the caller; kept for signature clarity
     by_resource: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    verbs_by_key: dict[tuple[str, str], set[str]] = defaultdict(set)
     for c in checks:
         by_resource[c.resource_arn][c.action].append(c.resource_address)
+        verbs_by_key[(c.action, c.resource_arn)].add(c.verb)
 
     verdicts: dict[tuple[str, str], Verdict] = {}
     for resource_arn, actions_map in by_resource.items():
@@ -497,6 +547,7 @@ def simulate(
                     decision=ev["EvalDecision"],
                     matched_statement=matched_desc,
                     sources=sorted(set(actions_map.get(action, []))),
+                    verbs=set(verbs_by_key[key]),
                 )
     return list(verdicts.values())
 
@@ -620,18 +671,43 @@ def main(argv: list[str]) -> int:
         return 1
 
     bad = [v for v in verdicts if v.decision != "allowed"]
-    if bad:
+    # create_side also covers "update": both are actions a normal deploy takes
+    # in the course of adding or changing a resource, and a denial on either
+    # blocks that deploy exactly like a create denial would. Only a denial
+    # produced SOLELY by delete verbs — pure deletes, and the delete-half of a
+    # replace — is downgraded; see Verdict.create_side and the README.
+    hard = [v for v in bad if v.create_side]
+    soft = [v for v in bad if not v.create_side]
+
+    if soft:
         print(
-            f"\nsimulate-apply-perms: {len(bad)} of {len(verdicts)} simulated action(s) are NOT allowed for the deploy role."
+            f"\nsimulate-apply-perms: {len(soft)} delete/replace-side action(s) are NOT allowed for the deploy "
+            "role. Reported as warnings, not failures — see infrastructure/README.md's note on the empirical "
+            "false-positive risk on delete-side actions (unevaluated IAM condition keys can make simulation "
+            "deny an action the real apply performs successfully every day)."
         )
-        print_verdict_table(bad)
+        print_verdict_table(soft)
+        for v in soft:
+            print(
+                f"::warning::simulate-apply-perms: {v.action} on {v.resource_arn} simulated as {v.decision} "
+                "(delete/replace-side; not blocking this PR)",
+                file=sys.stderr,
+            )
+
+    if hard:
+        print(f"\nsimulate-apply-perms: {len(hard)} create/update action(s) are NOT allowed for the deploy role.")
+        print_verdict_table(hard)
         print(
             "\nThe release train's real `terraform apply` will fail on these with AccessDenied. "
             "Grant the missing permission(s) to github-actions-pulumi-deploy before merging."
         )
         return 1
 
-    print(f"simulate-apply-perms: all {len(verdicts)} simulated action(s) allowed for the deploy role.")
+    ok_count = len(verdicts) - len(bad)
+    suffix = f"; {len(soft)} delete/replace-side denial(s) downgraded to warnings" if soft else ""
+    print(
+        f"simulate-apply-perms: {ok_count} of {len(verdicts)} simulated action(s) allowed for the deploy role{suffix}."
+    )
     return 0
 
 
@@ -716,6 +792,45 @@ def run_self_test() -> int:
         any("no action mapping for aws_made_up_thing" in w for w in warnings),
     )
 
+    # Regression: iam:PassRole is required by ecs:RegisterTaskDefinition
+    # whenever roles are set, but its resource is the ROLE being passed, not
+    # the task definition — it must be forced to "*", not inherit the
+    # task-definition ARN every other action on this resource gets.
+    ecs_plan = {
+        "resource_changes": [
+            {
+                "address": "aws_ecs_task_definition.example",
+                "mode": "managed",
+                "type": "aws_ecs_task_definition",
+                "change": {
+                    "actions": ["create"],
+                    "after": {
+                        "family": "broker-dev",
+                        "execution_role_arn": f"arn:aws:iam::{account_id}:role/broker-exec-dev",
+                        "task_role_arn": f"arn:aws:iam::{account_id}:role/broker-task-dev",
+                    },
+                },
+            }
+        ]
+    }
+    ecs_checks = collect_checks(ecs_plan, account_id, region, warnings.append)
+    check(
+        "aws_ecs_task_definition create includes iam:PassRole",
+        any(c.action == "iam:PassRole" for c in ecs_checks),
+    )
+    check(
+        "iam:PassRole is forced to '*', not the task-definition ARN",
+        all(c.resource_arn == "*" for c in ecs_checks if c.action == "iam:PassRole"),
+    )
+    check(
+        "ecs:RegisterTaskDefinition still gets the predicted task-definition ARN",
+        any(
+            c.action == "ecs:RegisterTaskDefinition"
+            and c.resource_arn == f"arn:aws:ecs:{region}:{account_id}:task-definition/broker-dev:*"
+            for c in ecs_checks
+        ),
+    )
+
     # Regression: aws_secretsmanager_secret_version.secret_id is commonly a
     # direct reference to the parent secret's `id`, which the provider
     # documents as the full ARN. That must be used as-is, not re-wrapped into
@@ -791,6 +906,7 @@ def run_self_test() -> int:
     # run_aws so main()'s own try/except around each AWS call is what's under
     # test, exactly as it runs for real.
     original_run_aws = globals()["run_aws"]
+    captured_self_test_output: list[str] = []
 
     def run_main_with_fake_aws(
         sts_result: dict[str, Any] | Exception, simulate_result: dict[str, Any] | Exception
@@ -807,13 +923,27 @@ def run_self_test() -> int:
             raise AssertionError(f"unexpected aws call in self-test: {args}")
 
         globals()["run_aws"] = fake_run_aws
+        # main() prints real ::warning::/::error:: workflow commands and
+        # plain status lines as it runs for real above — a canned self-test
+        # scenario driving it must never let those reach the actual job log
+        # (they'd show up as fake annotations / confuse whoever's reading a
+        # real CI run). Capture both streams and only ever re-emit them
+        # prefixed and with every "::" neutralized, once, after the run.
+        out, err = io.StringIO(), io.StringIO()
         try:
-            with tempfile.TemporaryDirectory() as plan_dir:
+            with (
+                tempfile.TemporaryDirectory() as plan_dir,
+                contextlib.redirect_stdout(out),
+                contextlib.redirect_stderr(err),
+            ):
                 with open(os.path.join(plan_dir, "dev-example.json"), "w") as f:
                     json.dump(plan, f)
-                return main(["--plan-dir", plan_dir])
+                rc = main(["--plan-dir", plan_dir])
         finally:
             globals()["run_aws"] = original_run_aws
+        for line in (out.getvalue() + err.getvalue()).splitlines():
+            captured_self_test_output.append(f"self-test> {line.replace('::', ':')}")
+        return rc
 
     sts_denied_rc = run_main_with_fake_aws(
         AwsCliError(["sts", "get-caller-identity"], 254, "An error occurred (AccessDenied) ..."),
@@ -835,6 +965,99 @@ def run_self_test() -> int:
         "main() hard-fails (exit 1), not fail-open, on a non-AccessDenied simulate error",
         simulate_other_error_rc == 1,
     )
+
+    def run_main_with_scripted_decisions(plan_for_test: dict[str, Any], decide: Callable[[str], str]) -> int:
+        """Like run_main_with_fake_aws, but the canned simulate-principal-policy
+        response is derived from the real requested --action-names/--resource-arns
+        instead of a single fixed blob — needed to give a create-side action
+        and a delete-side action different (allowed/denied) verdicts in the
+        same run, to prove main()'s hard/soft split for real.
+        """
+
+        def fake_run_aws(args: list[str]) -> dict[str, Any]:
+            if args[:1] == ["sts"]:
+                return {"Account": account_id}
+            if args[:1] == ["iam"]:
+                names_start = args.index("--action-names") + 1
+                names_end = args.index("--resource-arns") if "--resource-arns" in args else len(args)
+                action_names = args[names_start:names_end]
+                resource_arn = args[args.index("--resource-arns") + 1] if "--resource-arns" in args else "*"
+                results = [
+                    {
+                        "EvalActionName": a,
+                        "EvalResourceName": resource_arn,
+                        "EvalDecision": decide(a),
+                        "MatchedStatements": [],
+                    }
+                    for a in action_names
+                ]
+                return {"EvaluationResults": results}
+            raise AssertionError(f"unexpected aws call in self-test: {args}")
+
+        globals()["run_aws"] = fake_run_aws
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with (
+                tempfile.TemporaryDirectory() as plan_dir,
+                contextlib.redirect_stdout(out),
+                contextlib.redirect_stderr(err),
+            ):
+                with open(os.path.join(plan_dir, "dev-example.json"), "w") as f:
+                    json.dump(plan_for_test, f)
+                rc = main(["--plan-dir", plan_dir])
+        finally:
+            globals()["run_aws"] = original_run_aws
+        for line in (out.getvalue() + err.getvalue()).splitlines():
+            captured_self_test_output.append(f"self-test> {line.replace('::', ':')}")
+        return rc
+
+    # Create-side deny: main() must hard-fail (exit 1). Denies the create
+    # action already present in `plan` (aws_lambda_function.example).
+    create_deny_rc = run_main_with_scripted_decisions(
+        plan, lambda a: "explicitDeny" if a == "lambda:CreateFunction" else "allowed"
+    )
+    check("main() exits 1 on a real create-side deny", create_deny_rc == 1)
+
+    # Delete-side-only deny, modeled on the actual CI false positive: a
+    # task-definition REPLACE (actions=["delete","create"] on one resource_change,
+    # same shape terraform emits for every image-tag deploy) where only the
+    # delete-verb's action (ecs:DeregisterTaskDefinition) is denied. main()
+    # must still exit 0, and report it as a warning rather than silence.
+    replace_plan = {
+        "resource_changes": [
+            {
+                "address": "aws_ecs_task_definition.example",
+                "mode": "managed",
+                "type": "aws_ecs_task_definition",
+                "change": {
+                    "actions": ["delete", "create"],
+                    "after": {
+                        "family": "broker-dev",
+                        "execution_role_arn": f"arn:aws:iam::{account_id}:role/broker-exec-dev",
+                        "task_role_arn": f"arn:aws:iam::{account_id}:role/broker-task-dev",
+                    },
+                },
+            }
+        ]
+    }
+    delete_only_deny_rc = run_main_with_scripted_decisions(
+        replace_plan, lambda a: "explicitDeny" if a == "ecs:DeregisterTaskDefinition" else "allowed"
+    )
+    check("main() exits 0 when the only deny is delete-side (downgraded to a warning)", delete_only_deny_rc == 0)
+    check(
+        "the downgraded delete-side deny is still reported, just as a warning",
+        any("DeregisterTaskDefinition" in line and "not blocking" in line for line in captured_self_test_output),
+    )
+
+    # The whole point of this section: none of main()'s real output — across
+    # every scenario above, including its genuine ::warning::/::error:: workflow
+    # commands — may have reached the actual job log un-neutralized.
+    check(
+        "no captured self-test output line contains a live '::' workflow-command token",
+        not any("::" in line for line in captured_self_test_output),
+    )
+    for line in captured_self_test_output:
+        print(line)
 
     total = passed + len(failed)
     if failed:

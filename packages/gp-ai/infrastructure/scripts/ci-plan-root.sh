@@ -19,8 +19,12 @@
 #   <slug>.destroy  count of resources the plan would delete
 #   <slug>.replace  count of resources the plan would replace
 #   <slug>.json   `terraform show -json` of the plan (present whenever a
-#                 planfile exists, i.e. code 0 or 2 — not written on code 1,
-#                 the init/plan-invocation-failed case). Consumed by
+#                 planfile exists, i.e. code 0 or 2, AND `terraform show
+#                 -json` itself succeeded). Never written on code 1 (the
+#                 init/plan-invocation-failed case), and if `terraform show
+#                 -json` fails despite a successful plan, .code is overwritten
+#                 to 1 so that failure surfaces instead of a missing/empty
+#                 plan JSON reading as "no changes". Consumed by
 #                 ci-simulate-apply-perms.sh to predict apply-time IAM calls.
 set -uo pipefail
 
@@ -93,20 +97,33 @@ replaces=0
 # risk. Reading it would hand ci-simulate-apply-perms.sh a plan JSON that
 # doesn't correspond to this run's actual (failed) plan attempt.
 if [ -f tfplan ] && { [ "$code" = "0" ] || [ "$code" = "2" ]; }; then
-  json=$(terraform show -json tfplan 2>/dev/null || echo '{}')
-  # Written for both code 0 (no changes) and code 2 (changes) so the simulate-apply-perms
-  # guard has a plan JSON for every root that produced a planfile, not just the
-  # ones with diffs.
-  echo "$json" >"$plan_dir/$slug.json"
-  if [ "$code" = "2" ]; then
-    destroys=$(jq '[.resource_changes[]? | select(.change.actions == ["delete"])] | length' <<<"$json" 2>/dev/null || echo 0)
-    # Excludes aws_ecs_task_definition: an image-tag change always replaces the
-    # revision, so counting it would fire the destroy/replace warning on every
-    # single deploy and train reviewers to ignore the banner.
-    replaces=$(jq '[.resource_changes[]?
-                    | select(.type != "aws_ecs_task_definition")
-                    | select((.change.actions | index("delete")) and (.change.actions | index("create")))]
-                   | length' <<<"$json" 2>/dev/null || echo 0)
+  # No `|| echo '{}'` fallback here on purpose: that swallowed `terraform show
+  # -json` failures into a fake empty plan, which ci-simulate-apply-perms.sh
+  # then reads as "no resource changes" — a root whose plan was never actually
+  # inspected silently passes the IAM-permission guard. Write no .json at all
+  # on failure, and flip this root's .code to 1 (error) so the existing
+  # "Post consolidated plan comment" step's `errored` handling — which
+  # already core.setFailed()s the job for any non-0/2 code — catches it,
+  # instead of adding a second, parallel failure path.
+  if json=$(terraform show -json tfplan 2>>"$plan_dir/$slug.txt"); then
+    # Written for both code 0 (no changes) and code 2 (changes) so the simulate-apply-perms
+    # guard has a plan JSON for every root that produced a planfile, not just the
+    # ones with diffs.
+    echo "$json" >"$plan_dir/$slug.json"
+    if [ "$code" = "2" ]; then
+      destroys=$(jq '[.resource_changes[]? | select(.change.actions == ["delete"])] | length' <<<"$json" 2>/dev/null || echo 0)
+      # Excludes aws_ecs_task_definition: an image-tag change always replaces the
+      # revision, so counting it would fire the destroy/replace warning on every
+      # single deploy and train reviewers to ignore the banner.
+      replaces=$(jq '[.resource_changes[]?
+                      | select(.type != "aws_ecs_task_definition")
+                      | select((.change.actions | index("delete")) and (.change.actions | index("create")))]
+                     | length' <<<"$json" 2>/dev/null || echo 0)
+    fi
+  else
+    echo "::error::$root: terraform show -json failed; not writing a plan JSON (see $slug.txt)" >&2
+    code=1
+    echo "$code" >"$plan_dir/$slug.code"
   fi
 fi
 echo "${destroys:-0}" >"$plan_dir/$slug.destroy"
