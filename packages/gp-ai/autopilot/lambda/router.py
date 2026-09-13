@@ -117,9 +117,26 @@ class RoutingDecision:
     to_supervisor: bool = False
 
 
+# Fixed dedup-key component for comment-triggered resumes: every comment
+# delivered while a story sits in feedback needed shares ONE claim, so a
+# burst of answers (or a webhook redelivery) launches one resume run, not
+# one per comment. A later feedback round re-resumes once the prior claim's
+# TTL (stage deadline + grace) expires; the resume run reads the whole
+# comment thread anyway, so coalescing loses nothing.
+COMMENT_TRIGGER_KEY = "comment-trigger"
+
+
 def story_list_ids() -> frozenset[str]:
     raw = os.environ.get("AUTOPILOT_STORY_LIST_IDS", "")
-    return frozenset(part.strip() for part in raw.split(",") if part.strip())
+    ids = frozenset(part.strip() for part in raw.split(",") if part.strip())
+    scope = frozenset(part.strip() for part in os.environ.get("AUTOPILOT_LIST_IDS", "").split(",") if part.strip())
+    orphaned = ids - scope
+    if orphaned:
+        # A story list missing from AUTOPILOT_LIST_IDS is silently dropped at
+        # the handler's scope gate; without this signal the misconfiguration
+        # is invisible.
+        print(f"ERROR: AUTOPILOT_STORY_LIST_IDS entries not in AUTOPILOT_LIST_IDS scope: {sorted(orphaned)}")
+    return ids
 
 
 def derive_card_type(list_id: str | None) -> CardType:
@@ -168,15 +185,15 @@ def route(event: RoutableEvent) -> list[RoutingDecision]:
         # commentPosted carries no status transition — the trigger is the
         # CURRENT status at delivery time, not a before/after pair.
         if card_type == STORY_CARD and event.current_status == STATUS_FEEDBACK_NEEDED:
-            # A real taskCommentPosted delivery has no history_items, so the
-            # dedup key must come from the top-level delivery timestamp.
-            transitioned_at = event.event_ts
+            # Not the delivery timestamp: distinct comments would each mint a
+            # fresh dedup key and launch concurrent resume runs (see
+            # COMMENT_TRIGGER_KEY).
             return [
                 RoutingDecision(
                     stage=STAGE_RESUME,
                     card_type=card_type,
                     task_id=event.task_id,
-                    transitioned_at=transitioned_at,
+                    transitioned_at=COMMENT_TRIGGER_KEY,
                 )
             ]
         return []

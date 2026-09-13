@@ -22,6 +22,7 @@ def bot_user_id_env(monkeypatch):
 @pytest.fixture(autouse=True)
 def story_list_env(monkeypatch):
     monkeypatch.setenv("AUTOPILOT_STORY_LIST_IDS", STORY_LIST_ID)
+    monkeypatch.setenv("AUTOPILOT_LIST_IDS", f"{STORY_LIST_ID},{FEATURE_LIST_ID}")
 
 
 def transition(actor_user_id, from_status, to_status, transitioned_at="1700000000000"):
@@ -174,8 +175,9 @@ def test_bot_actor_feedback_needed_to_in_progress_dispatches_nothing():
 
 
 def test_comment_posted_while_feedback_needed_dispatches_resume():
-    # A real taskCommentPosted delivery carries NO history_items; the dedup
-    # key must come from the top-level delivery timestamp.
+    # A real taskCommentPosted delivery carries NO history_items, and every
+    # comment in one feedback phase must share ONE dedup key: distinct
+    # per-delivery timestamps would launch concurrent resume runs.
     e = event(
         kind="commentPosted",
         list_id=STORY_LIST_ID,
@@ -187,7 +189,33 @@ def test_comment_posted_while_feedback_needed_dispatches_resume():
 
     assert len(decisions) == 1
     assert decisions[0].stage == router.STAGE_RESUME
-    assert decisions[0].transitioned_at == "1700000099000"
+    assert decisions[0].transitioned_at == router.COMMENT_TRIGGER_KEY
+
+
+def test_two_comment_deliveries_share_one_dedup_key():
+    decisions = [
+        router.route(
+            event(
+                kind="commentPosted",
+                list_id=STORY_LIST_ID,
+                current_status=router.STATUS_FEEDBACK_NEEDED,
+                event_ts=ts,
+            )
+        )[0]
+        for ts in ("1700000099000", "1700000200000")
+    ]
+
+    assert decisions[0].transitioned_at == decisions[1].transitioned_at
+
+
+def test_orphaned_story_list_id_logs_error(monkeypatch, capsys):
+    monkeypatch.setenv("AUTOPILOT_STORY_LIST_IDS", f"{STORY_LIST_ID},901399999999")
+    monkeypatch.setenv("AUTOPILOT_LIST_IDS", f"{STORY_LIST_ID},{FEATURE_LIST_ID}")
+
+    router.story_list_ids()
+
+    out = capsys.readouterr().out
+    assert "ERROR" in out and "901399999999" in out
 
 
 def test_comment_posted_by_bot_while_feedback_needed_still_dispatches():

@@ -75,6 +75,7 @@ def boto3_clients(monkeypatch, fake_dynamodb, fake_ecs):
 def env(monkeypatch):
     monkeypatch.setenv("AUTOPILOT_BOT_USER_ID", BOT_USER_ID)
     monkeypatch.setenv("AUTOPILOT_STORY_LIST_IDS", STORY_LIST_ID)
+    monkeypatch.setenv("AUTOPILOT_LIST_IDS", f"{STORY_LIST_ID},{FEATURE_LIST_ID}")
     monkeypatch.setenv("AUTOPILOT_DEDUP_TABLE", "autopilot-dedup-test")
     monkeypatch.setenv("ECS_CLUSTER_ARN", "arn:aws:ecs:us-west-2:1:cluster/autopilot")
     monkeypatch.setenv("ECS_TASK_DEFINITION", "autopilot-agent:1")
