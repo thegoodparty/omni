@@ -15,6 +15,11 @@ import {
   switchOrganization,
 } from 'src/helpers/organizations'
 import { type AuthenticatedUser } from 'tests/utils/api-registration'
+import type { AxiosInstance } from 'axios'
+import {
+  type ContactsApiPerson,
+  openPersonViaTypeahead,
+} from 'src/helpers/crm-contacts-e2e'
 import { eventually } from 'tests/utils/eventually'
 import { downloadSlackFile, waitForSlackMessage } from 'tests/utils/slack'
 
@@ -319,6 +324,7 @@ test.beforeEach(async ({ page }) => {
 test.describe.serial('poll onboarding @dev-only', () => {
   // Shared state between tests
   let sharedUser: AuthenticatedUser
+  let sharedClient: AxiosInstance
   let sharedPollId: string
   let sharedContact: CsvRow
 
@@ -335,6 +341,7 @@ test.describe.serial('poll onboarding @dev-only', () => {
 
     // Store for reuse in subsequent tests
     sharedUser = user
+    sharedClient = client
 
     // Elected office users now land on /dashboard/chief-of-staff after winning
     // their race, so navigate to the polls welcome screen before onboarding.
@@ -346,10 +353,13 @@ test.describe.serial('poll onboarding @dev-only', () => {
     // an <a> (role=link), not a <button>.
     await page.getByRole('link', { name: "Let's get started" }).click()
 
-    // Confirm constituent count.
+    // Confirm constituent count. The count comes from GET /v1/contacts/stats,
+    // a Databricks voter scan since the census-population change — a fresh
+    // org's first hit can sit behind a cold warehouse well past the old 25s
+    // budget, so wait out the skeleton rather than flake on latency.
     const constituentCount = await page
       .getByTestId('total-constituents')
-      .textContent({ timeout: 25_000 })
+      .textContent({ timeout: 120_000 })
 
     expect(constituentCount).toBeTruthy()
 
@@ -787,34 +797,31 @@ test.describe.serial('poll onboarding @dev-only', () => {
     await page.goto('/dashboard/contacts')
     await NavigationHelper.dismissOverlays(page)
 
-    // Wait for contacts table to load
-    const table = page.locator('table').first()
-    await expect(table).toBeVisible({ timeout: 20_000 })
-    await expect(table.locator('tbody tr').first()).toBeVisible({
-      timeout: 25_000,
-    })
-
-    // Search for the constituent who responded to the poll
-    const searchInput = page.getByPlaceholder('Search contacts').first()
-    await searchInput.fill(
-      `${sharedContact.firstName} ${sharedContact.lastName}`,
+    // The CRM contacts page has no member table by design (ENG-10756,
+    // unconditional since the serve-crm default-on) — resolve the poll
+    // respondent through the same GET /v1/contacts the legacy table read,
+    // then open their record via the persistent typeahead.
+    const { data } = await sharedClient.get<{ people: ContactsApiPerson[] }>(
+      '/v1/contacts',
+      {
+        params: {
+          page: 1,
+          resultsPerPage: 25,
+          segment: 'all',
+          search: `${sharedContact.firstName} ${sharedContact.lastName}`,
+        },
+      },
     )
-    await searchInput.press('Enter')
+    const person = data.people.find(
+      (candidate) =>
+        candidate.firstName?.toLowerCase() ===
+          sharedContact.firstName.toLowerCase() &&
+        candidate.lastName?.toLowerCase() ===
+          sharedContact.lastName.toLowerCase(),
+    )
+    expect(person).toBeTruthy()
 
-    // Wait for search results and click the matching row
-    const searchRow = table.locator('tbody tr').first()
-    await expect(searchRow).toBeVisible({ timeout: 20_000 })
-    await expect(searchRow).toContainText(sharedContact.firstName, {
-      ignoreCase: true,
-    })
-    await searchRow.click({ force: true })
-
-    // Wait for the person overlay to open
-    const personSheet = page
-      .getByRole('dialog')
-      .filter({ has: page.getByText('Contact Information') })
-      .first()
-    await expect(personSheet).toBeVisible({ timeout: 15_000 })
+    const personSheet = await openPersonViaTypeahead(page, person!)
 
     // Verify the correct person is displayed
     await expect(
