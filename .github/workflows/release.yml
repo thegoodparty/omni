@@ -447,6 +447,9 @@ jobs:
       - name: apply dev/autopilot-agent-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/autopilot-agent-fargate autopilot-agent-${{ needs.await-checks.outputs.sha }} autopilot-agent-playwright-${{ needs.await-checks.outputs.sha }}
+      - name: apply dev/autopilot-bot
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/autopilot-bot
       - name: apply dev/pmf-vpc-endpoints
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/pmf-vpc-endpoints
@@ -486,6 +489,9 @@ jobs:
       - name: reverify dev/autopilot-agent-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/autopilot-agent-fargate autopilot-agent-${{ needs.await-checks.outputs.sha }} autopilot-agent-playwright-${{ needs.await-checks.outputs.sha }}
+      - name: reverify dev/autopilot-bot
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/autopilot-bot
       - name: reverify dev/pmf-vpc-endpoints
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-vpc-endpoints
@@ -1071,6 +1077,9 @@ jobs:
       - name: apply prod/autopilot-agent-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/autopilot-agent-fargate autopilot-agent-${{ needs.await-checks.outputs.sha }} autopilot-agent-playwright-${{ needs.await-checks.outputs.sha }}
+      - name: apply prod/autopilot-bot
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/autopilot-bot
       - name: apply prod/campaign-plan-lambda
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/campaign-plan-lambda
@@ -1110,6 +1119,9 @@ jobs:
       - name: reverify prod/autopilot-agent-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/autopilot-agent-fargate autopilot-agent-${{ needs.await-checks.outputs.sha }} autopilot-agent-playwright-${{ needs.await-checks.outputs.sha }}
+      - name: reverify prod/autopilot-bot
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/autopilot-bot
       - name: reverify prod/campaign-plan-lambda
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/campaign-plan-lambda

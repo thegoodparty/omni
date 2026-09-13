@@ -50,9 +50,9 @@ module "route53" {
   source = "../../../modules/route53"
 
   custom_domain_name = var.custom_domain_name
-  route53_zone_id   = var.route53_zone_id
-  alb_dns_name      = module.alb.alb_dns_name
-  alb_zone_id       = module.alb.alb_zone_id
+  route53_zone_id    = var.route53_zone_id
+  alb_dns_name       = module.alb.alb_dns_name
+  alb_zone_id        = module.alb.alb_zone_id
 }
 
 data "terraform_remote_state" "ddhq_matcher" {
@@ -108,7 +108,7 @@ resource "aws_lb_listener_rule" "ddhq_matcher_valid" {
   condition {
     http_header {
       http_header_name = "x-api-key"
-      values          = [local.api_key]
+      values           = [local.api_key]
     }
   }
 
@@ -128,7 +128,7 @@ resource "aws_lb_listener_rule" "ddhq_matcher_invalid" {
     fixed_response {
       content_type = "application/json"
       message_body = jsonencode({
-        error = "Forbidden"
+        error   = "Forbidden"
         message = "Invalid or missing API key"
       })
       status_code = "403"
@@ -199,6 +199,66 @@ resource "aws_lb_listener_rule" "clickup_bot" {
 
   tags = {
     Name        = "clickup-bot-${var.environment}"
+    Environment = var.environment
+  }
+}
+
+data "terraform_remote_state" "autopilot_bot" {
+  backend = "s3"
+
+  config = {
+    bucket = "goodparty-terraform-state-us-west-2"
+    key    = "autopilot-bot/prod/terraform.tfstate"
+    region = "us-west-2"
+  }
+}
+
+resource "aws_lb_target_group" "autopilot_bot" {
+  name        = "autopilot-bot-${var.environment}"
+  target_type = "lambda"
+
+  tags = {
+    Name        = "autopilot-bot-${var.environment}"
+    Environment = var.environment
+    Purpose     = "Autopilot ClickUp Webhook Handler"
+  }
+}
+
+resource "aws_lb_target_group_attachment" "autopilot_bot" {
+  target_group_arn = aws_lb_target_group.autopilot_bot.arn
+  target_id        = data.terraform_remote_state.autopilot_bot.outputs.lambda_function_arn
+  depends_on       = [aws_lambda_permission.autopilot_bot_alb_invoke]
+}
+
+resource "aws_lambda_permission" "autopilot_bot_alb_invoke" {
+  statement_id  = "AllowExecutionFromALB"
+  action        = "lambda:InvokeFunction"
+  function_name = data.terraform_remote_state.autopilot_bot.outputs.lambda_function_name
+  principal     = "elasticloadbalancing.amazonaws.com"
+  source_arn    = aws_lb_target_group.autopilot_bot.arn
+}
+
+# No x-api-key condition (unlike serve_analyze/ddhq_matcher): auth is the
+# HMAC signature the Lambda itself verifies against the request body
+# (AUTOPILOT_CLICKUP_WEBHOOK_SECRET), the same posture as clickup_bot's
+# single, unconditional listener rule.
+resource "aws_lb_listener_rule" "autopilot_bot" {
+  listener_arn = module.alb.https_listener_arn
+  priority     = 30
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.autopilot_bot.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/autopilot/webhook"]
+    }
+  }
+
+  tags = {
+    Name        = "autopilot-bot-${var.environment}"
     Environment = var.environment
   }
 }
