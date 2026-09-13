@@ -9,18 +9,17 @@ variable "ecs_cluster_arn" {
 }
 
 variable "ecs_task_definition_family" {
-  description = "Family of the base autopilot-agent ECS task definition (epic-create/story/resume stages). This is what ECS_TASK_DEFINITION is set to — dispatch.py has no stage-based task-def selection yet, so every stage, including qa, launches on the base family today."
+  description = "Family of the base autopilot-agent ECS task definition, used for every stage except qa (epic-create/story/resume). This is what ECS_TASK_DEFINITION is set to."
   type        = string
 }
 
 variable "ecs_task_definition_family_playwright" {
   description = <<-EOT
     Family of the Playwright-installed autopilot-agent task definition
-    (autopilot-agent-fargate module output). Not read by any Lambda env var —
-    dispatch.py's launch_fargate_stage always uses ECS_TASK_DEFINITION — but
-    granted in the RunTask IAM policy alongside the base family so that adding
-    qa-stage task-def selection to dispatch.py later needs no follow-up
-    Terraform change.
+    (autopilot-agent-fargate module output). Set as ECS_TASK_DEFINITION_PLAYWRIGHT —
+    dispatch.py's launch_fargate_stage picks this family when the stage is
+    qa (Playwright E2E; the base image has no browsers) and ECS_TASK_DEFINITION
+    otherwise. Also granted in the RunTask IAM policy alongside the base family.
   EOT
   type        = string
 }
@@ -45,13 +44,15 @@ variable "ecs_task_role_arn" {
   type        = string
 }
 
-# --- Routing/dispatch config. task 14 owns the real ClickUp board schema
-# (which lists are in scope, the bot's user id) — these default to "" so a
-# clean apply ships a Lambda that fails closed (every event 200-skips as
-# "list not in scope", or the gate refuses dispatch) rather than one that
-# guesses at scope. Wire the real values here once task 14 lands.
+# --- Routing/dispatch config. These default to "" so a clean apply ships a
+# Lambda that fails closed (every event 200-skips as "list not in scope", or
+# the gate refuses dispatch) rather than one that guesses at scope. Real
+# values are wired per environment in that root's terraform.auto.tfvars — see
+# environments/dev/autopilot-bot/terraform.auto.tfvars (ENG-11104) and that
+# root's README.md for the board record. Prod stays on this placeholder until
+# prod rollout.
 variable "autopilot_list_ids" {
-  description = "AUTOPILOT_LIST_IDS: comma-separated ClickUp list IDs in scope. Placeholder default (\"\") until task 14 supplies the real board IDs — an empty value makes every webhook event a no-op, never a misroute."
+  description = "AUTOPILOT_LIST_IDS: comma-separated ClickUp list IDs in scope. Module default is a placeholder (\"\") so an environment root that hasn't wired the real board IDs still ships a Lambda where every webhook event is a no-op, never a misroute."
   type        = string
   default     = ""
 }
@@ -63,7 +64,7 @@ variable "autopilot_story_list_ids" {
 }
 
 variable "autopilot_bot_user_id" {
-  description = "AUTOPILOT_BOT_USER_ID: ClickUp user id the human-actor gate treats as the bot's own writes. Placeholder default (\"\") until task 14 supplies it — router.py fails closed (refuses gate dispatch) rather than silently disabling the gate when unset."
+  description = "AUTOPILOT_BOT_USER_ID: ClickUp user id the human-actor gate treats as the bot's own writes. Module default is a placeholder (\"\") — router.py fails closed (refuses gate dispatch) rather than silently disabling the gate when unset."
   type        = string
   default     = ""
 }
@@ -359,10 +360,11 @@ resource "aws_lambda_function" "autopilot_bot" {
       # ECS dispatch. Names are dispatch.py's exact env var names — NOT
       # ECS_SUBNET_IDS/ECS_SECURITY_GROUP_ID (clickup-bot's names): this
       # Lambda's dispatch.py reads bare SUBNET_IDS/SECURITY_GROUP_ID.
-      ECS_CLUSTER_ARN     = var.ecs_cluster_arn
-      ECS_TASK_DEFINITION = var.ecs_task_definition_family
-      SUBNET_IDS          = join(",", var.ecs_subnet_ids)
-      SECURITY_GROUP_ID   = var.ecs_security_group_id
+      ECS_CLUSTER_ARN                = var.ecs_cluster_arn
+      ECS_TASK_DEFINITION            = var.ecs_task_definition_family
+      ECS_TASK_DEFINITION_PLAYWRIGHT = var.ecs_task_definition_family_playwright
+      SUBNET_IDS                     = join(",", var.ecs_subnet_ids)
+      SECURITY_GROUP_ID              = var.ecs_security_group_id
     }
   }
 

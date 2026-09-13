@@ -23,7 +23,11 @@ GitHub Actions ───┘   (also: sweep.py) ──────┴─→ super
     from-status, to-status) to a stage dispatch or, for the epic-supervisor
     entry points, to `supervisor.py`.
   - `dispatch.py` — the per-transition DynamoDB claim + ECS Fargate launch a
-    routed stage dispatch goes through.
+    routed stage dispatch goes through. The `qa` stage launches on the
+    Playwright-installed task definition (`ECS_TASK_DEFINITION_PLAYWRIGHT`) —
+    the base image has no browsers installed — every other stage on the base
+    one (`ECS_TASK_DEFINITION`); an unset `ECS_TASK_DEFINITION_PLAYWRIGHT` at
+    a `qa` dispatch refuses loudly rather than falling back to the base image.
   - `supervisor.py` — the epic conductor: reads an epic's stories from
     ClickUp, dispatches the next unblocked one (one in flight per epic, via
     its own `epic#{epic_task_id}` DynamoDB claim), closes the epic out once
@@ -43,12 +47,49 @@ particular, ClickUp reads inside this Lambda are plain HTTP (mirroring
 `clickup_bot`'s client), never `shared/clickup_client` — that module is the
 Fargate stage runner's tool, not the conductor's.
 
+## Board contract for humans
+
+This is the contract the routing table (`router.py`) and the stage
+instructions (`agent/stages/*.md`) are both written against. Changing either
+side without the other breaks routing silently — a card can sit in a status
+the bot never dispatches from, or vice versa.
+
+**Intake.** A feature card enters the pipeline by being moved into
+`approved tdd`, and its description **must** link the approved TDD. That's
+the only source of design the `epic-create` stage will read — it never
+invents architecture, data model, or scope. A card missing the link doesn't
+fail; the run parks and asks (`agent/stages/epic-create.md`, step 1), and a
+human answering the question (or moving the card back) re-dispatches a fresh
+`resume` run to pick the stage back up.
+
+**Status spec** (`router.py`'s `STATUS_*` constants are the source of
+truth — a board relabel without a matching code change breaks routing):
+
+| List | Statuses |
+| --- | --- |
+| Feature ("Autopilot features") | `approved tdd`, `in progress`, `feedback needed`, `breakdown review`, `executing`, `done` |
+| Story ("Autopilot stories") | `to do`, `executing`, `in progress`, `feedback needed`, `qa`, `done` |
+
+**The two human gates.** A transition into `GATE_TO_STATUSES` only dispatches
+when the actor is a human — `router.py` checks the moving user against
+`AUTOPILOT_BOT_USER_ID` and refuses (never dispatches) when they match:
+
+- `approved tdd` → `in progress` (feature card): starts breakdown
+  (`epic-create` stage — turns the TDD into a linked story breakdown).
+- `breakdown review` → `executing` (feature card): starts implementation
+  (hands the card to the epic supervisor, which dispatches stories one at a
+  time).
+
+The bot never moves a card through either gate itself — every other status
+write it makes (landing a story in `qa`, closing an epic out, etc.) is a
+non-gate transition a bot actor is expected to make.
+
 ### Environment variables
 
 Beyond the routing/dispatch set (`AUTOPILOT_LIST_IDS`, `AUTOPILOT_STORY_LIST_IDS`,
 `AUTOPILOT_BOT_USER_ID`, `AUTOPILOT_DEDUP_TABLE`, `AUTOPILOT_CLICKUP_WEBHOOK_SECRET`,
-`ECS_CLUSTER_ARN`, `ECS_TASK_DEFINITION`, `SUBNET_IDS`, `SECURITY_GROUP_ID`),
-the supervisor and sweep need:
+`ECS_CLUSTER_ARN`, `ECS_TASK_DEFINITION`, `ECS_TASK_DEFINITION_PLAYWRIGHT`,
+`SUBNET_IDS`, `SECURITY_GROUP_ID`), the supervisor and sweep need:
 
 | Var | Purpose |
 | --- | --- |

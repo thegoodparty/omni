@@ -90,6 +90,7 @@ def boto3_clients(monkeypatch, fake_dynamodb, fake_ecs):
 def ecs_env(monkeypatch):
     monkeypatch.setenv("ECS_CLUSTER_ARN", "arn:aws:ecs:us-west-2:1:cluster/autopilot")
     monkeypatch.setenv("ECS_TASK_DEFINITION", "autopilot-agent:1")
+    monkeypatch.setenv("ECS_TASK_DEFINITION_PLAYWRIGHT", "autopilot-agent-playwright:1")
     monkeypatch.setenv("SUBNET_IDS", "subnet-1,subnet-2")
     monkeypatch.setenv("SECURITY_GROUP_ID", "sg-1")
 
@@ -185,6 +186,34 @@ def test_claim_ttl_outlives_the_stages_own_deadline(fake_dynamodb):
     pk = dispatch.claim_pk(TASK_ID, STAGE, TRANSITIONED_AT)
     expires_at = int(fake_dynamodb.items[pk]["expires_at"]["N"])
     assert expires_at >= before + long_deadline_seconds + dispatch.DEDUP_TTL_GRACE_SECONDS
+
+
+# ---------------------------------------------------------------------------
+# qa dispatch runs on the Playwright task definition, never the base one
+# ---------------------------------------------------------------------------
+
+
+def test_qa_stage_uses_playwright_task_definition(fake_ecs):
+    dispatch.dispatch_stage(TASK_ID, dispatch.QA_STAGE, TRANSITIONED_AT, envelope(stage=dispatch.QA_STAGE))
+
+    assert fake_ecs.run_task_calls[0]["taskDefinition"] == "autopilot-agent-playwright:1"
+
+
+def test_non_qa_stage_uses_base_task_definition(fake_ecs):
+    dispatch.dispatch_stage(TASK_ID, STAGE, TRANSITIONED_AT, envelope())
+
+    assert fake_ecs.run_task_calls[0]["taskDefinition"] == "autopilot-agent:1"
+
+
+def test_qa_dispatch_refuses_when_playwright_task_definition_unset(monkeypatch, fake_ecs, capsys):
+    monkeypatch.delenv("ECS_TASK_DEFINITION_PLAYWRIGHT", raising=False)
+
+    result = dispatch.dispatch_stage(TASK_ID, dispatch.QA_STAGE, TRANSITIONED_AT, envelope(stage=dispatch.QA_STAGE))
+
+    assert result["dispatched"] is False
+    assert result["error"] == "playwright task definition not configured"
+    assert fake_ecs.run_task_calls == []
+    assert "ERROR: playwright task definition not configured" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------

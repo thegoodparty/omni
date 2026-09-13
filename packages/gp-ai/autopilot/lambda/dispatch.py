@@ -39,6 +39,13 @@ DEDUP_TTL_GRACE_SECONDS = 300
 _dynamodb_client: Any = None
 _ecs_client: Any = None
 
+# Stage that must launch on the Playwright-installed task definition instead
+# of the base autopilot-agent image (qa.md's stage-runner drives Playwright
+# E2E, which the base image doesn't ship). Value duplicated from
+# router.STAGE_QA rather than imported — dispatch.py stays import-free of
+# router.py by design (see module docstring).
+QA_STAGE = "qa"
+
 
 def get_dynamodb_client() -> Any:
     global _dynamodb_client
@@ -138,7 +145,19 @@ def claim_transition(task_id: str, stage: str, transitioned_at: str, ttl_seconds
 
 def launch_fargate_stage(envelope: StageEnvelope) -> dict:
     cluster_arn = os.environ.get("ECS_CLUSTER_ARN")
-    task_definition = os.environ.get("ECS_TASK_DEFINITION")
+
+    if envelope.stage == QA_STAGE:
+        # qa runs Playwright E2E against the deployed dev stack; the base
+        # autopilot-agent image has no browsers installed, so qa MUST launch
+        # on the Playwright family, never fall back to the base one.
+        task_definition = os.environ.get("ECS_TASK_DEFINITION_PLAYWRIGHT")
+        if not task_definition:
+            error_msg = "playwright task definition not configured"
+            print(f"ERROR: {error_msg}; refusing qa dispatch")
+            return {"launched": False, "error": error_msg}
+    else:
+        task_definition = os.environ.get("ECS_TASK_DEFINITION")
+
     subnet_ids = [s for s in os.environ.get("SUBNET_IDS", "").split(",") if s]
     security_group_id = os.environ.get("SECURITY_GROUP_ID")
 

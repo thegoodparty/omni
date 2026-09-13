@@ -32,25 +32,25 @@ locals {
 }
 
 variable "autopilot_list_ids" {
-  description = "AUTOPILOT_LIST_IDS: comma-separated ClickUp list IDs in scope. Placeholder until task 14 supplies the real board IDs."
+  description = "AUTOPILOT_LIST_IDS: comma-separated ClickUp list IDs in scope. Real value set in terraform.auto.tfvars (ENG-11104) — see this directory's README.md for the board record."
   type        = string
   default     = ""
 }
 
 variable "autopilot_story_list_ids" {
-  description = "AUTOPILOT_STORY_LIST_IDS. Placeholder until task 14 supplies the real board IDs."
+  description = "AUTOPILOT_STORY_LIST_IDS. Real value set in terraform.auto.tfvars (ENG-11104)."
   type        = string
   default     = ""
 }
 
 variable "autopilot_bot_user_id" {
-  description = "AUTOPILOT_BOT_USER_ID. Placeholder until task 14 supplies it."
+  description = "AUTOPILOT_BOT_USER_ID. Real value set in terraform.auto.tfvars (ENG-11104)."
   type        = string
   default     = ""
 }
 
 variable "autopilot_slack_channel" {
-  description = "AUTOPILOT_SLACK_CHANNEL for supervisor stall/close-out alerts (not a secret)."
+  description = "AUTOPILOT_SLACK_CHANNEL for supervisor stall/close-out alerts (not a secret). Real value set in terraform.auto.tfvars (ENG-11104)."
   type        = string
   default     = ""
 }
