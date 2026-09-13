@@ -27,6 +27,10 @@ provider "aws" {
   }
 }
 
+locals {
+  environment = "dev"
+}
+
 variable "autopilot_list_ids" {
   description = "AUTOPILOT_LIST_IDS: comma-separated ClickUp list IDs in scope. Placeholder until task 14 supplies the real board IDs."
   type        = string
@@ -86,7 +90,7 @@ data "terraform_remote_state" "shared_slack_notifier" {
 module "autopilot_bot" {
   source = "../../../modules/autopilot-bot"
 
-  environment = "dev"
+  environment = local.environment
 
   ecs_cluster_arn                       = data.terraform_remote_state.autopilot_agent_fargate.outputs.cluster_arn
   ecs_task_definition_family            = data.terraform_remote_state.autopilot_agent_fargate.outputs.task_definition_family
@@ -105,6 +109,78 @@ module "autopilot_bot" {
 
   # Dev is expected to get its ClickUp webhook registered soon after this
   # lands (ENG-11104), so leave the no-deliveries alarm armed (module default).
+}
+
+# ALB wiring lives HERE, not in shared-infra, on purpose. shared-infra's own
+# target-group/listener-rule blocks for clickup-bot/ddhq-matcher/serve-analyze
+# read those Lambdas' state via terraform_remote_state, which only works
+# because those Lambdas' state already existed before shared-infra referenced
+# it. autopilot-bot is new: its state does not exist until this root's first
+# apply, so a shared-infra reference to it would hard-fail "Unable to find
+# remote state" on every plan until this root applies FIRST — a chicken-and-
+# egg shared-infra can't be the one to resolve. Looking the listener up live
+# (not through shared-infra's state) sidesteps the ordering problem entirely:
+# this root creates the Lambda AND its ALB attachment in one state, so the
+# target group attachment can reference module.autopilot_bot's OWN outputs
+# directly, with an ordinary in-graph dependency instead of a cross-state one.
+data "aws_lb" "ai" {
+  name = "ai-${local.environment}"
+}
+
+data "aws_lb_listener" "https" {
+  load_balancer_arn = data.aws_lb.ai.arn
+  port              = 443
+}
+
+resource "aws_lb_target_group" "autopilot_bot" {
+  name        = "autopilot-bot-${local.environment}"
+  target_type = "lambda"
+
+  tags = {
+    Name        = "autopilot-bot-${local.environment}"
+    Environment = local.environment
+    Purpose     = "Autopilot ClickUp Webhook Handler"
+  }
+}
+
+resource "aws_lb_target_group_attachment" "autopilot_bot" {
+  target_group_arn = aws_lb_target_group.autopilot_bot.arn
+  target_id        = module.autopilot_bot.lambda_function_arn
+  depends_on       = [aws_lambda_permission.autopilot_bot_alb_invoke]
+}
+
+resource "aws_lambda_permission" "autopilot_bot_alb_invoke" {
+  statement_id  = "AllowExecutionFromALB"
+  action        = "lambda:InvokeFunction"
+  function_name = module.autopilot_bot.lambda_function_name
+  principal     = "elasticloadbalancing.amazonaws.com"
+  source_arn    = aws_lb_target_group.autopilot_bot.arn
+}
+
+# No x-api-key condition (unlike serve_analyze/ddhq_matcher): auth is the
+# HMAC signature the Lambda itself verifies against the request body
+# (AUTOPILOT_CLICKUP_WEBHOOK_SECRET), the same posture as clickup_bot's
+# single, unconditional listener rule. Priority 30: shared-infra's own rules
+# on this listener top out at 25 (dev) / 20 (prod) as of this writing.
+resource "aws_lb_listener_rule" "autopilot_bot" {
+  listener_arn = data.aws_lb_listener.https.arn
+  priority     = 30
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.autopilot_bot.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/autopilot/webhook"]
+    }
+  }
+
+  tags = {
+    Name        = "autopilot-bot-${local.environment}"
+    Environment = local.environment
+  }
 }
 
 output "lambda_function_arn" {
