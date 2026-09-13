@@ -52,3 +52,20 @@ relevant reply, not just any reply in the thread.
 
 Either way, scope every ClickUp write to `CLICKUP_TASK_ID` / `EPIC_TASK_ID` —
 never another card.
+
+### 4. A status-note park is not a question to answer
+
+`story` and `qa` also park when their own deadline arrives mid-wait — a PR
+approved and armed but not yet merged, or a merged commit not yet deployed —
+using the same marker but a status note ("Merge pending: ..." / "Deploy
+pending: ...") instead of a real question. Don't wait for a human reply to
+"answer" it: check whether the condition itself has resolved instead — `gh pr
+view` / `gh pr checks` for a pending merge, or the deployed commit for a
+pending deploy.
+
+- **Resolved** (the PR has since merged; the commit is now live on dev):
+  continue straight into that stage's remaining handoff steps — moving the
+  ticket to `qa`, or running the QA walk — you don't need a reply in the
+  thread for this case.
+- **Still not resolved**: park again with the same status note (step 3's
+  dedup means this is safe to repeat) and end your turn.

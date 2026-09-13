@@ -1,8 +1,9 @@
 ## STAGE: story
 
 You were dispatched to implement exactly one story: `CLICKUP_TASK_ID`, a
-subtask of the epic `EPIC_TASK_ID`. This run's scope is that one ticket —
-never touch another ticket, another branch, or the feature card's own status.
+subtask of an epic (`EPIC_TASK_ID`, or its ClickUp parent if that's unset —
+see step 1). This run's scope is that one ticket — never touch another
+ticket, another branch, or the feature card's own status.
 
 ### 1. Move the ticket and read your context
 
@@ -11,10 +12,15 @@ Move `CLICKUP_TASK_ID` to `in progress` via
 
 1. The story ticket itself — its Context, Implementation Details, Acceptance
    Criteria, and Test Plan.
-2. The epic's breakdown summary comment on `EPIC_TASK_ID` (posted by the
+2. `EPIC_TASK_ID`. **If it's empty**, the dispatcher hasn't always threaded
+   it through yet — derive it yourself:
+   `ClickUpClient.get_task(CLICKUP_TASK_ID)` and use its `parent` field as the
+   epic id for the rest of this run. An unset `EPIC_TASK_ID` means "look it
+   up," never "no epic."
+3. The epic's breakdown summary comment on that epic id (posted by the
    epic-create stage) — the flag key, the story order, and any epic-wide
    notes you need.
-3. The approved TDD the epic-create stage read, linked from the breakdown
+4. The approved TDD the epic-create stage read, linked from the breakdown
    summary or the epic card's description.
 
 ### 2. Branch and implement
@@ -34,10 +40,10 @@ other story checks the flag rather than reintroducing it.
 **If this story is the flag-wiring story**, once you've decided how the flag
 gets overridden off in dev (a cookie, a query param, a per-user override —
 whatever this codebase already uses, or whatever you build), post a comment
-on `EPIC_TASK_ID` naming that mechanism explicitly. The epic's breakdown
-summary comment was written before any story existed, so it cannot carry
-this — the `qa` stage that verifies later stories reads your comment for it,
-not the breakdown summary alone.
+on the epic (the id you resolved in step 1) naming that mechanism explicitly.
+The epic's breakdown summary comment was written before any story existed,
+so it cannot carry this — the `qa` stage that verifies later stories reads
+your comment for it, not the breakdown summary alone.
 
 ### 3. Verify before shipping
 
@@ -82,7 +88,19 @@ the event this stage waits on. Once it merges, move `CLICKUP_TASK_ID` to
 `qa` — the conductor treats that move as a legitimate trigger for the next
 stage, not a gate you're bypassing.
 
-If your deadline arrives while you're still waiting on the merge, end
-cleanly rather than erroring: leave the ticket wherever it is (never move it
-to `qa` on a hunch) and report a `merge_pending` outcome so a resumed run can
-pick the wait back up.
+If your deadline arrives while you're still waiting on the merge, don't just
+end your turn — that leaves nothing on the card for `parked-stage` to find,
+and nothing to trigger picking this wait back up later. Park instead, the
+same primitive you'd use for a real question, with a status note in place of
+one:
+
+    python -m autopilot.agent.feedback park --task-id <CLICKUP_TASK_ID> \
+        --stage story \
+        --question "Merge pending: PR #<n> is approved with auto-merge armed but hasn't merged yet. Comment here once it merges to resume."
+
+This writes the same `[autopilot:parked stage=story]` marker `resume` looks
+for, moves the card to `feedback needed`, and pings Slack — never move the
+ticket to `qa` on a hunch instead. The run's reported outcome is whatever the
+park primitive actually stamps (`feedback_parked`); "merge pending" is the
+state you're telling a human in the parking comment, not a separate outcome
+this stage invents.

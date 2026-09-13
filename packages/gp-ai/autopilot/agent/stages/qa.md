@@ -9,10 +9,23 @@ every write you make is scoped to the story ticket itself.
 The merge landing does not mean the commit is live: the release train still
 has to deploy it to dev. If the merged commit isn't live on dev yet, wait and
 retry within your deadline rather than failing the story outright — a
-still-deploying commit is not a QA failure. If your deadline arrives before
-the commit deploys, end cleanly and report a `deploy_pending` outcome rather
-than failing the story; leave the ticket wherever it is so a resumed run can
-pick the wait back up.
+still-deploying commit is not a QA failure.
+
+If your deadline arrives before the commit deploys, don't just end your
+turn — that leaves nothing on the card for `parked-stage` to find, and
+nothing to trigger picking this wait back up later. Park instead, the same
+primitive you'd use for a real question, with a status note in place of one:
+
+    python -m autopilot.agent.feedback park --task-id <CLICKUP_TASK_ID> \
+        --stage qa \
+        --question "Deploy pending: commit <sha> merged but isn't live on dev yet. Comment here once it deploys to resume."
+
+This writes the same `[autopilot:parked stage=qa]` marker `resume` looks
+for, moves the card to `feedback needed`, and pings Slack — never move the
+ticket to `in progress` or `done` on a hunch instead. The run's reported
+outcome is whatever the park primitive actually stamps (`feedback_parked`);
+"deploy pending" is the state you're telling a human in the parking comment,
+not a separate outcome this stage invents.
 
 ### 2. Log in
 
@@ -28,8 +41,13 @@ Take one screenshot per criterion as you confirm it.
 
 ### 4. Flag-off: parity smoke
 
+`EPIC_TASK_ID` may be empty — the dispatcher hasn't always threaded it
+through yet. If so, derive it yourself: `ClickUpClient.get_task(CLICKUP_TASK_ID)`
+and use its `parent` field as the epic id below. An unset `EPIC_TASK_ID` means
+"look it up," never "no epic."
+
 Turn the flag off using whatever override mechanism the epic's flag-wiring
-story actually established. The breakdown summary comment on `EPIC_TASK_ID`
+story actually established. The breakdown summary comment on the epic
 predates every story and never carries this; read the flag-wiring story's own
 follow-up comment on the epic instead, where it names the mechanism it
 built. Don't assume a cookie, a query param, or any other specific mechanism

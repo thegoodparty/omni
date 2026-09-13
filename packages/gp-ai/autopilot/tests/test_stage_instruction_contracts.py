@@ -92,13 +92,29 @@ def test_story_covers_its_load_bearing_directives():
 
     assert "wait for the merge" in text.lower(), "must wait for the merge, not the dev deploy"
     assert "move" in text.lower() and "`qa`" in text, "must move the ticket to qa once merged"
-    assert "merge_pending" in text, "must end cleanly with a merge_pending outcome on deadline"
+
+    # A deadline-exceeded run must PARK (marker + status move + Slack ping),
+    # not just end cleanly — an unparked run leaves nothing for `parked-stage`
+    # to find and nothing to trigger a resume (a real cross-file bug a prior
+    # review round caught: the earlier draft promised a bespoke `merge_pending`
+    # metric outcome the park machinery does not produce).
+    assert "--stage story" in text, "the deadline-exceeded path must park via the CLI, not just end the run"
+    assert "merge pending" in text.lower(), "the parking comment's status note must say the merge is pending"
+    assert "feedback_parked" in text, "must report the outcome the park primitive actually stamps, honestly"
 
     # The flag-wiring story must hand qa its override mechanism some other way
     # than the epic breakdown summary, which predates every story and so can
     # never carry it (a real cross-file bug a prior review round caught).
     assert "post a comment" in text.lower(), "the flag-wiring story must post its override mechanism to the epic"
     assert "cannot carry this" in text, "must explain why the breakdown summary can't carry the override mechanism"
+
+    # EPIC_TASK_ID isn't always threaded through by the dispatcher yet (a
+    # cross-file gap a prior review round caught) — the story must derive it
+    # from the ticket's ClickUp parent rather than treat empty as "no epic."
+    assert "derive it yourself" in text.lower(), (
+        "must derive the epic from the ticket's parent when EPIC_TASK_ID is unset"
+    )
+    assert "`parent` field" in text, "must name the ClickUp `parent` field as the derivation source"
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +126,22 @@ def test_qa_covers_its_load_bearing_directives():
     text = _read("qa")
 
     assert "wait and retry" in text.lower(), "must wait-and-retry rather than fail on a not-yet-deployed commit"
-    assert "deploy_pending" in text, "must end cleanly with a deploy_pending outcome if the deploy wait times out"
+
+    # Same park-not-just-end fix as story.md's merge wait, and for the same
+    # reason: a deadline-exceeded run needs a marker + status move + Slack
+    # ping, not a bare exit, and must not promise an outcome the park
+    # machinery doesn't produce.
+    assert "--stage qa" in text, "the deadline-exceeded path must park via the CLI, not just end the run"
+    assert "deploy pending" in text.lower(), "the parking comment's status note must say the deploy is pending"
+    assert "feedback_parked" in text, "must report the outcome the park primitive actually stamps, honestly"
+
+    # EPIC_TASK_ID isn't always threaded through by the dispatcher yet — qa
+    # must derive it from the story ticket's ClickUp parent rather than treat
+    # empty as "no epic" (same cross-file gap as story.md).
+    assert "derive it yourself" in text.lower(), (
+        "must derive the epic from the ticket's parent when EPIC_TASK_ID is unset"
+    )
+    assert "`parent` field" in text, "must name the ClickUp `parent` field as the derivation source"
 
     assert "Clerk sign-in ticket" in text, "must log in via a redeemed Clerk sign-in ticket"
     assert "Never put credentials" in text or "never put credentials" in text.lower(), (
@@ -132,3 +163,22 @@ def test_qa_covers_its_load_bearing_directives():
     assert "move the ticket to `done`" in text, "a passing run must close the ticket"
 
     assert "never edits code" in text, "must stay read-only against the app"
+
+
+# ---------------------------------------------------------------------------
+# resume — the status-note park case (fixed alongside ENG-11100/11101)
+# ---------------------------------------------------------------------------
+
+
+def test_resume_handles_a_status_note_park_without_waiting_for_a_reply():
+    text = _read("resume")
+
+    assert "not a question to answer" in text.lower(), "must distinguish a status-note park from a real question"
+    assert "merge pending" in text.lower(), "must name the merge-pending status note story.md parks with"
+    assert "deploy pending" in text.lower(), "must name the deploy-pending status note qa.md parks with"
+    assert "condition itself has resolved" in text.lower(), (
+        "resume must check the real condition (merge landed / deploy landed), not wait for a reply"
+    )
+    assert "remaining handoff steps" in text.lower(), (
+        "a resolved status-note park must continue the stage's handoff, not wait on the thread"
+    )
