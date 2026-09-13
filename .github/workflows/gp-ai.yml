@@ -84,11 +84,21 @@ jobs:
               - 'packages/gp-ai/shared/**'
               - 'packages/gp-ai/pyproject.toml'
               - 'packages/gp-ai/uv.lock'
+            autopilot-agent:
+              - 'packages/gp-ai/autopilot/**'
+              - 'packages/gp-ai/shared/**'
+              - 'packages/gp-ai/pyproject.toml'
+              - 'packages/gp-ai/uv.lock'
+            autopilot-agent-playwright:
+              - 'packages/gp-ai/autopilot/**'
+              - 'packages/gp-ai/shared/**'
+              - 'packages/gp-ai/pyproject.toml'
+              - 'packages/gp-ai/uv.lock'
 
       # Collapse the per-service booleans into a JSON array the build matrix
       # consumes, so only changed services get a build job. An empty array
       # skips the build job entirely rather than running a no-op matrix.
-      # EVERY main push builds all five images and deploys, whether or not this
+      # EVERY main push builds all seven images and deploys, whether or not this
       # commit touched packages/gp-ai. The invariant is "the deployed artifact
       # corresponds to the commit on main" — with no exceptions to reason about.
       #
@@ -108,13 +118,13 @@ jobs:
           ALL: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
         run: |
           set -euo pipefail
-          all='["broker","pmf-engine","serve-analyze","ddhq-matcher","engineer-agent"]'
+          all='["broker","pmf-engine","serve-analyze","ddhq-matcher","engineer-agent","autopilot-agent","autopilot-agent-playwright"]'
           if [ "$ALL" = "true" ]; then
             list="$all"
             echo "main push: building all services so every one has an image at this SHA"
           else
             list='[]'
-            for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent; do
+            for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent autopilot-agent autopilot-agent-playwright; do
               if [ "$(jq -r --arg s "$s" '.[$s] // "false"' <<<"$FILTERS")" = "true" ]; then
                 list=$(jq -c --arg s "$s" '. + [$s]' <<<"$list")
               fi
@@ -129,7 +139,7 @@ jobs:
     # Also unconditional on main, for the same reason the build is. Gating this
     # on the path filter while the build ignores it opens a bypass: a commit
     # touching nothing under packages/gp-ai skips lint/test but still builds and
-    # deploys all five services — carrying along any broken Python an earlier
+    # deploys all seven services — carrying along any broken Python an earlier
     # commit left in the tree. Deployed code must have been validated at the
     # commit it is deployed from.
     if: >-
@@ -209,12 +219,34 @@ jobs:
         id: df
         run: |
           case "${{ matrix.service }}" in
-            broker)         echo "file=packages/gp-ai/broker/Dockerfile" ;;
-            pmf-engine)     echo "file=packages/gp-ai/pmf_engine/Dockerfile" ;;
-            serve-analyze)  echo "file=packages/gp-ai/serve/v1_pipeline/Dockerfile" ;;
-            ddhq-matcher)   echo "file=packages/gp-ai/hubspot_ddhq_match/deployment/Dockerfile" ;;
-            engineer-agent) echo "file=packages/gp-ai/engineer_agent/Dockerfile" ;;
+            broker)                     echo "file=packages/gp-ai/broker/Dockerfile" ;;
+            pmf-engine)                 echo "file=packages/gp-ai/pmf_engine/Dockerfile" ;;
+            serve-analyze)              echo "file=packages/gp-ai/serve/v1_pipeline/Dockerfile" ;;
+            ddhq-matcher)               echo "file=packages/gp-ai/hubspot_ddhq_match/deployment/Dockerfile" ;;
+            engineer-agent)             echo "file=packages/gp-ai/engineer_agent/Dockerfile" ;;
+            autopilot-agent)            echo "file=packages/gp-ai/autopilot/Dockerfile" ;;
+            autopilot-agent-playwright) echo "file=packages/gp-ai/autopilot/Dockerfile" ;;
           esac >> "$GITHUB_OUTPUT"
+
+          # Only the autopilot Dockerfile bakes in a second, named build
+          # context (a runbooks checkout — see its header comment), and only
+          # the -playwright variant needs Chromium installed. Repo-root
+          # relative because actions/checkout puts CI's cwd at the repo root,
+          # not packages/gp-ai. Every other service gets empty values, which
+          # docker/build-push-action treats as "nothing extra".
+          case "${{ matrix.service }}" in
+            autopilot-agent|autopilot-agent-playwright)
+              echo "build-contexts=runbooks=packages/runbooks" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "build-contexts=" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+          if [ "${{ matrix.service }}" = "autopilot-agent-playwright" ]; then
+            echo "build-args=INSTALL_PLAYWRIGHT=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build-args=" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -245,6 +277,8 @@ jobs:
           # build.
           context: packages/gp-ai
           file: ${{ steps.df.outputs.file }}
+          build-contexts: ${{ steps.df.outputs.build-contexts }}
+          build-args: ${{ steps.df.outputs.build-args }}
           platforms: linux/arm64
           push: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
           # SHA-tagged and immutable — the only tag written. The mutable
@@ -335,6 +369,9 @@ jobs:
       - name: plan dev/agent-run-inputs
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/agent-run-inputs
+      - name: plan dev/autopilot-agent-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/autopilot-agent-fargate autopilot-agent-${{ github.sha }} autopilot-agent-playwright-${{ github.sha }}
       - name: plan dev/broker
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/broker broker-${{ github.sha }}

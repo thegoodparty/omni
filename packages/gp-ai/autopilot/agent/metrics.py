@@ -4,9 +4,11 @@ exercise in log archaeology.
 Modeled on engineer_agent/agent/metrics.py — same worry (a number scraped out
 of prose drifts silently the moment the prose is reworded), adapted for
 autopilot's stage runs, which have no analyze/implement "verdict" to parse: a
-stage run either finished, exhausted its budget, hit its deadline, or errored.
-That is `outcome` below, computed from the same fields `run_agent` already
-returns rather than re-derived from a second source of truth.
+stage run either finished, parked itself waiting on a human, exhausted its
+budget, hit its deadline, or errored. That is `outcome` below, computed from
+the same fields `run_agent` already returns (main.py stamps a successful run's
+result with `parked_stage` via feedback.apply_park_outcome before this runs)
+rather than re-derived from a second source of truth.
 
     AUTOPILOT_METRIC {"task_id": ..., "stage": ..., "outcome": ..., ...}
 
@@ -62,10 +64,12 @@ def _outcome(result: dict) -> str:
     Read off `error_subtype`, which is `_consume_agent_stream`'s own
     classification, rather than re-inspecting cost/duration here — a second
     heuristic would eventually disagree with the one that actually ended the
-    run.
+    run. `parked_stage` is the same idea applied to parking: main.py sets it
+    (see feedback.apply_park_outcome) rather than this function re-deriving
+    "did this run park" from anything else.
     """
     if result.get("status") == "success":
-        return "success"
+        return "feedback_parked" if result.get("parked_stage") else "success"
     subtype = result.get("error_subtype")
     if subtype == "error_max_budget_usd":
         return "budget_exhausted"

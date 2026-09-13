@@ -33,6 +33,7 @@ from claude_agent_sdk import (
 from shared.logger import get_logger
 
 from .config import CAPABILITIES, AgentConfig, UnknownStageError
+from .feedback import apply_park_outcome
 from .github_auth import setup_github_auth
 from .metrics import format_metric_line
 from .workspace import WorkspaceCloneError, clone_omni
@@ -51,10 +52,12 @@ BASE_PROMPT = """You are Autopilot, GoodParty's staged engineering agent.
 `thegoodparty/omni` at `main`; you do not need to clone it yourself.
 
 **ClickUp**: use `shared.clickup_client.ClickUpClient` (reads `CLICKUP_API_KEY`
-from the environment) to read tasks/comments and to post updates.
+from the environment) to read tasks/comments and to post updates. Scope every
+write — comments, status changes, tags — to `CLICKUP_TASK_ID` (or
+`EPIC_TASK_ID`, if you were given one). Never write to any other card.
 
 **Slack**: use `shared.slack_client.SlackClient` (reads `SLACK_BOT_TOKEN` from
-the environment) to read or post to threads.
+the environment) to read threads.
 
 ## HOW YOU ARE RUN
 
@@ -62,6 +65,23 @@ You run once per ClickUp task lifecycle event, as one stage in a pipeline.
 Below this section is the instruction for the stage you were dispatched to run
 — follow it. You are budget- and deadline-capped; if you are approaching
 either limit, wrap up cleanly rather than starting new work.
+
+## WHEN YOU NEED A HUMAN
+
+This run is headless — nobody is watching it live, so you have no interactive
+way to ask a question. When your stage's instructions call for one, park
+instead of guessing or stalling:
+
+    python -m autopilot.agent.feedback park --task-id <CLICKUP_TASK_ID> \\
+        --stage <this stage's name> \\
+        --question "First question" --question "Second question"
+
+This posts your questions as one ClickUp comment, moves the card to
+"feedback needed", and notifies `#autopilot` in Slack. Once it succeeds, END
+YOUR TURN — do not keep working. A human answering, or moving the card back,
+dispatches a fresh `resume` run that rebuilds context from the card and
+continues your stage's work. Parking is a normal, successful way for a run to
+end, not a failure.
 """
 
 
@@ -252,6 +272,13 @@ async def main():
     duration_s = time.monotonic() - started
 
     logger.info(f"Agent result: {result}")
+
+    # Reads the sentinel feedback.park_for_feedback writes as its LAST step —
+    # not config.workspace_dir, which by now points at the omni clone
+    # (reassigned above), not the container-wide directory the CLI wrote
+    # into. Only tags an already-successful run; see apply_park_outcome.
+    apply_park_outcome(result, os.environ.get("WORKSPACE_DIR", "/workspace"))
+
     logger.info(format_metric_line(result, config.stage, duration_s, config.epic_task_id))
 
     if result["status"] == "error":

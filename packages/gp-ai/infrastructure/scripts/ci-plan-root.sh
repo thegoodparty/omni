@@ -10,14 +10,18 @@
 # job's outcome.
 #
 # Usage: ci-plan-root.sh <env>/<root>      e.g. ci-plan-root.sh dev/broker
+#   optional 3rd arg: a second image tag, for the one root (autopilot-agent-fargate)
+#   with a second, Playwright-installed image variant — passed as
+#   -var docker_image_tag_playwright=<tag>. Every other root ignores it.
 # Writes to $PLAN_DIR (default /tmp/tfplans):
 #   <slug>.txt    human-readable plan output (or the error)
 #   <slug>.code   0 = no changes, 2 = changes, 1 = error
 #   <slug>.destroy  count of resources the plan would delete
 set -uo pipefail
 
-root="${1:?usage: ci-plan-root.sh <env>/<root> [image-tag]}"
+root="${1:?usage: ci-plan-root.sh <env>/<root> [image-tag] [image-tag-playwright]}"
 image_tag="${2:-}"
+image_tag_playwright="${3:-}"
 slug="${root//\//-}"
 plan_dir="${PLAN_DIR:-/tmp/tfplans}"
 mkdir -p "$plan_dir"
@@ -62,6 +66,7 @@ fi
 # state lock" — the plan can safely read against state an apply is mutating.
 plan_args=(-input=false -no-color -detailed-exitcode -out=tfplan -lock=false)
 [ -n "$image_tag" ] && plan_args+=(-var "docker_image_tag=$image_tag")
+[ -n "$image_tag_playwright" ] && plan_args+=(-var "docker_image_tag_playwright=$image_tag_playwright")
 terraform plan "${plan_args[@]}" >>"$plan_dir/$slug.txt" 2>&1
 code=$?
 echo "$code" >"$plan_dir/$slug.code"
