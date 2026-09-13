@@ -12,9 +12,12 @@ see tests/conftest.py). handler.py maps its parsed event into these shapes
 before calling route().
 """
 
+import importlib.util
 import os
+import sys
 from dataclasses import dataclass
-from typing import Literal
+from pathlib import Path
+from typing import Any, Literal
 
 CardType = Literal["feature_card", "story"]
 
@@ -44,6 +47,7 @@ DEFAULT_AGENT_MODEL = "sonnet"
 # decision only has to edit this block.
 
 STATUS_APPROVED_TDD = "approved tdd"
+STATUS_BREAKDOWN_REVIEW = "breakdown review"
 STATUS_TO_DO = "to do"
 STATUS_IN_PROGRESS = "in progress"
 STATUS_EXECUTING = "executing"
@@ -82,6 +86,13 @@ STAGE_CEILINGS: dict[str, StageCeiling] = {
 # transition is a new row here, not a new branch in route().
 ROUTING_TABLE: dict[tuple[CardType, str | None, str], str] = {
     (FEATURE_CARD, STATUS_APPROVED_TDD, STATUS_IN_PROGRESS): STAGE_EPIC_CREATE,
+    # A human has reviewed epic-create's story breakdown and kicked off the
+    # epic supervisor. Maps to STAGE_SUPERVISOR, not a Fargate stage — see
+    # route()'s to_supervisor handling below, and supervisor.py for what runs
+    # from here. "executing" (not "in progress") is this transition's
+    # to-status for the same board-schema reason a story's own kickoff uses
+    # it (see GATE_TO_STATUSES).
+    (FEATURE_CARD, STATUS_BREAKDOWN_REVIEW, STATUS_EXECUTING): STAGE_SUPERVISOR,
     (STORY_CARD, STATUS_TO_DO, STATUS_EXECUTING): STAGE_STORY,
     (STORY_CARD, STATUS_IN_PROGRESS, STATUS_QA): STAGE_QA,
     (STORY_CARD, STATUS_FEEDBACK_NEEDED, STATUS_IN_PROGRESS): STAGE_RESUME,
@@ -106,6 +117,11 @@ class RoutableEvent:
     # Top-level delivery timestamp; the only dedup key source for kinds that
     # carry no history_items (commentPosted).
     event_ts: str | None = None
+    # Which epic a STORY_CARD belongs to (task 14's board field; see
+    # handler.AutopilotEvent). Feature cards never set this — for the
+    # breakdown-review gate the epic IS the card itself, so route() derives
+    # RoutingDecision.epic_task_id from task_id instead.
+    epic_task_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -115,6 +131,12 @@ class RoutingDecision:
     task_id: str
     transitioned_at: str | None
     to_supervisor: bool = False
+    # Populated only when to_supervisor is True: the feature card's own id
+    # for the breakdown-review gate, or the story's parent epic for a
+    # story-done event. dispatch_to_supervisor's caller (route_event) never
+    # sees the original event, only this decision, so the epic id has to
+    # travel on it rather than be re-derived downstream.
+    epic_task_id: str | None = None
 
 
 # Comment-triggered resume dedup window: comments delivered within the same
@@ -175,12 +197,46 @@ def _bot_user_id_or_none() -> str | None:
     return bot_user_id
 
 
+def _load_sibling_module(stem: str) -> Any:
+    """Loads supervisor.py by path, same as handler.py's own copy (see its
+    module docstring for why this can't be a plain import). Duplicated here
+    rather than imported from handler.py: router.py is deliberately decoupled
+    from handler.py (see this module's docstring), and dispatch_to_supervisor
+    is the one place router.py itself needs a sibling module."""
+    module_name = f"autopilot_conductor_{stem}"
+    if module_name in sys.modules:
+        return sys.modules[module_name]
+    module_path = Path(__file__).resolve().parent / f"{stem}.py"
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+# Lazy, not a module-top-level load: dispatch_to_supervisor only runs inside
+# route(), well after every module in lambda/ has finished importing (see
+# handler.py, which loads supervisor.py itself and is always the Lambda's
+# actual entry point), so there is no real import-order hazard here — but
+# loading eagerly at router.py's own top level would add one anyway, since
+# supervisor.py loads router.py right back.
+_supervisor_module: Any = None
+
+
+def _load_supervisor_module() -> Any:
+    global _supervisor_module
+    if _supervisor_module is None:
+        _supervisor_module = _load_sibling_module("supervisor")
+    return _supervisor_module
+
+
 def dispatch_to_supervisor(decision: RoutingDecision) -> None:
-    """STUBBED for this task — task 03 implements the epic supervisor that
-    decides what happens once a story reaches done. Mirrors how task 01
-    stubbed route_event (handler.py): logs receipt only, so this routing
-    path can be exercised end-to-end before the supervisor exists."""
-    print(f"Story done, supervisor not yet implemented: task_id={decision.task_id}")
+    """Hands an epic-supervisor-scoped decision (the breakdown-review gate,
+    or a story reaching done) to supervisor.py's per-epic conductor tick. See
+    supervisor.py's module docstring for the one-in-flight-story invariant,
+    next-story selection, and stall detection this triggers."""
+    _load_supervisor_module().handle_routed_event(decision)
 
 
 def route(event: RoutableEvent) -> list[RoutingDecision]:
@@ -225,6 +281,11 @@ def route(event: RoutableEvent) -> list[RoutingDecision]:
                     task_id=event.task_id,
                     transitioned_at=transition.transitioned_at,
                     to_supervisor=True,
+                    # The story's own id is never the epic id — the epic is
+                    # whichever feature card this story's parent points to,
+                    # carried on the event because RoutingDecision has no way
+                    # to re-derive it downstream (see the field's docstring).
+                    epic_task_id=event.epic_task_id,
                 )
             )
             continue
@@ -240,12 +301,17 @@ def route(event: RoutableEvent) -> list[RoutingDecision]:
                 # this write came from the bot itself — neither dispatches.
                 continue
 
+        to_supervisor = stage == STAGE_SUPERVISOR
         decisions.append(
             RoutingDecision(
                 stage=stage,
                 card_type=card_type,
                 task_id=event.task_id,
                 transitioned_at=transition.transitioned_at,
+                to_supervisor=to_supervisor,
+                # The breakdown-review gate IS the epic: a feature card's own
+                # task_id is the epic id every story under it points back to.
+                epic_task_id=event.task_id if to_supervisor else None,
             )
         )
     return decisions

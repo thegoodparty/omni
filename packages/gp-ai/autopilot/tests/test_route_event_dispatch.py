@@ -261,20 +261,59 @@ def test_container_overrides_carry_full_envelope_and_ceiling(fake_ecs):
 
 
 # ---------------------------------------------------------------------------
-# Test plan — story-done routes to the supervisor stub, not Fargate
+# Story done -> supervisor, not Fargate
 # ---------------------------------------------------------------------------
 
 
-def test_story_done_calls_supervisor_stub_not_fargate(fake_ecs, capsys):
+def test_story_done_calls_supervisor_not_fargate(fake_ecs, monkeypatch):
+    # The supervisor's own next-story/close-out/stall logic is exercised in
+    # test_supervisor.py; this test only pins the wiring — route_event must
+    # hand story-done decisions to the supervisor with the right epic id,
+    # and must never touch Fargate directly for them.
+    calls = []
+    monkeypatch.setattr(handler.supervisor, "handle_routed_event", calls.append)
     event = make_event(
         STORY_LIST_ID,
         [transition(HUMAN_USER_ID, router.STATUS_QA, router.STATUS_DONE)],
+        epic_task_id="epic-7",
     )
 
     handler.route_event(event)
 
     assert fake_ecs.run_task_calls == []
-    assert "supervisor not yet implemented" in capsys.readouterr().out
+    assert len(calls) == 1
+    assert calls[0].task_id == TASK_ID
+    assert calls[0].epic_task_id == "epic-7"
+
+
+def test_breakdown_review_gate_calls_supervisor_with_its_own_id(fake_ecs, monkeypatch):
+    calls = []
+    monkeypatch.setattr(handler.supervisor, "handle_routed_event", calls.append)
+    event = make_event(
+        FEATURE_LIST_ID,
+        [transition(HUMAN_USER_ID, router.STATUS_BREAKDOWN_REVIEW, router.STATUS_EXECUTING)],
+    )
+
+    handler.route_event(event)
+
+    assert fake_ecs.run_task_calls == []
+    assert len(calls) == 1
+    assert calls[0].task_id == TASK_ID
+    assert calls[0].epic_task_id == TASK_ID
+
+
+def test_breakdown_review_gate_by_bot_dispatches_nothing(fake_ecs, monkeypatch):
+    calls = []
+    monkeypatch.setattr(handler.supervisor, "handle_routed_event", calls.append)
+    event = make_event(
+        FEATURE_LIST_ID,
+        [transition(BOT_USER_ID, router.STATUS_BREAKDOWN_REVIEW, router.STATUS_EXECUTING)],
+    )
+
+    handler.route_event(event)
+
+    assert fake_ecs.run_task_calls == []
+    assert calls == []
 
 
 # ---------------------------------------------------------------------------
