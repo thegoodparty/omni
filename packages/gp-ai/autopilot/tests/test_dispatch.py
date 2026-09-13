@@ -205,7 +205,7 @@ def test_non_qa_stage_uses_base_task_definition(fake_ecs):
     assert fake_ecs.run_task_calls[0]["taskDefinition"] == "autopilot-agent:1"
 
 
-def test_qa_dispatch_refuses_when_playwright_task_definition_unset(monkeypatch, fake_ecs, capsys):
+def test_qa_dispatch_refuses_when_playwright_task_definition_unset(monkeypatch, fake_dynamodb, fake_ecs, capsys):
     monkeypatch.delenv("ECS_TASK_DEFINITION_PLAYWRIGHT", raising=False)
 
     result = dispatch.dispatch_stage(TASK_ID, dispatch.QA_STAGE, TRANSITIONED_AT, envelope(stage=dispatch.QA_STAGE))
@@ -213,7 +213,14 @@ def test_qa_dispatch_refuses_when_playwright_task_definition_unset(monkeypatch, 
     assert result["dispatched"] is False
     assert result["error"] == "playwright task definition not configured"
     assert fake_ecs.run_task_calls == []
-    assert "ERROR: playwright task definition not configured" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "ERROR: playwright task definition not configured" in out
+    # Same contract as test_claim_left_in_place_when_launch_fails: the claim
+    # is written before the launch attempt and must survive the refusal, so a
+    # redelivery cannot re-drive this transition once the env is fixed — the
+    # sweep plus a fresh transition is the recovery path.
+    assert len(fake_dynamodb.items) == 1
+    assert "claim left in place" in out
 
 
 # ---------------------------------------------------------------------------
