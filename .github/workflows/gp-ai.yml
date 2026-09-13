@@ -372,6 +372,9 @@ jobs:
       - name: plan dev/autopilot-agent-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/autopilot-agent-fargate autopilot-agent-${{ github.sha }} autopilot-agent-playwright-${{ github.sha }}
+      - name: plan dev/autopilot-bot
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/autopilot-bot
       - name: plan dev/broker
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/broker broker-${{ github.sha }}
