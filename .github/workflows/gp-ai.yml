@@ -514,6 +514,17 @@ jobs:
               core.setFailed(`terraform plan failed for: ${errored.map(r => r.slug).join(', ')}`)
             }
 
+      # Runs after the comment above so a PR always gets the plan comment even
+      # when this guard is about to fail the job. Simulates the SAME deploy
+      # role this job already assumed (Configure AWS Credentials, above)
+      # against every create/update/delete change the plans just produced,
+      # catching an apply-time IAM gap here instead of on the release train.
+      # No logic here on purpose (see repo convention: nothing computed in
+      # YAML) — everything (the resource -> IAM action/ARN table, batching,
+      # the fail-open bootstrap rule) lives in the two scripts.
+      - name: Simulate apply-time IAM permissions
+        run: bash packages/gp-ai/infrastructure/scripts/ci-simulate-apply-perms.sh
+
   # Stable aggregation gate. Branch protection and the release train want one name
   # whose meaning doesn't change as jobs fan in and out. `skipped` is a
   # legitimate pass here (the commit didn't touch this subtree); `failure` and
