@@ -9,13 +9,18 @@
 # is what we want here, since aborting a terraform apply mid-write can orphan a
 # state lock.
 #
-# Usage: ci-apply-root.sh <env>/<root> [image-tag]
+# Usage: ci-apply-root.sh <env>/<root> [image-tag] [image-tag-playwright]
 #   ci-apply-root.sh dev/broker broker-a1b2c3d
 #   ci-apply-root.sh dev/shared-infra
+#   ci-apply-root.sh dev/autopilot-agent-fargate autopilot-agent-a1b2c3d autopilot-agent-playwright-a1b2c3d
+# The 3rd arg is a second image tag, only meaningful for the one root
+# (autopilot-agent-fargate) with a second, Playwright-installed image variant
+# — passed as -var docker_image_tag_playwright=<tag>. Every other root ignores it.
 set -uo pipefail
 
-root="${1:?usage: ci-apply-root.sh <env>/<root> [image-tag]}"
+root="${1:?usage: ci-apply-root.sh <env>/<root> [image-tag] [image-tag-playwright]}"
 image_tag="${2:-}"
+image_tag_playwright="${3:-}"
 slug="${root//\//-}"
 log_dir="${APPLY_DIR:-/tmp/tfapply}"
 mkdir -p "$log_dir"
@@ -34,6 +39,7 @@ cd "$dir" || fail "cannot cd into $dir"
 # out instead of failing instantly on "Error acquiring the state lock".
 args=(-input=false -no-color -lock-timeout=10m)
 [ -n "$image_tag" ] && args+=(-var "docker_image_tag=$image_tag")
+[ -n "$image_tag_playwright" ] && args+=(-var "docker_image_tag_playwright=$image_tag_playwright")
 
 terraform init -input=false -no-color >"$log" 2>&1 || fail "init failed"
 
