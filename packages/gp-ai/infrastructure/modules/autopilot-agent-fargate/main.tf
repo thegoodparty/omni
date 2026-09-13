@@ -378,8 +378,11 @@ resource "aws_sns_topic_subscription" "shared_slack_notifier" {
 }
 
 resource "aws_lambda_permission" "allow_sns_invoke_slack" {
-  count         = var.shared_slack_notifier_lambda_arn != "" ? 1 : 0
-  statement_id  = "AllowSNSInvokeFromAgentFailures"
+  count = var.shared_slack_notifier_lambda_arn != "" ? 1 : 0
+  # Statement ids are unique per function, and the engineer-agent module
+  # already holds "AllowSNSInvokeFromAgentFailures" on this same shared
+  # notifier lambda — reusing it fails the apply with ResourceConflictException.
+  statement_id  = "AllowSNSInvokeFromAutopilotAgentFailures"
   action        = "lambda:InvokeFunction"
   function_name = var.shared_slack_notifier_lambda_arn
   principal     = "sns.amazonaws.com"
