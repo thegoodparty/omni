@@ -540,6 +540,42 @@ def test_async_worker_raises_when_hydration_read_fails(monkeypatch, fake_lambda,
     assert "ERROR: failed to hydrate task" in capsys.readouterr().out
 
 
+def test_async_worker_hydrates_comment_posted_current_status_from_live_read(monkeypatch, fake_lambda):
+    # commentPosted is the only kind with no transitions — it routes entirely
+    # on current_status, which real deliveries never carry: it must come from
+    # the hydration read, and the parent must make the event a story.
+    routed = []
+    monkeypatch.setattr(handler, "route_event", lambda e: routed.append(e))
+    monkeypatch.setattr(
+        handler.supervisor,
+        "get_task",
+        lambda task_id: {
+            "id": task_id,
+            "list": {"id": IN_SCOPE_LIST_ID},
+            "status": {"status": "feedback needed"},
+            "parent": "epic-9",
+        },
+    )
+    payload = handler.AutopilotEvent(
+        kind="commentPosted",
+        task_id="story-abc",
+        list_id=None,
+        transitions=[],
+        event_ts="1700000099000",
+    ).to_payload()
+
+    resp = handler.handler(payload, None)
+
+    assert resp["statusCode"] == 200
+    assert len(routed) == 1
+    assert routed[0].kind == "commentPosted"
+    assert routed[0].current_status == "feedback needed"
+    assert routed[0].epic_task_id == "epic-9"
+    # The delivery timestamp is the resume dedup key's only source — it must
+    # survive hydration, not be replaced by anything from the task read.
+    assert routed[0].event_ts == "1700000099000"
+
+
 def test_async_worker_raises_when_hydrated_task_has_no_readable_list(monkeypatch, fake_lambda, capsys):
     # A successful read whose list field is unreadable must not fall through
     # to the scope gate — None reads as "not in scope" and the event would be
