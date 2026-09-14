@@ -62,10 +62,13 @@ jobs:
           if [ "$CONCLUSION" = "startup_failure" ]; then
             phase="runner startup failure (no jobs ran)"
           else
+            # "Dev " before "Verify dev serving": verify-dev only needs
+            # gp-api + gp-webapp, so it can fail alongside another parallel
+            # Dev job — and the deploy failure is then the real story.
             case "$failed" in
               *"Await checks"*) phase="checks gate (pre-deploy checks failed)" ;;
-              *"Verify dev serving"*) phase="dev serving verification (dev did not converge to the deployed SHA)" ;;
               *"Dev "*)    phase="dev deploy (E2E shards were skipped, not run)" ;;
+              *"Verify dev serving"*) phase="dev serving verification (dev did not converge to the deployed SHA)" ;;
               *"E2E"*)     phase="E2E against dev" ;;
               *"Promote"*|*"Record prod"*|*"Check gp-ai"*) phase="prod promotion" ;;
               *)           phase="unknown — read the run" ;;
@@ -86,6 +89,14 @@ jobs:
               -H "Content-type: application/json; charset=utf-8" \
               --data @-)
           if [ "$(echo "$resp" | jq -r .ok)" != "true" ]; then
-            echo "::error::Slack rejected the alert: $(echo "$resp" | jq -r .error). If not_in_channel, invite the goodparty app to #bot-urgent."
-            exit 1
+            err=$(echo "$resp" | jq -r .error)
+            # not_in_channel = the bot invite is pending; a red alert run next
+            # to every red release run would be noise, not signal. Everything
+            # else (bad token, deleted channel, rate limit) fails loudly.
+            if [ "$err" = "not_in_channel" ]; then
+              echo "::warning::Slack not_in_channel — invite the goodparty app to #bot-urgent. Alert not sent."
+            else
+              echo "::error::Slack rejected the alert: $err"
+              exit 1
+            fi
           fi
