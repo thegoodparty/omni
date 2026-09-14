@@ -99,12 +99,13 @@ export const SUPPORT_ANSWER_ROLLUP = {
 // equally firm answers are still settled by recency — someone who has changed
 // their mind has changed their mind.
 //
-// One constant, compiled into both the SQL ordering in
-// SupportStatusService.derivedStatusSql and the in-process pick in
-// DoorKnockingStatusService.latestKnockStatuses, for the reason
-// SUPPORT_ANSWER_ROLLUP above is one constant: a door that reads one way in
-// Contacts and another way at the door tells the candidate nothing except
-// that one of the two is lying.
+// One constant, read by all three derivations that colour the same person —
+// the SQL ordering in SupportStatusService.derivedStatusSql, and the pick
+// `firmestAnswerPerPerson` makes for DoorKnockingStatusService and
+// DoorKnockingPackService — for the reason SUPPORT_ANSWER_ROLLUP above is one
+// constant: a door that reads one way in Contacts and another way at the door
+// tells the candidate nothing except that one of the two is lying.
+//
 // The three rungs. `none` is a row that carries no answer at all — a
 // not-home, a refusal, an inaccessible door — and sitting below every answer
 // is the rule that was already here as `(support_answer IS NOT NULL) DESC`,
