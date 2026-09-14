@@ -6,6 +6,11 @@ vi.mock('app/dashboard/election-result/dismissal', () => ({
   clearElectionResultDismissed: () => mockClearElectionResultDismissed(),
 }))
 
+const mockDeleteCookie = vi.fn()
+vi.mock('helpers/cookieHelper', () => ({
+  deleteCookie: (name: string) => mockDeleteCookie(name),
+}))
+
 describe('stopImpersonatingAndReturnToAdmin', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -24,5 +29,15 @@ describe('stopImpersonatingAndReturnToAdmin', () => {
 
     expect(signOut).toHaveBeenCalled()
     expect(mockClearElectionResultDismissed).toHaveBeenCalled()
+  })
+
+  it('drops the impersonated org selection so it cannot follow the admin back', async () => {
+    // The cookie outlives the Clerk session by months, so leaving it set would
+    // hand the staff member's own next visit the impersonated user's org.
+    const signOut = vi.fn().mockResolvedValue(undefined)
+
+    await stopImpersonatingAndReturnToAdmin(signOut)
+
+    expect(mockDeleteCookie).toHaveBeenCalledWith('organization-slug')
   })
 })

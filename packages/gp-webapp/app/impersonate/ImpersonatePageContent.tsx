@@ -4,6 +4,10 @@ import { useEffect, useState } from 'react'
 import { useClerk } from '@clerk/nextjs'
 import { useSearchParams } from 'next/navigation'
 import { clearElectionResultDismissed } from 'app/dashboard/election-result/dismissal'
+import { clientRequest } from 'gpApi/typed-request'
+import { setCookie } from 'helpers/cookieHelper'
+import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
+import { resolveOrgSlug } from '@shared/organizations/resolveOrgSlug'
 
 const isSafeRelativePath = (s: string | null): s is string => {
   if (typeof s !== 'string') return false
@@ -21,6 +25,37 @@ const isSafeReturnTo = (s: string | null): s is string =>
 // path is valid there.
 const isSafeAdminReturnTo = (s: string | null): s is string =>
   isSafeRelativePath(s)
+
+/**
+ * Point the org-slug cookie at an org the impersonated user actually has.
+ *
+ * The cookie is host-scoped and long-lived (120 days), so without this the
+ * staff member's browser carries their own — or the previously impersonated
+ * user's — slug into this session. Every server component reads that cookie for
+ * the X-Organization-Slug header, so the first dashboard render answers for an
+ * org this user can't see, while the client falls back to a different one: the
+ * campaign-manager body under a Serve sidebar, with neither chat dock mounted.
+ *
+ * Best-effort by design. If the org list can't be read (Clerk's session cookie
+ * is still propagating on the very first authenticated call), we leave the
+ * cookie alone and let the redirect proceed exactly as it does today — the
+ * provider's repair-and-refresh in `organization-picker` is the backstop. A
+ * failure here must never block the hand-off into the session.
+ */
+async function selectOrganizationForSession(): Promise<void> {
+  try {
+    const res = await clientRequest(
+      'GET /v1/organizations',
+      {},
+      { ignoreResponseError: true },
+    )
+    if (!res.ok) return
+    const slug = resolveOrgSlug(res.data.organizations, null)
+    if (slug) setCookie(ORG_SLUG_COOKIE, slug)
+  } catch {
+    // Non-fatal: see above.
+  }
+}
 
 export default function ImpersonatePageContent() {
   const { client, setActive, signOut, loaded } = useClerk()
@@ -62,6 +97,9 @@ export default function ImpersonatePageContent() {
 
         await setActive({ session: result.createdSessionId })
         clearElectionResultDismissed()
+        // Before the redirect, so the first server render of the destination
+        // already sees this user's org rather than the previous session's.
+        await selectOrganizationForSession()
         if (isSafeAdminReturnTo(adminReturnTo)) {
           sessionStorage.setItem('gp_admin_return_to', adminReturnTo)
         }
