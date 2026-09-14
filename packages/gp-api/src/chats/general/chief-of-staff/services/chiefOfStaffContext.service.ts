@@ -73,12 +73,21 @@ export class ChiefOfStaffContextService extends createPrismaBase(
 
     const priorities = await port.listActive(electedOffice.id)
 
-    const conversationCount = await this.count({
+    // "First conversation" means they have never actually talked to their
+    // chief of staff, so this counts PRIOR conversations that hold at least
+    // one message. Excluding the current row keeps the check independent of
+    // whether it is already persisted, and requiring a message drops the
+    // empty rows a retried POST /chats leaves behind (createScopedConversation
+    // takes no idempotency key), which would otherwise make a genuinely
+    // first-time user look like a returning one.
+    const priorConversations = await this.count({
       where: {
+        id: { not: conversationId },
         ownerUserId: userId,
         scope: ChatScope.chief_of_staff,
         organizationSlug: conversation.organizationSlug,
         deletedAt: null,
+        messages: { some: {} },
       },
     })
 
@@ -111,7 +120,7 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       termStartDate: electedOffice.termStartDate,
       termEndDate: electedOffice.termEndDate,
       priorities,
-      isFirstConversation: conversationCount <= 1,
+      isFirstConversation: priorConversations === 0,
       anchor,
       districtFilters: null,
       constituentToolEnabled: false,
