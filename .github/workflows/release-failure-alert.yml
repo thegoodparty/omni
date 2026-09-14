@@ -43,6 +43,7 @@ jobs:
           RUN_URL: ${{ github.event.workflow_run.html_url }}
           RUN_TITLE: ${{ github.event.workflow_run.display_title }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
         run: |
           set -euo pipefail
           if [ -z "$SLACK_APP_BOT_TOKEN" ] || [ -z "$CHANNEL_ID" ]; then
@@ -50,18 +51,26 @@ jobs:
             exit 1
           fi
 
+          # timed_out jobs conclude "timed_out", not "failure" — both count.
           failed=$(gh api "repos/${{ github.repository }}/actions/runs/$RUN_ID/jobs?per_page=100" \
-            --jq '[.jobs[] | select(.conclusion == "failure") | .name] | join(", ")')
+            --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | .name] | join(", ")')
 
           # Phase, in pipeline order: a failed dev deploy skips the E2E shards,
           # so it wins the classification even though the "E2E" gate job also
-          # reports failure in that case.
-          case "$failed" in
-            *"Dev "*)    phase="dev deploy (E2E shards were skipped, not run)" ;;
-            *"E2E"*)     phase="E2E against dev" ;;
-            *"Promote"*|*"Record prod"*|*"Check gp-ai"*) phase="prod promotion" ;;
-            *)           phase="unknown — read the run" ;;
-          esac
+          # reports failure in that case. A startup_failure run schedules no
+          # jobs at all, so the job-name case has nothing to match on.
+          if [ "$CONCLUSION" = "startup_failure" ]; then
+            phase="runner startup failure (no jobs ran)"
+          else
+            case "$failed" in
+              *"Await checks"*) phase="checks gate (pre-deploy checks failed)" ;;
+              *"Verify dev serving"*) phase="dev serving verification (dev did not converge to the deployed SHA)" ;;
+              *"Dev "*)    phase="dev deploy (E2E shards were skipped, not run)" ;;
+              *"E2E"*)     phase="E2E against dev" ;;
+              *"Promote"*|*"Record prod"*|*"Check gp-ai"*) phase="prod promotion" ;;
+              *)           phase="unknown — read the run" ;;
+            esac
+          fi
 
           text=$(jq -rn \
             --arg phase "$phase" \
