@@ -13,7 +13,7 @@ import {
   Text,
 } from '@radix-ui/themes'
 import { PERMISSIONS } from '@/lib/permissions'
-import { formatDate } from '@/lib/utils/date'
+import { formatDate, formatDateTime } from '@/lib/utils/date'
 import { getSmsDetail } from '../actions'
 import { STANDARDS_RULE_LABELS, STATUS_COLORS, STATUS_LABELS } from '../types'
 import { ApproveDenyActions } from '../components/ApproveDenyActions'
@@ -141,9 +141,15 @@ export default async function Page({ params }: PageProps) {
                 </DataList.Value>
               </DataList.Item>
               <DataList.Item>
-                <DataList.Label>Send date</DataList.Label>
+                <DataList.Label>Requested send time</DataList.Label>
                 <DataList.Value>
-                  {item.sendAt ? formatDate(item.sendAt) : '—'}
+                  <Flex direction="column">
+                    <Text size="2">{formatDateTime(item.sendAt)}</Text>
+                    <Text size="1" color="gray">
+                      Peerly books a 9am–9pm window local to each contact on
+                      this date — not a guaranteed exact time.
+                    </Text>
+                  </Flex>
                 </DataList.Value>
               </DataList.Item>
               <DataList.Item>
