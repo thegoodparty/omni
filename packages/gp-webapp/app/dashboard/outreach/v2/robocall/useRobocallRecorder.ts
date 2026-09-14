@@ -3,9 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ROBOCALL_AUDIO_ALLOWED_MIME_TYPES } from '@goodparty_org/contracts'
 
-// idle -> recording -> preview (captured, not committed) -> saved. A discard
-// from preview/saved returns to idle. Mirrors the design's robocallRecordBar.
-export type RobocallRecorderStatus = 'idle' | 'recording' | 'preview' | 'saved'
+// idle -> recording -> processing (decoding/validating the clip) -> preview
+// (captured, not committed) -> saved. A discard from preview/saved returns to
+// idle. Mirrors the design's robocallRecordBar.
+export type RobocallRecorderStatus =
+  | 'idle'
+  | 'recording'
+  | 'processing'
+  | 'preview'
+  | 'saved'
 
 export interface RobocallRecording {
   blob: Blob
@@ -220,6 +226,9 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
           const blob = new Blob(chunksRef.current, { type })
           const timerSec = Math.max(1, elapsedRef.current)
           const captureReq = captureReqRef.current
+          // The mic is closed but the decode is async; show a processing state
+          // so the UI doesn't keep showing an active recording during it.
+          setStatus('processing')
           // Verify against the DECODED audio, not the wall-clock timer: a
           // browser-recorded WebM can report 44s on the timer while the blob
           // holds only its first ~1s chunk, and a silent clip transcribes to

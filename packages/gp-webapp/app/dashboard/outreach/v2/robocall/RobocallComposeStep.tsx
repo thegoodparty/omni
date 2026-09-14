@@ -412,6 +412,17 @@ const RecordBar = ({
     )
   }
 
+  if (recorder.status === 'processing') {
+    return (
+      <Card className="flex-row items-center gap-3 p-4">
+        <Loader2Icon className="size-5 animate-spin text-muted-foreground" />
+        <span className="text-sm font-medium text-foreground">
+          Checking your recording
+        </span>
+      </Card>
+    )
+  }
+
   const rec = recorder.recording
   if (rec) {
     const saved = recorder.status === 'saved'

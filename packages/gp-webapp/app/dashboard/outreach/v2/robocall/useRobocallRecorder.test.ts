@@ -16,6 +16,10 @@ let nextDecoded: { duration: number; peak: number } | null = {
 // file, driving readAudioDuration in the uploadFile path.
 let nextUploadDuration = 5
 
+// When true, the mocked decode never resolves, so the hook stays in its
+// processing state — used to observe that transient.
+let blockDecode = false
+
 class MockTrack {
   stopped = 0
   stop(): void {
@@ -62,6 +66,13 @@ class MockAudioContext {
     duration: number
     getChannelData: () => Float32Array
   }> {
+    if (blockDecode) {
+      return new Promise<{
+        numberOfChannels: number
+        duration: number
+        getChannelData: () => Float32Array
+      }>(() => undefined)
+    }
     if (!nextDecoded) throw new Error('decode failed')
     const { duration, peak } = nextDecoded
     return {
@@ -124,6 +135,7 @@ describe('useRobocallRecorder', () => {
     vi.useFakeTimers()
     nextDecoded = { duration: 5, peak: 0.5 }
     nextUploadDuration = 5
+    blockDecode = false
     setupNavigator()
     vi.stubGlobal('MediaRecorder', MockMediaRecorder)
     vi.stubGlobal('AudioContext', MockAudioContext)
@@ -174,6 +186,17 @@ describe('useRobocallRecorder', () => {
     expect(result.current.recording).not.toBeNull()
     expect(result.current.error).toBeNull()
     expect(result.current.recording?.durationSec).toBe(5)
+  })
+
+  it('shows a processing state while the decode is in flight', async () => {
+    blockDecode = true
+    const { result } = renderHook(() => useRobocallRecorder(60))
+
+    await recordAndStop(result, 5)
+
+    // The mic is closed and the timer stopped, but the clip isn't captured yet.
+    expect(result.current.status).toBe('processing')
+    expect(result.current.recording).toBeNull()
   })
 
   it('captures when the browser has no AudioContext (cannot verify, so accept)', async () => {
