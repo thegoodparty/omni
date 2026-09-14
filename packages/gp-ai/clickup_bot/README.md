@@ -1070,7 +1070,7 @@ unset value fails loudly rather than falling back to `#bugs`.
 gpbot — week of Aug 17–23
 Coverage: 6 of 7 tagged bugs analyzed — 1 missed: DATA-2336
 Median time to analysis: 7.3 min
-Verdicts: 3 fix · 3 no-code-change · 1 needs-human → 3 tickets closed with no code change
+Verdicts: 3 fix · 3 no-code-change · 1 needs-human → 3 tickets kept off the eng queue
 PRs: 3 opened · 1 merged · 0 closed unmerged · ⚠️ 1 open past 48h with no human review: #1306
 Cost: $38.00 this week · $3.71 median per analysis
 ```
@@ -1103,7 +1103,7 @@ message that restarts an argument about its own inputs stops being read.
 |---|---|---|
 | ClickUp `GET /team/{id}/task?tags[]=gpbot-analyze` plus `/task/{id}/comment` | Coverage and latency | `secrets.CLICKUP_API_TOKEN` |
 | `gh pr list` | PRs opened / merged / closed unmerged, and open past 48h with no human review | `github.token` |
-| `aws logs filter-log-events --filter-pattern GPBOT_METRIC` | Verdicts, no-code-change closures and cost | OIDC via `vars.AWS_ROLE_ARN` |
+| `aws logs filter-log-events --filter-pattern GPBOT_METRIC` | Verdicts, deflections and cost | OIDC via `vars.AWS_ROLE_ARN` |
 
 Tickets are bucketed by **creation** date, not by when they were analyzed —
 that is the only bucketing under which a ticket nobody looked at appears at all.
@@ -1168,7 +1168,7 @@ the gap it left. On 2026-08-24 it posted:
 
 ```
 Coverage: 8 of 8 tagged bugs analyzed
-Verdicts: 0 fix · 1 no-code-change · 0 needs-human → 1 ticket closed with no code change
+Verdicts: 0 fix · 1 no-code-change · 0 needs-human → 1 ticket kept off the eng queue
 Cost: $4.02 this week · $0.66 median per analysis
 ```
 
@@ -1182,7 +1182,7 @@ tell it from a week where the bot genuinely concluded almost nothing.
 So the two lines built on run metrics say which part of the week they cover:
 
 ```
-Verdicts (partial): 0 fix · 1 no-code-change · 0 needs-human → 1 ticket closed with no code change
+Verdicts (partial): 0 fix · 1 no-code-change · 0 needs-human → 1 ticket kept off the eng queue
 Cost (partial): $4.02 this week · $0.66 median per analysis
 ⚠️ 7 of 8 analyses left no run metric, so the verdicts and cost above describe
 part of the week rather than all of it. The agent has only recorded them since

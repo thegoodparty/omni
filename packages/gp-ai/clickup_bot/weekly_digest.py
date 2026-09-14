@@ -102,9 +102,9 @@ MAX_NAMED_MISSES = 8
 # reached that conclusion.
 VERDICTS = ("fix", "no-code-change", "needs-human")
 
-# The one verdict that means no engineering work happened. This is the closest
-# thing to a direct value measurement the system produces, and it is reported as
-# a count of tickets rather than as a rate.
+# The one verdict that means a human did not have to diagnose the ticket. This
+# is the closest thing to a direct value measurement the system produces, and it
+# is reported as a count of tickets rather than as a rate.
 #
 # `needs-human` was counted here too, and that was wrong for as long as this
 # module has shipped. It is an escalation, not a deflection: the analysis is
@@ -325,7 +325,7 @@ def _metric_records(runs: Any) -> list[dict]:
 
 
 def verdicts(runs: Any) -> dict:
-    """What the analyses concluded, and how many tickets closed with no code change.
+    """What the analyses concluded, and how many tickets that kept off the queue.
 
     `no_verdict` is counted and reported because it is alarm-worthy rather than
     merely uninteresting: the analyze prompt requires the line, so a run that
@@ -366,7 +366,7 @@ def verdicts(runs: Any) -> dict:
         # numbers match".
         "analyzed_ids": sorted(analyzed_ids),
         "counts": counts,
-        "closed_no_code": sum(counts[verdict] for verdict in DEFLECTING_VERDICTS),
+        "deflected": sum(counts[verdict] for verdict in DEFLECTING_VERDICTS),
         "no_verdict": no_verdict,
     }
 
@@ -677,7 +677,7 @@ def _verdict_line(facts: dict) -> str:
     if not any(counts.values()) and not facts["no_verdict"]:
         return f"{name}: no analyses recorded."
     listed = " · ".join(f"{counts[verdict]} {verdict}" for verdict in VERDICTS)
-    line = f"{name}: {listed} → *{_plural(facts['closed_no_code'], 'ticket')} closed with no code change*"
+    line = f"{name}: {listed} → *{_plural(facts['deflected'], 'ticket')} kept off the eng queue*"
     if facts["no_verdict"]:
         # Surfaced in the message rather than left to the logs: this is the
         # shape of "escalation has silently stopped working".
