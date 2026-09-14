@@ -724,6 +724,8 @@ export const EVENTS = {
     IssuesViewed: 'Onboarding V2 - What Issues Do You Want To Solve Viewed',
     IssuesCompleted:
       'Onboarding V2 - What Issues Do You Want To Solve Completed',
+    SignupGoalViewed: 'Onboarding V2 - Signup Goal Viewed',
+    SignupGoalCompleted: 'Onboarding V2 - Signup Goal Completed',
     OnboardingSkipped: 'Onboarding V2 - Onboarding Skipped',
   },
   CommunityIssues: {

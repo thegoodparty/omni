@@ -27,6 +27,7 @@ const sampleCampaign = {
   didWin: null,
   primaryResult: null,
   ballotStatus: null,
+  signupGoal: null,
   dateVerified: null,
   tier: null,
   formattedAddress: null,

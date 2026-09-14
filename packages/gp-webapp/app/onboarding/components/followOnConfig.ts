@@ -22,8 +22,10 @@ const [welcomeStep, ...laterSteps] = ONBOARDING_STEPS
 // The follow-on flow doesn't get the campaign-story steps yet - it's onboarding
 // scope only for this phase. Filter them out of the inherited later steps so
 // this flow's only change from the step-config update is losing demographics.
+// signup-goal goes too: it asks why the candidate signed up, which a returning
+// candidate already answered on their first campaign.
 const laterStepsWithoutStory = laterSteps.filter(
-  (step) => !isStoryStepId(step.id),
+  (step) => !isStoryStepId(step.id) && step.id !== 'signup-goal',
 )
 
 export const FOLLOW_ON_STEPS: NonEmptyArray<OnboardingStepConfig> = [
