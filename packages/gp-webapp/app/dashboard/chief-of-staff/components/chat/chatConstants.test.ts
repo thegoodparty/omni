@@ -40,6 +40,9 @@ describe('toolStatusLabel', () => {
       'query_constituent_data',
       'describe_constituent_data',
       'read_community_issues',
+      'describe_filter_dimensions',
+      'count_contacts',
+      'crud_saved_filters',
     ]) {
       expect(toolDisplayName(name)).not.toBe(name)
     }

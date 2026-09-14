@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
 import {
   buildChiefOfStaffSystemPrompt,
@@ -36,6 +36,18 @@ const TOOLS = [
   'web_search',
   'list_briefings',
   'get_briefing',
+]
+
+// Every tool ChiefOfStaffHandler can register, so a test that cares about
+// block ordering sees every conditional rule block at once.
+const ALL_TOOLS = [
+  ...TOOLS,
+  'query_constituent_data',
+  'describe_constituent_data',
+  'read_community_issues',
+  'describe_filter_dimensions',
+  'count_contacts',
+  'crud_saved_filters',
 ]
 
 describe('buildChiefOfStaffSystemPrompt', () => {
@@ -252,19 +264,45 @@ describe('buildChiefOfStaffSystemPrompt', () => {
   })
 
   it('surfaces party and term dates in the office context', () => {
-    const prompt = buildChiefOfStaffSystemPrompt({
-      ctx: baseCtx({
-        party: 'Independent',
-        electedDate: new Date('2024-11-05T00:00:00.000Z'),
-        termStartDate: new Date('2024-12-03T00:00:00.000Z'),
-        termEndDate: new Date('2028-12-05T00:00:00.000Z'),
-      }),
-      toolNames: TOOLS,
-    })
-    expect(prompt).toContain('Party: Independent')
-    expect(prompt).toContain('Last elected: 2024-11-05')
-    expect(prompt).toContain('Current term: 2024-12-03 to 2028-12-05')
-    expect(prompt).toContain('month(s) remaining')
+    // Pinned: an unpinned clock inverts this to "this term has ended" once
+    // the 2028 end date passes.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-01T12:00:00.000Z'))
+    try {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({
+          party: 'Independent',
+          electedDate: new Date('2024-11-05T00:00:00.000Z'),
+          termStartDate: new Date('2024-12-03T00:00:00.000Z'),
+          termEndDate: new Date('2028-12-05T00:00:00.000Z'),
+        }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).toContain('Party: Independent')
+      expect(prompt).toContain('Last elected: 2024-11-05')
+      expect(prompt).toContain(
+        'Current term: 2024-12-03 to 2028-12-05 (about 27 month(s) remaining)',
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('computes time in office from a non-null swornInDate', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-01T12:00:00.000Z'))
+    try {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({ swornInDate: new Date('2025-03-01T00:00:00.000Z') }),
+        toolNames: TOOLS,
+      })
+      // 2025-03-01 to 2026-09-01 is 18 calendar months. The sworn-in date is
+      // a @db.Date at UTC midnight, so a local-zone read west of UTC would
+      // see 2025-02-28 and count 19.
+      expect(prompt).toContain('Time in office: ~18 month(s) since sworn in')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   // A @db.Date is UTC midnight; formatting it through a zone west of UTC would
@@ -318,17 +356,24 @@ describe('buildChiefOfStaffSystemPrompt', () => {
   it('closes with the voice, proactivity and mechanics rules', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
-      toolNames: TOOLS,
+      toolNames: ALL_TOOLS,
     })
     expect(prompt).toContain('VOICE AND LENGTH')
     expect(prompt).toContain('PROACTIVITY')
     expect(prompt).toContain('WRITING MECHANICS')
-    expect(prompt.indexOf('VOICE AND LENGTH')).toBeGreaterThan(
-      prompt.indexOf('CONSTITUENT DATA RULES'),
-    )
-    expect(prompt.indexOf('VOICE AND LENGTH')).toBeGreaterThan(
-      prompt.indexOf('Instructions:'),
-    )
+    // Assert against blocks that are actually present under ALL_TOOLS: an
+    // absent block indexes to -1 and any position would beat it.
+    for (const earlier of [
+      'BRIEFING RULES',
+      'CONSTITUENT DATA RULES',
+      'SAVED LIST RULES',
+      'Instructions:',
+    ]) {
+      expect(prompt).toContain(earlier)
+      expect(prompt.indexOf('VOICE AND LENGTH')).toBeGreaterThan(
+        prompt.indexOf(earlier),
+      )
+    }
   })
 
   it('rules out the dead-end reply and the caught-up non-answer', () => {
