@@ -285,8 +285,16 @@ def handle_sweep(event: dict) -> dict:
             # The dedicated pass above already drives every currently-
             # executing feature card unconditionally; reconstructing this
             # same transition here would only hand it to dispatch_to_supervisor
-            # a second time this same pass.
-            if card_type == router.FEATURE_CARD and current_status == router.STATUS_EXECUTING:
+            # a second time this same pass. "in progress" is skipped for the
+            # same reason stories get the ambiguity skip: a feature card
+            # sitting there means epic-create is actively running, and every
+            # date_updated bump (a comment, a rename) would mint a fresh
+            # dedup key and launch a duplicate run. A kickoff whose webhook
+            # was lost is a human-visible no-op to retry, not worth that.
+            if card_type == router.FEATURE_CARD and current_status in (
+                router.STATUS_EXECUTING,
+                router.STATUS_IN_PROGRESS,
+            ):
                 continue
 
             if triggered >= cap:

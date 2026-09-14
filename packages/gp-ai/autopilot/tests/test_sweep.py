@@ -144,23 +144,21 @@ def env_vars(run_task_call: dict) -> dict:
 
 
 def test_missed_transition_inside_lookback_dispatches_once(fake_clickup, fake_ecs):
-    fake_clickup.list_tasks[FEATURE_LIST_ID] = [
-        task("epic-1", router.STATUS_IN_PROGRESS, date_updated=now_ms() - 60_000)
+    fake_clickup.list_tasks[STORY_LIST_ID] = [
+        task("story-1", router.STATUS_QA, date_updated=now_ms() - 60_000, parent="epic-1")
     ]
-    fake_clickup.comments["epic-1"] = []  # no evidence the bot touched it
 
     result = sweep.handle_sweep({"autopilot_sweep": True})
 
     assert len(fake_ecs.run_task_calls) == 1
-    assert env_vars(fake_ecs.run_task_calls[0])["AUTOPILOT_STAGE"] == router.STAGE_EPIC_CREATE
+    assert env_vars(fake_ecs.run_task_calls[0])["AUTOPILOT_STAGE"] == router.STAGE_QA
     assert result["statusCode"] == 200
 
 
 def test_task_outside_lookback_window_is_not_dispatched(fake_clickup, fake_ecs, monkeypatch):
     monkeypatch.setenv("SWEEP_LOOKBACK_MINUTES", "45")
     stale_ms = now_ms() - 46 * 60 * 1000
-    fake_clickup.list_tasks[FEATURE_LIST_ID] = [task("epic-1", router.STATUS_IN_PROGRESS, date_updated=stale_ms)]
-    fake_clickup.comments["epic-1"] = []
+    fake_clickup.list_tasks[STORY_LIST_ID] = [task("story-1", router.STATUS_QA, date_updated=stale_ms, parent="epic-1")]
 
     sweep.handle_sweep({"autopilot_sweep": True})
 
@@ -170,8 +168,7 @@ def test_task_outside_lookback_window_is_not_dispatched(fake_clickup, fake_ecs, 
 def test_task_inside_lookback_window_boundary_is_dispatched(fake_clickup, fake_ecs, monkeypatch):
     monkeypatch.setenv("SWEEP_LOOKBACK_MINUTES", "45")
     fresh_ms = now_ms() - 44 * 60 * 1000
-    fake_clickup.list_tasks[FEATURE_LIST_ID] = [task("epic-1", router.STATUS_IN_PROGRESS, date_updated=fresh_ms)]
-    fake_clickup.comments["epic-1"] = []
+    fake_clickup.list_tasks[STORY_LIST_ID] = [task("story-1", router.STATUS_QA, date_updated=fresh_ms, parent="epic-1")]
 
     sweep.handle_sweep({"autopilot_sweep": True})
 
@@ -184,21 +181,21 @@ def test_task_inside_lookback_window_boundary_is_dispatched(fake_clickup, fake_e
 
 
 def test_sweep_and_webhook_overlap_share_one_dedup_key(fake_clickup, fake_ecs):
-    fake_clickup.list_tasks[FEATURE_LIST_ID] = [task("epic-1", router.STATUS_IN_PROGRESS)]
-    fake_clickup.comments["epic-1"] = []
+    story = task("story-1", router.STATUS_QA, parent="epic-1")
+    fake_clickup.list_tasks[STORY_LIST_ID] = [story]
 
     # A webhook delivery for the exact same transition (same from/to status,
     # same transitioned_at derived from date_updated) claims first.
     envelope = dispatch.StageEnvelope(
-        stage=router.STAGE_EPIC_CREATE,
-        task_id="epic-1",
-        epic_task_id=None,
+        stage=router.STAGE_QA,
+        task_id="story-1",
+        epic_task_id="epic-1",
         model=router.DEFAULT_AGENT_MODEL,
-        max_budget_usd=10.0,
+        max_budget_usd=8.0,
         deadline_seconds=30 * 60,
     )
-    transitioned_at = str(int(task("epic-1", router.STATUS_IN_PROGRESS)["date_updated"]))
-    dispatch.dispatch_stage("epic-1", router.STAGE_EPIC_CREATE, transitioned_at, envelope)
+    transitioned_at = str(int(story["date_updated"]))
+    dispatch.dispatch_stage("story-1", router.STAGE_QA, transitioned_at, envelope)
     assert len(fake_ecs.run_task_calls) == 1
 
     sweep.handle_sweep({"autopilot_sweep": True})
@@ -207,8 +204,7 @@ def test_sweep_and_webhook_overlap_share_one_dedup_key(fake_clickup, fake_ecs):
 
 
 def test_repeated_sweep_passes_dispatch_once(fake_clickup, fake_ecs):
-    fake_clickup.list_tasks[FEATURE_LIST_ID] = [task("epic-1", router.STATUS_IN_PROGRESS)]
-    fake_clickup.comments["epic-1"] = []
+    fake_clickup.list_tasks[STORY_LIST_ID] = [task("story-1", router.STATUS_QA, parent="epic-1")]
 
     sweep.handle_sweep({"autopilot_sweep": True})
     sweep.handle_sweep({"autopilot_sweep": True})
@@ -223,12 +219,10 @@ def test_repeated_sweep_passes_dispatch_once(fake_clickup, fake_ecs):
 
 def test_trigger_cap_respected_and_logged(fake_clickup, fake_ecs, monkeypatch, capsys):
     monkeypatch.setenv("SWEEP_MAX_TRIGGERS", "1")
-    fake_clickup.list_tasks[FEATURE_LIST_ID] = [
-        task("epic-1", router.STATUS_IN_PROGRESS),
-        task("epic-2", router.STATUS_IN_PROGRESS),
+    fake_clickup.list_tasks[STORY_LIST_ID] = [
+        task("story-1", router.STATUS_QA, parent="epic-1"),
+        task("story-2", router.STATUS_QA, parent="epic-2"),
     ]
-    fake_clickup.comments["epic-1"] = []
-    fake_clickup.comments["epic-2"] = []
 
     sweep.handle_sweep({"autopilot_sweep": True})
 
@@ -237,31 +231,44 @@ def test_trigger_cap_respected_and_logged(fake_clickup, fake_ecs, monkeypatch, c
 
 
 # ---------------------------------------------------------------------------
-# Actor check still enforced on sweep-discovered gate transitions
+# Mid-run cards are never re-dispatched off a board poll
 # ---------------------------------------------------------------------------
 
 
-def test_gate_transition_by_bot_actor_is_not_dispatched(fake_clickup, fake_ecs):
+def test_mid_run_feature_card_in_in_progress_is_never_redispatched(fake_clickup, fake_ecs):
+    # A feature card in "in progress" means epic-create is actively running.
+    # (FEATURE, to="in progress") is unambiguous in the routing table, so
+    # without the explicit skip any date_updated bump (a comment, a rename)
+    # would mint a fresh dedup key and launch a duplicate epic-create run —
+    # no comments here, so the actor approximation would NOT have refused it.
     fake_clickup.list_tasks[FEATURE_LIST_ID] = [task("epic-1", router.STATUS_IN_PROGRESS)]
-    # The bot itself is the last commenter — the only signal available to a
-    # poll — so this must be treated as a bot-authored transition.
-    fake_clickup.comments["epic-1"] = [{"user": {"id": BOT_USER_ID}}]
+    fake_clickup.comments["epic-1"] = []
 
     sweep.handle_sweep({"autopilot_sweep": True})
 
     assert fake_ecs.run_task_calls == []
 
 
-def test_gate_transition_with_no_comment_evidence_still_dispatches(fake_clickup, fake_ecs):
-    # No comments at all — no evidence of bot involvement — must fail toward
-    # treating the transition as human-triggered, not toward silently
-    # dropping real work.
-    fake_clickup.list_tasks[FEATURE_LIST_ID] = [task("epic-1", router.STATUS_IN_PROGRESS)]
+# ---------------------------------------------------------------------------
+# Actor approximation — no currently-reconstructable transition lands in a
+# gate status (in-progress is skipped for both card types, executing for
+# features), so the helper is covered directly, ready for a future gate row.
+# ---------------------------------------------------------------------------
+
+
+def test_approximate_actor_reads_last_comment_author(fake_clickup):
+    fake_clickup.comments["epic-1"] = [{"user": {"id": HUMAN_USER_ID}}, {"user": {"id": BOT_USER_ID}}]
+
+    assert sweep._approximate_actor("epic-1") == BOT_USER_ID
+
+
+def test_approximate_actor_without_comments_is_none(fake_clickup):
+    # No evidence of bot involvement must fail toward "human" (None), which
+    # router.route()'s gate treats as a legitimate trigger — toward NOT
+    # silently dropping real work.
     fake_clickup.comments["epic-1"] = []
 
-    sweep.handle_sweep({"autopilot_sweep": True})
-
-    assert len(fake_ecs.run_task_calls) == 1
+    assert sweep._approximate_actor("epic-1") is None
 
 
 def test_non_gate_transition_never_checks_actor(fake_clickup, fake_ecs):
