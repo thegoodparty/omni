@@ -354,6 +354,21 @@ def test_unrecognized_event_kind_is_acked_and_dropped(fake_lambda):
     assert fake_lambda.invoke_calls == []
 
 
+def test_task_created_is_acked_at_the_edge_without_enqueueing(fake_lambda):
+    # The webhook subscribes to taskCreated for future use, but nothing
+    # routes on it — it must be dropped at the edge, never enqueued, or every
+    # created story pays a hydration task read just to no-op.
+    body = status_updated_body()
+    body["event"] = "taskCreated"
+    event = make_event(body)
+
+    resp = handler.handler(event, None)
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["skipped"] == "not a triggering event"
+    assert fake_lambda.invoke_calls == []
+
+
 def test_missing_task_id_is_acked_and_dropped(fake_lambda):
     event = make_event(status_updated_body(task_id=None))
 

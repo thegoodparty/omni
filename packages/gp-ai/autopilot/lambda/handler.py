@@ -62,9 +62,13 @@ dispatch = _load_sibling_module("dispatch")
 # names. Kept as an explicit table (not a string transform) so an event
 # autopilot does not understand yet fails closed (KeyError-free .get() miss)
 # rather than silently matching something it was never taught to parse.
+# taskCreated is deliberately absent even though the webhook subscribes to
+# it: nothing routes on it yet, and mapping it would pay a hydration task
+# read (with Lambda's async retry loop on a ClickUp blip) per created story
+# just to drop the event — the edge acks it as "not a triggering event"
+# instead. Add the row back when a taskCreated stage exists.
 RAW_EVENT_TO_KIND: dict[str, EventKind] = {
     "taskStatusUpdated": "statusUpdated",
-    "taskCreated": "taskCreated",
     "taskCommentPosted": "commentPosted",
 }
 
