@@ -15,6 +15,7 @@ import {
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { MAX_STOPS } from './doorKnockingCreate.service'
 import { pointInPolygon, polygonBbox } from '../utils/geo.util'
+import { coordinateKey } from '../utils/blockFace.util'
 import { renderDoorAddress, streetLineOfStop } from '../utils/unitAddress.util'
 
 // One door of a stop: how many of the drawn shape's people live behind it, and
@@ -119,8 +120,8 @@ export class DoorKnockingPreviewService {
 
   // Mirrors DoorKnockingCreateService.buildStops: the bbox is a prefilter, so
   // the ray-cast is what decides membership; ordering is deterministic on
-  // (addressKey, id); a stop is a unique coordinate and a door is a unique
-  // unit key within it. Written out rather than shared with the create path,
+  // (addressKey, id); a stop is a unique snapped coordinate and a door is a
+  // unique unit key within it. Written out rather than shared with the create path,
   // which additionally throws on an empty or oversized turf — behaviour a
   // shape being drawn must not have.
   private summarize(
@@ -142,7 +143,12 @@ export class DoorKnockingPreviewService {
     // ways across those two screens reads as two houses.
     const byCoordinate = new Map<string, Map<string, DoorTally>>()
     for (const person of inside) {
-      const key = `${person.lat}|${person.lng}`
+      // Snapped on the same ~1m grid the create path dedupes with. Compared
+      // exactly here, one building whose voter rows differ in the last decimal
+      // would be counted as two stops by the panel and one by the list it is
+      // previewing — and the draw step gates Build on this number, so the
+      // over-count could refuse a turf that create would have accepted.
+      const key = coordinateKey(person.lat, person.lng)
       let doors = byCoordinate.get(key)
       if (!doors) {
         doors = new Map<string, DoorTally>()
