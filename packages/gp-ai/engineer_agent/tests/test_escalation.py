@@ -8,6 +8,7 @@ escalation CLOSED matters more than the one path that opens it.
 import pytest
 
 from engineer_agent.agent import escalation
+from engineer_agent.agent.config import DEV_TEST_LABEL
 from engineer_agent.agent.escalation import (
     ESCALATION_ENABLED_ENV,
     IMPLEMENT_TAG,
@@ -227,7 +228,7 @@ def test_an_implement_run_can_never_escalate():
 
     outcome = maybe_escalate(analysis("GPBOT-VERDICT: fix"), "implement", factory_for(client))
 
-    assert outcome == "not an analyze run"
+    assert outcome.startswith("not a verdict-emitting run")
     assert client.added_tags == []
 
 
@@ -239,7 +240,33 @@ def test_a_run_with_no_label_cannot_escalate():
 
     outcome = maybe_escalate(analysis("GPBOT-VERDICT: fix"), "", factory_for(client))
 
-    assert outcome == "not an analyze run"
+    assert outcome.startswith("not a verdict-emitting run")
+    assert client.added_tags == []
+
+
+def test_a_dev_test_run_escalates_on_the_same_terms_as_an_analysis():
+    # A dev-only E2E triage is read-only and ends in the same verdict line, so a
+    # `fix` verdict has to reach an implement run the same way. It carries its
+    # own label only so its cost stays separable in the weekly digest, and a
+    # label check that had not been widened with it would have silently stopped
+    # every one of these tickets at the analysis — which looks exactly like the
+    # feature being switched off.
+    client = FakeClickUpClient()
+
+    outcome = maybe_escalate(analysis("GPBOT-VERDICT: fix"), DEV_TEST_LABEL, factory_for(client))
+
+    assert outcome == "escalated"
+    assert client.added_tags == [(TASK_ID, IMPLEMENT_TAG)]
+
+
+def test_a_dev_test_run_respects_the_same_verdicts():
+    # The widened label must not widen anything else: a dev-test run that did
+    # not find a bounded code fix escalates no more than an analysis would.
+    client = FakeClickUpClient()
+
+    outcome = maybe_escalate(analysis("GPBOT-VERDICT: needs-human"), DEV_TEST_LABEL, factory_for(client))
+
+    assert outcome == "verdict needs-human"
     assert client.added_tags == []
 
 

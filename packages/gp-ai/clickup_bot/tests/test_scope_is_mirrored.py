@@ -25,9 +25,20 @@ cases in one pytest session; TEST_PATHS in the Makefile covers both packages.
 import handler
 import pytest
 
+from engineer_agent.agent import config as agent_config
 from engineer_agent.agent import escalation
 from engineer_agent.agent.repos import resolve_repo
 from shared.clickup_client import ClickUpTask
+
+# Every prompt that ends in the shared verdict contract, and therefore every
+# prompt the echo hazards below apply to. Listed rather than derived, because
+# deriving it from "which constants contain GPBOT-VERDICT" would pass happily on
+# the day someone writes a fourth prompt with a hand-copied contract — which is
+# the exact drift these tests exist to catch.
+VERDICT_PROMPTS = [
+    pytest.param(handler.ANALYZE_INSTRUCTION, id="analyze"),
+    pytest.param(handler.DEV_TEST_INSTRUCTION, id="dev-test"),
+]
 
 
 def task_dump(**overrides) -> dict:
@@ -196,7 +207,8 @@ def test_the_instruction_cannot_redirect_a_ticket_by_being_quoted():
     the Lambda, the parser is in the agent. Run them against each other here or
     the pairing is only an intention.
     """
-    assert escalation.parse_repo(handler.ANALYZE_INSTRUCTION) is None
+    for prompt in VERDICT_PROMPTS:
+        assert escalation.parse_repo(prompt.values[0]) is None, f"{prompt.id} prompt can redirect by being quoted"
 
 
 def test_quoting_the_verdict_menu_cannot_order_a_pr():
@@ -213,7 +225,38 @@ def test_quoting_the_verdict_menu_cannot_order_a_pr():
     the property rather than the order, so any reshuffle that keeps it safe
     passes and the one that does not fails.
     """
-    assert escalation.parse_verdict(handler.ANALYZE_INSTRUCTION) != escalation.VERDICT_FIX
+    for prompt in VERDICT_PROMPTS:
+        assert escalation.parse_verdict(prompt.values[0]) != escalation.VERDICT_FIX, (
+            f"{prompt.id} prompt can order a PR by being quoted"
+        )
+
+
+def test_the_dev_test_label_agrees_across_the_package_boundary():
+    """The fourth mirrored pair. The Lambda sets AGENT_LABEL; the agent reads it
+    to decide whether a verdict may queue an implementation run.
+
+    Drift here is silent and one-directional: the Lambda would launch dev-test
+    runs that do their whole investigation, reach a `fix` verdict, and then
+    decline to escalate because the value they were handed is not in the set the
+    agent recognises. Nothing errors. The tickets just stop turning into PRs,
+    which is indistinguishable from the tests having got healthier.
+    """
+    assert handler.DEV_TEST_LABEL == agent_config.DEV_TEST_LABEL
+
+
+def test_every_escalating_label_is_a_label_the_lambda_actually_sets():
+    """The other direction: a label the agent would escalate on but nothing
+    produces is dead config that reads like a live path.
+
+    Scoped to TAG_CONFIG deliberately. The ci-fix family (ci-fix, findings-fix,
+    conflicts-fix) is reachable only by direct dispatch and must never escalate,
+    so a label leaking from there into ESCALATING_LABELS is exactly the loop
+    test_an_implement_run_can_never_escalate guards at the other end.
+    """
+    tag_labels = {config["label"] for config in handler.TAG_CONFIG.values()}
+
+    assert agent_config.ESCALATING_LABELS <= tag_labels
+    assert handler.IMPLEMENT_LABEL not in agent_config.ESCALATING_LABELS
 
 
 def test_the_repo_marker_writer_and_reader_agree():

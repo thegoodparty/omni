@@ -3139,30 +3139,50 @@ def test_custom_id_prefix_match_is_case_insensitive():
 # ---------------------------------------------------------------------------
 
 
-def test_every_verdict_the_prompt_offers_is_one_the_parser_accepts():
+VERDICT_PROMPTS = [
+    pytest.param(handler.ANALYZE_INSTRUCTION, id="analyze"),
+    pytest.param(handler.DEV_TEST_INSTRUCTION, id="dev-test"),
+]
+
+
+@pytest.mark.parametrize("prompt", VERDICT_PROMPTS)
+def test_every_verdict_the_prompt_offers_is_one_the_parser_accepts(prompt):
     from engineer_agent.agent.escalation import parse_verdict
 
-    offered = re.findall(r"GPBOT-VERDICT:\s*([a-z-]+)", handler.ANALYZE_INSTRUCTION)
+    offered = re.findall(r"GPBOT-VERDICT:\s*([a-z-]+)", prompt)
 
-    assert offered, "the analyze prompt no longer shows the agent any GPBOT-VERDICT line"
+    assert offered, "this prompt no longer shows the agent any GPBOT-VERDICT line"
     for verdict in offered:
         assert parse_verdict(f"GPBOT-VERDICT: {verdict}") == verdict
 
 
-def test_the_prompt_offers_every_verdict_the_parser_knows():
+@pytest.mark.parametrize("prompt", VERDICT_PROMPTS)
+def test_the_prompt_offers_every_verdict_the_parser_knows(prompt):
     # The other direction: a verdict the parser handles but the prompt never
     # mentions is dead code the model can never reach.
     from engineer_agent.agent.escalation import KNOWN_VERDICTS
 
-    offered = set(re.findall(r"GPBOT-VERDICT:\s*([a-z-]+)", handler.ANALYZE_INSTRUCTION))
+    offered = set(re.findall(r"GPBOT-VERDICT:\s*([a-z-]+)", prompt))
 
     assert offered == set(KNOWN_VERDICTS)
 
 
-def test_only_the_analyze_prompt_asks_for_a_verdict():
+def test_the_verdict_contract_is_shared_rather_than_copied():
+    # The reason the two tests above can be trusted on a prompt nobody has read
+    # lately. If a third prompt ever hand-copies the block instead of composing
+    # it, the copy can drift the moment the shared one is edited — and a
+    # verdict line the parser does not recognise stops every escalation from
+    # that prompt without failing anything.
+    for prompt in (handler.ANALYZE_INSTRUCTION, handler.DEV_TEST_INSTRUCTION):
+        assert prompt.endswith(handler.VERDICT_CONTRACT)
+
+
+def test_only_a_read_only_prompt_asks_for_a_verdict():
     # An implement run that emitted the token could otherwise look like an
     # analysis asking to queue another implement run.
     assert "GPBOT-VERDICT" not in handler.IMPLEMENT_INSTRUCTION
+    for instruction, _label in handler.CI_FIX_MODES.values():
+        assert "GPBOT-VERDICT" not in instruction
 
 
 # ---------------------------------------------------------------------------
@@ -3170,7 +3190,10 @@ def test_only_the_analyze_prompt_asks_for_a_verdict():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("tag_name,expected_label", [("gpbot-analyze", "analyze"), ("gpbot-work", "implement")])
+@pytest.mark.parametrize(
+    "tag_name,expected_label",
+    [("gpbot-analyze", "analyze"), ("gpbot-work", "implement"), ("gpbot-dev-test", "dev-test")],
+)
 def test_run_label_is_passed_to_the_container(fake_clickup, fake_ecs, ecs_env, tag_name, expected_label):
     # The agent gates escalation on this value. Inferring the run type from the
     # instruction prose instead would make an unrelated prompt edit silently
@@ -3181,6 +3204,39 @@ def test_run_label_is_passed_to_the_container(fake_clickup, fake_ecs, ecs_env, t
 
     assert resp["statusCode"] == 200
     assert engineer_agent_env(fake_ecs.run_task_calls[0])["AGENT_LABEL"] == expected_label
+
+
+def test_dev_test_tag_launches_a_run_with_the_dev_only_prompt(fake_clickup, fake_ecs, ecs_env):
+    # The whole point of routing these through a tag: the ticket the triage
+    # workflow filed reaches the same pipeline a human-filed bug does, and gets
+    # the prompt that knows dev-only specs never ran on a PR.
+    handler.handler(make_event(tag_updated_body(tags=("gpbot-dev-test",))), None)
+
+    instruction = engineer_agent_env(fake_ecs.run_task_calls[0])["INSTRUCTION"]
+
+    assert "@dev-only" in instruction
+    assert "never run on pull requests" in instruction
+    assert "Implement and Create PR" not in instruction
+
+
+def test_dev_test_prompt_forbids_hiding_a_flake_behind_the_tag(fake_clickup, fake_ecs, ecs_env):
+    # e2e-tests/AGENTS.md is explicit about this, and it is the cheapest wrong
+    # answer available to an agent looking at a red release train: tagging the
+    # spec makes the board green and deletes the coverage. A prompt that did not
+    # say so would be inviting it.
+    handler.handler(make_event(tag_updated_body(tags=("gpbot-dev-test",))), None)
+
+    instruction = engineer_agent_env(fake_ecs.run_task_calls[0])["INSTRUCTION"]
+
+    assert "NEVER weaken the test" in instruction
+    assert "NEVER propose tagging something `@dev-only`" in instruction
+
+
+def test_dev_test_prompt_carries_no_failure_text():
+    # The error, the spec name and the run links live in the ClickUp ticket,
+    # never interpolated into the prompt. CI output is attacker-shaped, and the
+    # CI-fix instructions keep the same boundary for the same reason.
+    assert "{" not in handler.DEV_TEST_INSTRUCTION.replace("{}", "")
 
 
 # ---------------------------------------------------------------------------
