@@ -15,8 +15,10 @@ export type APIMockerResponse<T> =
       // (door-knocking turf update/delete, voter-file filter delete), and
       // callers branch on it, so tests have to be able to produce one. 429
       // likewise, for the quota'd endpoints (door-knocking routing budget,
-      // speech).
-      status: 400 | 401 | 403 | 404 | 409 | 429 | 500
+      // speech). 502/504 are the people-db read failures — a client shows
+      // their message where it hides other 5xx, so which status carried it is
+      // part of what a test has to be able to set up.
+      status: 400 | 401 | 403 | 404 | 409 | 429 | 500 | 502 | 504
       data: any
       headers?: Record<string, string>
     }

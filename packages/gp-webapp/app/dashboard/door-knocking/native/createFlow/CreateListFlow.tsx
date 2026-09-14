@@ -6,6 +6,7 @@ import { FetchError } from 'ofetch'
 import { Input, Label } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
+import { VOTER_READ_FAILURE_ERROR_CODES } from 'app/dashboard/contacts/crm/shared/constants'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
@@ -87,13 +88,29 @@ const CREATE_ERROR_FALLBACK =
 // Every 4xx from the create endpoint is something the candidate can act on —
 // an empty turf, one over the 150-stop cap, a spent daily routing budget — and
 // each arrives with its own instruction, none of which is "try again in a
-// moment". A 5xx is us or the vendor, where waiting really is the advice.
-const toCreateErrorMessage = (error: unknown): string =>
-  (error instanceof FetchError &&
-    error.status !== undefined &&
-    error.status < 500 &&
-    extractApiErrorInfo(error.data).message) ||
-  CREATE_ERROR_FALLBACK
+// moment". A 5xx is usually us or the vendor, where waiting really is the
+// advice, and its message is usually meant for a log: "Route optimization
+// returned an unidentifiable stop" tells a candidate nothing.
+//
+// The exception is a failed voter READ, which is a 5xx that explains itself.
+// Building a route runs a people-db scan with a 60-second ceiling, and a
+// district big enough to hit it gets a 504 whose message is "The voter query
+// took too long to run. Narrow the audience and try again." — advice the
+// candidate can act on, and the opposite of waiting. Flattening that into the
+// fallback below is how a warehouse timeout came to look like a generic
+// failure, so those two codes pass their message through on any status.
+const toCreateErrorMessage = (error: unknown): string => {
+  if (!(error instanceof FetchError)) return CREATE_ERROR_FALLBACK
+  const { message, errorCode } = extractApiErrorInfo(error.data)
+  if (!message) return CREATE_ERROR_FALLBACK
+  if (errorCode && VOTER_READ_FAILURE_ERROR_CODES.includes(errorCode)) {
+    return message
+  }
+  return (
+    (error.status !== undefined && error.status < 500 && message) ||
+    CREATE_ERROR_FALLBACK
+  )
+}
 
 interface CreateListFlowProps {
   step: CreateFlowStep

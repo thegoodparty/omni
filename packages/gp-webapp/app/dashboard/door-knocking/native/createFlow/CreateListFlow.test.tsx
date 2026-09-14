@@ -318,6 +318,104 @@ describe('CreateListFlow', () => {
     expect(turfPosts).toBe(2)
   })
 
+  // A people-db read that ran out of its 60-second ceiling. This is a 5xx, so
+  // it used to be flattened into "Building the route failed — try again in a
+  // moment" — and trying again in a moment is exactly what does not work: the
+  // district is too big and the advice is to narrow it. Big districts are also
+  // the ones with the most doors, so this lands on the candidates least able
+  // to guess why.
+  it('passes a voter-query timeout through instead of the generic failure', async () => {
+    api.mock('POST /v1/voters/voter-file/filter', () => ({
+      status: 200,
+      data: { id: 91 },
+    }))
+    api.mock('POST /v1/door-knocking/turfs', () => ({
+      status: 504,
+      data: {
+        message:
+          'The voter query took too long to run. Narrow the audience and try again.',
+        errorCode: 'VOTER_QUERY_TIMEOUT',
+      },
+    }))
+
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} step="confirm" />,
+    )
+    advanceToRoute(rerender, {}, 'Slow turf')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /Narrow the audience and try again/,
+      ),
+    )
+    expect(screen.getByRole('alert')).not.toHaveTextContent(
+      /Building the route failed/,
+    )
+  })
+
+  // The companion failure, and the one whose message exists precisely to deny
+  // the reading the candidate would otherwise take.
+  it('says an unreachable warehouse is not an empty district', async () => {
+    api.mock('POST /v1/voters/voter-file/filter', () => ({
+      status: 200,
+      data: { id: 92 },
+    }))
+    api.mock('POST /v1/door-knocking/turfs', () => ({
+      status: 502,
+      data: {
+        message:
+          'Voter data is temporarily unavailable. This is a connection problem, not an empty district — try again shortly.',
+        errorCode: 'VOTER_DATA_UNREACHABLE',
+      },
+    }))
+
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} step="confirm" />,
+    )
+    advanceToRoute(rerender, {}, 'Unreachable turf')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /not an empty district/,
+      ),
+    )
+  })
+
+  // The other side of the rule, and the reason it keys on a code rather than
+  // on the status: Geoapify also answers 502, and its messages are written for
+  // a log. A candidate shown "Route optimization returned an unidentifiable
+  // stop" learns nothing and cannot act.
+  it('still hides a vendor 5xx behind the generic failure', async () => {
+    api.mock('POST /v1/voters/voter-file/filter', () => ({
+      status: 200,
+      data: { id: 93 },
+    }))
+    api.mock('POST /v1/door-knocking/turfs', () => ({
+      status: 502,
+      data: { message: 'Route optimization returned an unidentifiable stop' },
+    }))
+
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} step="confirm" />,
+    )
+    advanceToRoute(rerender, {}, 'Vendor turf')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /Building the route failed/,
+      ),
+    )
+    expect(screen.getByRole('alert')).not.toHaveTextContent(
+      /unidentifiable stop/,
+    )
+  })
+
   // The rollback is a database rollback, not a loss of the candidate's work.
   // The flow is client state right up to the commit, so a failed purchase
   // leaves the polygon, the filters, the name, the colour, the mode and the
