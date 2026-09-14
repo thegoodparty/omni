@@ -28,9 +28,10 @@ permissions:
 jobs:
   notify:
     name: Alert on failed release run
-    # Only 'failure'. 'cancelled' is the train coalescing a burst of merges
+    # Every terminal conclusion that means the run did not succeed, except
+    # 'cancelled' — that is the train coalescing a burst of merges
     # (release.yml's concurrency note) and is routine, not an incident.
-    if: github.event.workflow_run.conclusion == 'failure'
+    if: contains(fromJson('["failure","timed_out","startup_failure"]'), github.event.workflow_run.conclusion)
     runs-on: ubuntu-latest
     steps:
       - name: Post to Slack
