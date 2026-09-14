@@ -444,8 +444,13 @@ def handle_async_processing(event: dict) -> dict:
     # out of the worker ON PURPOSE — see _hydrate_from_clickup for why that
     # (and only that) is allowed to, despite the never-raise rule around
     # route_event below.
+    # epic_task_id None is ambiguous for commentPosted ("feature card" vs
+    # "story whose payload skipped the parent"), so it hydrates too — for an
+    # actual feature card that costs one redundant read on synthetic payloads
+    # only (real deliveries always hydrate via list_id None).
     needs_hydration = autopilot_event.list_id is None or (
-        autopilot_event.kind == "commentPosted" and autopilot_event.current_status is None
+        autopilot_event.kind == "commentPosted"
+        and (autopilot_event.current_status is None or autopilot_event.epic_task_id is None)
     )
     if needs_hydration:
         autopilot_event = _hydrate_from_clickup(autopilot_event)

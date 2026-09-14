@@ -576,6 +576,38 @@ def test_async_worker_hydrates_comment_posted_current_status_from_live_read(monk
     assert routed[0].event_ts == "1700000099000"
 
 
+def test_comment_posted_without_parent_hydrates_even_when_list_and_status_are_set(monkeypatch, fake_lambda):
+    # epic_task_id None on a commentPosted payload is ambiguous — feature
+    # card, or a story whose synthetic payload skipped the parent — so the
+    # worker must hydrate rather than misclassify the story and drop its
+    # resume trigger.
+    routed = []
+    monkeypatch.setattr(handler, "route_event", lambda e: routed.append(e))
+    monkeypatch.setattr(
+        handler.supervisor,
+        "get_task",
+        lambda task_id: {
+            "id": task_id,
+            "list": {"id": IN_SCOPE_LIST_ID},
+            "status": {"status": "feedback needed"},
+            "parent": "epic-9",
+        },
+    )
+    payload = handler.AutopilotEvent(
+        kind="commentPosted",
+        task_id="story-abc",
+        list_id=IN_SCOPE_LIST_ID,
+        transitions=[],
+        current_status="feedback needed",
+        event_ts="1700000099000",
+    ).to_payload()
+
+    handler.handler(payload, None)
+
+    assert len(routed) == 1
+    assert routed[0].epic_task_id == "epic-9"
+
+
 def test_async_worker_raises_when_hydrated_task_has_no_readable_list(monkeypatch, fake_lambda, capsys):
     # A successful read whose list field is unreadable must not fall through
     # to the scope gate — None reads as "not in scope" and the event would be
