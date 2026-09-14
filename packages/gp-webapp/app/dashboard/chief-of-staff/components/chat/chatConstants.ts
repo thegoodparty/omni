@@ -22,6 +22,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   crud_priorities: 'Working on your priorities',
   list_briefings: 'Reading your briefings',
   get_briefing: 'Reading your briefings',
+  read_community_issues: 'Reading your community issues',
   constituent_data: 'Reviewing district data',
   query_constituent_data: 'Reviewing district data',
   describe_constituent_data: 'Reviewing district data',

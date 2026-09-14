@@ -18,7 +18,17 @@ export interface ChiefOfStaffContext {
   officeTitle: string | null
   jurisdiction: string | null
   swornInDate: Date | null
+  party: string | null
+  electedDate: Date | null
+  termStartDate: Date | null
+  termEndDate: Date | null
   priorities: PriorityRecord[]
+  // True on the holder's very first chief-of-staff conversation, which gates the
+  // one-off first-run research block. Counted rather than inferred: the
+  // conversational home opens a new conversation per session, so a model asked
+  // to judge "does this look like a first message" would redo the research on
+  // every visit.
+  isFirstConversation: boolean
   anchor: ChatAnchor | null
   // Server-bound district predicate for constituent-data queries. The context
   // service leaves this null; the handler fills it from DistrictResolverService
@@ -63,6 +73,15 @@ export class ChiefOfStaffContextService extends createPrismaBase(
 
     const priorities = await port.listActive(electedOffice.id)
 
+    const conversationCount = await this.count({
+      where: {
+        ownerUserId: userId,
+        scope: ChatScope.chief_of_staff,
+        organizationSlug: conversation.organizationSlug,
+        deletedAt: null,
+      },
+    })
+
     const rawAnchor = conversation.anchor
     const anchorParsed = rawAnchor
       ? ChatAnchorSchema.safeParse(rawAnchor)
@@ -87,7 +106,12 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       officeTitle: electedOffice.organization.customPositionName,
       jurisdiction: null,
       swornInDate: electedOffice.swornInDate,
+      party: electedOffice.party,
+      electedDate: electedOffice.electedDate,
+      termStartDate: electedOffice.termStartDate,
+      termEndDate: electedOffice.termEndDate,
       priorities,
+      isFirstConversation: conversationCount <= 1,
       anchor,
       districtFilters: null,
       constituentToolEnabled: false,
