@@ -18,8 +18,8 @@ Account - Password Set Completed,account_password_set_completed,2fc365543df99219
 Account - Pro Subscription Canceled,account_pro_subscription_canceled,a91befe9f1d10ad7c1319b0066b2f2a8035d8d70,https://github.com/thegoodparty/omni/pull/920,2025-09-17,145415012+oakinh@users.noreply.github.com,76c2256cac0700dca9c4094a44961a2d90487934,https://github.com/thegoodparty/omni/pull/732,2026-07-13,tristan@goodparty.org,2026-07-13,,,2026-07-13T21:45:27
 Account - Pro Subscription Confirmed,account_pro_subscription_confirmed,ac3e04fb428f001d0ab7bcc471c5c85ef726e2b5,https://github.com/thegoodparty/omni/pull/319,2025-06-27,145415012+oakinh@users.noreply.github.com,,,,,2025-06-27,3,,2026-06-30T20:12:33
 Account - User Deleted,account_user_deleted,9582a5844f58fb5a53304f8a8dfef0ef25ffb532,https://github.com/thegoodparty/omni/pull/1487,2026-04-20,aaron@goodparty.org,,,,,2026-04-20,1,,2026-06-30T20:12:33
-Briefing Assistant - Agenda Created,briefing_assistant_agenda_created,acb9d347d9513d1aa6f49c97e9fbb14f6d581b28,https://github.com/thegoodparty/omni/pull/1676,2026-05-28,swain.molster@gmail.com,,,,,2026-05-28,,,2026-06-30T20:12:33
-Briefing Assistant - Agenda Not Created,briefing_assistant_agenda_not_created,5b8b5d6d70a84b9178fc66152cda021a6b4a1c03,https://github.com/thegoodparty/omni/pull/30,2026-06-09,swain.molster@gmail.com,,,,,2026-06-09,,,2026-06-30T20:12:33
+Briefing Assistant - Agenda Created,briefing_assistant_agenda_created,acb9d347d9513d1aa6f49c97e9fbb14f6d581b28,https://github.com/thegoodparty/omni/pull/1676,2026-05-28,swain.molster@gmail.com,,,,,2026-05-28,1,,2026-06-30T20:12:33
+Briefing Assistant - Agenda Not Created,briefing_assistant_agenda_not_created,5b8b5d6d70a84b9178fc66152cda021a6b4a1c03,https://github.com/thegoodparty/omni/pull/30,2026-06-09,swain.molster@gmail.com,,,,,2026-06-09,1,,2026-06-30T20:12:33
 Briefing Assistant - Agenda Submission Failed,briefing_assistant_agenda_submission_failed,c339b19dec1b846127f34a99f0c6cf406e42a982,https://github.com/thegoodparty/omni/pull/30,2026-06-09,swain.molster@gmail.com,,,,,2026-06-09,3,,2026-06-30T20:12:33
 Briefing Assistant - Agenda Submitted,briefing_assistant_agenda_submitted,c339b19dec1b846127f34a99f0c6cf406e42a982,https://github.com/thegoodparty/omni/pull/30,2026-06-09,swain.molster@gmail.com,,,,,2026-06-09,1,,2026-06-30T20:12:33
 Briefing Assistant - Attachment Clicked,briefing_assistant_attachment_clicked,ac4612dcdd10e768290c04d2f3c5f9511b9d64ad,https://github.com/thegoodparty/omni/pull/1892,2026-05-28,swain.molster@gmail.com,,,,,2026-05-28,1,,2026-08-11T19:17:52
@@ -152,14 +152,14 @@ Dashboard - Path to Victory: Exit Understand Path to Victory,dashboard_path_to_v
 Dictation - Failed,dictation_failed,7cc460d363f30daec789a6ecbd7566ce8bbbcb81,https://github.com/thegoodparty/omni/pull/1056,2026-07-28,swain.molster@gmail.com,,,,,2026-07-28,5,,2026-07-28T22:45:44
 Dictation - Started,dictation_started,7cc460d363f30daec789a6ecbd7566ce8bbbcb81,https://github.com/thegoodparty/omni/pull/1056,2026-07-28,swain.molster@gmail.com,,,,,2026-07-28,1,,2026-07-28T22:45:44
 Door Knocking - Canvassing Totals Updated,door_knocking_canvassing_totals_updated,582d0bbe8506fb3e596933afb0431ccfdaba6ae4,https://github.com/thegoodparty/omni/pull/1698,2026-09-04,145415012+oakinh@users.noreply.github.com,,,,,2026-09-04,2,,2026-09-11T00:40:34
-Door Knocking - Do Not Knock Set,door_knocking_do_not_knock_set,aac41eb2583215736ae934452c345e146d78cfb9,https://github.com/thegoodparty/omni/pull/1251,2026-08-13,145415012+oakinh@users.noreply.github.com,,,,,2026-08-13,0,,2026-08-31T11:07:29
+Door Knocking - Do Not Knock Set,door_knocking_do_not_knock_set,aac41eb2583215736ae934452c345e146d78cfb9,https://github.com/thegoodparty/omni/pull/1251,2026-08-13,145415012+oakinh@users.noreply.github.com,f17be1d6bccd3b142ffc6009f0c8ab0055c1fcde,https://github.com/thegoodparty/omni/pull/1783,2026-09-11,145415012+oakinh@users.noreply.github.com,2026-09-11,,,2026-09-14T11:07:57
 Door Knocking - Door Logged,door_knocking_door_logged,aaebd48d1eee2ae160c57a92f057f1df2ab67524,https://github.com/thegoodparty/omni/pull/1220,2026-08-11,145415012+oakinh@users.noreply.github.com,,,,,2026-08-11,1,,2026-08-24T11:09:19
 Door Knocking - List Created,door_knocking_list_created,aaebd48d1eee2ae160c57a92f057f1df2ab67524,https://github.com/thegoodparty/omni/pull/1220,2026-08-11,145415012+oakinh@users.noreply.github.com,,,,,2026-08-11,1,,2026-08-24T11:09:19
 Door Knocking - List Deleted,door_knocking_list_deleted,aaebd48d1eee2ae160c57a92f057f1df2ab67524,https://github.com/thegoodparty/omni/pull/1220,2026-08-11,145415012+oakinh@users.noreply.github.com,,,,,2026-08-11,1,,2026-08-31T11:07:29
 Door Knocking - List Edited,door_knocking_list_edited,02eaaa893e753c6faa71cebff12217d911760acc,https://github.com/thegoodparty/omni/pull/1245,2026-08-13,145415012+oakinh@users.noreply.github.com,,,,,2026-08-13,1,,2026-08-31T11:07:29
 Door Knocking - Not A Voter Reason Set,door_knocking_not_a_voter_reason_set,0d97511c0e9ada70adbbe96c95a394ced6876c79,https://github.com/thegoodparty/omni/pull/1297,2026-08-17,145415012+oakinh@users.noreply.github.com,,,,,2026-08-17,1,,2026-08-24T11:09:19
 Door Knocking - Route Build Failed,door_knocking_route_build_failed,aaebd48d1eee2ae160c57a92f057f1df2ab67524,https://github.com/thegoodparty/omni/pull/1220,2026-08-11,145415012+oakinh@users.noreply.github.com,,,,,2026-08-11,1,,2026-08-31T11:07:29
-Door Knocking - Route Built,door_knocking_route_built,aaebd48d1eee2ae160c57a92f057f1df2ab67524,https://github.com/thegoodparty/omni/pull/1220,2026-08-11,145415012+oakinh@users.noreply.github.com,,,,,2026-08-11,0,2026-09-03,2026-08-24T11:09:19
+Door Knocking - Route Built,door_knocking_route_built,aaebd48d1eee2ae160c57a92f057f1df2ab67524,https://github.com/thegoodparty/omni/pull/1220,2026-08-11,145415012+oakinh@users.noreply.github.com,f17be1d6bccd3b142ffc6009f0c8ab0055c1fcde,https://github.com/thegoodparty/omni/pull/1783,2026-09-11,145415012+oakinh@users.noreply.github.com,2026-09-11,,,2026-09-14T11:07:57
 Door Knocking - Session Abandoned,door_knocking_session_abandoned,aaebd48d1eee2ae160c57a92f057f1df2ab67524,https://github.com/thegoodparty/omni/pull/1220,2026-08-11,145415012+oakinh@users.noreply.github.com,,,,,2026-08-11,1,,2026-08-24T11:09:19
 Door Knocking - Session Completed,door_knocking_session_completed,aaebd48d1eee2ae160c57a92f057f1df2ab67524,https://github.com/thegoodparty/omni/pull/1220,2026-08-11,145415012+oakinh@users.noreply.github.com,,,,,2026-08-11,1,,2026-08-24T11:09:19
 Door Knocking - Session Started,door_knocking_session_started,aaebd48d1eee2ae160c57a92f057f1df2ab67524,https://github.com/thegoodparty/omni/pull/1220,2026-08-11,145415012+oakinh@users.noreply.github.com,,,,,2026-08-11,1,,2026-08-24T11:09:19
@@ -289,9 +289,9 @@ Outreach - Phone Banking: Complete,outreach_phone_banking_complete,334568cc8a740
 Outreach - Phone Banking: Contact Viewed,outreach_phone_banking_contact_viewed,8010d59657909238fcc211512a1c0783870a8f06,,2026-08-21,tomer@goodparty.org,,,,,2026-08-21,1,,2026-08-31T11:07:29
 Outreach - Social Media: Complete,outreach_social_media_complete,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,,,2025-07-03,0,2026-09-08,2026-06-30T20:12:33
 Outreach - View Accessed,outreach_view_accessed,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,,,2025-07-03,1,,2026-06-30T20:12:33
-P2P Upgrade - Modal: Click Button,p2p_upgrade_modal_click_button,2b9f22689ccc9e29678a4482de65a62db2e1d322,https://github.com/thegoodparty/omni/pull/946,2025-09-09,lurchbulldog@gmail.com,,,,,2025-09-09,,,2026-06-30T20:12:33
-P2P Upgrade - Modal: Exit,p2p_upgrade_modal_exit,2b9f22689ccc9e29678a4482de65a62db2e1d322,https://github.com/thegoodparty/omni/pull/946,2025-09-09,lurchbulldog@gmail.com,,,,,2025-09-09,,,2026-06-30T20:12:33
-P2P Upgrade - Modal: Modal Shown,p2p_upgrade_modal_modal_shown,2b9f22689ccc9e29678a4482de65a62db2e1d322,https://github.com/thegoodparty/omni/pull/946,2025-09-09,lurchbulldog@gmail.com,,,,,2025-09-09,,,2026-06-30T20:12:33
+P2P Upgrade - Modal: Click Button,p2p_upgrade_modal_click_button,2b9f22689ccc9e29678a4482de65a62db2e1d322,https://github.com/thegoodparty/omni/pull/946,2025-09-09,lurchbulldog@gmail.com,,,,,2025-09-09,1,,2026-06-30T20:12:33
+P2P Upgrade - Modal: Exit,p2p_upgrade_modal_exit,2b9f22689ccc9e29678a4482de65a62db2e1d322,https://github.com/thegoodparty/omni/pull/946,2025-09-09,lurchbulldog@gmail.com,,,,,2025-09-09,1,,2026-06-30T20:12:33
+P2P Upgrade - Modal: Modal Shown,p2p_upgrade_modal_modal_shown,2b9f22689ccc9e29678a4482de65a62db2e1d322,https://github.com/thegoodparty/omni/pull/946,2025-09-09,lurchbulldog@gmail.com,,,,,2025-09-09,1,,2026-06-30T20:12:33
 Page,page,,,,,,,,,,,,2026-06-30T20:12:33
 Page Viewed,page_viewed,,,,,,,,,,,,2026-06-30T20:12:33
 Payment - Completed,payment_completed,25a465774e01692e3283ad7eb15abc7452d75fc5,https://github.com/thegoodparty/omni/pull/1113,2025-11-04,swain.molster@gmail.com,,,,,2026-02-08,1,,2026-06-30T20:12:33
@@ -408,6 +408,7 @@ Profile - Why Running: Click Save,profile_why_running_click_save,e1371f746f1db71
 Profile - Why Section: Click Save,profile_why_section_click_save,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,76c2256cac0700dca9c4094a44961a2d90487934,https://github.com/thegoodparty/omni/pull/732,2026-07-13,tristan@goodparty.org,2026-07-13,,,2026-07-13T21:45:27
 Resources - Resource Clicked,resources_resource_clicked,4e16c164e0a629ba6c5ea08b302c880de1df2b5c,https://github.com/thegoodparty/omni/pull/1040,2025-10-14,lurchbulldog@gmail.com,3f6a11a2d717831603f3640b481d6ce9ca6c6698,https://github.com/thegoodparty/omni/pull/1459,2026-02-23,patrick@goodparty.org,2026-02-23,,,2026-06-30T20:12:33
 Robocall - Hold Placed,robocall_hold_placed,cc5a547f0483493e9565f5ca98b67410dab0f43c,https://github.com/thegoodparty/omni/pull/1529,2026-08-28,stephtea@users.noreply.github.com,,,,,2026-08-28,3,,2026-09-11T00:40:34
+Robocall - Receipt,robocall_receipt,f0a7045ad7e1e08aaeaef8c1b52126f8669cf450,https://github.com/thegoodparty/omni/pull/1557,2026-08-28,stephtea@users.noreply.github.com,,,,,2026-08-28,6,,2026-09-14T11:07:57
 Robocall - Scheduled,robocall_scheduled,2b9e360934908d99b55f640e3a093bce8b0c581e,https://github.com/thegoodparty/omni/pull/1558,2026-08-28,stephtea@users.noreply.github.com,,,,,2026-08-28,4,,2026-09-11T00:40:34
 Schedule Text Campaign - Audience: Check Age,schedule_text_campaign_audience_check_age,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2025-02-26,0,2026-09-08,2026-06-30T20:12:33
 Schedule Text Campaign - Audience: Check Audience,schedule_text_campaign_audience_check_audience,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2025-02-26,0,,2026-06-30T20:12:33
@@ -470,6 +471,7 @@ Sign In: Click Forgot Password,sign_in_click_forgot_password,1170c2777b41a1baf9f
 Sign Up Clicked,sign_up_clicked,,,,,,,,,,,,2026-06-30T20:12:33
 Sign Up: Click Login,sign_up_click_login,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2026-07-16,1,,2026-07-20T11:56:25
 Team - Invite Modal Opened,team_invite_modal_opened,4eb21c5912f189e75c631a1c2074ca83f0f9c892,,2026-09-03,tomer@goodparty.org,,,,,2026-09-03,2,,2026-09-11T00:40:34
+Team - Outreach Assigned,team_outreach_assigned,74b98087c5308630f1de46362d5a323eb7d18076,,2026-09-05,tomer@goodparty.org,,,,,2026-09-06,2,,2026-09-14T11:07:57
 Viewed,viewed,,,,,,,,,,,,2026-06-30T20:12:33
 Viewed /elections/ak/tanana-city-school-district,viewed_elections_ak_tanana_city_school_district,,,,,,,,,,,,2026-06-30T20:12:33
 Viewed /elections/chippewa-county-clerk/145f1d,viewed_elections_chippewa_county_clerk_145f1d,,,,,,,,,,,,2026-06-30T20:12:33
@@ -523,7 +525,7 @@ Voter Outreach - 10DLC Compliance PIN Sent,voter_outreach_10dlc_compliance_pin_s
 Voter Outreach - 10DLC Compliance PIN Submitted,voter_outreach_10dlc_compliance_pin_submitted,8434d128fc9812dcdde58effacd26458fccd95cc,https://github.com/thegoodparty/omni/pull/894,2025-08-20,lurchbulldog@gmail.com,,,,,2026-03-09,2,,2026-06-30T20:12:33
 Voter Outreach - 10DLC Compliance Rejected,voter_outreach_10dlc_compliance_rejected,,https://github.com/thegoodparty/omni/pull/974,2026-07-22,,,,,,2026-07-22,2,,2026-07-22T22:17:55
 Voter Outreach - 10DLC Compliance Started,voter_outreach_10dlc_compliance_started,2b9f22689ccc9e29678a4482de65a62db2e1d322,https://github.com/thegoodparty/omni/pull/946,2025-09-09,lurchbulldog@gmail.com,,,,,2025-09-09,2,,2026-06-30T20:12:33
-Voter Outreach - Campaign Approved,voter_outreach_campaign_approved,9b2cb146a5976588f9f50568757d2a27122e214a,https://github.com/thegoodparty/omni/pull/1642,2026-09-01,5633757+dealvz@users.noreply.github.com,,,,,2026-09-01,,,2026-09-11T00:40:34
+Voter Outreach - Campaign Approved,voter_outreach_campaign_approved,9b2cb146a5976588f9f50568757d2a27122e214a,https://github.com/thegoodparty/omni/pull/1642,2026-09-01,5633757+dealvz@users.noreply.github.com,,,,,2026-09-01,1,,2026-09-11T00:40:34
 Voter Outreach - Campaign Completed,voter_outreach_campaign_completed,703131cfff639170bd836b12c6d00c13e1fc1432,https://github.com/thegoodparty/omni/pull/708,2025-06-18,145415012+oakinh@users.noreply.github.com,,,,,2025-06-18,2,,2026-06-30T20:12:33
 Voter Outreach - Free Texts Offer Redeemed,voter_outreach_free_texts_offer_redeemed,aa90af3d789823511f82e9d81dee84417a82b0c2,https://github.com/thegoodparty/omni/pull/520,2025-09-08,israel@goodparty.org,,,,,2025-09-08,1,,2026-06-30T20:12:33
 Voter Outreach - Payment Started,voter_outreach_payment_started,2b9f22689ccc9e29678a4482de65a62db2e1d322,https://github.com/thegoodparty/omni/pull/946,2025-09-09,lurchbulldog@gmail.com,,,,,2025-09-09,0,2026-09-08,2026-06-30T20:12:33
@@ -570,7 +572,7 @@ page,page,25e499d086229c3ef5ed89d240d3432a608c9a01,,2025-03-23,tomer@goodparty.o
 page viewed,page_viewed,,,,,,,,,,,,2026-06-30T20:12:33
 page_view,page_view,,,,,,,,,,,,2026-06-30T20:12:33
 pro_upgrade_complete,pro_upgrade_complete,650f61b4990c565bb4dff96419754e338ab088c2,,2024-08-26,tomer@goodparty.org,,,,,2026-05-08,1,,2026-06-30T20:12:33
-question_complete,question_complete,650f61b4990c565bb4dff96419754e338ab088c2,,2024-08-26,tomer@goodparty.org,,,,,2025-12-17,,,2026-06-30T20:12:33
+question_complete,question_complete,650f61b4990c565bb4dff96419754e338ab088c2,,2024-08-26,tomer@goodparty.org,,,,,2025-12-17,1,,2026-06-30T20:12:33
 schedule_campaign_image_too_large,schedule_campaign_image_too_large,4bed7aad64c8a8212e618db564bcb28ad2b9be5e,https://github.com/thegoodparty/omni/pull/338,2024-10-30,oldfashionedrobot@users.noreply.github.com,cb21bf5b3894acf42a14419e2f39c3116efae7ad,https://github.com/thegoodparty/omni/pull/1767,2026-09-08,swain.molster@gmail.com,2026-09-08,,,2026-09-11T00:40:34
 screen,screen,,,,,,,,,,,,2026-06-30T20:12:33
 session_end,session_end,,,,,,,,,,,,2026-06-30T20:12:33
