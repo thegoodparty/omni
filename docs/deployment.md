@@ -179,6 +179,13 @@ one fixed SHA flows dev -> E2E -> prod. That is what removes the deploy/E2E/prom
 races the old per-push topology hit under load (a validated commit could be built
 and green on dev yet never promoted because it was no longer the tip).
 
+A failed run posts one alert to Slack `#bot-urgent`
+(`release-failure-alert.yml`, a `workflow_run` listener), naming the failed jobs
+and the phase that died. Read the phase line before triaging: a failed
+`Dev <service>` job **skips** the E2E shards, so the run's red gate job is named
+`E2E` even when nothing e2e-related ran. Cancelled runs are the train coalescing
+a merge burst and do not alert.
+
 The stages:
 
 1. **`await-checks`.** Waits for this commit's per-service check workflows
