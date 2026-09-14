@@ -42,6 +42,36 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
 export const SERVER_ERRORS_ONLY: ControllerName[] = ['door-knocking']
 
 export const GLOBAL_ALERTS: Alert[] = [
+  // ------ The alert about the alerting ------ //
+  {
+    slug: 'alert-notification-delivery-failing',
+    name: 'Alert notifications are failing to deliver',
+    type: 'metric',
+    // Grafana Cloud's own alerting metric, so this measures the delivery
+    // attempt rather than anything gp-api can see. That is the point: every
+    // other rule in this file is invisible if delivery is what broke.
+    expr: 'sum(increase(grafanacloud_instance_alerting_notification_send_failures_total[10m]))',
+    threshold: 0,
+    for: '5m',
+    message: [
+      'Grafana failed to deliver alert notifications in the last 10 minutes. **Alerts are firing and not arriving.**',
+      'The likely cause is the `gpbot-alert-filter` contact point: the filter Lambda is a single point of failure for everything routed through it, so a Lambda that is erroring or timing out stops notifications rather than merely delaying them. Check `/aws/lambda/alert-filter-prod` in CloudWatch, then Grafana Alerting → Contact points → the delivery error on `gpbot-alert-filter`.',
+      'To restore alerting immediately, repoint the affected notification policy back at the plain Slack contact point. Alerts resume unfiltered, which is the state this whole feature started from and is always safe to return to.',
+    ].join('\n\n'),
+    // NO `notify`, and that is deliberate rather than an omission. A subteam
+    // mention is added to the message body, and this rule's whole premise is
+    // that the path carrying message bodies is broken — so the mention would
+    // travel exactly as far as the thing it is meant to escape. What makes this
+    // alert work is its ROUTE: the notification policy must send this slug to a
+    // contact point that does not pass through the filter. That cannot be
+    // expressed here, because the policy tree is not provisioned by this repo;
+    // it is the second half of the ops step in gp-ai/alert_filter/README.md.
+    //
+    // A rule that pages nobody looks like a mistake, so: this one is a
+    // deliberate no-mention rule, and if it fires unrouted it still appears in
+    // Grafana's own alert list, which is the last channel left when every other
+    // one depends on the thing that broke.
+  },
   // ------ Global Shared Alerts ------ //
   {
     slug: 'high-cpu',

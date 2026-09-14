@@ -70,6 +70,51 @@ SLACK_TIMEOUT_SECONDS = 8
 CLIENT_CONFIG = Config(retries={"max_attempts": 2, "mode": "standard"}, connect_timeout=2, read_timeout=5)
 
 _dynamodb = None
+_secrets: dict | None = None
+
+
+def secret(name: str) -> str:
+    """One credential, from the environment if set and otherwise from the
+    AI_SECRETS bundle.
+
+    ENVIRONMENT FIRST, and the order is about testability rather than
+    precedence: it is what lets every test in this suite run with no AWS at all,
+    and it is why the pure modules read their credentials through `os.environ`
+    directly. In prod none of these are set, so every lookup goes to Secrets
+    Manager.
+
+    THE POINT OF THE BUNDLE is that the four credentials this function needs —
+    Slack bot token, Anthropic key, Loki token, webhook shared secret — never
+    appear in the function's environment, where `get-function-configuration`
+    shows them to anyone with Lambda read access, nor in Terraform state, where
+    they would sit in plaintext in S3.
+
+    Cached at module scope, so the fetch is once per cold start rather than once
+    per alert. A failure is NOT cached: a Secrets Manager blip during one
+    invocation should not poison the container for the rest of its life.
+    """
+    from_env = os.environ.get(name)
+    if from_env:
+        return from_env
+
+    global _secrets
+    if _secrets is None:
+        environment = os.environ.get("ENVIRONMENT", "prod").upper()
+        try:
+            response = boto3.client("secretsmanager", config=CLIENT_CONFIG).get_secret_value(
+                SecretId=f"AI_SECRETS_{environment}"
+            )
+            _secrets = json.loads(response["SecretString"])
+        except Exception as e:
+            # Returned empty rather than raised, because every caller already
+            # handles an absent credential: no Loki token degrades the decision
+            # to notify, no Anthropic key does the same, and no webhook secret
+            # rejects the delivery. Raising here would instead surface as a
+            # Lambda error, which Grafana retries — and a retry cannot fix a
+            # missing secret, so it would just multiply the failure.
+            print(f"ERROR: could not load AI_SECRETS_{environment}: {type(e).__name__}: {e}")
+            return ""
+    return str(_secrets.get(name) or "")
 
 
 def _dynamodb_client():
@@ -106,6 +151,28 @@ MODE_ENFORCE = "enforce"
 def mode() -> str:
     configured = (os.environ.get("ALERT_FILTER_MODE") or "").strip().lower()
     return MODE_ENFORCE if configured == MODE_ENFORCE else MODE_SHADOW
+
+
+# Credentials the PURE modules read, which they do through `os.environ` so that
+# neither of them needs boto3 or a test with an AWS client in it. The handler
+# resolves them from the bundle and puts them there, which keeps the fetch in
+# one place and keeps evidence.py and classifier.py importable anywhere.
+_PURE_MODULE_SECRETS = ("LOKI_TOKEN", "ANTHROPIC_API_KEY")
+
+
+def _hydrate_environment() -> None:
+    """Put the pure modules' credentials where they look for them.
+
+    Only fills what is missing, so a test or a local run that set one wins. Runs
+    per invocation rather than at import: `secret` caches the bundle, so this
+    costs a dict lookup after the first call, and doing it at import would make
+    the module unimportable without AWS.
+    """
+    for name in _PURE_MODULE_SECRETS:
+        if not os.environ.get(name):
+            value = secret(name)
+            if value:
+                os.environ[name] = value
 
 
 def handler(event: Any, _context: Any = None) -> dict:
@@ -145,6 +212,12 @@ def handler(event: Any, _context: Any = None) -> dict:
         # dropped, so it is an error even though there is nothing to post.
         print("ERROR: a firing delivery contained no readable alerts")
         return _response(200, {"handled": 0, "error": "no readable alerts"})
+
+    # AFTER authentication, deliberately. An unauthenticated request must not be
+    # able to make this function fetch secrets — it is the one operation here
+    # that costs money per call and can be rate-limited by AWS, so it is also
+    # the one an open endpoint could be used to exhaust.
+    _hydrate_environment()
 
     handled = 0
     for alert in alerts:
@@ -311,7 +384,7 @@ def _post(channel: Any, text: str, thread_ts: Any = None) -> str | None:
     `unfurl_links` is off because an alert body is mostly one Grafana deep link,
     and Slack's unfurl of those is a large grey box with no information in it.
     """
-    token = os.environ.get("SLACK_BOT_TOKEN")
+    token = secret("SLACK_BOT_TOKEN")
     if not channel or not token:
         print(f"ERROR: cannot post to Slack: {'no channel configured' if not channel else 'no bot token'}")
         return None
@@ -370,7 +443,7 @@ def _authenticated(event: Any) -> bool:
     lets anyone post arbitrary text into an engineering Slack channel, which is
     a phishing primitive rather than an inconvenience.
     """
-    expected = os.environ.get("WEBHOOK_SECRET")
+    expected = secret("WEBHOOK_SECRET")
     if not expected:
         print("ERROR: WEBHOOK_SECRET is not configured, so no delivery can be authenticated")
         return False

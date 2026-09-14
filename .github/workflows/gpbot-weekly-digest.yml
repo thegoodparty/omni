@@ -62,6 +62,12 @@ env:
   # Where engineer_agent's GPBOT_METRIC lines land. Retention here is 400 days,
   # so a digest that runs late — or a re-run of an old week — still finds them.
   LOG_GROUP: /ecs/engineer-agent-prod
+  # Where the alert filter's GPALERT_METRIC lines land. Also 400 days, and for a
+  # sharper reason than the group above: a suppressed alert appears nowhere else
+  # by construction, so this is the audit trail for what the filter stopped
+  # showing people. A retention shorter than a review cycle would let the answer
+  # expire before anyone thought to ask the question.
+  ALERT_LOG_GROUP: /aws/lambda/alert-filter-prod
   ANALYZE_TAG: gpbot-analyze
 
 jobs:
@@ -278,6 +284,35 @@ jobs:
 
           echo "metric lines: $(jq 'length' /tmp/runs.json)"
 
+      - name: Gather the alert filter's decisions
+        env:
+          START_MS: ${{ steps.window.outputs.start_ms }}
+          END_MS: ${{ steps.window.outputs.end_ms }}
+        run: |
+          set -euo pipefail
+          echo 'null' > /tmp/alerts.json
+
+          # A SEPARATE LOG GROUP from the runs above, so a separate call. Same
+          # shape of gather, same reasoning about null-vs-empty, but this one
+          # answers a question no other source can: what did we stop showing
+          # people? A suppressed alert leaves no trace in #dev-alerts by
+          # construction — the GPALERT_METRIC line is the only record that it
+          # fired at all, which is why the group's retention is 400 days.
+          aws logs filter-log-events \
+            --log-group-name "$ALERT_LOG_GROUP" \
+            --start-time "$START_MS" \
+            --end-time "$END_MS" \
+            --filter-pattern GPALERT_METRIC \
+            --query 'events[].message' \
+            --output json > /tmp/aws-alerts.json
+
+          # Same null-to-empty normalisation as the runs step, for the same
+          # reason: a week in which nothing fired is a real and reportable
+          # state, and a different one from an unreachable log group.
+          jq -c '. // []' /tmp/aws-alerts.json > /tmp/alerts.json
+
+          echo "alert decisions: $(jq 'length' /tmp/alerts.json)"
+
       - name: Render the digest
         id: render
         env:
@@ -295,7 +330,7 @@ jobs:
           # half a JSON document. Unreadable is the same information as absent,
           # and letting jq choke on it would take the other two sources down with
           # it — one flaky API and nobody hears anything on Monday.
-          for source in tickets prs runs; do
+          for source in tickets prs runs alerts; do
             jq empty "/tmp/${source}.json" 2>/dev/null || echo 'null' > "/tmp/${source}.json"
           done
 
@@ -304,8 +339,10 @@ jobs:
             --slurpfile tickets /tmp/tickets.json \
             --slurpfile prs /tmp/prs.json \
             --slurpfile runs /tmp/runs.json \
+            --slurpfile alerts /tmp/alerts.json \
             '{window: {start: $start, end: $end},
-              tickets: $tickets[0], prs: $prs[0], runs: $runs[0]}' > /tmp/digest-input.json
+              tickets: $tickets[0], prs: $prs[0], runs: $runs[0],
+              alerts: $alerts[0]}' > /tmp/digest-input.json
 
           rc=0
           python3 packages/gp-ai/clickup_bot/weekly_digest.py \

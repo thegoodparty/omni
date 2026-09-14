@@ -24,6 +24,64 @@ const datasourceConfig = {
   metric: { uid: PROM_DATASOURCE_UID, queryType: 'instant' },
 } as const
 
+/**
+ * A contact point that posts every notification to the gpbot alert filter
+ * instead of straight to Slack.
+ *
+ * CREATING THIS ROUTES NOTHING. A contact point is a destination; which alerts
+ * reach it is decided by the notification policy tree, and that tree is not
+ * managed here — it was configured by hand in Grafana Cloud before this repo
+ * provisioned any alerting, and taking it over would mean importing routing
+ * whose current shape cannot be read from CI. So this resource is deliberately
+ * inert until somebody repoints a route at it, which is the one step in the
+ * whole feature that is a conscious human decision: it is the moment the
+ * channel's contents start depending on a Lambda. See
+ * gp-ai/alert_filter/README.md.
+ *
+ * WHAT THE POLICY TREE MUST STILL DO, and it is not optional: keep a route for
+ * this contact point's OWN failures that does not pass through it. The filter
+ * is a single point of failure for whatever is routed to it — a Lambda that is
+ * down means notifications that go nowhere — so the alert on Grafana's own
+ * delivery failures has to reach Slack by a path this function cannot break.
+ * `maxAlerts` below is the other half of that: it bounds the blast radius of
+ * one enormous grouped delivery rather than letting it time the webhook out.
+ */
+const alertFilterContactPoint = ({ environment }: { environment: string }) => {
+  const url = process.env.ALERT_FILTER_WEBHOOK_URL
+  const secret = process.env.ALERT_FILTER_WEBHOOK_SECRET
+  // Skipped rather than defaulted when unconfigured. A contact point pointing
+  // at the wrong URL is worse than an absent one: absent fails at provision
+  // time, where somebody is watching, while wrong fails silently the first time
+  // an alert has to be delivered.
+  if (!url || !secret) return undefined
+
+  return new grafana.alerting.ContactPoint('gpbot-alert-filter', {
+    name: `gpbot-alert-filter-${environment}`,
+    webhooks: [
+      {
+        url,
+        httpMethod: 'POST',
+        // Basic auth because it is what this integration can send without a
+        // custom notifier, and the handler compares it with
+        // `hmac.compare_digest`. The user is ignored; only the password is
+        // checked.
+        basicAuthUser: 'grafana',
+        basicAuthPassword: secret,
+        // The filter runs a Loki query and a model call per alert, so a
+        // delivery carrying hundreds would exceed the webhook's patience and
+        // get retried — which is the one way a grouped delivery could turn
+        // into duplicate posts. Grafana truncates past this and says so in the
+        // payload, which the handler treats as an ordinary delivery.
+        maxAlerts: 20,
+        // Resolved notifications are suppressed here rather than filtered in
+        // the handler. `payload.firings` drops them anyway, so forwarding them
+        // would only spend an invocation to decide to do nothing.
+        disableResolveMessage: true,
+      },
+    ],
+  })
+}
+
 export const createGrafanaResources = async ({
   environment,
   domain,
@@ -169,6 +227,8 @@ export const createGrafanaResources = async ({
   const alertFolder = new grafana.oss.Folder('alerts-folder', {
     title: `${environment.toUpperCase()} Alerts (provisioned via gp-api)`,
   })
+
+  alertFilterContactPoint({ environment })
 
   const alertToRule = (
     alert: Alert,

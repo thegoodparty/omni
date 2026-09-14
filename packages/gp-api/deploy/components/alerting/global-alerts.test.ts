@@ -299,3 +299,58 @@ describe('known causes', () => {
     ])
   })
 })
+
+// The alert about the alerting, and the only rule in this file whose premise is
+// that the other rules cannot be delivered. Everything asserted here is a
+// property that makes it survive the outage it describes.
+describe('alert-notification-delivery-failing', () => {
+  const alert = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'alert-notification-delivery-failing',
+  )!
+
+  it('exists, because routing alerts through a Lambda makes that Lambda a single point of failure', () => {
+    expect(alert).toBeDefined()
+  })
+
+  // gp-api's own metrics are useless here: the process can be perfectly healthy
+  // while nothing it reports reaches a human. Only Grafana's view of its own
+  // delivery attempts can see this.
+  it('measures Grafana own delivery attempts rather than anything gp-api emits', () => {
+    expect(alert.expr).toContain('alerting_notification_send_failures_total')
+    expect(alert.expr).not.toContain('service_name="gp-api"')
+  })
+
+  // A subteam mention is added to the message BODY, and this rule's premise is
+  // that the path carrying message bodies is broken — so a mention would travel
+  // exactly as far as the thing it exists to escape. What makes this alert work
+  // is its route, which lives in the notification policy tree and not here.
+  it('pages nobody, because the mention would ride the broken path', () => {
+    expect(alert.notify).toBeUndefined()
+  })
+
+  // The message has to carry the escape hatch, because whoever reads it is
+  // reading it at the moment alerting is down and should not have to find a
+  // runbook first.
+  it('tells the reader how to restore alerting immediately', () => {
+    expect(alert.message).toContain('repoint')
+    expect(alert.message.toLowerCase()).toContain('slack contact point')
+  })
+
+  it('names the log group to look in', () => {
+    expect(alert.message).toContain('alert-filter-prod')
+  })
+
+  // A delivery failure that cleared on its own is not worth interrupting
+  // anyone for, but five minutes of them is the channel being down.
+  it('waits long enough to exclude a single transient failure', () => {
+    expect(alert.for).toBe('5m')
+    expect(alert.threshold).toBe(0)
+  })
+
+  // It must not be routed through the filter, which is a policy-tree property
+  // this repo cannot express — so the rule declares no known causes, because a
+  // known cause would imply the filter gets to see it.
+  it('declares no known causes, since the filter must never classify it', () => {
+    expect(alert.knownCauses).toBeUndefined()
+  })
+})

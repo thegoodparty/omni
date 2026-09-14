@@ -23,6 +23,11 @@ def env(monkeypatch):
     monkeypatch.setenv("FILTERED_CHANNEL_ID", FILTERED)
     monkeypatch.setenv("URGENT_CHANNEL_ID", URGENT_CHANNEL)
     monkeypatch.setenv("ALERT_FILTER_MODE", "enforce")
+    # The pure modules' credentials, so `_hydrate_environment` finds them in the
+    # environment and never reaches for the bundle. The `no_aws` fixture turns
+    # forgetting one into an immediate failure rather than a slow pass.
+    monkeypatch.setenv("LOKI_TOKEN", "loki-test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     monkeypatch.delenv("DEDUP_TABLE_NAME", raising=False)
     return monkeypatch
 
@@ -495,3 +500,77 @@ def _fake_slack(response):
             return json.dumps(response).encode()
 
     return lambda *a, **k: Fake()
+
+
+class TestWhereCredentialsComeFrom:
+    # The point of the bundle: none of the four credentials appear in the
+    # function's environment, where `get-function-configuration` shows them to
+    # anyone with Lambda read access, nor in Terraform state.
+    def test_a_credential_is_read_from_the_bundle_when_the_environment_lacks_it(self, monkeypatch):
+        monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
+        monkeypatch.setattr(h, "_secrets", {"SLACK_BOT_TOKEN": "xoxb-from-the-bundle"})
+
+        assert h.secret("SLACK_BOT_TOKEN") == "xoxb-from-the-bundle"
+
+    # Environment first, and the order is about testability rather than
+    # precedence — it is what lets this whole suite run with no AWS.
+    def test_the_environment_wins_when_it_is_set(self, monkeypatch):
+        monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-from-the-environment")
+        monkeypatch.setattr(h, "_secrets", {"SLACK_BOT_TOKEN": "xoxb-from-the-bundle"})
+
+        assert h.secret("SLACK_BOT_TOKEN") == "xoxb-from-the-environment"
+
+    # Every caller already handles an absent credential: no Loki token degrades
+    # the decision to notify, no webhook secret rejects the delivery. Raising
+    # would surface as a Lambda error, which Grafana retries — and a retry
+    # cannot fix a missing secret, so it would only multiply the failure.
+    def test_an_unreachable_secrets_manager_returns_empty_rather_than_raising(self, monkeypatch, capsys):
+        monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
+
+        def broken(*_, **__):
+            raise RuntimeError("secretsmanager is down")
+
+        monkeypatch.setattr(h.boto3, "client", broken)
+
+        assert h.secret("SLACK_BOT_TOKEN") == ""
+        assert "ERROR" in capsys.readouterr().out
+
+    # A blip during one invocation must not poison the container for the rest of
+    # its life, which a cached failure would.
+    def test_a_failed_fetch_is_not_cached(self, monkeypatch):
+        monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
+        monkeypatch.setattr(h, "_secrets", None)
+        monkeypatch.setattr(h.boto3, "client", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+
+        h.secret("SLACK_BOT_TOKEN")
+
+        assert h._secrets is None
+
+    # An unauthenticated request must not be able to make this function fetch
+    # secrets: it is the one operation here that costs money per call and can be
+    # rate-limited, so it is the one an open endpoint could be used to exhaust.
+    def test_an_unauthenticated_request_never_triggers_a_secrets_fetch(self, env, slack, webhook, monkeypatch):
+        monkeypatch.delenv("LOKI_TOKEN", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        # `no_aws` already makes any boto3 call raise, so a fetch here would
+        # fail the test rather than merely be observed.
+
+        assert h.handler(request(webhook(), secret="wrong"))["statusCode"] == 401
+
+    def test_the_pure_modules_credentials_are_put_where_they_look_for_them(self, monkeypatch):
+        monkeypatch.delenv("LOKI_TOKEN", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setattr(h, "_secrets", {"LOKI_TOKEN": "loki-secret", "ANTHROPIC_API_KEY": "sk-secret"})
+
+        h._hydrate_environment()
+
+        assert h.os.environ["LOKI_TOKEN"] == "loki-secret"
+        assert h.os.environ["ANTHROPIC_API_KEY"] == "sk-secret"
+
+    def test_hydration_does_not_overwrite_a_credential_already_set(self, monkeypatch):
+        monkeypatch.setenv("LOKI_TOKEN", "set-by-hand")
+        monkeypatch.setattr(h, "_secrets", {"LOKI_TOKEN": "from-the-bundle"})
+
+        h._hydrate_environment()
+
+        assert h.os.environ["LOKI_TOKEN"] == "set-by-hand"

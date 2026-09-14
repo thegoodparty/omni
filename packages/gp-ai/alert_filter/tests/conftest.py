@@ -38,6 +38,36 @@ sys.modules["alert_filter_handler"] = _HANDLER
 _SPEC.loader.exec_module(_HANDLER)
 
 
+class _NoAws(Exception):
+    pass
+
+
+@pytest.fixture(autouse=True)
+def no_aws(monkeypatch):
+    """Reaching AWS from a test fails loudly and instantly.
+
+    NOT MERELY HYGIENE. Without it, a test that forgets to provide a credential
+    falls through to `secret`'s Secrets Manager lookup and waits out botocore's
+    connect timeout and retries — which is how this suite went from 0.14s to
+    5.4s the moment the bundle lookup was added, with every test still passing.
+    A slow green suite is the failure mode here: nobody investigates one, and it
+    was hiding the fact that the handler was doing real credential I/O in unit
+    tests.
+
+    Each test that legitimately needs a credential sets it in the environment,
+    which `secret` checks first.
+    """
+
+    def refuse(service, *_, **__):
+        raise _NoAws(f"a test reached AWS ({service}); provide the credential in the environment instead")
+
+    monkeypatch.setattr(_HANDLER.boto3, "client", refuse)
+    # Reset between tests: a cached bundle from one test would satisfy the next
+    # one's lookup and hide exactly the dependency this fixture exists to catch.
+    monkeypatch.setattr(_HANDLER, "_secrets", None)
+    monkeypatch.setattr(_HANDLER, "_dynamodb", None)
+
+
 # A real Grafana webhook body, reduced to the keys this filter reads and with
 # ids replaced. Captured shape, not invented: the nesting below (per-alert
 # labels and annotations under `alerts[]`, group-level copies alongside) is
