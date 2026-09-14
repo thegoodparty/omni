@@ -341,6 +341,26 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     }
   })
 
+  // Terms are half-open [start, end), so the seat is not held on the end date
+  // itself. Same boundary deriveIsActive / isHeldOffice use for a past office.
+  it('treats a term ending today as already ended', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-14T12:00:00.000Z'))
+    try {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({
+          termStartDate: new Date('2022-09-14T00:00:00.000Z'),
+          termEndDate: new Date('2026-09-14T00:00:00.000Z'),
+        }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).toContain('this term has ended')
+      expect(prompt).not.toContain('month(s) remaining')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('counts a term ending later this month as still running', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-09-14T12:00:00.000Z'))

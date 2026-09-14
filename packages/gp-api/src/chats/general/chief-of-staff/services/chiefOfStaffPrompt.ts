@@ -1,7 +1,6 @@
 import {
   differenceInCalendarMonths,
   isAfter,
-  isBefore,
   parseISO,
   startOfDay,
 } from 'date-fns'
@@ -238,7 +237,11 @@ const currentTermLine = (start: Date | null, end: Date | null): string => {
   if (!end) return `Current term: ${range}`
   const endDay = calendarDay(end)
   const today = startOfDay(new Date())
-  if (isBefore(endDay, today)) {
+  // Terms are half-open [start, end): termEndDate is the exclusive boundary at
+  // which the successor takes over, so the seat is no longer held ON the end
+  // date itself. Matches deriveIsActive / isHeldOffice, which gate what the
+  // rest of the app calls a past office.
+  if (!isAfter(endDay, today)) {
     return `Current term: ${range} (this term has ended)`
   }
   const months = differenceInCalendarMonths(endDay, today)

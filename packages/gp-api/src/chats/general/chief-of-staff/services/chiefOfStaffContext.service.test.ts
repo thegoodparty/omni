@@ -65,6 +65,17 @@ describe('ChiefOfStaffContextService first-run detection', () => {
     })
   })
 
+  // A null slug would make Prisma match every null-slug conversation rather
+  // than none, permanently suppressing first-run for that user.
+  it('coalesces a null organizationSlug the way the office lookup does', async () => {
+    const { service, seen } = serviceWith(0)
+    Object.assign(service, {
+      findFirst: async () => ({ ...CONVERSATION, organizationSlug: null }),
+    })
+    await service.load('conv-b', 7, port)
+    expect(seen[0]).toMatchObject({ organizationSlug: '' })
+  })
+
   it('treats no prior conversation with a message as the first', async () => {
     const { service } = serviceWith(0)
     const ctx = await service.load('conv-b', 7, port)

@@ -85,7 +85,9 @@ export class ChiefOfStaffContextService extends createPrismaBase(
         id: { not: conversationId },
         ownerUserId: userId,
         scope: ChatScope.chief_of_staff,
-        organizationSlug: conversation.organizationSlug,
+        // Same coalesce as the electedOffice lookup above: a null slug would
+        // otherwise match every null-slug conversation instead of none.
+        organizationSlug: conversation.organizationSlug ?? '',
         deletedAt: null,
         messages: { some: {} },
       },
