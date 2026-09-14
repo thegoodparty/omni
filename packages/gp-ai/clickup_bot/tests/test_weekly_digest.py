@@ -199,7 +199,7 @@ class TestTheWeekTheMetricsReportMeasured:
             "Coverage: 6 of 7 tagged bugs analyzed — *1 missed*: "
             "<https://app.clickup.com/t/86adata-2336|DATA-2336>\n"
             "Median time to analysis: 7.3 min\n"
-            "Verdicts: 3 fix · 3 no-code-change · 1 needs-human → *4 tickets kept off the eng queue*\n"
+            "Verdicts: 3 fix · 3 no-code-change · 1 needs-human → *3 tickets closed with no code change*\n"
             "PRs: 3 opened · 1 merged · 0 closed unmerged · "
             f"⚠️ 1 open past {STALE_HOURS}h with no human review: "
             "<https://github.com/thegoodparty/omni/pull/1306|#1306>\n"
@@ -680,12 +680,25 @@ class TestAQuietWeekStillPosts:
         assert "0 of 0" not in digest({"window": WINDOW, "tickets": [], "runs": [], "prs": []})
 
 
-class TestVerdictsAndDeflections:
-    def test_deflections_are_the_two_verdicts_that_kept_a_human_off_the_ticket(self):
+class TestVerdictsAndNoCodeChangeClosures:
+    def test_only_no_code_change_counts_as_closed_without_engineering_work(self):
         facts = verdicts(REPORT_RUNS)
 
         assert facts["counts"] == {"fix": 3, "no-code-change": 3, "needs-human": 1}
-        assert facts["deflected"] == 4
+        assert facts["closed_no_code"] == 3
+
+    def test_a_needs_human_week_closed_nothing_and_still_shows_its_count(self):
+        # `needs-human` is an escalation, not a deflection: the ticket still
+        # reaches a person. A week of nothing but escalations closed no tickets,
+        # and the message has to say so while still reporting that the
+        # escalations happened. Counting them was the 2026-09-14 digest's "6
+        # tickets kept off the eng queue" when three were on somebody's plate.
+        runs = [a_run(verdict="needs-human"), a_run(verdict="needs-human")]
+
+        message = digest({"window": WINDOW, "tickets": [], "runs": runs, "prs": []})
+
+        assert "*0 tickets closed with no code change*" in message
+        assert "0 fix · 0 no-code-change · 2 needs-human" in message
 
     def test_a_verdict_that_never_appeared_is_still_printed_as_zero(self):
         # A verdict silently vanishing from the message is what a parser
