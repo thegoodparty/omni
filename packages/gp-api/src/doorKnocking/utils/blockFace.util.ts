@@ -21,9 +21,23 @@ import { streetLineOfStop } from './unitAddress.util'
 // ordering the groups, which is the part that genuinely is a routing problem.
 
 // A house number, then the rest of the line. The `\S*` absorbs the forms a
-// house number comes in that are not a bare integer — "45-10" in Queens,
-// "1234B" — so those still yield the integer they sort by instead of falling
-// out of grouping entirely.
+// house number comes in that are not a bare integer — "1234B", "45-10" — so
+// those still yield an integer to sort by instead of falling out of grouping
+// entirely.
+//
+// KNOWN BROKEN for the Queens-style grid, and this is the honest limit of
+// parsing an address as a string. There the side of the street is carried by
+// the segment AFTER the hyphen, so "45-10" and "45-11" both reduce to 45:
+// they land on one face, and since every "45-*" ties at the same house number
+// the within-face sort falls through to addressKey order and interleaves both
+// sides of the street — reproducing the zigzag this file exists to remove.
+//
+// Left alone rather than guessed at. "45-10" in Queens and "1234-B" elsewhere
+// are the same shape, so telling them apart needs a locality signal that is
+// not passed in here, and a rule that split on the hyphen would break the
+// second case to fix the first. Not a regression either way: the vendor
+// interleaved these before. Fixing it properly means giving the parser the
+// state/county it is parsing for.
 const HOUSE_NUMBER_LINE = /^(\d+)\S*\s+(.+)$/
 
 // ~1 metre (1e-5 degrees of latitude is 1.11m; of longitude at US latitudes,

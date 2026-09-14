@@ -1197,8 +1197,13 @@ describe('door-knocking routes', () => {
 
       // Grouping the doors into faces before the vendor sees them cut both
       // halves of the bill: fewer billed locations, and no second call at all.
-      // Worth pinning as a number, because the saving is the reason the
-      // polyline was given up and a silent regression would spend it back.
+      // The saving is the reason the polyline was given up, so a silent
+      // regression would spend it back.
+      //
+      // The job count is the exact figure here; the credits line is a
+      // comparison against what this same turf used to cost, which is the
+      // claim worth making at this seam. The exact credit total is pinned in
+      // `logs the spend` above rather than restated here.
       it('bills fewer locations than the route has stops', async () => {
         let jobsSent = 0
         stubVendors({
