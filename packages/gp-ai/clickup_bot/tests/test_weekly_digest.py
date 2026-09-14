@@ -31,6 +31,7 @@ from weekly_digest import (
     comment_text,
     cost,
     coverage,
+    dev_tests,
     has_human_review,
     is_bot_pr,
     pull_requests,
@@ -203,6 +204,7 @@ class TestTheWeekTheMetricsReportMeasured:
             "PRs: 3 opened · 1 merged · 0 closed unmerged · "
             f"⚠️ 1 open past {STALE_HOURS}h with no human review: "
             "<https://github.com/thegoodparty/omni/pull/1306|#1306>\n"
+            "Dev-only E2E: no `@dev-only` spec failed the release train this week.\n"
             "Cost: $38.00 this week · $3.71 median per analysis"
         )
 
@@ -418,6 +420,7 @@ class TestTheWeekProductionActuallyAnswered:
             "Median time to analysis: 6.5 min\n"
             "Verdicts: *unavailable* — no run metrics recorded for this week.\n"
             "PRs: 3 opened · 2 merged · 0 closed unmerged\n"
+            "Dev-only E2E: *unavailable* — no run metrics recorded for this week.\n"
             "Cost: *unavailable* — no run metrics recorded for this week.\n"
             "⚠️ 7 tickets analyzed but no run metrics exist for this week, so verdicts and cost are missing "
             "rather than zero. The agent has only recorded them since GPBOT_METRIC shipped — an earlier week "
@@ -915,3 +918,91 @@ class TestTheCliContract:
     def test_a_backwards_window_is_refused(self):
         with pytest.raises(ValueError):
             summarize({"window": {"start": WINDOW["end"], "end": WINDOW["start"]}})
+
+
+def rendered_with_dev_tests(facts: dict) -> str:
+    """The real message, with only the dev-test line swapped out, so these
+    assertions also prove the line is actually reachable from render()."""
+    return render({**summarize(REPORT_PAYLOAD, now=REPORT_PREPARED), "dev_tests": facts})
+
+
+class TestTheDevOnlyE2ELine:
+    """The line for the triage the bot files against itself.
+
+    Two properties matter and they pull in opposite directions. Dev-test runs
+    emit the SAME verdict line as an analysis, from the same shared contract, so
+    nothing stops them landing in the Verdicts figure except the label scope —
+    and that figure sits directly under Coverage, where it reads as a statement
+    about the bugs humans filed. A week where the release train broke five times
+    would otherwise report five more bugs diagnosed.
+
+    In the other direction, this line's zero means the opposite of every other
+    zero in the message: no `@dev-only` spec failed is the good week.
+    """
+
+    def test_dev_test_verdicts_stay_out_of_the_analyze_figure(self):
+        runs = [a_run(label="analyze", verdict="fix"), a_run(label="dev-test", verdict="fix")]
+
+        assert verdicts(runs)["counts"]["fix"] == 1
+
+    def test_dev_test_runs_do_not_count_as_a_missing_verdict(self):
+        # `no_verdict` is alarm-worthy: it means the prompt and the parser have
+        # drifted. A dev-test run with no verdict must raise that alarm on its
+        # own line, not inside the one about human-filed bugs.
+        runs = [a_run(label="dev-test", verdict=None)]
+
+        assert verdicts(runs)["no_verdict"] == 0
+
+    def test_dev_test_cost_is_in_the_total_but_not_the_per_analysis_median(self):
+        # The median answers "what does one bug analysis cost", which is the
+        # number used to reason about tagging more bugs.
+        runs = [a_run(label="analyze", cost_usd=3.00), a_run(label="dev-test", cost_usd=9.00)]
+
+        assert cost(runs)["total_usd"] == 12.00
+        assert cost(runs)["median_analysis_usd"] == 3.00
+
+    def test_a_quiet_week_says_the_train_stayed_green(self):
+        facts = dev_tests([a_run(label="analyze")])
+
+        assert facts["runs"] == 0
+        assert "no `@dev-only` spec failed" in rendered_with_dev_tests(facts)
+
+    def test_a_failing_week_reports_runs_specs_and_verdicts(self):
+        runs = [
+            a_run(label="dev-test", task_id="86spec1", verdict="fix", cost_usd=2.50),
+            a_run(label="dev-test", task_id="86spec2", verdict="needs-human", cost_usd=1.50),
+        ]
+
+        facts = dev_tests(runs)
+
+        assert facts["runs"] == 2
+        assert facts["distinct_specs"] == 2
+        assert facts["counts"] == {"fix": 1, "no-code-change": 0, "needs-human": 1}
+        assert facts["total_usd"] == 4.00
+
+        line = rendered_with_dev_tests(facts)
+        assert "2 runs on 2 specs" in line
+        assert "1 fix · 0 no-code-change · 1 needs-human" in line
+        assert "$4.00" in line
+
+    def test_retriaging_one_spec_is_flagged_as_a_ticket_not_being_closed(self):
+        # Two runs against one spec means the workflow found the ticket still
+        # open on a later release run. The investigation is not progressing.
+        runs = [a_run(label="dev-test", task_id="86spec1"), a_run(label="dev-test", task_id="86spec1")]
+
+        facts = dev_tests(runs)
+
+        assert facts["runs"] == 2
+        assert facts["distinct_specs"] == 1
+        assert "not being closed" in rendered_with_dev_tests(facts)
+
+    def test_an_unreadable_source_is_never_reported_as_a_green_week(self):
+        # The most reassuring of the three false claims this module can make.
+        assert dev_tests(None)["available"] is False
+        assert "*unavailable*" in rendered_with_dev_tests(dev_tests(None))
+
+    def test_it_is_demoted_with_the_other_two_when_the_source_cannot_be_believed(self):
+        facts = summarize({"window": WINDOW, "tickets": REPORT_TICKETS, "runs": [], "prs": []})
+
+        assert facts["verdicts"]["available"] is False
+        assert facts["dev_tests"]["available"] is False
