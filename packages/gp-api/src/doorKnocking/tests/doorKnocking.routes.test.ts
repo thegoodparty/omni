@@ -2939,6 +2939,41 @@ describe('door-knocking routes', () => {
       expect(row.occurredAt).toBeInstanceOf(Date)
     })
 
+    // What comes back recolors the dot on the phone without re-fetching the
+    // route, so it has to answer for the PERSON the way every other surface
+    // does. Deriving it from the row just written made this the last place
+    // that still answered by recency: the canvasser logged the unsure, watched
+    // the dot go grey, and only a refresh put it back to green. That flicker
+    // is the reported bug, seen sooner than anywhere else.
+    it('returns the firmest status for the person, not the row just written', async () => {
+      const target = await knockAndGetTarget()
+
+      const first = await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'answered',
+        supportAnswer: 'supporter',
+      })
+      expect(first.data.knockStatus).toBe('supporter')
+
+      const second = await record({
+        stopTargetId: target.id,
+        clientKey: 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff',
+        outcome: 'answered',
+        supportAnswer: 'unsure',
+      })
+
+      expect(second.status).toBe(201)
+      expect(second.data.knockStatus).toBe('supporter')
+      // Both knocks are on file — the unsure was recorded, it just doesn't
+      // outrank the firm answer it followed.
+      const rows = await service.prisma.contactInteractionDoorKnock.findMany({
+        where: { organizationSlug: orgSlug },
+        orderBy: { id: 'asc' },
+      })
+      expect(rows.map((r) => r.supportAnswer)).toEqual(['supporter', 'unsure'])
+    })
+
     it('replaying the same clientKey re-syncs one row, never a duplicate', async () => {
       const target = await knockAndGetTarget()
 

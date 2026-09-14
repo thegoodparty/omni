@@ -21,6 +21,7 @@ import {
 } from '../../generated/prisma'
 import { assertVolunteerAssignedToOutreach } from '../utils/doorKnockingAccess.util'
 import { deriveKnockStatus } from '../utils/knockStatus.util'
+import { DoorKnockingStatusService } from './doorKnockingStatus.service'
 
 @Injectable()
 export class DoorKnockingInteractionService extends createPrismaBase(
@@ -29,6 +30,7 @@ export class DoorKnockingInteractionService extends createPrismaBase(
   constructor(
     private readonly doorKnockInteractions: ContactInteractionDoorKnockService,
     private readonly contactStatus: ContactStatusService,
+    private readonly knockStatuses: DoorKnockingStatusService,
     private readonly moduleRef: ModuleRef,
   ) {
     super()
@@ -71,9 +73,23 @@ export class DoorKnockingInteractionService extends createPrismaBase(
       actorUserId,
     })
 
+    // The status of the PERSON, not of the row just written. The walk view
+    // recolors the dot from this without re-fetching the route, so deriving it
+    // from the new row alone made this the one surface that still answered by
+    // recency: logging an `unsure` on a known supporter greyed the dot on the
+    // phone, and only a refresh — reading the same history through
+    // `firmestAnswerPerPerson` — turned it green again. That flicker is the
+    // reported bug, and this endpoint is where a canvasser would see it first.
+    // Reading back through the status service also picks up a manual override,
+    // which deriving from the row could never see.
+    const statuses = await this.knockStatuses.latestKnockStatuses(
+      organization.slug,
+      [personId],
+    )
+
     return {
       personId: interaction.personId,
-      knockStatus: deriveKnockStatus(interaction),
+      knockStatus: statuses.get(personId) ?? deriveKnockStatus(interaction),
     }
   }
 
