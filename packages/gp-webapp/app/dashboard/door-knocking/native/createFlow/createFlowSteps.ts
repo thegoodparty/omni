@@ -2,9 +2,12 @@
 //
 // `CreateFlowStep` is the ORCHESTRATOR's word for where the flow is. The page
 // (`NativeDoorKnockingPage`, #1380) opens the flow at `filters` and
-// `changeFlowStep` starts a drawing session on exactly the `filters` → `draw`
-// transition, so renaming or reordering these would silently break the draw
-// session — the canvas would never enter draw_polygon.
+// `changeFlowStep` puts the canvas into drawing mode on exactly the
+// `filters` → `draw` transition, so renaming or reordering these would
+// silently break the draw session — the canvas would never enter
+// draw_polygon. That transition fires on the way back in as well as on the
+// way in, which is why the page asks whether a ring already exists before
+// deciding between a fresh session and resuming the one already drawn.
 //
 // `CreateFlowStage` is the FLOW's own word, and it is what the design draws:
 // purpose → who → draw → confirm → points → route. The two pre-draw stages

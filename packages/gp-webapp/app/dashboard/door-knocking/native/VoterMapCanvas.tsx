@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import { MapboxOverlay } from '@deck.gl/mapbox'
 import { ScatterplotLayer } from '@deck.gl/layers'
@@ -178,6 +178,13 @@ interface VoterMapCanvasProps {
   // restart it: emptying the ring while staying in draw mode is exactly what
   // the draw step's Clear does.
   startDrawToken: number
+  // Bump to enter polygon-draw mode WITHOUT emptying the ring. Separate from
+  // `startDrawToken` because the two are asked for by different gestures that
+  // reach the draw step by the same transition: arriving for the first time
+  // wants a blank session, while going Back to re-read the audience and then
+  // Continue must keep the boundary that is already drawn. Only the caller
+  // knows which it is.
+  resumeDrawToken: number
   // Bump to clear the in-progress drawing AND leave draw mode (e.g. after a
   // turf is saved, or when the flow closes).
   clearDrawToken: number
@@ -472,6 +479,7 @@ export default function VoterMapCanvas({
   focusTurf,
   initialZoom,
   startDrawToken,
+  resumeDrawToken,
   clearDrawToken,
   undoDrawToken,
   drawColor,
@@ -1227,19 +1235,35 @@ export default function VoterMapCanvas({
     )
   }, [routePins, routeFrameBottomPx])
 
-  useEffect(() => {
-    if (startDrawToken === 0) return
+  // Putting the map into drawing mode, without any opinion about the shape
+  // already on it. Both tokens below do this much; only one of them also
+  // empties the ring.
+  const armDrawing = useCallback(() => {
     endDragRef.current?.()
     drawActiveRef.current = true
     setDrawing(true)
+    // Adding vertices shouldn't fight the zoom gesture.
+    mapRef.current?.doubleClickZoom.disable()
+  }, [])
+
+  useEffect(() => {
+    if (startDrawToken === 0) return
+    armDrawing()
     drawPointsRef.current = []
     undoStackRef.current = []
     setDrawPoints([])
     onDrawPointCountRef.current?.(0)
     onPolygonChangeRef.current(null)
-    // Adding vertices shouldn't fight the zoom gesture.
-    mapRef.current?.doubleClickZoom.disable()
-  }, [startDrawToken])
+  }, [startDrawToken, armDrawing])
+
+  // Nothing to rehydrate: leaving the draw step never took the canvas out of
+  // drawing mode, so the handlers and `drawPointsRef` are still live and the
+  // vertices are still on screen. This re-arms the mode and deliberately
+  // touches neither the points nor the undo stack.
+  useEffect(() => {
+    if (resumeDrawToken === 0) return
+    armDrawing()
+  }, [resumeDrawToken, armDrawing])
 
   useEffect(() => {
     if (undoDrawToken === 0) return
