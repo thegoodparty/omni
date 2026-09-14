@@ -46,7 +46,7 @@ added in either direction.
 | -------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `door_knocking_turf`             | The drawn area: name, color, geoPoly                                  | `voterFileFilterId` NOT unique (N turfs per filter). Always has exactly one route and one envelope. `deletedAt` is its only lifecycle column, and it is always a tombstone — see below                                                                                                                                                                                                                                                                     |
 | `door_knocking_route`            | Frozen route header                                                   | `doorKnockingTurfId` UNIQUE. Written in the create transaction and never mutated after                                                                                                                                                                                                                                                                                                                                                                     |
-| `door_knocking_stop`             | One per unique lat/lng, in visit order                                | `(routeId, seq)` unique; `displayAddress` copied verbatim from `Residence_Addresses_AddressLine` at freeze                                                                                                                                                                                                                                                                                                                                                 |
+| `door_knocking_stop`             | One per building (lat/lng snapped to ~1m), in walk order              | `(routeId, seq)` unique; `displayAddress` copied verbatim from `Residence_Addresses_AddressLine` at freeze; `seq` is serpentine by block face, not the vendor's tour order — see § Why the vendor does not order the doors                                                                                                                                                                                                                                 |
 | `door_knocking_stop_target`      | Bare-minimum person snapshot                                          | personId (people-db UUID — never raw LALVOTERIDs), name, addressKey. Redact-in-place on deletion requests                                                                                                                                                                                                                                                                                                                                                  |
 | `contact_interaction_door_knock` | One row per knock on a person (CRM epic's model, extended additively) | Writes land here via `POST /v1/door-knocking/interactions`: `sourceId` = the phone's clientKey (replay-idempotent upsert; the latest sync of a clientKey wins, so a corrected answer replaces the row rather than duplicating it), `occurredAt` server-stamped. The vocabulary was extended additively for the question flow: `inaccessible` + `not_a_voter` outcomes, nullable `willVote` — `supportAnswer` stays the CRM's 3-way. CRM readers unaffected |
 
@@ -446,10 +446,18 @@ The steps:
    § The daily campaign gate. Nothing serializes two creates in one org, so
    simultaneous ones can overshoot by one; that's deliberate, and the util
    says why.
-5. One Geoapify Route Planner call (coords + opaque job ids only — no PII
-   leaves; loop → start=end anchor at the first stop by address order;
-   open → end-only anchor at the farthest-from-centroid stop; both
-   deterministic, never random).
+5. Group the stops into **block faces** — one side of one street, by house
+   number parity — in `blockFace.util.ts`. Then one Geoapify Route Planner
+   call to order those faces (coords + opaque job ids only — no PII leaves;
+   loop → start=end anchor at the first face by address order; open →
+   end-only anchor at the farthest-from-centroid face; both deterministic,
+   never random). The doors inside a face are sequenced locally by house
+   number, and the direction each face is walked in is chosen so the
+   transitions between them are shortest. **The vendor orders faces, not
+   doors** — see § Why the vendor does not order the doors. One billed call:
+   the plan's polyline would thread the faces' representatives rather than the
+   doors, so the Routing request is skipped (`fetchGeometry: false`) and the
+   route ships without a path.
 6. Record the spend (`recordWaypointSpend`, `waypointSpend.util.ts`)
    immediately, on the plain client and NOT the transaction. The vendor has
    been paid by this point, so the ledger row has to commit whether or not the
@@ -494,6 +502,60 @@ vendor call still leaves its spend in the ledger; (d) a saved list's exclusions
 shrink the stop set; (e) a Serve create writes its envelope with
 `campaignId: null`; (f) a dual-role org's Win and Serve rails do not see each
 other's turfs.
+
+### Why the vendor does not order the doors
+
+It used to. `seq` was Geoapify's tour index verbatim, and QA filmed what that
+produces: `3620 NE 64th Ave → 3629 → 3630`, two even-side neighbours with a
+trip across the street wedged between them, every leg logged "1m walk".
+
+Geoapify was not wrong. It is sent coordinates and a travel mode and nothing
+else — it has never been told what a street or a house number is — so it
+minimizes road-network travel time, and by that measure crossing a residential
+street is free. The tour it returned was a good answer to the question being
+asked. The question was wrong.
+
+The trap worth knowing before touching this: **re-optimizing the vendor's order
+locally does not fix it.** Crossing the street is a short distance as well as a
+short time, so a 2-opt pass over great-circle distance — or asking the vendor
+for `type: "short"` — reproduces the same zigzag. What makes an order
+unwalkable is a domain fact that lives in neither metric: a canvasser wants to
+finish one side of one street before crossing.
+
+So the doors are grouped into block faces in `blockFace.util.ts`, where the
+addresses are, and the vendor is demoted to ordering the faces — which
+genuinely is a routing problem, since getting from one block to the next uses
+roads. Inside a face, doors are sequenced by house number and legs are measured
+locally, because along one side of one street the sidewalk _is_ the straight
+line. The direction each face is walked in is solved exactly (a shortest path
+over two orientations per face) rather than alternated, because blind
+alternation is only right when faces arrive in adjacent antiparallel pairs.
+
+Three consequences:
+
+- **Grouping runs on `addressKey`, not on structured columns.** Segment 0 is
+  the file's whole `AddressLine`, uppercased and trimmed; a leading integer is
+  the house number and the remainder is an opaque street key that is only ever
+  compared for equality, never interpreted. That is what makes parsing safe
+  here — `1234 S 5678 W` and `742 NORTH AVE` need to group, not to be
+  understood. Projecting `Residence_Addresses_HouseNumber`/`StreetName`
+  instead would be worse, not better: the two direction columns are INTEGER in
+  the mirror and every letter in them casts to NULL, so `1234 S MAIN ST` and
+  `1234 N MAIN ST` would group together (the defect the AddressLine key was
+  introduced to fix — see § `addressKey`).
+- **A line with no readable house number gets a face of its own**, so it keeps
+  the vendor-ordered behaviour it always had rather than being guessed into
+  somebody else's block.
+- **Only new lists benefit.** A route is bought once and never re-bought (see
+  § The list lifecycle), so every list already in the field keeps its original
+  order. There is no re-route path and adding one would have to confront the
+  1:1:1 turf → route → outreach chain.
+
+Not yet used, and worth checking before extending this: the voter mart carries
+L2's own `SequenceOddEven` and `SequenceZigZag` walk-sequence fields. Nothing
+in this package reads them — they are exposed only as CSV columns in
+`voter.select.ts` — and if they turn out to be populated they are the
+industry-standard answer handed to us.
 
 ### The daily campaign gate
 
@@ -602,22 +664,25 @@ fires and someone has to say which organization caused it.
 What a route costs is priced in `doorKnocking/utils/geoapifyCost.util.ts`, the
 one transcription of [Geoapify's cost
 calculator](https://www.geoapify.com/pricing-details/), and it is neither flat
-nor linear. Every create makes **two** billed calls: the Route Planner
-optimization, charged per location — every stop plus the agent's start and end
-anchors, squared rather than multiplied when there are fewer than ten of them —
-and `fetchPathGeometry`'s Routing request, charged one credit per pair of the
-waypoints in the resulting plan. A stop therefore costs a little over ten
-credits all in, and a small turf costs far less than that: two stops is about
-five credits, 150 is about 1,650.
+nor linear. A create makes **one** billed call: the Route Planner
+optimization, charged per location — every **block face** plus the agent's
+start and end anchors, squared rather than multiplied when there are fewer than
+ten of them. `fetchPathGeometry`'s Routing request was a second billed call and
+is no longer made, because a polyline through face representatives traces a
+route nobody walks; the code path survives behind `fetchGeometry` for a caller
+that wants it.
 
-Both calls are in `credits` everywhere it appears — the route row, the log
-line, the ledger, the counter. **`waypoints` is not credits divided by
-anything**: it counts stops, and the two numbers do not convert into each other
-in either direction, because the Route Planner's rate is quadratic under ten
-locations, every route also pays for its agent's anchors, and a geometry fetch
-that never completed is free. `waypoints` is now a measurement rather than an
-allowance — nothing caps stops per organization — so read this line for money
-through `credits` and for how much walking was bought through `waypoints`.
+Faces are the unit that matters for money, and there are far fewer of them than
+stops — a 150-stop turf on a grid is a couple of dozen faces. So a stop no
+longer has a stable price, and the old rule of thumb (about eleven credits a
+stop, ~1,650 for a full turf) is now an upper bound rather than an estimate.
+Read cost off the face count, which is what the vendor was actually sent.
+
+**`waypoints` is not credits divided by anything**: it counts stops, while
+credits are priced off faces, so the two convert into each other even less
+directly than before. `waypoints` is a measurement rather than an allowance —
+nothing caps stops per organization — so read this line for money through
+`credits` and for how much walking was bought through `waypoints`.
 
 No surface here can carry the API key: the Route Planner SDK puts the key in
 its request URL, so nothing sourced from a URL or a caught error is ever logged
@@ -669,11 +734,12 @@ between it and the vendor.
   `GET /organizations/:slug` do not carry it, and neither does the
   `/admin/list` search table.
 - **How high:** capped at `MAX_DAILY_CAMPAIGN_LIMIT` (30 campaigns), which is
-  derived rather than chosen. A campaign holds at most `MAX_STOPS` (150) stops
-  and a stop draws about eleven credits — ten for its Route Planner location
-  plus its share of the path-geometry Routing call — so a full-sized campaign
-  is near 1,650 credits and thirty of them is about the account's assumed daily
-  pool of 50,000. Most campaigns are far smaller, so in practice thirty sits
+  derived rather than chosen. The derivation is now conservative in the
+  account's favour: it assumed a campaign of `MAX_STOPS` (150) billed
+  locations at ten credits each, near 1,650 credits, and thirty of those is
+  about the account's assumed daily pool of 50,000. Since the vendor is billed
+  per block face rather than per stop, a full-sized campaign costs a fraction
+  of that. Most campaigns are far smaller still, so in practice thirty sits
   well under the pool; the point is that no admin can hand one organization an
   allowance the account could not fund even in the worst case. Above it the
   number is unhonourable no matter which org asks, so the DTO rejects it with a
@@ -757,14 +823,16 @@ order by credits desc;
 
 Both queries measure money, and `credits` is the same figure in either. There
 is no per-organization spend cap to read a heavy org against any more, so the
-yardstick is the campaign limit: a full-sized campaign is about 1,650 credits,
-so an organization far above five of those (~8,000 in a rolling 24h) has either
+yardstick is the campaign limit: a full-sized campaign is at most about 1,650
+credits and in practice far less, since the vendor is billed per block face, so
+an organization far above five of those (~8,000 in a rolling 24h) has either
 been granted an override — check `override_door_knocking_campaign_limit` on the
 org — or is looping. The `waypoints` sum beside it is stops, and it answers a
 different question: how much walking the organization actually bought. It is
 not a credit figure divided by anything, because credits are not proportional
-to stops — a turf under ten locations is billed on its square, and every route
-also pays for its anchors and its Routing call.
+to stops — the vendor is billed per block face rather than per stop, a turf
+under ten locations is billed on its square, and every route also pays for its
+anchors.
 
 ## Serving
 
