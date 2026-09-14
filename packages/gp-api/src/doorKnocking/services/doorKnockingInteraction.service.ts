@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import {
+  DoorKnockStatus,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionResponse,
   SetDoNotKnock,
@@ -82,10 +83,21 @@ export class DoorKnockingInteractionService extends createPrismaBase(
     // reported bug, and this endpoint is where a canvasser would see it first.
     // Reading back through the status service also picks up a manual override,
     // which deriving from the row could never see.
-    const statuses = await this.knockStatuses.latestKnockStatuses(
-      organization.slug,
-      [personId],
-    )
+    //
+    // The knock is already committed by this point, and this read exists only
+    // to colour a dot the client re-fetches with the route anyway — so a
+    // failure here degrades to the row's own status rather than 500ing a write
+    // that succeeded. A 500 would send the phone into an idempotent replay of
+    // a knock that was never in doubt.
+    const statuses = await this.knockStatuses
+      .latestKnockStatuses(organization.slug, [personId])
+      .catch((err: unknown) => {
+        this.logger.error(
+          { err, organizationSlug: organization.slug, personId },
+          'knock recorded, status read-back failed; falling back to the new row',
+        )
+        return new Map<string, DoorKnockStatus>()
+      })
 
     return {
       personId: interaction.personId,
