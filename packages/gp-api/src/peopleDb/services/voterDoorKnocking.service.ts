@@ -62,12 +62,9 @@ const mapDemographics = (
   // The raw amount; the door buckets it through INCOME_RANGE_MAPPING at
   // render, so a modelled figure is never printed to the dollar.
   estimatedIncomeAmount: row.Estimated_Income_Amount_Int,
-  // No data stays null, exactly as `politicalParty` above does and unlike
-  // `mapLanguage`'s own no-value branch, which returns 'Other'. At the door
-  // that would tell a canvasser this person speaks something other than
-  // English or Spanish on the strength of an empty column. A present but
-  // unrecognized value IS a real fact and still maps to 'Other'.
-  language: row.Language_Code ? mapLanguage(row.Language_Code) : null,
+  // No data stays null, exactly as `politicalParty` above does. `mapLanguage`
+  // now draws this line itself, so the guard this used to need is gone.
+  language: mapLanguage(row.Language_Code),
   ethnicityGroup: mapEthnicity(row.EthnicGroups_EthnicGroup1Desc),
 })
 
