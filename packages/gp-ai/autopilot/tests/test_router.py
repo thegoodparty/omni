@@ -10,19 +10,15 @@ import pytest
 
 BOT_USER_ID = "bot-42"
 HUMAN_USER_ID = "human-7"
-STORY_LIST_ID = "901300000777"
-FEATURE_LIST_ID = "901300000001"
+BOARD_LIST_ID = "901300000001"
+# A story is a subtask of its epic — epic_task_id set IS what makes an event
+# a story event (router.derive_card_type).
+EPIC_TASK_ID = "epic-1"
 
 
 @pytest.fixture(autouse=True)
 def bot_user_id_env(monkeypatch):
     monkeypatch.setenv("AUTOPILOT_BOT_USER_ID", BOT_USER_ID)
-
-
-@pytest.fixture(autouse=True)
-def story_list_env(monkeypatch):
-    monkeypatch.setenv("AUTOPILOT_STORY_LIST_IDS", STORY_LIST_ID)
-    monkeypatch.setenv("AUTOPILOT_LIST_IDS", f"{STORY_LIST_ID},{FEATURE_LIST_ID}")
 
 
 def transition(actor_user_id, from_status, to_status, transitioned_at="1700000000000"):
@@ -37,7 +33,7 @@ def transition(actor_user_id, from_status, to_status, transitioned_at="170000000
 def event(
     kind="statusUpdated",
     task_id="task-1",
-    list_id=FEATURE_LIST_ID,
+    list_id=BOARD_LIST_ID,
     current_status=None,
     transitions=None,
     event_ts=None,
@@ -54,6 +50,11 @@ def event(
     )
 
 
+def story_event(**kwargs):
+    kwargs.setdefault("epic_task_id", EPIC_TASK_ID)
+    return event(**kwargs)
+
+
 # ---------------------------------------------------------------------------
 # AC1 / AC2 — epic-create gate
 # ---------------------------------------------------------------------------
@@ -61,7 +62,6 @@ def event(
 
 def test_human_actor_approved_tdd_to_in_progress_dispatches_epic_create():
     e = event(
-        list_id=FEATURE_LIST_ID,
         transitions=[transition(HUMAN_USER_ID, router.STATUS_APPROVED_TDD, router.STATUS_IN_PROGRESS)],
     )
 
@@ -75,7 +75,6 @@ def test_human_actor_approved_tdd_to_in_progress_dispatches_epic_create():
 
 def test_bot_actor_approved_tdd_to_in_progress_dispatches_nothing():
     e = event(
-        list_id=FEATURE_LIST_ID,
         transitions=[transition(BOT_USER_ID, router.STATUS_APPROVED_TDD, router.STATUS_IN_PROGRESS)],
     )
 
@@ -85,7 +84,6 @@ def test_bot_actor_approved_tdd_to_in_progress_dispatches_nothing():
 def test_unconfigured_bot_user_id_refuses_gate_dispatch_and_logs(monkeypatch, capsys):
     monkeypatch.delenv("AUTOPILOT_BOT_USER_ID", raising=False)
     e = event(
-        list_id=FEATURE_LIST_ID,
         transitions=[transition(HUMAN_USER_ID, router.STATUS_APPROVED_TDD, router.STATUS_IN_PROGRESS)],
     )
 
@@ -101,8 +99,7 @@ def test_unconfigured_bot_user_id_refuses_gate_dispatch_and_logs(monkeypatch, ca
 
 
 def test_story_to_qa_by_bot_dispatches_qa_run():
-    e = event(
-        list_id=STORY_LIST_ID,
+    e = story_event(
         transitions=[transition(BOT_USER_ID, router.STATUS_IN_PROGRESS, router.STATUS_QA)],
     )
 
@@ -114,8 +111,7 @@ def test_story_to_qa_by_bot_dispatches_qa_run():
 
 
 def test_story_to_qa_by_human_also_dispatches():
-    e = event(
-        list_id=STORY_LIST_ID,
+    e = story_event(
         transitions=[transition(HUMAN_USER_ID, router.STATUS_IN_PROGRESS, router.STATUS_QA)],
     )
 
@@ -123,15 +119,16 @@ def test_story_to_qa_by_human_also_dispatches():
 
 
 # ---------------------------------------------------------------------------
-# Story kickoff — a gate transition, but to "executing" rather than
-# "in progress" (see GATE_TO_STATUSES's comment for why there are two).
+# Story kickoff — a manual human dispatch out of the queue column. The
+# supervisor's own dispatches never route through here (it launches Fargate
+# directly), and the stage runner's first "in progress" write is a bot actor
+# this gate refuses.
 # ---------------------------------------------------------------------------
 
 
-def test_human_actor_to_do_to_executing_dispatches_story_stage():
-    e = event(
-        list_id=STORY_LIST_ID,
-        transitions=[transition(HUMAN_USER_ID, router.STATUS_TO_DO, router.STATUS_EXECUTING)],
+def test_human_actor_queued_to_in_progress_dispatches_story_stage():
+    e = story_event(
+        transitions=[transition(HUMAN_USER_ID, router.STATUS_APPROVED_TDD, router.STATUS_IN_PROGRESS)],
     )
 
     decisions = router.route(e)
@@ -140,10 +137,9 @@ def test_human_actor_to_do_to_executing_dispatches_story_stage():
     assert decisions[0].stage == router.STAGE_STORY
 
 
-def test_bot_actor_to_do_to_executing_dispatches_nothing():
-    e = event(
-        list_id=STORY_LIST_ID,
-        transitions=[transition(BOT_USER_ID, router.STATUS_TO_DO, router.STATUS_EXECUTING)],
+def test_bot_actor_queued_to_in_progress_dispatches_nothing():
+    e = story_event(
+        transitions=[transition(BOT_USER_ID, router.STATUS_APPROVED_TDD, router.STATUS_IN_PROGRESS)],
     )
 
     assert router.route(e) == []
@@ -155,8 +151,7 @@ def test_bot_actor_to_do_to_executing_dispatches_nothing():
 
 
 def test_feedback_needed_to_in_progress_dispatches_resume():
-    e = event(
-        list_id=STORY_LIST_ID,
+    e = story_event(
         transitions=[transition(HUMAN_USER_ID, router.STATUS_FEEDBACK_NEEDED, router.STATUS_IN_PROGRESS)],
     )
 
@@ -168,8 +163,7 @@ def test_feedback_needed_to_in_progress_dispatches_resume():
 
 def test_bot_actor_feedback_needed_to_in_progress_dispatches_nothing():
     # "in progress" is a gate destination no matter which table row it hits.
-    e = event(
-        list_id=STORY_LIST_ID,
+    e = story_event(
         transitions=[transition(BOT_USER_ID, router.STATUS_FEEDBACK_NEEDED, router.STATUS_IN_PROGRESS)],
     )
 
@@ -179,9 +173,8 @@ def test_bot_actor_feedback_needed_to_in_progress_dispatches_nothing():
 def test_comment_posted_while_feedback_needed_dispatches_resume():
     # A real taskCommentPosted delivery carries NO history_items; the dedup
     # key comes from the bucketed delivery timestamp.
-    e = event(
+    e = story_event(
         kind="commentPosted",
-        list_id=STORY_LIST_ID,
         current_status=router.STATUS_FEEDBACK_NEEDED,
         event_ts="1700000099000",
     )
@@ -197,9 +190,8 @@ def test_burst_comment_deliveries_share_one_dedup_key():
     # 1700000099000 and 1700000200000 are 101s apart — same 10-minute bucket.
     decisions = [
         router.route(
-            event(
+            story_event(
                 kind="commentPosted",
-                list_id=STORY_LIST_ID,
                 current_status=router.STATUS_FEEDBACK_NEEDED,
                 event_ts=ts,
             )
@@ -219,23 +211,12 @@ def test_later_feedback_round_gets_a_fresh_dedup_key():
     assert first != second
 
 
-def test_orphaned_story_list_id_logs_error(monkeypatch, capsys):
-    monkeypatch.setenv("AUTOPILOT_STORY_LIST_IDS", f"{STORY_LIST_ID},901399999999")
-    monkeypatch.setenv("AUTOPILOT_LIST_IDS", f"{STORY_LIST_ID},{FEATURE_LIST_ID}")
-
-    router.story_list_ids()
-
-    out = capsys.readouterr().out
-    assert "ERROR" in out and "901399999999" in out
-
-
 def test_comment_posted_by_bot_while_feedback_needed_still_dispatches():
     # commentPosted has no to-status of its own, so it never matches
     # GATE_TO_STATUSES — a bot-authored comment is as legitimate a trigger
     # here as a human one.
-    e = event(
+    e = story_event(
         kind="commentPosted",
-        list_id=STORY_LIST_ID,
         current_status=router.STATUS_FEEDBACK_NEEDED,
         event_ts="1700000100000",
     )
@@ -244,14 +225,14 @@ def test_comment_posted_by_bot_while_feedback_needed_still_dispatches():
 
 
 def test_comment_posted_outside_feedback_needed_dispatches_nothing():
-    e = event(kind="commentPosted", list_id=STORY_LIST_ID, current_status=router.STATUS_IN_PROGRESS)
+    e = story_event(kind="commentPosted", current_status=router.STATUS_IN_PROGRESS)
 
     assert router.route(e) == []
 
 
 def test_comment_posted_on_feature_card_dispatches_nothing():
     # resume is a story-only stage.
-    e = event(kind="commentPosted", list_id=FEATURE_LIST_ID, current_status=router.STATUS_FEEDBACK_NEEDED)
+    e = event(kind="commentPosted", current_status=router.STATUS_FEEDBACK_NEEDED)
 
     assert router.route(e) == []
 
@@ -262,8 +243,7 @@ def test_comment_posted_on_feature_card_dispatches_nothing():
 
 
 def test_story_done_routes_to_supervisor_with_its_epic(monkeypatch):
-    e = event(
-        list_id=STORY_LIST_ID,
+    e = story_event(
         transitions=[transition(HUMAN_USER_ID, router.STATUS_QA, router.STATUS_DONE)],
         epic_task_id="epic-7",
     )
@@ -287,13 +267,12 @@ def test_story_done_routes_to_supervisor_with_its_epic(monkeypatch):
     assert calls == [decisions[0]]
 
 
-def test_breakdown_review_to_executing_dispatches_to_supervisor_with_own_id():
+def test_breakdown_approval_to_executing_dispatches_to_supervisor_with_own_id():
     # The feature card IS the epic here — no separate epic_task_id field to
     # read, unlike a story-done decision.
     e = event(
-        list_id=FEATURE_LIST_ID,
         task_id="epic-42",
-        transitions=[transition(HUMAN_USER_ID, router.STATUS_BREAKDOWN_REVIEW, router.STATUS_EXECUTING)],
+        transitions=[transition(HUMAN_USER_ID, router.STATUS_FEEDBACK_NEEDED, router.STATUS_EXECUTING)],
     )
 
     decisions = router.route(e)
@@ -304,12 +283,11 @@ def test_breakdown_review_to_executing_dispatches_to_supervisor_with_own_id():
     assert decisions[0].epic_task_id == "epic-42"
 
 
-def test_breakdown_review_to_executing_by_bot_dispatches_nothing():
+def test_breakdown_approval_to_executing_by_bot_dispatches_nothing():
     # STATUS_EXECUTING is in GATE_TO_STATUSES; the human-actor gate applies
     # to the supervisor kickoff exactly like every other gated transition.
     e = event(
-        list_id=FEATURE_LIST_ID,
-        transitions=[transition(BOT_USER_ID, router.STATUS_BREAKDOWN_REVIEW, router.STATUS_EXECUTING)],
+        transitions=[transition(BOT_USER_ID, router.STATUS_FEEDBACK_NEEDED, router.STATUS_EXECUTING)],
     )
 
     assert router.route(e) == []
@@ -318,8 +296,7 @@ def test_breakdown_review_to_executing_by_bot_dispatches_nothing():
 def test_story_done_by_bot_still_routes_to_supervisor_stub():
     # DONE is not a gate destination — the supervisor decides what happens
     # next regardless of who moved the card there.
-    e = event(
-        list_id=STORY_LIST_ID,
+    e = story_event(
         transitions=[transition(BOT_USER_ID, router.STATUS_QA, router.STATUS_DONE)],
     )
 
@@ -332,7 +309,6 @@ def test_story_done_by_bot_still_routes_to_supervisor_stub():
 def test_feature_card_done_does_not_route_to_supervisor():
     # The supervisor stub is a story-only path in this task.
     e = event(
-        list_id=FEATURE_LIST_ID,
         transitions=[transition(HUMAN_USER_ID, router.STATUS_IN_PROGRESS, router.STATUS_DONE)],
     )
 
@@ -346,7 +322,6 @@ def test_feature_card_done_does_not_route_to_supervisor():
 
 def test_unrecognized_transition_dispatches_nothing():
     e = event(
-        list_id=FEATURE_LIST_ID,
         transitions=[transition(HUMAN_USER_ID, "backlog", "blocked")],
     )
 
@@ -354,22 +329,32 @@ def test_unrecognized_transition_dispatches_nothing():
 
 
 def test_task_created_kind_dispatches_nothing():
-    e = event(kind="taskCreated", list_id=FEATURE_LIST_ID)
+    e = event(kind="taskCreated")
 
     assert router.route(e) == []
 
 
+def test_story_kickoff_and_epic_create_share_a_transition_but_not_a_row():
+    # The same (approved tdd -> in progress) move means epic-create on a
+    # feature card and story kickoff on a story — parenthood is the only
+    # discriminator, so a mixed-up epic_task_id would dispatch the wrong
+    # (and differently-priced) stage.
+    t = [transition(HUMAN_USER_ID, router.STATUS_APPROVED_TDD, router.STATUS_IN_PROGRESS)]
+
+    assert router.route(event(transitions=t))[0].stage == router.STAGE_EPIC_CREATE
+    assert router.route(story_event(transitions=t))[0].stage == router.STAGE_STORY
+
+
 # ---------------------------------------------------------------------------
-# Card type derivation
+# Card type derivation — parenthood, not list membership
 # ---------------------------------------------------------------------------
 
 
-def test_derive_card_type_story_list():
-    assert router.derive_card_type(STORY_LIST_ID) == router.STORY_CARD
+def test_derive_card_type_story_when_parent_set():
+    assert router.derive_card_type(EPIC_TASK_ID) == router.STORY_CARD
 
 
 def test_derive_card_type_defaults_to_feature_card():
-    assert router.derive_card_type(FEATURE_LIST_ID) == router.FEATURE_CARD
     assert router.derive_card_type(None) == router.FEATURE_CARD
 
 

@@ -171,8 +171,8 @@ def test_select_next_story_orders_numerically_not_lexicographically():
     # sequential integer — "10" must sort AFTER "2", where a plain string
     # sort would put it first.
     stories = [
-        supervisor.Story("s10", router.STATUS_TO_DO, "10", frozenset()),
-        supervisor.Story("s2", router.STATUS_TO_DO, "2", frozenset()),
+        supervisor.Story("s10", router.STATUS_APPROVED_TDD, "10", frozenset()),
+        supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset()),
     ]
 
     assert supervisor.select_next_story(stories).task_id == "s2"
@@ -180,8 +180,8 @@ def test_select_next_story_orders_numerically_not_lexicographically():
 
 def test_select_next_story_prefers_board_order_when_no_dependencies():
     stories = [
-        supervisor.Story("s2", router.STATUS_TO_DO, "2", frozenset()),
-        supervisor.Story("s1", router.STATUS_TO_DO, "1", frozenset()),
+        supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset()),
+        supervisor.Story("s1", router.STATUS_APPROVED_TDD, "1", frozenset()),
     ]
 
     assert supervisor.select_next_story(stories).task_id == "s1"
@@ -191,9 +191,9 @@ def test_select_next_story_prefers_dependency_links_over_board_order():
     # s1 has the lower board position, but s2 blocks s3 (not yet done) — the
     # ticket's "dependency links first" beats plain board order.
     stories = [
-        supervisor.Story("s1", router.STATUS_TO_DO, "1", frozenset()),
-        supervisor.Story("s2", router.STATUS_TO_DO, "2", frozenset()),
-        supervisor.Story("s3", router.STATUS_TO_DO, "3", frozenset({"s2"})),
+        supervisor.Story("s1", router.STATUS_APPROVED_TDD, "1", frozenset()),
+        supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset()),
+        supervisor.Story("s3", router.STATUS_APPROVED_TDD, "3", frozenset({"s2"})),
     ]
 
     assert supervisor.select_next_story(stories).task_id == "s2"
@@ -202,7 +202,7 @@ def test_select_next_story_prefers_dependency_links_over_board_order():
 def test_select_next_story_skips_feedback_needed():
     stories = [
         supervisor.Story("s1", router.STATUS_FEEDBACK_NEEDED, "1", frozenset()),
-        supervisor.Story("s2", router.STATUS_TO_DO, "2", frozenset()),
+        supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset()),
     ]
 
     assert supervisor.select_next_story(stories).task_id == "s2"
@@ -210,8 +210,8 @@ def test_select_next_story_skips_feedback_needed():
 
 def test_select_next_story_skips_stories_still_blocked():
     stories = [
-        supervisor.Story("s1", router.STATUS_TO_DO, "1", frozenset({"s2"})),
-        supervisor.Story("s2", router.STATUS_TO_DO, "2", frozenset()),
+        supervisor.Story("s1", router.STATUS_APPROVED_TDD, "1", frozenset({"s2"})),
+        supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset()),
     ]
 
     assert supervisor.select_next_story(stories).task_id == "s2"
@@ -235,7 +235,7 @@ def test_tick_dispatches_first_unblocked_story_with_epic_task_id(fake_clickup, f
     register_epic(
         fake_clickup,
         ["s1"],
-        {"s1": story_task("s1", router.STATUS_TO_DO)},
+        {"s1": story_task("s1", router.STATUS_APPROVED_TDD)},
     )
 
     supervisor.run_supervisor_tick(EPIC_ID)
@@ -254,7 +254,7 @@ def test_tick_dispatches_next_unblocked_after_a_story_finishes(fake_clickup, fak
         ["s1", "s2"],
         {
             "s1": story_task("s1", router.STATUS_DONE),
-            "s2": story_task("s2", router.STATUS_TO_DO, order_index="2"),
+            "s2": story_task("s2", router.STATUS_APPROVED_TDD, order_index="2"),
         },
     )
 
@@ -275,8 +275,8 @@ def test_epic_claim_blocks_second_dispatch(fake_clickup, fake_ecs):
         fake_clickup,
         ["s1", "s2"],
         {
-            "s1": story_task("s1", router.STATUS_TO_DO),
-            "s2": story_task("s2", router.STATUS_TO_DO, order_index="2"),
+            "s1": story_task("s1", router.STATUS_APPROVED_TDD),
+            "s2": story_task("s2", router.STATUS_APPROVED_TDD, order_index="2"),
         },
     )
 
@@ -299,8 +299,8 @@ def test_claim_survives_a_tick_before_clickup_status_catches_up(fake_clickup, fa
         fake_clickup,
         ["s1", "s2"],
         {
-            "s1": story_task("s1", router.STATUS_TO_DO),
-            "s2": story_task("s2", router.STATUS_TO_DO, order_index="2"),
+            "s1": story_task("s1", router.STATUS_APPROVED_TDD),
+            "s2": story_task("s2", router.STATUS_APPROVED_TDD, order_index="2"),
         },
     )
 
@@ -324,7 +324,7 @@ def test_in_flight_story_status_blocks_dispatch_even_without_a_claim(fake_clicku
         ["s1", "s2"],
         {
             "s1": story_task("s1", router.STATUS_IN_PROGRESS),
-            "s2": story_task("s2", router.STATUS_TO_DO, order_index="2"),
+            "s2": story_task("s2", router.STATUS_APPROVED_TDD, order_index="2"),
         },
     )
 
@@ -338,8 +338,8 @@ def test_claim_released_once_in_flight_story_reaches_done(fake_clickup, fake_ecs
         fake_clickup,
         ["s1", "s2"],
         {
-            "s1": story_task("s1", router.STATUS_TO_DO),
-            "s2": story_task("s2", router.STATUS_TO_DO, order_index="2"),
+            "s1": story_task("s1", router.STATUS_APPROVED_TDD),
+            "s2": story_task("s2", router.STATUS_APPROVED_TDD, order_index="2"),
         },
     )
     supervisor.run_supervisor_tick(EPIC_ID)
@@ -538,8 +538,8 @@ def test_alerting_preserves_the_claimed_story_id(fake_clickup, fake_ecs, fake_dy
         fake_clickup,
         ["s1", "s2"],
         {
-            "s1": story_task("s1", router.STATUS_TO_DO),
-            "s2": story_task("s2", router.STATUS_TO_DO, order_index="2"),
+            "s1": story_task("s1", router.STATUS_APPROVED_TDD),
+            "s2": story_task("s2", router.STATUS_APPROVED_TDD, order_index="2"),
         },
     )
     supervisor.run_supervisor_tick(EPIC_ID)

@@ -42,25 +42,30 @@ EPIC_SCOPED_STAGES = frozenset({STAGE_STORY, STAGE_QA})
 DEFAULT_AGENT_MODEL = "sonnet"
 
 # --- Status names --------------------------------------------------------
-# task 14 owns the real board schema (the exact ClickUp status labels per
-# list). Every call site reads these constants, never a literal, so that
-# decision only has to edit this block.
+# The real board (ENG-11104): ONE ClickUp list holds both feature cards and
+# stories (a story is a subtask of its feature card), with these statuses.
+# Every call site reads these constants, never a literal, so a board relabel
+# only has to edit this block.
+#
+# "approved tdd" is deliberately double-duty: it is the feature card's intake
+# column AND the story queue column (a freshly created story lands in the
+# list's first status). "executing" belongs to feature cards only — it is the
+# post-breakdown-approval state the sweep drives every live epic from, and
+# must stay distinct from "in progress" (= epic-create is still planning) or
+# a sweep tick could dispatch stories before the human approved the breakdown.
 
 STATUS_APPROVED_TDD = "approved tdd"
-STATUS_BREAKDOWN_REVIEW = "breakdown review"
-STATUS_TO_DO = "to do"
 STATUS_IN_PROGRESS = "in progress"
+STATUS_FEEDBACK_NEEDED = "feedback needed"
 STATUS_EXECUTING = "executing"
 STATUS_QA = "qa"
 STATUS_DONE = "done"
-STATUS_FEEDBACK_NEEDED = "feedback needed"
 
 # Gate integrity: a transition INTO one of these statuses is a human decision
 # point (it kicks off paid agent work) and must never be satisfied by the
-# bot's own status writes. Two labels because different lists in the board
-# spell the same "work starts now" moment differently (feature cards move to
-# "in progress"; so does a story resuming from feedback — "executing" is
-# reserved for the plain story-kickoff transition below).
+# bot's own status writes. "in progress" covers the epic-create and story
+# kickoffs plus a story resuming from feedback; "executing" is the
+# breakdown-approval gate on the feature card.
 GATE_TO_STATUSES = frozenset({STATUS_IN_PROGRESS, STATUS_EXECUTING})
 
 
@@ -83,17 +88,24 @@ STAGE_CEILINGS: dict[str, StageCeiling] = {
 }
 
 # (card type, from-status, to-status) -> stage. Data, not code: a new
-# transition is a new row here, not a new branch in route().
+# transition is a new row here, not a new branch in route(). NOTE:
+# sweep._from_status_for_current reverse-looks-up rows by (card_type,
+# to_status) and skips reconstruction when that pair is ambiguous — the two
+# STORY rows landing in "in progress" (kickoff and resume) are a known,
+# deliberate ambiguity: a mid-run story must never be re-dispatched off a
+# board poll, and both of those transitions are alert-backed if their
+# webhook is lost (the supervisor's stall TTLs).
 ROUTING_TABLE: dict[tuple[CardType, str | None, str], str] = {
     (FEATURE_CARD, STATUS_APPROVED_TDD, STATUS_IN_PROGRESS): STAGE_EPIC_CREATE,
-    # A human has reviewed epic-create's story breakdown and kicked off the
-    # epic supervisor. Maps to STAGE_SUPERVISOR, not a Fargate stage — see
-    # route()'s to_supervisor handling below, and supervisor.py for what runs
-    # from here. "executing" (not "in progress") is this transition's
-    # to-status for the same board-schema reason a story's own kickoff uses
-    # it (see GATE_TO_STATUSES).
-    (FEATURE_CARD, STATUS_BREAKDOWN_REVIEW, STATUS_EXECUTING): STAGE_SUPERVISOR,
-    (STORY_CARD, STATUS_TO_DO, STATUS_EXECUTING): STAGE_STORY,
+    # A human has reviewed epic-create's story breakdown (posted to "feedback
+    # needed") and kicked off the epic supervisor. Maps to STAGE_SUPERVISOR,
+    # not a Fargate stage — see route()'s to_supervisor handling below, and
+    # supervisor.py for what runs from here.
+    (FEATURE_CARD, STATUS_FEEDBACK_NEEDED, STATUS_EXECUTING): STAGE_SUPERVISOR,
+    # Manual story kickoff. The supervisor's own dispatches never pass
+    # through here: it launches Fargate directly and the stage runner's first
+    # "in progress" write is a bot actor the gate refuses.
+    (STORY_CARD, STATUS_APPROVED_TDD, STATUS_IN_PROGRESS): STAGE_STORY,
     (STORY_CARD, STATUS_IN_PROGRESS, STATUS_QA): STAGE_QA,
     (STORY_CARD, STATUS_FEEDBACK_NEEDED, STATUS_IN_PROGRESS): STAGE_RESUME,
 }
@@ -117,9 +129,9 @@ class RoutableEvent:
     # Top-level delivery timestamp; the only dedup key source for kinds that
     # carry no history_items (commentPosted).
     event_ts: str | None = None
-    # Which epic a STORY_CARD belongs to (task 14's board field; see
-    # handler.AutopilotEvent). Feature cards never set this — for the
-    # breakdown-review gate the epic IS the card itself, so route() derives
+    # The task's ClickUp parent: set = this is a story and names its epic,
+    # unset = this is a feature card (see derive_card_type). For the
+    # breakdown-approval gate the epic IS the card itself, so route() derives
     # RoutingDecision.epic_task_id from task_id instead.
     epic_task_id: str | None = None
 
@@ -132,7 +144,7 @@ class RoutingDecision:
     transitioned_at: str | None
     to_supervisor: bool = False
     # Populated only when to_supervisor is True: the feature card's own id
-    # for the breakdown-review gate, or the story's parent epic for a
+    # for the breakdown-approval gate, or the story's parent epic for a
     # story-done event. dispatch_to_supervisor's caller (route_event) never
     # sees the original event, only this decision, so the epic id has to
     # travel on it rather than be re-derived downstream.
@@ -159,29 +171,14 @@ def comment_trigger_key(event_ts: str | None) -> str | None:
     return f"comment-{bucket}"
 
 
-def story_list_ids() -> frozenset[str]:
-    raw = os.environ.get("AUTOPILOT_STORY_LIST_IDS", "")
-    ids = frozenset(part.strip() for part in raw.split(",") if part.strip())
-    scope = frozenset(part.strip() for part in os.environ.get("AUTOPILOT_LIST_IDS", "").split(",") if part.strip())
-    orphaned = ids - scope
-    if orphaned:
-        # A story list missing from AUTOPILOT_LIST_IDS is silently dropped at
-        # the handler's scope gate; without this signal the misconfiguration
-        # is invisible.
-        print(f"ERROR: AUTOPILOT_STORY_LIST_IDS entries not in AUTOPILOT_LIST_IDS scope: {sorted(orphaned)}")
-    return ids
-
-
-def derive_card_type(list_id: str | None) -> CardType:
-    """Feature card vs story, derived from ClickUp list membership.
-
-    task 14 owns the real board schema (which lists are which, or whether
-    this becomes a custom-field read instead) — this is the one function
-    that decision touches. Until then: a list configured in
-    AUTOPILOT_STORY_LIST_IDS is a story; everything else in scope is a
-    feature card, matching today's single-list reality.
-    """
-    if list_id is not None and list_id in story_list_ids():
+def derive_card_type(epic_task_id: str | None) -> CardType:
+    """Feature card vs story, derived from ClickUp parenthood (ENG-11104's
+    board schema): both card kinds share one list, and a story is a subtask
+    of its feature card, so "has a parent" IS the discriminator. The handler
+    hydrates epic_task_id from the task's `parent` field before routing (and
+    refuses to route when that read fails, so a story can never be
+    misclassified as a feature card by a missing fetch)."""
+    if epic_task_id is not None:
         return STORY_CARD
     return FEATURE_CARD
 
@@ -232,7 +229,7 @@ def _load_supervisor_module() -> Any:
 
 
 def dispatch_to_supervisor(decision: RoutingDecision) -> None:
-    """Hands an epic-supervisor-scoped decision (the breakdown-review gate,
+    """Hands an epic-supervisor-scoped decision (the breakdown-approval gate,
     or a story reaching done) to supervisor.py's per-epic conductor tick. See
     supervisor.py's module docstring for the one-in-flight-story invariant,
     next-story selection, and stall detection this triggers."""
@@ -246,7 +243,7 @@ def route(event: RoutableEvent) -> list[RoutingDecision]:
     but the shape allows it), and each matching transition is its own
     dispatch decision with its own dedup key.
     """
-    card_type = derive_card_type(event.list_id)
+    card_type = derive_card_type(event.epic_task_id)
 
     if event.kind == "commentPosted":
         # commentPosted carries no status transition — the trigger is the
@@ -309,7 +306,7 @@ def route(event: RoutableEvent) -> list[RoutingDecision]:
                 task_id=event.task_id,
                 transitioned_at=transition.transitioned_at,
                 to_supervisor=to_supervisor,
-                # The breakdown-review gate IS the epic: a feature card's own
+                # The breakdown-approval gate IS the epic: a feature card's own
                 # task_id is the epic id every story under it points back to.
                 epic_task_id=event.task_id if to_supervisor else None,
             )

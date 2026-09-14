@@ -57,12 +57,6 @@ variable "autopilot_list_ids" {
   default     = ""
 }
 
-variable "autopilot_story_list_ids" {
-  description = "AUTOPILOT_STORY_LIST_IDS: comma-separated subset of autopilot_list_ids that are story lists. Same placeholder-default reasoning as autopilot_list_ids."
-  type        = string
-  default     = ""
-}
-
 variable "autopilot_bot_user_id" {
   description = "AUTOPILOT_BOT_USER_ID: ClickUp user id the human-actor gate treats as the bot's own writes. Module default is a placeholder (\"\") — router.py fails closed (refuses gate dispatch) rather than silently disabling the gate when unset."
   type        = string
@@ -332,16 +326,15 @@ resource "aws_lambda_function" "autopilot_bot" {
       # Always present, unconditionally: an unset AUTOPILOT_LIST_IDS or
       # AUTOPILOT_BOT_USER_ID must fail CLOSED (router.py / handler.py both
       # log ERROR and refuse), never silently disable a gate.
-      AUTOPILOT_LIST_IDS       = var.autopilot_list_ids
-      AUTOPILOT_STORY_LIST_IDS = var.autopilot_story_list_ids
-      AUTOPILOT_BOT_USER_ID    = var.autopilot_bot_user_id
-      AUTOPILOT_DEDUP_TABLE    = aws_dynamodb_table.dedup.name
+      AUTOPILOT_LIST_IDS    = var.autopilot_list_ids
+      AUTOPILOT_BOT_USER_ID = var.autopilot_bot_user_id
+      AUTOPILOT_DEDUP_TABLE = aws_dynamodb_table.dedup.name
 
       # Sourced from Secrets Manager at apply time — see the data source's
       # comment above for why this Lambda cannot use ECS's valueFrom
-      # equivalent. try(..., "") because AI_SECRETS_DEV/PROD do not carry
+      # equivalent. try(..., "") because AI_SECRETS_PROD does not carry
       # AUTOPILOT_CLICKUP_WEBHOOK_SECRET or AUTOPILOT_CLICKUP_API_KEY yet
-      # (verified against both live secrets) — a bare index would fail
+      # (dev carries both as of 2026-09-14) — a bare index would fail
       # PLAN, not just apply, on every root until someone adds them. An
       # empty value degrades safely: verify_webhook_signature rejects every
       # request (missing secret -> always-401) and clickup_request sends an

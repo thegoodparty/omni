@@ -51,7 +51,7 @@ def test_epic_create_covers_its_load_bearing_directives():
 
     assert "feedback loop" in text.lower() or "park" in text.lower(), "questions must go through the park primitive"
 
-    assert "breakdown review" in text, "must move the card to breakdown review on handoff"
+    assert "`feedback needed`" in text, "must move the card to feedback needed on handoff (breakdown review column)"
     assert "never" in text and "executing" in text, "must forbid advancing the card to executing"
     assert "never another card" in text, "ClickUp writes must be scoped to the feature card and its subtasks"
 

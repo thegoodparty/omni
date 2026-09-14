@@ -79,7 +79,6 @@ def boto3_clients(monkeypatch, fake_dynamodb, fake_ecs):
 @pytest.fixture(autouse=True)
 def env(monkeypatch):
     monkeypatch.setenv("AUTOPILOT_BOT_USER_ID", BOT_USER_ID)
-    monkeypatch.setenv("AUTOPILOT_STORY_LIST_IDS", STORY_LIST_ID)
     monkeypatch.setenv("AUTOPILOT_LIST_IDS", f"{STORY_LIST_ID},{FEATURE_LIST_ID}")
     monkeypatch.setenv("AUTOPILOT_DEDUP_TABLE", "autopilot-dedup-test")
     monkeypatch.setenv("ECS_CLUSTER_ARN", "arn:aws:ecs:us-west-2:1:cluster/autopilot")
@@ -100,10 +99,12 @@ class FakeClickUp:
         self.list_tasks: dict[str, list[dict]] = {}
         self.executing_tasks: dict[str, list[dict]] = {}
         self.comments: dict[str, list[dict]] = {}
+        self.task_queries: list[str] = []
 
     def request(self, method, endpoint, data=None):
         if method == "GET" and endpoint.startswith("/list/") and "/task?" in endpoint:
             list_id, query = endpoint.split("/list/", 1)[1].split("/task?", 1)
+            self.task_queries.append(query)
             if "statuses" in query:
                 return {"tasks": self.executing_tasks.get(list_id, [])}
             return {"tasks": self.list_tasks.get(list_id, [])}
@@ -275,6 +276,31 @@ def test_non_gate_transition_never_checks_actor(fake_clickup, fake_ecs):
     assert env_vars(fake_ecs.run_task_calls[0])["EPIC_TASK_ID"] == "epic-1"
 
 
+def test_mid_run_story_in_in_progress_is_never_redispatched(fake_clickup, fake_ecs):
+    # (STORY, to_status="in progress") is deliberately ambiguous in the
+    # routing table — kickoff and feedback-resume both land there — so the
+    # reconstruction must skip it entirely. Guessing either row would dispatch
+    # a duplicate run against a story that is legitimately mid-run.
+    fake_clickup.list_tasks[STORY_LIST_ID] = [task("story-1", router.STATUS_IN_PROGRESS, parent="epic-1")]
+    fake_clickup.comments["story-1"] = []
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert fake_ecs.run_task_calls == []
+
+
+def test_lookback_scan_requests_subtasks(fake_clickup):
+    # Stories are subtasks of their feature card; ClickUp's list-task query
+    # excludes subtasks by default, which would blind the reconstruction pass
+    # to every story on the board.
+    fake_clickup.list_tasks[FEATURE_LIST_ID] = []
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    lookback_queries = [q for q in fake_clickup.task_queries if "statuses" not in q]
+    assert lookback_queries and all("subtasks=true" in q for q in lookback_queries)
+
+
 # ---------------------------------------------------------------------------
 # Story-done -> supervisor (no from_status reconstruction needed)
 # ---------------------------------------------------------------------------
@@ -321,6 +347,20 @@ def test_executing_card_ticked_even_when_outside_the_lookback_window(fake_clicku
     sweep.handle_sweep({"autopilot_sweep": True})
 
     assert ticked == ["epic-9"]
+
+
+def test_executing_subtask_never_ticks_the_supervisor(fake_clickup, monkeypatch):
+    # Only top-level cards are epics. The executing-cards query already omits
+    # subtasks, but a story that leaks into the result anyway (the API's
+    # subtasks default changing server-side) must still be filtered out — a
+    # supervisor tick keyed on a story id would read the wrong "epic".
+    fake_clickup.executing_tasks[FEATURE_LIST_ID] = [task("story-3", router.STATUS_EXECUTING, parent="epic-9")]
+    ticked = []
+    monkeypatch.setattr(sweep.supervisor, "run_supervisor_tick", ticked.append)
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert ticked == []
 
 
 def test_recently_updated_executing_card_is_not_double_ticked(fake_clickup, monkeypatch):

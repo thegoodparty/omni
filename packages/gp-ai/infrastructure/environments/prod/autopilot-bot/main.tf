@@ -37,12 +37,6 @@ variable "autopilot_list_ids" {
   default     = ""
 }
 
-variable "autopilot_story_list_ids" {
-  description = "AUTOPILOT_STORY_LIST_IDS. Placeholder until task 14 supplies the real board IDs."
-  type        = string
-  default     = ""
-}
-
 variable "autopilot_bot_user_id" {
   description = "AUTOPILOT_BOT_USER_ID. Placeholder until task 14 supplies it."
   type        = string
@@ -101,10 +95,9 @@ module "autopilot_bot" {
   ecs_task_execution_role_arn           = data.terraform_remote_state.autopilot_agent_fargate.outputs.task_execution_role_arn
   ecs_task_role_arn                     = data.terraform_remote_state.autopilot_agent_fargate.outputs.task_role_arn
 
-  autopilot_list_ids       = var.autopilot_list_ids
-  autopilot_story_list_ids = var.autopilot_story_list_ids
-  autopilot_bot_user_id    = var.autopilot_bot_user_id
-  autopilot_slack_channel  = var.autopilot_slack_channel
+  autopilot_list_ids      = var.autopilot_list_ids
+  autopilot_bot_user_id   = var.autopilot_bot_user_id
+  autopilot_slack_channel = var.autopilot_slack_channel
 
   shared_slack_notifier_lambda_arn = data.terraform_remote_state.shared_slack_notifier.outputs.lambda_function_arn
 

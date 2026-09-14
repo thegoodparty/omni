@@ -127,11 +127,12 @@ class AutopilotEvent:
     # Current board status at delivery time. Only meaningful for kinds with
     # no before/after pair of their own (commentPosted): the router uses it
     # to catch "a comment landed while the card sits in feedback needed".
-    # task 14's board-schema work owns the real ClickUp field this maps to.
+    # Hydrated from the task's own status by _hydrate_from_clickup — real
+    # deliveries never carry it.
     current_status: str | None = None
-    # Which epic this card's stage run belongs to (story/qa stages only).
-    # task 14's board-schema work owns the real ClickUp field this maps to
-    # (likely the story's parent task).
+    # The task's ClickUp parent: a story's epic, None for a feature card —
+    # this is also what card typing keys on (router.derive_card_type).
+    # Hydrated from the task read; real deliveries never carry it.
     epic_task_id: str | None = None
     # Top-level delivery timestamp (ClickUp's `date` on the webhook body).
     # commentPosted carries no history_items, so this is the only timestamp
@@ -270,6 +271,12 @@ def parse_webhook_event(body: dict) -> AutopilotEvent | None:
     if not isinstance(task_id, str) or not task_id:
         return None
 
+    # Real ClickUp deliveries carry only task_id + history_items — no list,
+    # no current status, no parent (clickup_bot learned the same and fetches
+    # the task). These three fields therefore normally stay None here and are
+    # hydrated by ONE task read in the async worker (_hydrate_from_clickup);
+    # a payload that does carry them (tests, console invokes, the async
+    # round-trip of an already-hydrated event) is trusted as-is.
     list_id = body.get("list_id")
     if not isinstance(list_id, str):
         list_id = None
@@ -377,6 +384,34 @@ def enqueue_async_processing(autopilot_event: AutopilotEvent) -> bool:
         return False
 
 
+def _hydrate_from_clickup(event: AutopilotEvent) -> AutopilotEvent | None:
+    """Fills the fields a real ClickUp delivery doesn't carry — the task's
+    list (scope gate), current status (comment routing), and parent (card
+    typing + epic scoping) — with ONE task read. Runs only in the async
+    worker, never on the fast-ack edge. None = the read failed; the caller
+    must drop the event (the sweep re-derives missed transitions from board
+    state) rather than route it unhydrated, where a story with an unknown
+    parent would be misrouted as a feature card."""
+    try:
+        task = supervisor.get_task(event.task_id)
+    except Exception as e:
+        print(f"ERROR: failed to hydrate task {event.task_id} from ClickUp: {type(e).__name__}")
+        return None
+
+    task_list = task.get("list")
+    list_id = task_list.get("id") if isinstance(task_list, dict) else None
+    parent = task.get("parent")
+    return AutopilotEvent(
+        kind=event.kind,
+        task_id=event.task_id,
+        list_id=list_id if isinstance(list_id, str) else None,
+        transitions=event.transitions,
+        current_status=_status_label(task.get("status")),
+        epic_task_id=parent if isinstance(parent, str) else None,
+        event_ts=event.event_ts,
+    )
+
+
 def handle_async_processing(event: dict) -> dict:
     """Worker half of the fast-ack design. Reached only through the
     unspoofable-through-ALB dispatch check in handler() — see there for why
@@ -388,6 +423,17 @@ def handle_async_processing(event: dict) -> dict:
         # here means a bug (or a direct invoke by something with AWS creds).
         print(f"ERROR: Async processing failed: invalid internal payload ({type(e).__name__})")
         return {"statusCode": 400, "body": json.dumps({"error": "invalid async payload"})}
+
+    # list_id present means the payload already knows its board context (a
+    # test/console payload, or the edge passed one through); absent means a
+    # real ClickUp delivery that still needs the task read.
+    if autopilot_event.list_id is None:
+        hydrated = _hydrate_from_clickup(autopilot_event)
+        if hydrated is None:
+            return {"statusCode": 200, "body": json.dumps({"skipped": "task hydration failed"})}
+        autopilot_event = hydrated
+        if autopilot_event.list_id not in in_scope_list_ids():
+            return {"statusCode": 200, "body": json.dumps({"skipped": "list not in scope"})}
 
     try:
         route_event(autopilot_event)
@@ -447,7 +493,11 @@ def handler(event: dict, context: Any) -> dict:
     if autopilot_event is None:
         return {"statusCode": 200, "body": json.dumps({"skipped": "not a triggering event"})}
 
-    if autopilot_event.list_id not in in_scope_list_ids():
+    # Scope can only be short-circuited here when the payload names its list —
+    # real deliveries don't (see parse_webhook_event), so they pass through and
+    # the async worker's hydration read decides scope instead. The webhook
+    # registration is folder-scoped, so nearly everything arriving is ours.
+    if autopilot_event.list_id is not None and autopilot_event.list_id not in in_scope_list_ids():
         return {"statusCode": 200, "body": json.dumps({"skipped": "list not in scope"})}
 
     # FAST-ACK: the request is authenticated and in scope — answer ClickUp NOW,

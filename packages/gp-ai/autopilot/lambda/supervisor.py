@@ -139,8 +139,10 @@ class Story:
 
     @property
     def is_in_flight(self) -> bool:
-        # Everything that is neither queued, done, nor waiting on a human.
-        return self.status not in (router.STATUS_TO_DO, router.STATUS_DONE, router.STATUS_FEEDBACK_NEEDED)
+        # Everything that is neither queued (a fresh story lands in the
+        # list's first status, "approved tdd" — the shared board has no
+        # story-specific "to do" column), done, nor waiting on a human.
+        return self.status not in (router.STATUS_APPROVED_TDD, router.STATUS_DONE, router.STATUS_FEEDBACK_NEEDED)
 
 
 def _story_from_task(task: dict) -> Story | None:
@@ -219,7 +221,7 @@ def _order_key(order_index: str) -> float:
 
 def select_next_story(stories: list[Story]) -> Story | None:
     done_ids = {s.task_id for s in stories if s.is_done}
-    candidates = [s for s in stories if s.status == router.STATUS_TO_DO and s.depends_on <= done_ids]
+    candidates = [s for s in stories if s.status == router.STATUS_APPROVED_TDD and s.depends_on <= done_ids]
     if not candidates:
         return None
 
@@ -399,15 +401,14 @@ def try_claim_stall_alert(epic_task_id: str) -> bool:
 # Stall detection — alert only, never auto-retry
 # ---------------------------------------------------------------------------
 
-# Per-status TTLs. "executing"'s is short (30min) relative to "in progress"
-# (2h) and "qa" (1h) on purpose: a story stuck in "executing" means the
-# story-stage agent never got past its own kickoff — a dispatch problem that
-# should surface fast — whereas real story/QA work can legitimately run
-# longer. STATUS_FEEDBACK_NEEDED is deliberately absent: waiting on a human
-# is not a stall. STATUS_TO_DO / STATUS_DONE are absent too: nothing is "in
-# flight" there.
+# Per-status TTLs for stories. STATUS_FEEDBACK_NEEDED is deliberately
+# absent: waiting on a human is not a stall. STATUS_APPROVED_TDD (the story
+# queue) and STATUS_DONE are absent too: nothing is "in flight" there.
+# "in progress"'s 2h covers the whole dispatch-to-merge window — the story
+# stage's first act on kickoff is moving the card there, so a dispatch that
+# never starts surfaces as a story sitting in the queue while the epic claim
+# expires, not as a distinct status.
 STATUS_TTL_SECONDS: dict[str, int] = {
-    router.STATUS_EXECUTING: 30 * 60,
     router.STATUS_IN_PROGRESS: 2 * 60 * 60,
     router.STATUS_QA: 60 * 60,
 }
@@ -638,7 +639,7 @@ def dispatch_story(epic_task_id: str, story: Story) -> None:
 
 def run_supervisor_tick(epic_task_id: str) -> None:
     """The epic conductor loop. Called for every entry point: the
-    breakdown-review gate, a story reaching done, and a sweep tick over
+    breakdown-approval gate, a story reaching done, and a sweep tick over
     every card sitting in "executing" (see sweep.py)."""
     stories = load_epic_stories(epic_task_id)
     by_task_id = {s.task_id: s for s in stories}

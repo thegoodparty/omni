@@ -18,7 +18,7 @@ its card changing in the meantime, and it must keep being driven for the
 epic's whole lifetime, not just while its card looks freshly updated. Once a
 card is confirmed to already be executing, driving it needs no actor check —
 nothing in this codebase ever writes a feature card into "executing" except
-the human action the breakdown-review gate exists to require, so there is no
+the human action the breakdown-approval gate exists to require, so there is no
 bot self-trigger to guard against once it is there.
 
 Cannot reconstruct a genuine history_items delivery — that only exists on a
@@ -26,10 +26,13 @@ live webhook payload — so it approximates two things a webhook's
 history_items gives for free:
 
   - from_status: reverse-derived from ROUTING_TABLE, matching the row whose
-    to_status equals the task's current status for this card_type. Assumes
-    ROUTING_TABLE has at most one row per (card_type, to_status) today — true
-    now, and there is nothing else enforcing it, so a future ambiguous row
-    needs this to change too.
+    to_status equals the task's current status for this card_type. An
+    AMBIGUOUS (card_type, to_status) pair — more than one row lands there —
+    is skipped entirely rather than guessed: a story sitting in "in progress"
+    is reachable from both its kickoff and its feedback-resume rows, and
+    reconstructing either against a legitimately mid-run story would dispatch
+    a duplicate run. The transitions this forgoes are alert-backed instead
+    (the supervisor's stall TTLs surface a story stuck in "in progress").
   - actor_user_id: approximated from the task's most recent comment author.
     ClickUp's REST API exposes no per-field change history outside of a live
     webhook delivery. Absent evidence the bot itself last touched the
@@ -109,7 +112,10 @@ def sweep_max_triggers() -> int:
 
 
 def list_recently_updated_tasks(list_id: str, since_ms: int) -> list[dict]:
-    query = urlencode({"date_updated_gt": since_ms, "include_closed": "false", "subtasks": "false"})
+    # subtasks=true is load-bearing: stories are subtasks of their feature
+    # card on the shared board, and the default (top-level only) would make
+    # every story invisible to this reconstruction pass.
+    query = urlencode({"date_updated_gt": since_ms, "include_closed": "false", "subtasks": "true"})
     try:
         result = supervisor.clickup_request("GET", f"/list/{list_id}/task?{query}")
     except Exception as e:
@@ -136,14 +142,15 @@ def list_recently_updated_tasks(list_id: str, since_ms: int) -> list[dict]:
 
 
 def list_executing_feature_cards() -> list[dict]:
-    """Every card currently in STATUS_EXECUTING across the scoped feature-card
-    lists — unconditional, not filtered by the lookback window (see the
-    module docstring for why). A ClickUp filter on `statuses[]`, not on
-    `date_updated_gt`."""
+    """Every card currently in STATUS_EXECUTING across the scoped lists —
+    unconditional, not filtered by the lookback window (see the module
+    docstring for why). A ClickUp filter on `statuses[]`, not on
+    `date_updated_gt`. Feature cards only by construction: the query omits
+    subtasks (ClickUp's default), and on the shared board every top-level
+    card is a feature card; the parent guard is belt-and-suspenders against
+    that default changing server-side."""
     tasks: list[dict] = []
     for list_id in sorted(handler.in_scope_list_ids()):
-        if router.derive_card_type(list_id) != router.FEATURE_CARD:
-            continue
         query = urlencode(
             {"statuses[]": router.STATUS_EXECUTING, "include_closed": "false"},
             quote_via=quote,
@@ -156,7 +163,7 @@ def list_executing_feature_cards() -> list[dict]:
             continue
         raw_tasks = result.get("tasks")
         if isinstance(raw_tasks, list):
-            tasks.extend(t for t in raw_tasks if isinstance(t, dict))
+            tasks.extend(t for t in raw_tasks if isinstance(t, dict) and not isinstance(t.get("parent"), str))
     return tasks
 
 
@@ -164,13 +171,14 @@ def _from_status_for_current(card_type: str, current_status: str) -> str | None:
     """Reverse-looks-up which from_status ROUTING_TABLE associates with
     reaching `current_status` for this card_type — see the module docstring
     for why the sweep has to reconstruct this instead of reading it off a
-    real webhook delivery."""
+    real webhook delivery, and for why an ambiguous (card_type, to_status)
+    pair is skipped rather than guessed."""
     matches = [
         from_status
         for (row_card_type, from_status, to_status) in router.ROUTING_TABLE
         if row_card_type == card_type and to_status == current_status
     ]
-    return matches[0] if matches else None
+    return matches[0] if len(matches) == 1 else None
 
 
 def _approximate_actor(task_id: str) -> str | None:
@@ -260,12 +268,15 @@ def handle_sweep(event: dict) -> dict:
     cap_hit = False
 
     for list_id in sorted(handler.in_scope_list_ids()):
-        card_type = router.derive_card_type(list_id)
         for task in list_recently_updated_tasks(list_id, since_ms):
             task_id = task.get("id")
             if not isinstance(task_id, str) or not task_id:
                 continue
             scanned += 1
+
+            parent_id = task.get("parent")
+            epic_task_id = parent_id if isinstance(parent_id, str) else None
+            card_type = router.derive_card_type(epic_task_id)
 
             current_status = handler._status_label(task.get("status"))
             if current_status is None:
@@ -286,8 +297,6 @@ def handle_sweep(event: dict) -> dict:
             if transition is None:
                 continue
 
-            parent_id = task.get("parent")
-            epic_task_id = parent_id if isinstance(parent_id, str) else None
             routable = router.RoutableEvent(
                 kind="statusUpdated",
                 task_id=task_id,

@@ -83,7 +83,9 @@ back up.
 Post one summary comment on `CLICKUP_TASK_ID` covering: the stories you
 created (title and id) in order, the flag key and how it was chosen, and any
 open questions you parked on earlier in this run. Then move the card to
-`breakdown review` and end your turn.
+`feedback needed` and end your turn — that column is where a human reviews
+the breakdown (the same column a park lands in; the summary comment is what
+tells the reviewer this is a finished breakdown, not an open question).
 
 This run never moves the card to `executing` or any status past the review
 gate — that is a human call, not something this stage decides.

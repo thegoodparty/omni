@@ -328,13 +328,18 @@ def test_unset_list_ids_env_drops_all_events_and_logs(monkeypatch, fake_lambda, 
     assert "ERROR: No AUTOPILOT_LIST_IDS configured" in capsys.readouterr().out
 
 
-def test_missing_list_id_is_acked_and_dropped(fake_lambda):
+def test_missing_list_id_still_enqueues_for_hydration(fake_lambda):
+    # Real ClickUp deliveries never carry a list_id — the edge must pass them
+    # through to the async worker (whose hydration read decides scope), not
+    # drop them. Dropping here would silently no-op the whole pipeline.
     event = make_event(status_updated_body(list_id=None))
 
     resp = handler.handler(event, None)
 
     assert resp["statusCode"] == 200
-    assert fake_lambda.invoke_calls == []
+    assert response_body(resp)["status"] == "accepted"
+    assert len(fake_lambda.invoke_calls) == 1
+    assert fake_lambda.invoke_payloads[0]["list_id"] is None
 
 
 def test_unrecognized_event_kind_is_acked_and_dropped(fake_lambda):
@@ -437,6 +442,104 @@ def test_route_event_exception_returns_500_not_a_crash(monkeypatch, fake_lambda)
     resp = handler.handler(payload, None)
 
     assert resp["statusCode"] == 500
+
+
+# ---------------------------------------------------------------------------
+# Async-worker hydration — real deliveries carry no list/status/parent
+# ---------------------------------------------------------------------------
+
+
+def _unhydrated_payload(task_id="task-abc123"):
+    return handler.AutopilotEvent(
+        kind="statusUpdated",
+        task_id=task_id,
+        list_id=None,
+        transitions=[
+            handler.StatusTransition(
+                actor_user_id="42", from_status="open", to_status="in progress", transitioned_at="1700000000000"
+            )
+        ],
+    ).to_payload()
+
+
+def test_async_worker_hydrates_list_status_and_parent_from_one_task_read(monkeypatch, fake_lambda):
+    routed = []
+    monkeypatch.setattr(handler, "route_event", lambda e: routed.append(e))
+    reads = []
+
+    def fake_get_task(task_id):
+        reads.append(task_id)
+        return {
+            "id": task_id,
+            "list": {"id": IN_SCOPE_LIST_ID},
+            "status": {"status": "in progress"},
+            "parent": "epic-9",
+        }
+
+    monkeypatch.setattr(handler.supervisor, "get_task", fake_get_task)
+
+    resp = handler.handler(_unhydrated_payload(), None)
+
+    assert resp["statusCode"] == 200
+    assert reads == ["task-abc123"]
+    assert len(routed) == 1
+    assert routed[0].list_id == IN_SCOPE_LIST_ID
+    assert routed[0].current_status == "in progress"
+    assert routed[0].epic_task_id == "epic-9"
+
+
+def test_async_worker_drops_hydrated_event_outside_scope(monkeypatch, fake_lambda):
+    routed = []
+    monkeypatch.setattr(handler, "route_event", lambda e: routed.append(e))
+    monkeypatch.setattr(
+        handler.supervisor,
+        "get_task",
+        lambda task_id: {"id": task_id, "list": {"id": OUT_OF_SCOPE_LIST_ID}, "status": {"status": "in progress"}},
+    )
+
+    resp = handler.handler(_unhydrated_payload(), None)
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["skipped"] == "list not in scope"
+    assert routed == []
+
+
+def test_async_worker_drops_event_when_hydration_read_fails(monkeypatch, fake_lambda, capsys):
+    # Routing an unhydrated event would misclassify a story (unknown parent)
+    # as a feature card — the worker must drop instead; the sweep re-derives
+    # the transition from board state.
+    routed = []
+    monkeypatch.setattr(handler, "route_event", lambda e: routed.append(e))
+
+    def boom(task_id):
+        raise RuntimeError("clickup down")
+
+    monkeypatch.setattr(handler.supervisor, "get_task", boom)
+
+    resp = handler.handler(_unhydrated_payload(), None)
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["skipped"] == "task hydration failed"
+    assert routed == []
+    assert "ERROR: failed to hydrate task" in capsys.readouterr().out
+
+
+def test_async_worker_skips_hydration_when_payload_carries_list_id(monkeypatch, fake_lambda):
+    routed = []
+    monkeypatch.setattr(handler, "route_event", lambda e: routed.append(e))
+
+    def boom(task_id):
+        raise AssertionError("hydration read must not happen for a payload that names its list")
+
+    monkeypatch.setattr(handler.supervisor, "get_task", boom)
+    payload = handler.AutopilotEvent(
+        kind="statusUpdated", task_id="task-abc123", list_id=IN_SCOPE_LIST_ID, transitions=[]
+    ).to_payload()
+
+    resp = handler.handler(payload, None)
+
+    assert resp["statusCode"] == 200
+    assert len(routed) == 1
 
 
 # ---------------------------------------------------------------------------
