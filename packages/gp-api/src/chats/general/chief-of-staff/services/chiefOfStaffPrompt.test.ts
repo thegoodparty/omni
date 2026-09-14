@@ -364,6 +364,7 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     // Assert against blocks that are actually present under ALL_TOOLS: an
     // absent block indexes to -1 and any position would beat it.
     for (const earlier of [
+      'OFFICE STRUCTURE',
       'BRIEFING RULES',
       'CONSTITUENT DATA RULES',
       'SAVED LIST RULES',
