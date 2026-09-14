@@ -320,6 +320,60 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).not.toContain('2027-12-31')
   })
 
+  // differenceInCalendarMonths ignores day-of-month, so an end date that has
+  // already passed inside the current month differences to 0 and used to read
+  // as time remaining on a term that is over.
+  it('ends a term that lapsed earlier in the current month', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-14T12:00:00.000Z'))
+    try {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({
+          termStartDate: new Date('2022-09-05T00:00:00.000Z'),
+          termEndDate: new Date('2026-09-05T00:00:00.000Z'),
+        }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).toContain('this term has ended')
+      expect(prompt).not.toContain('month(s) remaining')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('counts a term ending later this month as still running', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-14T12:00:00.000Z'))
+    try {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({
+          termStartDate: new Date('2022-09-25T00:00:00.000Z'),
+          termEndDate: new Date('2026-09-25T00:00:00.000Z'),
+        }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).toContain('about 0 month(s) remaining')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Same boundary on the other end: elected but not yet sworn in.
+  it('reports time in office as unknown before the swearing in', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-14T12:00:00.000Z'))
+    try {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({ swornInDate: new Date('2026-09-20T00:00:00.000Z') }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).toContain('Time in office: unknown')
+      expect(prompt).not.toContain('month(s) since sworn in')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('says a finished term has ended rather than counting down', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx({

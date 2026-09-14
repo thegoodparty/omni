@@ -1,4 +1,10 @@
-import { differenceInCalendarMonths, parseISO } from 'date-fns'
+import {
+  differenceInCalendarMonths,
+  isAfter,
+  isBefore,
+  parseISO,
+  startOfDay,
+} from 'date-fns'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
 import type { ChatAnchor } from '@goodparty_org/contracts'
@@ -210,13 +216,16 @@ const isoDay = (date: Date): string => date.toISOString().slice(0, 10)
 
 const calendarDay = (date: Date): Date => parseISO(isoDay(date))
 
+// The elapsed/remaining checks compare whole days, not calendar months:
+// differenceInCalendarMonths ignores day-of-month, so a date that has already
+// passed within the current month still differences to 0 and would read as
+// "~0 month(s) since sworn in" for someone not yet sworn in.
 const termLengthLine = (swornInDate: Date | null): string => {
   if (!swornInDate) return `Time in office: ${UNKNOWN}`
-  const months = differenceInCalendarMonths(
-    new Date(),
-    calendarDay(swornInDate),
-  )
-  if (months < 0) return `Time in office: ${UNKNOWN}`
+  const sworn = calendarDay(swornInDate)
+  const today = startOfDay(new Date())
+  if (isAfter(sworn, today)) return `Time in office: ${UNKNOWN}`
+  const months = differenceInCalendarMonths(today, sworn)
   return `Time in office: ~${months} month(s) since sworn in`
 }
 
@@ -227,10 +236,13 @@ const currentTermLine = (start: Date | null, end: Date | null): string => {
   if (!start && !end) return `Current term: ${UNKNOWN}`
   const range = `${start ? isoDay(start) : UNKNOWN} to ${end ? isoDay(end) : UNKNOWN}`
   if (!end) return `Current term: ${range}`
-  const months = differenceInCalendarMonths(calendarDay(end), new Date())
-  const remaining =
-    months < 0 ? 'this term has ended' : `about ${months} month(s) remaining`
-  return `Current term: ${range} (${remaining})`
+  const endDay = calendarDay(end)
+  const today = startOfDay(new Date())
+  if (isBefore(endDay, today)) {
+    return `Current term: ${range} (this term has ended)`
+  }
+  const months = differenceInCalendarMonths(endDay, today)
+  return `Current term: ${range} (about ${months} month(s) remaining)`
 }
 
 const officeContextBlock = (ctx: ChiefOfStaffContext): string =>
