@@ -35,6 +35,53 @@ const pickMimeType = (): string | undefined => {
   return MIME_CANDIDATES.find((t) => MediaRecorder.isTypeSupported?.(t))
 }
 
+// ~-40 dBFS. A real spoken clip peaks far higher; the failing near-silent clip
+// peaked ~0.0018, so anything under this reads as no audible audio. A quiet but
+// valid clip is unlikely for a candidate speaking into the mic, and the server's
+// empty-transcript backstop turns any false reject into a re-record prompt
+// rather than a hard failure.
+const SILENCE_PEAK_THRESHOLD = 0.01
+// Slack between the wall-clock timer and the decoded length before a clip is
+// treated as truncated (covers trailing silence and rounding).
+const DURATION_SHORTFALL_TOLERANCE_SEC = 2
+export const RECORDING_UNUSABLE_MESSAGE =
+  'Your recording came through empty or cut off. Record again and check ' +
+  'that your microphone is on.'
+
+// Decode the clip with the Web Audio API to measure its REAL length and peak
+// loudness. A browser-recorded WebM carries no container duration, so neither
+// the wall-clock timer nor <audio>.duration can catch a truncated or silent
+// recording; the decoded samples can. Returns null when there is no
+// AudioContext or decoding fails, so the caller ACCEPTS the clip rather than
+// blocking on an inability to verify.
+const decodeAudioStats = async (
+  blob: Blob,
+): Promise<{ durationSec: number; peak: number } | null> => {
+  if (typeof window === 'undefined') return null
+  const AudioCtx =
+    window.AudioContext ??
+    (window as Window & { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext
+  if (!AudioCtx) return null
+  const ctx = new AudioCtx()
+  try {
+    const audio = await ctx.decodeAudioData(await blob.arrayBuffer())
+    let peak = 0
+    for (let ch = 0; ch < audio.numberOfChannels; ch += 1) {
+      const samples = audio.getChannelData(ch)
+      for (let i = 0; i < samples.length; i += 1) {
+        const amp = Math.abs(samples[i] ?? 0)
+        if (amp > peak) peak = amp
+      }
+    }
+    return { durationSec: audio.duration, peak }
+  } catch {
+    return null
+  } finally {
+    void ctx.close()
+  }
+}
+
 // Read an audio file's duration (seconds) via a throwaway <audio> element, so
 // an uploaded clip can be length-checked the same way a recording is. Resolves
 // null when the browser can't decode the file, so the caller rejects it rather
@@ -81,6 +128,10 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
   // Bumped on every uploadFile call and on reset, so a superseded/again-reset
   // duration decode drops its object URL instead of capturing on a stale flow.
   const uploadReqRef = useRef(0)
+  // Bumped when a recording is armed and on reset, so a capture whose async
+  // decode is still pending drops instead of committing onto a stale/closed
+  // flow (mirrors uploadReqRef for the record path).
+  const captureReqRef = useRef(0)
 
   const clearTimers = useCallback(() => {
     if (tickRef.current) {
@@ -167,15 +218,36 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
           // <audio> reject it with "no supported sources".
           const type = recorder.mimeType || mimeType || 'audio/webm'
           const blob = new Blob(chunksRef.current, { type })
-          const url = URL.createObjectURL(blob)
-          // elapsedRef is the wall-clock recording length; the blob has no
-          // reliable duration metadata, so the timer is the source of truth.
-          setCaptured({
-            blob,
-            url,
-            durationSec: Math.max(1, elapsedRef.current),
+          const timerSec = Math.max(1, elapsedRef.current)
+          const captureReq = captureReqRef.current
+          // Verify against the DECODED audio, not the wall-clock timer: a
+          // browser-recorded WebM can report 44s on the timer while the blob
+          // holds only its first ~1s chunk, and a silent clip transcribes to
+          // nothing and fails compliance. Reject a truncated or silent clip
+          // here rather than letting it reach the send.
+          void decodeAudioStats(blob).then((stats) => {
+            if (!mountedRef.current || captureReq !== captureReqRef.current) {
+              return
+            }
+            if (
+              stats &&
+              (stats.peak < SILENCE_PEAK_THRESHOLD ||
+                stats.durationSec + DURATION_SHORTFALL_TOLERANCE_SEC < timerSec)
+            ) {
+              setError(RECORDING_UNUSABLE_MESSAGE)
+              setStatus('idle')
+              return
+            }
+            setCaptured({
+              blob,
+              url: URL.createObjectURL(blob),
+              durationSec: stats
+                ? Math.max(1, Math.round(stats.durationSec))
+                : timerSec,
+            })
           })
         }
+        captureReqRef.current += 1
         elapsedRef.current = 0
         setElapsedSec(0)
         setStatus('recording')
@@ -230,7 +302,25 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
           setError(`Audio must be ${maxSeconds} seconds or less`)
           return
         }
-        setCaptured({ blob: file, url, durationSec: Math.max(1, durationSec) })
+        // Length passed; also confirm the file has audible sound. A silent
+        // upload transcribes to nothing and fails compliance. Null stats means
+        // we couldn't check, so accept rather than block.
+        void decodeAudioStats(file).then((stats) => {
+          if (requestId !== uploadReqRef.current) {
+            URL.revokeObjectURL(url)
+            return
+          }
+          if (stats && stats.peak < SILENCE_PEAK_THRESHOLD) {
+            URL.revokeObjectURL(url)
+            setError('That file has no sound. Choose a different recording.')
+            return
+          }
+          setCaptured({
+            blob: file,
+            url,
+            durationSec: Math.max(1, durationSec),
+          })
+        })
       })
     },
     [maxSeconds, setCaptured],
@@ -265,6 +355,7 @@ export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
     // pending upload decode.
     startingRef.current = false
     uploadReqRef.current += 1
+    captureReqRef.current += 1
     elapsedRef.current = 0
     recorderRef.current = null
     chunksRef.current = []

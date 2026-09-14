@@ -51,6 +51,13 @@ const CHECK_ISSUES: [keyof RobocallComplianceChecks, string][] = [
   ['hasCallbackNumber', 'The recording must state the callback number.'],
 ]
 
+// An empty transcript means the upload was silent or truncated (nothing to
+// transcribe), not a content failure of the three disclosure checks. Surface
+// a re-record prompt instead of three false "missing element" issues.
+export const NO_SPEECH_ISSUE =
+  "We couldn't hear any speech in your recording. Record again and check " +
+  'that your microphone is on.'
+
 interface ComplianceParams {
   audioKey: string
   contentType: string
@@ -85,6 +92,23 @@ export class RobocallComplianceService {
       key: params.audioKey,
       contentType: params.contentType,
     })
+
+    if (transcript.trim() === '') {
+      this.logger.warn(
+        { audioKey: params.audioKey },
+        'Robocall recording had no detectable speech',
+      )
+      return {
+        passed: false,
+        checks: {
+          hasSelfIdentification: false,
+          hasOrganization: false,
+          hasCallbackNumber: false,
+        },
+        transcript,
+        issues: [NO_SPEECH_ISSUE],
+      }
+    }
 
     const messages: LlmMessage[] = [
       { role: 'system', content: SYSTEM_PROMPT },
