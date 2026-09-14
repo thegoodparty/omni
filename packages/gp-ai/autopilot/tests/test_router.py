@@ -224,10 +224,15 @@ def test_comment_posted_by_bot_while_feedback_needed_still_dispatches():
     assert len(router.route(e)) == 1
 
 
-def test_comment_posted_outside_feedback_needed_dispatches_nothing():
-    e = story_event(kind="commentPosted", current_status=router.STATUS_IN_PROGRESS)
+def test_comment_posted_outside_feedback_needed_dispatches_nothing_but_logs(capsys):
+    # The status is hydrated after the fast-ack, so a card moved out of
+    # feedback-needed in that window is dropped here — and the sweep cannot
+    # reconstruct commentPosted, so this log line is the only trace.
+    e = story_event(kind="commentPosted", task_id="story-5", current_status=router.STATUS_IN_PROGRESS)
 
     assert router.route(e) == []
+    out = capsys.readouterr().out
+    assert "WARNING: commentPosted on story story-5 dropped" in out
 
 
 def test_comment_posted_on_feature_card_dispatches_nothing():

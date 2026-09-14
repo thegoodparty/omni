@@ -260,6 +260,17 @@ def route(event: RoutableEvent) -> list[RoutingDecision]:
                     transitioned_at=comment_trigger_key(event.event_ts),
                 )
             ]
+        if card_type == STORY_CARD:
+            # The status here is hydrated from a live task read AFTER the
+            # fast-ack, so a card moved out of feedback-needed in that window
+            # lands in this branch — and the sweep cannot reconstruct a
+            # commentPosted trigger from board state, so the drop is final.
+            # Loud on purpose: this log line is the only trace it happened.
+            print(
+                f"WARNING: commentPosted on story {event.task_id} dropped: "
+                f"current_status={event.current_status!r} is not feedback-needed "
+                "(possible hydration-delay race — card may have moved before the async worker read it)"
+            )
         return []
 
     if event.kind != "statusUpdated":

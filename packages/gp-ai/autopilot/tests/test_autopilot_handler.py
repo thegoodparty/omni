@@ -504,10 +504,12 @@ def test_async_worker_drops_hydrated_event_outside_scope(monkeypatch, fake_lambd
     assert routed == []
 
 
-def test_async_worker_drops_event_when_hydration_read_fails(monkeypatch, fake_lambda, capsys):
+def test_async_worker_raises_when_hydration_read_fails(monkeypatch, fake_lambda, capsys):
     # Routing an unhydrated event would misclassify a story (unknown parent)
-    # as a feature card — the worker must drop instead; the sweep re-derives
-    # the transition from board state.
+    # as a feature card, and swallowing the failure would lose the event for
+    # good (ClickUp already got its fast-ack 200; commentPosted has no sweep
+    # reconstruction). Raising is what makes Lambda's async delivery retry —
+    # a returned 500 would not (async invokes discard the return value).
     routed = []
     monkeypatch.setattr(handler, "route_event", lambda e: routed.append(e))
 
@@ -516,12 +518,27 @@ def test_async_worker_drops_event_when_hydration_read_fails(monkeypatch, fake_la
 
     monkeypatch.setattr(handler.supervisor, "get_task", boom)
 
-    resp = handler.handler(_unhydrated_payload(), None)
+    with pytest.raises(RuntimeError, match="clickup down"):
+        handler.handler(_unhydrated_payload(), None)
 
-    assert resp["statusCode"] == 200
-    assert response_body(resp)["skipped"] == "task hydration failed"
     assert routed == []
     assert "ERROR: failed to hydrate task" in capsys.readouterr().out
+
+
+def test_async_worker_scope_gate_applies_to_prehydrated_payloads(monkeypatch, fake_lambda):
+    # A payload that already names its list (console invoke, test) must not
+    # bypass the scope gate the edge applies to ALB-routed requests.
+    routed = []
+    monkeypatch.setattr(handler, "route_event", lambda e: routed.append(e))
+    payload = handler.AutopilotEvent(
+        kind="statusUpdated", task_id="task-abc123", list_id=OUT_OF_SCOPE_LIST_ID, transitions=[]
+    ).to_payload()
+
+    resp = handler.handler(payload, None)
+
+    assert resp["statusCode"] == 200
+    assert response_body(resp)["skipped"] == "list not in scope"
+    assert routed == []
 
 
 def test_async_worker_skips_hydration_when_payload_carries_list_id(monkeypatch, fake_lambda):

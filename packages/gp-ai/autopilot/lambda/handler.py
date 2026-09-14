@@ -384,19 +384,25 @@ def enqueue_async_processing(autopilot_event: AutopilotEvent) -> bool:
         return False
 
 
-def _hydrate_from_clickup(event: AutopilotEvent) -> AutopilotEvent | None:
+def _hydrate_from_clickup(event: AutopilotEvent) -> AutopilotEvent:
     """Fills the fields a real ClickUp delivery doesn't carry — the task's
     list (scope gate), current status (comment routing), and parent (card
     typing + epic scoping) — with ONE task read. Runs only in the async
-    worker, never on the fast-ack edge. None = the read failed; the caller
-    must drop the event (the sweep re-derives missed transitions from board
-    state) rather than route it unhydrated, where a story with an unknown
-    parent would be misrouted as a feature card."""
+    worker, never on the fast-ack edge.
+
+    A failed read RAISES instead of degrading: routing unhydrated would
+    misclassify a story (unknown parent) as a feature card, and swallowing
+    the failure would permanently lose the event — ClickUp already got its
+    200 from the fast-ack, and commentPosted has no sweep reconstruction.
+    Raising here is what makes Lambda's async delivery retry the event
+    (async invokes discard the returned payload, so a returned 500 would NOT
+    retry — only a function error does), and it is duplicate-safe because
+    hydration runs before any claim or dispatch side effect."""
     try:
         task = supervisor.get_task(event.task_id)
     except Exception as e:
         print(f"ERROR: failed to hydrate task {event.task_id} from ClickUp: {type(e).__name__}")
-        return None
+        raise
 
     task_list = task.get("list")
     list_id = task_list.get("id") if isinstance(task_list, dict) else None
@@ -426,14 +432,18 @@ def handle_async_processing(event: dict) -> dict:
 
     # list_id present means the payload already knows its board context (a
     # test/console payload, or the edge passed one through); absent means a
-    # real ClickUp delivery that still needs the task read.
+    # real ClickUp delivery that still needs the task read. A hydration
+    # failure raises out of the worker ON PURPOSE — see _hydrate_from_clickup
+    # for why that (and only that) is allowed to, despite the never-raise
+    # rule around route_event below.
     if autopilot_event.list_id is None:
-        hydrated = _hydrate_from_clickup(autopilot_event)
-        if hydrated is None:
-            return {"statusCode": 200, "body": json.dumps({"skipped": "task hydration failed"})}
-        autopilot_event = hydrated
-        if autopilot_event.list_id not in in_scope_list_ids():
-            return {"statusCode": 200, "body": json.dumps({"skipped": "list not in scope"})}
+        autopilot_event = _hydrate_from_clickup(autopilot_event)
+
+    # Unconditional, not only on the hydration path: a pre-hydrated payload
+    # (console invoke, test) must not bypass the scope gate the edge applies
+    # to ALB-routed requests.
+    if autopilot_event.list_id not in in_scope_list_ids():
+        return {"statusCode": 200, "body": json.dumps({"skipped": "list not in scope"})}
 
     try:
         route_event(autopilot_event)
