@@ -12,6 +12,15 @@ import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { deriveKnockStatus } from '../utils/knockStatus.util'
 import { PACK_BUILD_FAILED_EVENT, streamPack } from '../utils/packStream.util'
 
+/**
+ * What a build learns that its caller did not already know.
+ *
+ * Exists so the failure log can name the district without the resolve moving
+ * out of the build. Deliberately not a return value: the build's failure path
+ * is a rejection, and a rejection carries no partial result.
+ */
+type PackBuildContext = { districtId?: string }
+
 @Injectable()
 export class DoorKnockingPackService extends createPrismaBase(
   MODELS.ContactInteractionDoorKnock,
@@ -28,13 +37,29 @@ export class DoorKnockingPackService extends createPrismaBase(
   // knock read and the district scan below both happen after the response has
   // already been committed, so the connection is never idle waiting on them.
   stream(organization: Organization): Readable {
+    // The district is resolved inside the build (it has to be — resolving it
+    // is a query, and doing it here would put back the idle gap the envelope
+    // exists to remove), but the failure log is written out here. So the build
+    // reports it back through this, and `districtId` is absent in the log when
+    // the resolve itself was what failed — which is true, and is a different
+    // failure from a scan that timed out.
+    //
+    // It is in the log because the scan's cost is a property of the district
+    // and of nothing else: the same org fails every time on a district too
+    // large for the current query plan, and succeeds immediately after it is
+    // reassigned. Without this field that pattern is invisible, and each
+    // firing reads as a fresh unexplained failure.
+    const context: PackBuildContext = {}
+
     return streamPack({
-      build: (signal) => this.build(organization, signal),
-      onFailure: (err) =>
+      build: (signal) => this.build(organization, signal, context),
+      onFailure: (err, elapsedMs) =>
         this.logger.error(
           {
             event: PACK_BUILD_FAILED_EVENT,
             organizationSlug: organization.slug,
+            districtId: context.districtId,
+            elapsedMs,
             err,
           },
           'door-knocking pack build failed after the response had started',
@@ -55,9 +80,13 @@ export class DoorKnockingPackService extends createPrismaBase(
   async build(
     organization: Organization,
     signal?: AbortSignal,
+    context?: PackBuildContext,
   ): Promise<Buffer> {
     const districtId =
       await this.contacts.resolveEligibleDistrictId(organization)
+    // Recorded before the two reads below, so a failure in either of them
+    // still reports the district it was reading for.
+    if (context) context.districtId = districtId
 
     // Concurrent, but only after the district resolve: that call is also the
     // eligibility check, and an ineligible organization should not have had

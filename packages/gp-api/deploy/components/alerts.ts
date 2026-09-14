@@ -282,9 +282,32 @@ export const GLOBAL_ALERTS: Alert[] = [
     message: [
       'A door-knocking voter-map build failed after gp-api had already started the response, in the last 10 minutes.',
       'The candidate saw the map fail to load. Because the response was already committed as a 200, the per-route error alert cannot see this — the log line is the only signal.',
-      'Click *View in Grafana* to find the line (search "DoorKnockingPackBuildFailed") for the organizationSlug and the underlying error. A `Code: 57014` there is the 25s people-db statement timeout on one of the pack\'s batches; anything else is an unhandled build failure.',
+      'Click *View in Grafana* to find the line (search "DoorKnockingPackBuildFailed") for the organizationSlug, districtId, elapsedMs and the underlying error. A `Code: 57014` there is the 25s people-db statement timeout on one of the pack\'s batches, and `districtId` is the district whose scan did not fit; anything else is an unhandled build failure. A missing `districtId` means the eligibility resolve failed before any scan started.',
     ].join('\n\n'),
     notify: 'win-bugs',
+    // The statement timeout is the case this whole registry was built for: the
+    // Slack message for it is identical to the message for an unhandled build
+    // failure, because the rule counts the event and cannot see the error
+    // inside it. Telling them apart has always meant opening Grafana and
+    // reading one field, which is exactly the work the filter can do first.
+    knownCauses: [
+      {
+        id: 'people-db-statement-timeout',
+        summary:
+          "A district large enough that one of the pack's people-db batches exceeds the 25s statement timeout. The query plan does not scale to districts this size yet, so it is a known capacity limit rather than a regression, and it recurs for the same district until that district is reassigned or the plan is changed.",
+        // Narrow: the same line filter the alert uses, plus the JSON parse, so
+        // this reads the handful of event lines rather than the window.
+        evidence: [
+          '{service_name="gp-api", deployment_environment_name="$ENV"}',
+          '|= "DoorKnockingPackBuildFailed"',
+          '| json',
+          '| event = "DoorKnockingPackBuildFailed"',
+        ].join(' '),
+        confirmedBy:
+          'Every matched line carries `Code: 57014` in its error, names a `districtId`, and has `elapsedMs` at or above 25000. A single line missing any of the three means something other than a timed-out scan is mixed in, and the alert is not this cause. Report the districtId values so the thread names which districts are over the limit.',
+        action: 'suppress',
+      },
+    ],
   },
   // ------ People (public profiles) ------ //
   {
@@ -414,6 +437,22 @@ export const GLOBAL_ALERTS: Alert[] = [
       'This endpoint backs the public candidate profiles on the marketing site: while it fails, claimed candidates render as unclaimed. 404s are excluded — most requests legitimately miss, because the caller asks about every candidate, not only claimed ones.',
       'Click *View in Grafana* to find the failing requests. Response validation failures are the known shape of this: search context="ZodResponseInterceptor", whose log names the schema path that rejected the response.',
     ].join('\n\n'),
+    knownCauses: [
+      {
+        id: 'zod-response-validation',
+        summary:
+          'The response failed its own schema validation rather than the handler failing. The 500 is ZodResponseInterceptor rejecting a shape, so the named schema path is the fix site.',
+        evidence: [
+          '{service_name="gp-api", deployment_environment_name="$ENV"}',
+          '|= "ZodResponseInterceptor"',
+          '| json',
+          '| context = "ZodResponseInterceptor"',
+        ].join(' '),
+        confirmedBy:
+          'Matched lines exist in the window and name a schema path. Claimed candidates are rendering as unclaimed on the marketing site either way, so this names the cause without making the alert less urgent.',
+        action: 'annotate',
+      },
+    ],
   },
   {
     slug: 'admin-impersonation-email-fallback-spike',
@@ -481,5 +520,43 @@ export const GLOBAL_ALERTS: Alert[] = [
       'Click *View in Grafana* to see the failure logs (event="DistrictMatch", failureKind="no_match"), then inspect the affected positionId / ballotreadyPositionId values and confirm whether election-api is still returning districts for them.',
     ].join('\n\n'),
     notify: 'serve-bugs',
+    // BOTH ARE `annotate`, NOT `suppress`, and the distinction is the whole
+    // reason this alert is worth listing at all. The two shapes below are
+    // genuinely understood, but this rule fires on a SPIKE across five or more
+    // distinct campaigns — and a spike of a known-benign cause is how a real
+    // pipeline regression looks on its way in. So the filter says which shape
+    // it found and still shows the alert, which saves the reader the Grafana
+    // round-trip without deciding on their behalf that nothing happened.
+    knownCauses: [
+      {
+        id: 'position-resolved-without-district',
+        summary:
+          'election-api returned a position but attached no district to it, so the match silently found nothing. Usually a district-association or dbt mart gap for that position rather than an outage.',
+        evidence: [
+          '{service_name="gp-api", deployment_environment_name="$ENV"}',
+          '|= "DistrictMatch"',
+          '| json',
+          '| event = "DistrictMatch"',
+          '| failureKind = "no_match"',
+        ].join(' '),
+        confirmedBy:
+          'The matched lines name positionId / ballotreadyPositionId values and carry no upstream error. A concentration on a handful of positions points at those positions; a spread across many unrelated ones points at the pipeline and is NOT this cause.',
+        action: 'annotate',
+      },
+      {
+        id: 'upstream-position-lookup-404',
+        summary:
+          'election-api answered 404 for the position, so there was nothing to match against. Distinct from a 5xx, which pages through the per-route controller alerts instead.',
+        evidence: [
+          '{service_name="gp-api", deployment_environment_name="$ENV"}',
+          '|= "DistrictMatch"',
+          '| json',
+          '| event = "DistrictMatch"',
+        ].join(' '),
+        confirmedBy:
+          'The matched lines report a 404 status from the election-api lookup. Any 5xx in the same window means this is an upstream outage instead, which is a different alert and a different response.',
+        action: 'annotate',
+      },
+    ],
   },
 ]

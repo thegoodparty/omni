@@ -4,6 +4,8 @@ import { GLOBAL_ALERTS } from './alerts'
 import {
   buildAlertDescription,
   buildAlertSummary,
+  buildKnownCausesAnnotation,
+  KNOWN_CAUSES_ANNOTATION,
 } from './alerting/alert-notification'
 import { controllerAlerts } from './alerting/controller-alerts'
 import { personProfilesDashboardConfigJson } from './personProfilesDashboard'
@@ -170,69 +172,74 @@ export const createGrafanaResources = async ({
 
   const alertToRule = (
     alert: Alert,
-  ): grafana.types.input.alerting.RuleGroupRule => ({
-    name: alert.name,
-    condition: 'C',
-    for: alert.for,
-    isPaused: alert.disabled ?? false,
-    noDataState: 'OK',
-    execErrState: 'Alerting',
-    annotations: {
-      summary: buildAlertSummary(alert, environment),
-      description: buildAlertDescription(alert, environment),
-    },
-    labels: {
-      environment,
-      alert_slug: alert.slug,
-    },
-    datas: [
-      {
-        refId: 'A',
-        queryType: datasourceConfig[alert.type].queryType,
-        relativeTimeRange: { from: alert.timeRangeSeconds ?? 600, to: 0 },
-        datasourceUid: datasourceConfig[alert.type].uid,
-        model: JSON.stringify({
-          expr: alert.expr.replace(/\$ENV/g, environment),
+  ): grafana.types.input.alerting.RuleGroupRule => {
+    const knownCauses = buildKnownCausesAnnotation(alert, environment)
+
+    return {
+      name: alert.name,
+      condition: 'C',
+      for: alert.for,
+      isPaused: alert.disabled ?? false,
+      noDataState: 'OK',
+      execErrState: 'Alerting',
+      annotations: {
+        summary: buildAlertSummary(alert, environment),
+        description: buildAlertDescription(alert, environment),
+        ...(knownCauses ? { [KNOWN_CAUSES_ANNOTATION]: knownCauses } : {}),
+      },
+      labels: {
+        environment,
+        alert_slug: alert.slug,
+      },
+      datas: [
+        {
           refId: 'A',
-        }),
-      },
-      {
-        refId: 'B',
-        queryType: '',
-        relativeTimeRange: { from: 0, to: 0 },
-        datasourceUid: '-100',
-        model: JSON.stringify({
-          type: 'reduce',
+          queryType: datasourceConfig[alert.type].queryType,
+          relativeTimeRange: { from: alert.timeRangeSeconds ?? 600, to: 0 },
+          datasourceUid: datasourceConfig[alert.type].uid,
+          model: JSON.stringify({
+            expr: alert.expr.replace(/\$ENV/g, environment),
+            refId: 'A',
+          }),
+        },
+        {
           refId: 'B',
-          expression: 'A',
-          reducer: 'last',
-          settings: { mode: '' },
-          datasource: { type: '__expr__', uid: '-100' },
-        }),
-      },
-      {
-        refId: 'C',
-        queryType: '',
-        relativeTimeRange: { from: 0, to: 0 },
-        datasourceUid: '-100',
-        model: JSON.stringify({
-          type: 'threshold',
+          queryType: '',
+          relativeTimeRange: { from: 0, to: 0 },
+          datasourceUid: '-100',
+          model: JSON.stringify({
+            type: 'reduce',
+            refId: 'B',
+            expression: 'A',
+            reducer: 'last',
+            settings: { mode: '' },
+            datasource: { type: '__expr__', uid: '-100' },
+          }),
+        },
+        {
           refId: 'C',
-          expression: 'B',
-          conditions: [
-            {
-              evaluator: { type: 'gt', params: [alert.threshold] },
-              operator: { type: 'and' },
-              query: { params: ['B'] },
-              reducer: { type: 'last', params: [] },
-              type: 'query',
-            },
-          ],
-          datasource: { type: '__expr__', uid: '-100' },
-        }),
-      },
-    ],
-  })
+          queryType: '',
+          relativeTimeRange: { from: 0, to: 0 },
+          datasourceUid: '-100',
+          model: JSON.stringify({
+            type: 'threshold',
+            refId: 'C',
+            expression: 'B',
+            conditions: [
+              {
+                evaluator: { type: 'gt', params: [alert.threshold] },
+                operator: { type: 'and' },
+                query: { params: ['B'] },
+                reducer: { type: 'last', params: [] },
+                type: 'query',
+              },
+            ],
+            datasource: { type: '__expr__', uid: '-100' },
+          }),
+        },
+      ],
+    }
+  }
 
   // Grafana evaluates a rule group as a unit, so the interval is a property of
   // the group and a rule that wants a slower cadence needs its own. Bucketing
