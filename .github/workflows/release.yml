@@ -722,6 +722,28 @@ jobs:
             echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
             echo "failed=$FAILED" >> "$GITHUB_OUTPUT"
             echo "passed=$PASSED" >> "$GITHUB_OUTPUT"
+
+            # The names, not just the count. A failed release train blocks every
+            # prod promotion, and "3 failed" sends whoever is looking into the
+            # HTML report to find out which three. The full title path is what
+            # `--grep` takes, so a name here can be pasted into a repro command.
+            #
+            # DELIBERATELY NOT CLASSIFIED HERE. Whether a spec is `@dev-only`
+            # decides whether the bot files a ticket for it, and that judgement
+            # is single-sourced in clickup_bot/dev_test_triage.py where tests
+            # pin it. A second grep in YAML is how the two start disagreeing
+            # about which failures are nobody's problem.
+            {
+              echo "failed_tests<<E2E_FAILED_TESTS"
+              jq -r '
+                def titles($anc):
+                  ($anc + [.title]) as $here
+                  | (.suites[]? | titles($here)),
+                    (.specs[]? | select(.ok == false) | ($here + [.title]) | join(" › "));
+                [.suites[]? | titles([])] | .[]
+              ' test-results/results.json 2>/dev/null || true
+              echo "E2E_FAILED_TESTS"
+            } >> "$GITHUB_OUTPUT"
           else
             echo "total=0" >> "$GITHUB_OUTPUT"
             echo "failed=0" >> "$GITHUB_OUTPUT"
@@ -737,6 +759,7 @@ jobs:
           TOTAL: ${{ steps.results.outputs.total }}
           PASSED: ${{ steps.results.outputs.passed }}
           FAILED: ${{ steps.results.outputs.failed }}
+          FAILED_TESTS: ${{ steps.results.outputs.failed_tests }}
           TEST_OUTCOME: ${{ needs.e2e-shard.result }}
         run: |
           status="✅"
@@ -754,6 +777,14 @@ jobs:
             echo "| ❌ Failed | ${FAILED:-0} |"
             echo "| 📊 Total | ${TOTAL:-0} |"
             echo ""
+            if [ -n "${FAILED_TESTS:-}" ]; then
+              echo "**Failed:**"
+              echo ""
+              while IFS= read -r failed_test; do
+                [ -n "$failed_test" ] && echo "- \`${failed_test}\`"
+              done <<< "$FAILED_TESTS"
+              echo ""
+            fi
             if [ -n "$REPORT_URL" ]; then
               echo "[View HTML report]($REPORT_URL)"
             else
