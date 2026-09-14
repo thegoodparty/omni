@@ -436,11 +436,18 @@ def handle_async_processing(event: dict) -> dict:
 
     # list_id present means the payload already knows its board context (a
     # test/console payload, or the edge passed one through); absent means a
-    # real ClickUp delivery that still needs the task read. A hydration
-    # failure raises out of the worker ON PURPOSE — see _hydrate_from_clickup
-    # for why that (and only that) is allowed to, despite the never-raise
-    # rule around route_event below.
-    if autopilot_event.list_id is None:
+    # real ClickUp delivery that still needs the task read. commentPosted
+    # additionally hydrates whenever current_status is missing: it routes
+    # entirely on current_status + the parent, so a pre-hydrated payload that
+    # set list_id but skipped those would silently misclassify a story as a
+    # feature card and drop its resume trigger. A hydration failure raises
+    # out of the worker ON PURPOSE — see _hydrate_from_clickup for why that
+    # (and only that) is allowed to, despite the never-raise rule around
+    # route_event below.
+    needs_hydration = autopilot_event.list_id is None or (
+        autopilot_event.kind == "commentPosted" and autopilot_event.current_status is None
+    )
+    if needs_hydration:
         autopilot_event = _hydrate_from_clickup(autopilot_event)
         if autopilot_event.list_id is None:
             # The read succeeded but the task's list field was unreadable —

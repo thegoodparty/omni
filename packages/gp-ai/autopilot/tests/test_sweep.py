@@ -91,14 +91,16 @@ def env(monkeypatch):
 
 class FakeClickUp:
     def __init__(self):
-        # Two separate registries, mirroring the two real, differently-
-        # filtered ClickUp queries sweep.py issues against the same
-        # /list/{id}/task endpoint: list_tasks answers the lookback-scanned
-        # "recently updated" query, executing_tasks answers the dedicated,
-        # unconditional "currently executing" query.
+        # Separate registries, mirroring the differently-filtered ClickUp
+        # queries sweep.py issues against the same /list/{id}/task endpoint:
+        # list_tasks answers the lookback-scanned "recently updated" query,
+        # executing_tasks / in_progress_tasks answer the two dedicated,
+        # unconditional statuses[] queries.
         self.list_tasks: dict[str, list[dict]] = {}
         self.executing_tasks: dict[str, list[dict]] = {}
+        self.in_progress_tasks: dict[str, list[dict]] = {}
         self.comments: dict[str, list[dict]] = {}
+        self.time_in_status_since: dict[str, int] = {}
         self.task_queries: list[str] = []
 
     def request(self, method, endpoint, data=None):
@@ -106,11 +108,16 @@ class FakeClickUp:
             list_id, query = endpoint.split("/list/", 1)[1].split("/task?", 1)
             self.task_queries.append(query)
             if "statuses" in query:
-                return {"tasks": self.executing_tasks.get(list_id, [])}
+                registry = self.in_progress_tasks if "in%20progress" in query else self.executing_tasks
+                return {"tasks": registry.get(list_id, [])}
             return {"tasks": self.list_tasks.get(list_id, [])}
         if method == "GET" and endpoint.endswith("/comment"):
             task_id = endpoint.split("/task/", 1)[1].split("/comment", 1)[0]
             return {"comments": self.comments.get(task_id, [])}
+        if method == "GET" and endpoint.endswith("/time_in_status"):
+            task_id = endpoint.split("/task/", 1)[1].split("/time_in_status", 1)[0]
+            since = self.time_in_status_since.get(task_id)
+            return {"current_status": {"since": str(since)}} if since is not None else {}
         raise AssertionError(f"no fake response registered for {method} {endpoint}")
 
 
@@ -246,6 +253,48 @@ def test_mid_run_feature_card_in_in_progress_is_never_redispatched(fake_clickup,
 
     sweep.handle_sweep({"autopilot_sweep": True})
 
+    assert fake_ecs.run_task_calls == []
+
+
+# ---------------------------------------------------------------------------
+# Stall alert for feature cards stranded in "in progress"
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def slack_posts(monkeypatch):
+    posts = []
+    monkeypatch.setattr(sweep.supervisor, "post_slack_message", posts.append)
+    return posts
+
+
+def test_stalled_in_progress_feature_card_alerts_once(fake_clickup, fake_ecs, slack_posts):
+    # The reconstruction skip means nothing ever re-dispatches this card, so
+    # the sweep's own unconditional query is the one automated signal. Two
+    # passes must still produce exactly one alert (per-epic claim).
+    fake_clickup.in_progress_tasks[FEATURE_LIST_ID] = [task("epic-1", router.STATUS_IN_PROGRESS)]
+    ttl = sweep.supervisor.STATUS_TTL_SECONDS[router.STATUS_IN_PROGRESS]
+    fake_clickup.time_in_status_since["epic-1"] = now_ms() - (ttl + 60) * 1000
+
+    result_1 = sweep.handle_sweep({"autopilot_sweep": True})
+    result_2 = sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert fake_ecs.run_task_calls == []
+    assert len(slack_posts) == 1
+    assert "stalled" in slack_posts[0] and "epic-1" in slack_posts[0]
+    import json as _json
+
+    assert _json.loads(result_1["body"])["alerted"] == 1
+    assert _json.loads(result_2["body"])["alerted"] == 0
+
+
+def test_in_progress_feature_card_within_ttl_does_not_alert(fake_clickup, fake_ecs, slack_posts):
+    fake_clickup.in_progress_tasks[FEATURE_LIST_ID] = [task("epic-1", router.STATUS_IN_PROGRESS)]
+    fake_clickup.time_in_status_since["epic-1"] = now_ms() - 60 * 1000
+
+    sweep.handle_sweep({"autopilot_sweep": True})
+
+    assert slack_posts == []
     assert fake_ecs.run_task_calls == []
 
 

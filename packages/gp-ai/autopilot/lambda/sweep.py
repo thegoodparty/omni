@@ -141,8 +141,8 @@ def list_recently_updated_tasks(list_id: str, since_ms: int) -> list[dict]:
     return tasks
 
 
-def list_executing_feature_cards() -> list[dict]:
-    """Every card currently in STATUS_EXECUTING across the scoped lists —
+def _feature_cards_in_status(status: str) -> list[dict]:
+    """Every top-level card currently in `status` across the scoped lists —
     unconditional, not filtered by the lookback window (see the module
     docstring for why). A ClickUp filter on `statuses[]`, not on
     `date_updated_gt`. Feature cards only by construction: the query omits
@@ -152,19 +152,56 @@ def list_executing_feature_cards() -> list[dict]:
     tasks: list[dict] = []
     for list_id in sorted(handler.in_scope_list_ids()):
         query = urlencode(
-            {"statuses[]": router.STATUS_EXECUTING, "include_closed": "false"},
+            {"statuses[]": status, "include_closed": "false"},
             quote_via=quote,
             safe="[]",
         )
         try:
             result = supervisor.clickup_request("GET", f"/list/{list_id}/task?{query}")
         except Exception as e:
-            print(f"ERROR: sweep failed to list executing feature cards for list {list_id}: {type(e).__name__}")
+            print(f"ERROR: sweep failed to list {status!r} feature cards for list {list_id}: {type(e).__name__}")
             continue
         raw_tasks = result.get("tasks")
         if isinstance(raw_tasks, list):
             tasks.extend(t for t in raw_tasks if isinstance(t, dict) and not isinstance(t.get("parent"), str))
     return tasks
+
+
+def list_executing_feature_cards() -> list[dict]:
+    return _feature_cards_in_status(router.STATUS_EXECUTING)
+
+
+def alert_stalled_in_progress_feature_cards() -> int:
+    """A feature card in "in progress" means epic-create is running. The
+    reconstruction loop deliberately never re-dispatches one (see
+    handle_sweep), so a run that died — or a kickoff whose webhook was lost —
+    would otherwise strand the card with no automated signal. This pass posts
+    the same once-per-epic Slack stall alert the supervisor posts for
+    stories, off its own unconditional statuses[] query rather than the
+    lookback scan: a card stalled for hours stops updating and falls out of
+    the lookback window exactly when the alert matters. Returns how many
+    alerts this pass actually posted."""
+    ttl = supervisor.STATUS_TTL_SECONDS[router.STATUS_IN_PROGRESS]
+    alerted = 0
+    for task in _feature_cards_in_status(router.STATUS_IN_PROGRESS):
+        task_id = task.get("id")
+        if not isinstance(task_id, str) or not task_id:
+            continue
+        elapsed = supervisor._seconds_in_current_status(task_id)
+        if elapsed is None or elapsed < ttl:
+            continue
+        # Claim first, post second — same atomic once-only contract as
+        # supervisor.check_for_stalls, and the same per-epic claim item, so
+        # each epic still gets at most one stall alert total.
+        if supervisor.try_claim_stall_alert(task_id):
+            supervisor.post_slack_message(
+                f":warning: Autopilot feature card stalled in *{router.STATUS_IN_PROGRESS}* for over "
+                f"{ttl // 60} min (epic-create died, or its kickoff webhook was lost — move the card back to "
+                f"*{router.STATUS_APPROVED_TDD}* and into *{router.STATUS_IN_PROGRESS}* to retry): "
+                f"{supervisor.clickup_task_url(task_id)}"
+            )
+            alerted += 1
+    return alerted
 
 
 def _from_status_for_current(card_type: str, current_status: str) -> str | None:
@@ -263,6 +300,10 @@ def handle_sweep(event: dict) -> dict:
             supervisor.run_supervisor_tick(task_id)
             ticked += 1
 
+    # Alert-only, never a dispatch: the one automated signal for a feature
+    # card stranded mid-epic-create (see alert_stalled_in_progress_feature_cards).
+    alerted = alert_stalled_in_progress_feature_cards()
+
     scanned = 0
     triggered = 0
     cap_hit = False
@@ -330,5 +371,11 @@ def handle_sweep(event: dict) -> dict:
     if cap_hit:
         print(f"ERROR: sweep hit its cap of {cap} triggers; remainder deferred to the next pass")
 
-    print(f"Sweep complete: {ticked} epics ticked, {scanned} candidates scanned, {triggered} triggered")
-    return {"statusCode": 200, "body": json.dumps({"ticked": ticked, "scanned": scanned, "triggered": triggered})}
+    print(
+        f"Sweep complete: {ticked} epics ticked, {alerted} stall alerts, "
+        f"{scanned} candidates scanned, {triggered} triggered"
+    )
+    return {
+        "statusCode": 200,
+        "body": json.dumps({"ticked": ticked, "alerted": alerted, "scanned": scanned, "triggered": triggered}),
+    }
