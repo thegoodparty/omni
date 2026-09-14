@@ -1,0 +1,69 @@
+name: devonly-drift
+
+# Advisory only — never fails the PR. The @dev-only e2e specs run post-merge
+# on the release train, never on PRs (e2e-tests/AGENTS.md), so a PR that
+# changes a surface they assert on merges green and turns the train red:
+# PR #1773 did exactly that for two days (ENG-11106, ticket 86akhpkr3).
+# This flags the overlap on the PR so the author checks those specs before
+# merging. Route matching is a substring heuristic; a false positive costs
+# one advisory comment, a false negative costs nothing that isn't already
+# the status quo.
+
+on:
+  pull_request:
+    paths:
+      - packages/gp-webapp/app/**
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  warn:
+    name: Warn when @dev-only specs assert on changed surfaces
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare changed routes against @dev-only specs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${{ github.repository }}/pulls/$PR/files" --paginate \
+            --jq '.[].filename' > /tmp/changed.txt
+
+          # Route tokens from changed app files: the first two path segments
+          # under app/ (e.g. dashboard/contacts), plus the first segment alone
+          # for non-dashboard features (e.g. polls — specs visit /polls/welcome
+          # while the code lives in app/polls/onboarding/). Bare "dashboard"
+          # would match every spec, so it never becomes a token on its own.
+          tokens=$(sed -n 's|^packages/gp-webapp/app/\([a-z0-9-]*/[a-z0-9-]*\)/.*|\1|p' /tmp/changed.txt | sort -u)
+          extra=$(sed -n 's|^packages/gp-webapp/app/\([a-z0-9-]*\)/.*|\1|p' /tmp/changed.txt | sort -u | grep -v -E '^(dashboard|shared)$' || true)
+
+          hits=""
+          for spec in $(grep -rl '@dev-only' packages/gp-webapp/e2e-tests/tests --include='*.spec.ts'); do
+            matched=""
+            for t in $tokens $extra; do
+              if grep -q "/$t" "$spec"; then matched="$matched $t"; fi
+            done
+            if [ -n "$matched" ]; then
+              hits="$hits\n- \`${spec#packages/gp-webapp/}\` (matches:$matched)"
+            fi
+          done
+
+          marker='<!-- devonly-drift -->'
+          existing=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" --paginate \
+            --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -1)
+
+          if [ -n "$hits" ]; then
+            body=$(printf '%s\n**Heads up: this PR touches surfaces that `@dev-only` e2e specs assert on, and those specs will NOT run on this PR** — they only run post-merge on the release train (e2e-tests/AGENTS.md). A stale assumption in one of them turns the train red after merge (see ENG-11106).\n%b\n\nCheck the matched specs against your change; if the surface moved, update the spec in this PR. For a flag default-on/removal, run the merge-gate suite against dev with the flag forced first (docs/feature-flags.md).' "$marker" "$hits")
+            if [ -n "$existing" ]; then
+              gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$existing" -f body="$body" >/dev/null
+            else
+              gh api "repos/${{ github.repository }}/issues/$PR/comments" -f body="$body" >/dev/null
+            fi
+          elif [ -n "$existing" ]; then
+            body=$(printf '%s\nNo remaining overlap between this PR'"'"'s changed routes and `@dev-only` specs at the latest push.' "$marker")
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$existing" -f body="$body" >/dev/null
+          fi

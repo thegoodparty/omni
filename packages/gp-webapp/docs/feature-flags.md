@@ -91,7 +91,22 @@ Reach for this when the gated surface must not render or fetch — `door-knockin
 1. Create the flag in Amplitude Experiment with a stable key (kebab-case, e.g. `outreach-bulk-send`).
 2. If the key is read in more than one component, add a wrapper hook under `app/shared/experiments/`.
 3. Use `useFlagOn(key)` (or your wrapper) at the call site.
-4. **Removing the flag**: delete the wrapper hook + key constant, then grep for stragglers.
+4. **Removing the flag** (or defaulting it on): delete the wrapper hook + key
+   constant, then grep for stragglers. Before merging, run the `@dev-only`
+   merge-gate suite against dev with the flag forced via the override cookie
+   (`setFlagOverrides`, see E2E overrides above) — those specs never run on
+   PRs and pre-merge dev still runs the old code, so this is the only
+   pre-merge way to see them against the post-merge state. Skipping this is
+   how PR #1773 turned the release train red for two days (ENG-11106):
+
+   ```bash
+   cd packages/gp-webapp/e2e-tests
+   BASE_URL=https://dev.goodparty.org npx playwright test \
+     --config="$PWD/playwright.config.ts" --grep @dev-only --retries=0
+   ```
+
+   (with the flag override wired into the affected specs' setup, or the flag
+   temporarily targeted on for `@test.goodparty.org` users in dev Amplitude).
 
 ## Anti-patterns
 
