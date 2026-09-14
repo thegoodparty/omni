@@ -1,7 +1,7 @@
 # Category D: routing and decline correctness — the emphasis of this eval.
 # Each case names the expected route; the grade is whether that route executes.
 # COS_GUARDRAIL_DECLINE (exact string, from chiefOfStaffPrompt.ts):
-#   "I'm your Chief of Staff — please ask me something about your office,
+#   "I'm your Chief of Staff. Please ask me something about your office,
 #    your priorities, your meetings, or your work as an elected official."
 
 # --- D1: exact-string guardrail decline ---
