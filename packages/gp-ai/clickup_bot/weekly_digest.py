@@ -102,10 +102,19 @@ MAX_NAMED_MISSES = 8
 # reached that conclusion.
 VERDICTS = ("fix", "no-code-change", "needs-human")
 
-# The two verdicts that mean a human did not have to diagnose the ticket. This
+# The one verdict that means a human did not have to diagnose the ticket. This
 # is the closest thing to a direct value measurement the system produces, and it
 # is reported as a count of tickets rather than as a rate.
-DEFLECTING_VERDICTS = ("no-code-change", "needs-human")
+#
+# `needs-human` was counted here too, and that was wrong for as long as this
+# module has shipped. It is an escalation, not a deflection: the analysis is
+# attached to the ticket, which is the whole point of it, but the diagnosis
+# still lands on a person and the ticket still reaches the eng queue. Counting
+# it inflated the one figure in the message nobody can check by eye. The
+# 2026-09-14 digest is the instance — "0 fix · 3 no-code-change · 3 needs-human
+# → *6 tickets kept off the eng queue*", when three of those six were on
+# somebody's plate that morning.
+DEFLECTING_VERDICTS = ("no-code-change",)
 
 # What a run's structured line looks like. Written by
 # engineer_agent/agent/metrics.py; see that module for why it exists at all.

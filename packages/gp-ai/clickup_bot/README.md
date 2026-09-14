@@ -1070,14 +1070,14 @@ unset value fails loudly rather than falling back to `#bugs`.
 gpbot — week of Aug 17–23
 Coverage: 6 of 7 tagged bugs analyzed — 1 missed: DATA-2336
 Median time to analysis: 7.3 min
-Verdicts: 3 fix · 3 no-code-change · 1 needs-human → 4 tickets kept off the eng queue
+Verdicts: 3 fix · 3 no-code-change · 1 needs-human → 3 tickets kept off the eng queue
 PRs: 3 opened · 1 merged · 0 closed unmerged · ⚠️ 1 open past 48h with no human review: #1306
 Cost: $38.00 this week · $3.71 median per analysis
 ```
 
 **Coverage leads, not merges.** "How many bugs did the bot fix" is the wrong
 headline twice over. It misprices a triage system whose main output is a written
-root cause — of the seven verdicts recorded after escalation went live, four
+root cause — of the seven verdicts recorded after escalation went live, three
 concluded there was no code fix to make — and it invites gaming, because "PRs
 merged" is a number you improve by opening PRs against tickets that are not code
 bugs, which is the exact thing `escalation.py` exists to prevent. Coverage is
