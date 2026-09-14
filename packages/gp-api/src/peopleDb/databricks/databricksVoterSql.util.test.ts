@@ -481,7 +481,9 @@ describe('buildVoterFiltersSql', () => {
     })
 
     it('gives the never-recorded rows to Unknown', () => {
-      expect(languageSql(['Unknown'])).toContain('IS NULL')
+      const sql = languageSql(['Unknown'])
+      expect(sql).toContain('IS NULL')
+      expect(sql).not.toContain('IS NOT NULL')
     })
 
     // The two together are the OLD 'Other'. Saved lists are migrated to name

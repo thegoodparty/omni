@@ -98,6 +98,11 @@ const encodeIncome = (amount: number | null): number => {
 //
 // UNKNOWN stays at index 0 to match every other dim here — an unset byte is
 // "no data", not a real value.
+//
+// The comparison is exact, not case-folded, because buildLanguageFilter's SQL
+// is (`= 'English'`). Normalizing here would put the map back out of step with
+// the filter — a lowercase 'english' would shade English and still be filtered
+// as Other — which is the disagreement this dim just stopped having.
 const LANGUAGE_VALUES = [UNKNOWN, 'English', 'Spanish', 'Other']
 const encodeLanguage = (code: string | null): number =>
   code === null ? 0 : code === 'English' ? 1 : code === 'Spanish' ? 2 : 3
