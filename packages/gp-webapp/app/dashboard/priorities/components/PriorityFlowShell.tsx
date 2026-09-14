@@ -39,6 +39,8 @@ import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
 import { priorityFlowChatApi } from '../data/chat-api'
 import {
+  buildOrgsPrompt,
+  buildOutreachPrompt,
   buildResumePrompt,
   buildStepPrompt,
   stepFromMarker,
@@ -316,13 +318,27 @@ export default function PriorityFlowShell({
         segmentsToLive(latestAssistant.segments ?? [], latestAssistant.content),
       ).directive
     : null
-  // The step is done enough to move on once it has settled and the beats that
-  // follow a settle have landed. A step still asking, or parked on the real
-  // world, does not get a Continue.
-  const settled =
-    latestDirective?.kind === 'synthesis' ||
-    latestDirective?.kind === 'outreach' ||
-    latestDirective?.kind === 'orgs'
+  // The most recent summary, which the follow-up beats quote back so the
+  // agent stays on the same thread.
+  const lastSettledText = useMemo(() => {
+    for (let i = visibleMessages.length - 1; i >= 0; i -= 1) {
+      const message = visibleMessages[i]
+      if (!message || message.role !== 'assistant') continue
+      const directive = parseTurnText(message.content).directive
+      if (directive?.kind === 'synthesis') return directive.settled
+    }
+    return null
+  }, [visibleMessages])
+
+  const latestOutreach =
+    latestAssistant && latestDirective?.kind === 'outreach'
+      ? { id: latestAssistant.id, settled: lastSettledText ?? '' }
+      : null
+
+  // Continue appears once the last beat has landed. A step still asking, or
+  // parked on the real world, or halfway through its beats, does not get one:
+  // the organizations are part of the step, not an optional extra after it.
+  const settled = latestDirective?.kind === 'orgs'
   // A settle turn can run for the better part of a minute: dimensions, a
   // count, a list create, then research. The tool pills shimmer while a tool
   // is actually in flight, but the gaps between them (the model thinking, or
@@ -352,6 +368,30 @@ export default function PriorityFlowShell({
     setAnswers((prev) => ({ ...prev, [messageId]: answer }))
     void send(conversationId, answer)
   }
+
+  // Confirming the summary is what starts the outreach beat. Sent hidden and
+  // by the client, because an agent asked to volunteer three turns in order
+  // collapsed them into one, skipped the summary, and never reached the
+  // organizations.
+  const confirmSettled = (messageId: string, settled: string): void => {
+    if (!conversationId || isStreaming()) return
+    setAnswers((prev) => ({ ...prev, [messageId]: CONFIRM_YES }))
+    const prompt = buildOutreachPrompt(settled)
+    setHiddenSent((prev) => [...prev, prompt])
+    void send(conversationId, prompt, { hidden: true })
+  }
+
+  // And the outreach landing is what starts the organizations beat, once per
+  // turn that carried one.
+  const orgsAskedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!conversationId || sending) return
+    if (!latestOutreach || orgsAskedRef.current === latestOutreach.id) return
+    orgsAskedRef.current = latestOutreach.id
+    const prompt = buildOrgsPrompt(latestOutreach.settled)
+    setHiddenSent((prev) => [...prev, prompt])
+    void send(conversationId, prompt, { hidden: true })
+  }, [conversationId, sending, latestOutreach, send])
 
   return (
     <div className="flex h-[calc(100dvh-4rem)] w-full flex-col bg-background lg:h-dvh">
@@ -421,9 +461,19 @@ export default function PriorityFlowShell({
                           ? { answer: answers[`${message.id}:confirm`] }
                           : {})}
                         disabled={sending || !isLatest}
-                        onAnswer={(answer) =>
-                          answerQuestion(`${message.id}:confirm`, answer)
-                        }
+                        onAnswer={(answer) => {
+                          const key = `${message.id}:confirm`
+                          if (
+                            answer === CONFIRM_YES &&
+                            split.directive?.kind === 'synthesis'
+                          ) {
+                            confirmSettled(key, split.directive.settled)
+                            return
+                          }
+                          // Anything else is a correction: send it as a turn
+                          // and let the agent re-settle.
+                          answerQuestion(key, answer)
+                        }}
                       />
                     </>
                   ) : null}
@@ -531,10 +581,12 @@ function SettledCard({ text }: { text: string }): React.JSX.Element {
 // The confirm, synthesized rather than asked for: the agent has already said
 // what it thinks, and a round trip to have it write "is that right?" is a
 // round trip the user waits through.
+const CONFIRM_YES = 'Yes, that is it'
+
 const CONFIRM_QUESTION: Extract<PriorityDirective, { kind: 'question' }> = {
   kind: 'question',
   ask: 'Have I got that right?',
-  options: ['Yes, that is it', 'Not quite'],
+  options: [CONFIRM_YES, 'Not quite'],
   notes: [],
 }
 

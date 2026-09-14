@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildOrgsPrompt,
+  buildOutreachPrompt,
   buildResumePrompt,
   buildStepPrompt,
   stepFromMarker,
@@ -75,6 +77,27 @@ describe('buildStepPrompt', () => {
     const prompt = buildResumePrompt('the engineer estimate')
     expect(prompt).toContain('the engineer estimate')
     expect(prompt).toContain('Do not re-run the step')
+  })
+
+  it('asks for the summary alone, and keeps the other beats out of it', () => {
+    const prompt = buildStepPrompt('define', priority)
+    expect(prompt).toContain('Only the summary')
+    expect(prompt).toContain('I will ask for those next, in their own turns')
+  })
+
+  it('never lets the agent talk about its own output format', () => {
+    // "Here is the settled block" is the plumbing showing through.
+    expect(buildStepPrompt('define', priority)).toContain(
+      'NEVER NAME THE FORMAT',
+    )
+  })
+
+  it('carries the summary into each follow-up beat', () => {
+    const settled = 'Renters on the flood blocks, solved means no repeats.'
+    expect(buildOutreachPrompt(settled)).toContain(settled)
+    expect(buildOutreachPrompt(settled)).toContain('crud_saved_filters')
+    expect(buildOrgsPrompt(settled)).toContain(settled)
+    expect(buildOrgsPrompt(settled)).toContain('askFor and script are required')
   })
 
   it('holds the define step to at least two questions', () => {

@@ -60,20 +60,26 @@ things. So settling carries a proposal rather than a prompt to go find one.
   These are half the answer, not a footnote, because the people most affected
   by a decision are usually the ones missing from the file.
 
-**A settle lands as three turns, not one card.** The summary, the outreach and
-the organizations are three different decisions made at three different
-moments, and stacking them made a card nobody reads to the bottom of. So:
+**A settle lands as three turns, and the client drives them.** The summary,
+the outreach and the organizations are three decisions made at three moments,
+and stacking them made a card nobody reads to the bottom of.
 
 1. `settled`, the summary alone, followed by a client-synthesized confirm
-   through the same picker every other question uses. Nothing is built on a
-   summary the official has not agreed with.
-2. `outreach`, once confirmed: who, how many, the channel, the message, and
-   the one button that opens the channel's flow.
-3. `orgs`, one to three coalitions, as rows. The detail (who to ask for, the
-   script, the address or number) opens in a side sheet, because that is what
-   you want in front of you when you make the call, not while reading past it.
-   An org without `askFor` and `script` is refused by the parser: a name on a
-   card is the version this replaced.
+   through the same picker every other question uses.
+2. Confirming sends `buildOutreachPrompt` hidden, and the reply is `outreach`:
+   who, how many, the channel, the message, one button into the channel's flow.
+3. That landing sends `buildOrgsPrompt` hidden, and the reply is `orgs`: one to
+   three coalitions as rows, whose detail (who to ask for, the script, the
+   address or number) opens in a side sheet. An org without `askFor` and
+   `script` is refused by the parser: a name and a rationale is the version
+   this replaced.
+
+**The client asks for each beat rather than trusting the agent to volunteer
+them in order.** Told to produce three turns in sequence, it collapsed them
+into one, narrated "here is the settled block", skipped the summary, and never
+reached the organizations. Sequencing that matters is not left to the model.
+Continue appears only after `orgs`, so the coalitions are part of the step
+rather than an optional extra after it.
 
 **The work is done before the offer, not after it.** The agent queries the
 filter dimensions, counts the group, creates the saved list, picks the channel

@@ -39,47 +39,20 @@ const PROTOCOL = [
   'ends on the last thing you actually had to say, and the block carries the',
   'ask.',
   '',
-  'When the step is genuinely settled, it lands over three turns, in this',
-  'order, one block each. Never combine them.',
-  '',
-  'TURN 1, the summary. Two or three sentences on what we decided, in my',
-  'words, so I can check it before anything is built on it:',
+  'When the step is genuinely settled, say what we decided and nothing else.',
+  'Two or three sentences, in my words, so I can check it before anything is',
+  'built on it:',
   '```' + DIRECTIVE_FENCE,
   '{"settled": "what we decided here"}',
   '```',
-  'I confirm or correct it. If I correct it, fix it and settle again.',
-  '',
-  'TURN 2, once I have confirmed, the outreach. Do the work before this turn,',
-  'not after: describe_filter_dimensions, then count_contacts, to find the',
-  'group in my real contact data whose answer would confirm or break what we',
-  'settled; crud_saved_filters to actually create that list, named for this',
-  'priority; then pick the channel they are likeliest to answer on',
-  '("phone_banking" for a conversation or an older group, "social" for reach',
-  'and for people not in the file) and write the message.',
-  '```' + DIRECTIVE_FENCE,
-  '{"outreach": {"who": "the group, as you found them in my contact data", "count": 260, "channel": "phone_banking", "why": "one line on why these people and this channel", "message": "the actual thing to say to them, ready for me to review", "listId": 123, "listName": "Flood blocks renters", "campaignName": "Flock cameras: what renters say"}}',
-  '```',
-  'campaignName is what the outreach is called in my history, taken from what',
-  'we have actually been talking about, so I never have to name it myself. If',
-  'the list cannot be built, leave listId out and say why in one line.',
-  '',
-  'TURN 3, the organizations, one to three of them, whenever a real local',
-  'group would reach people my contact file will not or would give me a',
-  'better informed answer: a neighbourhood association, a tenants union, a',
-  'business association, a service provider, an advocacy group already working',
-  'this issue. Look them up, never invent a plausible-sounding name or a',
-  'contact detail.',
-  '```' + DIRECTIVE_FENCE,
-  '{"orgs": [{"name": "the organization", "why": "who they reach that my contact file does not", "askFor": "who to ask for there", "script": "what I actually say to them, ready to send", "email": "their real address", "phone": "their real number", "url": "their page"}]}',
-  '```',
-  'Every org needs askFor and script. Include email, phone or url only when',
-  'you actually found them; an invented address is worse than none. The',
-  'script is what I send or read out, in my voice, saying what I want from',
-  'them.',
-  '',
-  'Keep your prose in all three turns to a line or two: the cards carry the',
-  'content, and I am reading three of them in a row.',
+  'Only the summary. Do not put the audience, the message or any',
+  'organizations in this turn: I will ask for those next, in their own turns.',
   'Never settle on the first turn of a step. Work it first.',
+  '',
+  'NEVER NAME THE FORMAT. Do not say "here is the settled block", "the block',
+  'below", "the card", or anything about how your answer is structured. I see',
+  'rendered cards, not blocks, so talking about them reads as the plumbing',
+  'showing through.',
   '',
   'When the step cannot be finished in this conversation because it needs',
   'something from the real world (a council meeting, an attorney, a staff',
@@ -262,6 +235,50 @@ export const buildResumePrompt = (waitingOn: string): string =>
       'changed. Do not re-run the step or repeat what we already settled.',
     HOUSE_RULES,
     PROTOCOL,
+  ].join('\n\n')
+
+// The beats that follow a confirmed summary. The client asks for them in
+// order rather than trusting the agent to volunteer three turns: left to
+// itself it collapsed them into one, skipped the summary, and never got to
+// the organizations at all.
+export const buildOutreachPrompt = (settled: string): string =>
+  [
+    `I confirmed the summary: ${settled}`,
+    'Now the outreach, and do the work before you answer rather than ' +
+      'proposing it: describe_filter_dimensions, then count_contacts, to ' +
+      'find the group in my real contact data whose answer would confirm or ' +
+      'break what we settled; crud_saved_filters to actually create that ' +
+      'list, named for this priority; then pick the channel they are ' +
+      'likeliest to answer on ("phone_banking" for a conversation or an ' +
+      'older group, "social" for reach and for people not in the file) and ' +
+      'write the message itself, short, in my voice, one clear question.',
+    'End the turn with exactly this and nothing else:',
+    '```' +
+      DIRECTIVE_FENCE +
+      '\n{"outreach": {"who": "the group, as you found them in my contact data", "count": 260, "channel": "phone_banking", "why": "one line on why these people and this channel", "message": "the message", "listId": 123, "listName": "the list you created", "campaignName": "what to call this outreach in my history"}}\n```',
+    'If the list cannot be built, leave listId out and say why in one line. ' +
+      'One or two lines of prose at most: the card carries it.',
+    HOUSE_RULES,
+  ].join('\n\n')
+
+export const buildOrgsPrompt = (settled: string): string =>
+  [
+    `Still on: ${settled}`,
+    'Now the organizations, one to three, whose help is worth having on ' +
+      'this: a neighbourhood association, a tenants union, a business ' +
+      'association, a service provider, an advocacy group already working ' +
+      'it, a local newsroom that covers it. Pick ones that reach people my ' +
+      'contact file will not, or that would give me a better informed ' +
+      'answer. Look them up. Never invent a name or a contact detail: an ' +
+      'address that does not exist is worse than none.',
+    'End the turn with exactly this and nothing else:',
+    '```' +
+      DIRECTIVE_FENCE +
+      '\n{"orgs": [{"name": "the organization", "why": "who they reach that my contact file does not", "askFor": "who to ask for there", "script": "what I actually say to them, ready to send", "email": "their real address", "phone": "their real number", "url": "their page"}]}\n```',
+    'askFor and script are required on every one. The script is what I send ' +
+      'or read out, in my voice, saying what I want from them. One or two ' +
+      'lines of prose at most.',
+    HOUSE_RULES,
   ].join('\n\n')
 
 export const buildStepPrompt = (
