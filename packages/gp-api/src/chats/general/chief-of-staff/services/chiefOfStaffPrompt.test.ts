@@ -448,7 +448,10 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     })
     expect(prompt).toContain('PRIORITIES NOT ON FILE')
     expect(prompt).toContain('this is HOW you ask for their priorities')
-    expect(prompt).not.toContain('Before you ask them anything')
+    // The research block opens on doing the reading, not on deferring the
+    // ask. An instruction to hold the question until after the research is
+    // what put the two blocks in conflict.
+    expect(prompt).toContain('Do the reading first.')
     expect(prompt.indexOf('PRIORITIES NOT ON FILE')).toBeLessThan(
       prompt.indexOf('FIRST-RUN RESEARCH'),
     )
