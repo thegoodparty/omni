@@ -535,6 +535,21 @@ def test_alerted_at_recorded_on_the_epic_claim_item(fake_clickup, fake_ecs, fake
     assert "alerted_at" in item
 
 
+def test_story_dragged_into_executing_alerts_instead_of_silently_freezing(fake_clickup, fake_ecs, fake_dynamodb):
+    # Stories never reach "executing" in the pipeline, but a manual drag can
+    # put one there — it reads as in-flight (blocking every dispatch on its
+    # epic) so it must at least stall-alert rather than freeze silently.
+    register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_EXECUTING)})
+    stale_since = str(int((time.time() - supervisor.STATUS_TTL_SECONDS[router.STATUS_EXECUTING] - 60) * 1000))
+    fake_clickup.responses["/task/s1/time_in_status"] = {"current_status": {"since": stale_since}}
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+
+    assert fake_ecs.run_task_calls == []  # in-flight guard still holds
+    assert len(fake_clickup.slack_posts) == 1
+    assert "executing" in fake_clickup.slack_posts[0]["text"]
+
+
 def test_alert_only_claim_item_does_not_block_a_real_dispatch(fake_clickup, fake_ecs, fake_dynamodb):
     # The sweep's pre-supervisor feature-card stall alert writes this epic's
     # claim pk with a live expires_at and NO story_task_id. When the human

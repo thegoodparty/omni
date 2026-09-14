@@ -425,6 +425,11 @@ def try_claim_stall_alert(epic_task_id: str) -> bool:
 STATUS_TTL_SECONDS: dict[str, int] = {
     router.STATUS_IN_PROGRESS: 2 * 60 * 60,
     router.STATUS_QA: 60 * 60,
+    # Stories never reach executing in the pipeline (it is the feature card's
+    # post-approval column), but a manual drag can put one there — and it
+    # would read as in-flight with no TTL, silently freezing its epic once
+    # the claim expires. A short TTL surfaces the anomaly fast instead.
+    router.STATUS_EXECUTING: 30 * 60,
 }
 
 
