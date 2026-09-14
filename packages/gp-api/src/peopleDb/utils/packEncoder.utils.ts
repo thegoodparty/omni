@@ -91,11 +91,16 @@ const encodeIncome = (amount: number | null): number => {
   return index === -1 ? 0 : index + 1
 }
 
-// Language filtering treats NULL and every non-English/Spanish code as
-// 'Other' (buildLanguageFilter) — the pack has no separate unknown bucket.
-const LANGUAGE_VALUES = ['Other', 'English', 'Spanish']
+// Byte 0 used to be 'Other' AND the no-data slot at once, which is the pack's
+// copy of buildLanguageFilter's `OR ... IS NULL`: a person with no
+// Language_Code shaded as an Other-language speaker. 'Unknown' is its own
+// byte now, so the map and the filter agree about who is which.
+//
+// UNKNOWN stays at index 0 to match every other dim here — an unset byte is
+// "no data", not a real value.
+const LANGUAGE_VALUES = [UNKNOWN, 'English', 'Spanish', 'Other']
 const encodeLanguage = (code: string | null): number =>
-  code === 'English' ? 1 : code === 'Spanish' ? 2 : 0
+  code === null ? 0 : code === 'English' ? 1 : code === 'Spanish' ? 2 : 3
 
 const VOTER_STATUS_VALUES = [
   UNKNOWN,
@@ -383,6 +388,9 @@ export class PackEncoder {
         push(`dim:${dim.key}`, 'u8', counts.people)
       }
       const manifest: DoorKnockingPackManifest = {
+        // The byte FRAMING, unchanged by the language split: still one u8 per
+        // person per dim. What changed is that dim's vocabulary, which is
+        // PACK_FORMAT_REVISION's axis and travels in `dims[].values` below.
         version: 1,
         generatedAt,
         counts,

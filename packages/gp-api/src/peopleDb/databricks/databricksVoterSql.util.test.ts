@@ -463,6 +463,43 @@ describe('buildVoterFiltersSql', () => {
     expect(notInBag.params).toEqual([])
   })
 
+  // `Language_Code` is nullable with no sentinel, so "speaks something else"
+  // and "we were never told" are distinguishable — and 'Other' used to answer
+  // for both, returning most of a district. Nothing covered the predicate's
+  // NULL behaviour, which is how the `OR ... IS NULL` survived.
+  describe('language', () => {
+    const languageSql = (values: string[]) =>
+      buildVoterFiltersSql(
+        createBag(),
+        parseFilters({ language: { in: values } }),
+      )
+
+    it('keeps Other to languages we actually have', () => {
+      const sql = languageSql(['Other'])
+      expect(sql).toContain('IS NOT NULL')
+      expect(sql).not.toContain('IS NULL)')
+    })
+
+    it('gives the never-recorded rows to Unknown', () => {
+      expect(languageSql(['Unknown'])).toContain('IS NULL')
+    })
+
+    // The two together are the OLD 'Other'. Saved lists are migrated to name
+    // both precisely so their audience does not change under them.
+    it('reproduces the old Other when both are selected', () => {
+      const sql = languageSql(['Other', 'Unknown'])
+      expect(sql).toContain('IS NOT NULL')
+      expect(sql).toContain('IS NULL')
+    })
+
+    // The short-circuit counts values, so it had to learn there are four.
+    // Left at three, this would drop the filter and return the district.
+    it('only drops the filter when all four are selected', () => {
+      expect(languageSql(['English', 'Spanish', 'Other'])).not.toBeNull()
+      expect(languageSql(['English', 'Spanish', 'Other', 'Unknown'])).toBeNull()
+    })
+  })
+
   // The comparison here is on STRING, not uuid. Postgres casts to `::uuid[]`,
   // which normalizes case, so an uppercase id has to be lowercased or an
   // exclude set would match nothing and silently widen the audience.

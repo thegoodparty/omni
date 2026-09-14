@@ -125,6 +125,9 @@ const FILTER_KEY_TO_DIM: Record<string, { dim: string; buckets: string[] }> = {
   languageEnglish: { dim: 'language', buckets: ['English'] },
   languageSpanish: { dim: 'language', buckets: ['Spanish'] },
   languageOther: { dim: 'language', buckets: ['Other'] },
+  // Both spellings, as the other Unknown buckets above do: the pack's
+  // UNKNOWN constant and the lowercase form some dims carry.
+  languageUnknown: { dim: 'language', buckets: ['Unknown', 'unknown'] },
   likelyMarried: {
     dim: 'maritalStatus',
     buckets: ['Inferred Married'],

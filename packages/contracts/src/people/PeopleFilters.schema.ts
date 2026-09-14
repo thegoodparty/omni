@@ -96,7 +96,12 @@ export const PEOPLE_FILTER_VALUE_ENUMS = {
   presenceOfChildren: ['Yes', 'No', 'Unknown'] as const,
   homeowner: ['Yes', 'Likely', 'No', 'Unknown'] as const,
   gender: ['M', 'F', 'Unknown'] as const,
-  language: ['English', 'Spanish', 'Other'] as const,
+  // 'Other' and 'Unknown' are separate for the same reason `ethnicity` keeps
+  // them apart: `Language_Code` is nullable with no sentinel, so "speaks
+  // something else" and "we were never told" are distinguishable facts about
+  // a person. 'Other' used to mean both, which reported roughly 60% of a
+  // district as Other-language speakers.
+  language: ['English', 'Spanish', 'Other', 'Unknown'] as const,
   ideology: ['Conservative', 'Liberal', 'Moderate', 'Unknown'] as const,
   // An enum vocabulary rather than a boolean wire filter because the backing
   // column (`Voter_Independent_Affinity`) is a non-nullable BOOLEAN: a

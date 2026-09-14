@@ -333,15 +333,28 @@ const buildLanguageFilter = (bag: Bag, op?: FilterOperator): string | null => {
   const hasEnglish = values.includes('English')
   const hasSpanish = values.includes('Spanish')
   const hasOther = values.includes('Other')
-  if (hasEnglish && hasSpanish && hasOther) return null
+  const hasUnknown = values.includes('Unknown')
+  // Every value selected is no filter at all. This has to count FOUR now —
+  // left at three, selecting all four would match the short-circuit and
+  // silently drop the filter, which is the widest possible way to get a
+  // filter wrong.
+  if (hasEnglish && hasSpanish && hasOther && hasUnknown) return null
 
   const conditions: string[] = []
   if (hasEnglish) conditions.push(`${target} = ${bag.bind('English')}`)
   if (hasSpanish) conditions.push(`${target} = ${bag.bind('Spanish')}`)
   if (hasOther) {
+    // 'Other' is now strictly "a language we have, that is not one of the two
+    // we name". It used to carry `OR ... IS NULL` as well, so it also
+    // returned everyone whose language was never recorded — most of a
+    // district, reported by QA as roughly 60%. `Language_Code` is nullable
+    // with no sentinel, so the missing case is a true NULL and belongs to
+    // 'Unknown' below. The door-knocking resident path (voterDoorKnocking)
+    // already drew this line; this brings the filter into agreement with it.
     const known = [bag.bind('English'), bag.bind('Spanish')].join(', ')
-    conditions.push(`(${target} NOT IN (${known}) OR ${target} IS NULL)`)
+    conditions.push(`(${target} NOT IN (${known}) AND ${target} IS NOT NULL)`)
   }
+  if (hasUnknown) conditions.push(`${target} IS NULL`)
   return `(${conditions.join(' OR ')})`
 }
 
