@@ -110,6 +110,20 @@ describe('parseTurnText', () => {
     })
   })
 
+  it('flags a complete block it could not read, rather than swallowing it', () => {
+    // The turn's prose points at a card ("the groups below"), so a directive
+    // that fails validation has to be visible to the caller.
+    const bad = '```priority\n{"orgs": [{"name": "Some Group"}]}\n```'
+    const parsed = parseTurnText(bad)
+    expect(parsed.directive).toBeNull()
+    expect(parsed.malformed).toBe(true)
+  })
+
+  it('does not call a half-streamed block malformed', () => {
+    const partial = 'Working.\n```priority\n{"orgs": [{"na'
+    expect(parseTurnText(partial).malformed).toBe(false)
+  })
+
   it('withholds a block that has opened but not closed', () => {
     // Mid-stream: half a JSON object must never reach the screen, and the step
     // must not read as settled until the block is whole.
@@ -130,7 +144,11 @@ describe('parseTurnText', () => {
 
   it('leaves an ordinary turn alone', () => {
     const plain = 'Just an answer, no block.'
-    expect(parseTurnText(plain)).toEqual({ prose: plain, directive: null })
+    expect(parseTurnText(plain)).toEqual({
+      prose: plain,
+      directive: null,
+      malformed: false,
+    })
   })
 })
 

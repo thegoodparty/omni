@@ -100,6 +100,24 @@ describe('buildStepPrompt', () => {
     expect(buildOrgsPrompt(settled)).toContain('askFor and script are required')
   })
 
+  it('carries the affectedness method into the outreach beat', () => {
+    // Ported from the Serve lists runbook: the flow was picking super-voters,
+    // which the framework calls a gate on who answers rather than a measure
+    // of who the decision lands on.
+    const prompt = buildOutreachPrompt('settled')
+    expect(prompt).toContain('PICK FOR EXPOSURE')
+    expect(prompt).toContain('NEVER rank by turnout')
+    expect(prompt).toContain('TWO GATES')
+    expect(prompt).toContain('NEVER FILTER ON ETHNICITY')
+    expect(prompt).toContain('FACTORS ARE PER ISSUE')
+  })
+
+  it('leaves the organizations beat out of the affectedness method', () => {
+    // It is about who in the contact file the decision lands on; an
+    // organization is not in the contact file at all.
+    expect(buildOrgsPrompt('settled')).not.toContain('PICK FOR EXPOSURE')
+  })
+
   it('holds the define step to at least two questions', () => {
     const prompt = buildStepPrompt('define', priority)
     expect(prompt).toContain('at least two questions')

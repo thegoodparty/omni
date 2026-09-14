@@ -1,3 +1,4 @@
+import { AFFECTEDNESS_METHOD } from './affectedness'
 import { DIRECTIVE_FENCE } from './stepProtocol'
 import type { PriorityFlowStep } from './steps'
 
@@ -245,13 +246,14 @@ export const buildOutreachPrompt = (settled: string): string =>
   [
     `I confirmed the summary: ${settled}`,
     'Now the outreach, and do the work before you answer rather than ' +
-      'proposing it: describe_filter_dimensions, then count_contacts, to ' +
-      'find the group in my real contact data whose answer would confirm or ' +
-      'break what we settled; crud_saved_filters to actually create that ' +
-      'list, named for this priority; then pick the channel they are ' +
-      'likeliest to answer on ("phone_banking" for a conversation or an ' +
-      'older group, "social" for reach and for people not in the file) and ' +
-      'write the message itself, short, in my voice, one clear question.',
+      'proposing it: find the group in my real contact data whose answer ' +
+      'would confirm or break what we settled, by the method below; ' +
+      'crud_saved_filters to actually create that list, named for this ' +
+      'priority; then pick the channel they are likeliest to answer on ' +
+      '("phone_banking" for a conversation or an older group, "social" for ' +
+      'reach and for people not in the file) and write the message itself, ' +
+      'short, in my voice, one clear question.',
+    AFFECTEDNESS_METHOD,
     'End the turn with exactly this and nothing else:',
     '```' +
       DIRECTIVE_FENCE +
@@ -279,6 +281,19 @@ export const buildOrgsPrompt = (settled: string): string =>
       'or read out, in my voice, saying what I want from them. One or two ' +
       'lines of prose at most.',
     HOUSE_RULES,
+  ].join('\n\n')
+
+// Sent when a turn ended in a block the client could not read. The prose in
+// that turn almost always points at a card ("the three groups below"), so
+// silence is the one thing this cannot do.
+export const buildRepairPrompt = (): string =>
+  [
+    'That last block did not come through: I see your message but no card.',
+    'Send the block again on its own, with nothing before or after it, in ' +
+      'exactly the shape the instructions gave. Check that every field is ' +
+      'present, that the JSON is valid, and that strings with quotes or ' +
+      'newlines in them are escaped. Do not rewrite what you said, and do ' +
+      'not apologise: just the block.',
   ].join('\n\n')
 
 export const buildStepPrompt = (

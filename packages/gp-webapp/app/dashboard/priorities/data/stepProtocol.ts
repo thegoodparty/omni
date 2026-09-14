@@ -19,7 +19,7 @@ export const DIRECTIVE_FENCE = 'priority'
 
 const QuestionDirectiveSchema = z.object({
   ask: z.string().min(1),
-  options: z.array(z.string().min(1)).min(2).max(4),
+  options: z.array(z.string().min(1)).min(2).max(6),
   // Why each option, in the agent's words. Optional and positional: index i
   // belongs to option i.
   notes: z.array(z.string()).optional(),
@@ -74,7 +74,7 @@ const OutreachDirectiveSchema = z.object({
 })
 
 const OrgsDirectiveSchema = z.object({
-  orgs: z.array(OutreachOrgSchema).min(1).max(3),
+  orgs: z.array(OutreachOrgSchema).min(1).max(5),
 })
 
 // A step that cannot be settled in the app, because what it needs happens at a
@@ -194,16 +194,25 @@ const toDirective = (raw: string): PriorityDirective | null => {
  */
 export const parseTurnText = (
   text: string,
-): { prose: string; directive: PriorityDirective | null } => {
+): {
+  prose: string
+  directive: PriorityDirective | null
+  // A block that arrived complete and did not match any directive. The turn's
+  // prose is usually written as though the card rendered ("the three groups
+  // below"), so this cannot be swallowed: the caller asks for it again.
+  malformed: boolean
+} => {
   const open = text.indexOf(FENCE_OPEN)
-  if (open === -1) return { prose: text, directive: null }
+  if (open === -1) return { prose: text, directive: null, malformed: false }
 
   const prose = text.slice(0, open).trimEnd()
   const afterOpen = text.slice(open + FENCE_OPEN.length)
   const close = afterOpen.indexOf('```')
-  if (close === -1) return { prose, directive: null }
+  // Still streaming: not malformed, just unfinished.
+  if (close === -1) return { prose, directive: null, malformed: false }
 
-  return { prose, directive: toDirective(afterOpen.slice(0, close)) }
+  const directive = toDirective(afterOpen.slice(0, close))
+  return { prose, directive, malformed: directive === null }
 }
 
 /**
@@ -213,13 +222,17 @@ export const parseTurnText = (
  */
 export const splitSegments = (
   segments: LiveSegment[],
-): { segments: LiveSegment[]; directive: PriorityDirective | null } => {
+): {
+  segments: LiveSegment[]
+  directive: PriorityDirective | null
+  malformed: boolean
+} => {
   const fullText = segments
     .map((s) => (s.kind === 'text' ? s.text : ''))
     .join('')
-  const { directive } = parseTurnText(fullText)
+  const { directive, malformed } = parseTurnText(fullText)
   const open = fullText.indexOf(FENCE_OPEN)
-  if (open === -1) return { segments, directive }
+  if (open === -1) return { segments, directive, malformed }
 
   const kept: LiveSegment[] = []
   let consumed = 0
@@ -237,5 +250,5 @@ export const splitSegments = (
         : { ...segment, text: segment.text.slice(0, open - start).trimEnd() },
     )
   }
-  return { segments: kept, directive }
+  return { segments: kept, directive, malformed }
 }

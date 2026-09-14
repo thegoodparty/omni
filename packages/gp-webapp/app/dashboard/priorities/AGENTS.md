@@ -81,6 +81,23 @@ reached the organizations. Sequencing that matters is not left to the model.
 Continue appears only after `orgs`, so the coalitions are part of the step
 rather than an optional extra after it.
 
+**Who to hear from follows the Serve lists runbook** (Samuel, 2026-09-10),
+ported into `data/affectedness.ts` and carried by the outreach beat. The
+correction it makes: the flow was picking high-engagement constituents and
+super-voters, which that framework calls a gate on who answers rather than a
+measure of who a decision lands on. Ranking by it hands an official the people
+already talking to them. The block covers exposure over engagement, the
+representation and contact gates in that order, per-issue factors (tenure
+flips direction between a housing issue and an industrial one), checking
+coverage before leaning on a dimension, never filtering on ethnicity, and
+saying who the filter leaves out. It is about people in the contact file, so
+the organizations beat does not carry it.
+
+**A block the parser cannot read gets asked for again.** The prose in that turn
+is written as though the card rendered ("the three groups below"), so a
+directive that fails validation cannot just vanish. `parseTurnText` reports
+`malformed`, and the shell sends one repair ask per turn.
+
 **The work is done before the offer, not after it.** The agent queries the
 filter dimensions, counts the group, creates the saved list, picks the channel
 and writes the message, all before it settles, and then says what it found and

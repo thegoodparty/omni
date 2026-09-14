@@ -37,12 +37,21 @@ import {
   type WaitingOn,
 } from '../data/stepProtocol'
 import PriorityQuestion from './PriorityQuestion'
+import {
+  PhoneBankingFlow,
+  SERVE_PHONE_BANKING_SURFACE,
+} from '../../outreach/v2/phone-banking/PhoneBankingFlow'
+import {
+  SocialFlow,
+  SERVE_SOCIAL_SURFACE,
+} from '../../outreach/v2/social/SocialFlow'
 import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
 import { priorityFlowChatApi } from '../data/chat-api'
 import {
   buildOrgsPrompt,
   buildOutreachPrompt,
+  buildRepairPrompt,
   buildResumePrompt,
   buildStepPrompt,
   stepFromMarker,
@@ -292,6 +301,12 @@ export default function PriorityFlowShell({
     return null
   }, [visibleMessages])
 
+  // Only the newest turn is worth repairing: an older one has been overtaken.
+  const latestMalformedId =
+    latestAssistant && parseTurnText(latestAssistant.content).malformed
+      ? latestAssistant.id
+      : null
+
   const latestOutreach =
     latestAssistant && latestDirective?.kind === 'outreach'
       ? { id: latestAssistant.id, settled: lastSettledText ?? '' }
@@ -314,16 +329,10 @@ export default function PriorityFlowShell({
 
   // The agent has already built the list and drafted the message, so this is
   // not permission to do the work: it is the official taking work that is
-  // done. It opens the channel's own flow on the message to review.
-  const openOutreach = (plan: OutreachPlan): void => {
-    const params = new URLSearchParams({
-      flow: plan.channel,
-      message: plan.message,
-    })
-    if (plan.listId !== null) params.set('listId', String(plan.listId))
-    if (plan.campaignName !== null) params.set('name', plan.campaignName)
-    router.push(`/dashboard/constituent-outreach?${params.toString()}`)
-  }
+  // done. The channel's own flow opens over the conversation rather than
+  // navigating to the outreach hub, so closing it puts them back in the
+  // conversation they were having.
+  const [outreachOpen, setOutreachOpen] = useState<OutreachPlan | null>(null)
 
   const answerQuestion = (messageId: string, answer: string): void => {
     if (!conversationId || isStreaming()) return
@@ -342,6 +351,20 @@ export default function PriorityFlowShell({
     setHiddenSent((prev) => [...prev, prompt])
     void send(conversationId, prompt, { hidden: true })
   }
+
+  // A turn whose block could not be read gets one chance to send it again.
+  // Without this the card is simply absent while the prose above it says "the
+  // three groups below", which is the worst of both: nothing to act on and no
+  // sign anything went wrong.
+  const repairedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!conversationId || sending) return
+    if (!latestMalformedId || repairedRef.current === latestMalformedId) return
+    repairedRef.current = latestMalformedId
+    const prompt = buildRepairPrompt()
+    setHiddenSent((prev) => [...prev, prompt])
+    void send(conversationId, prompt, { hidden: true })
+  }, [conversationId, sending, latestMalformedId, send])
 
   // And the outreach landing is what starts the organizations beat, once per
   // turn that carried one.
@@ -454,7 +477,7 @@ export default function PriorityFlowShell({
                   {split.directive?.kind === 'outreach' ? (
                     <OutreachCard
                       outreach={split.directive.outreach}
-                      onOutreach={openOutreach}
+                      onOutreach={setOutreachOpen}
                     />
                   ) : null}
                   {split.directive?.kind === 'orgs' ? (
@@ -500,6 +523,31 @@ export default function PriorityFlowShell({
           </div>
         </div>
       </div>
+
+      {outreachOpen?.channel === 'phone_banking' ? (
+        <PhoneBankingFlow
+          open
+          onClose={() => setOutreachOpen(null)}
+          surface={SERVE_PHONE_BANKING_SURFACE}
+          initialScript={outreachOpen.message}
+          {...(outreachOpen.listId !== null
+            ? { preselectedListId: outreachOpen.listId }
+            : {})}
+          {...(outreachOpen.campaignName !== null
+            ? { initialName: outreachOpen.campaignName }
+            : {})}
+        />
+      ) : null}
+      {outreachOpen?.channel === 'social' ? (
+        <SocialFlow
+          open
+          onClose={() => setOutreachOpen(null)}
+          // The save lands in the outreach history the hub reads; nothing
+          // here needs to react to it.
+          onSaved={() => setOutreachOpen(null)}
+          surface={SERVE_SOCIAL_SURFACE}
+        />
+      ) : null}
 
       <div className="shrink-0 border-t border-border bg-background">
         <div className="mx-auto w-full max-w-3xl px-4 py-3">
