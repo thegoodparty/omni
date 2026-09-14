@@ -915,3 +915,200 @@ class TestTheCliContract:
     def test_a_backwards_window_is_refused(self):
         with pytest.raises(ValueError):
             summarize({"window": {"start": WINDOW["end"], "end": WINDOW["start"]}})
+
+
+def an_alert_decision(outcome: str, **fields) -> str:
+    """A GPALERT_METRIC line as alert_filter/metrics.py writes it."""
+    record = {
+        "slug": "door-knocking-pack-build-failed",
+        "name": "[door-knocking] Pack build failed",
+        "environment": "prod",
+        "outcome": outcome,
+        "cause_id": None,
+        "reason": "no known cause matched the evidence",
+        "degraded": False,
+        "mentioned": outcome == "urgent",
+        "cost_usd": 0.0002,
+        "evidence_queries": 1,
+        "fingerprint": "abc123",
+    }
+    record.update(fields)
+    return f"GPALERT_METRIC {json.dumps(record)}"
+
+
+def with_alerts(alerts):
+    return render(summarize({**REPORT_PAYLOAD, "alerts": alerts}, now=REPORT_PREPARED))
+
+
+class TestTheAlertFilterSection:
+    # The section reports on a separate Lambda in a separate log group, and its
+    # gather ships after this code does. A permanent "unavailable" line in the
+    # meantime would turn the job red every Monday over a state nobody can act
+    # on — the same mistake RUNS_GAP exists to avoid.
+    def test_a_digest_that_was_never_asked_about_the_filter_omits_the_line(self):
+        message = render(summarize(REPORT_PAYLOAD, now=REPORT_PREPARED))
+
+        assert "Alert filter" not in message
+        assert weekly_digest.unavailable_sources(summarize(REPORT_PAYLOAD, now=REPORT_PREPARED)) == []
+
+    # ...but a gather that RAN and failed is a real fault, and it goes red. The
+    # sentinel is what keeps these two apart, since `.get()` cannot tell an
+    # absent key from an explicit null.
+    def test_a_gather_that_failed_is_reported_and_goes_red(self):
+        facts = summarize({**REPORT_PAYLOAD, "alerts": None}, now=REPORT_PREPARED)
+
+        assert "Alert filter: *unavailable*" in render(facts)
+        assert "alerts" in weekly_digest.unavailable_sources(facts)
+
+    # Not "a quiet week". There is no independent count of how many alerts
+    # Grafana sent, so nothing can corroborate a zero here the way ClickUp
+    # corroborates the verdict counts — and the person reading is in the channel
+    # and knows whether it was busy.
+    def test_no_decisions_recorded_is_stated_literally_rather_than_as_quiet(self):
+        message = with_alerts([])
+
+        assert "Alert filter: no decisions recorded this week." in message
+        assert "quiet" not in message.lower()
+
+    def test_it_counts_each_outcome_and_the_pings(self):
+        message = with_alerts(
+            [
+                an_alert_decision("urgent", reason="error rate 40%"),
+                an_alert_decision("notify"),
+                an_alert_decision("notify"),
+                an_alert_decision("annotate", cause_id="upstream-404"),
+                an_alert_decision("suppress", cause_id="people-db-statement-timeout"),
+            ]
+        )
+
+        assert "1 urgent · 2 notify · 1 annotate · 1 suppress" in message
+        assert "*1 ping*" in message
+
+    # An outcome that silently stops appearing is a parser drifting from
+    # classify.py, and it would otherwise read as the filter simply never
+    # reaching that conclusion.
+    def test_an_outcome_nothing_produced_still_prints_as_zero(self):
+        assert "0 suppress" in with_alerts([an_alert_decision("notify")])
+
+    # THE POINT OF THE WHOLE SECTION. "Suppressed 34 alerts" is unreviewable;
+    # naming the causes is a decision somebody can disagree with, which is the
+    # only form in which this number is worth reporting.
+    def test_suppressions_are_named_by_cause_with_counts(self):
+        message = with_alerts(
+            [an_alert_decision("suppress", cause_id="people-db-statement-timeout") for _ in range(3)]
+            + [an_alert_decision("suppress", cause_id="upstream-404")]
+        )
+
+        assert "`people-db-statement-timeout` ×3" in message
+        assert "`upstream-404` ×1" in message
+
+    # The cause hiding the most alerts is the one a reader sees first, and it is
+    # also the one most worth being wrong about.
+    def test_the_busiest_cause_is_named_first(self):
+        message = with_alerts(
+            [an_alert_decision("suppress", cause_id="rare")]
+            + [an_alert_decision("suppress", cause_id="common") for _ in range(5)]
+        )
+
+        assert message.index("`common`") < message.index("`rare`")
+
+    def test_a_suppression_with_no_cause_id_is_still_counted_and_named(self):
+        message = with_alerts([an_alert_decision("suppress", cause_id=None)])
+
+        assert "(unnamed cause)" in message
+
+    # How a known issue becomes a permanently invisible one: the alert stops
+    # arriving and nothing is left pointing at the work. The filter reports it
+    # in each decision's reason, so this needs no second source.
+    def test_suppressing_with_no_ticket_is_called_out(self):
+        message = with_alerts(
+            [
+                an_alert_decision(
+                    "suppress",
+                    cause_id="people-db-statement-timeout",
+                    reason="known cause confirmed, tracked by no ticket",
+                )
+            ]
+        )
+
+        assert "no ticket to track the work" in message
+        assert "`people-db-statement-timeout`" in message
+
+    def test_a_tracked_suppression_is_not_called_out(self):
+        message = with_alerts(
+            [an_alert_decision("suppress", cause_id="x", reason="known cause confirmed, tracked by ENG-1234")]
+        )
+
+        assert "no ticket" not in message
+
+    # A week of `notify` because the filter chose them and a week of `notify`
+    # because it could not reach Loki look identical in the channel — busy —
+    # and without this number the second is undetectable.
+    def test_fallback_decisions_are_distinguished_from_judgements(self):
+        message = with_alerts(
+            [
+                an_alert_decision("notify", degraded=True, reason="loki timed out"),
+                an_alert_decision("notify"),
+            ]
+        )
+
+        assert "1 of 2 decisions were fallbacks rather than judgements" in message
+
+    def test_a_week_with_no_fallbacks_says_nothing_about_them(self):
+        assert "fallback" not in with_alerts([an_alert_decision("notify")])
+
+    def test_it_totals_what_the_filter_cost(self):
+        message = with_alerts([an_alert_decision("notify", cost_usd=0.5) for _ in range(4)])
+
+        assert "Filter cost: $2.00 this week" in message
+
+    # Same rule as the gpbot cost line: an unreadable cost is summed around
+    # rather than coerced to zero, so a week of unpriced decisions does not
+    # report as a free one.
+    def test_an_unpriced_decision_does_not_count_as_free(self):
+        facts = summarize({**REPORT_PAYLOAD, "alerts": [an_alert_decision("notify", cost_usd=None)]})
+
+        assert facts["alerts"]["total_usd"] == 0
+        assert "Filter cost" not in render(facts)
+
+    # The two tokens must share no prefix: `filter-log-events` matches a token
+    # as a bare substring, so a shared one would fold alert decisions into the
+    # verdict counts and the cost total above.
+    def test_a_gpbot_run_line_is_not_read_as_an_alert_decision(self):
+        facts = summarize({**REPORT_PAYLOAD, "alerts": REPORT_RUNS})
+
+        assert facts["alerts"]["records"] == 0
+
+    # Asserted against `verdicts` directly rather than through `summarize`,
+    # because `summarize` is right to demote the whole verdict line here: a
+    # week whose only run lines are alert decisions has six analyses ClickUp can
+    # see and no metrics for them, which is the instrumentation gap, not a quiet
+    # week. That demotion is the behaviour under test one level up; the
+    # isolation is the behaviour under test here.
+    def test_an_alert_decision_is_not_read_as_a_gpbot_run(self):
+        assert verdicts([an_alert_decision("suppress")])["records"] == 0
+
+    def test_an_alert_log_group_mistakenly_queried_for_runs_reads_as_the_gap(self):
+        facts = summarize({**REPORT_PAYLOAD, "runs": [an_alert_decision("suppress")]})
+
+        assert facts["verdicts"]["available"] is False
+        assert "no run metrics" in render(facts)
+
+    # One malformed line must not cost the week's decisions, and the count of
+    # what survived is reported so a systematic parse failure shows up as a
+    # record count that disagrees with the channel.
+    def test_one_unparseable_line_does_not_discard_the_others(self):
+        facts = summarize(
+            {**REPORT_PAYLOAD, "alerts": ["GPALERT_METRIC {not json", an_alert_decision("notify"), "unrelated log"]}
+        )
+
+        assert facts["alerts"]["records"] == 1
+
+    # CloudWatch's own event objects and bare message strings, because
+    # `filter-log-events` returns the first and `--query 'events[].message'`
+    # returns the second — and which one the workflow hands over should not be
+    # able to silently zero the section.
+    def test_it_reads_cloudwatch_event_objects_as_well_as_bare_strings(self):
+        facts = summarize({**REPORT_PAYLOAD, "alerts": [{"message": an_alert_decision("suppress")}]})
+
+        assert facts["alerts"]["counts"]["suppress"] == 1

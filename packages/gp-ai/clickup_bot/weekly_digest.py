@@ -120,6 +120,45 @@ DEFLECTING_VERDICTS = ("no-code-change",)
 # engineer_agent/agent/metrics.py; see that module for why it exists at all.
 METRIC_PREFIX = "GPBOT_METRIC"
 
+# ...and what an ALERT decision's line looks like, written by
+# alert_filter/metrics.py. A separate token rather than a label on the first,
+# because `filter-log-events` matches a token as a bare substring: a shared
+# prefix would fold alert decisions into the verdict counts and the cost total
+# above. alert_filter/tests/test_metrics.py asserts neither contains the other.
+ALERT_METRIC_PREFIX = "GPALERT_METRIC"
+
+# How the filter's four outcomes are reported, in the order the alert section
+# prints them. A tuple rather than a set derived from the data, for the same
+# reason VERDICTS is one: an outcome that silently stops appearing is a parser
+# drifting from classify.py, and it would otherwise read as the filter simply
+# never reaching that conclusion.
+ALERT_OUTCOMES = ("urgent", "notify", "annotate", "suppress")
+
+# The outcome that hides an alert from a human. Everything about how the alert
+# section is written follows from this being the one number in the digest that
+# describes something nobody saw.
+SUPPRESS_OUTCOME = "suppress"
+
+# How many suppressed causes are named before the line is summarised. Same
+# reasoning as MAX_NAMED_MISSES: the point of naming them is that somebody can
+# go and check one, which nobody does from a wall of twenty.
+MAX_NAMED_CAUSES = 6
+
+# "This digest was not asked about the alert filter", which is a different state
+# from "the query failed".
+#
+# WHY THE DISTINCTION IS WORTH A CONSTANT: the gather for this section ships in
+# a later change than the section itself, and every digest before that lands
+# would otherwise report a source as unavailable and turn the job red. That is
+# the same mistake RUNS_GAP exists to avoid — a job expected to be red is a job
+# whose redness stops meaning anything — but it needs a different fix here,
+# because unlike the metric gap there is nothing worth SAYING about it: a reader
+# cannot act on "a feature has not shipped". So an absent key omits the line
+# entirely, while a key whose value is unreadable reports as unavailable and
+# goes red. The workflow either gathers this or it does not, so the two cannot
+# be confused for each other.
+ALERTS_NOT_GATHERED = "not-gathered"
+
 # WHY A ZERO FROM CLOUDWATCH IS NOT SELF-EXPLANATORY, and the bug that put this
 # here: the first real run of this digest reported "Verdicts: no analyses
 # recorded" and "Cost: no runs recorded this week" for a week in which seven
@@ -406,6 +445,109 @@ def cost(runs: Any) -> dict:
     }
 
 
+# A sentinel, because `payload.get("alerts")` cannot tell an absent key from an
+# explicit null — and those are the two states ALERTS_NOT_GATHERED exists to
+# separate. An explicit null is a gather that ran and produced nothing readable.
+_NOT_GATHERED = object()
+
+
+def _alert_records(alerts: Any) -> list[dict]:
+    """The parsed GPALERT_METRIC lines. Same tolerance as `_metric_records`.
+
+    A separate gather from the gpbot runs rather than a filter over one list,
+    because the two come from different log groups and either can be
+    independently unavailable — and a section that read zero because the OTHER
+    source failed would be the exact lie the rest of this module exists to
+    prevent.
+    """
+    records = []
+    for event in alerts if isinstance(alerts, list) else []:
+        message = event if isinstance(event, str) else event.get("message") if isinstance(event, dict) else None
+        if not isinstance(message, str):
+            continue
+        _, marker, body = message.partition(ALERT_METRIC_PREFIX)
+        if not marker:
+            continue
+        try:
+            parsed = json.loads(body)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            records.append(parsed)
+    return records
+
+
+def alert_filter(alerts: Any) -> dict:
+    """What the alert filter did to #dev-alerts last week.
+
+    THE QUESTION THIS SECTION EXISTS TO ANSWER is not "did the filter work". It
+    is "what did we stop showing people, and was that right" — and that is a
+    question only a human can answer, from a list. So the suppressions are
+    reported BY CAUSE with counts, named rather than totalled, because a line
+    reading "suppressed 34 alerts" is unreviewable and a line naming
+    `people-db-statement-timeout` 34 times is a decision somebody can agree or
+    disagree with.
+
+    TWO THINGS ARE CALLED OUT SPECIFICALLY.
+
+    A suppressing cause with no ticket, because that is how a known issue
+    becomes a permanently invisible one: the alert stops arriving and nothing is
+    left pointing at the work. The registry's own documentation says an entry
+    like that should be rare, and this is what makes "rare" checkable. The
+    filter reports it in each decision's reason, which is why it can be counted
+    here without a second source.
+
+    Degraded decisions, because a week of `notify` means one thing if the filter
+    chose them and something entirely different if it spent the week unable to
+    reach Loki. Both weeks look identical in #dev-alerts — busy — and without
+    this number the second one is undetectable.
+    """
+    if alerts is _NOT_GATHERED:
+        return {"available": False, "reason": ALERTS_NOT_GATHERED}
+    if not isinstance(alerts, list):
+        return {"available": False, "reason": RUNS_UNREACHABLE}
+
+    records = _alert_records(alerts)
+    counts = dict.fromkeys(ALERT_OUTCOMES, 0)
+    suppressed_by_cause: dict[str, int] = {}
+    untracked_causes = set()
+    degraded = 0
+    pinged = 0
+    total_cost = 0.0
+
+    for record in records:
+        outcome = record.get("outcome")
+        if outcome in counts:
+            counts[outcome] += 1
+        if record.get("degraded") is True:
+            degraded += 1
+        if record.get("mentioned") is True:
+            pinged += 1
+        value = record.get("cost_usd")
+        if not isinstance(value, bool) and isinstance(value, (int, float)):
+            total_cost += float(value)
+        if outcome == SUPPRESS_OUTCOME:
+            cause = record.get("cause_id")
+            cause = cause if isinstance(cause, str) and cause else "(unnamed cause)"
+            suppressed_by_cause[cause] = suppressed_by_cause.get(cause, 0) + 1
+            reason = record.get("reason")
+            if isinstance(reason, str) and "no ticket" in reason:
+                untracked_causes.add(cause)
+
+    return {
+        "available": True,
+        "records": len(records),
+        "counts": counts,
+        # Descending, so the cause hiding the most alerts is the one a reader
+        # sees first — it is also the one most worth being wrong about.
+        "suppressed_by_cause": sorted(suppressed_by_cause.items(), key=lambda kv: (-kv[1], kv[0])),
+        "untracked_causes": sorted(untracked_causes),
+        "degraded": degraded,
+        "pinged": pinged,
+        "total_usd": round(total_cost, 4),
+    }
+
+
 def is_bot_pr(pr: Any) -> bool:
     if not isinstance(pr, dict):
         return False
@@ -606,6 +748,14 @@ def summarize(payload: Any, now: float | None = None) -> dict:
         "verdicts": verdict_facts,
         "cost": cost_facts,
         "prs": pull_requests(payload.get("prs"), start, end, now),
+        # Read from its own key, not from `runs`. The alert filter is a separate
+        # Lambda in a separate log group, and folding the two into one query
+        # would make either source's failure look like the other reporting a
+        # quiet week. `believable_zero` deliberately does NOT apply here: there
+        # is no independent count of alert firings to corroborate a zero
+        # against, so a zero is reported as what it literally is — see
+        # `_alert_line`.
+        "alerts": alert_filter(payload.get("alerts", _NOT_GATHERED)),
     }
 
 
@@ -720,6 +870,70 @@ def _cost_line(facts: dict) -> str:
     return line
 
 
+def _alert_line(facts: dict) -> str | None:
+    """What the filter did to #dev-alerts, and what it hid.
+
+    A ZERO HERE IS REPORTED AS WHAT IT LITERALLY IS, which is a departure from
+    how `verdicts` and `cost` treat theirs. Those get corroborated against
+    ClickUp, because "no runs recorded" is ambiguous between a quiet week and
+    missing instrumentation. There is nothing to corroborate this against — no
+    independent count of how many alerts Grafana sent exists outside the filter
+    itself — so rather than imply a judgement it cannot support, the line says
+    the filter recorded no decisions and leaves the inference to a reader who
+    knows whether alerts fired last week. That reader is in the channel.
+    """
+    if facts.get("reason") == ALERTS_NOT_GATHERED:
+        # Omitted rather than reported. See ALERTS_NOT_GATHERED: a reader cannot
+        # act on "a feature has not shipped", and a permanent line saying so is
+        # a line people learn to skip past — which costs the section its
+        # attention on the week it finally has something to say.
+        return None
+    if not facts.get("available"):
+        return f"Alert filter: *unavailable* — {_unavailable(facts)}."
+
+    if facts["records"] == 0:
+        # Not "a quiet week". If #dev-alerts was busy and this says zero, the
+        # filter is not recording — and the person reading knows which it was.
+        return "Alert filter: no decisions recorded this week."
+
+    counts = facts["counts"]
+    listed = " · ".join(f"{counts[outcome]} {outcome}" for outcome in ALERT_OUTCOMES)
+    line = f"Alert filter: {listed} · *{_plural(facts['pinged'], 'ping')}*"
+
+    extra = []
+    if facts["suppressed_by_cause"]:
+        # Named, not totalled. "Suppressed 34 alerts" is unreviewable; naming
+        # the causes is a decision somebody can disagree with, which is the only
+        # form in which this number is worth reporting at all.
+        named = ", ".join(f"`{cause}` ×{count}" for cause, count in facts["suppressed_by_cause"][:MAX_NAMED_CAUSES])
+        overflow = (
+            ""
+            if len(facts["suppressed_by_cause"]) <= MAX_NAMED_CAUSES
+            else f", +{len(facts['suppressed_by_cause']) - MAX_NAMED_CAUSES} more"
+        )
+        extra.append(f"Suppressed by cause: {named}{overflow}")
+
+    if facts["untracked_causes"]:
+        # How a known issue becomes a permanently invisible one: the alert stops
+        # arriving and nothing is left pointing at the work.
+        causes = ", ".join(f"`{cause}`" for cause in facts["untracked_causes"][:MAX_NAMED_CAUSES])
+        extra.append(f"⚠️ Suppressing with no ticket to track the work: {causes}")
+
+    if facts["degraded"]:
+        # A week of `notify` because the filter chose them and a week of
+        # `notify` because it could not reach Loki look identical in the
+        # channel — busy — and without this number the second is undetectable.
+        extra.append(
+            f"⚠️ {facts['degraded']} of {_plural(facts['records'], 'decision')} were fallbacks rather than "
+            "judgements: the filter notified because it could not decide."
+        )
+
+    if facts["total_usd"]:
+        extra.append(f"Filter cost: ${facts['total_usd']:.2f} this week")
+
+    return "\n".join([line, *(f"  ↳ {item}" for item in extra)])
+
+
 def render(facts: dict) -> str:
     """The Slack message, headline first.
 
@@ -745,6 +959,14 @@ def render(facts: dict) -> str:
     if latency:
         lines.append(latency)
     lines += [_verdict_line(facts["verdicts"]), _pr_line(facts["prs"]), _cost_line(facts["cost"])]
+    # Last, below the bot's own numbers, because it is about a different system.
+    # Present on every digest rather than only when the filter did something:
+    # the whole reason this section exists is that a filter which has silently
+    # stopped filtering is invisible, and a line that appears only on weeks the
+    # filter was working could not report the week it was not.
+    alert_line = _alert_line(facts["alerts"])
+    if alert_line:
+        lines.append(alert_line)
     note = _instrumentation_note(facts)
     if note:
         lines.append(note)
@@ -803,10 +1025,14 @@ def unavailable_sources(facts: dict) -> list[str]:
     do not reach this list at all; the marker on each and the note below them
     are what a reader gets.
     """
+    # A SECTION THAT WAS NEVER GATHERED DOES NOT GO RED EITHER, for the same
+    # reason as RUNS_GAP one line below: the alert-filter gather ships after
+    # this section does, and failing on its absence would red-cross every digest
+    # in between over a state nobody can act on.
     return [
         name
-        for name in ("coverage", "verdicts", "prs", "cost")
-        if not facts[name].get("available") and facts[name].get("reason") != RUNS_GAP
+        for name in ("coverage", "verdicts", "prs", "cost", "alerts")
+        if not facts[name].get("available") and facts[name].get("reason") not in (RUNS_GAP, ALERTS_NOT_GATHERED)
     ]
 
 
