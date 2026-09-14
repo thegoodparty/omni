@@ -21,6 +21,10 @@ model Campaign {
   // details key: the details allowlist strips anything it does not name, so a
   // JSONB write fails silently while a missing column fails loudly.
   ballotStatus             String?                 @map("ballot_status")
+  // Onboarding's "What do you most want help with?" answer — the primary
+  // reason the candidate signed up, used to personalize what we surface after
+  // onboarding. A column for the same reason as ballotStatus above.
+  signupGoal               String?                 @map("signup_goal")
   dateVerified             DateTime?               @map("date_verified")
   tier                     CampaignTier?
   formattedAddress         String?                 @map("formatted_address")

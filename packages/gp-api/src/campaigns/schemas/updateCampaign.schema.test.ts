@@ -76,6 +76,35 @@ describe('updateCampaignBodySchema', () => {
     ).toThrow()
   })
 
+  it.each([
+    'voter-data',
+    'voter-outreach',
+    'campaign-strategy',
+    'templates-resources',
+    'exploring',
+  ])('accepts the top-level signupGoal "%s"', (signupGoal) => {
+    const result = updateCampaignBodySchema.parse({ signupGoal })
+
+    expect(result).toHaveProperty('signupGoal', signupGoal)
+  })
+
+  it('rejects an unknown top-level signupGoal', () => {
+    expect(() =>
+      updateCampaignBodySchema.parse({ signupGoal: 'something-else' }),
+    ).toThrow()
+  })
+
+  it('strips signupGoal from details (it is a top-level column)', () => {
+    // The details allowlist does not name signupGoal, so a client that sent it
+    // there would have it silently dropped — the column is the only write path.
+    const result = updateCampaignBodySchema.parse({
+      details: { state: 'CA', signupGoal: 'voter-data' },
+    })
+
+    expect(result.details).not.toHaveProperty('signupGoal')
+    expect(result.details).toHaveProperty('state', 'CA')
+  })
+
   it('rejects an einNumber that is not in XX-XXXXXXX format', () => {
     expect(() =>
       updateCampaignBodySchema.parse({
