@@ -31,12 +31,16 @@ same convention as every other `*.auto.tfvars` in this tree).
 
 | Field | Value |
 | --- | --- |
-| ClickUp folder | "Autopilot" `901319488097` (Engineering space `90138877046`) |
-| Feature list | "Autopilot features" `901329057923` |
-| Story list | "Autopilot stories" `901329057924` |
+| ClickUp folder | "Autopilot" `901319491206` (Engineering space `90138877046`) |
+| Board list (shared by feature cards + story subtasks) | `901329066225` |
 | Team / workspace id | `90132012119` |
 | Bot user id | `105985359` ("Collin Park" — the account `CLICKUP_API_KEY` in `AI_SECRETS_DEV` belongs to) |
 | Slack channel | `#autopilot` `C0C1K9FBDG9` |
+
+Statuses on the list (set by hand in the ClickUp UI — the API cannot create
+statuses): `approved tdd`, `in progress`, `feedback needed`, `executing`,
+`qa`, `done`. The board contract in `autopilot/README.md` says what each
+means per card type.
 
 **Bot user caveat:** `AUTOPILOT_BOT_USER_ID` is the identity `router.py`'s
 human-actor gate treats as the bot's own writes and therefore ignores. Because
@@ -44,16 +48,16 @@ this is also the ClickUp account behind `AUTOPILOT_CLICKUP_API_KEY`, any
 manual status move made by signing in as this account (e.g. testing a gate by
 hand) is invisible to the gate too — it must be a genuinely different human
 account that moves a card through `approved tdd → in progress` or
-`breakdown review → executing` for the gate to fire.
+`feedback needed → executing` for the gate to fire.
 
-**Webhook** (registered 2026-09-13):
+**Webhook** (re-registered 2026-09-14 onto the final board folder):
 
 | Field | Value |
 | --- | --- |
-| Webhook id | `8787458c-e9af-4614-96d1-4b2308e5a370` |
+| Webhook id | `b2f1863f-312f-4051-be13-40f58e4fb006` |
 | Endpoint | `https://ai-dev.goodparty.org/autopilot/webhook` |
 | Events | `taskStatusUpdated`, `taskCreated`, `taskCommentPosted` |
-| Scope | Folder `901319488097` ("Autopilot") |
+| Scope | Folder `901319491206` ("Autopilot") |
 | Health | active |
 
 The signing secret lives in `AI_SECRETS_DEV` as `AUTOPILOT_CLICKUP_WEBHOOK_SECRET`
@@ -69,7 +73,7 @@ placeholder (`""`) defaults for the board/Slack variables and
 ## List webhooks / delete / recreate
 
 Same shape as `clickup-bot`'s recipe (see `environments/prod/clickup-bot/README.md`),
-scoped to folder `901319488097` instead of the whole workspace:
+scoped to folder `901319491206` instead of the whole workspace:
 
 ```bash
 curl -s "https://api.clickup.com/api/v2/team/90132012119/webhook" \

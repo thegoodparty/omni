@@ -9,8 +9,6 @@
 # every webhook event 200-skips as "list not in scope" until this is set.
 autopilot_list_ids = ""
 
-# Comma-separated subset of autopilot_list_ids that are story lists.
-autopilot_story_list_ids = ""
 
 # ClickUp user id the human-actor gate treats as the bot's own writes.
 autopilot_bot_user_id = ""

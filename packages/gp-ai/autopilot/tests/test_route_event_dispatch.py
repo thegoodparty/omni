@@ -74,7 +74,6 @@ def boto3_clients(monkeypatch, fake_dynamodb, fake_ecs):
 @pytest.fixture(autouse=True)
 def env(monkeypatch):
     monkeypatch.setenv("AUTOPILOT_BOT_USER_ID", BOT_USER_ID)
-    monkeypatch.setenv("AUTOPILOT_STORY_LIST_IDS", STORY_LIST_ID)
     monkeypatch.setenv("AUTOPILOT_LIST_IDS", f"{STORY_LIST_ID},{FEATURE_LIST_ID}")
     monkeypatch.setenv("AUTOPILOT_DEDUP_TABLE", "autopilot-dedup-test")
     monkeypatch.setenv("ECS_CLUSTER_ARN", "arn:aws:ecs:us-west-2:1:cluster/autopilot")
@@ -126,10 +125,10 @@ def test_human_gate_transition_dispatches_exactly_one_epic_create_run(fake_ecs):
     event = make_event(
         FEATURE_LIST_ID,
         [transition(HUMAN_USER_ID, router.STATUS_APPROVED_TDD, router.STATUS_IN_PROGRESS)],
-        # Set even though epic-create never carries one: this actually
-        # exercises the "story/qa only" exclusion (router.EPIC_SCOPED_STAGES)
-        # rather than passing vacuously because the field defaulted to None.
-        epic_task_id="epic-should-not-appear",
+        # No epic_task_id: setting one would make this a STORY event under
+        # parent-based card typing. The non-vacuous EPIC_SCOPED_STAGES
+        # exclusion check lives on the resume test below, where a story
+        # legitimately carries a parent that must still not reach the env.
     )
 
     handler.route_event(event)
@@ -287,12 +286,12 @@ def test_story_done_calls_supervisor_not_fargate(fake_ecs, monkeypatch):
     assert calls[0].epic_task_id == "epic-7"
 
 
-def test_breakdown_review_gate_calls_supervisor_with_its_own_id(fake_ecs, monkeypatch):
+def test_breakdown_approval_gate_calls_supervisor_with_its_own_id(fake_ecs, monkeypatch):
     calls = []
     monkeypatch.setattr(handler.supervisor, "handle_routed_event", calls.append)
     event = make_event(
         FEATURE_LIST_ID,
-        [transition(HUMAN_USER_ID, router.STATUS_BREAKDOWN_REVIEW, router.STATUS_EXECUTING)],
+        [transition(HUMAN_USER_ID, router.STATUS_FEEDBACK_NEEDED, router.STATUS_EXECUTING)],
     )
 
     handler.route_event(event)
@@ -303,12 +302,12 @@ def test_breakdown_review_gate_calls_supervisor_with_its_own_id(fake_ecs, monkey
     assert calls[0].epic_task_id == TASK_ID
 
 
-def test_breakdown_review_gate_by_bot_dispatches_nothing(fake_ecs, monkeypatch):
+def test_breakdown_approval_gate_by_bot_dispatches_nothing(fake_ecs, monkeypatch):
     calls = []
     monkeypatch.setattr(handler.supervisor, "handle_routed_event", calls.append)
     event = make_event(
         FEATURE_LIST_ID,
-        [transition(BOT_USER_ID, router.STATUS_BREAKDOWN_REVIEW, router.STATUS_EXECUTING)],
+        [transition(BOT_USER_ID, router.STATUS_FEEDBACK_NEEDED, router.STATUS_EXECUTING)],
     )
 
     handler.route_event(event)
@@ -349,6 +348,7 @@ def test_comment_posted_without_event_ts_refuses_dispatch(fake_ecs, capsys):
         [],
         kind="commentPosted",
         current_status=router.STATUS_FEEDBACK_NEEDED,
+        epic_task_id="epic-1",
         event_ts=None,
     )
 
