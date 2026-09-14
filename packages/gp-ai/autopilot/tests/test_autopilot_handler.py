@@ -540,6 +540,25 @@ def test_async_worker_raises_when_hydration_read_fails(monkeypatch, fake_lambda,
     assert "ERROR: failed to hydrate task" in capsys.readouterr().out
 
 
+def test_async_worker_raises_when_hydrated_task_has_no_readable_list(monkeypatch, fake_lambda, capsys):
+    # A successful read whose list field is unreadable must not fall through
+    # to the scope gate — None reads as "not in scope" and the event would be
+    # silently lost with a misleading log. Same contract as a failed read.
+    routed = []
+    monkeypatch.setattr(handler, "route_event", lambda e: routed.append(e))
+    monkeypatch.setattr(
+        handler.supervisor,
+        "get_task",
+        lambda task_id: {"id": task_id, "status": {"status": "in progress"}},
+    )
+
+    with pytest.raises(RuntimeError, match="no list id"):
+        handler.handler(_unhydrated_payload(), None)
+
+    assert routed == []
+    assert "has no readable list id" in capsys.readouterr().out
+
+
 def test_async_worker_scope_gate_applies_to_prehydrated_payloads(monkeypatch, fake_lambda):
     # A payload that already names its list (console invoke, test) must not
     # bypass the scope gate the edge applies to ALB-routed requests.

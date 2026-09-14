@@ -173,7 +173,12 @@ def _story_from_task(task: dict) -> Story | None:
 
 def load_epic_stories(epic_task_id: str) -> list[Story]:
     try:
-        epic = clickup_request("GET", f"/task/{epic_task_id}?include_subtasks=true")
+        # include_closed pins the contract close-out depends on: every story
+        # must stay visible here whatever status it reaches. Probed live
+        # (2026-09-14): this endpoint returns done- and even closed-type
+        # subtasks without the flag, so it changes nothing today — it exists
+        # so a ClickUp default change can't silently strand a fully-done epic.
+        epic = clickup_request("GET", f"/task/{epic_task_id}?include_subtasks=true&include_closed=true")
     except Exception as e:
         print(f"ERROR: supervisor failed to load epic {epic_task_id}: {type(e).__name__}")
         return []
@@ -553,9 +558,18 @@ def file_flag_cleanup_ticket(epic_task_id: str) -> str | None:
                 "name": f"Flag cleanup: {epic_name}",
                 "description": (
                     f"{epic_name} shipped dark behind a feature flag. Follow up to flip it on "
-                    "in prod, or clean it up if the experiment did not land."
+                    "in prod, or clean it up if the experiment did not land. (Filed by autopilot "
+                    "at epic close-out; created in done so the pipeline never dispatches it — "
+                    "reopen it when a human picks it up.)"
                 ),
                 "parent": epic_task_id,
+                # Born done, deliberately: as a subtask of the epic it IS a
+                # story to the supervisor, and the list default status is the
+                # story queue — a later tick (a story-done webhook redelivery
+                # racing close-out) would select it and burn a story-agent
+                # run on an administrative ticket. is_done excludes it from
+                # every candidate/all-done computation.
+                "status": router.STATUS_DONE,
             },
         )
     except Exception as e:

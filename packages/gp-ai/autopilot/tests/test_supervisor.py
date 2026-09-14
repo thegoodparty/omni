@@ -156,7 +156,7 @@ def story_task(task_id, status, order_index="1", dependencies=None):
 
 
 def register_epic(fake_clickup, story_ids, stories):
-    fake_clickup.responses[f"/task/{EPIC_ID}?include_subtasks=true"] = epic_response(story_ids)
+    fake_clickup.responses[f"/task/{EPIC_ID}?include_subtasks=true&include_closed=true"] = epic_response(story_ids)
     for story_id, task in stories.items():
         fake_clickup.responses[f"/task/{story_id}"] = task
 
@@ -381,6 +381,10 @@ def test_all_done_closes_out_epic(fake_clickup, fake_ecs):
     cleanup_calls = [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"]
     assert len(cleanup_calls) == 1
     assert cleanup_calls[0][2]["parent"] == EPIC_ID
+    # Born done: as a subtask of the epic the cleanup ticket IS a story to
+    # the supervisor, and the list-default status is the story queue — a
+    # tick racing close-out would otherwise dispatch a story agent on it.
+    assert cleanup_calls[0][2]["status"] == router.STATUS_DONE
     assert len(fake_clickup.slack_posts) == 1
     assert "cleanup-1" in fake_clickup.slack_posts[0]["text"] or "complete" in fake_clickup.slack_posts[0]["text"]
 

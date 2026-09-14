@@ -442,6 +442,13 @@ def handle_async_processing(event: dict) -> dict:
     # rule around route_event below.
     if autopilot_event.list_id is None:
         autopilot_event = _hydrate_from_clickup(autopilot_event)
+        if autopilot_event.list_id is None:
+            # The read succeeded but the task's list field was unreadable —
+            # falling through would drop this as "not in scope", losing the
+            # event with no retry and a misleading log. Same contract as a
+            # failed read: raise so Lambda's async delivery retries it.
+            print(f"ERROR: hydrated task {autopilot_event.task_id} has no readable list id; raising for retry")
+            raise RuntimeError(f"hydrated task {autopilot_event.task_id} returned no list id")
 
     # Unconditional, not only on the hydration path: a pre-hydrated payload
     # (console invoke, test) must not bypass the scope gate the edge applies
