@@ -293,7 +293,16 @@ def claim_epic_in_flight(epic_task_id: str, story_task_id: str, ttl_seconds: flo
                 "story_task_id": {"S": story_task_id},
                 "expires_at": {"N": str(expires_at)},
             },
-            ConditionExpression="attribute_not_exists(pk) OR #exp < :now",
+            # The third clause lets a real dispatch claim overwrite an
+            # alert-only item: try_claim_stall_alert (notably the sweep's
+            # pre-supervisor feature-card pass) writes this same pk with a
+            # live expires_at but NO story_task_id, and without the clause
+            # that item would block every dispatch on the epic until its TTL
+            # lapses. A genuine in-flight claim always carries story_task_id,
+            # so the clause is inert for those. Overwriting resets alerted_at
+            # on purpose — a real dispatch starts a new phase with a fresh
+            # one-alert budget.
+            ConditionExpression="attribute_not_exists(pk) OR #exp < :now OR attribute_not_exists(story_task_id)",
             ExpressionAttributeNames={"#exp": "expires_at"},
             ExpressionAttributeValues={":now": {"N": str(int(time.time()))}},
         )

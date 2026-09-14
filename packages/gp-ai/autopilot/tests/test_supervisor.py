@@ -43,6 +43,8 @@ class FakeDynamoDBClient:
             return existing is None
         if expression == "attribute_not_exists(pk) OR #exp < :now":
             return existing is None or int(existing["expires_at"]["N"]) < now
+        if expression == "attribute_not_exists(pk) OR #exp < :now OR attribute_not_exists(story_task_id)":
+            return existing is None or int(existing["expires_at"]["N"]) < now or "story_task_id" not in existing
         if expression == "attribute_not_exists(pk) OR attribute_not_exists(alerted_at)":
             return existing is None or "alerted_at" not in existing
         raise AssertionError(f"fake does not know how to evaluate condition: {expression!r}")
@@ -531,6 +533,22 @@ def test_alerted_at_recorded_on_the_epic_claim_item(fake_clickup, fake_ecs, fake
 
     item = fake_dynamodb.items[supervisor.epic_claim_pk(EPIC_ID)]
     assert "alerted_at" in item
+
+
+def test_alert_only_claim_item_does_not_block_a_real_dispatch(fake_clickup, fake_ecs, fake_dynamodb):
+    # The sweep's pre-supervisor feature-card stall alert writes this epic's
+    # claim pk with a live expires_at and NO story_task_id. When the human
+    # then approves the breakdown and the first real tick runs, that
+    # alert-only item must not read as "a story is in flight" — the dispatch
+    # claim overwrites it (the attribute_not_exists(story_task_id) clause).
+    register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_APPROVED_TDD)})
+    assert supervisor.try_claim_stall_alert(EPIC_ID)
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+
+    assert len(fake_ecs.run_task_calls) == 1
+    claim = fake_dynamodb.items[supervisor.epic_claim_pk(EPIC_ID)]
+    assert claim["story_task_id"]["S"] == "s1"
 
 
 def test_alerting_preserves_the_claimed_story_id(fake_clickup, fake_ecs, fake_dynamodb):
