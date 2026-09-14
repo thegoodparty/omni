@@ -242,7 +242,12 @@ const currentTermLine = (start: Date | null, end: Date | null): string => {
     return `Current term: ${range} (this term has ended)`
   }
   const months = differenceInCalendarMonths(endDay, today)
-  return `Current term: ${range} (about ${months} month(s) remaining)`
+  // Time remaining is derived from the end date alone, so it stays accurate
+  // on a record whose start was never captured. Say the start is missing
+  // rather than dropping the count, so an incomplete row cannot read as a
+  // complete one.
+  const gap = start ? '' : '; start date not on file'
+  return `Current term: ${range} (about ${months} month(s) remaining${gap})`
 }
 
 const officeContextBlock = (ctx: ChiefOfStaffContext): string =>

@@ -374,6 +374,45 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     }
   })
 
+  // The countdown comes from the end date alone, so it stays correct with no
+  // start on file. Say the start is missing instead of dropping the count.
+  it('keeps the countdown but flags a missing term start', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-14T12:00:00.000Z'))
+    try {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({
+          termStartDate: null,
+          termEndDate: new Date('2028-12-05T00:00:00.000Z'),
+        }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).toContain(
+        'Current term: unknown to 2028-12-05 (about 27 month(s) remaining; ' +
+          'start date not on file)',
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not flag a missing start when both dates are on file', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-14T12:00:00.000Z'))
+    try {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx({
+          termStartDate: new Date('2024-12-03T00:00:00.000Z'),
+          termEndDate: new Date('2028-12-05T00:00:00.000Z'),
+        }),
+        toolNames: TOOLS,
+      })
+      expect(prompt).not.toContain('start date not on file')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('says a finished term has ended rather than counting down', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx({
