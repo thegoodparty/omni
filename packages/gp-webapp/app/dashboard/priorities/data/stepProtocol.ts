@@ -52,19 +52,29 @@ const OutreachPlanSchema = z.object({
 const OutreachOrgSchema = z.object({
   name: z.string().min(1),
   why: z.string().min(1),
-  // Who to approach there and how, in one line.
-  how: z.string().min(1),
+  // Who to ask for when you get through.
+  askFor: z.string().min(1),
+  // What to actually say, ready to send or read out.
+  script: z.string().min(1),
+  email: z.string().max(200).optional(),
+  phone: z.string().max(40).optional(),
+  url: z.string().max(500).optional(),
 })
 
+// Three separate beats, three separate turns. One card carrying the summary,
+// the audience, the message and three organizations was more than anyone reads
+// at once, and it collapsed decisions that happen at different moments: agree
+// this is right, then send it, then work the coalitions.
 const SynthesisDirectiveSchema = z.object({
   settled: z.string().min(1),
-  // Who to hear from about what was just settled, proposed rather than
-  // waited for: the flow's argument is that the official's read and the
-  // affected group's read are two different things.
-  outreach: OutreachPlanSchema.optional(),
-  // Organizations to go through, alongside the direct outreach rather than
-  // instead of it.
-  orgs: z.array(OutreachOrgSchema).max(3).optional(),
+})
+
+const OutreachDirectiveSchema = z.object({
+  outreach: OutreachPlanSchema,
+})
+
+const OrgsDirectiveSchema = z.object({
+  orgs: z.array(OutreachOrgSchema).min(1).max(3),
 })
 
 // A step that cannot be settled in the app, because what it needs happens at a
@@ -84,6 +94,8 @@ const WaitingDirectiveSchema = z.object({
 const DirectiveSchema = z.union([
   QuestionDirectiveSchema,
   WaitingDirectiveSchema,
+  OutreachDirectiveSchema,
+  OrgsDirectiveSchema,
   SynthesisDirectiveSchema,
 ])
 
@@ -100,7 +112,15 @@ export type OutreachPlan = {
   campaignName: string | null
 }
 
-export type OutreachOrg = { name: string; why: string; how: string }
+export type OutreachOrg = {
+  name: string
+  why: string
+  askFor: string
+  script: string
+  email: string | null
+  phone: string | null
+  url: string | null
+}
 
 export type WaitingOn = {
   on: string
@@ -111,12 +131,9 @@ export type WaitingOn = {
 export type PriorityDirective =
   | { kind: 'question'; ask: string; options: string[]; notes: string[] }
   | { kind: 'waiting'; waiting: WaitingOn }
-  | {
-      kind: 'synthesis'
-      settled: string
-      outreach: OutreachPlan | null
-      orgs: OutreachOrg[]
-    }
+  | { kind: 'synthesis'; settled: string }
+  | { kind: 'outreach'; outreach: OutreachPlan }
+  | { kind: 'orgs'; orgs: OutreachOrg[] }
 
 const FENCE_OPEN = '```' + DIRECTIVE_FENCE
 
@@ -134,20 +151,30 @@ const toDirective = (raw: string): PriorityDirective | null => {
     return { kind: 'waiting', waiting: { on, unblocks, when: when ?? null } }
   }
   if ('settled' in parsed.data) {
+    return { kind: 'synthesis', settled: parsed.data.settled }
+  }
+  if ('outreach' in parsed.data) {
     const plan = parsed.data.outreach
     return {
-      kind: 'synthesis',
-      settled: parsed.data.settled,
-      outreach: plan
-        ? {
-            ...plan,
-            count: plan.count ?? null,
-            listId: plan.listId ?? null,
-            listName: plan.listName ?? null,
-            campaignName: plan.campaignName ?? null,
-          }
-        : null,
-      orgs: parsed.data.orgs ?? [],
+      kind: 'outreach',
+      outreach: {
+        ...plan,
+        count: plan.count ?? null,
+        listId: plan.listId ?? null,
+        listName: plan.listName ?? null,
+        campaignName: plan.campaignName ?? null,
+      },
+    }
+  }
+  if ('orgs' in parsed.data) {
+    return {
+      kind: 'orgs',
+      orgs: parsed.data.orgs.map((org) => ({
+        ...org,
+        email: org.email ?? null,
+        phone: org.phone ?? null,
+        url: org.url ?? null,
+      })),
     }
   }
   return {

@@ -2,7 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Button, cn } from '@styleguide'
+import {
+  Button,
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  cn,
+} from '@styleguide'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
 import type { ChatAnchor, Priority } from '@goodparty_org/contracts'
 import { toolDisplayName } from '../../chief-of-staff/components/chat/chatConstants'
@@ -307,7 +316,13 @@ export default function PriorityFlowShell({
         segmentsToLive(latestAssistant.segments ?? [], latestAssistant.content),
       ).directive
     : null
-  const settled = latestDirective?.kind === 'synthesis'
+  // The step is done enough to move on once it has settled and the beats that
+  // follow a settle have landed. A step still asking, or parked on the real
+  // world, does not get a Continue.
+  const settled =
+    latestDirective?.kind === 'synthesis' ||
+    latestDirective?.kind === 'outreach' ||
+    latestDirective?.kind === 'orgs'
   // A settle turn can run for the better part of a minute: dimensions, a
   // count, a list create, then research. The tool pills shimmer while a tool
   // is actually in flight, but the gaps between them (the model thinking, or
@@ -396,12 +411,30 @@ export default function PriorityFlowShell({
                     <WaitingCard waiting={split.directive.waiting} />
                   ) : null}
                   {split.directive?.kind === 'synthesis' ? (
-                    <SettledCard
-                      text={split.directive.settled}
+                    <>
+                      <SettledCard text={split.directive.settled} />
+                      {/* Checking the summary before anything is built on it,
+                          through the same picker every other question uses. */}
+                      <PriorityQuestion
+                        directive={CONFIRM_QUESTION}
+                        {...(answers[`${message.id}:confirm`] !== undefined
+                          ? { answer: answers[`${message.id}:confirm`] }
+                          : {})}
+                        disabled={sending || !isLatest}
+                        onAnswer={(answer) =>
+                          answerQuestion(`${message.id}:confirm`, answer)
+                        }
+                      />
+                    </>
+                  ) : null}
+                  {split.directive?.kind === 'outreach' ? (
+                    <OutreachCard
                       outreach={split.directive.outreach}
-                      orgs={split.directive.orgs}
                       onOutreach={openOutreach}
                     />
+                  ) : null}
+                  {split.directive?.kind === 'orgs' ? (
+                    <OrgsCard orgs={split.directive.orgs} />
                   ) : null}
                 </AssistantRow>
               )
@@ -482,77 +515,184 @@ function WaitingCard({ waiting }: { waiting: WaitingOn }): React.JSX.Element {
   )
 }
 
-// What the step settled on, the visible half of this flow's save_synthesis,
-// with the outreach it recommends off the back of it. The recommendation is
-// proposed, not waited for: what was agreed here is the official's read, and
-// the step is not really done until it survives contact with the people it
-// lands on.
-function SettledCard({
-  text,
+// Beat one: what the step settled, on its own, so it can be checked before
+// anything is built on it.
+function SettledCard({ text }: { text: string }): React.JSX.Element {
+  return (
+    <div className="flex w-full flex-col gap-1 rounded-lg border border-border bg-card p-4 shadow-sm">
+      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        What this step settled
+      </span>
+      <p className="text-sm text-foreground">{text}</p>
+    </div>
+  )
+}
+
+// The confirm, synthesized rather than asked for: the agent has already said
+// what it thinks, and a round trip to have it write "is that right?" is a
+// round trip the user waits through.
+const CONFIRM_QUESTION: Extract<PriorityDirective, { kind: 'question' }> = {
+  kind: 'question',
+  ask: 'Have I got that right?',
+  options: ['Yes, that is it', 'Not quite'],
+  notes: [],
+}
+
+// Beat two: the outreach, already built. Who it goes to, on what, saying
+// what, and the one action that opens the channel's own flow.
+function OutreachCard({
   outreach,
-  orgs,
   onOutreach,
 }: {
-  text: string
-  outreach: OutreachPlan | null
-  orgs: OutreachOrg[]
+  outreach: OutreachPlan
   onOutreach: (plan: OutreachPlan) => void
 }): React.JSX.Element {
   return (
     <div className="flex w-full flex-col gap-3 rounded-lg border border-border bg-card p-4 shadow-sm">
       <div className="flex flex-col gap-1">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          What this step settled
+          Worth hearing from
         </span>
-        <p className="text-sm text-foreground">{text}</p>
+        <p className="text-sm font-medium text-foreground">
+          {outreach.who}
+          {outreach.count !== null
+            ? ` (${outreach.count.toLocaleString()})`
+            : ''}
+        </p>
+        <p className="text-sm text-muted-foreground">{outreach.why}</p>
       </div>
-      {outreach ? (
-        <div className="flex flex-col gap-2 border-t border-border pt-3">
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Worth hearing from
-          </span>
-          <p className="text-sm font-medium text-foreground">
-            {outreach.who}
-            {outreach.count !== null ? ` (${outreach.count})` : ''}
-          </p>
-          <p className="text-sm text-muted-foreground">{outreach.why}</p>
-          <div className="rounded-lg border border-border bg-muted/40 p-3">
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">
-              {CHANNEL_LABELS[outreach.channel]}
-            </span>
-            <p className="mt-1 text-sm text-foreground">{outreach.message}</p>
-          </div>
-          <Button
-            size="small"
-            className="self-start rounded-full"
-            onClick={() => onOutreach(outreach)}
-          >
-            Reach out to them
-          </Button>
-          {outreach.listId === null ? (
-            <span className="text-xs text-muted-foreground">
-              You will pick who it goes to on the next screen.
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-      {orgs.length > 0 ? (
-        <div className="flex flex-col gap-2 border-t border-border pt-3">
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Groups who can reach further than your list
-          </span>
-          {orgs.map((org) => (
-            <div key={org.name} className="flex flex-col gap-0.5">
-              <span className="text-sm font-medium text-foreground">
-                {org.name}
-              </span>
-              <span className="text-sm text-muted-foreground">{org.why}</span>
-              <span className="text-sm text-foreground">{org.how}</span>
-            </div>
-          ))}
-        </div>
+      <div className="rounded-lg border border-border bg-muted/40 p-3">
+        <span className="text-xs uppercase tracking-wide text-muted-foreground">
+          {CHANNEL_LABELS[outreach.channel]}
+        </span>
+        <p className="mt-1 text-sm text-foreground">{outreach.message}</p>
+      </div>
+      <Button
+        size="small"
+        className="self-start rounded-full"
+        onClick={() => onOutreach(outreach)}
+      >
+        Reach out to them
+      </Button>
+      {outreach.listId === null ? (
+        <span className="text-xs text-muted-foreground">
+          You will pick who it goes to on the next screen.
+        </span>
       ) : null}
     </div>
+  )
+}
+
+// Beat three: the coalitions. A row each, because the detail (who to ask for,
+// what to say, how to reach them) is what you want open in front of you when
+// you actually make the call, not while you are reading past it.
+function OrgsCard({ orgs }: { orgs: OutreachOrg[] }): React.JSX.Element {
+  const [open, setOpen] = useState<OutreachOrg | null>(null)
+  return (
+    <div className="flex w-full flex-col gap-2 rounded-lg border border-border bg-card p-4 shadow-sm">
+      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Groups who reach further than your list
+      </span>
+      {orgs.map((org) => (
+        <button
+          key={org.name}
+          type="button"
+          onClick={() => setOpen(org)}
+          className="flex items-center gap-3 rounded-lg border border-border px-3 py-2 text-left transition-colors hover:bg-muted/50"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium text-foreground">
+              {org.name}
+            </span>
+            <span className="block truncate text-sm text-muted-foreground">
+              {org.why}
+            </span>
+          </span>
+          <ChevronRightIcon
+            className="size-4 shrink-0 text-muted-foreground"
+            aria-hidden
+          />
+        </button>
+      ))}
+      <OrgSheet
+        org={open}
+        onOpenChange={(next) => {
+          if (!next) setOpen(null)
+        }}
+      />
+    </div>
+  )
+}
+
+// The same shape as a contact card: who you are calling, what to ask for, the
+// script, and the address or number as something you can actually press.
+function OrgSheet({
+  org,
+  onOpenChange,
+}: {
+  org: OutreachOrg | null
+  onOpenChange: (open: boolean) => void
+}): React.JSX.Element {
+  return (
+    <Sheet open={org !== null} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-full sm:max-w-md">
+        <SheetHeader>
+          <SheetTitle>{org?.name ?? ''}</SheetTitle>
+          <SheetDescription>{org?.why ?? ''}</SheetDescription>
+        </SheetHeader>
+        {org ? (
+          <SheetBody className="flex flex-col gap-5">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Ask for
+              </span>
+              <p className="text-sm text-foreground">{org.askFor}</p>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                What to say
+              </span>
+              <p className="whitespace-pre-wrap rounded-lg border border-border bg-muted/40 p-3 text-sm text-foreground">
+                {org.script}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {org.email ? (
+                <Button asChild size="small" className="rounded-full">
+                  <a
+                    href={`mailto:${org.email}?body=${encodeURIComponent(org.script)}`}
+                  >
+                    Email {org.email}
+                  </a>
+                </Button>
+              ) : null}
+              {org.phone ? (
+                <Button
+                  asChild
+                  size="small"
+                  variant="outline"
+                  className="rounded-full"
+                >
+                  <a href={`tel:${org.phone}`}>Call {org.phone}</a>
+                </Button>
+              ) : null}
+              {org.url ? (
+                <Button
+                  asChild
+                  size="small"
+                  variant="outline"
+                  className="rounded-full"
+                >
+                  <a href={org.url} target="_blank" rel="noreferrer">
+                    Their site
+                  </a>
+                </Button>
+              ) : null}
+            </div>
+          </SheetBody>
+        ) : null}
+      </SheetContent>
+    </Sheet>
   )
 }
 

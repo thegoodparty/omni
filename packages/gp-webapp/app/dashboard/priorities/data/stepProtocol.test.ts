@@ -19,70 +19,80 @@ describe('parseTurnText', () => {
     })
   })
 
-  it('reads a synthesis', () => {
+  it('reads a synthesis on its own', () => {
     expect(parseTurnText(settled).directive).toEqual({
       kind: 'synthesis',
       settled: 'We agreed on renters.',
-      outreach: null,
-      orgs: [],
     })
   })
 
-  it('reads the outreach the agent built off a settled step', () => {
-    const withPlan =
-      '```priority\n{"settled": "Renters on the flood blocks.", "outreach": ' +
-      '{"who": "Renters on Oak and Third", "count": 260, "channel": ' +
-      '"phone_banking", "why": "They answer a call", "message": "Did the ' +
-      'flooding reach your unit this year?", "listId": 42, "listName": ' +
-      '"Flood blocks renters"}, "orgs": [{"name": "Oak Street Tenants ' +
-      'Union", "why": "Reaches renters who are not in the file", "how": ' +
-      '"Email their organizer"}]}\n```'
-    expect(parseTurnText(withPlan).directive).toEqual({
-      kind: 'synthesis',
-      settled: 'Renters on the flood blocks.',
+  it('reads the outreach as its own turn', () => {
+    const turn =
+      '```priority\n{"outreach": {"who": "Renters on Oak and Third", ' +
+      '"count": 260, "channel": "phone_banking", "why": "They answer a ' +
+      'call", "message": "Did the flooding reach your unit?", "listId": 42, ' +
+      '"listName": "Flood blocks renters", "campaignName": "Flooding: what ' +
+      'renters say"}}\n```'
+    expect(parseTurnText(turn).directive).toEqual({
+      kind: 'outreach',
       outreach: {
         who: 'Renters on Oak and Third',
         count: 260,
         channel: 'phone_banking',
         why: 'They answer a call',
-        message: 'Did the flooding reach your unit this year?',
+        message: 'Did the flooding reach your unit?',
         listId: 42,
         listName: 'Flood blocks renters',
-        campaignName: null,
+        campaignName: 'Flooding: what renters say',
       },
+    })
+  })
+
+  it('still reads an outreach whose list could not be built', () => {
+    const turn =
+      '```priority\n{"outreach": {"who": "Renters", "channel": "social", ' +
+      '"why": "Reach", "message": "Tell me"}}\n```'
+    expect(parseTurnText(turn).directive).toMatchObject({
+      kind: 'outreach',
+      outreach: { listId: null, listName: null, count: null },
+    })
+  })
+
+  it('refuses a channel this flow cannot open', () => {
+    const turn =
+      '```priority\n{"outreach": {"who": "w", "channel": "carrier_pigeon", ' +
+      '"why": "y", "message": "m"}}\n```'
+    expect(parseTurnText(turn).directive).toBeNull()
+  })
+
+  it('reads the organizations as their own turn, with what to say', () => {
+    const turn =
+      '```priority\n{"orgs": [{"name": "Oak Street Tenants Union", "why": ' +
+      '"Reaches renters not in the file", "askFor": "their organizer", ' +
+      '"script": "Can you put this to your members?", "email": ' +
+      '"hi@oakstreet.org"}]}\n```'
+    expect(parseTurnText(turn).directive).toEqual({
+      kind: 'orgs',
       orgs: [
         {
           name: 'Oak Street Tenants Union',
-          why: 'Reaches renters who are not in the file',
-          how: 'Email their organizer',
+          why: 'Reaches renters not in the file',
+          askFor: 'their organizer',
+          script: 'Can you put this to your members?',
+          email: 'hi@oakstreet.org',
+          phone: null,
+          url: null,
         },
       ],
     })
   })
 
-  it('still reads a plan whose list could not be built', () => {
-    const noList =
-      '```priority\n{"settled": "Renters.", "outreach": {"who": "Renters", ' +
-      '"channel": "social", "why": "Reach", "message": "Tell me"}}\n```'
-    const directive = parseTurnText(noList).directive
-    expect(directive).toMatchObject({
-      kind: 'synthesis',
-      outreach: {
-        listId: null,
-        listName: null,
-        count: null,
-        campaignName: null,
-      },
-    })
-  })
-
-  it('refuses a channel this flow cannot open', () => {
-    const bad =
-      '```priority\n{"settled": "x", "outreach": {"who": "w", "channel": ' +
-      '"carrier_pigeon", "why": "y", "message": "m"}}\n```'
-    // The plan is the part that fails, so the whole directive is refused
-    // rather than rendering a card with a channel nothing can open.
-    expect(parseTurnText(bad).directive).toBeNull()
+  it('refuses an organization with no one to ask for and nothing to say', () => {
+    // Without those two it is a name on a card, which is the version of this
+    // the split was meant to replace.
+    const turn =
+      '```priority\n{"orgs": [{"name": "Some Group", "why": "reach"}]}\n```'
+    expect(parseTurnText(turn).directive).toBeNull()
   })
 
   it('reads a step parked on the real world', () => {

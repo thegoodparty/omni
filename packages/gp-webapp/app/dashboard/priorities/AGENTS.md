@@ -60,6 +60,21 @@ things. So settling carries a proposal rather than a prompt to go find one.
   These are half the answer, not a footnote, because the people most affected
   by a decision are usually the ones missing from the file.
 
+**A settle lands as three turns, not one card.** The summary, the outreach and
+the organizations are three different decisions made at three different
+moments, and stacking them made a card nobody reads to the bottom of. So:
+
+1. `settled`, the summary alone, followed by a client-synthesized confirm
+   through the same picker every other question uses. Nothing is built on a
+   summary the official has not agreed with.
+2. `outreach`, once confirmed: who, how many, the channel, the message, and
+   the one button that opens the channel's flow.
+3. `orgs`, one to three coalitions, as rows. The detail (who to ask for, the
+   script, the address or number) opens in a side sheet, because that is what
+   you want in front of you when you make the call, not while reading past it.
+   An org without `askFor` and `script` is refused by the parser: a name on a
+   card is the version this replaced.
+
 **The work is done before the offer, not after it.** The agent queries the
 filter dimensions, counts the group, creates the saved list, picks the channel
 and writes the message, all before it settles, and then says what it found and
