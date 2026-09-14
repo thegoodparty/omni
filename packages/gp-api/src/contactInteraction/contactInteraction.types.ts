@@ -83,6 +83,44 @@ export const SUPPORT_ANSWER_ROLLUP = {
   [SupportAnswer.unsure]: 'undecided',
 } as const satisfies Record<SupportAnswer, SupportStatusRollup>
 
+// How much authority an answer carries over the answers before it: only a firm
+// answer may overturn a firm answer.
+//
+// The reported bug is what recency alone does. A canvasser re-knocks a door
+// they already have a "supporter" from, the resident is non-committal this
+// time, the canvasser logs "unsure" — and the person flips to `undecided`
+// everywhere: the walk list, the map, the per-list counts, the CRM. To the
+// candidate that reads as the second pass having overwritten the first, which
+// is why it was reported as data loss. Nothing was lost; both rows are still
+// there, and this is the projection over them that was wrong.
+//
+// "I'm not sure today" is weaker evidence than "I support you", whenever it
+// was said. A firm answer stands until another firm one replaces it, and two
+// equally firm answers are still settled by recency — someone who has changed
+// their mind has changed their mind.
+//
+// One constant, compiled into both the SQL ordering in
+// SupportStatusService.derivedStatusSql and the in-process pick in
+// DoorKnockingStatusService.latestKnockStatuses, for the reason
+// SUPPORT_ANSWER_ROLLUP above is one constant: a door that reads one way in
+// Contacts and another way at the door tells the candidate nothing except
+// that one of the two is lying.
+// The three rungs. `none` is a row that carries no answer at all — a
+// not-home, a refusal, an inaccessible door — and sitting below every answer
+// is the rule that was already here as `(support_answer IS NOT NULL) DESC`,
+// now the bottom of this scale rather than a separate clause.
+export const ANSWER_FIRMNESS = {
+  none: 0,
+  soft: 1,
+  firm: 2,
+} as const
+
+export const SUPPORT_ANSWER_FIRMNESS = {
+  [SupportAnswer.supporter]: ANSWER_FIRMNESS.firm,
+  [SupportAnswer.non_supporter]: ANSWER_FIRMNESS.firm,
+  [SupportAnswer.unsure]: ANSWER_FIRMNESS.soft,
+} as const satisfies Record<SupportAnswer, number>
+
 // The subset of SupportStatusRollup that SupportStatusService can derive
 // from interaction rows. `refused` (ENG-10833) extends the shared rollup
 // vocabulary for manual overrides only — nothing derives it from interaction

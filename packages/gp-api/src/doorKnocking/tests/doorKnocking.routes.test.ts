@@ -1770,7 +1770,7 @@ describe('door-knocking routes', () => {
       })
     })
 
-    it('derives org-wide knock statuses, latest answer per person', async () => {
+    it('derives org-wide knock statuses, firmest answer per person', async () => {
       await service.prisma.contactInteractionDoorKnock.createMany({
         data: [
           {
@@ -1810,14 +1810,74 @@ describe('door-knocking routes', () => {
       const key1 = addresses.find((a) => a.addressKey === PIPED_KEY)
       const statusFor = (personId: string) =>
         key1?.targets.find((t) => t.personId === personId)?.knockStatus
-      // The latest ANSWER wins, matching how Contacts derives the same person:
-      // the newer not_home is a failed re-attempt, not a retraction of the
-      // support they already gave.
+      // The FIRMEST answer wins, matching how Contacts derives the same
+      // person: the newer not_home is a failed re-attempt, not a retraction of
+      // the support they already gave.
       expect(statusFor(PERSON_1)).toBe('supporter')
       expect(statusFor(PERSON_2)).toBe('unknown')
 
       const key3 = addresses.find((a) => a.addressKey === 'KEY-3')
       expect(key3?.targets[0]?.knockStatus).toBe('supporter')
+    })
+
+    // The second half of the same rule, and the one QA reported: a re-canvass
+    // where the resident was non-committal used to flip a known supporter to
+    // "Support unknown" on the walk list, on the map, in the per-list counts
+    // and in the CRM — which reads exactly like the first pass having been
+    // overwritten. Both rows were always there; this is the projection over
+    // them. Pinned at the door as well as in Contacts because the two showing
+    // one person two different statuses is the failure this shares a constant
+    // to prevent.
+    it('keeps a firm answer when a later knock only got an unsure', async () => {
+      await service.prisma.contactInteractionDoorKnock.createMany({
+        data: [
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            occurredAt: new Date('2026-07-01T10:00:00Z'),
+            outcome: 'answered',
+            supportAnswer: 'supporter',
+          },
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            occurredAt: new Date('2026-07-10T10:00:00Z'),
+            outcome: 'answered',
+            supportAnswer: 'unsure',
+          },
+          // A person whose only answer is unsure still reads unknown at the
+          // door: there is no `undecided` in the door's vocabulary, and the
+          // door is still worth knocking.
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_3,
+            occurredAt: new Date('2026-07-05T10:00:00Z'),
+            outcome: 'answered',
+            supportAnswer: 'unsure',
+          },
+        ],
+      })
+
+      const { res } = await knockAndServe()
+
+      const addresses = (
+        res.data.stops as Array<{
+          addresses: Array<{
+            addressKey: string
+            targets: Array<{ personId: string; knockStatus: string }>
+          }>
+        }>
+      ).flatMap((stop) => stop.addresses)
+
+      expect(
+        addresses
+          .find((a) => a.addressKey === PIPED_KEY)
+          ?.targets.find((t) => t.personId === PERSON_1)?.knockStatus,
+      ).toBe('supporter')
+      expect(
+        addresses.find((a) => a.addressKey === 'KEY-3')?.targets[0]
+          ?.knockStatus,
+      ).toBe('unknown')
     })
 
     // Contacts lets a candidate correct a status by hand, and that correction

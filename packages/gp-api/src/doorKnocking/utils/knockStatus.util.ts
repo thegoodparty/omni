@@ -7,6 +7,10 @@ import {
   FollowUpAnswer,
   SupportAnswer,
 } from '../../generated/prisma'
+import {
+  ANSWER_FIRMNESS,
+  SUPPORT_ANSWER_FIRMNESS,
+} from '@/contactInteraction/contactInteraction.types'
 
 const STATUS = DoorKnockStatusSchema.enum
 
@@ -14,6 +18,50 @@ type KnockAnswers = {
   outcome: DoorKnockOutcome
   supportAnswer: SupportAnswer | null
   followUp: FollowUpAnswer | null
+}
+
+// How much authority one knock has over the knocks before it, on the scale
+// SUPPORT_ANSWER_FIRMNESS defines and the CRM's own SQL orders by. Used to
+// pick WHICH row a person's status derives from; `deriveKnockStatus` below is
+// unchanged and still answers only for the row it is handed.
+//
+// A Serve follow-up answer counts as firm. Both of its values are definite —
+// `yes` is needs-follow-up, `no` is engaged — and neither is the Serve
+// equivalent of a shrug, so neither should be displaceable by a later
+// not-home. The two axes do not normally meet: the contract refuses a follow-up
+// beside a support answer, and only an org mid-transition between Win and
+// Serve holds both. When it does, they rank equal and recency decides, which
+// is what happened before this existed.
+const answerFirmness = (interaction: KnockAnswers): number => {
+  if (interaction.followUp !== null) return ANSWER_FIRMNESS.firm
+  if (interaction.supportAnswer === null) return ANSWER_FIRMNESS.none
+  return SUPPORT_ANSWER_FIRMNESS[interaction.supportAnswer]
+}
+
+// The row a person's status derives from: the firmest answer they ever gave.
+// Ties need no comparison because the caller hands rows over newest-first, so
+// the first row at a given firmness is already the most recent one.
+//
+// One function because there are two callers and they colour the same door:
+// `DoorKnockingStatusService.latestKnockStatuses` colours the row a canvasser
+// taps, `DoorKnockingPackService` colours the pin they tapped it from. They
+// held separate copies of the same loop, which is one divergence away from
+// showing a person one status on the map and another in the walk.
+// `SupportStatusService.derivedStatusSql` is the third, in SQL, ordering by
+// the same scale.
+export const firmestAnswerPerPerson = <
+  Row extends KnockAnswers & { personId: string },
+>(
+  newestFirst: readonly Row[],
+): Map<string, Row> => {
+  const firmest = new Map<string, Row>()
+  for (const row of newestFirst) {
+    const held = firmest.get(row.personId)
+    if (!held || answerFirmness(row) > answerFirmness(held)) {
+      firmest.set(row.personId, row)
+    }
+  }
+  return firmest
 }
 
 // Support answers outrank door outcomes; 'unsure' (and answered-with-no-
