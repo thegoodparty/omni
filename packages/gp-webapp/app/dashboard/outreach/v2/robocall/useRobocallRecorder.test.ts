@@ -12,6 +12,10 @@ let nextDecoded: { duration: number; peak: number } | null = {
   peak: 0.5,
 }
 
+// The duration (seconds) the mocked <audio> element reports for an uploaded
+// file, driving readAudioDuration in the uploadFile path.
+let nextUploadDuration = 5
+
 class MockTrack {
   stopped = 0
   stop(): void {
@@ -72,6 +76,20 @@ class MockAudioContext {
   }
 }
 
+// jsdom never loads media, so <audio> metadata events never fire on their own.
+// This resolves onloadedmetadata with a controllable duration so the uploadFile
+// length check (readAudioDuration) can run.
+class MockAudio {
+  preload = ''
+  duration = 5
+  onloadedmetadata: (() => void) | null = null
+  onerror: (() => void) | null = null
+  set src(_value: string) {
+    this.duration = nextUploadDuration
+    setTimeout(() => this.onloadedmetadata?.(), 0)
+  }
+}
+
 const setupNavigator = (): void => {
   Object.defineProperty(global.navigator, 'mediaDevices', {
     configurable: true,
@@ -105,9 +123,11 @@ describe('useRobocallRecorder', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     nextDecoded = { duration: 5, peak: 0.5 }
+    nextUploadDuration = 5
     setupNavigator()
     vi.stubGlobal('MediaRecorder', MockMediaRecorder)
     vi.stubGlobal('AudioContext', MockAudioContext)
+    vi.stubGlobal('Audio', MockAudio)
     URL.createObjectURL = vi.fn(() => 'blob:mock')
     URL.revokeObjectURL = vi.fn()
     // jsdom's Blob.arrayBuffer doesn't resolve under fake timers; stub it so the
@@ -167,5 +187,41 @@ describe('useRobocallRecorder', () => {
     expect(result.current.recording).not.toBeNull()
     // Falls back to the wall-clock timer for the length.
     expect(result.current.recording?.durationSec).toBe(5)
+  })
+
+  it('rejects a silent uploaded file and revokes its object URL', async () => {
+    nextUploadDuration = 10
+    nextDecoded = { duration: 10, peak: 0.001 }
+    const { result } = renderHook(() => useRobocallRecorder(60))
+    const file = new File(['x'], 'clip.mp3', { type: 'audio/mpeg' })
+
+    act(() => result.current.uploadFile(file))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+
+    expect(result.current.status).toBe('idle')
+    expect(result.current.recording).toBeNull()
+    expect(result.current.error).toBe(
+      'That file has no sound. Choose a different recording.',
+    )
+    expect(URL.revokeObjectURL).toHaveBeenCalled()
+  })
+
+  it('captures an uploaded file with audible sound', async () => {
+    nextUploadDuration = 10
+    nextDecoded = { duration: 10, peak: 0.5 }
+    const { result } = renderHook(() => useRobocallRecorder(60))
+    const file = new File(['x'], 'clip.mp3', { type: 'audio/mpeg' })
+
+    act(() => result.current.uploadFile(file))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+
+    expect(result.current.status).toBe('preview')
+    expect(result.current.recording).not.toBeNull()
+    expect(result.current.error).toBeNull()
+    expect(result.current.recording?.durationSec).toBe(10)
   })
 })
