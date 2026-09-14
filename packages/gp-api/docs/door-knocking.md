@@ -428,7 +428,9 @@ The steps:
    `activityConditions`, `supportStatus`, `contactsMade*` and the
    voter-likelihood overrides, so a list previewed in Contacts used to knock a
    different audience than it displayed. A filter resolving to nobody → 400,
-   no people-db round trip.
+   no people-db round trip — and that 400 names the list's criteria, because
+   it is raised before the polygon is read. See "Two ways of finding nobody"
+   below.
 3. Evaluate the turf fresh via `src/peopleDb/` (resolved filters + the
    `idOverrides`/`contactsMadeIdOverrides` clauses that travel beside them +
    bbox; exact point-in-polygon ray-cast in-process — see "Interim geo"
@@ -1528,7 +1530,49 @@ Three things about it are load-bearing:
   intended one.
 - **An empty shape returns zeros, not a 400.** The knock throws there because a
   turf is being committed; a shape still being drawn is allowed to enclose
-  nobody.
+  nobody. The zeros carry `audienceEmpty` to say _which_ nobody — see below.
+
+### Two ways of finding nobody
+
+A create can come up empty for two unrelated reasons, and they want opposite
+advice:
+
+| | Cause | What fixes it |
+|---|---|---|
+| **Empty audience** | The list's own filters resolve to an empty person-id set. Raised before the polygon is read. | Edit the list's filters, or pick another audience. |
+| **Empty turf** | The audience is real; the drawn shape encloses none of it. | Move or widen the boundary. |
+
+Both used to throw the same sentence — `No matching voters inside this turf —
+widen the area or the filters` — so the first blamed a boundary it had not
+looked at, and QA reported a valid selection being rejected. `emptyAudience.util.ts`
+now holds one message per case; `EMPTY_TURF_MESSAGE` is the second, verbatim.
+
+The empty-audience message names every criterion on the list that _can_ resolve
+to nobody (support status, previous outreach, contacts made) rather than the one
+that was decisive. Which one was decisive is not knowable at the throw site —
+`intersectIdFilterResolutions` intersects its inputs and reports a single
+`empty` for the result — and threading a reason back through every id-filter
+path in the CRM is a large change for one sentence. Their intersection is what
+came back empty, so naming all of them is true, and it points at the pills to go
+and look at.
+
+**Why this is easy to hit without knowing it**: those three criteria are exactly
+the ones the voter pack cannot shade (`UNSHADEABLE_LIST_CRITERIA` in gp-webapp's
+`savedListFilters.ts`). The map shades a district full of matching voters while
+the audience behind it is empty, so the create's 400 is the first news of it.
+`DoorKnockingPreviewService` reports `audienceEmpty` for this reason — it is the
+one moment the condition is cheap to state, before anything is bought.
+
+**Not yet surfaced in the UI.** Nothing on the draw step consumes
+`audienceEmpty` today: `DoorsPanel` was removed in a design change, and with it
+the only caller of `onShowAddresses`, so the address-preview request never
+fires. Wiring this up means either reviving that request path (ADR 0010 rejected
+firing it automatically — it bills a people-db scan per shape) or, better,
+asking the question where it actually belongs: emptiness depends only on the
+list's filters, needs no polygon, and is answerable from Postgres alone, so the
+**who** step could check it before a boundary is ever drawn. The
+`continueDisabled={!ring || stops === 0 || overCap}` gate on the draw step still
+trusts the unfiltered pack estimate and would let an empty audience through.
 
 `locations` is capped at `MAX_STOPS` (exported from the knock service, so one
 constant blocks the save and bounds the listing) while `stops` reports the true
