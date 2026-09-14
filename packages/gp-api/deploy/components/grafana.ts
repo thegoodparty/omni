@@ -1,3 +1,4 @@
+import * as pulumi from '@pulumi/pulumi'
 import * as grafana from '@pulumiverse/grafana'
 import { Alert } from './alerting/alerts.types'
 import { GLOBAL_ALERTS } from './alerts'
@@ -53,7 +54,21 @@ const alertFilterContactPoint = ({ environment }: { environment: string }) => {
   // at the wrong URL is worse than an absent one: absent fails at provision
   // time, where somebody is watching, while wrong fails silently the first time
   // an alert has to be delivered.
-  if (!url || !secret) return undefined
+  //
+  // ANNOUNCED, though, because the first version of this skipped in silence and
+  // the infra diff came back clean — two rule groups updated, no contact point,
+  // nothing to suggest one had been expected. A deploy that quietly omits the
+  // resource the rest of this feature routes through is the same shape of
+  // failure the feature exists to catch, so it says so.
+  if (!url || !secret) {
+    pulumi.log.warn(
+      `gpbot-alert-filter contact point NOT created for ${environment}: ` +
+        `${!url ? 'ALERT_FILTER_WEBHOOK_URL' : 'ALERT_FILTER_WEBHOOK_SECRET'} is unset. ` +
+        `Alerts keep routing wherever they route today, which is safe. ` +
+        `Set both in the deploy environment to provision it — see gp-ai/alert_filter/README.md.`,
+    )
+    return undefined
+  }
 
   return new grafana.alerting.ContactPoint('gpbot-alert-filter', {
     name: `gpbot-alert-filter-${environment}`,
