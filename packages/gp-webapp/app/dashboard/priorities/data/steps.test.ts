@@ -3,6 +3,7 @@ import {
   PRIORITY_NUMBERED_STEPS,
   isPriorityStep,
   nextPriorityStep,
+  previousPriorityStep,
   priorityStepNumber,
 } from './steps'
 
@@ -33,6 +34,13 @@ describe('priority flow steps', () => {
     // toward "step N of 7".
     expect(priorityStepNumber('intro')).toBeNull()
     expect(priorityStepNumber('track')).toBeNull()
+  })
+
+  it('steps back through the numbered flow, and stops at its start', () => {
+    expect(previousPriorityStep('evidence')).toBe('define')
+    expect(previousPriorityStep('define')).toBeNull()
+    // Track sits outside the numbered flow, so back from it is the last one.
+    expect(previousPriorityStep('track')).toBe('plan')
   })
 
   it('recognizes its own step ids and nothing else', () => {

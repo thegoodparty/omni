@@ -114,9 +114,11 @@ the conversation is the state.
   the agent emits a `waiting` directive instead of settling or looping. The
   next visit reads it off the last assistant turn and opens by asking how it
   went, which is the whole reason for recording it.
-- **Back goes back.** The rail offers every step the flow has reached, and
-  picking one re-opens it rather than scrolling to it: revisiting usually means
+- **Back goes back.** One control, under the title, to the previous step. It
+  re-opens that step rather than scrolling to it: revisiting usually means
   something changed, and the agent has the conversation to pick that up from.
+  There was a rail of every reached step here and it was a second row of
+  chrome saying what the stepper already says.
 
 The one thing this does not survive is an API that predates the anchor: the
 create falls back to an unanchored conversation, which cannot be found again,

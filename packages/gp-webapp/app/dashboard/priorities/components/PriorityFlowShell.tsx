@@ -10,9 +10,11 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
-  cn,
 } from '@styleguide'
-import { ChevronRightIcon } from '@styleguide/components/ui/icons'
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+} from '@styleguide/components/ui/icons'
 import type { ChatAnchor, Priority } from '@goodparty_org/contracts'
 import { toolDisplayName } from '../../chief-of-staff/components/chat/chatConstants'
 import {
@@ -48,12 +50,11 @@ import {
 import {
   PRIORITY_FLOW_STEP_VALUES,
   PRIORITY_NEXT_STEP_CTA,
-  PRIORITY_NUMBERED_STEPS,
   PRIORITY_STEP_CAPTIONS,
   PRIORITY_STEP_LABELS,
   PRIORITY_STEP_SHORT_LABELS,
   nextPriorityStep,
-  priorityStepNumber,
+  previousPriorityStep,
   type PriorityFlowStep,
 } from '../data/steps'
 import PriorityStepper from './PriorityStepper'
@@ -66,47 +67,6 @@ import PriorityStepper from './PriorityStepper'
 // Step state lives here: the flow has no backend, so nothing is persisted and a
 // reload starts the conversation over. Once gp-api owns the record, `step`
 // becomes a route segment the way ordinances/solve/[slug]/[step] does.
-// Every step this priority has reached, so an official can go back to one
-// when the ground moves under a decision. A step ahead of the current one is
-// not offered: the flow settles them in order.
-function StepRail({
-  current,
-  onPick,
-  disabled,
-}: {
-  current: PriorityFlowStep
-  onPick: (step: PriorityFlowStep) => void
-  disabled: boolean
-}): React.JSX.Element {
-  const currentNumber = priorityStepNumber(current)
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {PRIORITY_NUMBERED_STEPS.map((candidate) => {
-        const number = priorityStepNumber(candidate) ?? 0
-        const reached = currentNumber !== null && number <= currentNumber
-        const isCurrent = candidate === current
-        return (
-          <Button
-            key={candidate}
-            type="button"
-            size="small"
-            variant="outline"
-            disabled={disabled || !reached || isCurrent}
-            onClick={() => onPick(candidate)}
-            className={cn(
-              '!h-7 rounded-full px-3 text-xs font-normal',
-              isCurrent && 'border-primary bg-primary/5 text-foreground',
-              !reached && 'opacity-40',
-            )}
-          >
-            {PRIORITY_STEP_SHORT_LABELS[candidate]}
-          </Button>
-        )
-      })}
-    </div>
-  )
-}
-
 // Which step a resumed conversation is on: the last step ask carries a marker
 // (data/stepPrompts.ts), and the asks are hidden, so this is reading the
 // flow's own footprints rather than guessing from the prose.
@@ -276,7 +236,7 @@ export default function PriorityFlowShell({
     }
   }, [conversationId, resumed, send])
 
-  // Going back re-opens an earlier step rather than scrolling to it: the
+  // Going back re-opens the previous step rather than scrolling to it: the
   // point of revisiting is usually that something has changed, and the agent
   // has the whole conversation to pick it up from.
   const goToStep = (target: PriorityFlowStep): void => {
@@ -284,6 +244,8 @@ export default function PriorityFlowShell({
     setStep(target)
     askStep(target, conversationId)
   }
+
+  const previousStep = previousPriorityStep(step)
 
   const advance = (destination: PriorityFlowStep): void => {
     if (isStreaming() || !conversationId) return
@@ -406,7 +368,19 @@ export default function PriorityFlowShell({
             <h1 className="text-xl font-semibold text-foreground">
               {priority.title}
             </h1>
-            <StepRail current={step} onPick={goToStep} disabled={sending} />
+            {previousStep ? (
+              <Button
+                type="button"
+                size="small"
+                variant="ghost"
+                disabled={sending}
+                onClick={() => goToStep(previousStep)}
+                className="-ml-2 self-start text-sm font-normal text-muted-foreground"
+              >
+                <ChevronLeftIcon className="size-4" aria-hidden />
+                Back to {PRIORITY_STEP_SHORT_LABELS[previousStep].toLowerCase()}
+              </Button>
+            ) : null}
           </header>
 
           <div className="flex flex-col gap-3">

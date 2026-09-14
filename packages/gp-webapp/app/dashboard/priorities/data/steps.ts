@@ -111,6 +111,19 @@ export const nextPriorityStep = (
   return PRIORITY_NUMBERED_STEPS[index + 1] ?? 'track'
 }
 
+// The step before this one, for going back when the ground moves under a
+// decision. Intro and the first numbered step have nowhere to go; track sits
+// outside the numbered flow and steps back into the last of them.
+export const previousPriorityStep = (
+  current: PriorityFlowStep,
+): PriorityFlowStep | null => {
+  if (current === 'track') {
+    return PRIORITY_NUMBERED_STEPS[PRIORITY_NUMBERED_STEPS.length - 1] ?? null
+  }
+  const index = PRIORITY_NUMBERED_STEPS.indexOf(current)
+  return index <= 0 ? null : (PRIORITY_NUMBERED_STEPS[index - 1] ?? null)
+}
+
 // Label on the button that advances, keyed by DESTINATION step — same reason
 // the ordinance flow keeps this client-side: the destination comes from flow
 // order, so the label has to as well or the two contradict each other.
