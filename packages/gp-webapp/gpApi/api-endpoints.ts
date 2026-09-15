@@ -2,6 +2,7 @@ import type {
   CreateDoorKnockingTurf,
   DoorKnockingAddressPreviewResponse,
   DoorKnockingArchiveRequest,
+  DoorKnockingAudienceCheckResponse,
   DoorKnockingQuotaResponse,
   DoorKnockingRoutePayload,
   DoorKnockingTalkingPointsDraftResponse,
@@ -1237,6 +1238,14 @@ export type APIEndpoints = {
       filters: Record<string, unknown>
     }
     Response: DoorKnockingAddressPreviewResponse
+  }
+  // The who step's audience gate: the same filter grammar as the preview
+  // above, minus the shape, because emptiness does not depend on one. Cheap
+  // where the preview is not — it resolves person-id sets out of Postgres and
+  // reads no voter data — which is why this one may fire on a list pick.
+  'POST /v1/door-knocking/audience-check': {
+    Request: { filters: Record<string, unknown> }
+    Response: DoorKnockingAudienceCheckResponse
   }
   'POST /v1/door-knocking/interactions': {
     Request: RecordDoorKnockInteraction

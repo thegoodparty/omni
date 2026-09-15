@@ -44,6 +44,7 @@ const baseProps = {
   districtHouseholdsPending: false,
   districtHouseholdsFailed: false,
   districtUnavailable: false,
+  audienceEmpty: false,
   savedLists: [],
   allContactsHouseholds: 12000,
   ring: OPEN_RING,

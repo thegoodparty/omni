@@ -25,6 +25,7 @@ import {
   unpreviewableDisclosureLabels,
   unpreviewableDisclosureSentence,
 } from './voterFilterPreview'
+import { audienceEmptyMessage } from './emptiableCriteria'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
 import { districtUnavailableMessage, packErrorMessage } from '../useVoterPack'
 import { suggestTravelMode } from '../travelMode'
@@ -136,6 +137,19 @@ interface CreateListFlowProps {
   // offer, so the step says what is actually wrong instead of asking for a
   // refresh that changes nothing.
   districtUnavailable: boolean
+  // The audience resolves to nobody before any shape is drawn, proven against
+  // Postgres rather than estimated from the pack (`audienceCheckQueryOptions`).
+  //
+  // This is the one count on the step the pack genuinely cannot produce. The
+  // three criteria that can empty a list — support status, previous outreach,
+  // contacts made — are exactly the ones the pack has no plane for, so a list
+  // cut by them shades as the whole district and `districtHouseholds` reports
+  // the district. The old failure followed from that: Continue was enabled by a
+  // number that had ignored the filters, the boundary was drawn and named, and
+  // the create refused at the end with a message about the boundary.
+  //
+  // False while the check is pending or failed, deliberately — see the surface.
+  audienceEmpty: boolean
   // The who step's list picker, with the parenthesised district counts the
   // canvas puts beside each row. Empty until the saved lists resolve; the step
   // still offers All Contacts, which is the default anyway.
@@ -309,6 +323,7 @@ export default function CreateListFlow({
   districtHouseholdsPending,
   districtHouseholdsFailed,
   districtUnavailable,
+  audienceEmpty,
   savedLists,
   allContactsHouseholds,
   ring,
@@ -1022,10 +1037,23 @@ export default function CreateListFlow({
   // on a spent day rather than letting a candidate draw and then taking the
   // shape away.
 
-  const unpreviewableDisclosure = unpreviewableDisclosureSentence(
-    unpreviewableDisclosureLabels(unpreviewableKeys),
-    savedListId !== null,
-  )
+  // Named from the draft's own marks rather than from the response, which
+  // carries one bit. The server proved the audience empty; which pills to go
+  // and look at is a question the flow can already answer, and answering it
+  // here keeps the sentence out of the contract.
+  const audienceEmptyDisclosure = audienceEmpty
+    ? audienceEmptyMessage(filters, savedListId !== null)
+    : null
+
+  const unpreviewableDisclosure = audienceEmptyDisclosure
+    ? // Suppressed under a proven-empty audience. This sentence hedges the
+      // count as too big; that one says the count is moot. Both at once reads
+      // as the step arguing with itself.
+      null
+    : unpreviewableDisclosureSentence(
+        unpreviewableDisclosureLabels(unpreviewableKeys),
+        savedListId !== null,
+      )
 
   // Leaving the drawing surface. Back is a step-back inside the flow, not a
   // close — the drawn shape stays and the candidate lands on the draw step
@@ -1126,7 +1154,12 @@ export default function CreateListFlow({
                   districtHouseholdsPending ||
                   districtHouseholdsFailed ||
                   districtUnavailable ||
-                  districtHouseholds === 0,
+                  districtHouseholds === 0 ||
+                  // The only one of these the pack cannot see. Every other
+                  // term above is about whether a count ARRIVED; this is a
+                  // count that arrived, looked healthy, and was about a
+                  // different question than the one the create will ask.
+                  audienceEmpty,
                 loading: districtHouseholdsPending,
                 // Always the draw step. Building a new list is a way of
                 // choosing the audience, not a way of finishing early —
@@ -1263,6 +1296,18 @@ export default function CreateListFlow({
             {districtUnavailable && (
               <p role="alert" className="text-sm text-muted-foreground">
                 {districtUnavailableMessage(serveMode)}
+              </p>
+            )}
+            {/* Proven empty, so it outranks the disclosure below it: that
+                sentence explains that the count on screen is too BIG, which
+                is a caveat about a list worth drawing. This one says there is
+                no list. Rendered above it and suppressing it, rather than
+                beside it, because two sentences about the same gap — one
+                hedging the count, one saying the count is moot — read as the
+                step contradicting itself. */}
+            {audienceEmptyDisclosure && (
+              <p role="alert" className="text-sm text-destructive">
+                {audienceEmptyDisclosure}
               </p>
             )}
             {/* The count in the CTA is the pack's, and the pack cannot shade

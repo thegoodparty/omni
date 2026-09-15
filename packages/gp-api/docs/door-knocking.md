@@ -1569,6 +1569,59 @@ families into one door — so it is not shippable, and `hashtextextended` comes
 back from the driver as a string, which reintroduces the allocation it was
 meant to remove.
 
+## The audience check (who step)
+
+`POST /v1/door-knocking/audience-check` answers "does this list keep anybody at
+all?" — the create's own empty-audience refusal, asked two steps before a
+boundary exists.
+
+It exists because the create flow's counts are pack arithmetic and the pack
+encodes no support status, no previous outreach and no contacts-made. A list cut
+by one of those shades as the whole district, so `districtHouseholds` reports the
+district, the who step's Continue is enabled by that number, and the audience is
+not resolved for real until the paid create — which then refuses. QA reported
+that as a valid selection being rejected, and reasonably: the boundary was fine,
+and redrawing it (the only thing that refusal suggested) could not have helped.
+Rewording the refusal is the other half of this gap and is worth doing; this is
+the half that stops a candidate reaching it after they have drawn and named a
+turf.
+
+**The question does not involve the shape**, which is the whole design. Those
+criteria resolve to a person-id set before any polygon is consulted, and an empty
+set is empty for every polygon — so the answer is knowable the moment a list is
+picked. `DoorKnockingAudienceCheckService` calls the same
+`ContactsService.resolveSavedFilterForQuery` the create and the address preview
+call, and returns its `empty` flag and nothing else. A list this endpoint calls
+empty is therefore exactly a list the create would refuse, rather than a second
+opinion that can drift from it.
+
+**It reads no voter data.** Every branch of that resolution is Prisma against
+`contact_current_status` and the four `contact_interaction_*` tables, so unlike
+the address preview below there is no people-db scan to pay for and no district
+to resolve first. That is what lets it fire on a list pick rather than on an
+explicit press: [ADR 0010](adr/0010-draw-time-address-preview.md) made the
+preview explicit because each firing costs a scan, and moving the emptiness check
+earlier would have moved that cost earlier with it if it were answered the same
+way. It deliberately skips `resolveEligibleDistrictId` for the same reason — an
+election-api round trip to find a district nothing here scans. An org with no
+resolvable district meets that problem at the draw step, where
+`districtUnavailable` already says so.
+
+**`empty: false` is the weaker claim**, and the asymmetry is deliberate. It means
+the id-set resolution did not collapse, not that the audience is non-empty:
+party, age, precinct and language narrow a query rather than resolving a set, and
+whether they match anybody is a people-db question. So the gate refuses what it
+can prove and stays out of the way otherwise, with the create's own 400 still
+behind it as the backstop.
+
+The webapp fires it from `CreateListSurface` — where the picked list's clauses
+are already assembled for the preview request — and only for a draft carrying one
+of the three criteria that can resolve to nobody (`emptiableCriteria.ts`).
+Everything else has a known answer and buys nothing. The gate **fails open** on
+error and while pending: an advisory check must not hold a candidate out of their
+own flow, since a missed empty audience is the status quo while a false block is
+a list that cannot be cut at all.
+
 ## The address preview (draw step)
 
 `POST /v1/door-knocking/address-preview` answers "which houses are inside this
@@ -1815,6 +1868,7 @@ org simply isn't entitled, and the per-route error-count alerts
 | `GET /pack`             | yes    |
 | `GET /quota`            | yes    |
 | `POST /address-preview` | yes    |
+| `POST /audience-check`  | yes    |
 | `POST /interactions`    | yes    |
 | `POST /do-not-knock`    | **no** |
 | `POST /not-a-voter`     | **no** |
@@ -1864,9 +1918,9 @@ Six routes carry `@AllowVolunteer()`, admitting an assigned volunteer past
 `POST do-not-knock`, `POST not-a-voter` — the whole loop of reading a turf,
 walking its route, logging a knock, and ending the session. Every other
 route (create, list, update, delete, archive, `GET pack`, `GET quota`,
-`POST address-preview`) stays manager+: `pack` answers for the whole
-district rather than one turf, and quota/address-preview describe spend and
-audience a volunteer never draws from.
+`POST address-preview`, `POST audience-check`) stays manager+: `pack` answers
+for the whole district rather than one turf, and quota/address-preview/
+audience-check describe spend and audience a volunteer never draws from.
 
 One shared predicate enforces it, `assertVolunteerAssignedToOutreach`
 (`utils/doorKnockingAccess.util.ts`): a no-op for owner/campaignAdmin, and

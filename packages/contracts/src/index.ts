@@ -1008,6 +1008,11 @@ export {
 } from './doorKnocking/DoorKnockingAddressPreview.schema'
 
 export {
+  DoorKnockingAudienceCheckResponseSchema,
+  type DoorKnockingAudienceCheckResponse,
+} from './doorKnocking/DoorKnockingAudienceCheck.schema'
+
+export {
   DoorKnockingQuotaResponseSchema,
   type DoorKnockingQuotaResponse,
 } from './doorKnocking/DoorKnockingQuota.schema'

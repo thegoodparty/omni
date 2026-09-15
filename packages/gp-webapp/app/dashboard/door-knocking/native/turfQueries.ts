@@ -51,6 +51,27 @@ export const quotaQueryOptions = queryOptions({
     clientRequest('GET /v1/door-knocking/quota', {}).then((res) => res.data),
 })
 
+// Whether the list the who step is on keeps anybody at all.
+//
+// Keyed on the filters alone, because that is the whole input — no polygon is
+// sent and none is relevant. Two lists cut the same way share one entry, and
+// stepping back to the who step re-reads the answer rather than re-asking.
+//
+// Unlike the address preview below, this may fire on a pick rather than on a
+// press: it resolves person-id sets out of Postgres and reads no voter data,
+// so ADR 0010's reason for making the preview explicit does not apply to it.
+// `staleTime` is nonetheless generous — a list's support-status membership
+// changes as knocks are logged, but not inside one create flow.
+export const audienceCheckQueryOptions = (filters: VoterFileBackendFilters) =>
+  queryOptions({
+    queryKey: ['door-knocking-audience-check', filters],
+    queryFn: () =>
+      clientRequest('POST /v1/door-knocking/audience-check', { filters }).then(
+        (res) => res.data,
+      ),
+    staleTime: 5 * 60 * 1000,
+  })
+
 // The exact audience inside a drawn shape, addresses included (ADR 0010).
 // Keyed on the polygon and the filter draft, which is what makes the answer
 // belong to one shape: move a vertex and the key changes, so a stale preview
