@@ -731,12 +731,49 @@ cannot separate a people-db 502 from a vendor's. Distinct from
 `VOTER_DATA_UNAVAILABLE`, which is a 4xx eligibility state (no district, no
 stats row) rather than a read that failed.
 
-**This is not the "No matching voters" 400.** That one cannot be a masked
-timeout: a timeout throws before any rows are shaped, and there is no path that
-turns a slow or failed scan into an empty roster — the over-cap guard rejects
-rather than truncating, too. The two are separate failures with separate
-messages, and the reason to say so here is that they are easy to confuse from
-the outside, where both look like "it found nobody".
+**Neither of these is a found-nobody 400**, and there are two of those now
+(see "Two ways of finding nobody" below). A found-nobody 400 cannot be a
+masked timeout: a timeout throws before any rows are shaped, and the
+over-cap guard rejects rather than truncating. The reason to say so is that
+they are easy to confuse from the outside, where both look like "it found
+nobody" — and the confusion has happened, which is why the next paragraph is
+measurements rather than reasoning.
+
+**Measured, not argued.** QA reported a valid selection rejected as "No
+matching voters" and the first hypothesis was a masked timeout. Prod over 8
+days says otherwise. One reported occurrence, read end to end:
+
+```
+requestId 8e129d4a-…  op=dk-evaluate  dbxMs=869  responseTimeMs=1039  400
+```
+
+869ms. Across the whole window the slowest `dk-evaluate` was **5.0s**,
+against the 60s statement ceiling — so on this path the query is not close
+to timing out, it is succeeding quickly and correctly finding nobody. Every
+occurrence threw from `buildStops`, which is the polygon site rather than
+the empty-audience one: the audience resolved to real people and then none
+of them were inside the drawn shape.
+
+That points at the client/server disagreement rather than at the warehouse.
+The pack cannot express `supportStatus`, `activityConditions` or
+`precincts` (`UNSHADEABLE_LIST_CRITERIA`), so the map shades people the
+server excludes, and the candidate draws over dots that really are there.
+One user hit this six times in 62 seconds — redrawing the boundary, which
+is what the message asks for and what cannot help.
+
+**Where the slow reads actually are**, from the same window, max `dbxMs` by
+op: `dk-evaluate` 5.0s, `dk-residents` 13.4s, `list` 26.3s, **`dk-pack`
+54.9s**, **`stats` 62.1s**. So the pack download the audience step waits on
+runs to within 5s of the ceiling, and `stats` exceeds it — every voter
+timeout in the window (7) was `GET /v1/onboarding/contacts/stats` at
+`dbxMs=62057`. Worth knowing before attributing a slow door-knocking
+create to the warehouse: on this evidence it is the wrong suspect, and the
+two ops above it are the right ones.
+
+Those `stats` timeouts also show the timeout copy landing badly. "Narrow
+the audience and try again" is read by someone on an onboarding stats call
+who is not choosing an audience at all; the pack's own timeout sentence is
+correctly capacity-neutral, and it is the one that never reaches a user.
 
 To check a suspected timeout in Grafana, every voter read logs one line at
 `people-db voter read` with flat `op`, `districtId`, `dbxMs` and `statementIds`
@@ -1537,10 +1574,10 @@ Three things about it are load-bearing:
 A create can come up empty for two unrelated reasons, and they want opposite
 advice:
 
-| | Cause | What fixes it |
-|---|---|---|
+|                    | Cause                                                                                        | What fixes it                                      |
+| ------------------ | -------------------------------------------------------------------------------------------- | -------------------------------------------------- |
 | **Empty audience** | The list's own filters resolve to an empty person-id set. Raised before the polygon is read. | Edit the list's filters, or pick another audience. |
-| **Empty turf** | The audience is real; the drawn shape encloses none of it. | Move or widen the boundary. |
+| **Empty turf**     | The audience is real; the drawn shape encloses none of it.                                   | Move or widen the boundary.                        |
 
 Both used to throw the same sentence — `No matching voters inside this turf —
 widen the area or the filters` — so the first blamed a boundary it had not
