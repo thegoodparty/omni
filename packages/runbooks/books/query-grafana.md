@@ -40,7 +40,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
   "https://goodparty.grafana.net/api/datasources/proxy/uid/grafanacloud-traces/api/search?q=%7Bresource.service.name%3D%22gp-api%22%7D&limit=20&start=$(date -v-1H +%s)&end=$(date +%s)" | jq .
 ```
 
-Available services: `gp-api`, `election-api`, `people-api`
+Available services: `gp-api`, `election-api`
 
 ### Filter by environment
 

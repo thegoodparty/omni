@@ -7,11 +7,18 @@ import {
 import { Prisma, PrismaClient } from '../generated/people-prisma'
 import { PeopleDbUrlProvider } from './peopleDbUrl.provider'
 
+// Gated on its own flag rather than on LOG_LEVEL, matching PrismaService. This
+// client missed that gate: gp-api deploys LOG_LEVEL=debug in prod, so every
+// people-db query — with parameters — was serialized and shipped to Loki on
+// the request event loop. The level is gated alongside the listener so the
+// engine does not emit the event at all when it is off.
+const enableQueryLogging = process.env.ENABLE_QUERY_LOGGING === 'true'
+
 const PRISMA_LOG_LEVELS = [
   'info',
   'warn',
   'error',
-  ...(process.env.LOG_LEVEL === 'debug' ? ['query' as Prisma.LogLevel] : []),
+  ...(enableQueryLogging ? ['query' as Prisma.LogLevel] : []),
 ]
 
 export type PeopleDbPrismaClient = PrismaClient<
@@ -138,16 +145,17 @@ export class PeopleDbService implements OnModuleInit, OnModuleDestroy {
       },
     })
 
-    client.$on('query', (event: Prisma.QueryEvent) => {
-      this.logger.debug(
-        {
-          query: event.query,
-          params: event.params,
-          durationMs: event.duration,
-        },
-        'Completed SQL query',
-      )
-    })
+    enableQueryLogging &&
+      client.$on('query', (event: Prisma.QueryEvent) => {
+        this.logger.debug(
+          {
+            query: event.query,
+            params: event.params,
+            durationMs: event.duration,
+          },
+          'Completed SQL query',
+        )
+      })
 
     // Fail-soft connect: attempt it for an early diagnostic signal on a
     // genuinely broken PEOPLE_DATABASE_URL in deployed envs, but don't let a

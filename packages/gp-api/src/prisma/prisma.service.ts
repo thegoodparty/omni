@@ -2,14 +2,17 @@ import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { Prisma, PrismaClient } from '../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 
+const enableQueryLogging = process.env.ENABLE_QUERY_LOGGING === 'true'
+
+// The listener below was already gated, but the log LEVEL was not: with
+// LOG_LEVEL=debug in prod the engine kept emitting a query event per statement
+// with nobody listening. Gating both means the engine stops producing them.
 const PRISMA_LOG_LEVELS = [
   'info',
   'warn',
   'error',
-  ...(process.env.LOG_LEVEL === 'debug' ? ['query' as Prisma.LogLevel] : []),
+  ...(enableQueryLogging ? ['query' as Prisma.LogLevel] : []),
 ]
-
-const enableQueryLogging = Boolean(process.env.ENABLE_QUERY_LOGGING === 'true')
 
 @Injectable()
 export class PrismaService

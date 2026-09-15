@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
+import { type Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api'
 import { z } from 'zod'
 import {
   PEOPLE_DBX_CATALOG,
@@ -152,6 +153,8 @@ export class PeopleDbxUnavailableError extends Error {
   }
 }
 
+const tracer = trace.getTracer('gp-api.databricks')
+
 const TERMINAL_FAILURE_STATES = new Set(['FAILED', 'CANCELED', 'CLOSED'])
 // 404 belongs here: the statement id in a poll URL comes from a submit we just
 // made, so a miss means the warehouse expired the result out from under us, not
@@ -190,28 +193,37 @@ export class PeopleDbxStatementClient {
   // is why callers coerce per column rather than trusting a driver's typing.
   async query(statement: DbxStatement): Promise<PeopleDbxRows> {
     const config = this.config()
-    const startedAt = Date.now()
-    const first = await this.post(config, statement, {
-      statement: statement.sql,
-      catalog: PEOPLE_DBX_CATALOG,
-      schema: PEOPLE_DBX_SCHEMA,
-      format: 'JSON_ARRAY',
-      disposition: 'INLINE',
-      wait_timeout: '30s',
-      on_wait_timeout: 'CONTINUE',
+    return this.statementSpan(config, 'INLINE', async (span) => {
+      const startedAt = Date.now()
+      const first = await this.post(config, statement, {
+        statement: statement.sql,
+        catalog: PEOPLE_DBX_CATALOG,
+        schema: PEOPLE_DBX_SCHEMA,
+        format: 'JSON_ARRAY',
+        disposition: 'INLINE',
+        wait_timeout: '30s',
+        on_wait_timeout: 'CONTINUE',
+      })
+      recordStatementId(first.statement_id)
+      this.markStatementId(span, first.statement_id)
+      const settled = await this.awaitCompletion(config, first, startedAt)
+      const columns =
+        settled.manifest?.schema?.columns.map((column) => column.name) ?? []
+      const rows = [...(settled.result?.data_array ?? [])]
+      let next = settled.result?.next_chunk_internal_link ?? null
+      let chunks = 0
+      while (next) {
+        const chunk = await this.fetchJson(config, next, chunkResponseSchema)
+        rows.push(...(chunk.data_array ?? []))
+        next = chunk.next_chunk_internal_link ?? null
+        chunks++
+      }
+      span.setAttributes({
+        'databricks.row_count': rows.length,
+        'databricks.extra_chunk_count': chunks,
+      })
+      return { columns, rows }
     })
-    recordStatementId(first.statement_id)
-    const settled = await this.awaitCompletion(config, first, startedAt)
-    const columns =
-      settled.manifest?.schema?.columns.map((column) => column.name) ?? []
-    const rows = [...(settled.result?.data_array ?? [])]
-    let next = settled.result?.next_chunk_internal_link ?? null
-    while (next) {
-      const chunk = await this.fetchJson(config, next, chunkResponseSchema)
-      rows.push(...(chunk.data_array ?? []))
-      next = chunk.next_chunk_internal_link ?? null
-    }
-    return { columns, rows }
   }
 
   // Kicks off a CSV export and returns as soon as the chunk PLAN is ready.
@@ -220,6 +232,16 @@ export class PeopleDbxStatementClient {
   // seconds of the request instead of after the whole export.
   async startCsvExport(statement: DbxStatement): Promise<PeopleDbxCsvExport> {
     const config = this.config()
+    return this.statementSpan(config, 'EXTERNAL_LINKS', (span) =>
+      this.csvExportPlan(config, statement, span),
+    )
+  }
+
+  private async csvExportPlan(
+    config: PeopleDbxConfig,
+    statement: DbxStatement,
+    span: Span,
+  ): Promise<PeopleDbxCsvExport> {
     const startedAt = Date.now()
     const first = await this.post(config, statement, {
       statement: statement.sql,
@@ -230,7 +252,12 @@ export class PeopleDbxStatementClient {
       wait_timeout: '0s',
     })
     recordStatementId(first.statement_id)
+    this.markStatementId(span, first.statement_id)
     const settled = await this.awaitCompletion(config, first, startedAt)
+    span.setAttributes({
+      'databricks.row_count': settled.manifest?.total_row_count ?? 0,
+      'databricks.chunk_count': settled.manifest?.total_chunk_count ?? 0,
+    })
     const [link] = settled.result?.external_links ?? []
     // A succeeded export always carries chunk 0, even for an empty result set
     // (verified: that chunk holds the header row alone, matching what Postgres
@@ -266,6 +293,54 @@ export class PeopleDbxStatementClient {
       externalLink: external.external_link,
       nextChunkLink: external.next_chunk_internal_link ?? null,
     }
+  }
+
+  // One span for the whole statement lifecycle: submit, the poll wait, and the
+  // chunk drain. The individual status polls are excluded from undici
+  // instrumentation (see otel.ts) because a CSV export issues ~120 identical
+  // GETs, so without this span the warehouse wait — the dominant cost on every
+  // voter read — would still read as an unexplained gap in the trace.
+  //
+  // Deliberately NOT carrying the SQL: statements inline id sets up to the 16MB
+  // ceiling, and span attributes are not the place for that. `statementIds` on
+  // the read log remains the join key into Databricks query history.
+  private statementSpan<T>(
+    config: PeopleDbxConfig,
+    disposition: 'INLINE' | 'EXTERNAL_LINKS',
+    op: (span: Span) => Promise<T>,
+  ): Promise<T> {
+    return tracer.startActiveSpan(
+      'databricks.statement',
+      {
+        kind: SpanKind.CLIENT,
+        attributes: {
+          'db.system.name': 'databricks',
+          'server.address': config.hostname,
+          'databricks.warehouse_id': config.warehouseId,
+          'databricks.disposition': disposition,
+        },
+      },
+      async (span) => {
+        try {
+          const result = await op(span)
+          span.setStatus({ code: SpanStatusCode.OK })
+          return result
+        } catch (err) {
+          span.recordException(err instanceof Error ? err : String(err))
+          span.setStatus({
+            code: SpanStatusCode.ERROR,
+            message: err instanceof Error ? err.message : String(err),
+          })
+          throw err
+        } finally {
+          span.end()
+        }
+      },
+    )
+  }
+
+  private markStatementId(span: Span, statementId?: string): void {
+    if (statementId) span.setAttribute('databricks.statement_id', statementId)
   }
 
   private async awaitCompletion(

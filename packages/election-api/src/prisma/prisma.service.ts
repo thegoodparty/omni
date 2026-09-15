@@ -2,11 +2,20 @@ import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { Prisma, PrismaClient } from '../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 
+// Query logging is gated on its own flag rather than on LOG_LEVEL, matching
+// gp-api. This service deploys with LOG_LEVEL=debug in every environment
+// including prod (deploy/index.ts), so keying it off the level alone meant
+// every statement — with its parameters — was serialized by pino, run through
+// redaction and shipped to Loki on the same single-threaded event loop that
+// serves requests, on a 1 vCPU task. The level itself is gated too, not just
+// the listener, so the engine does not emit the event at all when it is off.
+const enableQueryLogging = process.env.ENABLE_QUERY_LOGGING === 'true'
+
 const PRISMA_LOG_LEVELS = [
   'info',
   'warn',
   'error',
-  ...(process.env.LOG_LEVEL === 'debug' ? ['query' as Prisma.LogLevel] : []),
+  ...(enableQueryLogging ? ['query' as Prisma.LogLevel] : []),
 ]
 
 /**
@@ -51,16 +60,17 @@ export class PrismaService
   async onModuleInit() {
     await this.$connect()
 
-    this.$on('query', (event: Prisma.QueryEvent) => {
-      this.logger.debug(
-        {
-          query: event.query,
-          params: event.params,
-          durationMs: event.duration,
-        },
-        'Completed SQL Query',
-      )
-    })
+    enableQueryLogging &&
+      this.$on('query', (event: Prisma.QueryEvent) => {
+        this.logger.debug(
+          {
+            query: event.query,
+            params: event.params,
+            durationMs: event.duration,
+          },
+          'Completed SQL Query',
+        )
+      })
   }
 
   async onModuleDestroy() {

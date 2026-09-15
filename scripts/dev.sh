@@ -3,7 +3,7 @@
 # dev.sh — start the core local stack: Postgres (for gp-api) + gp-api + gp-webapp.
 #
 # This is a convenience wrapper for the most common local loop. Other apps
-# (election-api, people-api, gp-admin, candidate-sites) can be started the same
+# (election-api, gp-admin, candidate-sites) can be started the same
 # way with `npm run start:dev -w <app>` / `npm run dev -w <app>`.
 #
 # Prereqs (see README): `nvm use`, root `npm install`, and each app's .env files.
