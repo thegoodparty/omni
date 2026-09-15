@@ -698,6 +698,12 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         date: input.sendAt,
         scheduledLocalDate: input.scheduledLocalDate,
         ...(wasBooked && { canvassRequestedAt: new Date() }),
+        // Any edit wipes a denial and re-queues (the console convention
+        // editScript follows) — a date-edited denied row must not stay
+        // parked with approve refusing it.
+        deniedAt: null,
+        deniedBy: null,
+        deniedReason: null,
         adminEditedAt: new Date(),
         adminEditedBy: input.editedBy,
       },

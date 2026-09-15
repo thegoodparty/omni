@@ -759,6 +759,34 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       editedBy: 'cas@goodparty.org',
     })
 
+    it('clears a denial so the rescheduled row is approvable again', async () => {
+      const row = await seedOutreach({ deniedAt: new Date() })
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: { deniedBy: 'cas@goodparty.org', deniedReason: 'wrong day' },
+      })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.approvalStatus).toBe('awaiting_review')
+      const updated = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(updated.deniedAt).toBeNull()
+      expect(updated.deniedBy).toBeNull()
+      expect(updated.deniedReason).toBeNull()
+
+      const approved = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+      expect(approved.status).toBe(HttpStatus.CREATED)
+    })
+
     it('moves an unbooked send without touching the booking machinery', async () => {
       const row = await seedOutreach()
 
