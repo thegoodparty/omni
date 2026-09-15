@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { render } from '@testing-library/react'
-import { formatDate, formatDateTime, formatTimestampString } from './date'
+import {
+  formatDate,
+  formatDateTime,
+  formatLocalDateString,
+  formatTimestampString,
+} from './date'
 
 describe('formatDate', () => {
   it('displays dates in "Mon D, YYYY" format', () => {
@@ -56,6 +61,30 @@ describe('formatDateTime', () => {
 
   it('shows em-dash for invalid date strings', () => {
     const { container } = render(<>{formatDateTime('invalid-date')}</>)
+    expect(container.textContent).toBe('—')
+  })
+})
+
+describe('formatLocalDateString', () => {
+  it('renders the calendar day with no timezone conversion', () => {
+    const { container } = render(<>{formatLocalDateString('2026-09-10')}</>)
+    expect(container.textContent).toBe('Sep 10, 2026')
+  })
+
+  it('ignores a trailing time component', () => {
+    const { container } = render(
+      <>{formatLocalDateString('2026-09-10T00:00:00.000Z')}</>
+    )
+    expect(container.textContent).toBe('Sep 10, 2026')
+  })
+
+  it('shows em-dash when the value is missing', () => {
+    const { container } = render(<>{formatLocalDateString(null)}</>)
+    expect(container.textContent).toBe('—')
+  })
+
+  it('shows em-dash for a malformed date string', () => {
+    const { container } = render(<>{formatLocalDateString('not-a-date')}</>)
     expect(container.textContent).toBe('—')
   })
 })

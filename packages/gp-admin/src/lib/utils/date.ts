@@ -37,6 +37,23 @@ export function formatDateTime(
   }).format(date)
 }
 
+// For a plain "YYYY-MM-DD" calendar-day string (no time, no zone — e.g.
+// Outreach.scheduledLocalDate). `new Date('YYYY-MM-DD')` parses as UTC
+// midnight, which prints as the PREVIOUS day in any zone behind UTC — the
+// exact bug this exists to avoid, so the parts are read out and handed to
+// the local-timezone Date constructor directly instead.
+export function formatLocalDateString(
+  value: string | null | undefined,
+  emptyState: ReactNode = '—'
+): ReactNode {
+  if (!value) return emptyState
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
+  if (!match) return emptyState
+  const [, year, month, day] = match
+  const date = new Date(Number(year), Number(month) - 1, Number(day))
+  return format(date, 'MMM d, yyyy')
+}
+
 export function formatTimestampString(
   timestamp: string | undefined,
   emptyState: ReactNode = '—'

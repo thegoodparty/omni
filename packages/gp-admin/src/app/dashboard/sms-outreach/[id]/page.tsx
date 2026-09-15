@@ -13,7 +13,11 @@ import {
   Text,
 } from '@radix-ui/themes'
 import { PERMISSIONS } from '@/lib/permissions'
-import { formatDate, formatDateTime } from '@/lib/utils/date'
+import {
+  formatDate,
+  formatDateTime,
+  formatLocalDateString,
+} from '@/lib/utils/date'
 import { getSmsDetail } from '../actions'
 import { STANDARDS_RULE_LABELS, STATUS_COLORS, STATUS_LABELS } from '../types'
 import { ApproveDenyActions } from '../components/ApproveDenyActions'
@@ -146,8 +150,9 @@ export default async function Page({ params }: PageProps) {
                   <Flex direction="column">
                     <Text size="2">{formatDateTime(item.sendAt)}</Text>
                     <Text size="1" color="gray">
-                      Peerly books a 9am–9pm window local to each contact on
-                      this date — not a guaranteed exact time.
+                      Peerly books a 9am–9pm window local to each contact on{' '}
+                      {formatLocalDateString(item.scheduledLocalDate)} — not a
+                      guaranteed exact time.
                     </Text>
                   </Flex>
                 </DataList.Value>
