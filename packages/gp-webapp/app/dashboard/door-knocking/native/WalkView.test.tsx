@@ -1213,6 +1213,17 @@ describe('WalkView not-a-voter reason', () => {
     })
   })
 
+  // This `knockStatus` is load-bearing and it is a mock, so nothing here can
+  // tell you the server still sends it. Three gates below open on
+  // `=== 'not_a_voter'` — the ADR 0008 prompt, holding the sheet instead of
+  // auto-advancing, and the abandoned-follow-up refresh — and the server
+  // briefly stopped saying it when `record` began answering for the person
+  // rather than for the row just written, while every test in this file
+  // stayed green on this literal.
+  //
+  // The claim that it really comes back lives at the API boundary, in
+  // gp-api's doorKnocking.routes.test.ts: 'still says not_a_voter when a
+  // re-knock retires a known supporter'. Keep the two together.
   const logNotAVoter = () =>
     api.mock('POST /v1/door-knocking/interactions', {
       status: 200,

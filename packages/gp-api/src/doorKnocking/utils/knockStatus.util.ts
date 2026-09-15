@@ -43,7 +43,32 @@ type KnockAnswers = {
 // differently — `needs_follow_up` at the door, `undecided` in Contacts — but
 // they are answering different questions in vocabularies that don't share
 // those words, not contradicting each other about support.
+// `not_a_voter` is firm, for the same reason a Serve follow-up answer is: it
+// is definite, and it is not a weaker answer to the support question but an
+// answer to a different one — this person is not behind this door any more.
+// ADR 0008's follow-up asks whether they moved or died, and neither of those
+// stops being true because they were once recorded as a supporter.
+//
+// Ranked as a row carrying no answer, the knock is recorded and then has no
+// effect: a prior 'supporter' outranks it, the person keeps deriving
+// `supporter`, stays knockable, and returns on this route and every future
+// one. And because `record` answers for the person, the response never says
+// `not_a_voter`, so WalkView and NotAVoterControl's three
+// `knockStatus === 'not_a_voter'` gates never open — no "moved or deceased?"
+// prompt, the sheet auto-advances, and the reason is never captured. Recency
+// carried this for free by being newest; firmness has to say it.
+//
+// Firm rather than a rung of its own, which was the first thing I tried.
+// Above firm it becomes a ratchet with no release: `not_a_voter` is not part
+// of the manual override vocabulary (see `overrideToKnockStatus` below), so
+// a mis-tap would be uncorrectable from anywhere. At firm it ties with
+// support answers and recency breaks the tie in both directions — a
+// not-a-voter retires a known supporter, and a later real answer at the same
+// door brings them back. A later not-home still displaces neither.
 const answerFirmness = (interaction: KnockAnswers): number => {
+  if (interaction.outcome === DoorKnockOutcome.not_a_voter) {
+    return ANSWER_FIRMNESS.firm
+  }
   if (interaction.followUp !== null) return ANSWER_FIRMNESS.firm
   if (interaction.supportAnswer === null) return ANSWER_FIRMNESS.none
   return SUPPORT_ANSWER_FIRMNESS[interaction.supportAnswer]

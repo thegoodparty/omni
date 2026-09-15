@@ -1880,6 +1880,54 @@ describe('door-knocking routes', () => {
       ).toBe('unknown')
     })
 
+    // The exception to firmness, and the one place recency was load-bearing.
+    //
+    // `not_a_voter` answers a different question from a support answer: the
+    // person is not behind this door any more. Ranked as a row carrying no
+    // answer it loses to any prior firm one, and then the knock has no
+    // effect — a resident who moved away or died keeps deriving `supporter`,
+    // stays knockable, and comes back on this route and every future one.
+    //
+    // Pinned at the door because that is the only surface that projects it;
+    // the CRM deliberately keeps their last known support status, since
+    // "moved away" says nothing about support.
+    it('lets a not-a-voter knock retire someone who was a firm supporter', async () => {
+      await service.prisma.contactInteractionDoorKnock.createMany({
+        data: [
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            occurredAt: new Date('2026-07-01T10:00:00Z'),
+            outcome: 'answered',
+            supportAnswer: 'supporter',
+          },
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            occurredAt: new Date('2026-07-10T10:00:00Z'),
+            outcome: 'not_a_voter',
+          },
+        ],
+      })
+
+      const { res } = await knockAndServe()
+
+      const addresses = (
+        res.data.stops as Array<{
+          addresses: Array<{
+            addressKey: string
+            targets: Array<{ personId: string; knockStatus: string }>
+          }>
+        }>
+      ).flatMap((stop) => stop.addresses)
+
+      expect(
+        addresses
+          .find((a) => a.addressKey === PIPED_KEY)
+          ?.targets.find((t) => t.personId === PERSON_1)?.knockStatus,
+      ).toBe('not_a_voter')
+    })
+
     // Contacts lets a candidate correct a status by hand, and that correction
     // is the effective value everywhere else. The door is where it matters
     // most: knocking someone you've already marked a supporter, because the
@@ -2972,6 +3020,62 @@ describe('door-knocking routes', () => {
         orderBy: { id: 'asc' },
       })
       expect(rows.map((r) => r.supportAnswer)).toEqual(['supporter', 'unsure'])
+    })
+
+    // Answering for the person is right, but it must not swallow the one
+    // outcome the walk view has to read back off this response.
+    //
+    // WalkView and NotAVoterControl gate three things on
+    // `knockStatus === 'not_a_voter'`: the ADR 0008 "moved or deceased?"
+    // prompt, holding the sheet open instead of auto-advancing, and the
+    // abandoned-follow-up refresh. Return the prior `supporter` here and all
+    // three stay shut, so the reason is never captured and the person — who
+    // has moved away or died — stays knockable on this route and the next.
+    //
+    // This is pinned here, at the API boundary, precisely because the webapp
+    // test for that prompt mocks this response with a literal
+    // `knockStatus: 'not_a_voter'`. The mock is the reason the whole suite
+    // stayed green while the server stopped saying it.
+    it('still says not_a_voter when a re-knock retires a known supporter', async () => {
+      const target = await knockAndGetTarget()
+
+      await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'answered',
+        supportAnswer: 'supporter',
+      })
+
+      const retired = await record({
+        stopTargetId: target.id,
+        clientKey: 'cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa',
+        outcome: 'not_a_voter',
+      })
+
+      expect(retired.status).toBe(201)
+      expect(retired.data.knockStatus).toBe('not_a_voter')
+    })
+
+    // The rung is above firm, not above everything: a later real answer at
+    // the same door still wins, so a mis-tapped not_a_voter is recoverable by
+    // knocking again rather than needing a CRM correction.
+    it('lets a later answer bring back a door retired by mistake', async () => {
+      const target = await knockAndGetTarget()
+
+      await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'not_a_voter',
+      })
+
+      const corrected = await record({
+        stopTargetId: target.id,
+        clientKey: 'dddddddd-eeee-4fff-8aaa-bbbbbbbbbbbb',
+        outcome: 'answered',
+        supportAnswer: 'supporter',
+      })
+
+      expect(corrected.data.knockStatus).toBe('supporter')
     })
 
     it('replaying the same clientKey re-syncs one row, never a duplicate', async () => {

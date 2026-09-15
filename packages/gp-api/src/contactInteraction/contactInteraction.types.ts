@@ -110,6 +110,13 @@ export const SUPPORT_ANSWER_ROLLUP = {
 // not-home, a refusal, an inaccessible door — and sitting below every answer
 // is the rule that was already here as `(support_answer IS NOT NULL) DESC`,
 // now the bottom of this scale rather than a separate clause.
+//
+// Nothing sits above `firm` on purpose. Ties at a rung are broken by
+// recency (callers hand rows over newest-first and compare strictly), which
+// is what lets a definite statement be superseded by a later definite
+// statement while still not being displaceable by a later shrug. A rung
+// above firm would be a ratchet with no release — see the `not_a_voter` case
+// in knockStatus.util.ts, which needs exactly the tie, not a higher rung.
 export const ANSWER_FIRMNESS = {
   none: 0,
   soft: 1,
