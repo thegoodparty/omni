@@ -705,6 +705,44 @@ Deliberately a chart-and-alert rather than an enforced global cap: a hard
 ceiling across organizations would let one org's knocking fail another's, which
 is worse than a page during a pilot.
 
+### Which 5xx the candidate is allowed to read
+
+Building a route runs a people-db scan with a 60-second statement ceiling
+(`STATEMENT_TIMEOUT_MS`). A district big enough to hit it gets a 504, and an
+unreachable warehouse gets a 502 — never an empty result, which is the
+invariant `DatabricksVoterService.run` exists to hold: "a district with no
+voters is a MEANINGFUL null", so a read failure must never present as one.
+
+Both of those messages are written for the candidate ("Narrow the audience and
+try again", "This is a connection problem, not an empty district"). Most 5xx
+messages are not — Geoapify answers 502 with "Route optimization returned an
+unidentifiable stop" — so `toCreateErrorMessage` in the webapp drops 5xx text
+by default and shows a generic failure. That default was swallowing the two
+sentences above, which is how a warehouse timeout came to read as "Building the
+route failed — try again in a moment", advice that is the opposite of correct
+for the district that caused it.
+
+So the two read failures carry `VOTER_QUERY_TIMEOUT` and
+`VOTER_DATA_UNREACHABLE` (`shared/constants/voterData.consts.ts`), and the
+client passes a message through on the **code**, not the status — status alone
+cannot separate a people-db 502 from a vendor's. Distinct from
+`VOTER_DATA_UNAVAILABLE`, which is a 4xx eligibility state (no district, no
+stats row) rather than a read that failed.
+
+**This is not the "No matching voters" 400.** That one cannot be a masked
+timeout: a timeout throws before any rows are shaped, and there is no path that
+turns a slow or failed scan into an empty roster — the over-cap guard rejects
+rather than truncating, too. The two are separate failures with separate
+messages, and the reason to say so here is that they are easy to confuse from
+the outside, where both look like "it found nobody".
+
+To check a suspected timeout in Grafana, every voter read logs one line at
+`people-db voter read` with flat `op`, `districtId`, `dbxMs` and `statementIds`
+fields (`VoterReadLogService`), emitted on the failure path too — deliberately,
+so cold-start attribution is not biased toward the reads that were already
+fast. The door-knocking create is `op="dk-evaluate"`; the map download is the
+pack build.
+
 ### Raising one organization's allowance
 
 The five is a default, not a ceiling.
