@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { AlertDialog, Button, Dialog, Flex, TextArea } from '@radix-ui/themes'
 import { useToast } from '@/components/Toast'
@@ -13,47 +13,58 @@ interface ApproveDenyActionsProps {
 export function ApproveDenyActions({ id }: ApproveDenyActionsProps) {
   const router = useRouter()
   const { showToast } = useToast()
-  const [busy, setBusy] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  // router.refresh() doesn't return a promise — a transition is the only way
+  // to know the post-mutation re-render (fresh vendor/job data) has landed.
+  const [isRefreshing, startTransition] = useTransition()
+  const busy = submitting || isRefreshing
+  const [approveOpen, setApproveOpen] = useState(false)
   const [denyOpen, setDenyOpen] = useState(false)
   const [reason, setReason] = useState('')
 
   async function handleApprove() {
-    setBusy(true)
+    setSubmitting(true)
     try {
       await approveSms(id)
       showToast('Approved — the send is booked with the vendor')
-      router.refresh()
+      setApproveOpen(false)
+      startTransition(() => router.refresh())
     } catch (error) {
       showToast(
         error instanceof Error ? error.message : 'Failed to approve campaign'
       )
     } finally {
-      setBusy(false)
+      setSubmitting(false)
     }
   }
 
   async function handleDeny() {
     if (reason.trim().length === 0) return
-    setBusy(true)
+    setSubmitting(true)
     try {
       await denySms(id, reason.trim())
       showToast('Denied — edit the message to re-queue it')
       setDenyOpen(false)
-      router.refresh()
+      startTransition(() => router.refresh())
     } catch (error) {
       showToast(
         error instanceof Error ? error.message : 'Failed to deny campaign'
       )
     } finally {
-      setBusy(false)
+      setSubmitting(false)
     }
   }
 
   return (
     <Flex gap="3">
-      <AlertDialog.Root>
+      <AlertDialog.Root
+        open={approveOpen}
+        onOpenChange={(next) => {
+          if (!busy) setApproveOpen(next)
+        }}
+      >
         <AlertDialog.Trigger>
-          <Button disabled={busy} style={{ flexGrow: 1 }}>
+          <Button disabled={busy} loading={busy} style={{ flexGrow: 1 }}>
             Approve &amp; book send
           </Button>
         </AlertDialog.Trigger>
@@ -70,17 +81,29 @@ export function ApproveDenyActions({ id }: ApproveDenyActionsProps) {
               </Button>
             </AlertDialog.Cancel>
             <AlertDialog.Action>
-              <Button onClick={handleApprove} disabled={busy}>
-                {busy ? 'Booking…' : 'Approve'}
+              <Button
+                onClick={(event) => {
+                  event.preventDefault()
+                  handleApprove()
+                }}
+                disabled={busy}
+                loading={busy}
+              >
+                Approve
               </Button>
             </AlertDialog.Action>
           </Flex>
         </AlertDialog.Content>
       </AlertDialog.Root>
 
-      <Dialog.Root open={denyOpen} onOpenChange={setDenyOpen}>
+      <Dialog.Root
+        open={denyOpen}
+        onOpenChange={(next) => {
+          if (!busy) setDenyOpen(next)
+        }}
+      >
         <Dialog.Trigger>
-          <Button variant="outline" color="red" disabled={busy}>
+          <Button variant="outline" color="red" disabled={busy} loading={busy}>
             Deny
           </Button>
         </Dialog.Trigger>
@@ -97,6 +120,7 @@ export function ApproveDenyActions({ id }: ApproveDenyActionsProps) {
             value={reason}
             onChange={(event) => setReason(event.target.value)}
             rows={4}
+            disabled={busy}
           />
           <Flex gap="3" mt="4" justify="end">
             <Dialog.Close>
@@ -108,8 +132,9 @@ export function ApproveDenyActions({ id }: ApproveDenyActionsProps) {
               color="red"
               onClick={handleDeny}
               disabled={busy || reason.trim().length === 0}
+              loading={busy}
             >
-              {busy ? 'Denying…' : 'Deny'}
+              Deny
             </Button>
           </Flex>
         </Dialog.Content>
