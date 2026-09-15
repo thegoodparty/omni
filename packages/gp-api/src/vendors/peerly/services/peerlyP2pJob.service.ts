@@ -354,6 +354,11 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     try {
       await this.peerlyHttpService.put(`/1to1/jobs/${jobId}`, {
         account_id: this.accountNumber,
+        // Echoed like templates: this runs on approve-activated jobs, and
+        // a full-replace PUT that defaulted status back to paused would
+        // silently deactivate the send (the 2026-09-08 failure mode
+        // activateJob exists for).
+        status: job.status,
         can_use_mms: job.can_use_mms,
         templates: job.templates.map((template) => ({
           is_default: template.is_default,

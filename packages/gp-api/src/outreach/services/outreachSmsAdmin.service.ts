@@ -650,7 +650,20 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
 
     const wasBooked = row.canvassRequestedAt !== null
     if (wasBooked) {
-      await this.peerlyP2pJobService.clearCanvassers(row.projectId)
+      try {
+        await this.peerlyP2pJobService.clearCanvassers(row.projectId)
+      } catch (error) {
+        // The vendor window already moved but the DB is deliberately left
+        // unchanged (vendor-first contract). Retrying the date edit is
+        // safe: clearCanvassers no-ops when there is nothing to clear.
+        this.logger.error(
+          { err: error, outreachId },
+          'Reschedule moved the vendor schedule window but could not ' +
+            'clear the canvasser booking; retry the date edit to complete ' +
+            'the reschedule',
+        )
+        throw error
+      }
       try {
         await this.peerlyP2pJobService.requestCanvassers(row.projectId, {
           date: input.scheduledLocalDate,

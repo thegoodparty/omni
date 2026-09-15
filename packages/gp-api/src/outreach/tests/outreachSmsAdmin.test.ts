@@ -844,6 +844,29 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(unchanged.adminEditedAt).toBeNull()
     })
 
+    it('leaves the dates unchanged when the booking clear fails', async () => {
+      clearCanvassers.mockRejectedValue(new Error('peerly down'))
+      const row = await seedOutreach({ approvedAt: new Date() })
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: { canvassRequestedAt: new Date() },
+      })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBeGreaterThanOrEqual(500)
+      expect(requestCanvassers).not.toHaveBeenCalled()
+      const unchanged = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(unchanged.date?.getTime()).toBe(SEND_DATE.getTime())
+      expect(unchanged.scheduledLocalDate).toBe(SEND_LOCAL_DATE)
+      expect(unchanged.adminEditedAt).toBeNull()
+    })
+
     it('leaves the dates unchanged when rebooking fails after the clear', async () => {
       requestCanvassers.mockRejectedValue(new Error('peerly down'))
       const row = await seedOutreach({ approvedAt: new Date() })
