@@ -40,11 +40,15 @@ fixes track under ENG-10744.
   changes. The static list only comes into existence at outreach launch,
   materialized as one interaction row per person — those rows are the
   audit truth. There is no `ContactList` model.
-- **Support status is derived, with an optional manual override.** Latest
-  interaction carrying a non-null `supportAnswer` wins; `unsure` rolls up to
+- **Support status is derived, with an optional manual override.** The
+  FIRMEST interaction wins, not the latest: `supporter` and `non_supporter`
+  outrank `unsure`, which outranks a row with no answer, and recency only
+  settles ties between equally firm answers — so a re-canvass that captured
+  "unsure" cannot erase a supporter recorded last month. `unsure` rolls up to
   `undecided`, and `unknown` means no support answer was ever captured (never
-  contacted, or contacted with no answer recorded) — the derivation itself is
-  single-sourced via the `SUPPORT_ANSWER_ROLLUP` constant in
+  contacted, or contacted with no answer recorded) — both the rollup and the
+  ranking are single-sourced, via the `SUPPORT_ANSWER_ROLLUP` and
+  `SUPPORT_ANSWER_FIRMNESS` constants in
   `src/contactInteraction/contactInteraction.types.ts`. A person can also
   carry a manual `support_status` override (`ContactStatusService`,
   `contact_current_status` table) to any of the five `SupportStatusRollup`

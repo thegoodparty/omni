@@ -880,10 +880,11 @@ containing a target; targets get live age/party; otherResidents are
 name-only) + each stop's **effective** knock status (org-wide; prior-route and
 prior-campaign contact is deliberately visible). Effective means the CRM's rule,
 `override ?? derived`: a manual `support_status` override in
-`contact_current_status` wins, otherwise the latest ANSWER-bearing
+`contact_current_status` wins, otherwise the FIRMEST
 `contact_interaction_door_knock` row wins — matching
 `SupportStatusService.derivedStatusSql`, so a later "not home" reads as a failed
-re-attempt rather than a retraction of support already given. Pure
+re-attempt rather than a retraction of support already given, and so does a
+later "unsure" (see § Firmness, not recency). Pure
 last-write-wins made the door and Contacts disagree about the same person, and
 made a hand correction invisible at the door. `undecided` has no map member and
 reads as unknown (still worth knocking). The route
@@ -1000,15 +1001,37 @@ than the first: the event was already unreachable on an `eo-` org, but a stored
 never shown, and every later reader of the interaction table would read it as
 one that was given.
 
-**Two derivations read this history and they have to agree.**
-`DoorKnockingStatusService.latestKnockStatuses` colours the row a canvasser taps
-and `DoorKnockingPackService` colours the pin they tapped it from, so both take
-the same preference over a person's rows: newest first, but the newest
-**answer-bearing** row wins over a newer one without an answer. A later "not
-home" is a failed re-attempt, not a retraction. The pack used to take the newest
-row outright, which was the same divergence on `supportAnswer`; the Serve answer
-is what made it reachable in a single evening, since returning to a door is the
-whole point of a follow-up.
+### Firmness, not recency
+
+**Three derivations read this history and they have to agree.**
+`DoorKnockingStatusService.latestKnockStatuses` colours the row a canvasser
+taps, `DoorKnockingPackService` colours the pin they tapped it from, and
+`SupportStatusService.derivedStatusSql` colours the same person in Contacts. All
+three rank a person's rows the same way: **the firmest answer wins, and recency
+only settles ties between equally firm ones.** The scale is one constant,
+`SUPPORT_ANSWER_FIRMNESS` in `contactInteraction.types.ts` — `supporter` and
+`non_supporter` are firm, `unsure` is soft, no answer at all is bottom — and the
+two in-process callers share one selection function, `firmestAnswerPerPerson`.
+
+So a later "not home" is a failed re-attempt rather than a retraction, and a
+later "unsure" is not a retraction either. That second case is what QA reported
+as **"the second pass overwrites previous SQs"**: re-knock a door you already
+have a supporter from, the resident is non-committal, log "unsure", and under
+pure recency the person went grey on the walk list, on the map, in the per-list
+counts and in the CRM all at once. Nothing was ever lost — both rows are in
+`contact_interaction_door_knock`, each with its own `supportAnswer`,
+`willVote` and `note`, and the `voter_likelihood` event log is append-only. It
+was the projection over them that was wrong.
+
+Two deliberate exceptions, both in `DoorKnockingStatsService`'s rollup, both
+argued in their own SQL headers: `committedVoters` takes the LATEST support
+answer, because "is this person committed right now" is a narrower question
+than "where do they stand"; and `votersPersuaded` is historical, so someone who
+flips back stays counted.
+
+The pack used to take the newest row outright, which was the same divergence on
+`supportAnswer`; the Serve answer is what made it reachable in a single
+evening, since returning to a door is the whole point of a follow-up.
 
 ## Previous outreach, at the door
 

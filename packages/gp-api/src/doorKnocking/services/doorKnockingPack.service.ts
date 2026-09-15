@@ -9,7 +9,10 @@ import { ContactsService } from '@/contacts/services/contacts.service'
 import { ContactsMadeResolutionService } from '@/contactInteraction/services/contactsMadeResolution.service'
 import { Organization, Prisma } from '../../generated/prisma'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
-import { deriveKnockStatus } from '../utils/knockStatus.util'
+import {
+  deriveKnockStatus,
+  firmestAnswerPerPerson,
+} from '../utils/knockStatus.util'
 import { PACK_BUILD_FAILED_EVENT, streamPack } from '../utils/packStream.util'
 
 @Injectable()
@@ -89,39 +92,20 @@ export class DoorKnockingPackService extends createPrismaBase(
     // `null` (over the cap) becomes absent, not empty — the contract's two
     // states differ, and empty would assert nobody has been contacted.
     const contactsMade = buckets ?? undefined
-    // The same two-map preference `DoorKnockingStatusService.latestKnockStatuses`
-    // applies, and for the same reason: rows arrive newest-first, so the first
-    // row per person is the latest and the first answer-bearing one is the
-    // latest answer. A later "not home" is a failed re-attempt, not a
-    // retraction of the answer already given.
-    //
-    // This map colours the pin and that one colours the row a tap later, so a
-    // person reading first-seen here would show `not_home` on the map and
+    // Literally the same selection `DoorKnockingStatusService` makes, because
+    // this map colours the pin and that one colours the row a tap later: a
+    // person deriving differently here would show `not_home` on the map and
     // `needs_follow_up` in the walk — one door, two answers, and no way for the
-    // canvasser to tell which is lying. It used to be first-seen, which was the
-    // same divergence on `supportAnswer`; the Serve answer is what made it
-    // reachable in a single evening, since returning to a door is the whole
-    // point of a follow-up.
+    // canvasser to tell which is lying. It was first-seen once, and a
+    // paraphrase of the other service's loop after that; now it is the
+    // function itself.
     const knockStatuses: DoorKnockingPackRequest['knockStatuses'] = []
-    const latest = new Map<string, (typeof interactions)[number]>()
-    const latestAnswered = new Map<string, (typeof interactions)[number]>()
-    for (const interaction of interactions) {
-      if (!latest.has(interaction.personId)) {
-        latest.set(interaction.personId, interaction)
-      }
-      if (
-        (interaction.supportAnswer !== null || interaction.followUp !== null) &&
-        !latestAnswered.has(interaction.personId)
-      ) {
-        latestAnswered.set(interaction.personId, interaction)
-      }
-    }
-    for (const personId of latest.keys()) {
+    for (const [personId, interaction] of firmestAnswerPerPerson(
+      interactions,
+    )) {
       knockStatuses.push({
         personId,
-        status: deriveKnockStatus(
-          latestAnswered.get(personId) ?? latest.get(personId)!,
-        ),
+        status: deriveKnockStatus(interaction),
       })
     }
 
