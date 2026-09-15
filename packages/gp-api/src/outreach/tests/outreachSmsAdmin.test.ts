@@ -1,5 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import { addDays, format, subDays } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
@@ -752,11 +753,37 @@ describe('CAS SMS console (gp-api admin surface)', () => {
 
   describe('PATCH /v1/outreach/admin/sms/:id/date (staff date edit)', () => {
     const NEW_SEND_AT = addDays(new Date(), 14)
-    const NEW_LOCAL_DATE = format(NEW_SEND_AT, 'yyyy-MM-dd')
+    // ET, not runner-local: editDate refuses a pair whose ET calendar day
+    // disagrees, and a runner-local format() drifts from ET in the
+    // evening hours.
+    const NEW_LOCAL_DATE = formatInTimeZone(
+      NEW_SEND_AT,
+      'America/New_York',
+      'yyyy-MM-dd',
+    )
     const payload = () => ({
       sendAt: NEW_SEND_AT.toISOString(),
       scheduledLocalDate: NEW_LOCAL_DATE,
       editedBy: 'cas@goodparty.org',
+    })
+
+    it('400s a pair whose ET calendar day disagrees', async () => {
+      const row = await seedOutreach()
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        {
+          ...payload(),
+          scheduledLocalDate: formatInTimeZone(
+            addDays(NEW_SEND_AT, 2),
+            'America/New_York',
+            'yyyy-MM-dd',
+          ),
+        },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(updateJobSchedule).not.toHaveBeenCalled()
     })
 
     it('clears a denial so the rescheduled row is approvable again', async () => {

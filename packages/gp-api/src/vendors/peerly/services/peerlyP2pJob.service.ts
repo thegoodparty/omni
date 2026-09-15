@@ -348,10 +348,10 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     date: string
   }): Promise<void> {
     const job = await this.getJob(jobId)
-    const scheduleName = `GP P2P - Campaign ${campaignId} - ${date} - ${formatISO(new Date())}`
-    const scheduleId =
-      await this.peerlyScheduleService.createSchedule(scheduleName)
     try {
+      const scheduleName = `GP P2P - Campaign ${campaignId} - ${date} - ${formatISO(new Date())}`
+      const scheduleId =
+        await this.peerlyScheduleService.createSchedule(scheduleName)
       await this.peerlyHttpService.put(`/1to1/jobs/${jobId}`, {
         account_id: this.accountNumber,
         // Echoed like templates: this runs on approve-activated jobs, and

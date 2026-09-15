@@ -523,6 +523,23 @@ describe('PeerlyP2pJobService', () => {
       )
     })
 
+    it('routes a createSchedule failure through the shared error handler', async () => {
+      mockHttpService.get.mockResolvedValueOnce({ data: activeJob })
+      mockScheduleService.createSchedule.mockRejectedValueOnce(
+        new Error('schedule create failed'),
+      )
+
+      await expect(
+        service.updateJobSchedule({
+          jobId: 'job-1',
+          campaignId: 42,
+          date: '2026-10-01',
+        }),
+      ).rejects.toThrow(BadGatewayException)
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalled()
+      expect(mockHttpService.put).not.toHaveBeenCalled()
+    })
+
     it('routes a reschedule PUT failure through the shared error handler', async () => {
       mockHttpService.get.mockResolvedValueOnce({ data: activeJob })
       mockHttpService.put.mockRejectedValueOnce(new Error('vendor down'))

@@ -17,6 +17,8 @@ import {
   type SmsApprovalStatus,
 } from '@goodparty_org/contracts'
 import { addDays, format, isAfter, subDays } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
+import { EASTERN_TIMEZONE } from 'src/shared/util/date.util'
 import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -640,6 +642,19 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     }
     if (!isAfter(input.sendAt, new Date())) {
       throw new BadRequestException('The new send time must be in the future')
+    }
+    // The two fields must name the same ET calendar day: the DB stores the
+    // instant while Peerly's window is set from scheduledLocalDate, so an
+    // incoherent pair (possible from a raw M2M caller — the console picker
+    // derives both from one input) would permanently split them. Checked
+    // here, not in contracts: the timezone authority is server-side.
+    if (
+      formatInTimeZone(input.sendAt, EASTERN_TIMEZONE, DATE_FMT) !==
+      input.scheduledLocalDate
+    ) {
+      throw new BadRequestException(
+        'scheduledLocalDate must match the Eastern calendar day of sendAt',
+      )
     }
 
     await this.peerlyP2pJobService.updateJobSchedule({
