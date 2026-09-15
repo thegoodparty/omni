@@ -599,14 +599,14 @@ export default function CreateListWizard({
         ) : undefined
       }
       header={
-        <>
-          <DrawerTitle className="text-base font-semibold">
-            {stepTitle}
-          </DrawerTitle>
-          {/* Edit has one step, so the stepper has nothing to say — the
-              prototype puts the name field in its place, which is what
-              lets edit cover renaming without a separate dialog. */}
-          {isEditing ? (
+        isEditing ? (
+          // Edit is a single-step surface — no stepper, no eyebrow slot:
+          // the visible DrawerTitle stays as the flow's identity and
+          // the name input takes the stepper's place.
+          <>
+            <DrawerTitle className="text-base font-semibold">
+              Edit list
+            </DrawerTitle>
             <Input
               aria-label="List name"
               value={name}
@@ -616,14 +616,25 @@ export default function CreateListWizard({
               maxLength={MAX_SEGMENT_NAME_LENGTH}
               placeholder="Name this list"
             />
-          ) : (
+          </>
+        ) : (
+          // Create flow: the Stepper renders the visible eyebrow and the
+          // bars. DrawerTitle stays sr-only for the drawer's accessible
+          // name (no `onExit` — CrmSheet's own close chrome handles it).
+          <>
+            <DrawerTitle className="sr-only">Create new list</DrawerTitle>
             <Stepper
+              variant="bar"
               currentStep={stepIndex + 1}
               totalSteps={steps.length}
-              labelClassName="text-xs"
+              eyebrow={
+                <span className="text-base font-semibold text-foreground">
+                  Create new list
+                </span>
+              }
             />
-          )}
-        </>
+          </>
+        )
       }
       footer={
         <>
@@ -673,6 +684,13 @@ export default function CreateListWizard({
         </>
       }
     >
+      {/* Step title lives in the body now — matches the outreach shell's
+          <Intro> shape (h3 + optional body p). Skipped in edit mode: the
+          header already reads "Edit list" and there is no per-step title
+          to add here. */}
+      {!isEditing && (
+        <h3 className="text-2xl font-semibold text-foreground">{stepTitle}</h3>
+      )}
       {stepName === 'branch' && (
         <BranchStep
           selected={branch}

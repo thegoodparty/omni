@@ -138,28 +138,40 @@ const InviteMemberDrawer = ({
       >
         <DrawerHandle />
         <DrawerHeader className="gap-3 px-6 pt-2 pb-4">
-          <div className="flex items-center gap-3">
-            {step === 2 && (
-              <Button
-                variant="outline"
-                size="small"
-                className="rounded-full"
-                onClick={() => setStep(1)}
-              >
-                <ArrowLeftIcon className="size-4" />
-                Back
-              </Button>
-            )}
-            <DrawerTitle>
-              {step === 1
-                ? 'Who do you want to invite?'
-                : 'What role would you like to assign?'}
-            </DrawerTitle>
-          </div>
-          <Stepper variant="bar" currentStep={step} totalSteps={2} />
+          {/* Back stays out on step 2 (drawer-specific chrome). Stepper
+              carries the eyebrow + bars; DrawerTitle stays sr-only for
+              the drawer's accessible name. No `onExit` — the drawer's
+              own close chrome handles exit. */}
+          {step === 2 && (
+            <Button
+              variant="outline"
+              size="small"
+              className="w-fit rounded-full"
+              onClick={() => setStep(1)}
+            >
+              <ArrowLeftIcon className="size-4" />
+              Back
+            </Button>
+          )}
+          <DrawerTitle className="sr-only">Invite someone</DrawerTitle>
+          <Stepper
+            variant="bar"
+            currentStep={step}
+            totalSteps={2}
+            eyebrow={
+              <span className="text-base font-semibold text-foreground">
+                Invite someone
+              </span>
+            }
+          />
         </DrawerHeader>
 
         <DrawerBody className="px-6 pb-2">
+          <h3 className="mb-4 text-2xl font-semibold text-foreground">
+            {step === 1
+              ? 'Who do you want to invite?'
+              : 'What role would you like to assign?'}
+          </h3>
           {step === 1 ? (
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">

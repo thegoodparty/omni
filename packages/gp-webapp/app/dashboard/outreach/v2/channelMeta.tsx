@@ -47,43 +47,43 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
     label: 'Social media',
     icon: <Share2Icon />,
     iconTint: 'bg-brand-lavender-100',
-    badgeTint: 'border-transparent bg-brand-lavender-100 text-foreground',
+    badgeTint: 'bg-brand-lavender-100 text-foreground',
   },
   text: {
     label: 'SMS',
     icon: <MessageSquareIcon />,
     iconTint: 'bg-brand-blue-100',
-    badgeTint: 'border-transparent bg-brand-blue-100 text-foreground',
+    badgeTint: 'bg-brand-blue-100 text-foreground',
   },
   p2p: {
     label: 'SMS',
     icon: <MessageSquareIcon />,
     iconTint: 'bg-brand-blue-100',
-    badgeTint: 'border-transparent bg-brand-blue-100 text-foreground',
+    badgeTint: 'bg-brand-blue-100 text-foreground',
   },
   robocall: {
     label: 'Robocall',
     icon: <PhoneIcon />,
     iconTint: 'bg-brand-waxflower-100',
-    badgeTint: 'border-transparent bg-brand-waxflower-100 text-foreground',
+    badgeTint: 'bg-brand-waxflower-100 text-foreground',
   },
   phoneBanking: {
     label: 'Phone banking',
     icon: <HeadphonesIcon />,
     iconTint: 'bg-brand-red-100',
-    badgeTint: 'border-transparent bg-brand-red-100 text-foreground',
+    badgeTint: 'bg-brand-red-100 text-foreground',
   },
   nativePhoneBanking: {
     label: 'Phone banking',
     icon: <HeadphonesIcon />,
     iconTint: 'bg-brand-red-100',
-    badgeTint: 'border-transparent bg-brand-red-100 text-foreground',
+    badgeTint: 'bg-brand-red-100 text-foreground',
   },
   doorKnocking: {
     label: 'Door knocking',
     icon: <DoorOpenIcon />,
     iconTint: 'bg-brand-halo-green-100',
-    badgeTint: 'border-transparent bg-brand-halo-green-100 text-foreground',
+    badgeTint: 'bg-brand-halo-green-100 text-foreground',
   },
   // Same presentation as the legacy type: a candidate reading the history has
   // no use for the distinction between an eCanvasser draft and a native walk,
@@ -92,7 +92,7 @@ export const CHANNEL_META: Record<OutreachType, ChannelMeta> = {
     label: 'Door knocking',
     icon: <DoorOpenIcon />,
     iconTint: 'bg-brand-halo-green-100',
-    badgeTint: 'border-transparent bg-brand-halo-green-100 text-foreground',
+    badgeTint: 'bg-brand-halo-green-100 text-foreground',
   },
 }
 
@@ -112,7 +112,7 @@ export const ChannelBadge = ({ type }: { type: string | undefined }) => (
   <Badge
     className={
       CHANNEL_META[type as OutreachType]?.badgeTint ??
-      'border-transparent bg-muted text-foreground'
+      'bg-muted text-foreground'
     }
   >
     {getChannelLabel(type)}
