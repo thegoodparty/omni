@@ -39,6 +39,22 @@ def _positive_float_from_env(name: str, default: float) -> float:
 
 
 ANALYZE_LABEL = "analyze"
+# A dev-only E2E triage run. Read-only and verdict-emitting exactly like an
+# analyze run, so it escalates on the same terms (see escalation.py); it is a
+# separate value only so the cost of the bot's self-filed tickets stays
+# separable from the cost of a human's.
+#
+# A SECOND COPY of clickup_bot/lambda/handler.py's DEV_TEST_LABEL, which is the
+# side that sets it. The Lambda imports nothing from this repo — it is packaged
+# and deployed on its own — so the two cannot share a definition, and
+# clickup_bot/tests/test_scope_is_mirrored.py fails if they drift.
+DEV_TEST_LABEL = "dev-test"
+
+# Which kinds of run are allowed to queue an implementation run off a verdict.
+# Both are read-only runs that end in a GPBOT-VERDICT line; nothing else is, and
+# an unset label (a local run, an older task definition) is deliberately absent
+# so the escalation path stays closed when nobody said what kind of run this is.
+ESCALATING_LABELS = frozenset({ANALYZE_LABEL, DEV_TEST_LABEL})
 
 
 @dataclass
