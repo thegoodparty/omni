@@ -680,9 +680,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     // for it can only fail, and a queue of only canceled rows needs none.
     // Any non-canceled reviewable row (pending or in_progress — the sweep
     // ratchet, see REVIEWABLE_STATUSES) still has a live job to read.
-    const wantsJobs = rows.some(
-      (row) => row.status !== OutreachStatus.canceled,
-    )
+    const wantsJobs = rows.some((row) => row.status !== OutreachStatus.canceled)
     const byProjectId = new Map<string, PeerlyJob>()
     if (!wantsJobs) return byProjectId
     // One account-wide read replaces the old per-identity fan-out
