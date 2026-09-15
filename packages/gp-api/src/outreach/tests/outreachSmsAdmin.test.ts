@@ -6,6 +6,7 @@ import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.serv
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
+import { CrmCampaignsService } from 'src/campaigns/services/crmCampaigns.service'
 import { OutreachSmsAdminService } from '../services/outreachSmsAdmin.service'
 import { OutreachStatus, OutreachType, UserRole } from '../../generated/prisma'
 
@@ -22,7 +23,7 @@ const requestCanvassers = vi.fn()
 const activateJob = vi.fn()
 const slackMessage = vi.fn()
 const clearCanvassers = vi.fn()
-const getJobsByIdentityId = vi.fn()
+const listAccountJobs = vi.fn()
 const getJob = vi.fn()
 const getJobDetailedStats = vi.fn()
 const deleteJob = vi.fn()
@@ -40,12 +41,28 @@ const liveJob = (id: string, approved = false) => ({
   leads_remaining: 1200,
 })
 
+// The queue's account-jobs and HubSpot-owner caches live on the service
+// instance, which outlives a single test — one cache key for the whole
+// account, so distinct-projectId isolation (the getDetail convention)
+// can't help. TTL 0 disables them by default; tests exercising the cache
+// stub a real TTL and end by invalidating (a mutation clears the maps).
+beforeEach(() => {
+  vi.stubEnv('QUEUE_JOBS_CACHE_TTL_MS', '0')
+  vi.stubEnv('OWNER_CACHE_TTL_MS', '0')
+  // A failed read caches on the failure cool-off, not the TTL — zero it
+  // too, or one test's rejected account read serves the next test null.
+  vi.stubEnv('DETAIL_FAILED_RETRY_COOLDOWN_MS', '0')
+})
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
 beforeEach(async () => {
   requestCanvassers.mockReset().mockResolvedValue(undefined)
   activateJob.mockReset().mockResolvedValue(undefined)
   slackMessage.mockReset().mockResolvedValue(undefined)
   clearCanvassers.mockReset().mockResolvedValue(undefined)
-  getJobsByIdentityId.mockReset().mockResolvedValue([])
+  listAccountJobs.mockReset().mockResolvedValue([])
   getJob.mockReset().mockResolvedValue(liveJob('peerly-job-1'))
   deleteJob.mockReset().mockResolvedValue(undefined)
   getJobDetailedStats.mockReset().mockResolvedValue({
@@ -65,9 +82,7 @@ beforeEach(async () => {
     slackMessage,
   )
   vi.spyOn(peerly, 'clearCanvassers').mockImplementation(clearCanvassers)
-  vi.spyOn(peerly, 'getJobsByIdentityId').mockImplementation(
-    getJobsByIdentityId,
-  )
+  vi.spyOn(peerly, 'listAccountJobs').mockImplementation(listAccountJobs)
   vi.spyOn(peerly, 'getJob').mockImplementation(getJob)
   vi.spyOn(peerly, 'getJobDetailedStats').mockImplementation(
     getJobDetailedStats,
@@ -151,7 +166,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
   describe('GET /v1/outreach/admin/sms/queue', () => {
     it('lists scheduled sends with standards verdict and live job state', async () => {
       const row = await seedOutreach()
-      getJobsByIdentityId.mockResolvedValue([liveJob('peerly-job-1')])
+      listAccountJobs.mockResolvedValue([liveJob('peerly-job-1')])
 
       const res = await service.client.get('/v1/outreach/admin/sms/queue')
 
@@ -171,7 +186,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       await seedOutreach({
         script: 'vote for someone, no opt out line here',
       })
-      getJobsByIdentityId.mockRejectedValue(new Error('peerly down'))
+      listAccountJobs.mockRejectedValue(new Error('peerly down'))
 
       const res = await service.client.get('/v1/outreach/admin/sms/queue')
 
@@ -187,6 +202,78 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         ]),
       )
       expect(item.job).toBeNull()
+    })
+
+    it('caches the one account-wide jobs read and busts it on a mutation', async () => {
+      vi.stubEnv('QUEUE_JOBS_CACHE_TTL_MS', '60000')
+      const row = await seedOutreach()
+      listAccountJobs.mockResolvedValue([liveJob('peerly-job-1')])
+
+      const first = await service.client.get('/v1/outreach/admin/sms/queue')
+      expect(first.status).toBe(HttpStatus.OK)
+      expect(first.data.items[0].job).toMatchObject({ status: 'active' })
+      const second = await service.client.get('/v1/outreach/admin/sms/queue')
+      expect(second.status).toBe(HttpStatus.OK)
+      expect(second.data.items[0].job).toMatchObject({ status: 'active' })
+      // A detail-then-back navigation inside the TTL pays no vendor read.
+      expect(listAccountJobs).toHaveBeenCalledTimes(1)
+
+      // Approve changes vendor state (booking + activation), so the next
+      // queue view must read fresh instead of serving the cached answer.
+      const approved = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+      expect(approved.status).toBe(HttpStatus.CREATED)
+      const third = await service.client.get('/v1/outreach/admin/sms/queue')
+      expect(third.status).toBe(HttpStatus.OK)
+      expect(listAccountJobs).toHaveBeenCalledTimes(2)
+
+      // Self-cleaning: cancel invalidates again, and a canceled-only queue
+      // performs no read — nothing cached leaks into later tests.
+      await service.client.post(`/v1/outreach/admin/sms/${row.id}/cancel`, {
+        canceledBy: 'cas@goodparty.org',
+      })
+      const fourth = await service.client.get('/v1/outreach/admin/sms/queue')
+      expect(fourth.status).toBe(HttpStatus.OK)
+      expect(listAccountJobs).toHaveBeenCalledTimes(2)
+    })
+
+    it('caches the HubSpot owner per company across queue views', async () => {
+      vi.stubEnv('OWNER_CACHE_TTL_MS', '60000')
+      await service.prisma.campaign.update({
+        where: { id: campaignId },
+        data: { data: { hubspotId: 'hs-co-owner-cache' } },
+      })
+      const ownerName = vi.fn().mockResolvedValue('Casey Success')
+      vi.spyOn(
+        service.app.get(CrmCampaignsService),
+        'getCrmCompanyOwnerName',
+      ).mockImplementation(ownerName)
+      await seedOutreach()
+
+      const first = await service.client.get('/v1/outreach/admin/sms/queue')
+      expect(first.status).toBe(HttpStatus.OK)
+      expect(first.data.items[0].assignedPa).toBe('Casey Success')
+      const second = await service.client.get('/v1/outreach/admin/sms/queue')
+      expect(second.data.items[0].assignedPa).toBe('Casey Success')
+      expect(ownerName).toHaveBeenCalledTimes(1)
+    })
+
+    it('renders unassigned when the HubSpot owner read fails', async () => {
+      await service.prisma.campaign.update({
+        where: { id: campaignId },
+        data: { data: { hubspotId: 'hs-co-owner-fail' } },
+      })
+      vi.spyOn(
+        service.app.get(CrmCampaignsService),
+        'getCrmCompanyOwnerName',
+      ).mockRejectedValue(new Error('hubspot down'))
+      await seedOutreach()
+
+      const res = await service.client.get('/v1/outreach/admin/sms/queue')
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.items[0].assignedPa).toBeNull()
     })
 
     it('excludes rows outside the review window', async () => {
@@ -355,7 +442,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       const item = queue.data.items.find((i: { id: number }) => i.id === row.id)
       expect(item.approvalStatus).toBe('canceled')
       // The canceled row's vendor job is gone — no live read attempted.
-      expect(getJobsByIdentityId).not.toHaveBeenCalled()
+      expect(listAccountJobs).not.toHaveBeenCalled()
 
       const detail = await service.client.get(
         `/v1/outreach/admin/sms/${row.id}`,

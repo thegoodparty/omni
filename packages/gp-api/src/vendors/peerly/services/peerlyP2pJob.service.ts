@@ -253,6 +253,21 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     }
   }
 
+  // identity_id is an optional filter on GET /1to1/jobs (List Jobs docs);
+  // account scope returns every identity's jobs in one read, which is what
+  // the admin queue wants instead of a fan-out per identity.
+  async listAccountJobs(): Promise<PeerlyJob[]> {
+    try {
+      const response = await this.peerlyHttpService.get<PeerlyJob[]>(
+        `/1to1/jobs?account_id=${this.accountNumber}`,
+      )
+      return response.data
+    } catch (error) {
+      this.logger.error({ error }, P2P_ERROR_MESSAGES.RETRIEVE_JOBS_FAILED)
+      throw new BadGatewayException(P2P_ERROR_MESSAGES.RETRIEVE_JOBS_FAILED)
+    }
+  }
+
   // Peerly has no DELETE verb for jobs: cancellation is a status write on
   // DELETE /1to1/jobs/{id} (204). The endpoint is documented but missing
   // from Peerly's llms.txt index
