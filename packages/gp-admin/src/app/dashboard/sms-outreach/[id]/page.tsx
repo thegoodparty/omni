@@ -22,6 +22,7 @@ import { getSmsDetail } from '../actions'
 import { STANDARDS_RULE_LABELS, STATUS_COLORS, STATUS_LABELS } from '../types'
 import { ApproveDenyActions } from '../components/ApproveDenyActions'
 import { CancelAction } from '../components/CancelAction'
+import { EditDateAction } from '../components/EditDateAction'
 import { EditMessageAction } from '../components/EditMessageAction'
 
 export const metadata: Metadata = {
@@ -94,9 +95,20 @@ export default async function Page({ params }: PageProps) {
             <Text size="2" style={{ whiteSpace: 'pre-wrap' }}>
               {item.script ?? '—'}
             </Text>
-            {canDecide && item.script && item.approvalStatus !== 'canceled' && (
+            {canDecide && item.approvalStatus !== 'canceled' && (
               <Box mt="3">
-                <EditMessageAction id={item.id} script={item.script} />
+                <Flex gap="3">
+                  {item.script && (
+                    <EditMessageAction id={item.id} script={item.script} />
+                  )}
+                  <EditDateAction
+                    id={item.id}
+                    sendAt={
+                      item.sendAt ? new Date(item.sendAt).toISOString() : null
+                    }
+                    scheduledLocalDate={item.scheduledLocalDate}
+                  />
+                </Flex>
               </Box>
             )}
             {item.adminEditedAt && (

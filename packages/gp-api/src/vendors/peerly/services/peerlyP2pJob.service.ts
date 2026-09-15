@@ -332,6 +332,56 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     }
   }
 
+  // Staff date edit: repoints the job's send window without touching the
+  // message. The update PUT overwrites the whole templates array, so the
+  // job is read first and its templates echoed by media_id — the
+  // activateJob pattern — while the reschedule mints a fresh schedule and
+  // sets start/end to the new local day, the same derivation the create
+  // path used for the original date.
+  async updateJobSchedule({
+    jobId,
+    campaignId,
+    date,
+  }: {
+    jobId: string
+    campaignId: number
+    date: string
+  }): Promise<void> {
+    const job = await this.getJob(jobId)
+    const scheduleName = `GP P2P - Campaign ${campaignId} - ${date} - ${formatISO(new Date())}`
+    const scheduleId =
+      await this.peerlyScheduleService.createSchedule(scheduleName)
+    try {
+      await this.peerlyHttpService.put(`/1to1/jobs/${jobId}`, {
+        account_id: this.accountNumber,
+        can_use_mms: job.can_use_mms,
+        templates: job.templates.map((template) => ({
+          is_default: template.is_default,
+          title: template.title,
+          text: template.text,
+          ...(template.media && {
+            media: {
+              media_type: template.media.media_type,
+              media_id: template.media.media_id,
+              title: template.media.title,
+            },
+          }),
+        })),
+        schedule_id: scheduleId,
+        start_date: date,
+        end_date: date,
+      })
+    } catch (error) {
+      await this.peerlyErrorHandling.handleApiError({
+        error,
+        logger: this.logger,
+        context: {
+          customMessage: P2P_ERROR_MESSAGES.JOB_UPDATE_FAILED,
+        },
+      })
+    }
+  }
+
   async requestCanvassers(
     jobId: string,
     { date }: { date?: string } = {},
