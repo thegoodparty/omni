@@ -2,17 +2,14 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { differenceInCalendarDays, format, parseISO } from 'date-fns'
 import {
+  Button,
   cn,
   IconButton,
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@styleguide'
-import {
-  ArchiveIcon,
-  BellIcon,
-  XCircleIcon,
-} from '@styleguide/components/ui/icons'
+import { ArchiveIcon, BellIcon } from '@styleguide/components/ui/icons'
 import { useOrganization } from '@shared/organization-picker'
 import { cardCategory } from './cardCategory'
 import { useDashboardCards, useDismissCard } from '../data/use-dashboard'
@@ -56,49 +53,53 @@ const NotificationRow = ({
     differenceInCalendarDays(parseISO(card.dueDate), new Date()) < 0
 
   return (
-    <div className="group relative">
-      <Link
-        href={card.ctaHref}
-        onClick={onOpen}
-        className="flex gap-3 px-3 py-3 transition-colors hover:bg-muted focus-visible:bg-muted"
-      >
-        <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-          <Icon className="size-4" aria-hidden />
+    <div className="flex gap-3 px-3 py-3">
+      <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+        <Icon className="size-4" aria-hidden />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="text-[11px] font-semibold tracking-[.04em] text-muted-foreground">
+          {label}
         </span>
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="text-[11px] font-semibold tracking-[.04em] text-muted-foreground">
-            {label}
-          </span>
-          <span className="text-sm font-semibold leading-snug text-foreground">
-            {card.title}
-          </span>
-          {/* Clamped: these summaries are agent-written and run several
-              sentences, which turns a scannable row into a paragraph. */}
-          <span className="line-clamp-2 text-[13px] leading-[1.45] text-muted-foreground">
-            {card.summary}
-          </span>
-          <span
-            className={cn(
-              'text-xs font-semibold',
-              overdue ? 'text-destructive' : 'text-primary',
-            )}
-          >
-            {dueLabel(card.dueDate)}
-          </span>
+        <span className="text-sm font-semibold leading-snug text-foreground">
+          {card.title}
         </span>
-      </Link>
-      {/* Outside the Link, not inside it: a button nested in an anchor is
-          invalid and the click would navigate as well as dismiss. */}
-      {onDismiss && (
-        <IconButton
-          aria-label={`Dismiss ${card.title}`}
-          variant="ghost"
-          className="absolute top-2 right-2 !h-7 !w-7 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-          onClick={() => onDismiss(card.id)}
+        {/* Clamped: these summaries are agent-written and run several
+            sentences, which turns a scannable row into a paragraph. */}
+        <span className="line-clamp-2 text-[13px] leading-[1.45] text-muted-foreground">
+          {card.summary}
+        </span>
+        <span
+          className={cn(
+            'text-xs font-semibold',
+            overdue ? 'text-destructive' : 'text-primary',
+          )}
         >
-          <XCircleIcon className="size-4" aria-hidden />
-        </IconButton>
-      )}
+          {dueLabel(card.dueDate)}
+        </span>
+        {/* The card has carried its own CTA label since it was generated
+            ("View issue", "Prepare for the meeting", "View results"), so the
+            row says what it will do rather than making the reader guess from a
+            whole-row click target. One explicit button per row also keeps the
+            dismiss control from being nested inside a link, which is invalid
+            and would navigate as well as dismiss. */}
+        <div className="mt-1.5 flex items-center gap-2">
+          <Button asChild size="small" variant="outline">
+            <Link href={card.ctaHref} onClick={onOpen}>
+              {card.ctaLabel}
+            </Link>
+          </Button>
+          {onDismiss && (
+            <Button
+              size="small"
+              variant="ghost"
+              onClick={() => onDismiss(card.id)}
+            >
+              Dismiss
+            </Button>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

@@ -72,10 +72,13 @@ describe('<NotificationsInbox>', () => {
 
     await user.click(screen.getByRole('button', { name: /Notifications/ }))
 
-    const row = await screen.findByRole('link', {
-      name: /Prepare for the Planning Commission meeting/,
+    // The row's CTA says what it does, using the label the card was generated
+    // with, rather than making the whole row a silent click target.
+    const cta = await screen.findByRole('link', {
+      name: 'Prepare for the meeting',
     })
-    expect(row).toHaveAttribute('href', '/dashboard/briefings/card_1')
+    expect(cta).toHaveAttribute('href', '/dashboard/briefings/card_1')
+    expect(screen.getByText(/Planning Commission/)).toBeInTheDocument()
   })
 
   it('labels each source so a row reads as what it is', async () => {
@@ -96,6 +99,7 @@ describe('<NotificationsInbox>', () => {
           type: 'poll_result',
           title: 'Should we fund the transit shortfall?',
           summary: '1,240 responses are in, at high confidence.',
+          ctaLabel: 'View results',
           ctaHref: '/dashboard/polls/poll_1',
         }),
       ],
@@ -106,9 +110,10 @@ describe('<NotificationsInbox>', () => {
     await user.click(screen.getByRole('button', { name: /Notifications/ }))
 
     expect(await screen.findByText('Poll results')).toBeInTheDocument()
-    expect(
-      screen.getByRole('link', { name: /transit shortfall/ }),
-    ).toHaveAttribute('href', '/dashboard/polls/poll_1')
+    expect(screen.getByRole('link', { name: 'View results' })).toHaveAttribute(
+      'href',
+      '/dashboard/polls/poll_1',
+    )
   })
 
   it('dismisses a row without following its link', async () => {
@@ -116,7 +121,7 @@ describe('<NotificationsInbox>', () => {
     render(<NotificationsInbox />)
 
     await user.click(screen.getByRole('button', { name: /Notifications/ }))
-    await user.click(await screen.findByRole('button', { name: /^Dismiss/ }))
+    await user.click(await screen.findByRole('button', { name: 'Dismiss' }))
 
     expect(dismissMock).toHaveBeenCalledWith('card_1')
   })
@@ -133,7 +138,7 @@ describe('<NotificationsInbox>', () => {
     )
 
     expect(
-      screen.queryByRole('button', { name: /^Dismiss/ }),
+      screen.queryByRole('button', { name: 'Dismiss' }),
     ).not.toBeInTheDocument()
     expect(cardsMock).toHaveBeenCalledWith('skipped')
   })

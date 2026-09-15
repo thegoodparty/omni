@@ -19,6 +19,24 @@
   background-color: var(--semantic-surface-muted);
 }
 
+/* The transcript scrolls without advertising it. A visible track down the edge
+ * of a 608px column reads as a frame around the conversation, and the column
+ * is centred on a wide canvas so the bar sits nowhere near the content it
+ * belongs to.
+ *
+ * Scrolling itself is untouched: wheel, trackpad and programmatic scrolling all
+ * still work, and the pinned autoscroll still drives it. What goes away is the
+ * cue that there is more above, which is a real cost and the reason this is
+ * scoped to this one container rather than added as a general utility.
+ */
+.proto-scroll-hidden {
+  scrollbar-width: none;
+}
+
+.proto-scroll-hidden::-webkit-scrollbar {
+  display: none;
+}
+
 /* Each turn rises as it fades in. The design's measured distance is 10px; the
  * decelerating curve is what stops a long reply from feeling like it snaps. */
 @keyframes proto-turn-in {
