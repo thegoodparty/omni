@@ -3,6 +3,7 @@ import {
   BlockFaceStop,
   coordinateKey,
   groupIntoBlockFaces,
+  metersBetween,
   representativeOf,
   sequenceBlockFaces,
 } from './blockFace.util'
@@ -37,6 +38,63 @@ const qaStops = [
   stop('3629 NE 64th Ave', 45.5601, ODD_SIDE_LNG),
   stop('3630 NE 64th Ave', 45.5602, EVEN_SIDE_LNG),
 ]
+
+// A block of a <block>-<house> grid street, as L2 ships one: the house is the
+// segment after the hyphen, odds on one side and evens on the other, and the
+// two sides face each other across the street.
+//
+// Laid out east-west with six doors a side. `pad` is how L2 writes the house
+// segment — Hawaii zero-pads ("98-002"), the Queens rows that keep their
+// hyphen do not — and it is a parameter because the two spell the same block
+// differently and only one of them survives a lexicographic sort.
+const ACROSS_THE_STREET = 0.00015 // ~16.6m of latitude
+const NEXT_DOOR = 0.0002 // ~16.9m of longitude at this latitude
+const gridBlock = (
+  block: number,
+  street: string,
+  options: { pad?: boolean; lat?: number; lng?: number } = {},
+): BlockFaceStop[] => {
+  const { pad = true, lat = 40.76, lng = -73.92 } = options
+  return Array.from({ length: 12 }, (_, offset) => {
+    const house = offset + 1
+    const odd = house % 2 === 1
+    const along = Math.ceil(house / 2) - 1
+    return stop(
+      `${block}-${pad ? String(house).padStart(2, '0') : house} ${street}`,
+      odd ? lat + ACROSS_THE_STREET : lat,
+      lng + along * NEXT_DOOR,
+    )
+  })
+}
+
+// What a canvasser actually feels: how far they walk, and how many times they
+// step off the kerb. Both are read off the walk order rather than asserted
+// against a golden list, so a change that reorders the doors without making
+// the walk worse does not fail.
+const walkMeters = (stops: BlockFaceStop[], order: number[]): number =>
+  order
+    .slice(1)
+    .reduce(
+      (total, index, position) =>
+        total + metersBetween(stops[order[position]!]!, stops[index]!),
+      0,
+    )
+
+// A leg that changes the side of the street. Read off the door's own house
+// number — the segment after the hyphen — rather than off the face it landed
+// in, so it measures the walk and not the grouping that produced it.
+const sideOfDoor = (stop: BlockFaceStop): number => {
+  // The house-number token only — "31st Ave" carries a number of its own.
+  const runs = stop.displayAddress.split(' ')[0]?.match(/\d+/g) ?? []
+  return Number(runs[runs.length - 1] ?? 0) % 2
+}
+const streetCrossings = (stops: BlockFaceStop[], order: number[]): number =>
+  order
+    .slice(1)
+    .filter(
+      (index, position) =>
+        sideOfDoor(stops[index]!) !== sideOfDoor(stops[order[position]!]!),
+    ).length
 
 // The order a full plan would freeze, so the tests can read walk order the way
 // a canvasser does. Vendor face order and its legs are the caller's to supply;
@@ -114,10 +172,21 @@ describe('groupIntoBlockFaces', () => {
     ['a prefix directional', '1235 S MAIN ST', 'S MAIN ST|1'],
     ['a suffix directional', '1234 MAIN ST W', 'MAIN ST W|0'],
     ['no directional at all', '1234 MAIN ST', 'MAIN ST|0'],
-    // Queens-style hyphenated and letter-suffixed numbers still yield the
-    // integer they sort by.
-    ['a hyphenated house number', '45-10 MAIN ST', 'MAIN ST|1'],
+    // On a <block>-<house> grid the side is the segment after the hyphen, so
+    // "45-10" is an EVEN-side door on block 45. This expectation used to read
+    // `MAIN ST|1` — the parity of the block — which is the defect these tests
+    // missed; see the Queens and Hawaii cases below for what it cost.
+    ['a hyphenated house number', '45-10 MAIN ST', 'MAIN ST|0'],
+    ['an odd one on the same block', '45-11 MAIN ST', 'MAIN ST|1'],
+    // Hawaii pads the house segment, and a leading zero must not change which
+    // side it names.
+    ['a zero-padded grid number', '98-002 LOKOWAI ST', 'LOKOWAI ST|0'],
+    // One numeric run, so nothing changes: the letter is not a segment.
     ['a letter-suffixed house number', '1234B MAIN ST', 'MAIN ST|0'],
+    ['a letter after a hyphen', '1234-B MAIN ST', 'MAIN ST|0'],
+    // A range, which is the shape a hyphen takes off the grids. Both ends of
+    // a range share a parity, so it lands where either rule would put it.
+    ['a house-number range', '120-122 MAIN ST', 'MAIN ST|0'],
   ])('reads %s', (_label, displayAddress, key) => {
     expect(groupIntoBlockFaces([stop(displayAddress, 41.9, -87.65)])).toEqual([
       { key, stopIndexes: [0] },
@@ -148,6 +217,145 @@ describe('groupIntoBlockFaces', () => {
 
     expect(faces.map((face) => face.key)).toEqual(['W ELM ST|1', '?1'])
     expect(faces[1]?.stopIndexes).toEqual([1])
+  })
+})
+
+// The grids that number a house as <block>-<house>: Hawaii statewide, Bergen
+// County NJ, and the Queens rows L2 ships with the hyphen intact. Reading the
+// parity of the block instead of the house collapsed a whole street onto one
+// face, which left the vendor a single point to order and the doors in
+// addressKey order — the zigzag block faces exist to remove, now guaranteed
+// rather than merely likely.
+describe('a <block>-<house> grid street', () => {
+  const queens = gridBlock(45, '31st Ave')
+
+  it('splits one block into its two sides', () => {
+    const faces = groupIntoBlockFaces(queens)
+
+    expect(faces.map((face) => face.key)).toEqual(['31ST AVE|1', '31ST AVE|0'])
+    // 45-01, 45-03 … 45-11 on one side; 45-02, 45-04 … 45-12 on the other.
+    expect(faces[0]?.stopIndexes).toEqual([0, 2, 4, 6, 8, 10])
+    expect(faces[1]?.stopIndexes).toEqual([1, 3, 5, 7, 9, 11])
+  })
+
+  it('walks one side before crossing to the other', () => {
+    const { sequenced } = walkOrder(queens)
+
+    expect(streetCrossings(queens, sequenced.stopIndexes)).toBe(1)
+  })
+
+  // The number the regression was worth. Ordered by the block's parity there
+  // is one face, so the doors keep the addressKey order they arrived in —
+  // 45-01, 45-02, 45-03 — which crosses the street on every single leg.
+  it('walks further under the block-parity order it replaces', () => {
+    const { sequenced } = walkOrder(queens)
+    const byAddressKey = queens.map((_, index) => index)
+
+    expect(streetCrossings(queens, byAddressKey)).toBe(queens.length - 1)
+    expect(walkMeters(queens, sequenced.stopIndexes)).toBeLessThan(
+      walkMeters(queens, byAddressKey),
+    )
+  })
+
+  // The grouping axis was orthogonal to the street: block 45 (both sides) on
+  // one face and block 46 (both sides) on the other, so every face was a
+  // zigzag and the vendor was asked to order two overlapping halves of one
+  // street.
+  it('groups two blocks by side of the street, not by block', () => {
+    const twoBlocks = [
+      ...gridBlock(45, '31st Ave'),
+      ...gridBlock(46, '31st Ave', { lng: -73.92 + 12 * NEXT_DOOR }),
+    ]
+    const faces = groupIntoBlockFaces(twoBlocks)
+
+    expect(faces).toHaveLength(2)
+    for (const face of faces) {
+      const sides = face.stopIndexes.map((index) =>
+        sideOfDoor(twoBlocks[index]!),
+      )
+      expect(new Set(sides).size).toBe(1)
+    }
+    // Block before house, so a face runs 45-02 … 45-12, 46-02 … 46-12 rather
+    // than interleaving the two blocks' houses.
+    expect(
+      faces[1]?.stopIndexes.map((index) => twoBlocks[index]?.displayAddress),
+    ).toEqual([
+      '45-02 31st Ave',
+      '45-04 31st Ave',
+      '45-06 31st Ave',
+      '45-08 31st Ave',
+      '45-10 31st Ave',
+      '45-12 31st Ave',
+      '46-02 31st Ave',
+      '46-04 31st Ave',
+      '46-06 31st Ave',
+      '46-08 31st Ave',
+      '46-10 31st Ave',
+      '46-12 31st Ave',
+    ])
+  })
+
+  // Unpadded, every "45-*" tied at 45 and the sort fell through to
+  // `localeCompare`, which reads the house segment as text: 45-1, 45-10,
+  // 45-11, 45-12, 45-2. The houses are compared as numbers now, so the
+  // padding L2 happens to apply stops mattering.
+  it('sorts an unpadded house segment as a number', () => {
+    const unpadded = gridBlock(45, '31st Ave', { pad: false })
+    // addressKey order, which is what buildStops hands in.
+    const sorted = [...unpadded].sort((a, b) =>
+      a.displayAddress.localeCompare(b.displayAddress),
+    )
+    const faces = groupIntoBlockFaces(sorted)
+
+    expect(
+      faces[0]?.stopIndexes.map((index) => sorted[index]?.displayAddress),
+    ).toEqual([
+      '45-1 31st Ave',
+      '45-3 31st Ave',
+      '45-5 31st Ave',
+      '45-7 31st Ave',
+      '45-9 31st Ave',
+      '45-11 31st Ave',
+    ])
+  })
+
+  // Hawaii's own spelling, which is the largest population affected: 333k of
+  // the file's rows carry a hyphenated house number and two thirds of them
+  // are on a side the block's parity names wrongly.
+  it('reads a zero-padded Hawaii block', () => {
+    const hawaii = gridBlock(98, 'Lokowai St', { lat: 21.39, lng: -157.79 })
+    const { sequenced } = walkOrder(hawaii)
+
+    expect(groupIntoBlockFaces(hawaii)).toHaveLength(2)
+    expect(streetCrossings(hawaii, sequenced.stopIndexes)).toBe(1)
+  })
+})
+
+// The shape the grid fix must not disturb, measured the same way so the two
+// can be read against each other.
+describe('an ordinary two-sided street', () => {
+  const elm = Array.from({ length: 12 }, (_, offset) => {
+    const house = 101 + offset
+    const along = Math.floor(offset / 2)
+    return stop(
+      `${house} W Elm St`,
+      house % 2 === 1 ? 41.9 + ACROSS_THE_STREET : 41.9,
+      -87.65 + along * NEXT_DOOR,
+    )
+  })
+
+  it('still crosses the street exactly once', () => {
+    const faces = groupIntoBlockFaces(elm)
+    const { sequenced } = walkOrder(elm)
+
+    expect(faces.map((face) => face.key)).toEqual(['W ELM ST|1', 'W ELM ST|0'])
+    expect(streetCrossings(elm, sequenced.stopIndexes)).toBe(1)
+    expect(walkMeters(elm, sequenced.stopIndexes)).toBeLessThan(
+      walkMeters(
+        elm,
+        elm.map((_, index) => index),
+      ),
+    )
   })
 })
 

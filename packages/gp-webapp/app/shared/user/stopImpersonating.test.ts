@@ -14,12 +14,33 @@ vi.mock('helpers/cookieHelper', () => ({
 describe('stopImpersonatingAndReturnToAdmin', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    sessionStorage.clear()
     // The function navigates via window.location.href; stub it so jsdom does
     // not attempt a real navigation.
     Object.defineProperty(window, 'location', {
       configurable: true,
       value: { href: '' },
     })
+  })
+
+  it('redirects to the gp-admin origin, never a webapp-relative path', async () => {
+    const signOut = vi.fn().mockResolvedValue(undefined)
+
+    await stopImpersonatingAndReturnToAdmin(signOut)
+
+    expect(window.location.href).toBe('http://localhost:3500/')
+  })
+
+  it('honors the admin return path stashed by the /impersonate entry flow', async () => {
+    sessionStorage.setItem('gp_admin_return_to', '/dashboard/briefings')
+    const signOut = vi.fn().mockResolvedValue(undefined)
+
+    await stopImpersonatingAndReturnToAdmin(signOut)
+
+    expect(window.location.href).toBe(
+      'http://localhost:3500/dashboard/briefings',
+    )
+    expect(sessionStorage.getItem('gp_admin_return_to')).toBeNull()
   })
 
   it('clears the election-result dismissal after signing out', async () => {

@@ -11,6 +11,7 @@ import { ONBOARDING_CARDS } from './onboardingCardsConfig'
 import TaskList from './TaskList'
 import FooterChatBar from './chat/FooterChatBar'
 import ChiefOfStaffChatSurface from './chat/ChiefOfStaffChatSurface'
+import { useBriefingDispatch } from '../data/use-briefing-dispatch'
 import type { OnboardingCardKey } from '../data/contracts'
 
 /**
@@ -25,6 +26,9 @@ export default function DashboardContent(): React.JSX.Element {
     string | null
   >(null)
   const [openerKey, setOpenerKey] = useState<OnboardingCardKey | null>(null)
+  // Owned here so the banner and the task list below it cannot disagree about
+  // whether a briefing is generating.
+  const { inFlight: briefingInFlight } = useBriefingDispatch()
 
   const firstName = user?.firstName || undefined
 
@@ -67,9 +71,9 @@ export default function DashboardContent(): React.JSX.Element {
               <span className="hidden sm:inline">Archive</span>
             </Link>
           </div>
-          <BriefingDispatchBanner />
+          <BriefingDispatchBanner inFlight={briefingInFlight} />
           <OnboardingCards onOpenCard={openCard} />
-          <TaskList />
+          <TaskList briefingInFlight={briefingInFlight} />
         </section>
       </div>
 

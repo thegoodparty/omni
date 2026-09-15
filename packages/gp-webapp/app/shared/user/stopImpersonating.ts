@@ -1,8 +1,7 @@
 import { clearElectionResultDismissed } from 'app/dashboard/election-result/dismissal'
 import { deleteCookie } from 'helpers/cookieHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
-
-const GP_ADMIN_URL = process.env.NEXT_PUBLIC_GP_ADMIN_URL ?? '/'
+import { GP_ADMIN_URL } from 'appEnv'
 
 // Ends the impersonation session and returns the staff member to gp-admin,
 // honoring the return path stashed by the /impersonate entry flow.

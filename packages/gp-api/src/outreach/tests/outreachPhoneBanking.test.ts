@@ -615,7 +615,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
     expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
   })
 
-  it('rejects a non-Pro campaign with a 400', async () => {
+  it('rejects a non-Pro campaign with a 403', async () => {
     await service.prisma.campaign.update({
       where: { id: campaign.id },
       data: { isPro: false },
@@ -623,7 +623,7 @@ describe('POST /v1/outreach/phone-banking/draft', () => {
 
     const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
 
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
     expect(jsonCompletion).not.toHaveBeenCalled()
   })
 

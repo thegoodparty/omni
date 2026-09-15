@@ -161,7 +161,7 @@ describe('POST /v1/outreach/robocall/save-card-intent', () => {
 
     const res = await postSaveCard()
 
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
     expect(customersCreate).not.toHaveBeenCalled()
     expect(setupIntentsCreate).not.toHaveBeenCalled()
   })

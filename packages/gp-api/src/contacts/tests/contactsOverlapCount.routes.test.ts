@@ -68,7 +68,7 @@ describe('POST /v1/contacts/overlap-count', () => {
       .spyOn(service.app.get(VoterQueryService), 'getOverlapCount')
       .mockResolvedValue(data)
 
-  it('400s for a non-pro organization without querying people-db', async () => {
+  it('403s for a non-pro organization without querying people-db', async () => {
     const slug = `campaign-overlap-nonpro-${Date.now()}`
     await service.prisma.organization.create({
       data: { slug, ownerId: service.user.id },
@@ -81,7 +81,7 @@ describe('POST /v1/contacts/overlap-count', () => {
       { headers: { [ORG_SLUG_HEADER]: slug } },
     )
 
-    expect(response.status).toBe(400)
+    expect(response.status).toBe(403)
     expect(overlapSpy).not.toHaveBeenCalled()
   })
 

@@ -1,4 +1,8 @@
-import { BadGatewayException, BadRequestException } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { Organization } from '../../../generated/prisma'
 import {
@@ -51,7 +55,7 @@ describe('buildCountContactsTool', () => {
 
   it('surfaces the inherited non-Pro rejection as a Pro-upgrade tool error', async () => {
     const countContacts = vi.fn(() =>
-      Promise.reject(new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)),
+      Promise.reject(new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)),
     )
     const result = await buildTool(countContacts).execute({})
     expect(result).toEqual({

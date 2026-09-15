@@ -39,6 +39,7 @@ const EMPTY_COUNTS = {
   doors: 0,
   people: 0,
   locations: [],
+  audienceEmpty: false,
 }
 
 // The draw step's answer to "which houses are these?", asked before anything
@@ -102,8 +103,16 @@ export class DoorKnockingPreviewService {
     // here because a list is being committed; a shape still being drawn is
     // allowed to enclose nobody, and the draw step already says "No doors in
     // this area" for it. Erroring would turn ordinary drawing into a failure.
+    //
+    // But it is not the same nobody, and returning the bare zeros said it
+    // was. "This shape encloses none of your audience" is a boundary to move;
+    // "your audience is empty" is a create that will be rejected no matter
+    // where the boundary goes, and the criteria that cause it are precisely
+    // the ones the map cannot shade — so the map shows a district full of
+    // matching voters while this returns zero. Flagged rather than thrown:
+    // the caller decides whether a draft is far enough along to be told.
     if (resolved.empty) {
-      return EMPTY_COUNTS
+      return { ...EMPTY_COUNTS, audienceEmpty: true }
     }
 
     const { people } = await this.peopleApi.evaluate({
@@ -190,6 +199,14 @@ export class DoorKnockingPreviewService {
       })
     }
 
-    return { stops, doors, people: inside.length, locations }
+    // The audience resolved to somebody or this would not have run; whether
+    // the ring caught any of them is what `stops` reports.
+    return {
+      stops,
+      doors,
+      people: inside.length,
+      locations,
+      audienceEmpty: false,
+    }
   }
 }

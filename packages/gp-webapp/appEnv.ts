@@ -76,6 +76,14 @@ export const NEXT_PUBLIC_CANDIDATES_SITE_BASE =
   process.env.NEXT_PUBLIC_CANDIDATES_SITE_BASE ||
   (IS_LOCAL ? 'http://localhost:4001' : 'https://candidates.goodparty.org')
 
+// gp-admin is a single deployment fronting dev and prod, so every non-local
+// build returns staff to the same origin. A real absolute fallback matters:
+// when the env var is missing, a relative fallback strands the admin on this
+// (now signed-out) app instead of back on the admin console.
+export const GP_ADMIN_URL =
+  process.env.NEXT_PUBLIC_GP_ADMIN_URL ||
+  (IS_LOCAL ? 'http://localhost:3500' : 'https://admin.goodparty.org')
+
 export const NEXT_PUBLIC_P2P_CUTOFF_DATETIME =
   process.env.NEXT_PUBLIC_P2P_CUTOFF_DATETIME
 

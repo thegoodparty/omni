@@ -21,6 +21,7 @@ const flowProps: {
     previewPending: boolean
     previewFailed: boolean
     previewStale: boolean
+    audienceEmpty: boolean
     savedLists: { id: number; name: string; households: number | null }[]
     allContactsHouseholds: number | null
   } | null
@@ -32,6 +33,7 @@ vi.mock('./createFlow/CreateListFlow', () => ({
     previewPending: boolean
     previewFailed: boolean
     previewStale: boolean
+    audienceEmpty: boolean
     savedLists: { id: number; name: string; households: number | null }[]
     allContactsHouseholds: number | null
     onShowAddresses: () => void
@@ -101,6 +103,9 @@ const mockPreview = () => {
         doors: 2,
         people: 2,
         locations: [],
+        // This fixture has an audience; these tests are about the request
+        // this endpoint is sent, not about the two ways of finding nobody.
+        audienceEmpty: false,
       },
     }
   })
@@ -120,6 +125,30 @@ const pack = {
   personToHousehold: new Uint32Array([0, 0, 1, 2]),
   householdToDot: new Uint32Array([0, 0, 1]),
   dimPlanes: new Map([['party', new Uint8Array([1, 1, 1, 2])]]),
+}
+
+const audienceCalls: { count: number; bodies: Record<string, unknown>[] } = {
+  count: 0,
+  bodies: [],
+}
+// `empty` is settable mid-test: the point of most of these is what happens
+// when the answer CHANGES under a candidate who was told to go and change it.
+const mockAudienceCheck = (empty = false) => {
+  audienceCalls.count = 0
+  audienceCalls.bodies = []
+  api.mock('POST /v1/door-knocking/audience-check', ({ body }) => {
+    audienceCalls.count += 1
+    audienceCalls.bodies.push(body as Record<string, unknown>)
+    return { status: 200, data: { empty } }
+  })
+}
+
+// A list cut by support status: one of the three criteria that resolve to a
+// person-id set, so it is one of the three that can come back empty.
+const emptiableList = {
+  id: 4,
+  name: 'Persuasion walk list',
+  supportStatus: ['undecided'] as SupportStatusRollup[],
 }
 
 const ringA: PolygonRing = [
@@ -167,6 +196,7 @@ describe('CreateListSurface seam', () => {
     onStepChange.mockClear()
     onListCreated.mockClear()
     mockPreview()
+    mockAudienceCheck()
   })
 
   // The cost rule the whole surface is built around: drawing asks nothing of
@@ -303,6 +333,102 @@ describe('CreateListSurface seam', () => {
     expect(filters.supportStatus).toBeUndefined()
     expect(filters.activityConditions).toBeUndefined()
     expect(filters.precincts).toBeUndefined()
+  })
+
+  // The gate itself: asked of the assembled payload rather than the boolean
+  // draft, because a list's support-status clause is exactly what the draft
+  // cannot hold — and exactly what can empty it.
+  it('asks whether a picked list keeps anybody, with the list’s own clauses', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [emptiableList],
+    })
+    mockAudienceCheck(true)
+
+    render(surface())
+    await waitFor(() => expect(flowProps.current?.savedLists).toHaveLength(1))
+    expect(audienceCalls.count).toBe(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'pick list 4' }))
+
+    await waitFor(() => expect(flowProps.current?.audienceEmpty).toBe(true))
+    expect(audienceCalls.bodies[0]?.filters).toMatchObject({
+      supportStatus: ['undecided'],
+    })
+    // No shape is sent, and none is relevant — an empty id-set is empty for
+    // every polygon, which is what lets this be asked two steps early.
+    expect(audienceCalls.bodies[0]).not.toHaveProperty('geoPoly')
+  })
+
+  // A draft carrying none of the three id-resolving criteria cannot come back
+  // empty, so the round trip's answer is known before it is made.
+  it('asks nothing for a draft that cannot resolve to nobody', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 4, name: 'Democrats', partyDemocrat: true }],
+    })
+
+    render(surface({ filters: { partyDemocrat: true } }))
+
+    await waitFor(() => expect(flowProps.current?.savedLists).toHaveLength(1))
+    fireEvent.click(screen.getByRole('button', { name: 'pick list 4' }))
+
+    await waitFor(() => expect(previewCalls.count).toBe(0))
+    expect(audienceCalls.count).toBe(0)
+    expect(flowProps.current?.audienceEmpty).toBe(false)
+  })
+
+  // The failure mode this gate must not have. Its own empty message sends the
+  // candidate to contacts to fix the list, so the answer is guaranteed to go
+  // out of date between one visit and the next — and a held `true` would then
+  // refuse a list that now keeps people, which is worse than the bug the gate
+  // fixes. Leaving the surface must drop the answer, not bank it.
+  it('does not hold a stale “empty” against a list that has since been fixed', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [emptiableList],
+    })
+    mockAudienceCheck(true)
+
+    const view = render(surface())
+    await waitFor(() => expect(flowProps.current?.savedLists).toHaveLength(1))
+    fireEvent.click(screen.getByRole('button', { name: 'pick list 4' }))
+    await waitFor(() => expect(flowProps.current?.audienceEmpty).toBe(true))
+
+    // Off to contacts to widen the list, and back to the flow. The query
+    // client is deliberately NOT cleared: surviving this unmount is the whole
+    // question, and the cache is what would have survived it.
+    view.unmount()
+    mockAudienceCheck(false)
+
+    render(surface())
+    await waitFor(() => expect(flowProps.current?.savedLists).toHaveLength(1))
+    fireEvent.click(screen.getByRole('button', { name: 'pick list 4' }))
+
+    await waitFor(() => expect(audienceCalls.count).toBe(1))
+    expect(flowProps.current?.audienceEmpty).toBe(false)
+  })
+
+  // Advisory, so it fails open. A candidate is never held out of their own
+  // flow by this check: the create's own refusal is still behind it, and the
+  // cost of missing an empty audience is the status quo while the cost of a
+  // false block is a list that cannot be cut at all.
+  it('lets the flow through when the check itself fails', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [emptiableList],
+    })
+    api.mock('POST /v1/door-knocking/audience-check', () => {
+      audienceCalls.count += 1
+      return { status: 500, data: { message: 'boom' } }
+    })
+
+    render(surface())
+    await waitFor(() => expect(flowProps.current?.savedLists).toHaveLength(1))
+    fireEvent.click(screen.getByRole('button', { name: 'pick list 4' }))
+
+    await waitFor(() => expect(audienceCalls.count).toBeGreaterThan(0))
+    expect(flowProps.current?.audienceEmpty).toBe(false)
   })
 
   // The who step's picker, counted against the same pack the map is drawn

@@ -743,7 +743,7 @@ describe('phone banking routes', () => {
       expect(await service.prisma.phoneBankingList.count()).toBe(0)
     })
 
-    it('400s a non-Pro Win campaign and persists nothing', async () => {
+    it('403s a non-Pro Win campaign and persists nothing', async () => {
       await service.prisma.campaign.update({
         where: { id: campaign.id },
         data: { isPro: false },
@@ -756,7 +756,7 @@ describe('phone banking routes', () => {
         { ...orgHeaders(), validateStatus: () => true },
       )
 
-      expect(res.status).toBe(400)
+      expect(res.status).toBe(403)
       expect(await service.prisma.phoneBankingList.count()).toBe(0)
     })
 

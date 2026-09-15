@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import {
   EcanvasserContact,
@@ -78,11 +82,15 @@ export class EcanvasserAttributionService {
       } catch (error) {
         // A throw here is campaign-wide, not specific to this interaction, so
         // stop rather than fail the sync or hammer a failing dependency once per
-        // interaction. A BadRequestException is a permanent eligibility state
-        // (non-pro campaign / voter data unavailable), not an outage — log it
-        // distinctly so a recurring warning doesn't read as People-API downtime
-        // operators should investigate.
-        if (error instanceof BadRequestException) {
+        // interaction. A ForbiddenException (the pro gate) or a
+        // BadRequestException (voter data unavailable) is a permanent
+        // eligibility state, not an outage — log it distinctly so a recurring
+        // warning doesn't read as People-API downtime operators should
+        // investigate.
+        if (
+          error instanceof ForbiddenException ||
+          error instanceof BadRequestException
+        ) {
           this.logger.warn(
             { error, campaignId },
             'Door-knock attribution skipped: campaign not eligible for voter lookup',

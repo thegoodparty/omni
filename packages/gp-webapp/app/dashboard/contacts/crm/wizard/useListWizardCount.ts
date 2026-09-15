@@ -68,9 +68,10 @@ export const useListWizardCount = (
   // The only 400 this endpoint can return for a payload our own UI produces
   // is the activity-condition/support-status resolver's 100k id-set cap
   // (activityConditionResolution.service.ts's assertUnderCap) — non-pro
-  // access is impossible here because the wizard itself is pro-gated, and
-  // our UI never constructs an invalid outreachType/outreachId/door-knock
-  // combination. So any 400 on this query is the cap, safe to map generically.
+  // access is impossible here because the wizard itself is pro-gated (and the
+  // pro gate is a 403 regardless), and our UI never constructs an invalid
+  // outreachType/outreachId/door-knock combination. So any 400 on this query
+  // is the cap, safe to map generically.
   const isCapError =
     countQuery.error instanceof FetchError && countQuery.error.status === 400
 

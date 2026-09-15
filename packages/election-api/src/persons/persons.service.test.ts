@@ -9,18 +9,25 @@ describe('PersonsService', () => {
   let findUnique: ReturnType<typeof vi.fn>
   let densityFindMany: ReturnType<typeof vi.fn>
   let metaFindUnique: ReturnType<typeof vi.fn>
+  let mergeFindMany: ReturnType<typeof vi.fn>
+  let mergeFindUnique: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     findMany = vi.fn().mockResolvedValue([])
     findUnique = vi.fn().mockResolvedValue(null)
     densityFindMany = vi.fn().mockResolvedValue([])
     metaFindUnique = vi.fn().mockResolvedValue(null)
+    // No merges by default, so every pre-existing by-slug case exercises the
+    // live path exactly as before.
+    mergeFindMany = vi.fn().mockResolvedValue([])
+    mergeFindUnique = vi.fn().mockResolvedValue(null)
     service = new PersonsService()
     Object.defineProperty(service, '_prisma', {
       value: {
         person: { findMany, findUnique },
         districtVoterDensity: { findMany: densityFindMany },
         districtVoterDensityMeta: { findUnique: metaFindUnique },
+        personMerge: { findMany: mergeFindMany, findUnique: mergeFindUnique },
       },
     })
   })
@@ -390,6 +397,210 @@ describe('PersonsService', () => {
       findMany.mockResolvedValueOnce([])
       await expect(
         service.getPersonBySlug('nobody-deadbeef'),
+      ).rejects.toBeInstanceOf(NotFoundException)
+    })
+
+    it('does not look for merges when a live person matches exactly', async () => {
+      findMany.mockResolvedValueOnce([
+        { id: 'a1b2c3d4-...', slug: 'jane-doe-a1b2c3d4', OfficeHolders: [] },
+      ])
+
+      await service.getPersonBySlug('jane-doe-a1b2c3d4')
+
+      // The hot path must stay one query.
+      expect(mergeFindMany).not.toHaveBeenCalled()
+    })
+  })
+
+  // A URL whose person the data team has purged as a duplicate. The id8 that
+  // made the slug unique was the deleted row's PK, so nothing in Person can
+  // match it — PersonMerge holds the forwarding address and by-slug returns the
+  // survivor, which is what lets gp-marketing 308 instead of 404.
+  describe('getPersonBySlug — purged duplicates', () => {
+    const SURVIVOR = {
+      id: '99999999-9999-9999-9999-999999999999',
+      slug: 'jane-doe-99999999',
+      OfficeHolders: [],
+    }
+
+    it('resolves a purged slug to the surviving person', async () => {
+      findMany.mockResolvedValueOnce([])
+      mergeFindMany.mockResolvedValueOnce([
+        { survivingId: SURVIVOR.id, retiredSlug: 'jane-doe-a1b2c3d4' },
+      ])
+      // Not itself retired, then loaded.
+      mergeFindUnique.mockResolvedValueOnce(null)
+      findUnique.mockResolvedValueOnce(SURVIVOR)
+
+      const result = await service.getPersonBySlug('jane-doe-a1b2c3d4')
+
+      // Looked up on the same indexed id-prefix range, against retiredId.
+      expect(mergeFindMany.mock.calls[0]?.[0].where).toEqual({
+        retiredId: {
+          gte: 'a1b2c3d4-0000-0000-0000-000000000000',
+          lt: 'a1b2c3d5-0000-0000-0000-000000000000',
+        },
+      })
+      // The survivor, whose own slug differs — that difference is what the
+      // marketing page turns into a permanent redirect.
+      expect(result).toEqual(SURVIVOR)
+    })
+
+    it('carries several duplicates of one person to the same survivor', async () => {
+      // The normal shape of a purge: many retired ids, one keeper.
+      for (const retired of ['a1b2c3d4', 'b2c3d4e5']) {
+        findMany.mockResolvedValueOnce([])
+        mergeFindMany.mockResolvedValueOnce([
+          { survivingId: SURVIVOR.id, retiredSlug: `jane-doe-${retired}` },
+        ])
+        mergeFindUnique.mockResolvedValueOnce(null)
+        findUnique.mockResolvedValueOnce(SURVIVOR)
+
+        await expect(
+          service.getPersonBySlug(`jane-doe-${retired}`),
+        ).resolves.toEqual(SURVIVOR)
+      }
+    })
+
+    it('prefers an exact retired-slug match over a live person sharing the prefix', async () => {
+      // The dangerous case: this URL demonstrably belonged to the purged
+      // person, and the live row only happens to share 8 hex. Serving the live
+      // person would conflate two different people under one URL.
+      findMany.mockResolvedValueOnce([
+        {
+          id: 'a1b2c3d4-live',
+          slug: 'someone-else-a1b2c3d4',
+          OfficeHolders: [],
+        },
+      ])
+      mergeFindMany.mockResolvedValueOnce([
+        { survivingId: SURVIVOR.id, retiredSlug: 'jane-doe-a1b2c3d4' },
+      ])
+      mergeFindUnique.mockResolvedValueOnce(null)
+      findUnique.mockResolvedValueOnce(SURVIVOR)
+
+      const result = await service.getPersonBySlug('jane-doe-a1b2c3d4')
+
+      expect(result).toEqual(SURVIVOR)
+    })
+
+    it('still prefers a lone live person when no retired slug matches (rename)', async () => {
+      // A renamed person keeps resolving through their stale URL: that is why
+      // lookup is on the id prefix rather than the slug in the first place.
+      findMany.mockResolvedValueOnce([
+        {
+          id: 'a1b2c3d4-live',
+          slug: 'jane-married-a1b2c3d4',
+          OfficeHolders: [],
+        },
+      ])
+      mergeFindMany.mockResolvedValueOnce([])
+
+      const result = await service.getPersonBySlug('jane-maiden-a1b2c3d4')
+
+      expect(result).toMatchObject({ id: 'a1b2c3d4-live' })
+      expect(findUnique).not.toHaveBeenCalled()
+    })
+
+    it('resolves a lone prefix-unique merge row that carries no retired slug', async () => {
+      // Backfilled rows may have no retiredSlug; uniqueness on the prefix is
+      // enough to forward them.
+      findMany.mockResolvedValueOnce([])
+      mergeFindMany.mockResolvedValueOnce([
+        { survivingId: SURVIVOR.id, retiredSlug: null },
+      ])
+      mergeFindUnique.mockResolvedValueOnce(null)
+      findUnique.mockResolvedValueOnce(SURVIVOR)
+
+      await expect(
+        service.getPersonBySlug('whoever-a1b2c3d4'),
+      ).resolves.toEqual(SURVIVOR)
+    })
+
+    it('404s an ambiguous prefix rather than guessing between two purged people', async () => {
+      findMany.mockResolvedValueOnce([])
+      mergeFindMany.mockResolvedValueOnce([
+        { survivingId: 'survivor-1', retiredSlug: 'john-smith-a1b2c3d4' },
+        { survivingId: 'survivor-2', retiredSlug: 'jane-doe-a1b2c3d4' },
+      ])
+
+      await expect(
+        service.getPersonBySlug('some-old-name-a1b2c3d4'),
+      ).rejects.toBeInstanceOf(NotFoundException)
+    })
+
+    it('follows a residual merge chain to the terminal survivor', async () => {
+      // The ETL is contracted to path-compress, so this should never happen;
+      // when it does, an extra hop beats a 404.
+      findMany.mockResolvedValueOnce([])
+      mergeFindMany.mockResolvedValueOnce([
+        { survivingId: 'middle-id', retiredSlug: 'jane-doe-a1b2c3d4' },
+      ])
+      mergeFindUnique
+        .mockResolvedValueOnce({ survivingId: SURVIVOR.id })
+        .mockResolvedValueOnce(null)
+      findUnique.mockResolvedValueOnce(SURVIVOR)
+
+      const result = await service.getPersonBySlug('jane-doe-a1b2c3d4')
+
+      expect(findUnique.mock.calls[0]?.[0].where).toEqual({ id: SURVIVOR.id })
+      expect(result).toEqual(SURVIVOR)
+    })
+
+    it('does not spin on a merge cycle', async () => {
+      findMany.mockResolvedValueOnce([])
+      mergeFindMany.mockResolvedValueOnce([
+        { survivingId: 'a-id', retiredSlug: 'jane-doe-a1b2c3d4' },
+      ])
+      // a -> b -> a, forever if unguarded.
+      mergeFindUnique.mockImplementation(({ where }) =>
+        Promise.resolve({
+          survivingId: where.retiredId === 'a-id' ? 'b-id' : 'a-id',
+        }),
+      )
+      findUnique.mockResolvedValueOnce(SURVIVOR)
+
+      await expect(
+        service.getPersonBySlug('jane-doe-a1b2c3d4'),
+      ).resolves.toEqual(SURVIVOR)
+      // Bounded by MAX_MERGE_HOPS, not by the cycle.
+      expect(mergeFindUnique.mock.calls.length).toBeLessThanOrEqual(4)
+    })
+
+    it('404s when the forwarding address points at a person that is gone too', async () => {
+      findMany.mockResolvedValueOnce([])
+      mergeFindMany.mockResolvedValueOnce([
+        { survivingId: SURVIVOR.id, retiredSlug: 'jane-doe-a1b2c3d4' },
+      ])
+      mergeFindUnique.mockResolvedValueOnce(null)
+      findUnique.mockResolvedValueOnce(null)
+
+      await expect(
+        service.getPersonBySlug('jane-doe-a1b2c3d4'),
+      ).rejects.toBeInstanceOf(NotFoundException)
+    })
+
+    it('404s a broken forwarding address instead of falling through to a live prefix collision', async () => {
+      // An exact retired-slug match is definitive about whose URL this is, so a
+      // broken forward makes it unresolvable — not ambiguous. Continuing down
+      // the ladder would hand the purged person's URL to the one live row that
+      // happens to share the 8 hex, which is the conflation rung 2 exists to
+      // prevent.
+      findMany.mockResolvedValueOnce([
+        {
+          id: 'a1b2c3d4-live',
+          slug: 'jim-poe-a1b2c3d4',
+          OfficeHolders: [],
+        },
+      ])
+      mergeFindMany.mockResolvedValueOnce([
+        { survivingId: 'ghost-id', retiredSlug: 'jane-doe-a1b2c3d4' },
+      ])
+      mergeFindUnique.mockResolvedValueOnce(null)
+      findUnique.mockResolvedValueOnce(null)
+
+      await expect(
+        service.getPersonBySlug('jane-doe-a1b2c3d4'),
       ).rejects.toBeInstanceOf(NotFoundException)
     })
   })

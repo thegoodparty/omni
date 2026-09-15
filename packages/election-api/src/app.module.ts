@@ -11,6 +11,7 @@ import { VoterIssuesModule } from './voterIssues/voterIssues.module'
 import { ZipToPositionModule } from './zipToPosition/zipToPosition.module'
 import { ElectedOfficeSupportModule } from './electedOfficeSupport/electedOfficeSupport.module'
 import { PersonsModule } from './persons/persons.module'
+import { PersonMergesModule } from './personMerges/person-merges.module'
 import { OfficeHoldersModule } from './officeHolders/officeHolders.module'
 import { loggerModule } from './observability/logging/logger-module'
 import { AuthenticationModule } from './authentication/authentication.module'
@@ -31,6 +32,7 @@ import { AuthenticationModule } from './authentication/authentication.module'
     ZipToPositionModule,
     ElectedOfficeSupportModule,
     PersonsModule,
+    PersonMergesModule,
     OfficeHoldersModule,
   ],
 })
