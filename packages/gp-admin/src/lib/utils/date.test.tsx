@@ -4,6 +4,7 @@ import {
   formatDate,
   formatDateTime,
   formatLocalDateString,
+  formatLocalTimeString,
   formatTimestampString,
 } from './date'
 
@@ -86,6 +87,31 @@ describe('formatLocalDateString', () => {
   it('shows em-dash for a malformed date string', () => {
     const { container } = render(<>{formatLocalDateString('not-a-date')}</>)
     expect(container.textContent).toBe('—')
+  })
+})
+
+describe('formatLocalTimeString', () => {
+  it('formats a whole-hour time without minutes', () => {
+    expect(formatLocalTimeString('09:00')).toBe('9am')
+  })
+
+  it('formats a time with non-zero minutes', () => {
+    expect(formatLocalTimeString('09:30')).toBe('9:30am')
+  })
+
+  it('formats an evening time', () => {
+    expect(formatLocalTimeString('20:00')).toBe('8pm')
+  })
+
+  // Null (not an em-dash) so the caller can fall back to its no-time copy.
+  it('returns null for null/undefined', () => {
+    expect(formatLocalTimeString(null)).toBeNull()
+    expect(formatLocalTimeString(undefined)).toBeNull()
+  })
+
+  it('returns null for malformed input', () => {
+    expect(formatLocalTimeString('9:00')).toBeNull()
+    expect(formatLocalTimeString('not-a-time')).toBeNull()
   })
 })
 
