@@ -91,6 +91,34 @@ describe('ImpersonationBanner', () => {
     expect(screen.getByText('this user')).toBeInTheDocument()
   })
 
+  it('ends only the impersonated session when Stop Impersonating is clicked', async () => {
+    vi.mocked(useIsImpersonating).mockReturnValue(true)
+    vi.mocked(useClerk).mockReturnValue({
+      signOut: mockSignOut,
+      client: { signIn: { create: mockSignInCreate } },
+      setActive: mockSetActive,
+      session: { id: 'sess_actor' },
+      loaded: true,
+    } as any)
+    // stopImpersonating navigates via window.location.href; stub it so jsdom
+    // does not attempt a real navigation.
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { href: '' },
+    })
+    const user = userEvent.setup()
+    render(<ImpersonationBanner />)
+
+    await user.click(
+      screen.getByRole('button', { name: /stop impersonating/i }),
+    )
+
+    await waitFor(() => {
+      expect(mockSignOut).toHaveBeenCalledWith({ sessionId: 'sess_actor' })
+    })
+    expect(window.location.href).toBe('http://localhost:3500/')
+  })
+
   it('opens search dialog when Switch User is clicked', async () => {
     vi.mocked(useIsImpersonating).mockReturnValue(true)
     const user = userEvent.setup()
