@@ -648,7 +648,16 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       date: input.scheduledLocalDate,
     })
 
-    const wasBooked = row.canvassRequestedAt !== null
+    // Re-read the booking flag after the vendor window write: a concurrent
+    // approve can book canvassers between the entry read above and here
+    // (its claim CAS guards approvedAt, not this flow), and skipping the
+    // rebook then would leave Peerly's booking on the old day while the
+    // window moved. This narrows the race to the canvasser calls below.
+    const requeried = await this.model.findFirstOrThrow({
+      where: { id: outreachId },
+      select: { canvassRequestedAt: true },
+    })
+    const wasBooked = requeried.canvassRequestedAt !== null
     if (wasBooked) {
       try {
         await this.peerlyP2pJobService.clearCanvassers(row.projectId)

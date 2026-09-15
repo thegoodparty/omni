@@ -919,6 +919,35 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(updateJobSchedule).not.toHaveBeenCalled()
     })
 
+    it('reschedules an in_progress row that was never booked (same-day unapproved)', async () => {
+      // The sweep-ratchet case REVIEWABLE_STATUSES exists for: pending ->
+      // in_progress at UTC midnight of the send day with no approval. The
+      // guard only blocks in_progress rows that are BOOKED (possibly
+      // mid-send); this one must stay reschedulable.
+      const row = await seedOutreach({ status: OutreachStatus.in_progress })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(updateJobSchedule).toHaveBeenCalledWith({
+        jobId: 'peerly-job-1',
+        campaignId,
+        date: NEW_LOCAL_DATE,
+      })
+      expect(clearCanvassers).not.toHaveBeenCalled()
+      expect(requestCanvassers).not.toHaveBeenCalled()
+      const updated = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(updated.date?.getTime()).toBe(NEW_SEND_AT.getTime())
+      expect(updated.scheduledLocalDate).toBe(NEW_LOCAL_DATE)
+      expect(updated.adminEditedBy).toBe('cas@goodparty.org')
+      expect(updated.canvassRequestedAt).toBeNull()
+    })
+
     it('400s rescheduling a booked row that is already sending', async () => {
       const row = await seedOutreach({
         status: OutreachStatus.in_progress,
