@@ -98,9 +98,10 @@ const ALL_CONTACTS_SEGMENT = 'all'
 // the assistant's count_contacts tool can recognize the rejection and suggest
 // the Pro upgrade without restating the string. Every pro gate throws
 // ForbiddenException (403), not BadRequestException: the request is well
-// formed and the org simply isn't entitled, and the per-route error-count
-// alerts in deploy/components/alerting/controller-alerts.ts count 400 while
-// excluding 403 — a paywall refusal must not page anyone.
+// formed and the org simply isn't entitled. That started as an alerting fix —
+// the route error-count rules counted 400 and excluded 403, so one free-tier
+// user hitting the gate paged the on-call — and the rules now exclude 400 too,
+// so the reason to keep it is the plain one: 403 is what "not entitled" means.
 export const PRO_FILTERING_REQUIRED_MESSAGE =
   'Filtering voter data is only available for pro campaigns'
 

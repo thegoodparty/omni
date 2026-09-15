@@ -20,10 +20,15 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
  * The default filter calls every status >= 400 outside the excluded list a
  * fault. That is right for a controller whose 4xx responses are all bugs and
  * wrong for one whose 4xx responses are the feature working: door knocking
- * answers an over-budget knock with 429, an empty or oversized turf with 400,
- * and an ineligible district with a 400 the webapp renders as a state rather
- * than an error. Under the default rule normal pilot use would page, and an
- * alert that fires on designed behavior gets muted.
+ * answers an over-budget knock with 429, which that filter counts. Under the
+ * default rule normal pilot use would page, and an alert that fires on
+ * designed behavior gets muted.
+ *
+ * This list needs to carry less than it used to. Door knocking's other
+ * designed 4xx — an empty or oversized turf, an ineligible district the
+ * webapp renders as a state — are 400s, and EXCLUDED_STATUS_CODES now drops
+ * those on every controller. 429 is what still requires the entry. A
+ * controller whose only designed 4xx is a 400 does not belong here.
  *
  * What is worth waking someone for is the 5xx range: a missing
  * GEOAPIFY_API_KEY (502), a Route Planner outage or a plan that doesn't cover
@@ -35,7 +40,7 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
  * list exists to suppress.
  *
  * The cost is real — a genuine bug that surfaces as a 4xx on these
- * controllers no longer pages, and nothing here can tell a designed 400 from
+ * controllers no longer pages, and nothing here can tell a designed 429 from
  * an accidental one. So add a controller only when its 4xx vocabulary is
  * deliberate and documented; every other controller keeps the >= 400 rule.
  */

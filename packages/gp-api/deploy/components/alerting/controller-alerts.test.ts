@@ -152,7 +152,9 @@ describe('controllerAlerts', () => {
 
   // SERVER_ERRORS_ONLY: door knocking answers an over-budget knock with 429
   // and an ineligible district with 400, so paging on 4xx would page on the
-  // feature working.
+  // feature working. Now that 400 is excluded everywhere, 429 is the part
+  // still doing the work here — the 400s would be dropped by the default
+  // filter too.
   it('pages on 5xx only for door-knocking', () => {
     for (const alert of alerts) {
       expect(alert.expr).toContain('response_statusCode >= 500')
@@ -166,6 +168,35 @@ describe('controllerAlerts', () => {
   it('pages on 4xx too for a controller outside SERVER_ERRORS_ONLY', () => {
     const alert = onlyAlert('contacts')
     expect(alert.expr).toContain('response_statusCode >= 400')
+  })
+
+  // The codes are written out rather than imported from the source list on
+  // purpose: importing would assert the constant equals itself, and this test
+  // exists to fail loudly when someone edits that list. 400 is the one worth
+  // naming — it was counted until this list gained it, and a single validation
+  // refusal or Pro gate hit was enough to page, which is what taught us a 400
+  // is never evidence of a fault on its own.
+  it('excludes the designed client-error vocabulary, 400 included', () => {
+    const alert = onlyAlert('contacts')
+    for (const code of [400, 401, 403, 404, 409, 498]) {
+      expect(alert.expr).toContain(`response_statusCode != ${code}`)
+    }
+  })
+
+  // The prose used to restate the exclusions as a hardcoded string, so it was
+  // one edit away from telling whoever it paged that a status it had just
+  // stopped counting was still in scope. Both sides now read one constant;
+  // this pins them together without naming the codes a third time.
+  it('tells the reader the same exclusions the filter applies', () => {
+    const alert = onlyAlert('contacts')
+    const filtered = [
+      ...alert.expr.matchAll(/response_statusCode != (\d+)/g),
+    ].map(([, code]) => code)
+    const [, prose] =
+      /status ≥ 400 excluding ([\d/]+)/.exec(alert.message) ?? []
+
+    expect(filtered.length).toBeGreaterThan(0)
+    expect(prose?.split('/')).toEqual(filtered)
   })
 
   // The blind spot this closes: a request the gateway kills mid-flight logs

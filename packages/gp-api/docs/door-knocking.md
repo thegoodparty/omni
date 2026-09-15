@@ -1851,9 +1851,10 @@ reimplemented, so `hasElectedOfficeAccess` still short-circuits ahead of
 it is across Contacts. Refusal is that method's `ForbiddenException`, 403 with
 `This feature is only available for pro campaigns`. It is a 403 and not a 400
 for the same reason every other pro gate is: the request is well formed and the
-org simply isn't entitled, and the per-route error-count alerts
-(`deploy/components/alerting/controller-alerts.ts`) exclude 403 while counting
-400, so a paywall refusal never pages anyone.
+org simply isn't entitled. The original push for it was alerting — the
+per-route error-count rules counted 400 and excluded 403 — and those rules
+(`deploy/components/alerting/controller-alerts.ts`) now exclude 400 as well, so
+either status would stay quiet and the convention rests on the semantics.
 
 | Route                   | Gated  |
 | ----------------------- | ------ |

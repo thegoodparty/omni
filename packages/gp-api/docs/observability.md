@@ -10,7 +10,7 @@ There are two categories of alerts:
 
 Each controller gets one rule covering every endpoint on it:
 
-- **Error count**: Fires when any requests return error status codes (≥ 400, excluding 401/403/404/409/498) **or no status at all** within a 10-minute window. A controller listed in `SERVER_ERRORS_ONLY` uses `≥ 500` instead -- see [Server-errors-only controllers](#server-errors-only-controllers). The null-status clause is [No status is also a fault](#no-status-is-also-a-fault).
+- **Error count**: Fires when any requests return error status codes (≥ 400, excluding 400/401/403/404/409/498) **or no status at all** within a 10-minute window. A controller listed in `SERVER_ERRORS_ONLY` uses `≥ 500` instead -- see [Server-errors-only controllers](#server-errors-only-controllers). The null-status clause is [No status is also a fault](#no-status-is-also-a-fault).
 
 The rule groups by `request_endpoint` and matches its controller's routes with an anchored alternation, so Grafana raises a separate alert instance per failing endpoint and the notification names the one that broke. Paging granularity is per endpoint; the _rule_ is per controller, because Loki bills the bytes a query decompresses and only the stream selector and time range decide that. A rule per endpoint re-read the whole gp-api stream once per endpoint per minute and cost the same as reading everything -- see [Query cost](#query-cost).
 
@@ -109,6 +109,20 @@ returns no data, which `grafana.ts` maps to OK, not Alerting.
 
 Error alerts always fire on any unexpected error and the threshold cannot be overridden -- if an endpoint is returning errors, you should know about it. The one thing that _is_ tunable is which statuses count as unexpected, per controller.
 
+## Which statuses count as unexpected
+
+`EXCLUDED_STATUS_CODES` in `deploy/components/alerting/controller-alerts.ts` is the global list, and the Slack message reads from that same constant so the two cannot drift:
+
+```typescript
+const EXCLUDED_STATUS_CODES = [400, 401, 403, 404, 409, 498]
+```
+
+Each one is a status the API returns to say something true about the request rather than to report a fault: unauthenticated (401), not entitled (403), not found (404), conflicting with current state (409), client went away (498).
+
+**400 is on this list, and that is the deliberate part.** A 400 is never evidence of a fault on its own. In gp-api it is overwhelmingly designed vocabulary -- Zod rejecting a payload, an eligibility refusal, a Serve organization asking for a Win-only filter, the 100k id-set cap -- and nothing in a generated rule can distinguish one of those from an accidental one. Counting it meant paging on the product working: the Pro gate did exactly that with a single free-tier user before it moved to 403, and any route that validates input can be made to fire by a user typing a bad value.
+
+The cost is accepted rather than avoided: a 400 that really is a bug -- the webapp sending a payload the API stopped accepting, say -- no longer pages, and reaches us as a support report or through the logs. What still pages is the range that cannot be explained by a caller's input: 5xx, the 4xx not on the list, and **no status at all**.
+
 ## Server-errors-only controllers
 
 `SERVER_ERRORS_ONLY` in `deploy/components/alerts.ts` lists controllers whose generated route alerts fire on `≥ 500` instead of the default `≥ 400`-minus-exclusions:
@@ -117,9 +131,11 @@ Error alerts always fire on any unexpected error and the threshold cannot be ove
 export const SERVER_ERRORS_ONLY: ControllerName[] = ['door-knocking']
 ```
 
-The default filter assumes a 4xx on your controller is a bug. That holds for most of them and breaks for a controller whose 4xx responses are the product's own vocabulary. `door-knocking` answers an over-budget knock with 429, an empty or oversized turf with 400, and an ineligible district with a 400 the webapp renders as a state -- so under the default rule normal pilot use would page, and an alert that fires on designed behavior gets muted. What is left is the range worth waking up for: a missing `GEOAPIFY_API_KEY` (502), a Route Planner outage or a plan that misses stops (502), and unhandled 500s.
+The default filter assumes an unexcluded 4xx on your controller is a bug. That holds for most of them and breaks for a controller whose 4xx responses are the product's own vocabulary. `door-knocking` answers an over-budget knock with **429**, which the default filter does count -- so under the default rule normal pilot use would page, and an alert that fires on designed behavior gets muted. What is left is the range worth waking up for: a missing `GEOAPIFY_API_KEY` (502), a Route Planner outage or a plan that misses stops (502), and unhandled 500s.
 
-The cost: a genuine bug that surfaces as a 4xx on a listed controller no longer pages, and nothing in the generated rule can tell a designed 400 from an accidental one. Add a controller only when its 4xx vocabulary is deliberate and documented. Everything else keeps the `≥ 400` rule.
+This list narrowed in scope once **400 joined the global exclusions**. Door knocking's other designed 4xx -- an empty or oversized turf, and an ineligible district the webapp renders as a state -- are 400s, so every controller now drops those. 429 is the part still doing work here. A controller whose only designed 4xx is a 400 no longer needs to be listed at all.
+
+The cost: a genuine bug that surfaces as a 4xx on a listed controller no longer pages. Add a controller only when its 4xx vocabulary is deliberate, documented, and **not already excluded globally**. Everything else keeps the `≥ 400`-minus-exclusions rule.
 
 Per-route granularity, ownership, Slack routing, and the rest of the generated machinery are unchanged -- this only swaps the status filter and the wording of the Slack message.
 
