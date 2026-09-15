@@ -715,10 +715,7 @@ describe('CreateListFlow', () => {
   // not arrived is 0 here too, and printing it makes "we are still counting"
   // indistinguishable from "this district is empty" — for a wait whose p95 is
   // 34 seconds. Phone banking's identical CTA on this same shell already drops
-  // to the bare word while it counts. The button's own `loading` spinner is
-  // the only pack-pending signal on this step; the "Loading your voter map…"
-  // sentence used to sit below it but leaked implementation ("voter map") into
-  // a step whose question is "who do you want to reach".
+  // to the bare word while it counts.
   it('drops the count from the who step’s Continue while it is still pending', async () => {
     await renderAtWho({
       districtHouseholds: 0,
@@ -727,7 +724,53 @@ describe('CreateListFlow', () => {
 
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     expect(screen.queryByRole('button', { name: /Continue \(/ })).toBeNull()
-    expect(screen.queryByText(/Loading your voter map/)).toBeNull()
+  })
+
+  // A disabled button with a spinner and no words is what a hang looks like,
+  // and this wait reaches 54.9s on the `dk-pack` read. A candidate who
+  // concludes the product is broken refreshes — restarting the very download
+  // they were waiting on.
+  //
+  // The sentence that used to be here said "Loading your voter map…" and was
+  // removed for a real reason: a step asking "who do you want to reach"
+  // should not answer with maps. The fix is to say it about people, not to
+  // say nothing.
+  it('says why the who step is waiting, in people rather than maps', async () => {
+    await renderAtWho({
+      districtHouseholds: 0,
+      districtHouseholdsPending: true,
+    })
+
+    expect(
+      screen.getByText(
+        'Counting the people in your district… A large district can take up to a minute.',
+      ),
+    ).toBeInTheDocument()
+    // The reason it was pulled must not come back with it.
+    expect(screen.queryByText(/voter map/i)).toBeNull()
+  })
+
+  // A wait is not a failure. `alert` interrupts a screen reader mid-sentence
+  // and is right for the two cases below, where something has gone wrong and
+  // there is a decision to make; here nothing has gone wrong yet.
+  it('announces the wait as status, not as an alert', async () => {
+    await renderAtWho({
+      districtHouseholds: 0,
+      districtHouseholdsPending: true,
+    })
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      /Counting the people in your district/,
+    )
+  })
+
+  // The three absent-count cases are mutually exclusive and each has its own
+  // sentence. Pending must not also claim the pack failed, which would ask
+  // for a refresh mid-download.
+  it('does not mix the waiting sentence with the failed one', async () => {
+    await renderAtWho({ districtHouseholds: 0, districtHouseholdsFailed: true })
+
+    expect(screen.queryByText(/Counting the people/)).toBeNull()
   })
 
   // And a count that is never arriving. The pack does not retry, so the step is

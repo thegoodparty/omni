@@ -26,7 +26,11 @@ import {
   unpreviewableDisclosureSentence,
 } from './voterFilterPreview'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
-import { districtUnavailableMessage, packErrorMessage } from '../useVoterPack'
+import {
+  districtUnavailableMessage,
+  packErrorMessage,
+  packWaitMessage,
+} from '../useVoterPack'
 import { suggestTravelMode } from '../travelMode'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
@@ -1237,17 +1241,29 @@ export default function CreateListFlow({
               recommendationsError={recommendationsQuery.isError}
               onSelectRecommendation={applyRecommendation}
             />
-            {/* The pack-pending sentence used to sit here ("Loading your
-                voter map…") to explain a Continue that would otherwise sit
-                dead for up to 34s. It was correct when the whole flow
-                covered the map region that carried the same message, but
-                it broke the who step from the candidate's point of view —
-                a step asking "who do you want to reach" that mentioned
-                voter maps read as leaking implementation. The Continue
-                button's own `loading` state (spinner) is now the only
-                pack-pending signal on this step, which is what phone
-                banking and every other channel's audience step already
-                does. */}
+            {/* Why the Continue below is disabled. The count in its label is
+                arithmetic over the pack, so until the district downloads
+                there is no number and nothing to advance to — measured at up
+                to 54.9s on the `dk-pack` read, against a 60s ceiling.
+
+                The previous sentence here said "Loading your voter map…" and
+                was removed for a good reason — a step asking "who do you
+                want to reach" should not answer with maps — but removing it
+                left the spinner on a disabled button as the only signal,
+                which is what a hang looks like. A candidate who thinks the
+                product is broken refreshes, and a refresh restarts the
+                download they were already waiting on.
+
+                So it says the same thing about people instead of about maps.
+                `role="status"` rather than `alert`: this is a wait, not a
+                failure, and it must not interrupt a screen reader mid-
+                sentence. The failure and unavailable cases below keep
+                `alert`, which is the difference between the three. */}
+            {districtHouseholdsPending && (
+              <p role="status" className="text-sm text-muted-foreground">
+                {packWaitMessage(serveMode)}
+              </p>
+            )}
             {/* Failure is different: `retry: 0` means a failed pack is
                 final, so without this the step is a permanently disabled
                 Continue with the reason hidden behind it. */}

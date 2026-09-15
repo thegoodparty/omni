@@ -736,9 +736,12 @@ export default function NativeDoorKnockingPage({
                 the same component, so pack-load → chunk-load → route-
                 fetch → real canvas is one continuous surface, no swap.
                 Gated on walkTurf so the create-flow arrival stays with
-                its own in-sheet loading copy — putting MapLoader behind
-                that sheet would print two competing loaders on one
-                screen.
+                its own in-sheet loading copy (`packWaitMessage` on the
+                who step) — putting MapLoader behind that sheet would
+                print two competing loaders on one screen. That in-sheet
+                copy was absent for a while, which made this gate mean
+                "no loading state at all" for a create-flow arrival
+                rather than "the sheet has its own".
 
                 The `routePending` half is what makes a fresh Build-route
                 landing look like a "Continue knocking" landing: on Build

@@ -13,29 +13,43 @@ export const GATEWAY_IDLE_TIMEOUT_MS = 120_000
 // genuinely slow build.
 export const PACK_FETCH_TIMEOUT_MS = 90_000
 
-// What this download costs, said out loud. Prod over 72h: p50 4.5s, p95 33.6s,
-// max 57s. It lives here beside the fetch and its timeouts because two surfaces
-// say it — the map region and the create flow's sheet, which covers that region
-// — and a candidate meeting both must not be told two different things about
-// the same wait. `LoadingAnimation`'s bar LOOKS determinate and is a fixed-width
-// indeterminate animation, so nothing here may imply progress: a duration is the
-// only honest promise this wait can make.
+// What this download costs, said out loud, on the step that has to wait for
+// it. `LoadingAnimation`'s bar LOOKS determinate and is a fixed-width
+// indeterminate animation, so nothing here may imply progress: a duration is
+// the only honest promise this wait can make.
 //
-// Serve says "constituent map" for the same map: an elected official has no
-// election on the calendar and the people on it are already theirs, so the
-// word is about who is being represented rather than about a ballot. The
-// duration sentence is about the download and is shared unchanged.
-export const PACK_LOADING_TITLE = 'Loading your voter map…'
-export const SERVE_PACK_LOADING_TITLE = 'Loading your constituent map…'
-export const PACK_LOADING_DURATION =
-  'Large districts can take up to 30 seconds.'
+// This replaces "Loading your voter map… / Large districts can take up to 30
+// seconds." Both halves of that were wrong by the time anyone looked.
+//
+// The wording was wrong for its surface, which is why it was pulled: the who
+// step asks "who do you want to reach", and answering with voter maps reads
+// as leaking implementation at a candidate who is picking an audience. But
+// pulling it left the step with NO explanation, and a disabled Continue
+// carrying a bare spinner is indistinguishable from a hang. So the sentence
+// comes back in the step's own vocabulary — people, not maps, not packs.
+//
+// The number was wrong too, and understated. Prod over 8 days, measured on
+// the `dk-pack` voter read: max 54.9s, against a 60s statement ceiling. The
+// old "up to 30 seconds" was a promise the download broke routinely, which
+// is worse than no number, because a candidate who has been told 30 seconds
+// starts diagnosing at 40. "Up to a minute" is the honest ceiling and is
+// also the truth about the worst case: past 60s the statement is killed and
+// this becomes the error sentence below.
+//
+// Serve counts the people an official represents rather than voters: they
+// have no election on the calendar and the people are already theirs, so the
+// noun is about representation rather than a ballot. The duration is about
+// the download and is shared unchanged.
+export const PACK_WAIT_TITLE = 'Counting the people in your district…'
+export const SERVE_PACK_WAIT_TITLE = 'Counting the people you represent…'
+export const PACK_WAIT_DURATION = 'A large district can take up to a minute.'
 export const PACK_ERROR_MESSAGE =
   'The voter map could not load. Refresh to try again.'
 export const SERVE_PACK_ERROR_MESSAGE =
   'The constituent map could not load. Refresh to try again.'
 
-export const packLoadingTitle = (isServe: boolean): string =>
-  isServe ? SERVE_PACK_LOADING_TITLE : PACK_LOADING_TITLE
+export const packWaitMessage = (isServe: boolean): string =>
+  `${isServe ? SERVE_PACK_WAIT_TITLE : PACK_WAIT_TITLE} ${PACK_WAIT_DURATION}`
 
 export const packErrorMessage = (isServe: boolean): string =>
   isServe ? SERVE_PACK_ERROR_MESSAGE : PACK_ERROR_MESSAGE
