@@ -1,5 +1,6 @@
 import {
   CalendarIcon,
+  ChartColumnIcon,
   FlagIcon,
   GavelIcon,
   MessageSquareIcon,
@@ -17,6 +18,7 @@ const BY_TYPE: Record<DashboardCardType, CardCategory> = {
   briefing: { label: 'Briefing', Icon: CalendarIcon },
   agenda_item: { label: 'Legislation', Icon: GavelIcon },
   community_issue: { label: 'Community Issue', Icon: FlagIcon },
+  poll_result: { label: 'Poll results', Icon: ChartColumnIcon },
 }
 
 /**

@@ -29,7 +29,12 @@ export interface SupportEstimate {
 // slice 2 — dashboard cards (GET /v1/dashboard/cards, PUT .../dismiss)
 // ---------------------------------------------------------------------------
 
-export type DashboardCardType = 'briefing' | 'agenda_item' | 'community_issue'
+// Re-exported rather than mirrored: this one is real in
+// `@goodparty_org/contracts` now, and it is generated from the Prisma enum, so
+// a hand-copy here silently drifts every time a card source is added. The
+// other shapes in this file are still mirrors awaiting the same treatment.
+import type { DashboardCardType } from '@goodparty_org/contracts'
+export type { DashboardCardType }
 
 export type DashboardCardBucket = 'active' | 'this_week' | 'skipped' | 'missed'
 

@@ -6,6 +6,7 @@ import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
 import { QueueType } from 'src/queue/queue.types'
 import { pollMessageGroup } from '../utils/polls.utils'
 import { APIPollStatus, derivePollStatus } from '../polls.types'
+import { DashboardCardsService } from '@/dashboardCards/services/dashboardCards.service'
 
 type PollCreateInput = Omit<
   Prisma.PollCreateInput,
@@ -19,7 +20,10 @@ const estimatedCompletionDate = (scheduledDate: Date | string) =>
 
 @Injectable()
 export class PollsService extends createPrismaBase(MODELS.Poll) {
-  constructor(private readonly queueProducer: QueueProducerService) {
+  constructor(
+    private readonly queueProducer: QueueProducerService,
+    private readonly dashboardCards: DashboardCardsService,
+  ) {
     super()
   }
 
@@ -59,7 +63,7 @@ export class PollsService extends createPrismaBase(MODELS.Poll) {
     totalResponses: number
     confidence: PollConfidence
   }) {
-    return this.optimisticLockingUpdate(
+    const poll = await this.optimisticLockingUpdate(
       { where: { id: params.pollId } },
       (poll) => {
         // We want to allow completing scheduled polls for testing purposes. In E2E tests
@@ -80,6 +84,14 @@ export class PollsService extends createPrismaBase(MODELS.Poll) {
         }
       },
     )
+
+    // The results landing is a heads-up the official should see wherever they
+    // are, so it becomes a notification. Deliberately after the update rather
+    // than inside it: the card is a side effect, and a card write failing must
+    // not roll back a poll that genuinely completed.
+    await this.dashboardCards.syncFromPoll(poll)
+
+    return poll
   }
 
   async expandPoll(params: {

@@ -26,4 +26,5 @@ enum DashboardCardType {
   briefing
   agenda_item
   community_issue
+  poll_result
 }

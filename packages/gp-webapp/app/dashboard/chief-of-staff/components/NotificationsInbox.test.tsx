@@ -89,6 +89,28 @@ describe('<NotificationsInbox>', () => {
     expect(await screen.findByText('Legislation')).toBeInTheDocument()
   })
 
+  it('labels a poll result and links to the poll', async () => {
+    cardsMock.mockReturnValue({
+      data: [
+        card({
+          type: 'poll_result',
+          title: 'Should we fund the transit shortfall?',
+          summary: '1,240 responses are in, at high confidence.',
+          ctaHref: '/dashboard/polls/poll_1',
+        }),
+      ],
+    })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<NotificationsInbox />)
+
+    await user.click(screen.getByRole('button', { name: /Notifications/ }))
+
+    expect(await screen.findByText('Poll results')).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /transit shortfall/ }),
+    ).toHaveAttribute('href', '/dashboard/polls/poll_1')
+  })
+
   it('dismisses a row without following its link', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<NotificationsInbox />)

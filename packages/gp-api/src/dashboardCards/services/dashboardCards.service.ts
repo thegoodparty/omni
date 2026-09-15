@@ -6,6 +6,7 @@ import {
   DashboardCard,
   DashboardCardType,
   MeetingBriefing,
+  Poll,
   Prisma,
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
@@ -19,6 +20,11 @@ import { BriefingArtifactCardSourceSchema } from '../schemas/briefingArtifactCar
 // Community issues have no natural deadline; give their cards a fixed window so
 // they ride the existing active/this_week/missed bucketing off dueDate.
 const COMMUNITY_ISSUE_CARD_DUE_DAYS = 7
+
+// A finished poll has no deadline either: the results are simply in. Same
+// fixed window as a community issue, so "read your results" stays in the inbox
+// for a week and then ages into missed rather than sitting there forever.
+const POLL_RESULT_CARD_DUE_DAYS = 7
 
 type DesiredCard = {
   type: DashboardCardType
@@ -90,6 +96,54 @@ export class DashboardCardsService extends createPrismaBase(
         ctaLabel: 'View issue',
         ctaHref: `/dashboard/community-issues/${issue.id}`,
         dueDate: addDays(issue.createdAt, COMMUNITY_ISSUE_CARD_DUE_DAYS),
+      },
+    })
+  }
+
+  // Creates a single card when a poll's results land. Like a community issue
+  // and unlike a briefing there is nothing to reconcile: a poll completes once.
+  // Guarded create keyed on the poll id, so a redelivered completion does not
+  // produce a second card.
+  //
+  // A poll can be expanded after completing, which clears isCompleted and later
+  // completes again. That deliberately does NOT mint a second card: the card
+  // points at the poll's own page, which always shows the current results, so
+  // one card per poll is the honest count.
+  async syncFromPoll(poll: Poll): Promise<void> {
+    if (!poll.electedOfficeId || !poll.isCompleted) return
+
+    const existing = await this.model.findFirst({
+      where: {
+        electedOfficeId: poll.electedOfficeId,
+        type: DashboardCardType.poll_result,
+        sourceExternalId: poll.id,
+      },
+      select: { id: true },
+    })
+    if (existing) return
+
+    const responses = poll.responseCount ?? 0
+    const confidence = poll.confidence
+      ? `${poll.confidence.toLowerCase()} confidence`
+      : 'confidence pending'
+
+    await this.model.create({
+      data: {
+        electedOfficeId: poll.electedOfficeId,
+        type: DashboardCardType.poll_result,
+        sourceExternalId: poll.id,
+        sourceItemId: null,
+        title: poll.name,
+        summary:
+          responses === 1
+            ? `1 response is in, at ${confidence}.`
+            : `${responses.toLocaleString('en-US')} responses are in, at ${confidence}.`,
+        ctaLabel: 'View results',
+        ctaHref: `/dashboard/polls/${poll.id}`,
+        dueDate: addDays(
+          poll.completedDate ?? new Date(),
+          POLL_RESULT_CARD_DUE_DAYS,
+        ),
       },
     })
   }
