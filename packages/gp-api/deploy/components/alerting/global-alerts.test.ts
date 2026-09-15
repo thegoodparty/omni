@@ -283,6 +283,26 @@ describe('known causes', () => {
     }
   })
 
+  // The failure the rule above does not catch, and it shipped once: a condition
+  // that is phrased as a condition and still confirms for anything, because it
+  // asks only whether the query returned something. "Matched lines exist and
+  // name a schema path" is true of every output a query filtered to that shape
+  // can produce, so the cause is confirmed by its own evidence gather.
+  //
+  // What separates the two is whether the entry says what would DISCONFIRM it.
+  // A prose check is a blunt instrument, but the alternative is no check on the
+  // one property that decides whether the classifier can ever answer no — and
+  // the sibling entries were already written this way, so the shape being
+  // asserted is the house style rather than a new requirement.
+  it('says what would rule each cause out', () => {
+    for (const [alert, cause] of allCauses) {
+      expect(
+        cause.confirmedBy,
+        `${alert.slug}/${cause.id} states no disconfirming condition: say what a matched line, or the absence of one, would look like if this were NOT the cause`,
+      ).toMatch(/\bis not\b|\bis NOT\b|\binstead\b|\bmissing\b|\bno matched\b/)
+    }
+  })
+
   // A suppressing cause with no ticket is how a known issue becomes a
   // permanently invisible one: the alert stops arriving and nothing is left
   // pointing at the work. This is not an error — shipping the mechanism

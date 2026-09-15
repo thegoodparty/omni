@@ -442,6 +442,13 @@ export const GLOBAL_ALERTS: Alert[] = [
         id: 'zod-response-validation',
         summary:
           'The response failed its own schema validation rather than the handler failing. The 500 is ZodResponseInterceptor rejecting a shape, so the named schema path is the fix site.',
+        // DELIBERATELY NOT SCOPED TO THE ENDPOINT, though `request_endpoint`
+        // rides on every request-scoped line (app.ts sets `req.route` before
+        // pino-http, for exactly this). Filtering it here would make the
+        // condition below true of anything the query could return, because the
+        // lines that disconfirm the cause — rejections from other routes — are
+        // the ones the filter would have removed. The classifier has to be able
+        // to see them to reject on them.
         evidence: [
           '{service_name="gp-api", deployment_environment_name="$ENV"}',
           '|= "ZodResponseInterceptor"',
@@ -449,7 +456,7 @@ export const GLOBAL_ALERTS: Alert[] = [
           '| context = "ZodResponseInterceptor"',
         ].join(' '),
         confirmedBy:
-          'Matched lines exist in the window and name a schema path. Claimed candidates are rendering as unclaimed on the marketing site either way, so this names the cause without making the alert less urgent.',
+          'Every matched line is a rejection on `GET /v1/public-campaigns` — read `request_endpoint` — and names a schema path under `issues`. Matched lines from other routes only means unrelated response-validation noise and is NOT this cause; no matched lines at all means the 500s came from the handler rather than from the response shape, which is also not this cause. Claimed candidates render as unclaimed either way, so confirming this names the cause without making the alert less urgent.',
         action: 'annotate',
       },
     ],
