@@ -143,7 +143,7 @@ const renderAtWho = async (
 }
 
 // The control the who step opens on: one row naming the audience and its door
-// count, labelled by the eyebrow above it.
+// count, labelled by the overline above it.
 const audiencePicker = () => screen.getByRole('combobox', { name: 'All lists' })
 
 // Choosing a list is open-then-pick. The rows only exist in the document while
@@ -183,7 +183,7 @@ const heading = (name: string) =>
   screen.getByRole('heading', { level: 3, name })
 
 // The bar stepper no longer renders "Step X of Y" text at all — that
-// prop was retired in favor of the ChannelBadge eyebrow the header
+// prop was retired in favor of the ChannelBadge overline the header
 // already carries. The stepper still exposes its position on the
 // progressbar role's aria attributes, which is what these assertions
 // actually mean: "the flow claims it is on step N of a Y-step run".

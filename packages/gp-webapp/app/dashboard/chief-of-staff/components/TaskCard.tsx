@@ -5,8 +5,8 @@ import { Button, Card, cn } from '@styleguide'
 import type { LucideIcon } from 'lucide-react'
 
 export interface TaskCardProps {
-  eyebrowLabel: string
-  EyebrowIcon: LucideIcon
+  overlineLabel: string
+  OverlineIcon: LucideIcon
   title: string
   /** Optional date / location lines under the title. */
   meta?: string[]
@@ -35,12 +35,12 @@ const isExternalHref = (href: string): boolean =>
 
 /**
  * Shared card for the dashboard task list, the onboarding cards, and the
- * Archive list. Eyebrow + title + meta/summary are plain elements; the CTA
+ * Archive list. Overline + title + meta/summary are plain elements; the CTA
  * and Skip use styleguide primitives.
  */
 export default function TaskCard({
-  eyebrowLabel,
-  EyebrowIcon,
+  overlineLabel,
+  OverlineIcon,
   title,
   meta,
   summary,
@@ -62,8 +62,8 @@ export default function TaskCard({
     >
       <div className="flex items-start justify-between gap-2">
         <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-          <EyebrowIcon className="size-3.5" aria-hidden />
-          {eyebrowLabel}
+          <OverlineIcon className="size-3.5" aria-hidden />
+          {overlineLabel}
         </span>
       </div>
 

@@ -16,7 +16,7 @@ interface ManagerPromptCardProps {
 
 // The first-run Campaign Manager prompt cards (meet the manager, personalize
 // the campaign). A distinct look from the weekly tracker's TaskCard: a blue
-// "Campaign Manager" eyebrow, an overflow menu to skip, and a right-aligned
+// "Campaign Manager" overline, an overflow menu to skip, and a right-aligned
 // CTA. Kept separate so the shared TaskCard (tracker + archive) is unaffected.
 export default function ManagerPromptCard({
   title,
