@@ -9,13 +9,16 @@ import {
   type ApproveSmsOutreachRequest,
   type CancelSmsOutreachRequest,
   type DenySmsOutreachRequest,
+  type EditSmsOutreachDateRequest,
   type EditSmsOutreachRequest,
   type SmsAdminDetailResponse,
   type SmsAdminJobStats,
   type SmsApprovalQueueItem,
   type SmsApprovalStatus,
 } from '@goodparty_org/contracts'
-import { addDays, format, subDays } from 'date-fns'
+import { addDays, format, isAfter, subDays } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
+import { EASTERN_TIMEZONE } from 'src/shared/util/date.util'
 import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -581,6 +584,150 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         `Outreach ${outreachId} advanced past pending during admin edit; ` +
           'Peerly job has the new content but the row kept the old — ' +
           'manual reconciliation required',
+      )
+      throw new ConflictException('This campaign is no longer editable')
+    }
+
+    const updated = await this.model.findFirstOrThrow({
+      where: { id: outreachId },
+      include: queueInclude,
+    })
+    const registrations = await this.registrationsByCampaign([updated])
+    return this.toQueueItem(
+      updated,
+      registrations.get(updated.campaignId ?? -1),
+      null,
+    )
+  }
+
+  /**
+   * Staff reschedule: move the send to a new day without touching the
+   * message. Vendor first, then DB — a Peerly failure leaves the row
+   * untouched (the editScript convention). Approval stamps are KEPT (the
+   * editor is the approver, same product decision as the script edit); a
+   * booked row is rebooked on the new day (clear then re-request, since
+   * Peerly allows one open canvasser request per job) and its
+   * canvassRequestedAt re-stamped.
+   */
+  async editDate(
+    outreachId: number,
+    input: EditSmsOutreachDateRequest,
+  ): Promise<SmsApprovalQueueItem> {
+    const row = await this.model.findFirst({
+      where: { id: outreachId, ...this.queueWhere() },
+      include: queueInclude,
+    })
+    if (!row || !row.projectId) {
+      throw new NotFoundException('Scheduled SMS campaign not found')
+    }
+    // A canceled row is in queue scope for the audit trail, but its vendor
+    // job is deleted — there is no send left to move.
+    if (row.status === OutreachStatus.canceled) {
+      throw new ConflictException('A canceled campaign cannot be rescheduled')
+    }
+    // Once the send day has begun AND canvassers are booked, Peerly may be
+    // mid-send: moving the window under live agents is not recoverable.
+    if (
+      row.status === OutreachStatus.in_progress &&
+      row.canvassRequestedAt !== null
+    ) {
+      throw new BadRequestException(
+        'This campaign is already sending and cannot be rescheduled',
+      )
+    }
+    if (row.campaignId === null) {
+      throw new BadRequestException(
+        'This campaign is missing its campaign scope and cannot be rescheduled',
+      )
+    }
+    if (!isAfter(input.sendAt, new Date())) {
+      throw new BadRequestException('The new send time must be in the future')
+    }
+    // The two fields must name the same ET calendar day: the DB stores the
+    // instant while Peerly's window is set from scheduledLocalDate, so an
+    // incoherent pair (possible from a raw M2M caller — the console picker
+    // derives both from one input) would permanently split them. Checked
+    // here, not in contracts: the timezone authority is server-side.
+    if (
+      formatInTimeZone(input.sendAt, EASTERN_TIMEZONE, DATE_FMT) !==
+      input.scheduledLocalDate
+    ) {
+      throw new BadRequestException(
+        'scheduledLocalDate must match the Eastern calendar day of sendAt',
+      )
+    }
+
+    await this.peerlyP2pJobService.updateJobSchedule({
+      jobId: row.projectId,
+      campaignId: row.campaignId,
+      date: input.scheduledLocalDate,
+    })
+
+    // Re-read the booking flag after the vendor window write: a concurrent
+    // approve can book canvassers between the entry read above and here
+    // (its claim CAS guards approvedAt, not this flow), and skipping the
+    // rebook then would leave Peerly's booking on the old day while the
+    // window moved. This narrows the race to the canvasser calls below.
+    const requeried = await this.model.findFirstOrThrow({
+      where: { id: outreachId },
+      select: { canvassRequestedAt: true },
+    })
+    const wasBooked = requeried.canvassRequestedAt !== null
+    if (wasBooked) {
+      try {
+        await this.peerlyP2pJobService.clearCanvassers(row.projectId)
+      } catch (error) {
+        // The vendor window already moved but the DB is deliberately left
+        // unchanged (vendor-first contract). Retrying the date edit is
+        // safe: clearCanvassers no-ops when there is nothing to clear.
+        this.logger.error(
+          { err: error, outreachId },
+          'Reschedule moved the vendor schedule window but could not ' +
+            'clear the canvasser booking; retry the date edit to complete ' +
+            'the reschedule',
+        )
+        throw error
+      }
+      try {
+        await this.peerlyP2pJobService.requestCanvassers(row.projectId, {
+          date: input.scheduledLocalDate,
+        })
+      } catch (error) {
+        // The old booking is already cleared at the vendor and the DB is
+        // deliberately left unchanged (vendor-first contract): the row
+        // still reads booked, so staff must retry the reschedule (or
+        // re-approve) to restore a real booking.
+        this.logger.error(
+          { err: error, outreachId },
+          'Reschedule cleared the canvasser booking but could not rebook ' +
+            'the new day; retry the date edit to restore the booking',
+        )
+        throw error
+      }
+    }
+    this.invalidateVendorReads(row.projectId)
+
+    const edited = await this.model.updateMany({
+      where: { id: outreachId, status: { in: REVIEWABLE_STATUSES } },
+      data: {
+        date: input.sendAt,
+        scheduledLocalDate: input.scheduledLocalDate,
+        ...(wasBooked && { canvassRequestedAt: new Date() }),
+        // Any edit wipes a denial and re-queues (the console convention
+        // editScript follows) — a date-edited denied row must not stay
+        // parked with approve refusing it.
+        deniedAt: null,
+        deniedBy: null,
+        deniedReason: null,
+        adminEditedAt: new Date(),
+        adminEditedBy: input.editedBy,
+      },
+    })
+    if (edited.count === 0) {
+      this.logger.error(
+        `Outreach ${outreachId} advanced past pending during admin ` +
+          'reschedule; Peerly has the new window but the row kept the old ' +
+          'date — manual reconciliation required',
       )
       throw new ConflictException('This campaign is no longer editable')
     }

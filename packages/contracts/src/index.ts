@@ -939,6 +939,8 @@ export {
   type CancelSmsOutreachRequest,
   EditSmsOutreachRequestSchema,
   type EditSmsOutreachRequest,
+  EditSmsOutreachDateRequestSchema,
+  type EditSmsOutreachDateRequest,
   SmsTestMessageRequestSchema,
   type SmsTestMessageRequest,
 } from './outreach/SmsAdminConsole.schema'
