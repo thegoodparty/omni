@@ -21,15 +21,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  Eyebrow,
+  Overline,
   IconButton,
   Skeleton,
 } from '@styleguide'
-import {
-  MoreHorizontalIcon,
-  Trash2Icon,
-  UserPlusIcon,
-} from '@styleguide/components/ui/icons'
+import { MoreHorizontalIcon, Trash2Icon } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
@@ -194,10 +190,7 @@ export const OutreachAssigneesSection = ({
     <>
       <section className="space-y-3">
         <div className="flex items-center justify-between gap-2">
-          <Eyebrow>
-            <UserPlusIcon />
-            Assigned to
-          </Eyebrow>
+          <Overline>Assigned to</Overline>
           <Button
             variant="link"
             className="h-auto p-0"

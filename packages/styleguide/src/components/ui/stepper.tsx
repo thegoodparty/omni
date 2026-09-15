@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react'
 import { cn } from '@styleguide/lib/utils'
 import { Button } from './button'
+import { Overline } from './overline'
 import { XMarkIcon } from './icons'
 
 type StepperVariant = 'bar' | 'vertical'
@@ -11,10 +12,12 @@ interface BarStepperProps {
   variant?: 'bar'
   currentStep: number
   totalSteps: number
-  // Optional eyebrow slot — the flow's identity in the header row. A
-  // channel badge in outreach, a logo in onboarding, or plain text like
+  // Optional overline slot — the flow's identity in the header row. A
+  // channel badge in outreach, a logo in onboarding, or a flow name like
   // "Create new list" in a wizard drawer. Omit for a bars-only render.
-  eyebrow?: ReactNode
+  // A string is wrapped in the shared <Overline> component; pass a
+  // ReactNode to render your own markup (badge, logo, etc.) verbatim.
+  overline?: ReactNode
   // Optional Exit affordance. When defined, renders the Exit button in
   // the header row's right slot. Omit for surfaces with no exit
   // (onboarding) or whose sheet chrome carries its own close (CRM
@@ -80,17 +83,23 @@ function Stepper(props: StepperProps) {
     )
   }
 
-  const { currentStep, totalSteps, eyebrow, onExit, className, barClassName } =
+  const { currentStep, totalSteps, overline, onExit, className, barClassName } =
     props
-  const hasHeaderRow = eyebrow !== undefined || onExit !== undefined
+  const hasHeaderRow = overline !== undefined || onExit !== undefined
   return (
     <div className={cn(className)}>
-      {/* Header row: eyebrow slot + Exit button. Both are optional and
+      {/* Header row: overline slot + Exit button. Both are optional and
           the whole row disappears when neither is set, so a caller that
           only wants the bars gets exactly that. */}
       {hasHeaderRow && (
         <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="min-w-0 flex-1">{eyebrow}</div>
+          <div className="min-w-0 flex-1">
+            {typeof overline === 'string' ? (
+              <Overline>{overline}</Overline>
+            ) : (
+              overline
+            )}
+          </div>
           {onExit && (
             <Button
               type="button"

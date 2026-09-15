@@ -14,9 +14,8 @@ interface ContentCardProps extends Omit<
 > {
   title: React.ReactNode
   description?: React.ReactNode
-  eyebrow?: React.ReactNode
-  eyebrowIcon?: React.ReactNode
-  eyebrowEmphasis?: boolean
+  overline?: React.ReactNode
+  overlineEmphasis?: boolean
   helper?: React.ReactNode
   primaryAction?: ContentCardAction
   secondaryAction?: ContentCardAction
@@ -42,9 +41,8 @@ const renderAction = (
 function ContentCard({
   title,
   description,
-  eyebrow,
-  eyebrowIcon,
-  eyebrowEmphasis = true,
+  overline,
+  overlineEmphasis = true,
   helper,
   primaryAction,
   secondaryAction,
@@ -64,20 +62,17 @@ function ContentCard({
       {...props}
     >
       <div className="flex w-full flex-col gap-1">
-        {eyebrow || helper ? (
+        {overline || helper ? (
           <div className="flex min-h-7 flex-wrap items-center gap-2">
-            {eyebrow ? (
-              <div
+            {overline ? (
+              <span
                 className={cn(
-                  'flex flex-1 items-center gap-1 [&_svg]:size-4',
-                  eyebrowEmphasis ? 'text-primary' : 'text-card-foreground',
+                  'flex-1 text-xs font-bold whitespace-nowrap uppercase',
+                  overlineEmphasis ? 'text-primary' : 'text-card-foreground',
                 )}
               >
-                {eyebrowIcon}
-                <span className="text-xs font-bold whitespace-nowrap uppercase">
-                  {eyebrow}
-                </span>
-              </div>
+                {overline}
+              </span>
             ) : null}
             {helper ? (
               <div className="text-muted-foreground ml-auto flex shrink-0 items-center [&_svg]:size-6">
