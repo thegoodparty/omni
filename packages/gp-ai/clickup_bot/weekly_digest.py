@@ -161,16 +161,24 @@ MAX_NAMED_CAUSES = 6
 # "This digest was not asked about the alert filter", which is a different state
 # from "the query failed".
 #
-# WHY THE DISTINCTION IS WORTH A CONSTANT: the gather for this section ships in
-# a later change than the section itself, and every digest before that lands
-# would otherwise report a source as unavailable and turn the job red. That is
-# the same mistake RUNS_GAP exists to avoid — a job expected to be red is a job
-# whose redness stops meaning anything — but it needs a different fix here,
+# WHY THE DISTINCTION IS WORTH A CONSTANT: a digest that was not asked about the
+# alert filter must not report a source as unavailable and turn the job red. That
+# is the same mistake RUNS_GAP exists to avoid — a job expected to be red is a
+# job whose redness stops meaning anything — but it needs a different fix here,
 # because unlike the metric gap there is nothing worth SAYING about it: a reader
 # cannot act on "a feature has not shipped". So an absent key omits the line
 # entirely, while a key whose value is unreadable reports as unavailable and
 # goes red. The workflow either gathers this or it does not, so the two cannot
 # be confused for each other.
+#
+# WHAT LEAVES THE KEY ABSENT, now that the gather ships in the same change as
+# this section: a payload built without it. A workflow_dispatch of an older
+# revision of gpbot-weekly-digest.yml and a hand-fed re-run of a past week both
+# do, and both are reasons to read the digest rather than to page anyone. A
+# gather that RAN and failed writes the key as null and is reported, because by
+# then something really is broken — the alert section is the only record of what
+# the filter stopped showing people, so a week of it going missing quietly is the
+# one gap in this digest nobody could reconstruct afterwards.
 ALERTS_NOT_GATHERED = "not-gathered"
 
 # WHY A ZERO FROM CLOUDWATCH IS NOT SELF-EXPLANATORY, and the bug that put this
