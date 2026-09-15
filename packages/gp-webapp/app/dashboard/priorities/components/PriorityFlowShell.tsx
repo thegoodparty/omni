@@ -2,15 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import {
-  Button,
-  Sheet,
-  SheetBody,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@styleguide'
+import { Button } from '@styleguide'
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -31,12 +23,12 @@ import {
   parseTurnText,
   splitSegments,
   type OutreachChannel,
-  type OutreachOrg,
   type OutreachPlan,
   type PriorityDirective,
   type WaitingOn,
 } from '../data/stepProtocol'
 import PriorityQuestion from './PriorityQuestion'
+import OrgsCard from './OrgsCard'
 import {
   PhoneBankingFlow,
   SERVE_PHONE_BANKING_SURFACE,
@@ -654,119 +646,6 @@ function OutreachCard({
         </span>
       ) : null}
     </div>
-  )
-}
-
-// Beat three: the coalitions. A row each, because the detail (who to ask for,
-// what to say, how to reach them) is what you want open in front of you when
-// you actually make the call, not while you are reading past it.
-function OrgsCard({ orgs }: { orgs: OutreachOrg[] }): React.JSX.Element {
-  const [open, setOpen] = useState<OutreachOrg | null>(null)
-  return (
-    <div className="flex w-full flex-col gap-2 rounded-lg border border-border bg-card p-4 shadow-sm">
-      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        Groups who reach further than your list
-      </span>
-      {orgs.map((org) => (
-        <button
-          key={org.name}
-          type="button"
-          onClick={() => setOpen(org)}
-          className="flex items-center gap-3 rounded-lg border border-border px-3 py-2 text-left transition-colors hover:bg-muted/50"
-        >
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-medium text-foreground">
-              {org.name}
-            </span>
-            <span className="block truncate text-sm text-muted-foreground">
-              {org.why}
-            </span>
-          </span>
-          <ChevronRightIcon
-            className="size-4 shrink-0 text-muted-foreground"
-            aria-hidden
-          />
-        </button>
-      ))}
-      <OrgSheet
-        org={open}
-        onOpenChange={(next) => {
-          if (!next) setOpen(null)
-        }}
-      />
-    </div>
-  )
-}
-
-// The same shape as a contact card: who you are calling, what to ask for, the
-// script, and the address or number as something you can actually press.
-function OrgSheet({
-  org,
-  onOpenChange,
-}: {
-  org: OutreachOrg | null
-  onOpenChange: (open: boolean) => void
-}): React.JSX.Element {
-  return (
-    <Sheet open={org !== null} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-md">
-        <SheetHeader>
-          <SheetTitle>{org?.name ?? ''}</SheetTitle>
-          <SheetDescription>{org?.why ?? ''}</SheetDescription>
-        </SheetHeader>
-        {org ? (
-          <SheetBody className="flex flex-col gap-5">
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Ask for
-              </span>
-              <p className="text-sm text-foreground">{org.askFor}</p>
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                What to say
-              </span>
-              <p className="whitespace-pre-wrap rounded-lg border border-border bg-muted/40 p-3 text-sm text-foreground">
-                {org.script}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {org.email ? (
-                <Button asChild size="small" className="rounded-full">
-                  <a
-                    href={`mailto:${org.email}?body=${encodeURIComponent(org.script)}`}
-                  >
-                    Email {org.email}
-                  </a>
-                </Button>
-              ) : null}
-              {org.phone ? (
-                <Button
-                  asChild
-                  size="small"
-                  variant="outline"
-                  className="rounded-full"
-                >
-                  <a href={`tel:${org.phone}`}>Call {org.phone}</a>
-                </Button>
-              ) : null}
-              {org.url ? (
-                <Button
-                  asChild
-                  size="small"
-                  variant="outline"
-                  className="rounded-full"
-                >
-                  <a href={org.url} target="_blank" rel="noreferrer">
-                    Their site
-                  </a>
-                </Button>
-              ) : null}
-            </div>
-          </SheetBody>
-        ) : null}
-      </SheetContent>
-    </Sheet>
   )
 }
 
