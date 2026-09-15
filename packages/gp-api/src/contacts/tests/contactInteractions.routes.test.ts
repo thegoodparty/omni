@@ -348,7 +348,7 @@ describe('Contact interactions routes', () => {
   })
 
   describe('non-pro Win campaign', () => {
-    it('rejects with 400', async () => {
+    it('rejects with 403', async () => {
       const slug = `win-nonpro-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: false })
       const headers = { [ORG_SLUG_HEADER]: slug }
@@ -359,7 +359,7 @@ describe('Contact interactions routes', () => {
         { headers },
       )
 
-      expect(result.status).toBe(400)
+      expect(result.status).toBe(403)
     })
   })
 

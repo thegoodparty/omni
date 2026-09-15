@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { Organization } from '../../../generated/prisma'
@@ -187,7 +188,7 @@ describe('crud_saved_filters execute', () => {
     const { tool } = buildTool({
       voterFileFilters: {
         filterAccessCheck: vi.fn(() =>
-          Promise.reject(new BadRequestException(FILTER_PRO_REQUIRED_MESSAGE)),
+          Promise.reject(new ForbiddenException(FILTER_PRO_REQUIRED_MESSAGE)),
         ),
         create,
       },
@@ -205,7 +206,7 @@ describe('crud_saved_filters execute', () => {
     const create = vi.fn()
     const { tool } = buildTool({
       countContacts: vi.fn(() =>
-        Promise.reject(new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)),
+        Promise.reject(new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)),
       ),
       voterFileFilters: { create },
     })
@@ -214,6 +215,30 @@ describe('crud_saved_filters execute', () => {
     )
     expect(result).toEqual({
       error: expect.stringContaining('upgrading to Pro'),
+    })
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  // The pro gates above are 403s and every other business-rule rejection is a
+  // 400, so the catch has to recognize both classes. Narrowing it back to one
+  // would let the other escape as a generic tool failure.
+  it('surfaces a non-Pro-gate business rejection as a plain tool error', async () => {
+    const create = vi.fn()
+    const { tool } = buildTool({
+      countContacts: vi.fn(() =>
+        Promise.reject(
+          new BadRequestException(
+            'Political party filtering is not available for this organization',
+          ),
+        ),
+      ),
+      voterFileFilters: { create },
+    })
+    const result = await tool.execute(
+      tool.inputSchema.parse({ action: 'create', name: 'Blocked' }),
+    )
+    expect(result).toEqual({
+      error: 'Political party filtering is not available for this organization',
     })
     expect(create).not.toHaveBeenCalled()
   })

@@ -1639,8 +1639,12 @@ writes.** The gate is `ContactsService.assertProAccess(organization)`, called at
 the top of each controller method — the CRM's own predicate, reused rather than
 reimplemented, so `hasElectedOfficeAccess` still short-circuits ahead of
 `isPro` and an `eo-` (Serve) org stays license-equivalent to Pro here exactly as
-it is across Contacts. Refusal is that method's `BadRequestException`, 400 with
-`This feature is only available for pro campaigns`.
+it is across Contacts. Refusal is that method's `ForbiddenException`, 403 with
+`This feature is only available for pro campaigns`. It is a 403 and not a 400
+for the same reason every other pro gate is: the request is well formed and the
+org simply isn't entitled, and the per-route error-count alerts
+(`deploy/components/alerting/controller-alerts.ts`) exclude 403 while counting
+400, so a paywall refusal never pages anyone.
 
 | Route                   | Gated  |
 | ----------------------- | ------ |

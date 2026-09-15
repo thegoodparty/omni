@@ -339,17 +339,17 @@ describe('Contact notes routes', () => {
             { headers },
           ),
       },
-    ])('rejects $name with 400', async ({ call }) => {
+    ])('rejects $name with 403', async ({ call }) => {
       const slug = `win-nonpro-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: false })
       const headers = { [ORG_SLUG_HEADER]: slug }
 
       const result = await call(headers, 'person-1')
 
-      expect(result.status).toBe(400)
+      expect(result.status).toBe(403)
     })
 
-    it('rejects edit and delete with 400', async () => {
+    it('rejects edit and delete with 403', async () => {
       const proSlug = `win-pro-seed-${Date.now()}`
       await seedWinOrg({ slug: proSlug, ownerId: service.user.id, isPro: true })
       const note = await service.prisma.contactNote.create({
@@ -369,13 +369,13 @@ describe('Contact notes routes', () => {
         { body: 'hijack attempt' },
         { headers },
       )
-      expect(edited.status).toBe(400)
+      expect(edited.status).toBe(403)
 
       const deleted = await service.client.delete(
         `/v1/contacts/notes/${note.id}`,
         { headers },
       )
-      expect(deleted.status).toBe(400)
+      expect(deleted.status).toBe(403)
     })
   })
 

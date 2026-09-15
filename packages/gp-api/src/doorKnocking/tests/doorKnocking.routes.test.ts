@@ -4581,7 +4581,7 @@ describe('door-knocking routes', () => {
           body === undefined
             ? await service.client[method](path, opts())
             : await service.client[method](path, body, opts())
-        expect(res.status, `${method.toUpperCase()} ${path}`).toBe(400)
+        expect(res.status, `${method.toUpperCase()} ${path}`).toBe(403)
         expect(res.data.message, `${method.toUpperCase()} ${path}`).toBe(
           'This feature is only available for pro campaigns',
         )
@@ -4633,7 +4633,7 @@ describe('door-knocking routes', () => {
         `/v1/door-knocking/turfs/${turf.id}/route`,
         opts(),
       )
-      expect(route.status).toBe(400)
+      expect(route.status).toBe(403)
 
       // ...but "don't come back" and "wrong door" still land.
       const dnk = await service.client.post(

@@ -1,5 +1,5 @@
 import { useTestService } from '@/test-service'
-import { BadRequestException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   EcanvasserContact,
@@ -253,7 +253,7 @@ describe('EcanvasserAttributionService', () => {
     )
 
     vi.spyOn(contacts, 'findPersonByPhone').mockRejectedValue(
-      new BadRequestException(
+      new ForbiddenException(
         'Search and segments are only available for pro campaigns',
       ),
     )
