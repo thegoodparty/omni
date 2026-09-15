@@ -6,6 +6,7 @@ import {
 } from '@goodparty_org/contracts'
 import { RECOMMENDED_LISTS_REGISTRY } from './recommendedLists.registry'
 import { buildVariantFilter } from './recommendedListsUniverse.util'
+import { ElectionCode } from '@/elections/types/elections.types'
 
 // Guards the wire contract, not the universe logic (recommendedListsUniverse
 // .util.test.ts owns that): RecommendedListFilterSchema in contracts is a
@@ -23,7 +24,12 @@ describe('RecommendedListFilterSchema covers every variant filter', () => {
           .requiresIdeologyBucket
           ? 'progressive'
           : null
-        const filter = buildVariantFilter(variant, channel, ideologyBucket)
+        const filter = buildVariantFilter(
+          variant,
+          channel,
+          ideologyBucket,
+          ElectionCode.General,
+        )
 
         expect(filter).not.toBeNull()
         expect(RecommendedListFilterSchema.safeParse(filter).success).toBe(true)
