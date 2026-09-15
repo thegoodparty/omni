@@ -361,12 +361,22 @@ export default function CreateListSurface({
       filters={filters}
       onFiltersChange={onFiltersChange}
       onStepChange={(next) => {
-        // Back to the filters is a re-cut of the audience, and the step
-        // forward from it wipes the shape — so the next thing drawn is a
-        // different list against a different question. A doors panel left open
-        // would spring back over it with nobody having asked. Continuing to
-        // confirm deliberately does NOT reset it: that is one shape being
-        // reviewed, and Back has to return the step as it was left.
+        // Back to the filters may be a re-cut of the audience, so a doors
+        // panel left open would spring back over the new one with nobody
+        // having asked. The addresses it lists were resolved against the old
+        // filters, and nothing about them survives the audience changing.
+        //
+        // This used to lean on the shape being wiped on the step forward as
+        // well — "so the next thing drawn is a different list against a
+        // different question". It isn't wiped any more: the boundary now
+        // survives the round trip, because losing it on a trip back to READ
+        // the filters was the reported bug. The reset still stands on its own
+        // reasoning, which was always the stronger half — a stale door list
+        // is wrong whether or not the boundary changed.
+        //
+        // Continuing to confirm deliberately does NOT reset it: that is one
+        // shape being reviewed, and Back has to return the step as it was
+        // left.
         if (next === 'filters') setPreviewRing(null)
         onStepChange(next)
       }}
