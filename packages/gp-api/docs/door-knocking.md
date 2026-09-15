@@ -428,7 +428,9 @@ The steps:
    `activityConditions`, `supportStatus`, `contactsMade*` and the
    voter-likelihood overrides, so a list previewed in Contacts used to knock a
    different audience than it displayed. A filter resolving to nobody → 400,
-   no people-db round trip.
+   no people-db round trip — and that 400 names the list's criteria, because
+   it is raised before the polygon is read. See "Two ways of finding nobody"
+   below.
 3. Evaluate the turf fresh via `src/peopleDb/` (resolved filters + the
    `idOverrides`/`contactsMadeIdOverrides` clauses that travel beside them +
    bbox; exact point-in-polygon ray-cast in-process — see "Interim geo"
@@ -777,12 +779,49 @@ cannot separate a people-db 502 from a vendor's. Distinct from
 `VOTER_DATA_UNAVAILABLE`, which is a 4xx eligibility state (no district, no
 stats row) rather than a read that failed.
 
-**This is not the "No matching voters" 400.** That one cannot be a masked
-timeout: a timeout throws before any rows are shaped, and there is no path that
-turns a slow or failed scan into an empty roster — the over-cap guard rejects
-rather than truncating, too. The two are separate failures with separate
-messages, and the reason to say so here is that they are easy to confuse from
-the outside, where both look like "it found nobody".
+**Neither of these is a found-nobody 400**, and there are two of those now
+(see "Two ways of finding nobody" below). A found-nobody 400 cannot be a
+masked timeout: a timeout throws before any rows are shaped, and the
+over-cap guard rejects rather than truncating. The reason to say so is that
+they are easy to confuse from the outside, where both look like "it found
+nobody" — and the confusion has happened, which is why the next paragraph is
+measurements rather than reasoning.
+
+**Measured, not argued.** QA reported a valid selection rejected as "No
+matching voters" and the first hypothesis was a masked timeout. Prod over 8
+days says otherwise. One reported occurrence, read end to end:
+
+```
+requestId 8e129d4a-…  op=dk-evaluate  dbxMs=869  responseTimeMs=1039  400
+```
+
+869ms. Across the whole window the slowest `dk-evaluate` was **5.0s**,
+against the 60s statement ceiling — so on this path the query is not close
+to timing out, it is succeeding quickly and correctly finding nobody. Every
+occurrence threw from `buildStops`, which is the polygon site rather than
+the empty-audience one: the audience resolved to real people and then none
+of them were inside the drawn shape.
+
+That points at the client/server disagreement rather than at the warehouse.
+The pack cannot express `supportStatus`, `activityConditions` or
+`precincts` (`UNSHADEABLE_LIST_CRITERIA`), so the map shades people the
+server excludes, and the candidate draws over dots that really are there.
+One user hit this six times in 62 seconds — redrawing the boundary, which
+is what the message asks for and what cannot help.
+
+**Where the slow reads actually are**, from the same window, max `dbxMs` by
+op: `dk-evaluate` 5.0s, `dk-residents` 13.4s, `list` 26.3s, **`dk-pack`
+54.9s**, **`stats` 62.1s**. So the pack download the audience step waits on
+runs to within 5s of the ceiling, and `stats` exceeds it — every voter
+timeout in the window (7) was `GET /v1/onboarding/contacts/stats` at
+`dbxMs=62057`. Worth knowing before attributing a slow door-knocking
+create to the warehouse: on this evidence it is the wrong suspect, and the
+two ops above it are the right ones.
+
+Those `stats` timeouts also show the timeout copy landing badly. "Narrow
+the audience and try again" is read by someone on an onboarding stats call
+who is not choosing an audience at all; the pack's own timeout sentence is
+correctly capacity-neutral, and it is the one that never reaches a user.
 
 To check a suspected timeout in Grafana, every voter read logs one line at
 `people-db voter read` with flat `op`, `districtId`, `dbxMs` and `statementIds`
@@ -1654,7 +1693,49 @@ Three things about it are load-bearing:
   intended one.
 - **An empty shape returns zeros, not a 400.** The knock throws there because a
   turf is being committed; a shape still being drawn is allowed to enclose
-  nobody.
+  nobody. The zeros carry `audienceEmpty` to say _which_ nobody — see below.
+
+### Two ways of finding nobody
+
+A create can come up empty for two unrelated reasons, and they want opposite
+advice:
+
+|                    | Cause                                                                                        | What fixes it                                      |
+| ------------------ | -------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| **Empty audience** | The list's own filters resolve to an empty person-id set. Raised before the polygon is read. | Edit the list's filters, or pick another audience. |
+| **Empty turf**     | The audience is real; the drawn shape encloses none of it.                                   | Move or widen the boundary.                        |
+
+Both used to throw the same sentence — `No matching voters inside this turf —
+widen the area or the filters` — so the first blamed a boundary it had not
+looked at, and QA reported a valid selection being rejected. `emptyAudience.util.ts`
+now holds one message per case; `EMPTY_TURF_MESSAGE` is the second, verbatim.
+
+The empty-audience message names every criterion on the list that _can_ resolve
+to nobody (support status, previous outreach, contacts made) rather than the one
+that was decisive. Which one was decisive is not knowable at the throw site —
+`intersectIdFilterResolutions` intersects its inputs and reports a single
+`empty` for the result — and threading a reason back through every id-filter
+path in the CRM is a large change for one sentence. Their intersection is what
+came back empty, so naming all of them is true, and it points at the pills to go
+and look at.
+
+**Why this is easy to hit without knowing it**: those three criteria are exactly
+the ones the voter pack cannot shade (`UNSHADEABLE_LIST_CRITERIA` in gp-webapp's
+`savedListFilters.ts`). The map shades a district full of matching voters while
+the audience behind it is empty, so the create's 400 is the first news of it.
+`DoorKnockingPreviewService` reports `audienceEmpty` for this reason — it is the
+one moment the condition is cheap to state, before anything is bought.
+
+**Not yet surfaced in the UI.** Nothing on the draw step consumes
+`audienceEmpty` today: `DoorsPanel` was removed in a design change, and with it
+the only caller of `onShowAddresses`, so the address-preview request never
+fires. Wiring this up means either reviving that request path (ADR 0010 rejected
+firing it automatically — it bills a people-db scan per shape) or, better,
+asking the question where it actually belongs: emptiness depends only on the
+list's filters, needs no polygon, and is answerable from Postgres alone, so the
+**who** step could check it before a boundary is ever drawn. The
+`continueDisabled={!ring || stops === 0 || overCap}` gate on the draw step still
+trusts the unfiltered pack estimate and would let an empty audience through.
 
 `locations` is capped at `MAX_STOPS` (exported from the knock service, so one
 constant blocks the save and bounds the listing) while `stops` reports the true

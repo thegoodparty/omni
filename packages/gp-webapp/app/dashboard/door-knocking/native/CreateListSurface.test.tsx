@@ -103,6 +103,9 @@ const mockPreview = () => {
         doors: 2,
         people: 2,
         locations: [],
+        // This fixture has an audience; these tests are about the request
+        // this endpoint is sent, not about the two ways of finding nobody.
+        audienceEmpty: false,
       },
     }
   })

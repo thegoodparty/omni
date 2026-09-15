@@ -1100,10 +1100,32 @@ describe('door-knocking routes', () => {
       // No interaction rows exist, so nobody derives to 'supporter' and the
       // list is empty before the polygon is even considered.
       expect(res.status).toBe(400)
-      expect(res.data.message).toContain('No matching voters')
+      // Names the criterion that could have emptied the list, and says
+      // nothing about the area — the polygon is fine and has not been read
+      // yet, so telling them to widen it sends them to redraw a shape that
+      // was never the problem. This is what QA reported.
+      expect(res.data.message).toContain('support status')
+      expect(res.data.message).not.toContain('widen the area')
       expect(
         spy.mock.calls.filter(([url]) => String(url).includes('routeplanner')),
       ).toHaveLength(0)
+      expect(await service.prisma.doorKnockingTurf.count()).toBe(0)
+    })
+
+    // The other half of the pair, which had no test at all — which is how the
+    // two came to share a sentence. `bboxOnlyPerson` is the fixture for
+    // exactly this: near enough to survive the bbox the people-db is queried
+    // with, outside the ring the ray cast then applies.
+    it('blames the area, not the filters, when the shape encloses nobody', async () => {
+      stubVendors({ people: [bboxOnlyPerson] })
+
+      const res = await postTurf()
+
+      expect(res.status).toBe(400)
+      // The audience is real here — the list carries no criterion that could
+      // resolve to nobody — so the boundary is the thing to change, and this
+      // is the one of the two that should say so.
+      expect(res.data.message).toContain('widen the area')
       expect(await service.prisma.doorKnockingTurf.count()).toBe(0)
     })
 
@@ -4466,6 +4488,7 @@ describe('door-knocking routes', () => {
           },
           { doors: [{ address: 'KEY-4', people: 1 }] },
         ],
+        audienceEmpty: false,
       })
     })
 
@@ -4511,7 +4534,25 @@ describe('door-knocking routes', () => {
         doors: 0,
         people: 0,
         locations: [],
+        // The audience is real; the ring just missed it. Moving the boundary
+        // is the fix, so this is the case that must NOT be flagged.
+        audienceEmpty: false,
       })
+    })
+
+    // Same zeros, different cause — and the preview used to return them
+    // identically, which is the create's two-messages-in-one bug wearing
+    // another hat. No boundary rescues this one.
+    it('distinguishes an empty audience from a shape that caught nobody', async () => {
+      stubVendors()
+
+      // No interaction rows exist, so nobody derives to 'supporter' and the
+      // draft resolves to an empty id set — regardless of the ring, which is
+      // the same ring every other test here draws people inside of.
+      const res = await preview({ filters: { supportStatus: ['supporter'] } })
+
+      expect(res.status).toBe(201)
+      expect(res.data).toMatchObject({ stops: 0, audienceEmpty: true })
     })
 
     it('asks evaluation to drop the org suppressed people (ADR 0007/0008)', async () => {
