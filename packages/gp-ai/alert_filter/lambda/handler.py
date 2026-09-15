@@ -280,7 +280,11 @@ def _handle_one(alert: dict) -> None:
         # week of shadow data reviewable — without it, "would this have
         # suppressed something it should not have" is unanswerable except by
         # turning it on and finding out.
-        _post(os.environ.get("FILTERED_CHANNEL_ID"), render.body(alert))
+        #
+        # `shadow_post` rather than `body`, because the Grafana link is on the
+        # notification and not in the description annotation, and the channel is
+        # only unchanged if it still has the link people click.
+        _post(os.environ.get("FILTERED_CHANNEL_ID"), render.shadow_post(alert))
 
     if raw_ts:
         # The audit trail, and the reason every firing carries its disposition:

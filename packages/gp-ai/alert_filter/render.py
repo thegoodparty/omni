@@ -85,6 +85,11 @@ def _link(alert: dict) -> str | None:
     return f"<{url}|View in Grafana>" if isinstance(url, str) and url else None
 
 
+def _with_link(text: str, alert: dict) -> str:
+    link = _link(alert)
+    return f"{text}\n\n{link}" if link else text
+
+
 def _finding(decision: dict, alert: dict) -> str | None:
     """What the filter itself concluded, in one line, after the alert's own text.
 
@@ -156,9 +161,20 @@ def raw_post(alert: dict) -> str:
     the filtered one was. Urgency lives in the filtered channel and in
     #bot-urgent; the raw channel is for reading, not for being woken by.
     """
-    text = strip_mentions(body(alert))
-    link = _link(alert)
-    return f"{text}\n\n{link}" if link else text
+    return _with_link(strip_mentions(body(alert)), alert)
+
+
+def shadow_post(alert: dict) -> str:
+    """What the filtered channel gets while the filter is in shadow mode.
+
+    The body with its mention intact and the Grafana link behind it, which is
+    what the plain Slack contact point puts in that channel today. `body` alone
+    would drop the link: it lives on the notification's `generatorURL`, not in
+    the description annotation, and a shadow week that quietly removed the one
+    clickable thing in every alert would not be the no-op shadow mode is sold
+    as.
+    """
+    return _with_link(body(alert), alert)
 
 
 def disposition_reply(decision: dict, alert: dict) -> str:
@@ -226,6 +242,7 @@ __all__ = [
     "disposition_reply",
     "filtered_post",
     "raw_post",
+    "shadow_post",
     "strip_mentions",
     "urgent_mirror",
 ]

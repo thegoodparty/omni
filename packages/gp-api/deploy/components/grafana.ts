@@ -81,7 +81,13 @@ const alertFilterContactPoint = ({ environment }: { environment: string }) => {
         // `hmac.compare_digest`. The user is ignored; only the password is
         // checked.
         basicAuthUser: 'grafana',
-        basicAuthPassword: secret,
+        // WRAPPED, because `alerting.ContactPoint` does not declare
+        // `basicAuthPassword` in its `additionalSecretOutputs` the way
+        // `oncall.OutgoingWebhook` declares its `password`. Without this the
+        // shared secret that guards a public endpoint sits in plaintext in
+        // Pulumi state and prints unmasked in a preview. Same pattern as the
+        // RDS master password in this deploy.
+        basicAuthPassword: pulumi.secret(secret),
         // The filter runs a Loki query and a model call per alert, so a
         // delivery carrying hundreds would exceed the webhook's patience and
         // get retried — which is the one way a grouped delivery could turn

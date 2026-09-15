@@ -287,6 +287,19 @@ class TestShadowModeChangesNothingVisible:
         assert len(top_level) == 1
         assert MENTION in top_level[0]["text"]
 
+    # The link is the other half of "behaves exactly as it does today": it rides
+    # on the notification rather than in the description annotation, so posting
+    # the body alone would take the one clickable thing out of every alert in
+    # #dev-alerts for the whole shadow period.
+    def test_the_filtered_post_still_carries_the_grafana_link(self, env, slack, monkeypatch, webhook):
+        monkeypatch.setenv("ALERT_FILTER_MODE", "shadow")
+        _confirm_the_known_cause(monkeypatch)
+
+        h.handler(request(webhook()))
+
+        top_level = [p for p in only(slack, FILTERED) if p["thread_ts"] is None]
+        assert "View in Grafana" in top_level[0]["text"]
+
     # Without this, "would this have suppressed something it should not have"
     # is unanswerable except by turning it on and finding out.
     def test_the_decision_is_still_recorded_in_the_thread_and_the_metric(

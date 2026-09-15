@@ -285,6 +285,8 @@ jobs:
           echo "metric lines: $(jq 'length' /tmp/runs.json)"
 
       - name: Gather the alert filter's decisions
+        id: alerts
+        continue-on-error: true
         env:
           START_MS: ${{ steps.window.outputs.start_ms }}
           END_MS: ${{ steps.window.outputs.end_ms }}
@@ -292,8 +294,11 @@ jobs:
           set -euo pipefail
           echo 'null' > /tmp/alerts.json
 
-          # A SEPARATE LOG GROUP from the runs above, so a separate call. Same
-          # shape of gather, same reasoning about null-vs-empty, but this one
+          # A SEPARATE LOG GROUP from the runs above, so a separate call, and
+          # `continue-on-error` for the same reason as every gather above it: a
+          # log group that does not exist yet — the filter is not deployed until
+          # this feature's Terraform is applied — must cost the alert section,
+          # not Monday's digest. Same reasoning about null-vs-empty, but this one
           # answers a question no other source can: what did we stop showing
           # people? A suppressed alert leaves no trace in #dev-alerts by
           # construction — the GPALERT_METRIC line is the only record that it

@@ -49,7 +49,7 @@ knownCauses: [
   {
     id: 'people-db-statement-timeout',
     summary: 'The people DB statement timed out on a district too large for the current query plan.',
-    evidence: '{service="gp-api", environment="$ENV"} |= "DoorKnockingPackBuildFailed" | json | elapsedMs > 25000',
+    evidence: '{service_name="gp-api", deployment_environment_name="$ENV"} |= "DoorKnockingPackBuildFailed" | json | elapsedMs > 25000',
     confirmedBy: 'the log line shows elapsedMs above 25000 and a districtId',
     action: 'suppress',
     ticket: 'https://app.clickup.com/t/...',

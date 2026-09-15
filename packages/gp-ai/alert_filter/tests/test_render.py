@@ -8,6 +8,7 @@ from alert_filter.render import (
     disposition_reply,
     filtered_post,
     raw_post,
+    shadow_post,
     strip_mentions,
     urgent_mirror,
 )
@@ -182,6 +183,26 @@ class TestTheRawChannelHidesNothingAndPingsNobody:
     # channel is for reading, not for being woken by.
     def test_it_does_not_ping(self, alert):
         assert MENTION not in raw_post(alert)
+
+
+class TestTheShadowPostLeavesTheChannelAsItIs:
+    # Shadow mode's whole claim is that the filtered channel behaves exactly as
+    # it does today, so the post has to carry both things today's post carries:
+    # the ping and the link.
+    def test_it_keeps_the_ping(self, alert):
+        assert MENTION in shadow_post(alert)
+
+    # The link lives on the notification's generatorURL, not in the description
+    # annotation, so a post built from the body alone would drop the one
+    # clickable thing in the message.
+    def test_it_keeps_the_grafana_link(self, alert):
+        assert f"<{alert['url']}|View in Grafana>" in shadow_post(alert)
+
+    def test_it_survives_an_alert_with_no_link(self, alert):
+        post = shadow_post({**alert, "url": None})
+
+        assert post.strip()
+        assert "View in Grafana|" not in post
 
 
 class TestEveryAlertCarriesItsOwnDisposition:
