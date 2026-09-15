@@ -40,29 +40,14 @@ type RegistrationNames = {
 }
 
 // Live vendor reads are additive detail, but Peerly has shown 45s-4min
-// detailedstats responses on the shared test account. Every live read is
-// timeboxed so a stalling vendor can never hold the queue or review page.
-// A function (not a plain const), read at call time, so tests can shrink it
-// via env instead of waiting out a real 10s bound — same pattern as
-// ordinanceDispatch.service.ts's ORDINANCE_RESOLVE_TIMEOUT_MS.
+// detailedstats responses on the shared test account, so every live read
+// is bounded (boundedRead below) and a stalling vendor can never hold the
+// queue or review page. A function (not a plain const), read at call
+// time, so tests can shrink it via env instead of waiting out a real 10s
+// bound — same pattern as ordinanceDispatch.service.ts's
+// ORDINANCE_RESOLVE_TIMEOUT_MS.
 const vendorReadTimeoutMs = () =>
   Number(process.env.VENDOR_READ_TIMEOUT_MS ?? 10_000)
-
-const timeboxed = <T>(read: Promise<T>): Promise<T> => {
-  // A read that loses the race is abandoned, not cancelled — hold its
-  // eventual rejection so it can't surface as an unhandled rejection.
-  void read.catch(() => undefined)
-  return Promise.race([
-    read,
-    new Promise<never>((_, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error('Peerly read exceeded the timebox')),
-        vendorReadTimeoutMs(),
-      )
-      timer.unref?.()
-    }),
-  ])
-}
 
 const DATE_FMT = 'yyyy-MM-dd'
 
@@ -95,12 +80,35 @@ const REVIEWABLE_STATUSES: OutreachStatus[] = [
 // request that came back with an error (safe to retry sooner than a still-
 // running one).
 const DETAIL_CACHE_TTL_MS = 2 * 60 * 1000
+// Stats drift slowly (delivery counters over a send window) while the live
+// job carries booking/activation state the review flow acts on, so stats
+// tolerate a much longer TTL than the job read (QA flagged 4-6s
+// detailed_stats reads on most detail views under the 2-minute TTL).
+const STATS_CACHE_TTL_MS = 10 * 60 * 1000
+// The queue's one account-wide jobs read: short enough that readiness is
+// near-live, long enough that a detail-then-back navigation is instant.
+// Approval state itself derives from our own DB stamps, so a stale entry
+// here is cosmetic; mutations also invalidate it outright. Env-overridable
+// like the cool-offs so tests can cross the TTL without waiting it out.
+const queueJobsCacheTtlMs = () =>
+  Number(process.env.QUEUE_JOBS_CACHE_TTL_MS ?? 60_000)
+// HubSpot company-owner assignments change on human timescales.
+const ownerCacheTtlMs = () =>
+  Number(process.env.OWNER_CACHE_TTL_MS ?? 10 * 60 * 1000)
 // Functions, not plain consts — same reason as vendorReadTimeoutMs() above:
 // tests shrink these via env rather than waiting out the real cool-offs.
 const detailFailedRetryCooldownMs = () =>
   Number(process.env.DETAIL_FAILED_RETRY_COOLDOWN_MS ?? 60_000)
 const detailOutstandingRetryCooldownMs = () =>
   Number(process.env.DETAIL_OUTSTANDING_RETRY_COOLDOWN_MS ?? 10 * 60 * 1000)
+
+// The whole account's job list is one cache entry.
+const ACCOUNT_JOBS_KEY = 'account'
+
+// HubSpot owner reads distinguish "unassigned" (ok) from "read failed"
+// so a legitimate ownerless company caches for the full TTL while an
+// outage retries on the failed cool-off.
+type OwnerRead = { ok: boolean; name: string | null }
 
 type DetailCacheEntry<T> = { value: T; expiresAt: number }
 type DetailInFlightEntry<T> = { promise: Promise<T>; startedAt: number }
@@ -129,6 +137,20 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
   private readonly statsInFlight = new Map<
     string,
     DetailInFlightEntry<SmsAdminJobStats | null>
+  >()
+  private readonly accountJobsCache = new Map<
+    string,
+    DetailCacheEntry<PeerlyJob[] | null>
+  >()
+  private readonly accountJobsInFlight = new Map<
+    string,
+    DetailInFlightEntry<PeerlyJob[] | null>
+  >()
+  // Keyed by HubSpot company id.
+  private readonly ownerCache = new Map<string, DetailCacheEntry<OwnerRead>>()
+  private readonly ownerInFlight = new Map<
+    string,
+    DetailInFlightEntry<OwnerRead>
   >()
 
   constructor(
@@ -252,6 +274,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
                 endDate: format(addDays(new Date(), 1), DATE_FMT),
               }),
             ),
+          STATS_CACHE_TTL_MS,
         ),
       ),
     ])
@@ -289,6 +312,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       canceledBy: input.canceledBy,
       byAdmin: true,
     })
+    if (row.projectId) this.invalidateVendorReads(row.projectId)
     const updated = await this.model.findFirstOrThrow({
       where: { id: outreachId },
       include: queueInclude,
@@ -380,6 +404,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
           'job — it will not send until activated manually in Peerly',
       )
     }
+    this.invalidateVendorReads(row.projectId)
 
     // The approval notice (CAS request 2026-09-09): the schedule-request
     // block set under a "P2P Campaign Approved to Send" header, so the
@@ -537,6 +562,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       identityId: row.identityId,
       name: row.name ?? undefined,
     })
+    this.invalidateVendorReads(row.projectId)
 
     const edited = await this.model.updateMany({
       where: { id: outreachId, status: { in: REVIEWABLE_STATUSES } },
@@ -607,54 +633,78 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         campaigns.set(row.campaignId, row.campaign)
       }
     }
-    for (const [campaignId, campaign] of campaigns) {
-      const hubspotId = campaign?.data?.hubspotId
-      if (!hubspotId) {
-        byCampaign.set(campaignId, null)
-        continue
-      }
-      try {
-        const name = await this.crmCampaigns.getCrmCompanyOwnerName(hubspotId)
-        byCampaign.set(campaignId, name?.trim() ? name.trim() : null)
-      } catch (err) {
-        this.logger.warn(
-          { err, campaignId },
-          'Admin queue: HubSpot owner read failed; rendering unassigned',
+    // Parallel + cached per company: the old serial loop paid two HubSpot
+    // round trips per campaign on every queue view — with a full queue,
+    // the dominant page cost (QA 2026-09-09). Each read is single-flighted
+    // and bounded like the Peerly reads, so a stalling CRM can't hold the
+    // queue either.
+    await Promise.all(
+      [...campaigns].map(async ([campaignId, campaign]) => {
+        const hubspotId = campaign?.data?.hubspotId
+        if (!hubspotId) {
+          byCampaign.set(campaignId, null)
+          return
+        }
+        const owner = await this.boundedRead(
+          this.singleFlightCached(
+            this.ownerCache,
+            this.ownerInFlight,
+            hubspotId,
+            (value) => !value.ok,
+            async () => {
+              try {
+                const name =
+                  await this.crmCampaigns.getCrmCompanyOwnerName(hubspotId)
+                return { ok: true, name: name?.trim() ? name.trim() : null }
+              } catch (err) {
+                this.logger.warn(
+                  { err, campaignId },
+                  'Admin queue: HubSpot owner read failed; rendering ' +
+                    'unassigned',
+                )
+                return { ok: false, name: null }
+              }
+            },
+            ownerCacheTtlMs(),
+          ),
         )
-        byCampaign.set(campaignId, null)
-      }
-    }
+        byCampaign.set(campaignId, owner?.name ?? null)
+      }),
+    )
     return byCampaign
   }
 
   // One vendor list-read per identity, never per row; a failed identity
   // renders its rows with job: null rather than failing the queue.
   private async liveJobsFor(rows: QueueRow[]): Promise<Map<string, PeerlyJob>> {
-    const identityIds = [
-      ...new Set(
-        rows
-          // A canceled row's vendor job was deleted with the cancel — a
-          // read for it can only fail.
-          .filter((row) => row.status !== OutreachStatus.canceled)
-          .map((row) => row.identityId)
-          .filter((id): id is string => id !== null),
-      ),
-    ]
+    // A canceled row's vendor job was deleted with the cancel — a read
+    // for it can only fail, and a queue of only canceled rows needs none.
+    // Any non-canceled reviewable row (pending or in_progress — the sweep
+    // ratchet, see REVIEWABLE_STATUSES) still has a live job to read.
+    const wantsJobs = rows.some((row) => row.status !== OutreachStatus.canceled)
     const byProjectId = new Map<string, PeerlyJob>()
-    // Parallel so the queue waits one timebox total, not one per identity.
-    const reads = await Promise.all(
-      identityIds.map((identityId) =>
-        this.timedVendorRead(
-          'jobs_by_identity',
-          { identityId },
-          this.peerlyP2pJobService.getJobsByIdentityId(identityId),
-        ),
+    if (!wantsJobs) return byProjectId
+    // One account-wide read replaces the old per-identity fan-out
+    // (identity_id is only an optional filter on GET /1to1/jobs): the
+    // queue's Peerly cost is a single sub-second call, single-flighted +
+    // cached so a detail-then-back navigation inside the TTL pays nothing.
+    const jobs = await this.boundedRead(
+      this.singleFlightCached(
+        this.accountJobsCache,
+        this.accountJobsInFlight,
+        ACCOUNT_JOBS_KEY,
+        (value) => value === null,
+        () =>
+          this.loggedVendorRead(
+            'account_jobs',
+            {},
+            this.peerlyP2pJobService.listAccountJobs(),
+          ),
+        queueJobsCacheTtlMs(),
       ),
     )
-    for (const jobs of reads) {
-      for (const job of jobs ?? []) {
-        byProjectId.set(job.id, job)
-      }
+    for (const job of jobs ?? []) {
+      byProjectId.set(job.id, job)
     }
     return byProjectId
   }
@@ -700,17 +750,6 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     }
   }
 
-  // Used by the queue listing's per-identity reads, which aren't part of the
-  // single-flight/cache layer below (one read per identity per queue page,
-  // not per row per page view — not the pattern Peerly flagged).
-  private timedVendorRead<T>(
-    read: string,
-    context: Record<string, number | string>,
-    vendorRead: Promise<T>,
-  ): Promise<T | null> {
-    return this.loggedVendorRead(read, context, timeboxed(vendorRead))
-  }
-
   /**
    * Single-flight + short-TTL cache + cool-off for a per-jobId vendor read,
    * used by getDetail's live-job and detailed-stats reads. `cache`/`inFlight`
@@ -734,6 +773,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     key: string,
     isFailure: (value: T) => boolean,
     produce: () => Promise<T>,
+    ttlMs: number = DETAIL_CACHE_TTL_MS,
   ): Promise<T> {
     this.sweepStaleEntries(cache, inFlight)
 
@@ -752,9 +792,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
           value,
           expiresAt:
             Date.now() +
-            (isFailure(value)
-              ? detailFailedRetryCooldownMs()
-              : DETAIL_CACHE_TTL_MS),
+            (isFailure(value) ? detailFailedRetryCooldownMs() : ttlMs),
         })
       }
       return value
@@ -786,6 +824,18 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
   // regardless, so a page view that times out here never spawns a
   // duplicate; it just renders without this field until a later call picks
   // up the now-cached (or still-shared) result.
+  // A mutation that changes vendor state (booking + activation on
+  // approve, template overwrite on edit, job delete on cancel) drops the
+  // caches that could echo the pre-mutation answer, so the refresh
+  // gp-admin fires right after an action reads fresh instead of serving
+  // a stale entry for the rest of its TTL. In-flight reads are left
+  // registered — single-flight, not correctness.
+  private invalidateVendorReads(jobId: string): void {
+    this.jobCache.delete(jobId)
+    this.statsCache.delete(jobId)
+    this.accountJobsCache.delete(ACCOUNT_JOBS_KEY)
+  }
+
   private boundedRead<T>(read: Promise<T | null>): Promise<T | null> {
     return Promise.race([
       read,
