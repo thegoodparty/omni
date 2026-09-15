@@ -27,25 +27,33 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
       excludedDuplicatePhoneCount,
     } = params
 
-    await this.client.$transaction(async (tx) => {
-      const phoneList = await tx.peerlyPhoneList.create({
-        data: {
-          organizationSlug,
-          campaignId,
-          token,
-          voterFileFilterId,
-          excludedOptedOutCount,
-          excludedDuplicatePhoneCount,
-        },
-      })
-      await tx.peerlyPhoneListRecipient.createMany({
-        data: recipients.map(({ personId, phone }) => ({
-          peerlyPhoneListId: phoneList.id,
-          personId,
-          phone,
-        })),
-      })
-    })
+    await this.client.$transaction(
+      async (tx) => {
+        const phoneList = await tx.peerlyPhoneList.create({
+          data: {
+            organizationSlug,
+            campaignId,
+            token,
+            voterFileFilterId,
+            excludedOptedOutCount,
+            excludedDuplicatePhoneCount,
+          },
+        })
+        await tx.peerlyPhoneListRecipient.createMany({
+          data: recipients.map(({ personId, phone }) => ({
+            peerlyPhoneListId: phoneList.id,
+            personId,
+            phone,
+          })),
+        })
+      },
+      // Recipients are capped at 100k rows and a large saved list's
+      // createMany overruns Prisma's default 5s interactive-transaction
+      // timeout (prod P2028s, 2026-09), failing the upload AFTER Peerly
+      // already accepted the list — so the candidate's retry uploads a
+      // duplicate. Sized for the cap, not the common case.
+      { timeout: 60_000 },
+    )
   }
 
   // Stamps the numeric Peerly list id the first time the status endpoint

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button, Dialog, Flex, Text, TextArea } from '@radix-ui/themes'
 import { useToast } from '@/components/Toast'
@@ -15,23 +15,27 @@ export function EditMessageAction({ id, script }: EditMessageActionProps) {
   const router = useRouter()
   const { showToast } = useToast()
   const [open, setOpen] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  // router.refresh() doesn't return a promise — a transition is the only way
+  // to know the post-mutation re-render (fresh vendor/job data) has landed.
+  const [isRefreshing, startTransition] = useTransition()
+  const busy = submitting || isRefreshing
   const [draft, setDraft] = useState(script)
 
   async function handleSave() {
     if (draft.trim().length === 0 || draft === script) return
-    setBusy(true)
+    setSubmitting(true)
     try {
       await editSms(id, draft)
       showToast('Message updated — it now needs a fresh approval')
       setOpen(false)
-      router.refresh()
+      startTransition(() => router.refresh())
     } catch (error) {
       showToast(
         error instanceof Error ? error.message : 'Failed to edit message'
       )
     } finally {
-      setBusy(false)
+      setSubmitting(false)
     }
   }
 
@@ -39,12 +43,13 @@ export function EditMessageAction({ id, script }: EditMessageActionProps) {
     <Dialog.Root
       open={open}
       onOpenChange={(next) => {
+        if (busy) return
         setOpen(next)
         if (next) setDraft(script)
       }}
     >
       <Dialog.Trigger>
-        <Button variant="outline" disabled={busy}>
+        <Button variant="outline" disabled={busy} loading={busy}>
           Edit message
         </Button>
       </Dialog.Trigger>
@@ -58,6 +63,7 @@ export function EditMessageAction({ id, script }: EditMessageActionProps) {
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           rows={8}
+          disabled={busy}
         />
         <Text size="1" color="gray" mt="2" as="p">
           Keep the opt-out line and the {'{first_name}'} tag intact.
@@ -71,8 +77,9 @@ export function EditMessageAction({ id, script }: EditMessageActionProps) {
           <Button
             onClick={handleSave}
             disabled={busy || draft.trim().length === 0 || draft === script}
+            loading={busy}
           >
-            {busy ? 'Saving…' : 'Save message'}
+            Save message
           </Button>
         </Flex>
       </Dialog.Content>

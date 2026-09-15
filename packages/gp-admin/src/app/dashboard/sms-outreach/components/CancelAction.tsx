@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { AlertDialog, Button, Flex } from '@radix-ui/themes'
 import { useToast } from '@/components/Toast'
@@ -14,10 +14,15 @@ interface CancelActionProps {
 export function CancelAction({ id, paid }: CancelActionProps) {
   const router = useRouter()
   const { showToast } = useToast()
-  const [busy, setBusy] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  // router.refresh() doesn't return a promise — a transition is the only way
+  // to know the post-mutation re-render (fresh vendor/job data) has landed.
+  const [isRefreshing, startTransition] = useTransition()
+  const busy = submitting || isRefreshing
+  const [open, setOpen] = useState(false)
 
   async function handleCancel() {
-    setBusy(true)
+    setSubmitting(true)
     try {
       await cancelSms(id)
       showToast(
@@ -25,20 +30,26 @@ export function CancelAction({ id, paid }: CancelActionProps) {
           ? 'Canceled — the vendor job is deleted and the payment refunded'
           : 'Canceled — the vendor job is deleted'
       )
-      router.refresh()
+      setOpen(false)
+      startTransition(() => router.refresh())
     } catch (error) {
       showToast(
         error instanceof Error ? error.message : 'Failed to cancel campaign'
       )
     } finally {
-      setBusy(false)
+      setSubmitting(false)
     }
   }
 
   return (
-    <AlertDialog.Root>
+    <AlertDialog.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!busy) setOpen(next)
+      }}
+    >
       <AlertDialog.Trigger>
-        <Button variant="outline" color="red" disabled={busy}>
+        <Button variant="outline" color="red" disabled={busy} loading={busy}>
           Cancel campaign
         </Button>
       </AlertDialog.Trigger>
@@ -59,8 +70,16 @@ export function CancelAction({ id, paid }: CancelActionProps) {
             </Button>
           </AlertDialog.Cancel>
           <AlertDialog.Action>
-            <Button color="red" onClick={handleCancel} disabled={busy}>
-              {busy ? 'Canceling…' : 'Cancel campaign'}
+            <Button
+              color="red"
+              onClick={(event) => {
+                event.preventDefault()
+                handleCancel()
+              }}
+              disabled={busy}
+              loading={busy}
+            >
+              Cancel campaign
             </Button>
           </AlertDialog.Action>
         </Flex>
