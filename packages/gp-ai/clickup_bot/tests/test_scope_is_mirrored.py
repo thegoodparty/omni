@@ -45,6 +45,32 @@ VERDICT_PROMPTS = [
 ]
 
 
+def test_the_list_holds_every_prompt_that_asks_for_a_verdict():
+    """What stops the hand-written list going stale.
+
+    test_handler.py keeps its own copy for the parser-alignment tests, and the
+    two cannot be shared: this package ships two `test_handler.py`, which is why
+    pytest runs in importlib mode with no tests directory on `sys.path`, so
+    neither test module can import the other. Pinning both to the prompts
+    handler.py actually ships holds them together without that import, and holds
+    each of them to something truer than the other file.
+
+    The list stays hand-written, which is the point of the note above it: this
+    asserts only that it is COMPLETE. Deriving membership from "which constants
+    mention the token" would accept a prompt that hand-copied the contract,
+    which is the drift the tests below exist to catch.
+    """
+    asking = {
+        name: value
+        for name, value in vars(handler).items()
+        if name.endswith("_INSTRUCTION") and isinstance(value, str) and "GPBOT-VERDICT" in value
+    }
+    listed = {param.values[0] for param in VERDICT_PROMPTS}
+    missing = sorted(name for name, value in asking.items() if value not in listed)
+
+    assert not missing, f"{missing} ask the agent for a verdict and are not in VERDICT_PROMPTS"
+
+
 def task_dump(**overrides) -> dict:
     """A task shaped the way the agent actually sees one.
 

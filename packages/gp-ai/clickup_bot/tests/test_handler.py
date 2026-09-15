@@ -3145,6 +3145,27 @@ VERDICT_PROMPTS = [
 ]
 
 
+def test_the_list_holds_every_prompt_that_asks_for_a_verdict():
+    # A prompt missing from this list is not covered by anything below it, and
+    # test_scope_is_mirrored.py keeps a second copy for the echo hazards that
+    # would be just as stale. The two cannot import each other — this package
+    # ships two test_handler.py, hence importlib mode with no tests directory on
+    # sys.path — so both are pinned to the prompts handler.py actually ships.
+    #
+    # Completeness only. Membership stays hand-written for the reason above: a
+    # list derived from "which constants mention the token" would accept the
+    # hand-copied contract that test_the_verdict_contract_is_shared catches.
+    asking = {
+        name: value
+        for name, value in vars(handler).items()
+        if name.endswith("_INSTRUCTION") and isinstance(value, str) and "GPBOT-VERDICT" in value
+    }
+    listed = {param.values[0] for param in VERDICT_PROMPTS}
+    missing = sorted(name for name, value in asking.items() if value not in listed)
+
+    assert not missing, f"{missing} ask the agent for a verdict and are not in VERDICT_PROMPTS"
+
+
 @pytest.mark.parametrize("prompt", VERDICT_PROMPTS)
 def test_every_verdict_the_prompt_offers_is_one_the_parser_accepts(prompt):
     from engineer_agent.agent.escalation import parse_verdict
