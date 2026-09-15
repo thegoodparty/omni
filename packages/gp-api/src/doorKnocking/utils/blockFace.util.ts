@@ -20,25 +20,36 @@ import { streetLineOfStop } from './unitAddress.util'
 // grouped here, where the addresses are, and the vendor is demoted to
 // ordering the groups, which is the part that genuinely is a routing problem.
 
-// A house number, then the rest of the line. The `\S*` absorbs the forms a
-// house number comes in that are not a bare integer — "1234B", "45-10" — so
-// those still yield an integer to sort by instead of falling out of grouping
-// entirely.
+// The house-number token, then the rest of the line. The token is taken whole
+// and picked apart below rather than matched as a bare integer, because on a
+// hyphenated grid the leading integer is not the house.
+const HOUSE_NUMBER_LINE = /^(\S+)\s+(.+)$/
+
+// Every run of digits in the house-number token, most significant first:
+// "3620" is [3620], "45-10" is [45, 10], "98-002" is [98, 2], "1234B" is
+// [1234]. Read this way rather than as one integer because on the grids that
+// number a house as <block>-<house> — Hawaii statewide, Bergen County NJ,
+// the part of Queens L2 ships with the hyphen intact — the side of the street
+// is carried by the LAST run and the block by the ones before it.
 //
-// KNOWN BROKEN for the Queens-style grid, and this is the honest limit of
-// parsing an address as a string. There the side of the street is carried by
-// the segment AFTER the hyphen, so "45-10" and "45-11" both reduce to 45:
-// they land on one face, and since every "45-*" ties at the same house number
-// the within-face sort falls through to addressKey order and interleaves both
-// sides of the street — reproducing the zigzag this file exists to remove.
+// Reading the first run instead is what shipped broken: "98-002" and "98-003"
+// both reduced to 98, so a whole street landed on one face with no side
+// grouping left in it, and every door tied at the same number so the
+// within-face sort fell through to addressKey order. Measured on real L2
+// geometry (Heeia St, Kaneohe HI — 110 doors): 86 street crossings and 5,037m
+// under the leading run, 1 crossing and 2,751m under the trailing one. The
+// leading run also fails the sort, since "45-10" ties "45-2" and
+// `localeCompare` then puts 10 first.
 //
-// Left alone rather than guessed at. "45-10" in Queens and "1234-B" elsewhere
-// are the same shape, so telling them apart needs a locality signal that is
-// not passed in here, and a rule that split on the hyphen would break the
-// second case to fix the first. Not a regression either way: the vendor
-// interleaved these before. Fixing it properly means giving the parser the
-// state/county it is parsing for.
-const HOUSE_NUMBER_LINE = /^(\d+)\S*\s+(.+)$/
+// The last run is safe for the shapes that are not grids. "1234B" and
+// "1234-B" have one run and are unchanged. A range — "120-122 Main St" — has
+// two runs that always share a parity, so it lands on the face either rule
+// would have given it. Nothing here needs to know which state it is in, which
+// is why this replaces the locality signal the old comment asked for.
+//
+// Shared despite the `g` flag: `String.match` resets `lastIndex`, so unlike
+// `test`/`exec` it carries nothing between calls.
+const NUMERIC_RUNS = /\d+/g
 
 // ~1 metre (1e-5 degrees of latitude is 1.11m; of longitude at US latitudes,
 // less). Coarse enough that two voter rows for one building whose coordinates
@@ -103,15 +114,40 @@ export type BlockFaceStop = {
 
 export type BlockFace = {
   // Indices into the stop array this face was grouped from, ascending by
-  // house number. Doors that tie keep their input order, which is
-  // addressKey-sorted upstream and so is stable across identical turfs.
+  // house number — block first, then house, on a grid that numbers in both.
+  // Doors that tie keep their input order, which is addressKey-sorted
+  // upstream and so is stable across identical turfs.
   stopIndexes: number[]
   // `<STREET>|<parity>`, or `?<index>` for a line that named no house number.
   // Carried for tests and logs; nothing reads it as data.
   key: string
 }
 
-type ParsedAddress = { houseNumber: number; streetKey: string }
+type ParsedAddress = {
+  // The token's digit runs, most significant first. Compared element-wise by
+  // `compareHouseNumbers` and never flattened back into one number.
+  houseNumber: number[]
+  streetKey: string
+}
+
+// Which side of the street the number puts the door on. The last run, for the
+// reasons argued at NUMERIC_RUNS.
+const sideOf = (houseNumber: number[]): number =>
+  (houseNumber[houseNumber.length - 1] ?? 0) % 2
+
+// Block before house, so "45-2" precedes "45-10" and an ordinary street still
+// sorts on its single run. A missing run sorts before a present one, which
+// only arises between "45 MAIN ST" and "45-10 MAIN ST" — different sides, so
+// different faces, so the order between them is never asked for.
+const compareHouseNumbers = (a: number[], b: number[]): number => {
+  const runs = Math.max(a.length, b.length)
+  for (let index = 0; index < runs; index++) {
+    const left = a[index] ?? -1
+    const right = b[index] ?? -1
+    if (left !== right) return left - right
+  }
+  return 0
+}
 
 const parseStreetAddress = (stop: BlockFaceStop): ParsedAddress | null => {
   // The stop's own doors are what clean the unit off the line, rather than a
@@ -123,8 +159,16 @@ const parseStreetAddress = (stop: BlockFaceStop): ParsedAddress | null => {
   )
   const match = HOUSE_NUMBER_LINE.exec(streetLine.trim())
   if (!match) return null
-  const houseNumber = Number(match[1])
-  if (!Number.isSafeInteger(houseNumber)) return null
+  const token = match[1] ?? ''
+  // Anchored on a leading digit, as the bare-integer pattern this replaced
+  // was: a token that merely CONTAINS a number is a street name with a number
+  // in it ("RURAL ROUTE 3"), not a house, and those keep the face of their
+  // own that they have today.
+  if (!/^\d/.test(token)) return null
+  const houseNumber = (token.match(NUMERIC_RUNS) ?? []).map(Number)
+  if (!houseNumber.length || !houseNumber.every(Number.isSafeInteger)) {
+    return null
+  }
   // Compared for equality and never interpreted, which is the whole reason
   // parsing is safe here: "S 5678 W" on the Utah grid and "NORTH AVE" need to
   // group, not to be understood.
@@ -137,7 +181,10 @@ const parseStreetAddress = (stop: BlockFaceStop): ParsedAddress | null => {
 // their first door appeared, which is addressKey order, so the same turf always
 // produces the same faces and the same vendor request.
 export const groupIntoBlockFaces = (stops: BlockFaceStop[]): BlockFace[] => {
-  const byKey = new Map<string, Array<{ index: number; houseNumber: number }>>()
+  const byKey = new Map<
+    string,
+    Array<{ index: number; houseNumber: number[] }>
+  >()
   const keyOrder: string[] = []
 
   stops.forEach((stop, index) => {
@@ -146,7 +193,7 @@ export const groupIntoBlockFaces = (stops: BlockFaceStop[]): BlockFace[] => {
     // keeps the vendor-ordered behaviour it has today rather than being
     // guessed into somebody else's block.
     const key = parsed
-      ? `${parsed.streetKey}|${parsed.houseNumber % 2}`
+      ? `${parsed.streetKey}|${sideOf(parsed.houseNumber)}`
       : `?${index}`
     let entries = byKey.get(key)
     if (!entries) {
@@ -154,7 +201,7 @@ export const groupIntoBlockFaces = (stops: BlockFaceStop[]): BlockFace[] => {
       byKey.set(key, entries)
       keyOrder.push(key)
     }
-    entries.push({ index, houseNumber: parsed?.houseNumber ?? 0 })
+    entries.push({ index, houseNumber: parsed?.houseNumber ?? [] })
   })
 
   return keyOrder.map((key) => {
@@ -162,7 +209,11 @@ export const groupIntoBlockFaces = (stops: BlockFaceStop[]): BlockFace[] => {
     const sorted = entries
       .map((entry, position) => ({ ...entry, position }))
       // Stable: equal house numbers keep the order they arrived in.
-      .sort((a, b) => a.houseNumber - b.houseNumber || a.position - b.position)
+      .sort(
+        (a, b) =>
+          compareHouseNumbers(a.houseNumber, b.houseNumber) ||
+          a.position - b.position,
+      )
     return { key, stopIndexes: sorted.map((entry) => entry.index) }
   })
 }

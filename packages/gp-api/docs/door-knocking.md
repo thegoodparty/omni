@@ -546,16 +546,64 @@ Three consequences:
 - **A line with no readable house number gets a face of its own**, so it keeps
   the vendor-ordered behaviour it always had rather than being guessed into
   somebody else's block.
+- **The side of the street is the LAST run of digits in the house number, not
+  the first.** On the grids that number a house as `<block>-<house>` — Hawaii
+  statewide (333k rows), Bergen County NJ (29k), and the Queens rows L2 ships
+  with the hyphen intact (~1.8k; L2 strips it for the other 99.8% of Queens,
+  writing `106-14` as `10614`, where the last digit is the house anyway) —
+  the first run is the block. Reading it was a **regression against the
+  pre-grouping behaviour**, not a wash: a whole street collapsed onto one
+  face, so the vendor was handed a single point and had no ordering decision
+  left, and every door tied at the same number so the within-face sort fell
+  through to `addressKey` order. That order crosses the street on every leg.
+  On real L2 geometry (Heeia St, Kaneohe HI, 110 doors) it walked 5,037m with
+  86 crossings where side-grouping walks 2,751m with one; on 2nd St in Fair
+  Lawn NJ, 5,417m and 74 crossings against 2,955m and one. Before grouping
+  existed, those doors were separate jobs with real coordinates and Geoapify
+  optimized over them, so it was a defect the fix introduced. A range
+  (`120-122 Main St`) is unaffected — both ends of a range share a parity.
 - **Only new lists benefit.** A route is bought once and never re-bought (see
   § The list lifecycle), so every list already in the field keeps its original
   order. There is no re-route path and adding one would have to confront the
   1:1:1 turf → route → outreach chain.
 
-Not yet used, and worth checking before extending this: the voter mart carries
-L2's own `SequenceOddEven` and `SequenceZigZag` walk-sequence fields. Nothing
-in this package reads them — they are exposed only as CSV columns in
-`voter.select.ts` — and if they turn out to be populated they are the
-industry-standard answer handed to us.
+**`SequenceOddEven` and `SequenceZigZag` are checked and deliberately unused.**
+This used to read "worth checking before extending this… if they turn out to
+be populated they are the industry-standard answer handed to us". They are
+populated — 100% non-null across all 217,927,655 rows of
+`dbt.m_people_api__voter` — and they are not the answer. What they are:
+
+- Both are **decimal integers in a string column**, 1 to 10 digits, 0 through
+  1,600,338,072, near-unique per voter (not per address — five voters at one
+  door get five consecutive values). They are national ordinals, not
+  per-street positions, and carry no side, block or street identifier that
+  could be read out of them.
+- The names mean what they say, and the difference is the whole point. On
+  NE 64th Ave in Portland (97213), `SequenceOddEven` orders every even number
+  1502→4036 and then every odd number 1505→…; `SequenceZigZag` orders
+  1502, 1505, 1520, 1528, 1600, 1609, 1610, 1620, 1621 … — strictly by house
+  number, crossing the street wherever both sides are present.
+  **`SequenceZigZag` IS the defect this section describes**, and the pair is
+  not interchangeable.
+- Neither is usable for face grouping, which is why nothing reads them.
+  Deriving faces from L2's own order (sort by `SequenceOddEven`, cut a face
+  wherever `SequenceZigZag` steps backwards — the only rule the two fields
+  support) was measured against the parity rule above on real geometry. On
+  ordinary streets it is **worse**: 3–5 street crossings against one, and a
+  longer walk, on four of five Portland streets. On the hyphenated grids it
+  adds nothing, because L2 does not parse those either: its own order yields
+  a single undivided face on 2,862 of Hawaii's 2,921 hyphenated streets,
+  which is L2 declining to have an odd/even opinion about them.
+- Provenance is undocumented. The public L2 dictionaries list "Walking List
+  Sequence" as a field family and define neither column; the mart carries no
+  column comment; and `gp-data-platform` passes them through from
+  `Voters_SequenceOddEven`/`Voters_SequenceZigZag` unchanged. Everything above
+  is inferred from the data, not from a spec, so treat it the way
+  `filterDimensions.catalog.ts` treats an unmarked dimension.
+
+The measurements are in PR #1849. Re-deriving them needs only the Databricks
+CLI (`docs/databricks.md`) — they are two `GROUP BY`s over
+`dbt.m_people_api__voter`.
 
 ### The daily campaign gate
 
@@ -861,11 +909,13 @@ order by credits desc;
 
 Both queries measure money, and `credits` is the same figure in either. There
 is no per-organization spend cap to read a heavy org against any more, so the
-yardstick is the campaign limit: a full-sized campaign is at most about 1,650
-credits and in practice far less, since the vendor is billed per block face, so
-an organization far above five of those (~8,000 in a rolling 24h) has either
-been granted an override — check `override_door_knocking_campaign_limit` on the
-org — or is looping. The `waypoints` sum beside it is stops, and it answers a
+yardstick is the campaign limit: a full-sized 150-stop campaign is about 210
+credits now that the vendor is billed per block face — the 1,650 that figure
+replaced was one billed location per stop, and it survives only as the
+worst-case bound `MAX_DAILY_CAMPAIGN_LIMIT` is derived from. So an
+organization far above five of those (~1,000 in a rolling 24h) has either been
+granted an override — check `override_door_knocking_campaign_limit` on the org
+— or is looping. The `waypoints` sum beside it is stops, and it answers a
 different question: how much walking the organization actually bought. It is
 not a credit figure divided by anything, because credits are not proportional
 to stops — the vendor is billed per block face rather than per stop, a turf
