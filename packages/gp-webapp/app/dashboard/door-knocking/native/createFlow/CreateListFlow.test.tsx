@@ -182,12 +182,11 @@ const dismissDrawInstructions = () =>
 const heading = (name: string) =>
   screen.getByRole('heading', { level: 3, name })
 
-// The bar stepper's own visible "Step X of Y" text is suppressed on this
-// shell (OutreachFlowShell passes `showLabel={false}` — the DrawerTitle
-// carries the flow's identity, the bars carry position). But the stepper
-// still exposes its position on the progressbar role's aria attributes,
-// which is what these assertions actually mean: "the flow claims it is
-// on step N of a Y-step run".
+// The bar stepper no longer renders "Step X of Y" text at all — that
+// prop was retired in favor of the ChannelBadge eyebrow the header
+// already carries. The stepper still exposes its position on the
+// progressbar role's aria attributes, which is what these assertions
+// actually mean: "the flow claims it is on step N of a Y-step run".
 const expectStep = (currentStep: number, totalSteps: number) => {
   const stepper = screen.getByRole('progressbar', { name: 'Progress' })
   expect(stepper).toHaveAttribute('aria-valuenow', String(currentStep))

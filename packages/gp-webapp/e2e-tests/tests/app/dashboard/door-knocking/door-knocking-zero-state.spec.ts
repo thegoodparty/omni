@@ -51,11 +51,9 @@ test.describe('native door-knocking zero state', () => {
     await expect(
       createFlowStepHeading(page, 'What do you want to do?'),
     ).toBeVisible({ timeout: 60_000 })
-    // Bar stepper's "Step X of Y" text is suppressed on this shell
-    // (OutreachFlowShell passes `showLabel={false}` — the DrawerTitle
-    // carries the flow's identity, the bars carry position). Assert
-    // the same position via the progressbar's aria attributes, which
-    // is what the stepper still exposes with its label hidden.
+    // The bar stepper renders bars only — no visible "Step X of Y" text.
+    // Assert position via the progressbar's aria attributes, which the
+    // stepper always exposes (plus an aria-valuetext for screen readers).
     const stepper = page.getByRole('progressbar', { name: 'Progress' })
     await expect(stepper).toHaveAttribute('aria-valuenow', '1')
     // Six since the talking-points step landed between confirm and route.

@@ -14,7 +14,6 @@ import {
   Button,
   DrawerTitle,
   Stepper,
-  XMarkIcon,
 } from '@styleguide'
 import { OutreachSheet } from './OutreachSheet'
 
@@ -117,38 +116,18 @@ export const OutreachFlowShell = ({
         hideClose
         header={
           <>
-            {/* Header row: badge/eyebrow on the left, Exit on the right.
-                Back has moved to the footer, so the header's left slot
-                answers "what am I working on" instead of "how do I go
-                back". The Exit button carries the word rather than a bare
-                X — the spec calls out that it is not an icon-only
-                control. */}
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="min-w-0 flex-1">{headerBadge}</div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="small"
-                aria-label="Exit"
-                onClick={() => requestClose(false)}
-              >
-                <XMarkIcon className="size-[18px]" />
-                Exit
-              </Button>
-            </div>
+            {/* DrawerTitle stays sr-only for the drawer's accessible
+                name — the visible eyebrow/exit and the bars are the
+                Stepper's job now (chunky bars + eyebrow slot + Exit
+                button all rendered by the styleguide component). */}
             <DrawerTitle className="sr-only">{title}</DrawerTitle>
             {totalSteps > 0 && (
-              // Segmented bar stepper — the "Step X of Y" reading is
-              // suppressed (the DrawerTitle carries the flow's identity;
-              // the bars carry position). `barClassName` bumps each
-              // segment a touch beyond the styleguide default so it reads
-              // as chunky bars rather than a thin rule.
               <Stepper
                 variant="bar"
                 currentStep={currentStep}
                 totalSteps={totalSteps}
-                showLabel={false}
-                barClassName="h-2.5"
+                eyebrow={headerBadge}
+                onExit={() => requestClose(false)}
               />
             )}
           </>
