@@ -70,8 +70,15 @@ export function EditDateAction({
   const initialTime = current?.time ?? '09:00'
   const [dateDraft, setDateDraft] = useState(initialDate)
   const [timeDraft, setTimeDraft] = useState(initialTime)
+  // Frozen at dialog open: the props can shift under an open dialog (a
+  // background revalidation), and comparing drafts against live props
+  // would then block a real edit or enable saving a stale draft.
+  const [baseline, setBaseline] = useState({
+    date: initialDate,
+    time: initialTime,
+  })
 
-  const unchanged = dateDraft === initialDate && timeDraft === initialTime
+  const unchanged = dateDraft === baseline.date && timeDraft === baseline.time
 
   async function handleSave() {
     if (!dateDraft || !timeDraft || unchanged) return
@@ -104,6 +111,7 @@ export function EditDateAction({
         if (next) {
           setDateDraft(initialDate)
           setTimeDraft(initialTime)
+          setBaseline({ date: initialDate, time: initialTime })
         }
       }}
     >
