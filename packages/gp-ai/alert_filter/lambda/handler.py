@@ -245,6 +245,27 @@ def _handle_one(alert: dict) -> None:
     on, so invariant 1 holds even if the filtered post fails. The metric is
     written last, after everything a human can see, because a failure to record
     a decision is much cheaper than a failure to deliver one.
+
+    IT IS ALSO WHAT BOUNDS THE DEDUP CLAIM. `_claim` writes before the raw post,
+    so a container killed between the two leaves a claim with no post beneath
+    it, and Grafana's retry is deduped away — that alert reaches nobody. The
+    mitigation is the adjacency: the raw post is the very next statement, so the
+    window is one Slack call wide, while everything that can actually consume
+    the 60s budget (the Loki queries, the model call) runs after it. A timeout
+    will land in the slow half, by which point the post has already happened.
+
+    CLAIMING AFTER THE RAW POST WAS REJECTED. It closes a window of milliseconds
+    by opening one that is certain: every retry would re-post the full alert to
+    the audit channel and return before writing a disposition under it, so the
+    channel whose entire purpose is an auditable record fills with duplicates
+    carrying no decision. A lease-then-extend claim would close both, at the
+    cost of a second write per alert and a correctness dependency on Grafana's
+    retry backoff being longer than the lease — too much machinery for a
+    millisecond window.
+
+    So the adjacency is load-bearing rather than incidental, and
+    `TestTheClaimToRawPostWindow` pins it: move anything slow above the raw post
+    and the exposure stops being theoretical.
     """
     if not _claim(alert):
         # A retry of a delivery already handled. Silent: Grafana retrying is

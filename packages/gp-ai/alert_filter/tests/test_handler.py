@@ -587,3 +587,83 @@ class TestWhereCredentialsComeFrom:
         h._hydrate_environment()
 
         assert h.os.environ["LOKI_TOKEN"] == "set-by-hand"
+
+
+class TestTheClaimToRawPostWindow:
+    """What keeps a dedup claim from outliving the post it was meant to guard.
+
+    THE RISK, stated fairly: `_claim` writes before the raw post, so a container
+    killed between the two leaves a claim with no post under it. Grafana's retry
+    is then deduped away and that alert reaches nobody — a breach of invariant 1,
+    the one guarantee the rest of this design is built behind.
+
+    WHY THE ORDER IS THE ANSWER rather than moving the claim: the raw post is the
+    very next statement after the claim, so the window is one Slack call wide.
+    Everything that can actually take time — the Loki queries, the model call —
+    runs AFTER the post, which is the half of the invocation a 60s timeout will
+    realistically land in, and by then the post has already happened.
+
+    Moving the claim after the raw post closes a window of milliseconds by
+    opening one that is certain: every Grafana retry would re-post the full alert
+    to the audit channel and return before writing a disposition under it, so the
+    channel whose whole purpose is an auditable record accumulates duplicates
+    with no decision attached. That is a worse failure, and a guaranteed one.
+
+    These tests exist because NOTHING ELSE STOPS the window from widening. Move
+    `evidence.gather` above the raw post and the reviewer's scenario stops being
+    theoretical — the claim would then outlive a 60s timeout by tens of seconds
+    of real exposure, with no test going red.
+    """
+
+    def test_the_raw_post_happens_before_any_evidence_is_gathered(self, env, slack, webhook, monkeypatch):
+        seen: list[int] = []
+
+        def gather(*_a, **_k):
+            seen.append(len(slack))
+            return {}, []
+
+        monkeypatch.setattr(h.evidence, "gather", gather)
+        monkeypatch.setattr(h.classifier, "classify_alert", lambda *a, **k: ({}, {}, [], 0.0))
+
+        h.handler(request(webhook()))
+
+        assert seen == [1], "evidence was gathered before the raw post, widening the claim window"
+
+    def test_the_raw_post_happens_before_the_model_is_called(self, env, slack, webhook, monkeypatch):
+        seen: list[int] = []
+
+        def classify_alert(*_a, **_k):
+            seen.append(len(slack))
+            return {}, {}, [], 0.0
+
+        monkeypatch.setattr(h.evidence, "gather", lambda *a, **k: ({}, []))
+        monkeypatch.setattr(h.classifier, "classify_alert", classify_alert)
+
+        h.handler(request(webhook()))
+
+        assert seen == [1], "the model was called before the raw post, widening the claim window"
+
+    # The claim is what makes the window exist at all, so it has to come first:
+    # posting before claiming would duplicate the raw post on every retry, which
+    # is the failure the previous two tests exist to avoid trading into.
+    def test_the_claim_still_precedes_the_raw_post(self, env, slack, webhook, monkeypatch):
+        order: list[str] = []
+
+        def claim(_alert):
+            order.append("claim")
+            return True
+
+        monkeypatch.setattr(h, "_claim", claim)
+        real_post = h._post
+
+        def post(channel, text, thread_ts=None):
+            order.append("post")
+            return real_post(channel, text, thread_ts)
+
+        monkeypatch.setattr(h, "_post", post)
+        monkeypatch.setattr(h.evidence, "gather", lambda *a, **k: ({}, []))
+        monkeypatch.setattr(h.classifier, "classify_alert", lambda *a, **k: ({}, {}, [], 0.0))
+
+        h.handler(request(webhook()))
+
+        assert order[:2] == ["claim", "post"]
