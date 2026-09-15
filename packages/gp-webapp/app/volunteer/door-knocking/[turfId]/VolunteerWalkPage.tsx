@@ -231,6 +231,7 @@ export default function VolunteerWalkPage({
           // Draw-mode props this page never activates — there is no create
           // surface here, so every token stays at its rest value.
           startDrawToken={0}
+          resumeDrawToken={0}
           clearDrawToken={0}
           undoDrawToken={0}
           drawColor={INERT_DRAW_COLOR}

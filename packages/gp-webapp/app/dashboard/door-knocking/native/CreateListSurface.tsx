@@ -48,6 +48,7 @@ const NO_RECOMMENDED_CRITERIA: RecommendedCriteria = {
 // orchestrator only ever spreads the result onto `VoterMapCanvas`.
 export const useCreateListDraw = () => {
   const [startDrawToken, setStartDrawToken] = useState(0)
+  const [resumeDrawToken, setResumeDrawToken] = useState(0)
   const [clearDrawToken, setClearDrawToken] = useState(0)
   const [undoDrawToken, setUndoDrawToken] = useState(0)
   const [frameDrawToken, setFrameDrawToken] = useState(0)
@@ -63,6 +64,7 @@ export const useCreateListDraw = () => {
 
   return {
     startDrawToken,
+    resumeDrawToken,
     clearDrawToken,
     undoDrawToken,
     frameDrawToken,
@@ -85,8 +87,21 @@ export const useCreateListDraw = () => {
       setFullScreen(full)
       if (full) setFrameDrawToken((token) => token + 1)
     },
-    // Entering the draw step: a fresh drawing session.
+    // Arriving at the draw step with nothing drawn yet: a fresh drawing
+    // session, on an empty map.
     startDrawing: () => setStartDrawToken((token) => token + 1),
+    // Coming back to the draw step with a boundary already cut: re-enter
+    // drawing mode and leave the shape alone.
+    //
+    // A second operation rather than a flag inside `startDrawing`, because the
+    // distinction belongs to the caller and not to this hook. `startDrawing`
+    // is also handed down as `onRestartDrawing` — the discard-the-turf action,
+    // which must keep wiping whether or not a ring exists. (It is currently
+    // unreachable: the "Discard this turf?" prompt was removed from the
+    // drawing surface's Back, see `CreateListFlow.leaveFullScreen`.) A hook
+    // that decided for itself by looking at the ring would get one of the two
+    // callers right and quietly break the other the day it comes back.
+    resumeDrawing: () => setResumeDrawToken((token) => token + 1),
     undoPoint: () => setUndoDrawToken((token) => token + 1),
     // Leaving the flow entirely: empty the shape rather than restart a session.
     // The colour and the drawing surface reset with it, which a component that

@@ -558,7 +558,16 @@ export default function NativeDoorKnockingPage({
   ])
 
   const changeFlowStep = (next: CreateFlowStep) => {
-    if (next === 'draw' && flowStep === 'filters') draw.startDrawing()
+    // Arriving at the draw step from the filters. The transition alone cannot
+    // say which of two things just happened — a first arrival, or a Back to
+    // re-read the audience followed by Continue — and they want opposite
+    // treatment: the first needs a blank session, the second must keep the
+    // boundary already drawn. A ring is what tells them apart, and treating
+    // the round trip as a first arrival is what used to throw the shape away.
+    if (next === 'draw' && flowStep === 'filters') {
+      if (ring) draw.resumeDrawing()
+      else draw.startDrawing()
+    }
     setFlowStep(next)
   }
   // Backing out with nothing saved. There is no map behind this worth landing
@@ -776,6 +785,7 @@ export default function NativeDoorKnockingPage({
                   // Only the opening view — panning and turf focus own it after.
                   initialZoom={16}
                   startDrawToken={draw.startDrawToken}
+                  resumeDrawToken={draw.resumeDrawToken}
                   clearDrawToken={draw.clearDrawToken}
                   undoDrawToken={draw.undoDrawToken}
                   // The colour a new list is drawn in, on the boundary being cut

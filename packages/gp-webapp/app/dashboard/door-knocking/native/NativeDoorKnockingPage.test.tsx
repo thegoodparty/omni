@@ -1,4 +1,4 @@
-import { ComponentProps, ReactNode } from 'react'
+import { ComponentProps, ReactNode, useEffect } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { DoorKnockingTurf, DoorKnockStatus } from '@goodparty_org/contracts'
@@ -108,7 +108,9 @@ vi.mock('./VoterMapCanvas', () => ({
   // Draw step's static-map preview asks for the pack's bounds; the tests
   // don't exercise the image, so null is fine — the DrawStep omits it.
   packBounds: () => null,
-  default: ({
+  // Named, and named with a capital, so the stub reads as a component to
+  // eslint's rules-of-hooks — it holds an effect now.
+  default: function VoterMapCanvasStub({
     filterResult,
     turfs,
     routePins,
@@ -122,6 +124,8 @@ vi.mock('./VoterMapCanvas', () => ({
     controlsBottomPx,
     location,
     liveLocationEnabled,
+    startDrawToken,
+    resumeDrawToken,
     onToggleLiveLocation,
     onPolygonChange,
     onDrawPointCount,
@@ -140,95 +144,118 @@ vi.mock('./VoterMapCanvas', () => ({
     controlsBottomPx?: number
     location: { status: string }
     liveLocationEnabled?: boolean
+    startDrawToken: number
+    resumeDrawToken: number
     onToggleLiveLocation?: (next: boolean) => void
     onPolygonChange: (ring: Array<[number, number]> | null) => void
     onDrawPointCount?: (count: number) => void
     onRoutePinClick?: (pin: { stopId: number }) => void
-  }) => (
-    <div
-      data-testid="voter-map"
-      data-people={String(filterResult.people)}
-      // The knock colour each dot is drawn in, as the status bytes behind it.
-      // A walk's own doors reach the map through this and nothing else, so it
-      // is what says whether they arrived without a fresh district download.
-      data-statuses={Array.from(filterResult.statusPerDot).join(',')}
-      // How many outlines the map was handed — every row `GET /turfs` returns.
-      data-turfs={String(turfs.length)}
-      // Whether an archived list is still among them. Dimming happens inside
-      // the canvas off `archivedAt`; what the page owes it is the row.
-      data-archived-turfs={turfs
-        .filter((entry) => entry.archivedAt !== null)
-        .map((entry) => entry.id)
-        .join(',')}
-      // The stop the map is ringing. The walk list marks the same one, so this
-      // is the value that has to agree with the row carrying `aria-current`.
-      data-selected-stop={String(selectedStopId)}
-      // The numeral the ringed pin draws — `seq`, the frozen route order, which
-      // is also what the marked row prints.
-      data-selected-seq={String(
-        routePins.find((pin) => pin.stopId === selectedStopId)?.seq ?? null,
-      )}
-      data-initial-zoom={String(initialZoom)}
-      // The colour the in-progress boundary is drawn in. It is the confirm
-      // step's pick, which is why it has to arrive here at all: a candidate
-      // choosing the colour their list will be drawn in has nothing to judge it
-      // by unless the shape on screen is already wearing it.
-      data-draw-color={drawColor}
-      // Whether the drawn shape is over the 150-stop cap. The canvas swaps
-      // the boundary's hue to destructive red when true; observable here so
-      // the page-level wiring can be asserted without pulling in maplibre.
-      data-draw-over-cap={String(Boolean(drawOverCap))}
-      // Bumped by a step that has just covered part of the map, with the covered
-      // fraction beside it so the fit lands in the band that is left.
-      data-frame={String(frameDrawToken)}
-      data-frame-bottom={String(frameDrawBottomPct)}
-      // Where the zoom cluster sits, and whether it is drawn at all. Reported
-      // up by whichever surface is covering the map from below, because only
-      // that surface knows how tall it currently is.
-      data-controls-hidden={String(Boolean(controlsHidden))}
-      data-controls-bottom={String(controlsBottomPx)}
-      // The canvasser's own position, read from the page's watch. The switch is
-      // the cluster's third button, so this attribute is how a press on it is
-      // shown to have reached the map that draws the dot.
-      data-location-status={location.status}
-    >
-      <button
-        type="button"
-        onClick={() => {
-          const tap = drawSession.taps[drawSession.placed.length]
-          if (!tap) return
-          const next = [...drawSession.placed, tap]
-          drawSession.placed = next
-          onDrawPointCount?.(next.length)
-          // The canvas's own gate: a ring exists from three points, and the
-          // shape closes itself rather than waiting for a finish gesture.
-          onPolygonChange(next.length >= 3 ? next : null)
-        }}
+  }) {
+    // The real canvas empties the ring whenever `startDrawToken` is bumped.
+    // The stub used to ignore the token entirely, so every page-level test
+    // that entered the draw step kept whatever it had already drawn — which
+    // is precisely why "the shape disappears on Back then Continue" shipped
+    // green. Mirrored here, deliberately without a `resumeDrawToken` twin:
+    // resuming re-arms drawing mode and touches neither the points nor the
+    // ring, so there is nothing for the stub to imitate.
+    useEffect(() => {
+      if (startDrawToken === 0) return
+      drawSession.placed = []
+      onDrawPointCount?.(0)
+      onPolygonChange(null)
+    }, [startDrawToken, onDrawPointCount, onPolygonChange])
+
+    return (
+      <div
+        data-testid="voter-map"
+        data-people={String(filterResult.people)}
+        // The knock colour each dot is drawn in, as the status bytes behind it.
+        // A walk's own doors reach the map through this and nothing else, so it
+        // is what says whether they arrived without a fresh district download.
+        data-statuses={Array.from(filterResult.statusPerDot).join(',')}
+        // How many outlines the map was handed — every row `GET /turfs` returns.
+        data-turfs={String(turfs.length)}
+        // Whether an archived list is still among them. Dimming happens inside
+        // the canvas off `archivedAt`; what the page owes it is the row.
+        data-archived-turfs={turfs
+          .filter((entry) => entry.archivedAt !== null)
+          .map((entry) => entry.id)
+          .join(',')}
+        // The stop the map is ringing. The walk list marks the same one, so this
+        // is the value that has to agree with the row carrying `aria-current`.
+        data-selected-stop={String(selectedStopId)}
+        // The numeral the ringed pin draws — `seq`, the frozen route order, which
+        // is also what the marked row prints.
+        data-selected-seq={String(
+          routePins.find((pin) => pin.stopId === selectedStopId)?.seq ?? null,
+        )}
+        data-initial-zoom={String(initialZoom)}
+        // The colour the in-progress boundary is drawn in. It is the confirm
+        // step's pick, which is why it has to arrive here at all: a candidate
+        // choosing the colour their list will be drawn in has nothing to judge it
+        // by unless the shape on screen is already wearing it.
+        data-draw-color={drawColor}
+        // Whether the drawn shape is over the 150-stop cap. The canvas swaps
+        // the boundary's hue to destructive red when true; observable here so
+        // the page-level wiring can be asserted without pulling in maplibre.
+        data-draw-over-cap={String(Boolean(drawOverCap))}
+        // Bumped by a step that has just covered part of the map, with the covered
+        // fraction beside it so the fit lands in the band that is left.
+        data-frame={String(frameDrawToken)}
+        data-frame-bottom={String(frameDrawBottomPct)}
+        // Where the zoom cluster sits, and whether it is drawn at all. Reported
+        // up by whichever surface is covering the map from below, because only
+        // that surface knows how tall it currently is.
+        data-controls-hidden={String(Boolean(controlsHidden))}
+        data-controls-bottom={String(controlsBottomPx)}
+        // The canvasser's own position, read from the page's watch. The switch is
+        // the cluster's third button, so this attribute is how a press on it is
+        // shown to have reached the map that draws the dot.
+        data-location-status={location.status}
+        // The two ways the page puts the map into drawing mode. Both are
+        // observable because which one it picks IS the decision under test: one
+        // empties the ring and the other keeps it.
+        data-start-draw={String(startDrawToken)}
+        data-resume-draw={String(resumeDrawToken)}
       >
-        tap the map
-      </button>
-      {/* The cluster's third button, offered only when the page hands down a
+        <button
+          type="button"
+          onClick={() => {
+            const tap = drawSession.taps[drawSession.placed.length]
+            if (!tap) return
+            const next = [...drawSession.placed, tap]
+            drawSession.placed = next
+            onDrawPointCount?.(next.length)
+            // The canvas's own gate: a ring exists from three points, and the
+            // shape closes itself rather than waiting for a finish gesture.
+            onPolygonChange(next.length >= 3 ? next : null)
+          }}
+        >
+          tap the map
+        </button>
+        {/* The cluster's third button, offered only when the page hands down a
           handler — a surface with none would otherwise show a control that can
           produce a permission prompt and then nothing to show for it. */}
-      {onToggleLiveLocation && (
-        <button
-          type="button"
-          onClick={() => onToggleLiveLocation(!liveLocationEnabled)}
-        >
-          {liveLocationEnabled ? 'Hide my location' : 'Show my location'}
-        </button>
-      )}
-      {routePins.map((pin) => (
-        <button
-          key={pin.stopId}
-          type="button"
-          onClick={() => onRoutePinClick?.(pin)}
-        >
-          {`tap pin ${pin.stopId}`}
-        </button>
-      ))}
-    </div>
-  ),
+        {onToggleLiveLocation && (
+          <button
+            type="button"
+            onClick={() => onToggleLiveLocation(!liveLocationEnabled)}
+          >
+            {liveLocationEnabled ? 'Hide my location' : 'Show my location'}
+          </button>
+        )}
+        {routePins.map((pin) => (
+          <button
+            key={pin.stopId}
+            type="button"
+            onClick={() => onRoutePinClick?.(pin)}
+          >
+            {`tap pin ${pin.stopId}`}
+          </button>
+        ))}
+      </div>
+    )
+  },
 }))
 // The real layout is a sidebar shell this suite has no use for, but what the
 // page asks of it is part of what the page decides — the height it gets, and
@@ -1187,6 +1214,49 @@ describe('NativeDoorKnockingPage draw step', () => {
       'data-draw-over-cap',
       'false',
     )
+  })
+
+  // Reported by QA as "the shapefile does not persist on Back". The ring
+  // survived Back perfectly well; it was destroyed on the way FORWARD, because
+  // `filters` → `draw` is the same transition whether it is a first arrival or
+  // a return trip, and it unconditionally started a fresh drawing session.
+  // Everything else in the draft — filters, purpose, saved list, name, mode —
+  // survived, because both components stay mounted. The ring was the only
+  // draft state actively thrown away.
+  it('keeps the drawn shape across Back to the audience and forward again', async () => {
+    renderPage()
+    await mapReady()
+
+    await openFlowAndDraw()
+    await drawRingAndReview()
+    await drawCounts(/3 matching households · 3 selected households/)
+
+    const map = screen.getByTestId('voter-map')
+    const startedWith = map.getAttribute('data-start-draw')
+
+    // Back off the draw step lands on the audience, which is the far side of
+    // the transition at fault.
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.click(continueFromWho())
+
+    // Resumed rather than restarted: drawing mode is re-armed and the ring is
+    // left alone.
+    expect(map).toHaveAttribute('data-start-draw', startedWith!)
+    expect(map).toHaveAttribute('data-resume-draw', '1')
+    await drawCounts(/3 matching households · 3 selected households/)
+  })
+
+  // The other half of the same distinction: a first arrival still gets a
+  // blank session, so resuming has not simply replaced starting.
+  it('starts a fresh drawing session on the first arrival at the draw step', async () => {
+    renderPage()
+    await mapReady()
+
+    await openFlowAndDraw()
+
+    const map = screen.getByTestId('voter-map')
+    expect(map).toHaveAttribute('data-start-draw', '1')
+    expect(map).toHaveAttribute('data-resume-draw', '0')
   })
 
   // Removed: DoorsPanel / "See the addresses" toggle and the address-preview
