@@ -129,7 +129,7 @@ test('precinct filter: option list, counts and the View all sheet', async ({
   expect(options.length, 'district should enumerate precincts').toBeGreaterThan(
     0,
   )
-  // Far inside the 1,000-row cap; a truncated response would mean the cap or
+  // Far inside the 5,000-row cap; a truncated response would mean the cap or
   // the pinned district changed.
   expect(truncated).toBe(false)
 
