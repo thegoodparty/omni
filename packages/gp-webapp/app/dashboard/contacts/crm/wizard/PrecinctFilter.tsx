@@ -56,6 +56,10 @@ interface PrecinctFilterProps {
   isLoading: boolean
   isError: boolean
   onRetry: () => void
+  // Door knocking's filter step styles its group headings its own way
+  // (uppercase muted, not the wizard's sentence-case near-black), and this
+  // group sits directly above sixteen of them. Defaults to the wizard's.
+  labelClassName?: string
 }
 
 export default function PrecinctFilter({
@@ -65,6 +69,7 @@ export default function PrecinctFilter({
   isLoading,
   isError,
   onRetry,
+  labelClassName = FILTER_GROUP_LABEL_CLASSNAME,
 }: PrecinctFilterProps) {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -149,7 +154,7 @@ export default function PrecinctFilter({
   if (isLoading) {
     return (
       <div className="space-y-2">
-        <span className={FILTER_GROUP_LABEL_CLASSNAME}>Precinct</span>
+        <span className={labelClassName}>Precinct</span>
         <div className="flex flex-wrap gap-2">
           {[168, 184, 152, 176].map((width, index) => (
             <Skeleton
@@ -168,7 +173,7 @@ export default function PrecinctFilter({
   if (isError) {
     return (
       <div className="space-y-2">
-        <span className={FILTER_GROUP_LABEL_CLASSNAME}>Precinct</span>
+        <span className={labelClassName}>Precinct</span>
         <div className="flex items-center gap-3 rounded-md border p-3">
           <p className="flex-1 text-sm text-muted-foreground">
             We couldn’t load precincts. Every other filter still applies.
@@ -184,7 +189,7 @@ export default function PrecinctFilter({
   if (options.length === 0) {
     return (
       <div className="space-y-2">
-        <span className={FILTER_GROUP_LABEL_CLASSNAME}>Precinct</span>
+        <span className={labelClassName}>Precinct</span>
         <p className="text-sm text-muted-foreground">No precinct data found.</p>
       </div>
     )
@@ -192,7 +197,7 @@ export default function PrecinctFilter({
 
   return (
     <div className="space-y-2">
-      <span className={FILTER_GROUP_LABEL_CLASSNAME}>Precinct</span>
+      <span className={labelClassName}>Precinct</span>
 
       <ToggleGroup
         type="multiple"

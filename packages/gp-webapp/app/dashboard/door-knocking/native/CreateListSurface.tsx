@@ -22,6 +22,7 @@ import type {
 } from './createFlow/CreateListFlow'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { audienceOptions } from './createFlow/savedListOptions'
+import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import type { PolygonRing } from './VoterMapCanvas'
 import type { PolygonStats } from './filterEngine'
 
@@ -205,6 +206,12 @@ export interface CreateListSurfaceProps {
   // VoterFileStep. A prop rather than a context read so this stays testable
   // without an organization provider.
   isServeOrg: boolean
+  // The hand-cut precinct selection and the district's precinct vocabulary.
+  // Owned by the orchestrator alongside `filters` — the address preview
+  // assembled below is what needs them, and the query is the page's.
+  precincts: string[]
+  onPrecinctsChange: (value: string[]) => void
+  precinctOptions: PrecinctOptionsResult
   // Draft selections the pack can't shade, computed by the orchestrator
   // because it owns the pack's manifest for the map's sake.
   unpreviewableKeys: string[]
@@ -243,6 +250,9 @@ export default function CreateListSurface({
   drawnStops,
   onListCreated,
   isServeOrg,
+  precincts,
+  onPrecinctsChange,
+  precinctOptions,
   unpreviewableKeys,
   orgSlug,
   preselectedListId,
@@ -328,6 +338,10 @@ export default function CreateListSurface({
     () => ({
       ...transformVoterFileFiltersForBackend(filters),
       ...savedListUnshadeableCriteria(selectedList),
+      // The hand-cut precinct selection is the third mutually-exclusive
+      // source of a precinct clause, beside a picked list's and an accepted
+      // recommendation's: each of the three clears the other two.
+      ...(precincts.length ? { precincts } : {}),
       ...(recommendedCriteria.precincts.length
         ? { precincts: recommendedCriteria.precincts }
         : {}),
@@ -335,7 +349,7 @@ export default function CreateListSurface({
         ? { supportStatus: recommendedCriteria.supportStatus }
         : {}),
     }),
-    [filters, selectedList, recommendedCriteria],
+    [filters, selectedList, precincts, recommendedCriteria],
   )
   // Does this audience keep anybody? Asked of the same filter payload the
   // preview sends, and asked HERE rather than beside the picker because this
@@ -384,6 +398,9 @@ export default function CreateListSurface({
       step={step}
       filters={filters}
       onFiltersChange={onFiltersChange}
+      precincts={precincts}
+      onPrecinctsChange={onPrecinctsChange}
+      precinctOptions={precinctOptions}
       onStepChange={(next) => {
         // Back to the filters is a re-cut of the audience, and the step
         // forward from it wipes the shape — so the next thing drawn is a

@@ -141,6 +141,24 @@ written twice.
   must never fire the call. The recommendations query is keyed on the org: the
   react-query cache is global and outlives this flow's unmount, so an org-less
   key hands the next org the previous one's cards for a render.
+- **The who step's builder offers Precinct, and it is the one filter group
+  that cannot live in the pill draft.** Precinct values are enumerated per
+  district (`GET /v1/contacts/precincts`) rather than declared in
+  `filters.config.ts`, so the selection travels as its own `string[]` from
+  `NativeDoorKnockingPage` down through `CreateListSurface` and
+  `CreateListFlow` to `WhoStep`, which renders the CRM wizard's own
+  `PrecinctFilter` (with door knocking's group-label style). The draft carries
+  only the `precincts: true` MARK, which is what
+  `unpreviewableFilterKeys` reads for the "the map can't shade by Precinct"
+  disclosure — the pack has no precinct plane. The values themselves are spent
+  in two places: `CreateListSurface`'s `previewFilters` (so the drawn shape is
+  priced against the audience the list will actually hold) and the create body
+  in `CreateListFlow`. Offered on both rails: a precinct is a subdivision of
+  the district an elected official already serves, unlike party, contacts made
+  and voter likelihood. A hand-cut selection, a picked list's clause and an
+  accepted recommendation's are **mutually exclusive by construction** — each
+  of the three clears the other two — which is what lets all three spread into
+  one `precincts` key without an order dependency.
 - **An accepted recommendation carries two clauses the pill draft has no plane
   for, and the surface above needs BOTH of them.** Precincts and support status
   arrive on the recommendation, not on any saved row, and precincts are the

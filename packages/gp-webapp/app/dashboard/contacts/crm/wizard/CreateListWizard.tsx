@@ -113,9 +113,7 @@ export default function CreateListWizard({
   // non-Pro page load 400s on the Pro gate) while the sibling count queries,
   // which gate the same way, took zero. `voterDataUnavailable` for the same
   // reason the count does: an org with no resolvable district can only 400.
-  const precinctOptions = usePrecinctOptions(
-    open && !isElectedOfficial && !voterDataUnavailable,
-  )
+  const precinctOptions = usePrecinctOptions(open && !voterDataUnavailable)
   const [activityConditions, setActivityConditions] = useState<
     WizardActivityCondition[]
   >(() => [blankActivityCondition()])
