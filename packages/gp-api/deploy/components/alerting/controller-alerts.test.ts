@@ -20,6 +20,31 @@ const onlyAlert = (controller: ControllerName) => {
   return alert
 }
 
+/**
+ * A controller that still gets the wide 4xx filter, derived rather than named.
+ *
+ * Every test about the 4xx vocabulary needs one, and naming a favourite is how
+ * these tests rot: they all said `contacts` until `contacts` joined
+ * SERVER_ERRORS_ONLY, at which point the assertions inverted and read as a bug
+ * in the filter rather than a stale fixture. Deriving it means adding the next
+ * controller to the list moves these tests to another subject instead of
+ * breaking them.
+ */
+const outsideServerErrorsOnly = (): ControllerName => {
+  const name = CONTROLLER_NAMES.find(
+    (candidate) =>
+      !SERVER_ERRORS_ONLY.includes(candidate) && ROUTE_MAP[candidate].length > 0,
+  )
+  if (!name) {
+    // Not a skip: with every controller on the list there is no 4xx path left
+    // to assert, and these tests would pass by vacuously checking nothing.
+    throw new Error(
+      'every routed controller is in SERVER_ERRORS_ONLY, so nothing pages on 4xx',
+    )
+  }
+  return name
+}
+
 // Mirrors grafana.ts's `alert.timeRangeSeconds ?? 600` — the window the
 // alerting engine actually fetches when an alert does not pin its own.
 const DEFAULT_FETCH_SECONDS = 600
@@ -176,12 +201,7 @@ describe('controllerAlerts', () => {
   // which point the assertion inverted and the failure read as a bug in the
   // filter rather than a stale fixture.
   it('pages on 4xx too for a controller outside SERVER_ERRORS_ONLY', () => {
-    const outside = CONTROLLER_NAMES.find(
-      (name) =>
-        !SERVER_ERRORS_ONLY.includes(name) && ROUTE_MAP[name].length > 0,
-    )
-    expect(outside).toBeDefined()
-    const alert = onlyAlert(outside!)
+    const alert = onlyAlert(outsideServerErrorsOnly())
     expect(alert.expr).toContain('response_statusCode >= 400')
     expect(alert.expr).not.toContain('response_statusCode >= 500')
   })
@@ -205,7 +225,7 @@ describe('controllerAlerts', () => {
   // refusal or Pro gate hit was enough to page, which is what taught us a 400
   // is never evidence of a fault on its own.
   it('excludes the designed client-error vocabulary, 400 included', () => {
-    const alert = onlyAlert('contacts')
+    const alert = onlyAlert(outsideServerErrorsOnly())
     for (const code of [400, 401, 403, 404, 409, 498]) {
       expect(alert.expr).toContain(`response_statusCode != ${code}`)
     }
@@ -216,7 +236,7 @@ describe('controllerAlerts', () => {
   // stopped counting was still in scope. Both sides now read one constant;
   // this pins them together without naming the codes a third time.
   it('tells the reader the same exclusions the filter applies', () => {
-    const alert = onlyAlert('contacts')
+    const alert = onlyAlert(outsideServerErrorsOnly())
     const filtered = [
       ...alert.expr.matchAll(/response_statusCode != (\d+)/g),
     ].map(([, code]) => code)
