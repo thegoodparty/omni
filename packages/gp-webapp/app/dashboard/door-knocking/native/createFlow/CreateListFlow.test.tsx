@@ -41,6 +41,7 @@ const baseProps = {
   districtHouseholdsPending: false,
   districtHouseholdsFailed: false,
   districtUnavailable: false,
+  audienceEmpty: false,
   savedLists: [],
   allContactsHouseholds: 12000,
   ring: OPEN_RING,
@@ -1293,6 +1294,98 @@ describe('CreateListFlow steps', () => {
     const disclosure = screen.getByText(/The map can’t yet shade by/)
     expect(disclosure).toHaveTextContent('Your list still applies it when you')
     expect(disclosure).not.toHaveTextContent('saved list')
+  })
+
+  // Derek's dead end, as reported: a list cut by support status shades as the
+  // whole district, so every count on the way to the boundary looked healthy
+  // and the create refused at the end — with a message about widening the
+  // AREA, which was the one thing that could not have helped. The audience is
+  // empty for every polygon, and the server can say so before any drawing.
+  //
+  // The count stays on the button on purpose. It is the district figure and it
+  // is still true about the district; contradicting it is the sentence's job,
+  // and blanking it would leave the step with nothing to explain.
+  it('refuses to leave the who step for an audience proven empty', async () => {
+    const { rerender } = await renderAtWho({ savedLists })
+    // The count only joins the button once an audience is actually picked, so
+    // the pick is what makes this the reported situation rather than a fresh
+    // step that happens to be disabled.
+    await pickList(/Precinct 2 homeowners/)
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="filters"
+        savedLists={savedLists}
+        districtHouseholds={12_000}
+        filters={{ supportStatus: true }}
+        unpreviewableKeys={['supportStatus']}
+        audienceEmpty
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'Continue (12,000)' }),
+    ).toBeDisabled()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'No contacts match this list’s support status filters',
+    )
+  })
+
+  // Two sentences about the same gap, one hedging the count and one saying the
+  // count is moot, read as the step arguing with itself. The stronger claim
+  // wins: there is no point explaining that a number is too big once it is
+  // established that the right number is zero.
+  it('drops the shading disclosure once the audience is proven empty', async () => {
+    await renderAtWho({
+      savedLists,
+      districtHouseholds: 12_000,
+      filters: { supportStatus: true },
+      unpreviewableKeys: ['supportStatus'],
+      audienceEmpty: true,
+    })
+
+    expect(screen.queryByText(/The map can’t yet shade by/)).toBeNull()
+  })
+
+  // The same sentence from the pill-builder face, which has no list to cite.
+  it('does not cite a list for a hand-built draft that resolves to nobody', async () => {
+    await renderAtWho({
+      districtHouseholds: 12_000,
+      filters: { contactsMade0: true },
+      audienceEmpty: true,
+    })
+
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent(
+      'No contacts match your contacts made filters. Adjust them to continue.',
+    )
+    expect(alert).not.toHaveTextContent('list')
+  })
+
+  // The check is advisory and fails open, both while pending and on error —
+  // `audienceEmpty` is false in both. A candidate must not be held out of
+  // their own flow by a check that did not answer: the create's own refusal is
+  // still behind this, so a missed empty audience is the status quo while a
+  // false block is a list that cannot be cut at all.
+  it('lets a candidate continue while the audience check has not answered', async () => {
+    const { rerender } = await renderAtWho({ savedLists })
+    await pickList(/Precinct 2 homeowners/)
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="filters"
+        savedLists={savedLists}
+        districtHouseholds={12_000}
+        filters={{ supportStatus: true }}
+        unpreviewableKeys={['supportStatus']}
+        audienceEmpty={false}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'Continue (12,000)' }),
+    ).toBeEnabled()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   // Picking a list is two writes that have to happen together, and the second

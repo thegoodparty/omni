@@ -18,6 +18,7 @@ import { DoorKnockingStatsService } from './services/doorKnockingStats.service'
 import { DoorKnockingStatusService } from './services/doorKnockingStatus.service'
 import { DoorKnockingTurfCountsService } from './services/doorKnockingTurfCounts.service'
 import { DoorKnockingInteractionService } from './services/doorKnockingInteraction.service'
+import { DoorKnockingAudienceCheckService } from './services/doorKnockingAudienceCheck.service'
 import { DoorKnockingPackService } from './services/doorKnockingPack.service'
 import { DoorKnockingPreviewService } from './services/doorKnockingPreview.service'
 import { DoorKnockingQuotaService } from './services/doorKnockingQuota.service'
@@ -51,6 +52,7 @@ import { DoorKnockingQuotaService } from './services/doorKnockingQuota.service'
     DoorKnockingStatsService,
     DoorKnockingStatusService,
     DoorKnockingInteractionService,
+    DoorKnockingAudienceCheckService,
     DoorKnockingPackService,
     DoorKnockingPreviewService,
     DoorKnockingQuotaService,

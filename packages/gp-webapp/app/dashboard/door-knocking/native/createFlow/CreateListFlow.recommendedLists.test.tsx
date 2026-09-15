@@ -52,6 +52,7 @@ const baseProps = {
   districtHouseholdsPending: false,
   districtHouseholdsFailed: false,
   districtUnavailable: false,
+  audienceEmpty: false,
   orgSlug: 'campaign-9',
   addressPreview: null,
   previewPending: false,

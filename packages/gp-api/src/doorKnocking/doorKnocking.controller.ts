@@ -27,6 +27,7 @@ import {
   SetNotAVoterSchema,
   SetNotAVoterResponseSchema,
   DoorKnockingAddressPreviewResponseSchema,
+  DoorKnockingAudienceCheckResponseSchema,
   DoorKnockingQuotaResponseSchema,
   DoorKnockingArchiveRequest,
   DoorKnockingArchiveRequestSchema,
@@ -60,10 +61,15 @@ import { DoorKnockingInteractionService } from './services/doorKnockingInteracti
 import { DoorKnockingPackService } from './services/doorKnockingPack.service'
 import { DoorKnockingPreviewService } from './services/doorKnockingPreview.service'
 import { DoorKnockingQuotaService } from './services/doorKnockingQuota.service'
+import { DoorKnockingAudienceCheckService } from './services/doorKnockingAudienceCheck.service'
 import {
   DoorKnockingAddressPreview,
   DoorKnockingAddressPreviewSchema,
 } from './schemas/doorKnockingAddressPreview.schema'
+import {
+  DoorKnockingAudienceCheck,
+  DoorKnockingAudienceCheckSchema,
+} from './schemas/doorKnockingAudienceCheck.schema'
 
 // Every route here is Pro-gated through ContactsService.assertProAccess — the
 // CRM's own predicate, so an `eo-` (Serve) org keeps access without isPro —
@@ -75,8 +81,8 @@ import {
 // walk — turf get, route serve, complete, interactions, do-not-knock,
 // not-a-voter — scoped to their own OutreachAssignment by the service layer
 // (see doorKnockingAccess.util.ts). Everything else (create, list, update,
-// delete, archive, pack, quota, address-preview) stays manager+ by the
-// guard's default posture.
+// delete, archive, pack, quota, address-preview, audience-check) stays
+// manager+ by the guard's default posture.
 @Controller('door-knocking')
 export class DoorKnockingController {
   constructor(
@@ -87,6 +93,7 @@ export class DoorKnockingController {
     private readonly packService: DoorKnockingPackService,
     private readonly previewService: DoorKnockingPreviewService,
     private readonly quotaService: DoorKnockingQuotaService,
+    private readonly audienceCheckService: DoorKnockingAudienceCheckService,
     private readonly contacts: ContactsService,
   ) {}
 
@@ -328,6 +335,31 @@ export class DoorKnockingController {
   ) {
     await this.contacts.assertProAccess(organization)
     return this.previewService.preview(organization, input)
+  }
+
+  // The who step's audience gate: the create's empty-audience refusal, asked
+  // before a boundary exists. A POST for the same reason address-preview is
+  // one — the filter draft is a body, not a query string — and like it,
+  // nothing is written and no vendor credit is spent.
+  //
+  // The cost difference between the two is the point. address-preview buys a
+  // people-db scan and ADR 0010 made it explicit for that reason; this
+  // resolves person-id sets out of our own tables and buys nothing, which is
+  // what lets it fire on every list pick rather than on a button.
+  //
+  // Pro-gated with the rest of the reads. It reports on voter data even
+  // though it does not read any, and a candidate who cannot route a list has
+  // no use for knowing whether it is empty.
+  @Post('audience-check')
+  @UseOrganization()
+  @ResponseSchema(DoorKnockingAudienceCheckResponseSchema)
+  async checkAudience(
+    @ReqOrganization() organization: Organization,
+    @Body(new ZodValidationPipe(DoorKnockingAudienceCheckSchema))
+    input: DoorKnockingAudienceCheck,
+  ) {
+    await this.contacts.assertProAccess(organization)
+    return this.audienceCheckService.check(organization, input)
   }
 
   // The day's allowance, read before the flow opens rather than discovered at

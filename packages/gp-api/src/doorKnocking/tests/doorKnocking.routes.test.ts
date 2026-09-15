@@ -4599,6 +4599,92 @@ describe('door-knocking routes', () => {
     })
   })
 
+  // The same refusal the create raises for an empty audience, asked before a
+  // boundary exists. The create's own version is tested at 'rejects a list
+  // that resolves to nobody without calling the vendor'; these pin that this
+  // endpoint agrees with it, and that it pays nothing to do so.
+  describe('audience check', () => {
+    const checkOpts = () => ({ ...orgHeaders(), validateStatus: () => true })
+
+    const check = (filters: Record<string, unknown> = {}) =>
+      service.client.post(
+        '/v1/door-knocking/audience-check',
+        { filters },
+        checkOpts(),
+      )
+
+    it('reports an audience its own filters resolve to nobody', async () => {
+      stubVendors()
+
+      const res = await check({ supportStatus: ['supporter'] })
+
+      // No interaction rows exist, so nobody derives to 'supporter'. Same
+      // condition the create refuses on, reached without a polygon.
+      expect(res.status).toBe(201)
+      expect(res.data.empty).toBe(true)
+    })
+
+    it('reports a list that keeps somebody', async () => {
+      await service.prisma.contactCurrentStatus.create({
+        data: {
+          organizationSlug: orgSlug,
+          // Any id: the resolution reads this table, and whether the person
+          // also exists in the voter mart is the people-db question this
+          // endpoint deliberately never asks.
+          personId: 'audience-check-supporter',
+          field: 'support_status',
+          value: 'supporter',
+        },
+      })
+      stubVendors()
+
+      const res = await check({ supportStatus: ['supporter'] })
+
+      expect(res.status).toBe(201)
+      expect(res.data.empty).toBe(false)
+    })
+
+    // The weaker half of the contract, and the reason the gate refuses only
+    // what it can prove. A party cut resolves no id set at all, so this
+    // endpoint has nothing to say about it — whether anybody is a Democrat is
+    // a question for the people database, which this deliberately never asks.
+    it('does not call a filter empty just because it narrows', async () => {
+      stubVendors()
+
+      const res = await check({ partyDemocrat: true })
+
+      expect(res.status).toBe(201)
+      expect(res.data.empty).toBe(false)
+    })
+
+    // The whole reason this can fire on a list pick rather than on a press.
+    // ADR 0010 made the address preview explicit because it buys a people-db
+    // scan; if this one did too, moving the check earlier would just move that
+    // cost earlier with it.
+    it('reads no voter data and spends no vendor credit', async () => {
+      const fetchSpy = stubVendors()
+      const peopleApi = service.app.get(DoorKnockingPeopleApiService)
+
+      expect((await check({ supportStatus: ['supporter'] })).status).toBe(201)
+
+      expect(vi.mocked(peopleApi.evaluate)).not.toHaveBeenCalled()
+      expect(
+        fetchSpy.mock.calls.filter(([url]) =>
+          String(url).includes('routeplanner'),
+        ),
+      ).toHaveLength(0)
+    })
+
+    it('writes nothing', async () => {
+      stubVendors()
+
+      await check({ supportStatus: ['supporter'] })
+
+      expect(await service.prisma.doorKnockingTurf.count()).toBe(0)
+      expect(await service.prisma.doorKnockingRoute.count()).toBe(0)
+    })
+  })
+
   describe('Pro gate (ENG-10888)', () => {
     const downgrade = () =>
       service.prisma.campaign.update({
@@ -4639,6 +4725,10 @@ describe('door-knocking routes', () => {
           '/v1/door-knocking/address-preview',
           { geoPoly: GEO_POLY, filters: {} },
         ],
+        // Reads no voter data itself, and gated anyway: it reports ON an
+        // audience, and a candidate who cannot route a list has no use for
+        // knowing whether it is empty.
+        ['post', '/v1/door-knocking/audience-check', { filters: {} }],
         [
           'post',
           '/v1/door-knocking/interactions',
@@ -5022,6 +5112,7 @@ describe('door-knocking routes', () => {
           '/v1/door-knocking/address-preview',
           { geoPoly: GEO_POLY, filters: {} },
         ],
+        ['post', '/v1/door-knocking/audience-check', { filters: {} }],
         // Last: a delete would leave nothing for a later row in this list
         // to act on.
         ['delete', `/v1/door-knocking/turfs/${turf.id}`, undefined],
