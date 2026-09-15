@@ -136,7 +136,14 @@ test.describe('Contacts activity filters', () => {
       await expect(
         wizard.getByText('How do you want to build this list?'),
       ).toBeVisible({ timeout: 10_000 })
-      await expect(wizard.getByText('Step 1 of 3')).toBeVisible()
+      await expect(wizard.getByRole('progressbar')).toHaveAttribute(
+        'aria-valuenow',
+        '1',
+      )
+      await expect(wizard.getByRole('progressbar')).toHaveAttribute(
+        'aria-valuemax',
+        '3',
+      )
 
       const continueButton = wizard.getByRole('button', { name: 'Continue' })
       await expect(continueButton).toBeDisabled()
