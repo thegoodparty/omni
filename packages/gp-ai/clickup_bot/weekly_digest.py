@@ -456,13 +456,14 @@ def dev_tests(runs: Any) -> dict:
         return {"available": False, "reason": RUNS_UNREACHABLE}
 
     counts = dict.fromkeys(VERDICTS, 0)
-    total, runs_seen, no_verdict, specs = 0.0, 0, 0, set()
+    total, runs_seen, identified_runs, no_verdict, specs = 0.0, 0, 0, 0, set()
     for record in _metric_records(runs):
         if record.get("label") != DEV_TEST_LABEL:
             continue
         runs_seen += 1
         task_id = record.get("task_id")
         if isinstance(task_id, str) and task_id:
+            identified_runs += 1
             specs.add(task_id)
         verdict = record.get("verdict")
         if verdict in counts:
@@ -481,6 +482,12 @@ def dev_tests(runs: Any) -> dict:
     return {
         "available": True,
         "runs": runs_seen,
+        # Only the runs that named a ticket can be compared against the count of
+        # distinct ones. A record with no `task_id` is not evidence of a repeat;
+        # it is evidence of nothing, and counting it as a run while it cannot
+        # count as a spec is what turns missing instrumentation into an alarm
+        # about a ticket nobody is closing.
+        "identified_runs": identified_runs,
         "distinct_specs": len(specs),
         "counts": counts,
         "no_verdict": no_verdict,
@@ -823,7 +830,7 @@ def _dev_test_line(facts: dict) -> str:
     line = f"Dev-only E2E: {_plural(facts['runs'], 'run')} on {_plural(facts['distinct_specs'], 'spec')}"
     listed = " · ".join(f"{facts['counts'][verdict]} {verdict}" for verdict in VERDICTS)
     line += f" — {listed}"
-    if facts["runs"] > facts["distinct_specs"]:
+    if facts["identified_runs"] > facts["distinct_specs"]:
         # The re-triage case, called out because it is the one that means a
         # ticket is open and nothing is happening to it.
         line += " · ⚠️ a spec was triaged more than once, so an open ticket is not being closed"

@@ -1005,6 +1005,30 @@ class TestTheDevOnlyE2ELine:
         assert facts["distinct_specs"] == 1
         assert "not being closed" in rendered_with_dev_tests(facts)
 
+    def test_runs_that_named_no_ticket_cannot_raise_the_re_triage_alarm(self):
+        # The alarm says an open ticket is not being closed, which is a claim
+        # about tickets. A run that recorded no `task_id` says nothing about any
+        # ticket, so counting it as a run while it cannot count as a spec would
+        # turn missing instrumentation into a standing accusation.
+        runs = [a_run(label="dev-test", task_id=""), a_run(label="dev-test", task_id="")]
+
+        facts = dev_tests(runs)
+
+        assert facts["runs"] == 2
+        assert facts["distinct_specs"] == 0
+        assert "not being closed" not in rendered_with_dev_tests(facts)
+
+    def test_one_unidentified_run_beside_one_spec_is_not_a_repeat(self):
+        # The mixed case, which a bare `runs > distinct_specs` also gets wrong:
+        # one spec was triaged once and one run said nothing.
+        runs = [a_run(label="dev-test", task_id="86spec1"), a_run(label="dev-test", task_id="")]
+
+        facts = dev_tests(runs)
+
+        assert facts["runs"] == 2
+        assert facts["distinct_specs"] == 1
+        assert "not being closed" not in rendered_with_dev_tests(facts)
+
     def test_a_finished_run_with_no_verdict_raises_the_drift_alarm_on_this_line(self):
         # The counterpart to the alarm on the Verdicts line. The label scope that
         # keeps these runs out of that figure keeps them out of its warning too,

@@ -168,10 +168,11 @@ def walk_specs(report: Any) -> list[dict]:
 
     Playwright nests a file-level suite (whose `title` IS the file path) around
     zero or more describe-level suites. The file level is deliberately dropped
-    from the title path: Playwright's own `--grep` matches titles rather than
-    paths, so including it would make a fingerprint that cannot be pasted into
-    a repro command — and would tag every spec in a file whose NAME happened to
-    contain the tag.
+    from the title path: `is_dev_only` matches the tag against the whole joined
+    path, so a file whose NAME contained the tag would mark every spec inside it
+    `@dev-only`. The file is not lost — `fingerprint` and `ticket_title` take it
+    from the spec's own `file`, and `repro_command` passes it positionally,
+    which is how Playwright takes a path.
 
     Identified by comparing against the spec's own `file` rather than by depth,
     because a merged report has been observed with an extra wrapping level and

@@ -725,8 +725,14 @@ jobs:
 
             # The names, not just the count. A failed release train blocks every
             # prod promotion, and "3 failed" sends whoever is looking into the
-            # HTML report to find out which three. The full title path is what
-            # `--grep` takes, so a name here can be pasted into a repro command.
+            # HTML report to find out which three.
+            #
+            # FILE FIRST, then the describes, then the test — Playwright's own
+            # reporter shape, so a name here is searchable verbatim in the HTML
+            # report. NOT a `--grep` argument: that is matched against project,
+            # file, describes, title and tags joined by SPACES, so no separator
+            # this prints would match. The file path is the part a repro command
+            # takes, and it takes it positionally.
             #
             # DELIBERATELY NOT CLASSIFIED HERE. Whether a spec is `@dev-only`
             # decides whether the bot files a ticket for it, and that judgement
