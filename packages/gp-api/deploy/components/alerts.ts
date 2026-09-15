@@ -38,8 +38,37 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
  * controllers no longer pages, and nothing here can tell a designed 400 from
  * an accidental one. So add a controller only when its 4xx vocabulary is
  * deliberate and documented; every other controller keeps the >= 400 rule.
+ *
+ * `contacts` was measured against 30 days of dev logs before being added, and
+ * its entire counted 4xx vocabulary is three deliberate gates, all raised as
+ * `BadRequestException` from `HttpExceptionFilter`:
+ *
+ *   843  "Filtering voter data is only available for pro campaigns"
+ *   230  "Precinct filtering is not available for this organization"
+ *    75  "This feature is only available for pro campaigns"
+ *
+ * against 9 genuine 5xx in the same window (two 500s, seven 504s), which this
+ * keeps. Those 1148 gate responses were driving `contacts-route-errors` to 344
+ * firings in 30 days — the single largest source of alert traffic in the
+ * estate, and all of it a pro gate refusing non-pro test traffic correctly.
+ *
+ * TWO CONTROLLERS WERE MEASURED AND DELIBERATELY LEFT OUT, because they look
+ * like they belong here and do not:
+ *
+ *   `elected-office` fires on 197 responses that are 400 to a client and a
+ *   server fault in fact: `PrismaExceptionFilter` maps P2028 (interactive
+ *   transaction expired, 5000ms budget) onto 400, so `POST /v1/elected-office`
+ *   reports a database timeout as a bad request. Adding it here would silence
+ *   197 real bugs. The misclassification is the thing to fix.
+ *
+ *   `organizations` has NO counted 4xx at all — its 76 firings are Clerk 502s.
+ *   Adding it would change nothing today while telling the next reader its 4xx
+ *   had been reviewed and found deliberate.
  */
-export const SERVER_ERRORS_ONLY: ControllerName[] = ['door-knocking']
+export const SERVER_ERRORS_ONLY: ControllerName[] = [
+  'door-knocking',
+  'contacts',
+]
 
 export const GLOBAL_ALERTS: Alert[] = [
   // ------ Global Shared Alerts ------ //

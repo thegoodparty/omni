@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { ControllerName, ROUTE_MAP } from '../../../src/generated/route-types'
+import {
+  CONTROLLER_NAMES,
+  ControllerName,
+  ROUTE_MAP,
+} from '../../../src/generated/route-types'
+import { SERVER_ERRORS_ONLY } from '../alerts'
 import { controllerAlerts } from './controller-alerts'
 
 /**
@@ -160,12 +165,35 @@ describe('controllerAlerts', () => {
     }
   })
 
-  // The per-controller filter has to survive the collapse: door-knocking is
-  // the only SERVER_ERRORS_ONLY controller, so a controller outside that list
-  // must still get the wider filter rather than inherit its neighbour's.
+  // The per-controller filter has to survive the collapse: a controller outside
+  // SERVER_ERRORS_ONLY must still get the wider filter rather than inherit its
+  // neighbour's.
+  //
+  // The subject is DERIVED rather than named, because naming one is how this
+  // test rots. It said `contacts` until `contacts` was added to the list, at
+  // which point the assertion inverted and the failure read as a bug in the
+  // filter rather than a stale fixture.
   it('pages on 4xx too for a controller outside SERVER_ERRORS_ONLY', () => {
-    const alert = onlyAlert('contacts')
+    const outside = CONTROLLER_NAMES.find(
+      (name) =>
+        !SERVER_ERRORS_ONLY.includes(name) && ROUTE_MAP[name].length > 0,
+    )
+    expect(outside).toBeDefined()
+    const alert = onlyAlert(outside!)
     expect(alert.expr).toContain('response_statusCode >= 400')
+    expect(alert.expr).not.toContain('response_statusCode >= 500')
+  })
+
+  // The other direction, also derived: every controller ON the list gets the
+  // narrow filter. Together these two mean the list is what decides, for any
+  // membership, rather than door-knocking being special-cased somewhere.
+  it('pages on 5xx only for every controller in SERVER_ERRORS_ONLY', () => {
+    for (const name of SERVER_ERRORS_ONLY) {
+      if (ROUTE_MAP[name].length === 0) continue
+      const alert = onlyAlert(name)
+      expect(alert.expr).toContain('response_statusCode >= 500')
+      expect(alert.expr).not.toContain('response_statusCode >= 400')
+    }
   })
 
   // The blind spot this closes: a request the gateway kills mid-flight logs
