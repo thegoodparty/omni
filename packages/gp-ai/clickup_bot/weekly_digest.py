@@ -449,7 +449,7 @@ def dev_tests(runs: Any) -> dict:
         return {"available": False, "reason": RUNS_UNREACHABLE}
 
     counts = dict.fromkeys(VERDICTS, 0)
-    total, runs_seen, specs = 0.0, 0, set()
+    total, runs_seen, no_verdict, specs = 0.0, 0, 0, set()
     for record in _metric_records(runs):
         if record.get("label") != DEV_TEST_LABEL:
             continue
@@ -460,6 +460,13 @@ def dev_tests(runs: Any) -> dict:
         verdict = record.get("verdict")
         if verdict in counts:
             counts[verdict] += 1
+        elif record.get("status") == "success":
+            # Same alarm as verdicts(), for the same reason and on the same
+            # terms: a run that FINISHED and said nothing means the prompt and
+            # the parser have drifted, and every escalation from here is dead.
+            # An errored or deadline-killed run has an obvious reason for having
+            # no verdict and is not that.
+            no_verdict += 1
         value = record.get("cost_usd")
         if not isinstance(value, bool) and isinstance(value, (int, float)):
             total += float(value)
@@ -469,6 +476,7 @@ def dev_tests(runs: Any) -> dict:
         "runs": runs_seen,
         "distinct_specs": len(specs),
         "counts": counts,
+        "no_verdict": no_verdict,
         "total_usd": round(total, 2),
     }
 
@@ -812,6 +820,11 @@ def _dev_test_line(facts: dict) -> str:
         # The re-triage case, called out because it is the one that means a
         # ticket is open and nothing is happening to it.
         line += " · ⚠️ a spec was triaged more than once, so an open ticket is not being closed"
+    if facts["no_verdict"]:
+        # The same drift alarm _verdict_line raises, repeated here because the
+        # two lines are scoped to different labels: a dev-test run that finished
+        # without a verdict is invisible to that one.
+        line += f" · ⚠️ {_plural(facts['no_verdict'], 'run')} produced no verdict"
     if facts["total_usd"]:
         line += f" · ${facts['total_usd']:.2f}"
     return line

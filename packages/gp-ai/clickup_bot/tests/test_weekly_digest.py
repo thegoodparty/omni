@@ -996,6 +996,24 @@ class TestTheDevOnlyE2ELine:
         assert facts["distinct_specs"] == 1
         assert "not being closed" in rendered_with_dev_tests(facts)
 
+    def test_a_finished_run_with_no_verdict_raises_the_drift_alarm_on_this_line(self):
+        # The counterpart to the alarm on the Verdicts line. The label scope that
+        # keeps these runs out of that figure keeps them out of its warning too,
+        # so without this the drift that stops every escalation is visible on
+        # neither line and the week reads as an ordinary quiet one.
+        facts = dev_tests([a_run(label="dev-test", verdict=None)])
+
+        assert facts["no_verdict"] == 1
+        assert "1 run produced no verdict" in rendered_with_dev_tests(facts)
+
+    def test_a_crashed_run_is_not_counted_as_a_missing_verdict(self):
+        # Same distinction verdicts() draws: a run that died has an obvious
+        # reason for having no verdict and is not evidence of drift.
+        facts = dev_tests([a_run(label="dev-test", verdict=None, status="error")])
+
+        assert facts["no_verdict"] == 0
+        assert "produced no verdict" not in rendered_with_dev_tests(facts)
+
     def test_an_unreadable_source_is_never_reported_as_a_green_week(self):
         # The most reassuring of the three false claims this module can make.
         assert dev_tests(None)["available"] is False

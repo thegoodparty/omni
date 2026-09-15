@@ -179,7 +179,14 @@ jobs:
             exit 1
           fi
 
-          cu() { curl -sS --max-time 30 -H "Authorization: $CLICKUP_API_TOKEN" "$@"; }
+          # `--fail-with-body` rather than a bare curl: without it a 401, 429 or
+          # 5xx comes back as exit 0 with an error body, `.tasks[]?` reads that
+          # as zero open tickets, and every in-flight failure looks new — so a
+          # bad token files a duplicate ticket and starts a duplicate
+          # investigation on every release run until someone notices. It is the
+          # body-preserving form of the `--fail` the other ClickUp workflows
+          # use, because the create below reports what ClickUp actually said.
+          cu() { curl -sS --fail-with-body --max-time 30 -H "Authorization: $CLICKUP_API_TOKEN" "$@"; }
 
           existing=$(cu -G "https://api.clickup.com/api/v2/list/$CLICKUP_LIST_ID/task" \
             --data-urlencode "include_closed=false" \
@@ -215,12 +222,15 @@ jobs:
 
             payload=$(jq -c --arg tag "$DEV_TEST_TAG" \
               '{name: .ticket_title, markdown_description: .ticket_body, tags: [$tag]}' <<<"$failure")
-            created=$(cu -X POST "https://api.clickup.com/api/v2/list/$CLICKUP_LIST_ID/task" \
-              -H "Content-Type: application/json" --data "$payload")
+            if ! created=$(cu -X POST "https://api.clickup.com/api/v2/list/$CLICKUP_LIST_ID/task" \
+              -H "Content-Type: application/json" --data "$payload"); then
+              echo "::error::ClickUp refused the task for '$name': $created"
+              exit 1
+            fi
 
             task_id=$(jq -r '.id // empty' <<<"$created")
             if [ -z "$task_id" ]; then
-              echo "::error::ClickUp refused the task for '$name': $(jq -c '.' <<<"$created")"
+              echo "::error::ClickUp accepted the task for '$name' but returned no id: $(jq -c '.' <<<"$created")"
               exit 1
             fi
 
