@@ -87,6 +87,12 @@ test.describe('Custom office flow', () => {
       await page.getByRole('button', { name: /^skip$/i }).click()
     }
 
+    // Then the signup-goal step, also skippable.
+    await expect(
+      page.getByRole('heading', { level: 1, name: /most want help with/i }),
+    ).toBeVisible({ timeout: 30000 })
+    await page.getByRole('button', { name: /^skip$/i }).click()
+
     // Then lands on the pledge step (H1 reads "Take our pledge to get your
     // campaign plan").
     await expect(

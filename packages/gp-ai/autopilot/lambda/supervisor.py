@@ -139,8 +139,10 @@ class Story:
 
     @property
     def is_in_flight(self) -> bool:
-        # Everything that is neither queued, done, nor waiting on a human.
-        return self.status not in (router.STATUS_TO_DO, router.STATUS_DONE, router.STATUS_FEEDBACK_NEEDED)
+        # Everything that is neither queued (a fresh story lands in the
+        # list's first status, "approved tdd" — the shared board has no
+        # story-specific "to do" column), done, nor waiting on a human.
+        return self.status not in (router.STATUS_APPROVED_TDD, router.STATUS_DONE, router.STATUS_FEEDBACK_NEEDED)
 
 
 def _story_from_task(task: dict) -> Story | None:
@@ -171,7 +173,12 @@ def _story_from_task(task: dict) -> Story | None:
 
 def load_epic_stories(epic_task_id: str) -> list[Story]:
     try:
-        epic = clickup_request("GET", f"/task/{epic_task_id}?include_subtasks=true")
+        # include_closed pins the contract close-out depends on: every story
+        # must stay visible here whatever status it reaches. Probed live
+        # (2026-09-14): this endpoint returns done- and even closed-type
+        # subtasks without the flag, so it changes nothing today — it exists
+        # so a ClickUp default change can't silently strand a fully-done epic.
+        epic = clickup_request("GET", f"/task/{epic_task_id}?include_subtasks=true&include_closed=true")
     except Exception as e:
         print(f"ERROR: supervisor failed to load epic {epic_task_id}: {type(e).__name__}")
         return []
@@ -219,7 +226,7 @@ def _order_key(order_index: str) -> float:
 
 def select_next_story(stories: list[Story]) -> Story | None:
     done_ids = {s.task_id for s in stories if s.is_done}
-    candidates = [s for s in stories if s.status == router.STATUS_TO_DO and s.depends_on <= done_ids]
+    candidates = [s for s in stories if s.status == router.STATUS_APPROVED_TDD and s.depends_on <= done_ids]
     if not candidates:
         return None
 
@@ -286,7 +293,16 @@ def claim_epic_in_flight(epic_task_id: str, story_task_id: str, ttl_seconds: flo
                 "story_task_id": {"S": story_task_id},
                 "expires_at": {"N": str(expires_at)},
             },
-            ConditionExpression="attribute_not_exists(pk) OR #exp < :now",
+            # The third clause lets a real dispatch claim overwrite an
+            # alert-only item: try_claim_stall_alert (notably the sweep's
+            # pre-supervisor feature-card pass) writes this same pk with a
+            # live expires_at but NO story_task_id, and without the clause
+            # that item would block every dispatch on the epic until its TTL
+            # lapses. A genuine in-flight claim always carries story_task_id,
+            # so the clause is inert for those. Overwriting resets alerted_at
+            # on purpose — a real dispatch starts a new phase with a fresh
+            # one-alert budget.
+            ConditionExpression="attribute_not_exists(pk) OR #exp < :now OR attribute_not_exists(story_task_id)",
             ExpressionAttributeNames={"#exp": "expires_at"},
             ExpressionAttributeValues={":now": {"N": str(int(time.time()))}},
         )
@@ -399,17 +415,21 @@ def try_claim_stall_alert(epic_task_id: str) -> bool:
 # Stall detection — alert only, never auto-retry
 # ---------------------------------------------------------------------------
 
-# Per-status TTLs. "executing"'s is short (30min) relative to "in progress"
-# (2h) and "qa" (1h) on purpose: a story stuck in "executing" means the
-# story-stage agent never got past its own kickoff — a dispatch problem that
-# should surface fast — whereas real story/QA work can legitimately run
-# longer. STATUS_FEEDBACK_NEEDED is deliberately absent: waiting on a human
-# is not a stall. STATUS_TO_DO / STATUS_DONE are absent too: nothing is "in
-# flight" there.
+# Per-status TTLs for stories. STATUS_FEEDBACK_NEEDED is deliberately
+# absent: waiting on a human is not a stall. STATUS_APPROVED_TDD (the story
+# queue) and STATUS_DONE are absent too: nothing is "in flight" there.
+# "in progress"'s 2h covers the whole dispatch-to-merge window — the story
+# stage's first act on kickoff is moving the card there, so a dispatch that
+# never starts surfaces as a story sitting in the queue while the epic claim
+# expires, not as a distinct status.
 STATUS_TTL_SECONDS: dict[str, int] = {
-    router.STATUS_EXECUTING: 30 * 60,
     router.STATUS_IN_PROGRESS: 2 * 60 * 60,
     router.STATUS_QA: 60 * 60,
+    # Stories never reach executing in the pipeline (it is the feature card's
+    # post-approval column), but a manual drag can put one there — and it
+    # would read as in-flight with no TTL, silently freezing its epic once
+    # the claim expires. A short TTL surfaces the anomaly fast instead.
+    router.STATUS_EXECUTING: 30 * 60,
 }
 
 
@@ -552,9 +572,18 @@ def file_flag_cleanup_ticket(epic_task_id: str) -> str | None:
                 "name": f"Flag cleanup: {epic_name}",
                 "description": (
                     f"{epic_name} shipped dark behind a feature flag. Follow up to flip it on "
-                    "in prod, or clean it up if the experiment did not land."
+                    "in prod, or clean it up if the experiment did not land. (Filed by autopilot "
+                    "at epic close-out; created in done so the pipeline never dispatches it — "
+                    "reopen it when a human picks it up.)"
                 ),
                 "parent": epic_task_id,
+                # Born done, deliberately: as a subtask of the epic it IS a
+                # story to the supervisor, and the list default status is the
+                # story queue — a later tick (a story-done webhook redelivery
+                # racing close-out) would select it and burn a story-agent
+                # run on an administrative ticket. is_done excludes it from
+                # every candidate/all-done computation.
+                "status": router.STATUS_DONE,
             },
         )
     except Exception as e:
@@ -638,7 +667,7 @@ def dispatch_story(epic_task_id: str, story: Story) -> None:
 
 def run_supervisor_tick(epic_task_id: str) -> None:
     """The epic conductor loop. Called for every entry point: the
-    breakdown-review gate, a story reaching done, and a sweep tick over
+    breakdown-approval gate, a story reaching done, and a sweep tick over
     every card sitting in "executing" (see sweep.py)."""
     stories = load_epic_stories(epic_task_id)
     by_task_id = {s.task_id: s for s in stories}

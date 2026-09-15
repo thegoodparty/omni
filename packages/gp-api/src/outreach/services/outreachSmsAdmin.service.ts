@@ -71,6 +71,18 @@ const DATE_FMT = 'yyyy-MM-dd'
 // abandoned) through the old manual process.
 const SMS_ADMIN_QUEUE_CUTOFF = new Date('2026-06-02T00:00:00Z')
 
+// The hourly completion sweep (outreachCompletion.service.ts) ratchets a
+// row pending -> in_progress at UTC midnight of its Peerly start_date
+// whether or not CAS ever approved it, so on the send day an unapproved
+// request reads `in_progress` with a still-unbooked vendor job. The
+// console keys on approval state, not lifecycle status: both statuses are
+// reviewable (Marshall Travis, 2026-09-14, dropped out of the queue ~20h
+// before its send and had to be booked in Peerly by hand).
+const REVIEWABLE_STATUSES: OutreachStatus[] = [
+  OutreachStatus.pending,
+  OutreachStatus.in_progress,
+]
+
 // Peerly flagged (2026-09-04) that our detail reads were rapidly piling
 // duplicate long-running requests — a slow read gets abandoned client-side
 // by the timebox above, but the request keeps computing at Peerly, and the
@@ -134,8 +146,8 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     return {
       outreachType: OutreachType.p2p,
       // Canceled rows stay visible (the Canceled tab's audit trail); only
-      // pending rows are actionable.
-      status: { in: [OutreachStatus.pending, OutreachStatus.canceled] },
+      // reviewable rows are actionable.
+      status: { in: [...REVIEWABLE_STATUSES, OutreachStatus.canceled] },
       projectId: { not: null },
       // The pre-console backlog is noise, not work: rows stranded pending
       // from before the console existed are hidden behind a fixed cutoff
@@ -314,7 +326,8 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       )
     }
     if (
-      row.status !== OutreachStatus.pending ||
+      !row.status ||
+      !REVIEWABLE_STATUSES.includes(row.status) ||
       row.outreachType !== OutreachType.p2p ||
       !row.projectId
     ) {
@@ -326,7 +339,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     const claimed = await this.model.updateMany({
       where: {
         id: outreachId,
-        status: OutreachStatus.pending,
+        status: { in: REVIEWABLE_STATUSES },
         approvedAt: null,
         deniedAt: null,
       },
@@ -420,7 +433,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     const denied = await this.model.updateMany({
       where: {
         id: outreachId,
-        status: OutreachStatus.pending,
+        status: { in: REVIEWABLE_STATUSES },
         outreachType: OutreachType.p2p,
         approvedAt: null,
         deniedAt: null,
@@ -474,8 +487,18 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     }
     // A canceled row is in queue scope for the audit trail, but its vendor
     // job is deleted — the edit's vendor write must never fire for it.
-    if (row.status !== OutreachStatus.pending) {
+    if (row.status === OutreachStatus.canceled) {
       throw new BadRequestException('Only scheduled campaigns can be edited')
+    }
+    // Once the send day has begun AND canvassers are booked, Peerly may be
+    // mid-send: a template overwrite would change copy under live agents.
+    if (
+      row.status === OutreachStatus.in_progress &&
+      row.canvassRequestedAt !== null
+    ) {
+      throw new BadRequestException(
+        'This campaign is already sending and cannot be edited',
+      )
     }
     if (!row.identityId || row.campaignId === null) {
       throw new BadRequestException(
@@ -516,7 +539,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     })
 
     const edited = await this.model.updateMany({
-      where: { id: outreachId, status: OutreachStatus.pending },
+      where: { id: outreachId, status: { in: REVIEWABLE_STATUSES } },
       data: {
         script: input.script,
         message: input.script,
@@ -612,7 +635,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         rows
           // A canceled row's vendor job was deleted with the cancel — a
           // read for it can only fail.
-          .filter((row) => row.status === OutreachStatus.pending)
+          .filter((row) => row.status !== OutreachStatus.canceled)
           .map((row) => row.identityId)
           .filter((id): id is string => id !== null),
       ),

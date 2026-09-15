@@ -226,6 +226,24 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(ids).toContain(recent.id)
     })
 
+    it('keeps a send-day row the completion sweep moved to in_progress', async () => {
+      // The hourly completion sweep ratchets pending -> in_progress at UTC
+      // midnight of the Peerly start_date whether or not CAS approved, so
+      // an unapproved same-day request must not vanish from the queue.
+      const sendDay = await seedOutreach({ status: OutreachStatus.in_progress })
+      getJobsByIdentityId.mockResolvedValue([liveJob('peerly-job-1')])
+
+      const res = await service.client.get('/v1/outreach/admin/sms/queue')
+
+      expect(res.status).toBe(HttpStatus.OK)
+      const item = res.data.items.find(
+        (i: { id: number }) => i.id === sendDay.id,
+      )
+      expect(item).toBeDefined()
+      expect(item.approvalStatus).toBe('awaiting_review')
+      expect(item.job).toMatchObject({ status: 'active' })
+    })
+
     it('is admin-gated', async () => {
       await service.prisma.user.update({
         where: { id: service.user.id },
@@ -318,6 +336,35 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       })
       expect(unchanged.approvedAt).toBeNull()
       expect(unchanged.canvassRequestedAt).toBeNull()
+    })
+
+    it('approves a send-day row already ratcheted to in_progress', async () => {
+      const row = await seedOutreach({ status: OutreachStatus.in_progress })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+        date: SEND_LOCAL_DATE,
+      })
+      const updated = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(updated.approvedAt).not.toBeNull()
+      expect(updated.canvassRequestedAt).not.toBeNull()
+    })
+
+    it('400s approving a completed row', async () => {
+      const row = await seedOutreach({ status: OutreachStatus.completed })
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(requestCanvassers).not.toHaveBeenCalled()
     })
 
     it('409s a second approve', async () => {
@@ -465,6 +512,16 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(requestCanvassers).not.toHaveBeenCalled()
     })
 
+    it('denies a send-day row already ratcheted to in_progress', async () => {
+      const row = await seedOutreach({ status: OutreachStatus.in_progress })
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/deny`,
+        { deniedBy: 'cas@goodparty.org', reason: 'Broken link in message' },
+      )
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(res.data.approvalStatus).toBe('denied')
+    })
+
     it('409s denying an approved row', async () => {
       const row = await seedOutreach({ approvedAt: new Date() })
       const res = await service.client.post(
@@ -556,6 +613,43 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(updated.adminEditedBy).toBe('cas@goodparty.org')
     })
 
+    it('edits a send-day row that is in_progress but not yet booked', async () => {
+      const row = await seedOutreach({ status: OutreachStatus.in_progress })
+      const updateJob = await withImage(row.id)
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}`,
+        { script: 'edited', editedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(updateJob).toHaveBeenCalled()
+      const updated = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(updated.script).toBe('edited')
+    })
+
+    it('400s editing a booked row that is already sending', async () => {
+      const row = await seedOutreach({
+        status: OutreachStatus.in_progress,
+        approvedAt: new Date(),
+      })
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: { canvassRequestedAt: new Date() },
+      })
+      const updateJob = await withImage(row.id)
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}`,
+        { script: 'edited', editedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(updateJob).not.toHaveBeenCalled()
+    })
+
     it('400s a campaign with no stored image', async () => {
       const row = await seedOutreach()
       const res = await service.client.patch(
@@ -581,6 +675,18 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(res.data.item.id).toBe(row.id)
       expect(res.data.item.job).toMatchObject({ status: 'active' })
       expect(res.data.stats).toMatchObject({ delivered: 90, totalCost: 3.5 })
+    })
+
+    it('serves a send-day row already ratcheted to in_progress', async () => {
+      const row = await seedOutreach({
+        status: OutreachStatus.in_progress,
+        projectId: 'peerly-job-detail-in-progress',
+      })
+
+      const res = await service.client.get(`/v1/outreach/admin/sms/${row.id}`)
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.item.approvalStatus).toBe('awaiting_review')
     })
 
     it('renders without stats when the vendor read fails', async () => {

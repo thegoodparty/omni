@@ -45,6 +45,7 @@ async function completeOnboardingFlow(page: Page): Promise<void> {
   await completeOfficeSelectionStep(page)
   await completePathToVictoryStep(page)
   await completeCampaignStoryStep(page)
+  await completeSignupGoalStep(page)
   await completePledgeStep(page)
 }
 
@@ -123,9 +124,9 @@ async function completePathToVictoryStep(page: Page): Promise<void> {
 }
 
 // The campaign story is three individually-skippable steps (why → background →
-// issues) that always sit between path-to-victory and the pledge. Skip
+// issues) that always sit between path-to-victory and signup-goal. Skip
 // advances one step at a time, so clearing the whole story means clicking
-// Skip on each step until the pledge appears.
+// Skip on each step until signup-goal appears.
 async function completeCampaignStoryStep(page: Page): Promise<void> {
   console.log('Step: Campaign story')
   const stepHeadings = [
@@ -139,6 +140,17 @@ async function completeCampaignStoryStep(page: Page): Promise<void> {
     ).toBeVisible({ timeout: 30000 })
     await page.getByRole('button', { name: /^skip$/i }).click()
   }
+}
+
+// Answered rather than skipped: this is the flow that produces the fully
+// onboarded fixture user, so it should exercise the column write too.
+async function completeSignupGoalStep(page: Page): Promise<void> {
+  console.log('Step: Signup goal')
+  await expect(
+    page.getByRole('heading', { level: 1, name: /most want help with/i }),
+  ).toBeVisible({ timeout: 30000 })
+  await page.getByRole('radio').first().click({ force: true })
+  await clickContinue(page)
 }
 
 async function completePledgeStep(page: Page): Promise<void> {

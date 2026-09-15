@@ -116,6 +116,16 @@ export type BallotStatus =
   | 'considering'
   | 'testing'
 
+// Onboarding's "What do you most want help with?" answer — the candidate's
+// primary reason for signing up. Persisted on the campaign.signupGoal column;
+// data.onboarding keeps a copy in the whole-answers snapshot, as an archive.
+export type SignupGoal =
+  | 'voter-data'
+  | 'voter-outreach'
+  | 'campaign-strategy'
+  | 'templates-resources'
+  | 'exploring'
+
 export interface CampaignDetails {
   state?: string
   ballotLevel?: string
@@ -482,6 +492,7 @@ export interface Campaign {
   didWin?: boolean | null
   primaryResult?: 'won' | 'lost' | null
   ballotStatus?: BallotStatus | null
+  signupGoal?: SignupGoal | null
   dateVerified?: Date | string | null
   tier?: CampaignTier | null
   formattedAddress?: string | null

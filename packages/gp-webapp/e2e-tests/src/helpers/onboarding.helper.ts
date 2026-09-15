@@ -91,6 +91,16 @@ const skipCampaignStoryStep = async (page: Page): Promise<void> => {
   }
 }
 
+// The story block's successor: a single-select "what do you most want help
+// with?" that sits between it and the pledge. Skipped here for the same reason
+// the story is — callers assert routing/pledge behavior, not this answer.
+const skipSignupGoalStep = async (page: Page): Promise<void> => {
+  await expect(
+    page.getByRole('heading', { level: 1, name: /most want help with/i }),
+  ).toBeVisible({ timeout: 30000 })
+  await page.getByRole('button', { name: /^skip$/i }).click()
+}
+
 export const completeOnboardingUpToPledge = async (
   page: Page,
 ): Promise<void> => {
@@ -100,6 +110,7 @@ export const completeOnboardingUpToPledge = async (
   await completeOfficeSelectionStep(page)
   await completePathToVictoryStep(page)
   await skipCampaignStoryStep(page)
+  await skipSignupGoalStep(page)
   await expect(
     page.getByRole('heading', { level: 1, name: /take our pledge/i }),
   ).toBeVisible()

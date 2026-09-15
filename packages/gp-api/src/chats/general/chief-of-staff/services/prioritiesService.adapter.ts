@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { format, formatISO, parseISO } from 'date-fns'
+import { formatISO, parseISO } from 'date-fns'
 import { PrioritySource } from '@/generated/prisma'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
 import {
@@ -17,16 +17,20 @@ type PriorityRow = {
   archivedAt: Date | null
 }
 
+// targetDate is `@db.Date`, so it round-trips as UTC midnight. Rendering it
+// through the local zone prints the previous day west of UTC, and parsing a
+// bare date to local midnight stores the previous day east of UTC, so both
+// directions are pinned to UTC. archivedAt is a real timestamp, not a date.
 const toRecord = (row: PriorityRow): PriorityRecord => ({
   id: row.id,
   title: row.title,
   description: row.description,
-  targetDate: row.targetDate ? format(row.targetDate, 'yyyy-MM-dd') : null,
+  targetDate: row.targetDate ? row.targetDate.toISOString().slice(0, 10) : null,
   archivedAt: row.archivedAt ? formatISO(row.archivedAt) : null,
 })
 
 const toDate = (value?: string | null): Date | null =>
-  value ? parseISO(value) : null
+  value ? parseISO(`${value}T00:00:00Z`) : null
 
 // Binds slice 3's PrioritiesToolPort to slice 1's PrioritiesService. The port
 // passes electedOfficeId in each call and exchanges ISO date strings; the

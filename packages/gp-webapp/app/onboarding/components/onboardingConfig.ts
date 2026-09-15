@@ -123,6 +123,17 @@ export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
       'We use each priority to draft targeted outreach and shape your campaign plan. Add as many as matter to you. You can always edit or remove them later.',
     isValid: () => true,
   },
+  // The candidate's primary reason for signing up, asked last so it never
+  // stands between them and the plan. Skippable: Continue needs a selection,
+  // Skip is the way past it unanswered — see OnboardingFlow's advanceSignupGoal.
+  {
+    id: 'signup-goal',
+    title: 'What do you most want help with?',
+    description: 'Pick the one that matters most right now.',
+    whyThisMatters:
+      'We use this to decide what to put in front of you first, so your dashboard opens on the thing you came here for.',
+    isValid: ({ answers }) => Boolean(answers.signupGoal),
+  },
   {
     id: 'pledge',
     title: 'Take our pledge to get your campaign plan',

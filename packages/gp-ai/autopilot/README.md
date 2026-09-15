@@ -62,13 +62,29 @@ fail; the run parks and asks (`agent/stages/epic-create.md`, step 1), and a
 human answering the question (or moving the card back) re-dispatches a fresh
 `resume` run to pick the stage back up.
 
+**Board shape.** ONE ClickUp list holds both card kinds: a feature card is a
+top-level task, a story is a subtask of its feature card — parenthood is how
+the conductor tells them apart (`router.derive_card_type`), not list
+membership. Real ClickUp deliveries carry no list, status, or parent, so the
+async worker hydrates all three with one task read before routing
+(`handler._hydrate_from_clickup`); the fast-ack edge stays fetch-free.
+
 **Status spec** (`router.py`'s `STATUS_*` constants are the source of
 truth — a board relabel without a matching code change breaks routing):
 
-| List | Statuses |
-| --- | --- |
-| Feature ("Autopilot features") | `approved tdd`, `in progress`, `feedback needed`, `breakdown review`, `executing`, `done` |
-| Story ("Autopilot stories") | `to do`, `executing`, `in progress`, `feedback needed`, `qa`, `done` |
+| Status | Feature card means | Story means |
+| --- | --- | --- |
+| `approved tdd` | intake: TDD approved, awaiting kickoff | queued (fresh stories land here) |
+| `in progress` | epic-create is planning | story stage is implementing |
+| `feedback needed` | breakdown posted for review, or a parked question | parked question / QA findings |
+| `executing` | breakdown approved; stories are being dispatched | (never used) |
+| `qa` | (never used) | merged, QA verifying |
+| `done` | every story done | shipped and verified |
+
+`executing` must stay distinct from `in progress` on the feature card: the
+sweep unconditionally drives every epic sitting in `executing`, and folding
+it into `in progress` would let a sweep tick dispatch stories while
+epic-create is still mid-breakdown, before the human approved it.
 
 **The two human gates.** A transition into `GATE_TO_STATUSES` only dispatches
 when the actor is a human — `router.py` checks the moving user against
@@ -76,7 +92,7 @@ when the actor is a human — `router.py` checks the moving user against
 
 - `approved tdd` → `in progress` (feature card): starts breakdown
   (`epic-create` stage — turns the TDD into a linked story breakdown).
-- `breakdown review` → `executing` (feature card): starts implementation
+- `feedback needed` → `executing` (feature card): starts implementation
   (hands the card to the epic supervisor, which dispatches stories one at a
   time).
 
@@ -86,7 +102,7 @@ non-gate transition a bot actor is expected to make.
 
 ### Environment variables
 
-Beyond the routing/dispatch set (`AUTOPILOT_LIST_IDS`, `AUTOPILOT_STORY_LIST_IDS`,
+Beyond the routing/dispatch set (`AUTOPILOT_LIST_IDS`,
 `AUTOPILOT_BOT_USER_ID`, `AUTOPILOT_DEDUP_TABLE`, `AUTOPILOT_CLICKUP_WEBHOOK_SECRET`,
 `ECS_CLUSTER_ARN`, `ECS_TASK_DEFINITION`, `ECS_TASK_DEFINITION_PLAYWRIGHT`,
 `SUBNET_IDS`, `SECURITY_GROUP_ID`), the supervisor and sweep need:

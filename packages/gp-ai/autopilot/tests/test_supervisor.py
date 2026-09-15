@@ -43,6 +43,8 @@ class FakeDynamoDBClient:
             return existing is None
         if expression == "attribute_not_exists(pk) OR #exp < :now":
             return existing is None or int(existing["expires_at"]["N"]) < now
+        if expression == "attribute_not_exists(pk) OR #exp < :now OR attribute_not_exists(story_task_id)":
+            return existing is None or int(existing["expires_at"]["N"]) < now or "story_task_id" not in existing
         if expression == "attribute_not_exists(pk) OR attribute_not_exists(alerted_at)":
             return existing is None or "alerted_at" not in existing
         raise AssertionError(f"fake does not know how to evaluate condition: {expression!r}")
@@ -156,7 +158,7 @@ def story_task(task_id, status, order_index="1", dependencies=None):
 
 
 def register_epic(fake_clickup, story_ids, stories):
-    fake_clickup.responses[f"/task/{EPIC_ID}?include_subtasks=true"] = epic_response(story_ids)
+    fake_clickup.responses[f"/task/{EPIC_ID}?include_subtasks=true&include_closed=true"] = epic_response(story_ids)
     for story_id, task in stories.items():
         fake_clickup.responses[f"/task/{story_id}"] = task
 
@@ -171,8 +173,8 @@ def test_select_next_story_orders_numerically_not_lexicographically():
     # sequential integer — "10" must sort AFTER "2", where a plain string
     # sort would put it first.
     stories = [
-        supervisor.Story("s10", router.STATUS_TO_DO, "10", frozenset()),
-        supervisor.Story("s2", router.STATUS_TO_DO, "2", frozenset()),
+        supervisor.Story("s10", router.STATUS_APPROVED_TDD, "10", frozenset()),
+        supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset()),
     ]
 
     assert supervisor.select_next_story(stories).task_id == "s2"
@@ -180,8 +182,8 @@ def test_select_next_story_orders_numerically_not_lexicographically():
 
 def test_select_next_story_prefers_board_order_when_no_dependencies():
     stories = [
-        supervisor.Story("s2", router.STATUS_TO_DO, "2", frozenset()),
-        supervisor.Story("s1", router.STATUS_TO_DO, "1", frozenset()),
+        supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset()),
+        supervisor.Story("s1", router.STATUS_APPROVED_TDD, "1", frozenset()),
     ]
 
     assert supervisor.select_next_story(stories).task_id == "s1"
@@ -191,9 +193,9 @@ def test_select_next_story_prefers_dependency_links_over_board_order():
     # s1 has the lower board position, but s2 blocks s3 (not yet done) — the
     # ticket's "dependency links first" beats plain board order.
     stories = [
-        supervisor.Story("s1", router.STATUS_TO_DO, "1", frozenset()),
-        supervisor.Story("s2", router.STATUS_TO_DO, "2", frozenset()),
-        supervisor.Story("s3", router.STATUS_TO_DO, "3", frozenset({"s2"})),
+        supervisor.Story("s1", router.STATUS_APPROVED_TDD, "1", frozenset()),
+        supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset()),
+        supervisor.Story("s3", router.STATUS_APPROVED_TDD, "3", frozenset({"s2"})),
     ]
 
     assert supervisor.select_next_story(stories).task_id == "s2"
@@ -202,7 +204,7 @@ def test_select_next_story_prefers_dependency_links_over_board_order():
 def test_select_next_story_skips_feedback_needed():
     stories = [
         supervisor.Story("s1", router.STATUS_FEEDBACK_NEEDED, "1", frozenset()),
-        supervisor.Story("s2", router.STATUS_TO_DO, "2", frozenset()),
+        supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset()),
     ]
 
     assert supervisor.select_next_story(stories).task_id == "s2"
@@ -210,8 +212,8 @@ def test_select_next_story_skips_feedback_needed():
 
 def test_select_next_story_skips_stories_still_blocked():
     stories = [
-        supervisor.Story("s1", router.STATUS_TO_DO, "1", frozenset({"s2"})),
-        supervisor.Story("s2", router.STATUS_TO_DO, "2", frozenset()),
+        supervisor.Story("s1", router.STATUS_APPROVED_TDD, "1", frozenset({"s2"})),
+        supervisor.Story("s2", router.STATUS_APPROVED_TDD, "2", frozenset()),
     ]
 
     assert supervisor.select_next_story(stories).task_id == "s2"
@@ -235,7 +237,7 @@ def test_tick_dispatches_first_unblocked_story_with_epic_task_id(fake_clickup, f
     register_epic(
         fake_clickup,
         ["s1"],
-        {"s1": story_task("s1", router.STATUS_TO_DO)},
+        {"s1": story_task("s1", router.STATUS_APPROVED_TDD)},
     )
 
     supervisor.run_supervisor_tick(EPIC_ID)
@@ -254,7 +256,7 @@ def test_tick_dispatches_next_unblocked_after_a_story_finishes(fake_clickup, fak
         ["s1", "s2"],
         {
             "s1": story_task("s1", router.STATUS_DONE),
-            "s2": story_task("s2", router.STATUS_TO_DO, order_index="2"),
+            "s2": story_task("s2", router.STATUS_APPROVED_TDD, order_index="2"),
         },
     )
 
@@ -275,8 +277,8 @@ def test_epic_claim_blocks_second_dispatch(fake_clickup, fake_ecs):
         fake_clickup,
         ["s1", "s2"],
         {
-            "s1": story_task("s1", router.STATUS_TO_DO),
-            "s2": story_task("s2", router.STATUS_TO_DO, order_index="2"),
+            "s1": story_task("s1", router.STATUS_APPROVED_TDD),
+            "s2": story_task("s2", router.STATUS_APPROVED_TDD, order_index="2"),
         },
     )
 
@@ -299,8 +301,8 @@ def test_claim_survives_a_tick_before_clickup_status_catches_up(fake_clickup, fa
         fake_clickup,
         ["s1", "s2"],
         {
-            "s1": story_task("s1", router.STATUS_TO_DO),
-            "s2": story_task("s2", router.STATUS_TO_DO, order_index="2"),
+            "s1": story_task("s1", router.STATUS_APPROVED_TDD),
+            "s2": story_task("s2", router.STATUS_APPROVED_TDD, order_index="2"),
         },
     )
 
@@ -324,7 +326,7 @@ def test_in_flight_story_status_blocks_dispatch_even_without_a_claim(fake_clicku
         ["s1", "s2"],
         {
             "s1": story_task("s1", router.STATUS_IN_PROGRESS),
-            "s2": story_task("s2", router.STATUS_TO_DO, order_index="2"),
+            "s2": story_task("s2", router.STATUS_APPROVED_TDD, order_index="2"),
         },
     )
 
@@ -338,8 +340,8 @@ def test_claim_released_once_in_flight_story_reaches_done(fake_clickup, fake_ecs
         fake_clickup,
         ["s1", "s2"],
         {
-            "s1": story_task("s1", router.STATUS_TO_DO),
-            "s2": story_task("s2", router.STATUS_TO_DO, order_index="2"),
+            "s1": story_task("s1", router.STATUS_APPROVED_TDD),
+            "s2": story_task("s2", router.STATUS_APPROVED_TDD, order_index="2"),
         },
     )
     supervisor.run_supervisor_tick(EPIC_ID)
@@ -381,6 +383,10 @@ def test_all_done_closes_out_epic(fake_clickup, fake_ecs):
     cleanup_calls = [c for c in fake_clickup.calls if c[1] == "/list/list-1/task"]
     assert len(cleanup_calls) == 1
     assert cleanup_calls[0][2]["parent"] == EPIC_ID
+    # Born done: as a subtask of the epic the cleanup ticket IS a story to
+    # the supervisor, and the list-default status is the story queue — a
+    # tick racing close-out would otherwise dispatch a story agent on it.
+    assert cleanup_calls[0][2]["status"] == router.STATUS_DONE
     assert len(fake_clickup.slack_posts) == 1
     assert "cleanup-1" in fake_clickup.slack_posts[0]["text"] or "complete" in fake_clickup.slack_posts[0]["text"]
 
@@ -529,6 +535,37 @@ def test_alerted_at_recorded_on_the_epic_claim_item(fake_clickup, fake_ecs, fake
     assert "alerted_at" in item
 
 
+def test_story_dragged_into_executing_alerts_instead_of_silently_freezing(fake_clickup, fake_ecs, fake_dynamodb):
+    # Stories never reach "executing" in the pipeline, but a manual drag can
+    # put one there — it reads as in-flight (blocking every dispatch on its
+    # epic) so it must at least stall-alert rather than freeze silently.
+    register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_EXECUTING)})
+    stale_since = str(int((time.time() - supervisor.STATUS_TTL_SECONDS[router.STATUS_EXECUTING] - 60) * 1000))
+    fake_clickup.responses["/task/s1/time_in_status"] = {"current_status": {"since": stale_since}}
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+
+    assert fake_ecs.run_task_calls == []  # in-flight guard still holds
+    assert len(fake_clickup.slack_posts) == 1
+    assert "executing" in fake_clickup.slack_posts[0]["text"]
+
+
+def test_alert_only_claim_item_does_not_block_a_real_dispatch(fake_clickup, fake_ecs, fake_dynamodb):
+    # The sweep's pre-supervisor feature-card stall alert writes this epic's
+    # claim pk with a live expires_at and NO story_task_id. When the human
+    # then approves the breakdown and the first real tick runs, that
+    # alert-only item must not read as "a story is in flight" — the dispatch
+    # claim overwrites it (the attribute_not_exists(story_task_id) clause).
+    register_epic(fake_clickup, ["s1"], {"s1": story_task("s1", router.STATUS_APPROVED_TDD)})
+    assert supervisor.try_claim_stall_alert(EPIC_ID)
+
+    supervisor.run_supervisor_tick(EPIC_ID)
+
+    assert len(fake_ecs.run_task_calls) == 1
+    claim = fake_dynamodb.items[supervisor.epic_claim_pk(EPIC_ID)]
+    assert claim["story_task_id"]["S"] == "s1"
+
+
 def test_alerting_preserves_the_claimed_story_id(fake_clickup, fake_ecs, fake_dynamodb):
     # A story we ourselves dispatched (claim holds story_task_id) that then
     # stalls must still be recognized as "claimed" by the next tick after
@@ -538,8 +575,8 @@ def test_alerting_preserves_the_claimed_story_id(fake_clickup, fake_ecs, fake_dy
         fake_clickup,
         ["s1", "s2"],
         {
-            "s1": story_task("s1", router.STATUS_TO_DO),
-            "s2": story_task("s2", router.STATUS_TO_DO, order_index="2"),
+            "s1": story_task("s1", router.STATUS_APPROVED_TDD),
+            "s2": story_task("s2", router.STATUS_APPROVED_TDD, order_index="2"),
         },
     )
     supervisor.run_supervisor_tick(EPIC_ID)

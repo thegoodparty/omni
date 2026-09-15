@@ -3,13 +3,9 @@
 # comment for the *.auto.tfvars convention). Real values wired by ENG-11104 —
 # see this directory's README.md for the board/webhook record.
 
-# Autopilot folder 901319488097 (Engineering space 90138877046, team
-# 90132012119): "Autopilot features" (901329057923) + "Autopilot stories"
-# (901329057924).
-autopilot_list_ids = "901329057923,901329057924"
-
-# Subset of autopilot_list_ids that are story lists.
-autopilot_story_list_ids = "901329057924"
+# Autopilot folder 901319491206 (Engineering space 90138877046, team
+# 90132012119): one shared list holds feature cards and their story subtasks.
+autopilot_list_ids = "901329066225"
 
 # ClickUp user id the CLICKUP_API_KEY in AI_SECRETS_DEV belongs to
 # ("Collin Park"). The human-actor gate ignores this user's own writes, so
