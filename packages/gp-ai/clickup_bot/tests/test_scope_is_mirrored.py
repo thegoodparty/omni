@@ -24,6 +24,7 @@ cases in one pytest session; TEST_PATHS in the Makefile covers both packages.
 
 import handler
 import pytest
+import weekly_digest
 
 from engineer_agent.agent import config as agent_config
 from engineer_agent.agent import escalation
@@ -240,8 +241,14 @@ def test_the_dev_test_label_agrees_across_the_package_boundary():
     decline to escalate because the value they were handed is not in the set the
     agent recognises. Nothing errors. The tickets just stop turning into PRs,
     which is indistinguishable from the tests having got healthier.
+
+    The digest holds a third copy, and its drift is quieter still: `dev_tests()`
+    filters run records on it, so a value that no longer matches reports zero
+    dev-test runs every week — which this message states as the good outcome,
+    the release train having stayed green.
     """
     assert handler.DEV_TEST_LABEL == agent_config.DEV_TEST_LABEL
+    assert handler.DEV_TEST_LABEL == weekly_digest.DEV_TEST_LABEL
 
 
 def test_every_escalating_label_is_a_label_the_lambda_actually_sets():

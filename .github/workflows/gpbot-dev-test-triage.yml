@@ -261,6 +261,11 @@ jobs:
           SHARDS_RAN: ${{ steps.triage.outputs.shards_ran }}
           COUNT: ${{ steps.triage.outputs.count }}
           OTHER: ${{ steps.triage.outputs.other_failures }}
+          # This step runs on `always()`, so it also runs when the ClickUp step
+          # died — and a disposition that lists the failures without saying they
+          # went unticketed is the silent write failure this workflow exists to
+          # prevent, reported in the voice of the thing working.
+          CLICKUP_OUTCOME: ${{ steps.clickup.outcome }}
         run: |
           set -euo pipefail
           if [ -z "${SLACK_APP_BOT_TOKEN:-}" ] || [ -z "${SLACK_CHANNEL_ID:-}" ]; then
@@ -278,7 +283,16 @@ jobs:
                 elif .disposition == "repeat" then "• already open as \(.task.custom_id // .task.id) — \(.title) (commented, no second run queued)"
                 else "• would file — \(.title)" end
               ) | join("\n")' filed.jsonl 2>/dev/null || echo "")
-            summary=$(printf ':mag: dev-only E2E triage: %s spec(s) failed. These never run on PRs, so nothing saw them before the merge.\n%s' "$COUNT" "$lines")
+            if [ "$CLICKUP_OUTCOME" = "failure" ]; then
+              # `filed.jsonl` holds whatever was written before the step died,
+              # and is absent entirely if it died before the first ticket — so
+              # the list is named as a partial one either way. The alarm is the
+              # point: these specs failed and are not in anyone's queue.
+              [ -n "$lines" ] || lines="• nothing was filed"
+              summary=$(printf ':warning: dev-only E2E triage: %s spec(s) failed and the ClickUp step errored, so some or all of them were NOT ticketed and no agent run will start for them. Filed before it died:\n%s' "$COUNT" "$lines")
+            else
+              summary=$(printf ':mag: dev-only E2E triage: %s spec(s) failed. These never run on PRs, so nothing saw them before the merge.\n%s' "$COUNT" "$lines")
+            fi
           fi
 
           # Threaded under release-failure-alert.yml's message for this same run
