@@ -408,6 +408,44 @@ describe('the talking points step', () => {
     // Never the Win endpoint, whose prompt says "running for".
     expect(drafts).toHaveLength(0)
   })
+
+  // The priority flow's handoff arrives with the goal, the name and the ask
+  // already decided, and the ask is what makes the card about the priority
+  // rather than about community input in general.
+  it('drafts from the handed-over ask, unprompted', async () => {
+    mockDraft()
+    const handoff = {
+      purpose: 'community_input' as const,
+      name: 'School overcrowding listening',
+      instructions: 'Ask about the trailers behind Jones Elementary.',
+    }
+    const view = render(
+      <DoorKnockingSurfaceProvider value>
+        <CreateListFlow {...baseProps} step="filters" handoff={handoff} />
+      </DoorKnockingSurfaceProvider>,
+    )
+
+    // No goal card was pressed: the handoff opened the flow past them.
+    view.rerender(
+      <DoorKnockingSurfaceProvider value>
+        <CreateListFlow {...baseProps} step="confirm" handoff={handoff} />
+      </DoorKnockingSurfaceProvider>,
+    )
+    expect(screen.getByLabelText('Campaign name')).toHaveValue(
+      'School overcrowding listening',
+    )
+
+    view.rerender(
+      <DoorKnockingSurfaceProvider value>
+        <CreateListFlow {...baseProps} step="points" handoff={handoff} />
+      </DoorKnockingSurfaceProvider>,
+    )
+    await waitFor(() => expect(serveDrafts).toHaveLength(1))
+    expect(serveDrafts[0]).toMatchObject({
+      purpose: 'community_input',
+      instructions: 'Ask about the trailers behind Jones Elementary.',
+    })
+  })
 })
 
 describe('freezing the card with the list', () => {

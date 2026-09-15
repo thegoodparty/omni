@@ -3,6 +3,9 @@ import candidateAccess from '../shared/candidateAccess'
 import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
 import DoorKnockingPageGate from './native/DoorKnockingPageGate'
 import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveListId.util'
+import { SERVE_OUTREACH_PURPOSE_VALUES } from '@goodparty_org/contracts'
+import { MAX_CAMPAIGN_NAME_LENGTH } from './native/createFlow/createFlowSteps'
+import type { CreateListHandoff } from './native/createFlow/CreateListFlow'
 import { serverFetch } from 'gpApi/serverFetch'
 import { apiRoutes } from 'gpApi/routes'
 
@@ -37,7 +40,40 @@ interface PageParams {
     walkTurfId?: string
     outreachId?: string
     create?: string
+    purpose?: string
+    name?: string
+    ask?: string
   }>
+}
+
+// What the talking-points draft is willing to be steered by. Long enough for
+// the ask a conversation produced, short enough that a pasted transcript
+// cannot become the prompt.
+const MAX_HANDOFF_ASK_LENGTH = 600
+
+// The priority flow's handoff, which arrives in the address bar because door
+// knocking is a route rather than a drawer: the wizard is drawn over the
+// district map, and the map is most of what it is for.
+//
+// A handoff exists only with a purpose the create flow's own cards offer, and
+// only Serve's vocabulary is offered on a handoff — the sender is the Serve
+// priority flow. Anything else is somebody's stray query string, and the
+// walk it would seed is one nobody asked for, so the flow opens ordinary.
+// The other two fields degrade rather than refuse: a walk with no name gets
+// the flow's own suggestion, and one with no ask gets the card the goal alone
+// writes.
+const parseHandoff = (
+  purpose: string | undefined,
+  name: string | undefined,
+  ask: string | undefined,
+): CreateListHandoff | undefined => {
+  const known = SERVE_OUTREACH_PURPOSE_VALUES.find((value) => value === purpose)
+  if (!known) return undefined
+  return {
+    purpose: known,
+    name: (name ?? '').trim().slice(0, MAX_CAMPAIGN_NAME_LENGTH),
+    instructions: (ask ?? '').trim().slice(0, MAX_HANDOFF_ASK_LENGTH),
+  }
 }
 
 export default async function Page({
@@ -45,12 +81,15 @@ export default async function Page({
 }: PageParams): Promise<React.JSX.Element> {
   await candidateAccess()
 
-  const [{ listId, walkTurfId, outreachId, create }, campaign, summary] =
-    await Promise.all([
-      searchParams,
-      fetchUserCampaign(),
-      fetchEcanvasserSummary(),
-    ])
+  const [
+    { listId, walkTurfId, outreachId, create, purpose, name, ask },
+    campaign,
+    summary,
+  ] = await Promise.all([
+    searchParams,
+    fetchUserCampaign(),
+    fetchEcanvasserSummary(),
+  ])
 
   // Carries a saved list from the outreach hub's door-knocking tile so the
   // create flow's who step opens on it. The same parser the outreach page
@@ -78,6 +117,7 @@ export default async function Page({
     // Exactly `'1'` — anything else is somebody's stray query string, and the
     // page it would open a modal over is perfectly usable without one.
     openCreateFlow: create === '1',
+    handoff: parseHandoff(purpose, name, ask),
   }
 
   return <DoorKnockingPageGate {...childProps} />

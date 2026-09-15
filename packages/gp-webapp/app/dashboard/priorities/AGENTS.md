@@ -6,32 +6,32 @@ done, and where they open one to work it forward. Gated by `serveAccess()`.
 **The content is real; the plumbing is borrowed.** Read the table before
 changing anything here.
 
-| Piece                       | State                                                                                                                                                                    |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| The list, create, seed lane | Real. `GET/POST /v1/priorities`, `POST /v1/community-issues/:id/prioritize`                                                                                               |
-| The flow's content          | Real. Every step sends its ask to the live agent with the user's own priority in it, so the questions, evidence, options, and plan are about that priority                 |
+| Piece                       | State                                                                                                                                                                                                                                                       |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The list, create, seed lane | Real. `GET/POST /v1/priorities`, `POST /v1/community-issues/:id/prioritize`                                                                                                                                                                                 |
+| The flow's content          | Real. Every step sends its ask to the live agent with the user's own priority in it, so the questions, evidence, options, and plan are about that priority                                                                                                  |
 | The step interaction        | Real. Each step asks before it can settle, and the Continue row appears only once the agent says the step is settled. The ordinance flow does this with tools; here the agent ends each turn with a fenced block the client parses (`data/stepProtocol.ts`) |
-| The outreach handoff        | Real. Settling comes with the list already built (the agent has `crud_saved_filters`), the channel picked and the message drafted; one action opens Constituent Outreach on it |
-| The flow's scope            | Borrowed. It runs on `chief_of_staff`, so flow conversations land in that history and the answers come back as prose, not the design's structured cards                    |
-| Step state                  | Persisted, via the conversation. gp-api find-or-creates on the priority anchor, so reopening a priority resumes its one thread; the step comes back off a marker in the transcript |
-| Waiting on the real world   | Persisted the same way. A step that needs a council meeting or an attorney records what it is waiting on, and the next visit opens by asking how it went                    |
-| Rank                        | Display order of what the API returns. `Priority` has no `rank` column, so there is no reorder control yet; the first three rows carry the top-N marker                    |
-| The public toggle           | Session state in the flow header. No `isPublic` column either, so it resets on reload                                                                                     |
+| The outreach handoff        | Real. Settling comes with the list already built (the agent has `crud_saved_filters`), the channel picked and the message drafted; one action opens Constituent Outreach on it                                                                              |
+| The flow's scope            | Borrowed. It runs on `chief_of_staff`, so flow conversations land in that history and the answers come back as prose, not the design's structured cards                                                                                                     |
+| Step state                  | Persisted, via the conversation. gp-api find-or-creates on the priority anchor, so reopening a priority resumes its one thread; the step comes back off a marker in the transcript                                                                          |
+| Waiting on the real world   | Persisted the same way. A step that needs a council meeting or an attorney records what it is waiting on, and the next visit opens by asking how it went                                                                                                    |
+| Rank                        | Display order of what the API returns. `Priority` has no `rank` column, so there is no reorder control yet; the first three rows carry the top-N marker                                                                                                     |
+| The public toggle           | Session state in the flow header. No `isPublic` column either, so it resets on reload                                                                                                                                                                       |
 
 ## Files
 
-| File                            | Role                                                                                  |
-| ------------------------------- | ------------------------------------------------------------------------------------- |
-| `page.tsx`                      | The list. Priorities are required; the issue feed is best-effort so a feed miss cannot blank the page |
-| `[priorityId]/page.tsx`         | One priority. There is no `GET /v1/priorities/:id`, so it finds the record in the list |
-| `components/PrioritiesHub.tsx`  | The list: lane chips, rows, and the community-issue seed lane below                     |
-| `components/AddPriorityForm.tsx`| Inline create, opened by the header button                                             |
-| `components/PriorityFlowShell.tsx` | The chat wrapper: conversation bootstrap, a hidden ask per step, transcript, composer |
-| `components/PriorityQuestion.tsx` | A step question as option cards plus write-your-own, mirroring the ordinance clarify widget |
-| `data/stepProtocol.ts`          | The ask/settle block the agent ends each turn with, and the parser that pulls it out of a turn |
-| `data/stepPrompts.ts`           | What each step asks the agent for, with the priority in it. Each one is a miniature of its rule block in the design doc |
-| `data/chat-api.ts`              | The flow's chat client, bound to `chief_of_staff` until the flow has its own scope      |
-| `data/steps.ts`                 | Step order, stage grouping, labels, and CTAs. The only source of the spine until contracts owns the step union |
+| File                               | Role                                                                                                                    |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `page.tsx`                         | The list. Priorities are required; the issue feed is best-effort so a feed miss cannot blank the page                   |
+| `[priorityId]/page.tsx`            | One priority. There is no `GET /v1/priorities/:id`, so it finds the record in the list                                  |
+| `components/PrioritiesHub.tsx`     | The list: lane chips, rows, and the community-issue seed lane below                                                     |
+| `components/AddPriorityForm.tsx`   | Inline create, opened by the header button                                                                              |
+| `components/PriorityFlowShell.tsx` | The chat wrapper: conversation bootstrap, a hidden ask per step, transcript, composer                                   |
+| `components/PriorityQuestion.tsx`  | A step question as option cards plus write-your-own, mirroring the ordinance clarify widget                             |
+| `data/stepProtocol.ts`             | The ask/settle block the agent ends each turn with, and the parser that pulls it out of a turn                          |
+| `data/stepPrompts.ts`              | What each step asks the agent for, with the priority in it. Each one is a miniature of its rule block in the design doc |
+| `data/chat-api.ts`                 | The flow's chat client, bound to `chief_of_staff` until the flow has its own scope                                      |
+| `data/steps.ts`                    | Step order, stage grouping, labels, and CTAs. The only source of the spine until contracts owns the step union          |
 
 ## Why the flow looks like this
 
@@ -108,11 +108,44 @@ navigates to `/dashboard/constituent-outreach?flow=…&listId=…&message=…` a
 opens that channel's flow with the list preselected and the message loaded, so
 they land on the screen where they review what gets said.
 
-`PhoneBankingFlow` grew one prop for this (`initialScript`) alongside the
-`preselectedListId` it already had; both default to the old behaviour, so the
-Win hub is untouched. The flow only jumps to the script step once the
-preselected list actually resolved, since a script with no audience behind it
-strands the caller on a step whose Continue cannot pass.
+**Every channel opens with the work already in it, and the person arrives at
+the thing only they can decide.** A handoff that dropped someone on step one of
+a wizard would waste what the conversation already settled, so each flow is
+handed the audience, the message, the goal (`community_input` — the ask is
+always what constituents think) and the campaign name.
+
+| Channel       | Opens                                       | Left to the official         |
+| ------------- | ------------------------------------------- | ---------------------------- |
+| Phone banking | Over the conversation, on the script step   | Check the script, buy sheets |
+| Social        | Over the conversation, on the compose step  | Check the post, then post    |
+| Door knocking | `/dashboard/door-knocking`, on the who step | Draw the turf, buy the route |
+
+`PhoneBankingFlow` and `SocialFlow` grew prefill props for this
+(`initialScript` / `initialMessage`, plus `initialPurpose` and `initialName`)
+alongside the `preselectedListId` phone banking already had; all of them
+default to the old behaviour, so the Win hub is untouched. Two details are
+load-bearing. Phone banking only jumps to the script step once the preselected
+list actually resolved, since a script with no audience behind it strands the
+caller on a step whose Continue cannot pass. And `initialPurpose` is not a
+nicety: both flows send the purpose with their create call, so a flow opened
+past the purpose step without one reaches the end and is refused for a choice
+nobody was ever offered.
+
+A handed-over message counts as **typed** rather than as the flow's own
+generation, in both. It came out of a real conversation, so a tone change must
+not quietly rewrite it, and the name must not be overwritten by the
+suggestion keyed off the purpose slug.
+
+**Door knocking navigates, and it is the one channel that has to.** Its wizard
+is drawn on the district map, which is a route rather than a drawer, and the
+map is most of what the wizard is for — so the handoff travels as query params
+(`create=1`, `listId`, `purpose`, `name`, `ask`) and `ask` steers the
+talking-points draft rather than replacing the card, which is five sections
+written to a template. It stops at the who step rather than prefilling its way
+to the draw step, because the page starts the canvas drawing session on exactly
+the `filters` → `draw` transition: a flow that opened past it would put an
+undrawable map on screen. Closing it lands on Constituent Outreach, not back
+here — which costs nothing now that the conversation resumes off its anchor.
 
 ## State lives in the conversation
 

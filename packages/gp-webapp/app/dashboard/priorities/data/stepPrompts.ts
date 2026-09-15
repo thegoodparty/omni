@@ -250,10 +250,14 @@ export const buildOutreachPrompt = (settled: string): string =>
       'would confirm or break what we settled, by the method below; ' +
       'crud_saved_filters to actually create that list, named for this ' +
       'priority; then pick the channel they are likeliest to answer on ' +
-      '("phone_banking" for a conversation or an older group, "social" for ' +
+      '("phone_banking" for a real conversation or an older group, ' +
+      '"door_knocking" when the people it lands on are concentrated in one ' +
+      'place, like a corridor, a few blocks or a school zone, "social" for ' +
       'reach and for people not in the file) and write the message itself, ' +
       'short, in my voice, one clear question, and with no em-dashes in it ' +
-      'either: it is going out under my name.',
+      'either: it is going out under my name. On door_knocking the message ' +
+      'is what a canvasser raises at the door, so write it as the ask rather ' +
+      'than as a full script.',
     AFFECTEDNESS_METHOD,
     'End the turn with exactly this and nothing else:',
     '```' +

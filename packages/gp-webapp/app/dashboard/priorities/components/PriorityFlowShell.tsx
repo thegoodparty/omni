@@ -96,7 +96,14 @@ const resumedWaiting = (messages: ChatMessageDto[]): WaitingOn | null => {
 const CHANNEL_LABELS: Record<OutreachChannel, string> = {
   phone_banking: 'Phone banking',
   social: 'Social media',
+  door_knocking: 'Door knocking',
 }
+
+// Every handoff is the official asking the people a decision lands on what
+// they think, so the channel flows all open on the same goal. It is what the
+// outreach is filed as, and on door knocking it is also what the doorstep
+// card is drafted from.
+const HANDOFF_PURPOSE = 'community_input' as const
 
 export default function PriorityFlowShell({
   priority,
@@ -326,6 +333,27 @@ export default function PriorityFlowShell({
   // conversation they were having.
   const [outreachOpen, setOutreachOpen] = useState<OutreachPlan | null>(null)
 
+  // Door knocking is the one channel that cannot open over the conversation:
+  // its wizard is drawn on the district map, which is a route, and the map is
+  // most of what the wizard is for. So the handoff travels in the address bar
+  // instead, and everything the other two are handed as props is a param
+  // here. The boundary is the one thing left for a person to do, which is why
+  // this one navigates rather than prefilling its way to the end.
+  //
+  // Coming back is the priority page rather than the Back button: the
+  // conversation resumes off its own anchor, so the walk can be finished
+  // without holding a tab open.
+  const openWalk = (plan: OutreachPlan): void => {
+    const params = new URLSearchParams({
+      create: '1',
+      purpose: HANDOFF_PURPOSE,
+      ask: plan.message,
+    })
+    if (plan.listId !== null) params.set('listId', String(plan.listId))
+    if (plan.campaignName !== null) params.set('name', plan.campaignName)
+    router.push(`/dashboard/door-knocking?${params.toString()}`)
+  }
+
   const answerQuestion = (messageId: string, answer: string): void => {
     if (!conversationId || isStreaming()) return
     setAnswers((prev) => ({ ...prev, [messageId]: answer }))
@@ -469,7 +497,11 @@ export default function PriorityFlowShell({
                   {split.directive?.kind === 'outreach' ? (
                     <OutreachCard
                       outreach={split.directive.outreach}
-                      onOutreach={setOutreachOpen}
+                      onOutreach={(plan) =>
+                        plan.channel === 'door_knocking'
+                          ? openWalk(plan)
+                          : setOutreachOpen(plan)
+                      }
                     />
                   ) : null}
                   {split.directive?.kind === 'orgs' ? (
@@ -522,6 +554,7 @@ export default function PriorityFlowShell({
           onClose={() => setOutreachOpen(null)}
           surface={SERVE_PHONE_BANKING_SURFACE}
           initialScript={outreachOpen.message}
+          initialPurpose={HANDOFF_PURPOSE}
           {...(outreachOpen.listId !== null
             ? { preselectedListId: outreachOpen.listId }
             : {})}
@@ -538,6 +571,11 @@ export default function PriorityFlowShell({
           // here needs to react to it.
           onSaved={() => setOutreachOpen(null)}
           surface={SERVE_SOCIAL_SURFACE}
+          initialMessage={outreachOpen.message}
+          initialPurpose={HANDOFF_PURPOSE}
+          {...(outreachOpen.campaignName !== null
+            ? { initialName: outreachOpen.campaignName }
+            : {})}
         />
       ) : null}
 

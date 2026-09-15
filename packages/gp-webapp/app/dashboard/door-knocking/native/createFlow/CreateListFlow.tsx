@@ -196,6 +196,12 @@ interface CreateListFlowProps {
   // spend it. This flow is unmounted every time the create surface closes, so
   // it cannot remember on its own that the id has already been used.
   onPreselectApplied?: () => void
+  // A walk asked for elsewhere, seeded as this flow's starting state. Unlike
+  // `preselectedListId` it is not spent by the page: it is initial state of a
+  // component that is unmounted on every close, so reopening the flow with the
+  // handoff still in the address bar seeds it again, which is what the URL
+  // still says the walk is for.
+  handoff?: CreateListHandoff
   // Which saved list the who step is currently attached to. The draft is
   // booleans, and a list's support-status, activity and precinct clauses are
   // not, so the surface above cannot assemble the address-preview request from
@@ -268,7 +274,22 @@ const STAGE_META: Record<
 
 // The purpose union across both rails this one route serves — same
 // convention as PhoneBankingFlow's PhoneBankingFlowPurpose.
-type CreateFlowPurpose = DoorKnockingPurpose | ServeDoorKnockingPurpose
+export type CreateFlowPurpose = DoorKnockingPurpose | ServeDoorKnockingPurpose
+
+// A walk decided somewhere else and sent here to be cut: the priority flow
+// hands over the audience, the goal, the name and what the doorstep
+// conversation is for, having already picked all four in a conversation about
+// the priority. Everything except the boundary, which is the one part of this
+// flow a person has to do.
+//
+// `instructions` steers the talking-points draft rather than replacing it:
+// the card is five sections written to a template, and the priority is what
+// those sections should be about.
+export interface CreateListHandoff {
+  purpose: CreateFlowPurpose
+  name: string
+  instructions: string
+}
 
 const EMPTY_POINTS: TalkingPointsLines = {
   engagementQuestion: '',
@@ -308,6 +329,7 @@ export default function CreateListFlow({
   orgSlug,
   preselectedListId,
   onPreselectApplied,
+  handoff,
   onSelectedListChange,
 }: CreateListFlowProps) {
   const queryClient = useQueryClient()
@@ -318,13 +340,23 @@ export default function CreateListFlow({
   // candidate's name lives on the user, not the campaign.
   const [campaign] = useCampaign()
   const [user] = useUser()
-  const [name, setName] = useState('')
+  const [name, setName] = useState(handoff?.name ?? '')
   // The two pre-draw stages the orchestrator cannot see: its `filters` step is
   // this flow's purpose → who phase, and which of the two is on screen is
   // nobody else's business. Survives Back from the draw step because this
   // component stays mounted for the whole flow.
-  const [preDrawStage, setPreDrawStage] = useState<PreDrawStage>('purpose')
-  const [purpose, setPurpose] = useState<CreateFlowPurpose | null>(null)
+  //
+  // A handoff arrives with the goal already picked, so it opens on `who`: the
+  // audience is the thing to check next, and Back still reaches the cards. It
+  // does NOT skip to `draw`, however settled the audience is — the page starts
+  // the canvas drawing session on exactly the `filters` → `draw` transition,
+  // so a flow that opens past it would put an undrawable map on screen.
+  const [preDrawStage, setPreDrawStage] = useState<PreDrawStage>(
+    handoff ? 'who' : 'purpose',
+  )
+  const [purpose, setPurpose] = useState<CreateFlowPurpose | null>(
+    handoff?.purpose ?? null,
+  )
   // The goal cards and the name they suggest are the surface's answer: Serve
   // carries its own vocabulary (no election mechanics), and door knocking has
   // ONE route for both rails, so this is the only place the two can differ.
@@ -389,7 +421,7 @@ export default function CreateListFlow({
   // sends it, since that is the candidate asking to discard what is on
   // screen.
   const [pointsManuallyEdited, setPointsManuallyEdited] = useState(false)
-  const [instructions, setInstructions] = useState('')
+  const [instructions, setInstructions] = useState(handoff?.instructions ?? '')
   // Discards a response that arrives after a newer request was fired, so a
   // slow first draft cannot overwrite a fast regenerate.
   const draftRequestRef = useRef(0)
@@ -659,7 +691,9 @@ export default function CreateListFlow({
   // A picked list's own name is deliberately NOT a source. It names an
   // audience that outlives this walk, and reusing it would title every turf
   // cut from that list identically.
-  const nameTouched = useRef(false)
+  // A handed-over name counts as typed: it came out of a conversation about
+  // what this walk is for, which beats a suggestion keyed off the goal slug.
+  const nameTouched = useRef(Boolean(handoff?.name))
   const appliedSuggestion = useRef<string | null>(null)
   useEffect(() => {
     if (step !== 'confirm' || nameTouched.current) return

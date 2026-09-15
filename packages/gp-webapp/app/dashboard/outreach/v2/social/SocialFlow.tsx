@@ -160,6 +160,18 @@ interface SocialFlowProps {
   onClose: () => void
   onSaved: (detail: OutreachDetail) => void
   surface?: SocialFlowSurface
+  // A post already written by a caller that knows what this is for (the
+  // priority flow's outreach handoff). The flow opens on the compose step so
+  // the first thing on screen is the message to check, and counts it as typed
+  // rather than as this flow's own generation: a tone change must not quietly
+  // rewrite words that came out of a real conversation.
+  initialMessage?: string
+  // The purpose behind that message. Sent with the save, so a caller that
+  // skips the purpose step has to name one.
+  initialPurpose?: SocialFlowPurpose
+  // A campaign name from the same caller. Counts as typed, so the platforms
+  // step's suggestion leaves it alone.
+  initialName?: string
 }
 
 const SuccessScreen = ({
@@ -198,6 +210,9 @@ export const SocialFlow = ({
   onClose,
   onSaved,
   surface = WIN_SOCIAL_SURFACE,
+  initialMessage,
+  initialPurpose,
+  initialName,
 }: SocialFlowProps) => {
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SocialFlowPurpose | null>(null)
@@ -222,6 +237,11 @@ export const SocialFlow = ({
   // Guards against an out-of-order response (or one from a closed flow)
   // clobbering a newer draft.
   const draftRequestRef = useRef(0)
+
+  // The surface as of the latest render, for the one reader that must not
+  // depend on it (see the reset effect below).
+  const surfaceRef = useRef(surface)
+  surfaceRef.current = surface
 
   const draftMutation = useMutation({
     mutationFn: (input: SocialFlowDraftInput) => surface.endpoints.draft(input),
@@ -271,21 +291,37 @@ export const SocialFlow = ({
   useEffect(() => {
     if (!open) return
     draftRequestRef.current += 1
-    setStepId('purpose')
-    setPurpose(null)
+    setStepId(initialMessage ? 'compose' : 'purpose')
+    setPurpose(initialPurpose ?? null)
     setTone('warm')
-    setDraft('')
-    setManuallyEdited(false)
+    setDraft(initialMessage ?? '')
+    setManuallyEdited(Boolean(initialMessage))
     setUndoText(null)
-    setPlatforms(ALL_SOCIAL_PLATFORM_IDS)
+    // A purpose picked through the cards has its excluded platforms dropped
+    // by handleSelectPurpose; one handed in skips that click, and generate is
+    // gated on the same matrix server-side. Read through the ref so the
+    // surface is not a dependency of a reset: a caller that built one inline
+    // would otherwise wipe a half-written post on its next render.
+    const excluded = initialPurpose
+      ? surfaceRef.current.excludedPlatforms(initialPurpose)
+      : []
+    setPlatforms(ALL_SOCIAL_PLATFORM_IDS.filter((p) => !excluded.includes(p)))
     setAssets(null)
-    setName('')
-    setNameEdited(false)
+    setName(initialName ?? '')
+    setNameEdited(Boolean(initialName))
     setSaved(false)
     resetDraftMutation()
     resetGenerate()
     resetSave()
-  }, [open, resetDraftMutation, resetGenerate, resetSave])
+  }, [
+    open,
+    initialMessage,
+    initialPurpose,
+    initialName,
+    resetDraftMutation,
+    resetGenerate,
+    resetSave,
+  ])
 
   // Entering the share step (including Back-and-return after edits, which
   // clear `assets`) kicks off the one generate call.

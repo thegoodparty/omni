@@ -25,7 +25,14 @@ const QuestionDirectiveSchema = z.object({
   notes: z.array(z.string()).optional(),
 })
 
-export const OUTREACH_CHANNELS = ['phone_banking', 'social'] as const
+// Every channel Serve can actually open with the work already done. Each one
+// is handed the audience, the message and a name, so the official lands on the
+// step where they check what goes out rather than on step one of a wizard.
+export const OUTREACH_CHANNELS = [
+  'phone_banking',
+  'social',
+  'door_knocking',
+] as const
 
 const OutreachPlanSchema = z.object({
   // The group in plain language, as the agent described it from the contact

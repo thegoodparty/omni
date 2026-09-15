@@ -17,6 +17,7 @@ import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import DoorKnockingPage from '../components/DoorKnockingPage'
 import NativeDoorKnockingPage from './NativeDoorKnockingPage'
+import type { CreateListHandoff } from './createFlow/CreateListFlow'
 import { Campaign } from 'helpers/types'
 
 interface EcanvasserSummary {
@@ -40,6 +41,9 @@ interface DoorKnockingPageGateProps {
   // `?create=1` — the hub's tile opening the create flow on arrival. Native
   // only, for the same reason as the two above.
   openCreateFlow?: boolean
+  // The priority flow's handoff, native-only for the same reason: eCanvasser
+  // has no create flow to seed.
+  handoff?: CreateListHandoff
 }
 
 // Reached by URL or a stale tab rather than the sidebar — DashboardMenu hides
@@ -105,6 +109,7 @@ export default function DoorKnockingPageGate({
   walkTurfId,
   fromOutreachId,
   openCreateFlow,
+  handoff,
 }: DoorKnockingPageGateProps) {
   const { ready, enabled } = useNativeDoorKnockingFlag(true)
   const { data: electedOffice, isPending: isElectedOfficePending } =
@@ -147,6 +152,7 @@ export default function DoorKnockingPageGate({
         walkTurfId={walkTurfId}
         fromOutreachId={fromOutreachId}
         openCreateFlow={openCreateFlow}
+        {...(handoff ? { handoff } : {})}
       />
     )
   }

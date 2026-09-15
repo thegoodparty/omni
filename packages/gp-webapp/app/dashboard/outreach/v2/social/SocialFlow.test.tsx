@@ -6,6 +6,7 @@ import { api } from 'helpers/test-utils/api-mocking'
 import type {
   ServeSocialDraftRequest,
   ServeSocialGenerateRequest,
+  ServeSocialSaveRequest,
   SocialAsset,
   SocialAssetPlatform,
   SocialDraftRequest,
@@ -823,5 +824,54 @@ describe('SocialFlow with the serve surface', () => {
     const nextdoorCard = screen.getByRole('button', { name: /Nextdoor/ })
     expect(nextdoorCard).not.toHaveAttribute('aria-disabled', 'true')
     expect(nextdoorCard).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  // The priority flow's handoff: it has already decided the goal, written the
+  // post and named the campaign, so the official lands on the words rather
+  // than on step one of four.
+  it('opens on the handed-over post, writes nothing of its own, and saves it', async () => {
+    const draftCalls = mockServeDraft()
+    const generateCalls = mockServeGenerate()
+    const saveCalls: ServeSocialSaveRequest[] = []
+    api.mock('POST /v1/outreach/serve/social', ({ body }) => {
+      saveCalls.push(body)
+      return { status: 200, data: savedDetail }
+    })
+    render(
+      <SocialFlow
+        open
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        surface={SERVE_SOCIAL_SURFACE}
+        initialMessage="Two hundred kids are in trailers. What would you do?"
+        initialPurpose="community_input"
+        initialName="School overcrowding input"
+      />,
+    )
+
+    expect(await screen.findByLabelText('Draft message')).toHaveValue(
+      'Two hundred kids are in trailers. What would you do?',
+    )
+    // Nothing was picked in here, so there is nothing for the generator to
+    // have been asked for.
+    expect(draftCalls).toEqual([])
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findAllByText('Where do you want to share it?')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await waitFor(() => expect(generateCalls).toHaveLength(1))
+
+    // The name came out of a conversation about the priority, so the
+    // purpose's own suggestion ("Community input posts") never lands.
+    expect(await screen.findByLabelText('Campaign name')).toHaveValue(
+      'School overcrowding input',
+    )
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(saveCalls).toHaveLength(1))
+    expect(saveCalls[0]).toMatchObject({
+      name: 'School overcrowding input',
+      purpose: 'community_input',
+      draftMessage: 'Two hundred kids are in trailers. What would you do?',
+    })
   })
 })

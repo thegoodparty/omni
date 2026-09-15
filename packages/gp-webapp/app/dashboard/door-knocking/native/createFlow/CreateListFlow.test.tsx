@@ -1740,4 +1740,42 @@ describe('CreateListFlow on the Serve surface', () => {
   // per-door people count in the create flow). The Serve-vs-Win constituent
   // wording still runs everywhere DoorsPanel is used (person sheet, walk
   // view).
+
+  // The priority flow's handoff. It skips the goal cards, not the boundary:
+  // the shape is the one thing in this flow nobody else can decide.
+  it('opens a handed-over walk on the audience, with the list already on it', async () => {
+    render(
+      <DoorKnockingSurfaceProvider value>
+        <CreateListFlow
+          {...baseProps}
+          step="filters"
+          savedLists={[
+            {
+              id: 4,
+              name: 'Jones Elementary zone',
+              households: 820,
+              filters: {},
+            },
+          ]}
+          preselectedListId={4}
+          handoff={{
+            purpose: 'community_input',
+            name: 'School overcrowding listening',
+            instructions: 'Ask about the trailers.',
+          }}
+        />
+      </DoorKnockingSurfaceProvider>,
+    )
+
+    // Straight past the goal cards, which were answered in the conversation.
+    expect(
+      screen.queryByRole('button', { name: /Introduce myself/ }),
+    ).toBeNull()
+    expect(
+      await screen.findByRole('combobox', { name: 'All lists' }),
+    ).toHaveTextContent('Jones Elementary zone')
+    // Two of six: the draw, the name, the card and the route are all still
+    // ahead, and Back still reaches the goal cards.
+    expectStep(2, 6)
+  })
 })

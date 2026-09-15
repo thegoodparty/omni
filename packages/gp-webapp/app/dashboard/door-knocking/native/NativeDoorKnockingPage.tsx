@@ -34,6 +34,7 @@ import {
 } from './createFlow/voterFilterPreview'
 import { stopPositionsInRing } from './travelMode'
 import CreateListSurface, { useCreateListDraw } from './CreateListSurface'
+import type { CreateListHandoff } from './createFlow/CreateListFlow'
 import TurfDetailsSheet from './TurfDetailsSheet'
 import WalkSurface, { useWalkMapSession, WalkMapHint } from './WalkSurface'
 import { useWalkSession } from './useWalkSession'
@@ -101,6 +102,10 @@ interface NativeDoorKnockingPageProps {
   // rather than to look at the rail. The tile is the only caller, so closing
   // the flow it opened goes back to the hub it was pressed on.
   openCreateFlow?: boolean
+  // A walk the priority flow has already decided everything about except the
+  // boundary, carried in on `?purpose=`, `?name=` and `?ask=`. Held by the
+  // create flow, not by this page: nothing on the map reads it.
+  handoff?: CreateListHandoff
 }
 
 // Where closing the walk should put the candidate back. Each way in has a
@@ -144,6 +149,7 @@ export default function NativeDoorKnockingPage({
   walkTurfId,
   fromOutreachId,
   openCreateFlow,
+  handoff,
 }: NativeDoorKnockingPageProps) {
   const queryClient = useQueryClient()
   const router = useRouter()
@@ -891,6 +897,7 @@ export default function NativeDoorKnockingPage({
                 onPreselectApplied={() =>
                   setSpentPreselectId(preselectedListId)
                 }
+                {...(handoff ? { handoff } : {})}
               />
             )}
           </div>

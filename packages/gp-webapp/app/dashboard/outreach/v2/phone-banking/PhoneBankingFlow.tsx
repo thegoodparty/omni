@@ -231,6 +231,11 @@ interface PhoneBankingFlowProps {
   // step's own suggestion does not overwrite a name that came out of a real
   // conversation about what this call is for.
   initialName?: string
+  // The purpose a caller that skips the purpose step has already decided on.
+  // Required of any such caller rather than optional in practice: the create
+  // call sends this, so a flow opened on a later step without one reaches the
+  // end and is refused for a purpose nobody was ever asked for.
+  initialPurpose?: PhoneBankingFlowPurpose
 }
 
 // Flow state is flat client state owned here (phase 1 TDD, same convention
@@ -245,6 +250,7 @@ export const PhoneBankingFlow = ({
   preselectedListId,
   initialScript,
   initialName,
+  initialPurpose,
 }: PhoneBankingFlowProps) => {
   const router = useRouter()
   const [stepId, setStepId] = useState<StepId>('purpose')
@@ -346,7 +352,7 @@ export const PhoneBankingFlow = ({
     if (!open) return
     draftRequestRef.current += 1
     setStepId('purpose')
-    setPurpose(null)
+    setPurpose(initialPurpose ?? null)
     setTone('warm')
     setScript('')
     setScriptManuallyEdited(false)
@@ -360,7 +366,13 @@ export const PhoneBankingFlow = ({
     resetDraftMutation()
     resetCreateMutation()
     resetAudience()
-  }, [open, resetDraftMutation, resetCreateMutation, resetAudience])
+  }, [
+    open,
+    initialPurpose,
+    resetDraftMutation,
+    resetCreateMutation,
+    resetAudience,
+  ])
 
   // Applies the handed-over preselected list to the who step's picker once
   // the saved lists resolve — and only when the id matches a picker row, so
