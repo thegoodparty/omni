@@ -221,7 +221,7 @@ describe('CampaignManagerTasks', () => {
     )
   })
 
-  it('renders each task as a rich card with a category eyebrow and summary', () => {
+  it('renders each task as a rich card with a category overline and summary', () => {
     mockResult.mockReturnValue(
       settled([
         task({

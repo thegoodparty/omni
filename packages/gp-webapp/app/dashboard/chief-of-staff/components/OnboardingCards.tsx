@@ -43,8 +43,8 @@ export default function OnboardingCards({
         return (
           <TaskCard
             key={key}
-            eyebrowLabel={config.eyebrowLabel}
-            EyebrowIcon={SparklesIcon}
+            overlineLabel={config.overlineLabel}
+            OverlineIcon={SparklesIcon}
             title={config.title}
             summary={config.summary}
             ctaLabel={config.ctaLabel}

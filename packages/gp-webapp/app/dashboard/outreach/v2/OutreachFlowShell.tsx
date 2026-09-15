@@ -42,7 +42,7 @@ interface OutreachFlowShellProps {
   onClose: () => void
   title: string
   // Left header slot — the flow's identity label (e.g. a channel badge or a
-  // custom eyebrow). Optional so callers can adopt it incrementally; when
+  // custom overline). Optional so callers can adopt it incrementally; when
   // omitted the header's left half is empty and the Exit button sits alone
   // on the right.
   headerBadge?: ReactNode
@@ -63,7 +63,7 @@ interface OutreachFlowShellProps {
 }
 
 // The generalized channel-flow chrome (phase 1 TDD): OutreachSheet anatomy +
-// sticky header with a badge/eyebrow on the left and an Exit control on the
+// sticky header with a badge/overline on the left and an Exit control on the
 // right (the sheet's own corner X is suppressed so there is one close), the
 // bar Stepper below, Back moved into the footer beside the primary, flat
 // client flow state owned by the flow component, dirty-close confirm, fresh
@@ -117,8 +117,8 @@ export const OutreachFlowShell = ({
         header={
           <>
             {/* DrawerTitle stays sr-only for the drawer's accessible
-                name — the visible eyebrow/exit and the bars are the
-                Stepper's job now (chunky bars + eyebrow slot + Exit
+                name — the visible overline/exit and the bars are the
+                Stepper's job now (chunky bars + overline slot + Exit
                 button all rendered by the styleguide component). */}
             <DrawerTitle className="sr-only">{title}</DrawerTitle>
             {totalSteps > 0 && (
@@ -126,7 +126,7 @@ export const OutreachFlowShell = ({
                 variant="bar"
                 currentStep={currentStep}
                 totalSteps={totalSteps}
-                eyebrow={headerBadge}
+                overline={headerBadge}
                 onExit={() => requestClose(false)}
               />
             )}
