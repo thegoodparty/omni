@@ -114,7 +114,7 @@ describe('POST /v1/outreach/robocall/audio/presign', () => {
 
     const res = await postPresign({ contentType: 'audio/webm' }, freeSlug)
 
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
     expect(spy).not.toHaveBeenCalled()
   })
 })

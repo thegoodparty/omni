@@ -2,6 +2,11 @@ import { ControllerName, ROUTE_MAP } from '../../../src/generated/route-types'
 import { Alert, SlackGroup } from './alerts.types'
 import { ALERT_OWNERSHIP, SERVER_ERRORS_ONLY } from '../alerts'
 
+// 403 carries the Pro gate, which is why an entitlement refusal must be
+// thrown as a ForbiddenException and never a BadRequestException: a free-tier
+// user hitting the paywall is the product working, and a single one of those
+// used to be enough to fire a route's error-count alert. See
+// PRO_FILTERING_REQUIRED_MESSAGE in src/contacts/services/contacts.service.ts.
 const EXCLUDED_STATUS_CODES = [401, 403, 404, 409, 498]
 
 // A request the gateway kills mid-flight completes with `statusCode: null`,

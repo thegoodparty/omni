@@ -303,6 +303,6 @@ describe('GET /v1/contacts/precincts', () => {
       headers: { [ORG_SLUG_HEADER]: 'campaign-precinct-free' },
     })
 
-    expect(result.status).toBe(400)
+    expect(result.status).toBe(403)
   })
 })

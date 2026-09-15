@@ -239,7 +239,7 @@ describe('voter-file segment CRUD for a campaign org', () => {
       { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
     )
 
-    expect(created.status).toBe(400)
+    expect(created.status).toBe(403)
     expect(await service.prisma.voterFileFilter.count()).toBe(0)
   })
 })
