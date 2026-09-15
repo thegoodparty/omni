@@ -60,8 +60,27 @@ export const quotaQueryOptions = queryOptions({
 // Unlike the address preview below, this may fire on a pick rather than on a
 // press: it resolves person-id sets out of Postgres and reads no voter data,
 // so ADR 0010's reason for making the preview explicit does not apply to it.
-// `staleTime` is nonetheless generous — a list's support-status membership
-// changes as knocks are logged, but not inside one create flow.
+//
+// Nothing is kept. This is the one answer on the flow that must not outlive
+// the mount that asked for it, because the only answer it can give is one
+// that tells the candidate to go and change it: an empty audience prints
+// "edit it in your contacts", and editing the list — or logging the knocks
+// that move a support status — is exactly what makes the cached `true` a lie.
+// A held answer would then disable Continue for a list that now keeps people,
+// which is the false block this gate exists to prevent and worse than the bug
+// it fixes. `gcTime: 0` drops the entry when the surface unmounts, so leaving
+// for contacts and coming back re-asks from nothing; `staleTime: 0` covers
+// editing in a second tab, where the surface never unmounts at all.
+//
+// This is also what makes keying on the filters alone sound. The answer is
+// per-organization and the key does not say so — no key in this file does,
+// since switching orgs invalidates the cache wholesale (organization-picker)
+// — but an entry that cannot survive the unmount an org switch forces cannot
+// be read under the wrong org in the first place.
+//
+// The round trips this costs are the ones the endpoint was made cheap to
+// afford: no voter data is read and no vendor credit is spent, so re-asking
+// is the affordable half of the trade and staleness is not.
 export const audienceCheckQueryOptions = (filters: VoterFileBackendFilters) =>
   queryOptions({
     queryKey: ['door-knocking-audience-check', filters],
@@ -69,7 +88,8 @@ export const audienceCheckQueryOptions = (filters: VoterFileBackendFilters) =>
       clientRequest('POST /v1/door-knocking/audience-check', { filters }).then(
         (res) => res.data,
       ),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0,
+    gcTime: 0,
   })
 
 // The exact audience inside a drawn shape, addresses included (ADR 0010).
