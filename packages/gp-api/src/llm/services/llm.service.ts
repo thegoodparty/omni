@@ -285,6 +285,24 @@ export const defaultAnthropicProviderFactory: AnthropicProviderFactory = ({
   }
 }
 
+// The AI SDK emits generation spans — model, token counts, finish reason —
+// into whatever tracer is globally registered, which is the one otel.ts already
+// configures. It only does so when this is passed, and it was passed nowhere,
+// so model calls were entirely absent from traces. Undici instrumentation alone
+// would not fix that: it would show an unlabeled POST to an API hostname rather
+// than a named generation with usage attached.
+//
+// Inputs and outputs are deliberately off. They default to ON, and prompts here
+// carry voter and campaign data while responses are unbounded — neither belongs
+// in a span attribute.
+const llmTelemetry = (functionId: string) =>
+  ({
+    isEnabled: true,
+    functionId,
+    recordInputs: false,
+    recordOutputs: false,
+  }) as const
+
 @Injectable()
 export class LlmService {
   private readonly defaultModels: string[]
@@ -551,6 +569,7 @@ export class LlmService {
             // rewritten by withToolPartsAsText and closed with
             // toolBudgetExhaustedNote (see their comments for why).
             stopWhen: stepCountIs(maxSteps + 1),
+            experimental_telemetry: llmTelemetry('llm.stream-chat-completion'),
             ...(toolSet && { tools: toolSet, prepareStep }),
             // streamText swallows errors by default (they surface only on the
             // stream) — log them so a mid-generation provider failure is not
@@ -815,6 +834,7 @@ export class LlmService {
       messages: toModelMessages(messages),
       temperature,
       topP,
+      experimental_telemetry: llmTelemetry('llm.chat-completion'),
       ...(maxTokens !== undefined && { maxOutputTokens: maxTokens }),
       ...(userId && { headers: { 'X-User-Id': userId } }),
       ...(abortSignal && { abortSignal }),
@@ -855,6 +875,7 @@ export class LlmService {
       schema,
       temperature,
       topP,
+      experimental_telemetry: llmTelemetry('llm.json-completion'),
       ...(maxTokens !== undefined && { maxOutputTokens: maxTokens }),
       ...(userId && { headers: { 'X-User-Id': userId } }),
       ...(abortSignal && { abortSignal }),
@@ -915,6 +936,7 @@ export class LlmService {
       ...(sdkToolChoice && { toolChoice: sdkToolChoice }),
       temperature,
       topP,
+      experimental_telemetry: llmTelemetry('llm.tool-completion'),
       ...(maxTokens !== undefined && { maxOutputTokens: maxTokens }),
       ...(userId && { headers: { 'X-User-Id': userId } }),
       ...(abortSignal && { abortSignal }),

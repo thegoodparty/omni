@@ -13,7 +13,7 @@ If you have the Sentry MCP server, prefer it over the web UI for fetching issues
 
 ## Backend errors and traces
 
-Backend services (gp-api, election-api, people-api) log to **Grafana Cloud Loki**.
+Backend services (gp-api, election-api) log to **Grafana Cloud Loki**.
 
 - URL: https://goodparty.grafana.net
 - Loki datasource UID: `grafanacloud-logs`
@@ -26,8 +26,8 @@ Quick LogQL filter:
 {service_name="gp-api", deployment_environment_name="prod"}
 ```
 
-`service_name` ∈ `gp-api | election-api | people-api`.
-`deployment_environment_name` ∈ `dev | qa | prod`.
+`service_name` ∈ `gp-api | election-api`.
+`deployment_environment_name` ∈ `preview | dev | prod`.
 
 If you have the Grafana MCP server, use `query_loki_logs` instead of pasting LogQL into the UI.
 

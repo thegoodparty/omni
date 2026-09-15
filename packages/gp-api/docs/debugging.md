@@ -4,7 +4,7 @@ Recipes for going from a reported bug to a reproduction.
 
 ## Logs (Loki)
 
-All logs ship to Grafana Cloud Loki. Service label is `gp-api`. Environment label is `dev`, `qa`, or `prod`.
+All logs ship to Grafana Cloud Loki. Service label is `gp-api`. Environment label is `preview`, `dev`, or `prod`.
 
 Base query:
 
@@ -46,7 +46,9 @@ Find traces by HTTP route:
 
 ## Metrics (Prometheus)
 
-Standard exporters: HTTP, Prisma, Node runtime, Fastify. Browse via the Grafana Explore view with the `grafanacloud-prom` datasource. Service-specific dashboards live in the `gp-api` Grafana folder.
+Standard exporters: Prisma, Node runtime, Fastify, host metrics. Browse via the Grafana Explore view with the `grafanacloud-prom` datasource. Service-specific dashboards live in the `gp-api` Grafana folder.
+
+Note that `http.server.*` and `http.client.*` **metrics are dropped** by views in `src/otel.ts` — searching Explore for them returns nothing, and that is configuration rather than a broken query. Per-route latency comes from Tempo span metrics instead. election-api does not drop them, so a cross-service metric dashboard will show it and not gp-api.
 
 ## Reproducing locally with `useTestService()`
 
