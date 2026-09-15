@@ -64,6 +64,8 @@ const seedOutreach = (
     projectId: string | null
     stripeCheckoutSessionId: string | null
     date: Date
+    approvedAt: Date | null
+    canvassRequestedAt: Date | null
     textCount: number | null
     billableTextCount: number | null
   }> = {},
@@ -214,16 +216,41 @@ describe('POST /v1/outreach/:id/cancel', () => {
     expect(campaign.freeTextsOfferRedeemedAt).not.toBeNull()
   })
 
-  it('rejects a cancel at or past the scheduled send time', async () => {
+  it('rejects a cancel of a booked send at or past its send time', async () => {
     const row = await seedOutreach({
       date: new Date(Date.now() - 60_000),
+      approvedAt: new Date(),
+      canvassRequestedAt: new Date(),
     })
     const res = await postCancel(row.id)
     expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(deleteJob).not.toHaveBeenCalled()
     const unchanged = await service.prisma.outreach.findFirstOrThrow({
       where: { id: row.id },
     })
     expect(unchanged.status).toBe(OutreachStatus.pending)
+  })
+
+  it('cancels an unbooked row past its send time', async () => {
+    // Nothing sends without the approve gate's canvasser booking, so a
+    // never-approved row whose date passed is dead, not mid-send — the
+    // cancel (and its refund) must stay available.
+    retrieveCheckoutSession.mockResolvedValue({ payment_intent: 'pi_test_1' })
+    refundPaymentIntent.mockResolvedValue({ id: 're_1' })
+    const row = await seedOutreach({
+      date: new Date(Date.now() - 60_000),
+    })
+
+    const res = await postCancel(row.id)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.refunded).toBe(true)
+    expect(deleteJob).toHaveBeenCalledWith('peerly-job-1')
+    const persisted = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: row.id },
+    })
+    expect(persisted.status).toBe(OutreachStatus.canceled)
+    expect(persisted.canceledAt).not.toBeNull()
   })
 
   it('rejects canceling a robocall (lifecycle runs off the satellite)', async () => {

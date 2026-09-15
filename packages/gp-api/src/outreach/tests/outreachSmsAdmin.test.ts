@@ -1,5 +1,5 @@
 import { HttpStatus } from '@nestjs/common'
-import { addDays, format } from 'date-fns'
+import { addDays, format, subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
@@ -412,6 +412,49 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(detail.data.stats).toBeNull()
       expect(getJob).not.toHaveBeenCalled()
       expect(getJobDetailedStats).not.toHaveBeenCalled()
+    })
+
+    it('cancels an unbooked row whose send time has passed', async () => {
+      // The QA-stuck shape (2026-09-10, prod outreach 81412): never
+      // approved, so nothing was ever booked to send, but the send date
+      // passed — the row must still move out of Awaiting Review.
+      const row = await seedOutreach({
+        stripeCheckoutSessionId: null,
+        date: subDays(new Date(), 1),
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/cancel`,
+        { canceledBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(res.data.approvalStatus).toBe('canceled')
+      expect(deleteJob).toHaveBeenCalledWith('peerly-job-1')
+
+      const queue = await service.client.get('/v1/outreach/admin/sms/queue')
+      const item = queue.data.items.find((i: { id: number }) => i.id === row.id)
+      expect(item.approvalStatus).toBe('canceled')
+    })
+
+    it('still refuses to cancel a booked send past its send time', async () => {
+      const row = await seedOutreach({
+        stripeCheckoutSessionId: null,
+        date: subDays(new Date(), 1),
+        approvedAt: new Date(),
+      })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/cancel`,
+        { canceledBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(deleteJob).not.toHaveBeenCalled()
+      const unchanged = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(unchanged.status).toBe(OutreachStatus.pending)
     })
 
     it('refuses a second cancel via the idempotent early-return', async () => {
