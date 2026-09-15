@@ -117,6 +117,39 @@ export const SUPPORT_ANSWER_ROLLUP = {
 // statement while still not being displaceable by a later shrug. A rung
 // above firm would be a ratchet with no release — see the `not_a_voter` case
 // in knockStatus.util.ts, which needs exactly the tie, not a higher rung.
+//
+// **Support status is monotonic until flipped, and that is a decision, not
+// an accident.** A voter who moves from `supporter` to `unsure` keeps
+// reading `supporter`: `unsure` is soft and never displaces a firm answer,
+// however many times or however much later it is recorded. Only the
+// opposite firm answer moves them.
+//
+// This is deliberate and it is worth knowing what it costs, because the
+// asymmetry is real: the projection can learn that someone became an
+// OPPONENT but not that they became UNDECIDED. Two consequences follow, and
+// neither is a bug report anyone will file, because the symptom is a status
+// that does NOT change.
+//
+//   - recommendedListsUniverse.util.ts cuts persuasion universes on
+//     supportStatus ['undecided'] and GOTV universes on ['supporter'], so a
+//     genuinely cooled supporter stays in GOTV and drops out of persuasion.
+//   - A canvasser who logs `unsure` on a known supporter sees the dot stay
+//     green. deriveKnockStatus collapses `unsure` to `unknown`, so that
+//     answer has no status of its own to show either.
+//
+// The trade was taken because the reported failure was the other direction
+// and it was the one candidates actually noticed: a second pass appeared to
+// erase the first pass's answers (QA 9/9-9/10, Jared). Every row is still on
+// file and DoorKnockingActivityService.historyByPersonId returns each one's
+// own answer, so nothing here loses data — this is only about which row the
+// projection reads.
+//
+// If this is revisited, the two shapes already considered and not taken are
+// (a) keep latest-answer-wins and make the append visible as a trail on the
+// person sheet — supportPresentation.ts's supportAsOf has most of the
+// machinery — and (b) time-bound it, so an `unsure` cannot displace a firm
+// answer from the last N days but can displace an older one. Both address
+// the original report; both cost more than this does.
 export const ANSWER_FIRMNESS = {
   none: 0,
   soft: 1,

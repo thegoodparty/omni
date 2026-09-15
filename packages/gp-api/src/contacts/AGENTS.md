@@ -44,7 +44,13 @@ fixes track under ENG-10744.
   FIRMEST interaction wins, not the latest: `supporter` and `non_supporter`
   outrank `unsure`, which outranks a row with no answer, and recency only
   settles ties between equally firm answers — so a re-canvass that captured
-  "unsure" cannot erase a supporter recorded last month. `unsure` rolls up to
+  "unsure" cannot erase a supporter recorded last month. **This makes support
+  status monotonic until flipped: only the opposite firm answer moves
+  someone, so the projection can learn a voter became an opponent but not
+  that they became undecided.** That is a chosen trade, not an oversight —
+  the read is that an apparent erasure is the worse failure — and
+  `ANSWER_FIRMNESS` carries what it costs and the two alternatives that were
+  weighed. Don't "fix" it without reading that. `unsure` rolls up to
   `undecided`, and `unknown` means no support answer was ever captured (never
   contacted, or contacted with no answer recorded) — both the rollup and the
   ranking are single-sourced, via the `SUPPORT_ANSWER_ROLLUP` and
