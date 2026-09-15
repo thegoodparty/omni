@@ -955,11 +955,20 @@ class TestTheDevOnlyE2ELine:
 
     def test_dev_test_cost_is_in_the_total_but_not_the_per_analysis_median(self):
         # The median answers "what does one bug analysis cost", which is the
-        # number used to reason about tagging more bugs.
+        # number used to reason about tagging more bugs. The total answers "what
+        # did the bot cost", which is every label or it is not the total.
         runs = [a_run(label="analyze", cost_usd=3.00), a_run(label="dev-test", cost_usd=9.00)]
 
         assert cost(runs)["total_usd"] == 12.00
         assert cost(runs)["median_analysis_usd"] == 3.00
+
+    def test_the_dev_test_dollars_are_named_as_part_of_the_week_not_beside_it(self):
+        # The same $9.00 appears on two lines by design. Unqualified, the reader
+        # of a message carrying "Cost: $12.00" and "Dev-only E2E: … $9.00" has no
+        # way to tell whether the week cost twelve dollars or twenty-one.
+        facts = dev_tests([a_run(label="dev-test", cost_usd=9.00)])
+
+        assert "$9.00 of the week's spend" in rendered_with_dev_tests(facts)
 
     def test_a_quiet_week_says_the_train_stayed_green(self):
         facts = dev_tests([a_run(label="analyze")])

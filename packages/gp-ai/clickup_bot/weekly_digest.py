@@ -399,6 +399,13 @@ def cost(runs: Any) -> dict:
     `unpriced` is reported because `cost_usd` is null when a run did not record
     one, and a total silently summed around those understates the week with
     nothing to say so.
+
+    THE TOTAL IS EVERY LABEL, dev-test runs included, and that is the one number
+    here that must stay unscoped: it is what the bot cost, which is the question
+    asked of it. The dev-test line reports the same dollars again as its own
+    slice — named there as part of this figure, not as a second budget — because
+    the alternative is a headline total that quietly omits a category of spend,
+    which is the same lie as summing around the unpriced runs.
     """
     if not isinstance(runs, list):
         return {"available": False, "reason": RUNS_UNREACHABLE}
@@ -826,7 +833,10 @@ def _dev_test_line(facts: dict) -> str:
         # without a verdict is invisible to that one.
         line += f" · ⚠️ {_plural(facts['no_verdict'], 'run')} produced no verdict"
     if facts["total_usd"]:
-        line += f" · ${facts['total_usd']:.2f}"
+        # Named as a slice of the Cost line rather than printed bare. These
+        # dollars are inside that total — `cost()` sums every label on purpose —
+        # and two unqualified figures in one message read as two budgets.
+        line += f" · ${facts['total_usd']:.2f} of the week's spend"
     return line
 
 
