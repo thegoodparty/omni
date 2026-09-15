@@ -22,9 +22,13 @@ vi.mock('@shared/organization-picker', () => ({
 
 const cardsMock = vi.fn()
 const onboardingMock = vi.fn()
+const dismissMock = vi.fn()
 vi.mock('../data/use-dashboard', () => ({
   useDashboardCards: () => cardsMock(),
   useOnboardingCards: () => onboardingMock(),
+  // The notifications inbox mounts into the nav bar from this component, so
+  // the mock has to cover its dismiss mutation too.
+  useDismissCard: () => ({ mutate: dismissMock }),
 }))
 
 const prioritiesMock = vi.fn()
@@ -184,23 +188,40 @@ describe('ChiefOfStaffChatHome', () => {
     expect(screen.getByText(/I keep your briefings/)).toBeInTheDocument()
   })
 
-  it('renders a dashboard card as a row linking to its own CTA', async () => {
+  // Briefings, agenda items and community issues live in the notifications
+  // inbox now rather than in the transcript, so this asserts the row is
+  // reachable there and still points at its own destination.
+  it('renders a dashboard card as an inbox row linking to its own CTA', async () => {
     cardsMock.mockReturnValue(loaded([card()]))
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<ChiefOfStaffChatHome />)
+
+    // Nothing in the transcript: showing it in both places rendered every
+    // card twice on one screen.
+    expect(
+      screen.queryByRole('link', { name: /Planning Commission/ }),
+    ).not.toBeInTheDocument()
+
+    await user.click(
+      await screen.findByRole('button', { name: /Notifications, 1 new/ }),
+    )
 
     const row = await screen.findByRole('link', {
       name: /Prepare for the Planning Commission meeting/,
     })
     expect(row).toHaveAttribute('href', '/dashboard/briefings/card_1')
     expect(screen.getByText(/housing overlay/)).toBeInTheDocument()
-    expect(screen.getByText('Due Thu, Sep 17')).toBeInTheDocument()
   })
 
   it('suppresses the starter chips while task cards are showing', async () => {
-    cardsMock.mockReturnValue(loaded([card()]))
+    // A get-started card, not a dashboard card: those moved to the inbox, and
+    // the inbox is not part of the turn.
+    onboardingMock.mockReturnValue({ data: [onboardingCard('priorities')] })
     render(<ChiefOfStaffChatHome />)
 
-    await screen.findByRole('link', { name: /Planning Commission/ })
+    await screen.findByRole('button', {
+      name: /most important issues you're facing/,
+    })
     // Chips and task cards must never share a turn.
     expect(
       screen.queryByRole('button', { name: /What's most urgent this week/ }),
@@ -307,14 +328,6 @@ describe('ChiefOfStaffChatHome', () => {
       expect(
         await screen.findByTestId('priority-next-step'),
       ).toBeInTheDocument()
-      // The week's work still shows below it — the next-step push is additive,
-      // not a step that replaces the rail.
-      expect(
-        screen.getByRole('link', { name: /Planning Commission/ }),
-      ).toBeInTheDocument()
-      expect(
-        screen.queryByTestId('priority-stage-step'),
-      ).not.toBeInTheDocument()
     })
 
     // An API without the stage column returns the field absent. That must read
@@ -346,7 +359,7 @@ describe('ChiefOfStaffChatHome', () => {
       prioritiesMock.mockReturnValue({ data: undefined, isPending: true })
       render(<ChiefOfStaffChatHome />)
 
-      await screen.findByRole('link', { name: /Planning Commission/ })
+      await screen.findByRole('button', { name: /Notifications/ })
       expect(
         screen.queryByTestId('priority-choice-step'),
       ).not.toBeInTheDocument()

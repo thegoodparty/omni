@@ -18,6 +18,8 @@ import ChiefOfStaffTaskCards, {
   useChiefOfStaffTaskCards,
 } from './ChiefOfStaffTaskCards'
 import { usePriorities } from '../data/use-priorities'
+import DashboardNavHeaderAction from '../../shared/DashboardNavHeaderAction'
+import NotificationsInbox from './NotificationsInbox'
 import type { OnboardingCardKey } from '../data/contracts'
 
 // Chips and task cards must never share a turn, so the home hands the body an
@@ -101,40 +103,52 @@ export default function ChiefOfStaffChatHome(): React.JSX.Element {
   )
 
   return (
-    <ConversationalHome
-      config={config}
-      composerRef={composerRef}
-      opener={openerKey ? ONBOARDING_CARDS[openerKey].opener : undefined}
-      openerKey={openerKey}
-      leadingSlot={<ChiefOfStaffHero />}
-      trailingSlot={
-        needsFirstPriority ? (
-          // Nothing competes with the first question, including the
-          // get-started cards — the `priorities` one is this step, in card
-          // form.
-          <PriorityChoiceStep firstName={firstName} />
-        ) : needsStage ? (
-          <PriorityStageStep priority={needsStage} />
-        ) : (
-          <div className="flex flex-col gap-5">
-            {staged?.stage != null && (
-              <PriorityNextStep priority={{ ...staged, stage: staged.stage }} />
-            )}
-            <ChiefOfStaffTaskCards
-              cards={cards}
-              isPending={isPending}
-              isError={isError}
-            />
-          </div>
-        )
-      }
-      // Suppressed while the rail has cards or is asking a question; the
-      // body's own Chief of Staff starter prompts take over when it is neither.
-      suggestions={
-        needsFirstPriority || needsStage || staged || cards.length > 0
-          ? NO_SUGGESTIONS
-          : undefined
-      }
-    />
+    <>
+      {/* Portalled into the nav bar rather than rendered on the page: the
+          heads-up items are not part of the conversation, and the bar is the
+          one piece of chrome that stays put while the transcript scrolls.
+          Mounted here, from a Serve-only component, so it never reaches Win's
+          pages, which share the same bar but have no DashboardCard rows. */}
+      <DashboardNavHeaderAction>
+        <NotificationsInbox />
+      </DashboardNavHeaderAction>
+      <ConversationalHome
+        config={config}
+        composerRef={composerRef}
+        opener={openerKey ? ONBOARDING_CARDS[openerKey].opener : undefined}
+        openerKey={openerKey}
+        leadingSlot={<ChiefOfStaffHero />}
+        trailingSlot={
+          needsFirstPriority ? (
+            // Nothing competes with the first question, including the
+            // get-started cards — the `priorities` one is this step, in card
+            // form.
+            <PriorityChoiceStep firstName={firstName} />
+          ) : needsStage ? (
+            <PriorityStageStep priority={needsStage} />
+          ) : (
+            <div className="flex flex-col gap-5">
+              {staged?.stage != null && (
+                <PriorityNextStep
+                  priority={{ ...staged, stage: staged.stage }}
+                />
+              )}
+              <ChiefOfStaffTaskCards
+                cards={cards}
+                isPending={isPending}
+                isError={isError}
+              />
+            </div>
+          )
+        }
+        // Suppressed while the rail has cards or is asking a question; the
+        // body's own Chief of Staff starter prompts take over when it is neither.
+        suggestions={
+          needsFirstPriority || needsStage || staged || cards.length > 0
+            ? NO_SUGGESTIONS
+            : undefined
+        }
+      />
+    </>
   )
 }

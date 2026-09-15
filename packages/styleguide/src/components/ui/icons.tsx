@@ -114,6 +114,7 @@ export {
   Sparkles as SparklesIcon,
   CircleHelp as CircleHelpIcon,
   Archive as ArchiveIcon,
+  Bell as BellIcon,
   Gavel as GavelIcon,
   BookOpen as BookOpenIcon,
   WandSparkles as WandSparklesIcon,

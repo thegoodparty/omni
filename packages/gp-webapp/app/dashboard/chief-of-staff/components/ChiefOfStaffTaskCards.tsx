@@ -1,25 +1,15 @@
 'use client'
 
-import { format, parseISO } from 'date-fns'
 import { cn } from '@styleguide'
 import { SparklesIcon } from '@styleguide/components/ui/icons'
 import type { LucideIcon } from 'lucide-react'
 import WideChip, { ASSISTANT_INDENT } from './WideChip'
-import { cardCategory } from './cardCategory'
 import {
   ONBOARDING_CARDS,
   ONBOARDING_CARD_ORDER,
 } from './onboardingCardsConfig'
-import { useDashboardCards, useOnboardingCards } from '../data/use-dashboard'
+import { useOnboardingCards } from '../data/use-dashboard'
 import type { OnboardingCardKey } from '../data/contracts'
-
-const formatDue = (iso: string): string | null => {
-  try {
-    return format(parseISO(iso), 'EEE, MMM d')
-  } catch {
-    return null
-  }
-}
 
 export interface TaskCardData {
   key: string
@@ -46,9 +36,14 @@ interface UseTaskCardsResult {
 }
 
 /**
- * The week's prioritized work as card data, in the same order and under the
- * same conditions as the card home: the get-started cards first, then the
- * active dashboard cards.
+ * The get-started cards as card data.
+ *
+ * Briefings, agenda items and community issues used to land here too. They are
+ * the notifications inbox's now: they are dated heads-ups with a place to go,
+ * they arrive whether or not the official is mid-conversation, and rendering
+ * them in both places showed every one of them twice on the same screen. What
+ * is left is the setup work, which belongs in the conversation because the
+ * conversation is where it gets done.
  *
  * Split from the rendering component because the home has to know whether any
  * cards exist before it renders: task cards and quick-reply chips must never
@@ -57,7 +52,7 @@ interface UseTaskCardsResult {
 export function useChiefOfStaffTaskCards({
   onOpenCard,
 }: UseTaskCardsArgs): UseTaskCardsResult {
-  const { data: cards, isPending, isError } = useDashboardCards('active')
+  const { isPending, isError } = useOnboardingCards()
   const { data: onboarding } = useOnboardingCards()
 
   const out: TaskCardData[] = []
@@ -80,19 +75,6 @@ export function useChiefOfStaffTaskCards({
       title: config.title,
       why: config.summary,
       onSelect: () => onOpenCard(key),
-    })
-  }
-
-  for (const card of cards ?? []) {
-    const { Icon } = cardCategory(card.type)
-    const due = formatDue(card.dueDate)
-    out.push({
-      key: card.id,
-      Icon,
-      title: card.title,
-      why: card.summary,
-      impact: due ? `Due ${due}` : undefined,
-      href: card.ctaHref,
     })
   }
 
