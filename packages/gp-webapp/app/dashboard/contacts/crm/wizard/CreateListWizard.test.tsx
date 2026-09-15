@@ -153,10 +153,13 @@ describe('CreateListWizard — step navigation', () => {
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     // Stepper's own "Step X of Y" label was retired; position is read off
-    // the accessible progressbar attributes now.
+    // the accessible progressbar attributes now. valuemin=0 is pinned
+    // because the a11y percentage math depends on it — reverting it to 1
+    // would make screen readers announce step 1 of 3 as 0%.
     const stepper = screen.getByRole('progressbar', { name: 'Progress' })
     expect(stepper).toHaveAttribute('aria-valuenow', '1')
     expect(stepper).toHaveAttribute('aria-valuemax', '3')
+    expect(stepper).toHaveAttribute('aria-valuemin', '0')
     expect(
       screen.getByRole('radio', {
         name: /build a list from previous campaign activity/i,
