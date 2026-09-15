@@ -22,7 +22,17 @@
 --
 -- Idempotent: the NOT guard means a re-run is a no-op, and lists that already
 -- name 'unknown' are left alone.
+--
+-- array_position rather than `= ANY`, because `= ANY` is unsafe here. If
+-- language_codes holds a NULL element, `'unknown' = ANY (...)` evaluates to
+-- NULL rather than false, so `NOT (NULL)` is NULL, the whole WHERE is NULL,
+-- and the row is skipped — which is the one outcome this migration exists to
+-- prevent, since that list would then silently shrink. array_position returns
+-- a plain NULL-or-integer regardless of NULL elements, so the guard holds.
+-- Prisma's typed client will not write a NULL into a String[], so reaching
+-- this needs raw SQL or a data anomaly; it is guarded because the cost of
+-- being wrong is an audience changing size unasked.
 UPDATE voter_file_filter
 SET language_codes = array_append(language_codes, 'unknown')
-WHERE 'other' = ANY (language_codes)
-  AND NOT ('unknown' = ANY (language_codes));
+WHERE array_position(language_codes, 'other') IS NOT NULL
+  AND array_position(language_codes, 'unknown') IS NULL;

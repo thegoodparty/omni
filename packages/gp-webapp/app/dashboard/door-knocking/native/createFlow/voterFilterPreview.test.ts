@@ -343,3 +343,77 @@ describe('unpreviewableDisclosureSentence', () => {
     )
   })
 })
+
+// The language dim's 'Other' kept its NAME through the Unknown split and
+// changed its MEANING: it used to include everyone with no language recorded
+// (most of a district), and now means only a recorded language that is
+// neither English nor Spanish. Matching by name alone would therefore match
+// the old broad bucket on a pre-split pack and shade roughly double the
+// audience — silently, because a name matched. Unlike the age re-cut, where
+// the old names simply vanish, this one needs the mapping to notice which
+// vocabulary it is looking at.
+describe('language Other across the Unknown split', () => {
+  const withLanguage = (values: string[]) =>
+    ({
+      ...manifest,
+      dims: [...manifest.dims, { key: 'language', values }],
+    }) as typeof manifest
+
+  const splitPack = withLanguage(['Unknown', 'English', 'Spanish', 'Other'])
+  const preSplitPack = withLanguage(['English', 'Spanish', 'Other'])
+
+  it('shades Other on a pack that knows about Unknown', () => {
+    expect(unpreviewableFilterKeys({ languageOther: true }, splitPack)).toEqual(
+      [],
+    )
+    expect(
+      filtersToDimSelections({ languageOther: true }, splitPack).get(
+        'language',
+      ),
+    ).toEqual(new Set([3]))
+  })
+
+  it('declines to shade Other on a pre-split pack rather than doubling it', () => {
+    expect(
+      unpreviewableFilterKeys({ languageOther: true }, preSplitPack),
+    ).toEqual(['languageOther'])
+    expect(
+      filtersToDimSelections({ languageOther: true }, preSplitPack).has(
+        'language',
+      ),
+    ).toBe(false)
+  })
+
+  // Unknown has no bucket at all on an old pack, so it already degraded
+  // honestly. Pinned so the fix above cannot regress it into narrowing.
+  it('still reports Unknown as unpreviewable on a pre-split pack', () => {
+    expect(
+      unpreviewableFilterKeys({ languageUnknown: true }, preSplitPack),
+    ).toEqual(['languageUnknown'])
+  })
+
+  // The migration leaves existing lists naming both, which is the old
+  // audience. On a current pack that has to shade as the union, not fall
+  // into the disclosure.
+  it('shades a migrated list naming both buckets', () => {
+    expect(
+      filtersToDimSelections(
+        { languageOther: true, languageUnknown: true },
+        splitPack,
+      ).get('language'),
+    ).toEqual(new Set([0, 3]))
+  })
+
+  // English and Spanish never changed meaning, so they must keep shading on
+  // either vocabulary — the gate is meant to be narrow.
+  it('leaves the two named languages shading on either pack', () => {
+    for (const pack of [splitPack, preSplitPack]) {
+      expect(
+        unpreviewableFilterKeys(
+          { languageEnglish: true, languageSpanish: true },
+          pack,
+        ),
+      ).toEqual([])
+    }
+  })
+})

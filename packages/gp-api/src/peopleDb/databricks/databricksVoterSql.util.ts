@@ -314,13 +314,40 @@ const buildIndependentAffinityFilter = (op?: FilterOperator): string | null => {
   return null
 }
 
+// "No language recorded" is NULL *or* the empty string, and the distinction
+// has to be drawn the same way here as in the pack or the map disagrees with
+// the audience.
+//
+// The pack projects `nvl(CAST(Language_Code AS STRING), '')` and `toPackRow`
+// turns '' back into null, so a blank encodes as the Unknown byte and shades
+// as Unknown. If this filter only tested IS NULL, that same person would fall
+// through to 'Other' — the candidate would see them shaded Unknown and then
+// not get them when filtering Unknown, which is precisely the map/filter
+// disagreement the Other/Unknown split exists to remove. Splitting Other out
+// of NULL without also splitting it out of '' would have replaced one
+// instance of that bug with another.
+//
+// `buildHasAddressFilter` in this file already sets this convention for a
+// nullable free-text column, so this follows it rather than inventing a
+// second rule. Whether '' actually occurs in Language_Code is not documented
+// — filterDimensions.catalog.ts records this column's provenance as unknown —
+// so these predicates are written to be correct either way: if the column
+// only ever holds NULL, the extra term is a no-op.
+const languageMissingSql = (target: string): string =>
+  `${target} IS NULL OR ${target} = ''`
+
+const languageRecordedSql = (target: string): string =>
+  `${target} IS NOT NULL AND ${target} <> ''`
+
 const buildLanguageFilter = (bag: Bag, op?: FilterOperator): string | null => {
   if (!op) return null
   const target = col('Language_Code')
   if (op.operator === 'is' && op.value === 'not_null') {
-    return `${target} IS NOT NULL`
+    return `(${languageRecordedSql(target)})`
   }
-  if (op.operator === 'is' && op.value === 'null') return `${target} IS NULL`
+  if (op.operator === 'is' && op.value === 'null') {
+    return `(${languageMissingSql(target)})`
+  }
 
   const values =
     op.operator === 'in' && op.values
@@ -352,9 +379,11 @@ const buildLanguageFilter = (bag: Bag, op?: FilterOperator): string | null => {
     // 'Unknown' below. The door-knocking resident path (voterDoorKnocking)
     // already drew this line; this brings the filter into agreement with it.
     const known = [bag.bind('English'), bag.bind('Spanish')].join(', ')
-    conditions.push(`(${target} NOT IN (${known}) AND ${target} IS NOT NULL)`)
+    conditions.push(
+      `(${target} NOT IN (${known}) AND ${languageRecordedSql(target)})`,
+    )
   }
-  if (hasUnknown) conditions.push(`${target} IS NULL`)
+  if (hasUnknown) conditions.push(`(${languageMissingSql(target)})`)
   return `(${conditions.join(' OR ')})`
 }
 

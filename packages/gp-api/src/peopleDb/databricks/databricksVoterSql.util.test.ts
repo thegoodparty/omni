@@ -494,6 +494,47 @@ describe('buildVoterFiltersSql', () => {
       expect(sql).toContain('IS NULL')
     })
 
+    // A blank is a missing language, not a language.
+    //
+    // The pack projects nvl(CAST(Language_Code AS STRING), '') and toPackRow
+    // turns '' back into null, so a blank shades as Unknown. If the filter
+    // read '' as a recorded value it would land in Other, and the map would
+    // shade a person the audience excludes — the same map/filter
+    // disagreement the Unknown split exists to remove, reintroduced by the
+    // split itself. buildHasAddressFilter already draws this line for a
+    // nullable free-text column.
+    it('counts a blank language as Unknown on both sides of the split', () => {
+      expect(languageSql(['Unknown'])).toContain("= ''")
+      expect(languageSql(['Other'])).toContain("<> ''")
+    })
+
+    // Whatever Language_Code holds, every row belongs to exactly one of the
+    // four. The blank is the shape that could fall through both.
+    it('leaves a blank out of Other and inside Unknown', () => {
+      const other = languageSql(['Other'])
+      const unknown = languageSql(['Unknown'])
+
+      expect(other).toContain("IS NOT NULL AND v.`Language_Code` <> ''")
+      expect(unknown).toContain("IS NULL OR v.`Language_Code` = ''")
+    })
+
+    // The presence/absence operators are the same question asked directly,
+    // so they have to answer it the same way.
+    it('treats a blank as absent for the is-null operators too', () => {
+      const bag = createBag()
+      const absent = buildVoterFiltersSql(
+        bag,
+        parseFilters({ language: { is: 'null' } }),
+      )
+      const present = buildVoterFiltersSql(
+        createBag(),
+        parseFilters({ language: { is: 'not_null' } }),
+      )
+
+      expect(absent).toContain("= ''")
+      expect(present).toContain("<> ''")
+    })
+
     // The short-circuit counts values, so it had to learn there are four.
     // Left at three, this would drop the filter and return the district.
     it('only drops the filter when all four are selected', () => {

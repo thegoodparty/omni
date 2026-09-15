@@ -43,7 +43,28 @@ const LEGACY_AGE_BUCKETS: Record<string, string[]> = {
 // buckets are cut at every boundary either generation of age key uses, so a
 // key that spans several of them selects several. Income buckets are named by
 // the shared INCOME_RANGE_MAPPING keys, which INCOME_KEY_TO_RANGE points at.
-const FILTER_KEY_TO_DIM: Record<string, { dim: string; buckets: string[] }> = {
+// `requiresDimValue` is for a bucket whose NAME outlived a change to its
+// MEANING. Matching is by name, which is what lets the two vocabularies of a
+// re-cut dim coexist through a deploy — but it assumes a name means the same
+// thing in both. 'Other' on the language dim is the case where it doesn't:
+// before the Unknown split it meant "not English, not Spanish, or no language
+// recorded", and after it means only the first two. A browser holding a
+// pre-split pack (react-query caches it with staleTime: Infinity, so an open
+// tab keeps one indefinitely) would match that old bucket and shade roughly
+// double the audience the list will actually knock, silently, because a name
+// matched.
+//
+// Naming a value that only the NEW vocabulary carries makes the mapping
+// unusable against an old pack, which routes the key to the disclosure
+// instead. That is the same call the age entries already make: `age50_64` and
+// `age65Plus` are given no legacy fallback precisely because their closest
+// legacy bucket is a silent superset, and the comment there says the
+// disclosure is the honest answer. This is that rule, applied to a bucket
+// that changed meaning rather than one that went missing.
+const FILTER_KEY_TO_DIM: Record<
+  string,
+  { dim: string; buckets: string[]; requiresDimValue?: string }
+> = {
   partyDemocrat: { dim: 'party', buckets: ['Democratic', 'Democrat'] },
   partyRepublican: { dim: 'party', buckets: ['Republican'] },
   partyIndependent: { dim: 'party', buckets: ['Independent'] },
@@ -124,7 +145,15 @@ const FILTER_KEY_TO_DIM: Record<string, { dim: string; buckets: string[] }> = {
   },
   languageEnglish: { dim: 'language', buckets: ['English'] },
   languageSpanish: { dim: 'language', buckets: ['Spanish'] },
-  languageOther: { dim: 'language', buckets: ['Other'] },
+  // Only previewable on a pack that knows about Unknown — see
+  // requiresDimValue above. On an older pack 'Other' still exists but means
+  // the broader thing, so this falls through to the disclosure rather than
+  // shading a superset.
+  languageOther: {
+    dim: 'language',
+    buckets: ['Other'],
+    requiresDimValue: 'Unknown',
+  },
   // Both spellings, as the other Unknown buckets above do: the pack's
   // UNKNOWN constant and the lowercase form some dims carry.
   languageUnknown: { dim: 'language', buckets: ['Unknown', 'unknown'] },
@@ -210,6 +239,16 @@ const FILTER_KEY_TO_DIM: Record<string, { dim: string; buckets: string[] }> = {
   ),
 }
 
+// Whether a mapping may be used against THIS pack's vocabulary at all, before
+// any bucket is matched. Separate from bucket matching because a mapping can
+// be disqualified by what the dim is missing rather than by what it has —
+// see requiresDimValue on FILTER_KEY_TO_DIM.
+const mappingFitsPack = (
+  mapping: { buckets: string[]; requiresDimValue?: string },
+  dim: { values: string[] },
+): boolean =>
+  !mapping.requiresDimValue || dim.values.includes(mapping.requiresDimValue)
+
 // True when a selected option can't be expressed against the pack's buckets,
 // so it leaves the preview unnarrowed. Shared with filtersToDimSelections
 // below to keep the two answers from disagreeing.
@@ -221,6 +260,7 @@ const narrowsPreview = (
   if (!mapping) return false
   const dim = manifest.dims.find((entry) => entry.key === mapping.dim)
   if (!dim) return false
+  if (!mappingFitsPack(mapping, dim)) return false
   return dim.values.some((bucket) => mapping.buckets.includes(bucket))
 }
 
@@ -358,6 +398,7 @@ export const filtersToDimSelections = (
     if (!mapping) continue
     const dim = dimIndex.get(mapping.dim)
     if (!dim) continue
+    if (!mappingFitsPack(mapping, dim)) continue
     // Every matching bucket, not the first: an age key spans several of the
     // pack's, and a key whose whole set is missing must add NO entry rather
     // than an empty one — an empty set would allow nothing and shade an empty
