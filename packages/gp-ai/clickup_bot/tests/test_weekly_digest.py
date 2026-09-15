@@ -39,6 +39,11 @@ from weekly_digest import (
     verdicts,
 )
 
+# `classify` is the filter's own decision logic, imported so the one reason
+# string this module parses is asked of the code that writes it rather than
+# copied. See `a_suppression_reason`.
+from alert_filter.classify import CONFIRMED, classify
+
 # The completed Mon-Sun week the workflow would report on.
 WINDOW = {"start": "2026-08-17T00:00:00Z", "end": "2026-08-24T00:00:00Z"}
 WINDOW_START = datetime(2026, 8, 17, tzinfo=UTC)
@@ -936,6 +941,23 @@ def an_alert_decision(outcome: str, **fields) -> str:
     return f"GPALERT_METRIC {json.dumps(record)}"
 
 
+def a_suppression_reason(*, ticket: str | None) -> str:
+    """The reason string the filter actually writes for a suppression.
+
+    ASKED OF `classify` RATHER THAN TRANSCRIBED. The digest decides a suppressed
+    cause is untracked by looking for `UNTRACKED_REASON_TOKEN` in this prose, and
+    a copy of the sentence pasted in here would keep passing after a rewording in
+    classify.py while the digest quietly stopped naming the suppressions that
+    hide untracked bugs. Going through the real function makes that rename fail
+    here instead.
+    """
+    cause = {"id": "people-db-statement-timeout", "action": "suppress", "ticket": ticket}
+    decision = classify({"known_causes": [cause]}, {cause["id"]: {"state": CONFIRMED}})
+
+    assert decision["outcome"] == "suppress"
+    return str(decision["reason"])
+
+
 def with_alerts(alerts):
     return render(summarize({**REPORT_PAYLOAD, "alerts": alerts}, now=REPORT_PREPARED))
 
@@ -1026,7 +1048,7 @@ class TestTheAlertFilterSection:
                 an_alert_decision(
                     "suppress",
                     cause_id="people-db-statement-timeout",
-                    reason="known cause confirmed, tracked by no ticket",
+                    reason=a_suppression_reason(ticket=None),
                 )
             ]
         )
@@ -1036,7 +1058,7 @@ class TestTheAlertFilterSection:
 
     def test_a_tracked_suppression_is_not_called_out(self):
         message = with_alerts(
-            [an_alert_decision("suppress", cause_id="x", reason="known cause confirmed, tracked by ENG-1234")]
+            [an_alert_decision("suppress", cause_id="x", reason=a_suppression_reason(ticket="ENG-1234"))]
         )
 
         assert "no ticket" not in message

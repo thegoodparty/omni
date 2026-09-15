@@ -3,6 +3,7 @@ import {
   buildAlertDescription,
   buildAlertSummary,
   buildKnownCausesAnnotation,
+  KNOWN_CAUSES_ANNOTATION,
 } from './alert-notification'
 import { Alert, KnownCause } from './alerts.types'
 
@@ -155,6 +156,15 @@ describe('buildKnownCausesAnnotation', () => {
     )!
 
     expect(annotation).not.toContain('\n')
+  })
+
+  // The other half of the contract `payload.py`'s test asserts. The name is
+  // shared with a repo this one cannot import from, and renaming it on either
+  // side makes every alert look like it has no known causes: the filter then
+  // notifies everything, which is safe, but the whole feature is silently gone
+  // with nothing failing to say so.
+  it('pins the annotation key the Python filter reads', () => {
+    expect(KNOWN_CAUSES_ANNOTATION).toBe('known_causes')
   })
 
   it('preserves the order causes are declared in', () => {

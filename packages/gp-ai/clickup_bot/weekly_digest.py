@@ -139,6 +139,20 @@ ALERT_OUTCOMES = ("urgent", "notify", "annotate", "suppress")
 # describes something nobody saw.
 SUPPRESS_OUTCOME = "suppress"
 
+# How a suppression says nothing is tracking the work, in the reason string
+# `alert_filter/classify.py` writes. A token rather than the whole sentence,
+# because the rest of that prose is for a human reading a Slack thread and will
+# be reworded; this part is the only thing the digest reads it for.
+#
+# THE COUPLING IS TO PROSE IN ANOTHER MODULE, which this file cannot import —
+# it runs as a standalone script in Actions against log lines, not beside the
+# filter. So the token is pinned from the other end instead:
+# clickup_bot/tests/test_weekly_digest.py derives the reason by calling
+# `classify` rather than transcribing it, which fails if the wording drifts.
+# Without that, a rename there would leave this matching nothing and the digest
+# would quietly stop naming suppressions that hide untracked bugs.
+UNTRACKED_REASON_TOKEN = "no ticket"
+
 # How many suppressed causes are named before the line is summarised. Same
 # reasoning as MAX_NAMED_MISSES: the point of naming them is that somebody can
 # go and check one, which nobody does from a wall of twenty.
@@ -531,7 +545,7 @@ def alert_filter(alerts: Any) -> dict:
             cause = cause if isinstance(cause, str) and cause else "(unnamed cause)"
             suppressed_by_cause[cause] = suppressed_by_cause.get(cause, 0) + 1
             reason = record.get("reason")
-            if isinstance(reason, str) and "no ticket" in reason:
+            if isinstance(reason, str) and UNTRACKED_REASON_TOKEN in reason:
                 untracked_causes.add(cause)
 
     return {
