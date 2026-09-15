@@ -394,6 +394,37 @@ def test_ticket_title_is_capped():
     assert len(ticket_title(spec)) <= MAX_TICKET_TITLE_CHARS
 
 
+def test_a_long_file_path_loses_its_tail_rather_than_the_leaf():
+    """The cap is spent on the leaf first. A file path long enough to fill it
+    alone would otherwise leave a ticket named after a path and nothing else —
+    and this name is the dedup key, so two specs under one long path would
+    truncate to the same ticket and the second failure would never be filed."""
+    leaf = "should keep the polls picker open while the filter is loading"
+    title = ticket_title({"file": "a" * 110, "title_path": ["@dev-only Polls", leaf]})
+
+    assert len(title) <= MAX_TICKET_TITLE_CHARS
+    assert title.endswith(f"— {leaf}")
+    assert "…" in title
+
+
+def test_two_specs_under_one_long_path_get_different_ticket_names():
+    long_path = f"e2e-tests/{'nested/' * 14}polls.spec.ts"
+    first = ticket_title({"file": long_path, "title_path": ["opens the picker"]})
+    second = ticket_title({"file": long_path, "title_path": ["closes the picker"]})
+
+    assert first != second
+
+
+def test_a_leaf_too_long_for_the_cap_loses_the_file_first():
+    """The only case where the leaf is cut. Shortening both would spend the
+    budget on a path that is already unreadable."""
+    title = ticket_title({"file": POLLS_FILE, "title_path": ["x" * 200]})
+
+    assert len(title) <= MAX_TICKET_TITLE_CHARS
+    assert POLLS_FILE not in title
+    assert title.startswith("[dev-only E2E] xxx")
+
+
 def test_ticket_body_says_these_do_not_run_on_prs():
     """The single most important fact for whoever reads the ticket: this was
     never visible before the merge."""

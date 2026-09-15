@@ -273,17 +273,26 @@ def repro_command(spec: dict) -> str:
 def ticket_title(spec: dict) -> str:
     """The ClickUp task name.
 
-    Prefixed so the tickets are filterable as a class, and truncated from the
-    END of the title path rather than the start: the leaf test name is the part
-    that distinguishes two failures in the same file, so it is the part that
-    must survive.
+    Prefixed so the tickets are filterable as a class. THE FILE IS WHAT GETS
+    CUT, never the leaf: the leaf is what distinguishes two failures in the same
+    file, and this name is also the dedup key the workflow matches on, so two
+    specs under one long path must not truncate to the same ticket. A file path
+    long enough to fill the budget on its own would otherwise push the leaf out
+    of the name entirely.
+
+    Only when the leaf alone cannot fit does it lose its own tail, and then the
+    file goes rather than shortening both.
     """
     leaf = (spec.get("title_path") or [""])[-1]
     file = _text(spec.get("file"))
     title = f"[dev-only E2E] {file} — {leaf}"
     if len(title) <= MAX_TICKET_TITLE_CHARS:
         return title
-    return title[: MAX_TICKET_TITLE_CHARS - 1].rstrip() + "…"
+
+    budget = MAX_TICKET_TITLE_CHARS - len(f"[dev-only E2E] … — {leaf}")
+    if budget > 0:
+        return f"[dev-only E2E] {file[:budget].rstrip()}… — {leaf}"
+    return f"[dev-only E2E] {leaf}"[: MAX_TICKET_TITLE_CHARS - 1].rstrip() + "…"
 
 
 def ticket_body(spec: dict, context: dict) -> str:
