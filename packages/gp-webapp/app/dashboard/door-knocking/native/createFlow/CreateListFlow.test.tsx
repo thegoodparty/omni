@@ -34,6 +34,15 @@ const turfStats = (stops: number, households: number) => ({
 const baseProps = {
   filters: {},
   onFiltersChange: vi.fn(),
+  precincts: [],
+  onPrecinctsChange: vi.fn(),
+  precinctOptions: {
+    options: [],
+    truncated: false,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  },
   onStepChange: vi.fn(),
   onClose: vi.fn(),
   districtBounds: null as [[number, number], [number, number]] | null,
@@ -205,6 +214,41 @@ describe('CreateListFlow', () => {
   // step before Build route is client state: the filter POST that precedes it
   // is the reusable audience, and the turf POST is turf, route, stops and the
   // outreach envelope in one transaction on the far side.
+  // Precinct values cannot live in the boolean pill draft, so a hand-cut
+  // selection reaches the created list only if the create body spends the
+  // separate prop. Without this the candidate picks precincts, the map and
+  // the preview narrow by them, and the saved list targets the whole
+  // district.
+  it('creates the list with the hand-cut precinct selection', async () => {
+    const bodies: unknown[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      bodies.push(body)
+      return { status: 200, data: { id: 78 } }
+    })
+    api.mock('POST /v1/door-knocking/turfs', () => ({
+      status: 200,
+      data: { ...savedTurf, id: 6, voterFileFilterId: 78 },
+    }))
+    const onListCreated = vi.fn()
+    const props = {
+      filters: { precincts: true },
+      precincts: ['Laramie|14', 'Laramie|15'],
+      onListCreated,
+    }
+
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="confirm" />,
+    )
+    advanceToRoute(rerender, props, 'Ward 1 evening')
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toMatchObject({
+      name: 'Ward 1 evening',
+      precincts: ['Laramie|14', 'Laramie|15'],
+    })
+  })
+
   it('creates the voter list from the filter draft, then buys the route', async () => {
     const calls: Array<{ kind: string; body: unknown }> = []
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {

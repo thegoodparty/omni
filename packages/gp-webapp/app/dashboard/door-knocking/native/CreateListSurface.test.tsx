@@ -165,6 +165,15 @@ const surface = (overrides: Partial<CreateListSurfaceProps> = {}) => (
     step="draw"
     filters={{}}
     onFiltersChange={vi.fn()}
+    precincts={[]}
+    onPrecinctsChange={vi.fn()}
+    precinctOptions={{
+      options: [],
+      truncated: false,
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    }}
     onStepChange={onStepChange}
     onClose={vi.fn()}
     districtBounds={null}
@@ -318,6 +327,21 @@ describe('CreateListSurface seam', () => {
     expect(previewCalls.bodies[0]?.filters).toMatchObject({
       precincts: ['Cook|101', 'Cook|102'],
       supportStatus: ['undecided'],
+    })
+  })
+
+  // The hand-cut selection is the third source of a precinct clause, and the
+  // one door knocking had no control for at all. It reaches the same payload
+  // the other two do, or the drawn shape prices a district the list will not
+  // target.
+  it('sends a hand-cut precinct selection with the address preview', async () => {
+    render(surface({ precincts: ['Laramie|14'] }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'show addresses' }))
+
+    await waitFor(() => expect(previewCalls.count).toBe(1))
+    expect(previewCalls.bodies[0]?.filters).toMatchObject({
+      precincts: ['Laramie|14'],
     })
   })
 

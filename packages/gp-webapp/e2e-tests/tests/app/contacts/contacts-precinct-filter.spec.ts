@@ -17,7 +17,8 @@ import {
   setupProCampaignUser,
 } from 'src/helpers/organizations'
 
-// The Precinct filter (Win-only). Every other filter in this suite can only be
+// The Precinct filter, which Win and Serve both get. Every other filter in
+// this suite can only be
 // verified by triangulation — a pill has to MOVE the live count, and the count
 // has to match the saved list's People tile — because a precinct is not a field
 // on the person response, so there is no "every member carries the value" check
@@ -296,9 +297,7 @@ test('precinct filter: a saved list keeps the precinct scope', async ({
   expect(data.pagination.totalResults).toBe(count)
 })
 
-test('precinct filter: absent for an elected office (Win-only)', async ({
-  page,
-}) => {
+test('precinct filter: offered to an elected office too', async ({ page }) => {
   test.setTimeout(TEST_TIMEOUT)
   const { client } = await setupElectedOfficeUser(page, {
     zip: '82001',
@@ -316,18 +315,18 @@ test('precinct filter: absent for an elected office (Win-only)', async ({
     wizard.getByText('Build a constituent list', { exact: true }),
   ).toBeVisible({ timeout: 15_000 })
 
-  // Asserted on the visible group LABEL, not on the pill group's accessible
-  // name. An absence check anchored on the same locator the positive tests use
-  // is unfalsifiable here: if the aria-label ever regresses, that locator
-  // resolves to 0 for Win as well and this test passes while the gate is
-  // broken. The heading is rendered whenever the control is.
-  await expect(wizard.getByText('Precinct', { exact: true })).toHaveCount(0)
-  await expect(wizardPillGroup(wizard, 'Precinct')).toHaveCount(0)
+  // Both the group heading and the pill group, so a regression in either the
+  // label or the aria-label fails rather than silently half-passing.
+  await expect(wizard.getByText('Precinct', { exact: true })).toHaveCount(1)
+  await expect(wizardPillGroup(wizard, 'Precinct')).toHaveCount(1)
 
-  // The endpoint refuses the org too, so the gate does not depend on the UI
-  // simply not rendering the control.
-  const response = await client.get('/v1/contacts/precincts', {
-    validateStatus: () => true,
-  })
-  expect(response.status).toBe(400)
+  // And the endpoint the control is fed from answers for an eo- org, so the
+  // group cannot render over an empty vocabulary.
+  const { options } = await fetchPrecincts(client)
+  expect(namedOptions(options).length).toBeGreaterThan(0)
+  await expect(
+    wizard.getByRole('button', {
+      name: precinctLabel(namedOptions(options)[0]!),
+    }),
+  ).toBeVisible({ timeout: 15_000 })
 })

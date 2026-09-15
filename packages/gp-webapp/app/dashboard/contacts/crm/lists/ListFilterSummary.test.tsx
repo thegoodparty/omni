@@ -252,14 +252,16 @@ describe('buildFilterSummary — precinct clause', () => {
     expect(summary).toContain('in 6 precincts')
   })
 
-  // Win-only on the write side, so it must not surface on the read side
-  // either — same rule political_party / contacts_made / voter_likely follow.
-  it('is stripped for an elected official', () => {
+  // Writable on the Serve side too, so it must be described there — unlike
+  // political_party / contacts_made / voter_likely, which are stripped from
+  // both sides. A Serve list that narrows by precinct and does not say so is
+  // a list nobody can tell what it holds.
+  it('names the precincts for an elected official too', () => {
     const summary = buildFilterSummary(
       baseSegment({ precincts: ['ORANGE|711'] } as never),
       true,
     )
-    expect(summary).not.toContain('precinct')
+    expect(summary).toContain('in precinct Orange 711')
   })
 })
 

@@ -15,10 +15,11 @@ export interface PrecinctOptionsResult {
   refetch: () => void
 }
 
-// Win-only, like political_party / contacts_made / voter_likely: precinct is
-// an electoral subdivision of a race, and an elected official serves the whole
-// district regardless of where someone votes. Passing `enabled: false` for an
-// eo- org means the request that would 400 is never issued.
+// Offered to Win and Serve alike, unlike political_party / contacts_made /
+// voter_likely: a precinct is an administrative subdivision of the district an
+// official already serves, so it narrows a constituent list as meaningfully as
+// it narrows a voter one. `enabled` is the caller's own gating (the wizard is
+// shut, voter data is unavailable), not a product rule.
 export const usePrecinctOptions = (enabled: boolean): PrecinctOptionsResult => {
   const orgSlug = useOrganization()?.slug
 
