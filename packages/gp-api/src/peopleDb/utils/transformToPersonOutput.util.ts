@@ -110,10 +110,13 @@ export const mapPoliticalParty = (
   value: string | null | undefined,
 ): PersonOutputFormat['politicalParty'] => classifyPoliticalParty(value)
 
+// Absence is null, as in every mapper above: 'Other' is a claim about what
+// someone speaks, and an empty column does not make it. A present but
+// unrecognized value IS such a claim and still maps to 'Other'.
 export const mapLanguage = (
   value: string | null | undefined,
 ): PersonOutputFormat['language'] => {
-  if (!value) return 'Other'
+  if (!value) return null
   const v = value.toLowerCase()
   if (v === 'english') return 'English'
   if (v === 'spanish') return 'Spanish'

@@ -1204,11 +1204,56 @@ from both sides.
 
 **The cost is about twenty bytes, once.** The plane is one byte per person
 either way and nine values is nowhere near the 256 a byte holds; only the
-manifest's value list grew. **`PACK_FORMAT_REVISION` is now 2** because the
+manifest's value list grew. **`PACK_FORMAT_REVISION` moved to 2** because the
 meaning of the shared district build changed, while the manifest's `version`
 stays at 1 because its framing did not — see
 [ADR 0014](adr/0014-the-voter-pack-has-two-versions.md) for why those are two
 different numbers.
+
+**`PACK_FORMAT_REVISION` is now 3**, for the language plane. Byte 0 used to be
+`Other` and double as the no-data slot, so a person with no `Language_Code`
+shaded as an Other-language speaker; the bytes are now
+`Unknown / English / Spanish / Other`, with 0 meaning "no data" as it does in
+every other dim. `version` stays at 1 again — one u8 per person per dim either
+way, and a client reads the bucket list out of the manifest, so a tab open
+across the deploy reads an old three-value pack correctly and simply finds no
+`languageUnknown` bucket in it.
+
+### Language: Other is not Unknown
+
+`Language_Code` is nullable with no sentinel, so "speaks something else" and
+"we were never told" are two distinguishable facts. `buildLanguageFilter` used
+to answer for both with one predicate:
+
+```sql
+(Language_Code NOT IN ('English','Spanish') OR Language_Code IS NULL)
+```
+
+That `OR ... IS NULL` returned everyone whose language was never recorded —
+QA measured it at roughly 60% of a district — under a pill labelled "Other".
+`Other` is now `NOT IN (...) AND IS NOT NULL`, and a fourth `Unknown` value
+takes `IS NULL`. The door-knocking resident path already drew this line
+(`voterDoorKnocking.service.ts`), so this brings the filter into agreement
+with it rather than inventing a distinction.
+
+Three things had to move together or the split leaks:
+
+- **The all-selected short-circuit counts four values, not three.** Left at
+  three, selecting all four would drop the filter entirely and silently
+  return the district — the widest possible way to get a filter wrong.
+- **The pack gained its fourth byte** (above), or the map would keep shading
+  unknowns as Other while the filter no longer matched them.
+- **Saved lists are migrated**, `['other'] → ['other','unknown']`
+  (`20260914190000_language_other_keeps_unknowns`). Selecting both reproduces
+  the old predicate exactly, so an existing list keeps addressing the same
+  people instead of silently shrinking the next time it is counted or
+  knocked. The deliberate trade: existing lists keep the broad meaning until
+  someone edits them, which is at least visible in the pills rather than
+  hidden in a predicate.
+
+Blast radius is wider than door knocking — `filters.config.ts` feeds SMS,
+phone banking, robocall and social through the shared `OutreachAudienceStep`,
+so the new pill appears on all of them.
 
 Single-year buckets are a **filtering** vocabulary. gp-webapp's
 `groupAgeSlices` rolls them into the current generation's five bands before any
