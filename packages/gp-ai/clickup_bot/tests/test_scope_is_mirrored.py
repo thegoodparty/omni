@@ -22,6 +22,9 @@ This file is cheap insurance for the first one. It runs both copies over the sam
 cases in one pytest session; TEST_PATHS in the Makefile covers both packages.
 """
 
+import re
+from pathlib import Path
+
 import handler
 import pytest
 import weekly_digest
@@ -249,6 +252,31 @@ def test_the_dev_test_label_agrees_across_the_package_boundary():
     """
     assert handler.DEV_TEST_LABEL == agent_config.DEV_TEST_LABEL
     assert handler.DEV_TEST_LABEL == weekly_digest.DEV_TEST_LABEL
+
+
+def test_the_dev_test_tag_agrees_between_the_workflow_and_the_lambda():
+    """The fifth mirrored pair, and the only one that leaves Python.
+
+    gpbot-dev-test-triage.yml holds the tag as a bare YAML string and uses it
+    twice: to list the tickets it has already filed, and to tag the ones it
+    files. handler.py keys TAG_CONFIG on the same string, and that key is what
+    starts an agent run.
+
+    A rename is what makes this dangerous, because it looks safe. Every mirror
+    above follows a renamed constant automatically and stays green while the
+    workflow keeps using the old value — filing tickets that dedup against
+    nothing, so one per release run, and trigger nothing, so no investigation
+    ever starts. The tag IS the launch mechanism; nothing errors when it quietly
+    stops being one.
+    """
+    workflow = Path(__file__).resolve().parents[4] / ".github/workflows/gpbot-dev-test-triage.yml"
+    # Matched out of the text rather than parsed as YAML: what is being pinned
+    # is the literal a reader sees on that line, and this package ships no YAML
+    # parser of its own to hang a test off.
+    declared = re.search(r"^\s+DEV_TEST_TAG:\s*(\S+)$", workflow.read_text(), re.MULTILINE)
+
+    assert declared is not None, f"no DEV_TEST_TAG declared in {workflow}"
+    assert declared.group(1) == handler.DEV_TEST_TAG
 
 
 def test_every_escalating_label_is_a_label_the_lambda_actually_sets():

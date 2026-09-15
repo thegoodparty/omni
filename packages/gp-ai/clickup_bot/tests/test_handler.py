@@ -3173,8 +3173,14 @@ def test_the_verdict_contract_is_shared_rather_than_copied():
     # it, the copy can drift the moment the shared one is edited — and a
     # verdict line the parser does not recognise stops every escalation from
     # that prompt without failing anything.
-    for prompt in (handler.ANALYZE_INSTRUCTION, handler.DEV_TEST_INSTRUCTION):
-        assert prompt.endswith(handler.VERDICT_CONTRACT)
+    #
+    # Over VERDICT_PROMPTS rather than its own list of the prompts that exist
+    # today, because that third prompt is the whole point: named here by hand,
+    # it would be added to the parametrized tests above and skip this one.
+    for prompt in VERDICT_PROMPTS:
+        assert prompt.values[0].endswith(handler.VERDICT_CONTRACT), (
+            f"{prompt.id} prompt hand-copies the verdict contract instead of composing it"
+        )
 
 
 def test_only_a_read_only_prompt_asks_for_a_verdict():
