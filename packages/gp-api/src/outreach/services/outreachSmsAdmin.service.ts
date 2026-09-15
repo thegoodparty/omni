@@ -58,7 +58,7 @@ const DATE_FMT = 'yyyy-MM-dd'
 const CANVASS_START_FLOOR = '09:00'
 const CANVASS_START_CEILING = '20:00'
 const clampCanvassStartTime = (time: string | null): string => {
-  if (!time || !/^\d{2}:\d{2}$/.test(time)) return CANVASS_START_FLOOR
+  if (!time || !/^\d{2}:[0-5]\d$/.test(time)) return CANVASS_START_FLOOR
   if (time < CANVASS_START_FLOOR) return CANVASS_START_FLOOR
   if (time > CANVASS_START_CEILING) return CANVASS_START_CEILING
   return time

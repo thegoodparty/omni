@@ -396,6 +396,9 @@ describe('CAS SMS console (gp-api admin surface)', () => {
     it.each([
       ['21:30', '20:00'],
       ['08:00', '09:00'],
+      // Malformed minutes never reach Peerly — the clamp's format guard
+      // drops the value to the floor rather than booking '19:99:00'.
+      ['19:99', '09:00'],
     ])(
       'clamps a stored %s start into the bookable window as %s',
       async (stored, booked) => {

@@ -608,7 +608,7 @@ describe('Outreach submission flow — single API call contract', () => {
       expect(row.scheduledLocalTime).toBe('18:00')
     })
 
-    it.each(['08:00', '20:30', '21:00', '6pm'])(
+    it.each(['08:00', '20:30', '21:00', '6pm', '19:99'])(
       'rejects a send time outside the 09:00-20:00 window (%s)',
       async (scheduledLocalTime) => {
         const res = await submitOutreach({

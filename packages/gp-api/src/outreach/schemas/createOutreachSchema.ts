@@ -31,7 +31,7 @@ export class CreateOutreachSchema extends createZodDto(
       // at 20:00 so the start never collapses the fixed 21:00 window end.
       scheduledLocalTime: z
         .string()
-        .regex(/^\d{2}:\d{2}$/, 'scheduledLocalTime must be HH:mm')
+        .regex(/^\d{2}:[0-5]\d$/, 'scheduledLocalTime must be HH:mm')
         .refine(
           (time) => time >= '09:00' && time <= '20:00',
           'scheduledLocalTime must be between 09:00 and 20:00',
