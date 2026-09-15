@@ -17,7 +17,7 @@ import type {
   SmsApprovalQueueItem,
   SmsApprovalStatus,
 } from '@goodparty_org/contracts'
-import { formatDate } from '@/lib/utils/date'
+import { formatDateTime } from '@/lib/utils/date'
 import {
   STATUS_COLORS,
   STATUS_LABELS,
@@ -195,7 +195,7 @@ export function SmsQueue({ items }: SmsQueueProps) {
                   color="gray"
                   onClick={() => toggleSort('sendDate')}
                 >
-                  Send date{sortIndicator('sendDate')}
+                  Requested send (ET){sortIndicator('sendDate')}
                 </Button>
               </Table.ColumnHeaderCell>
               <Table.ColumnHeaderCell>Audience</Table.ColumnHeaderCell>
@@ -240,9 +240,7 @@ export function SmsQueue({ items }: SmsQueueProps) {
                     </Text>
                   )}
                 </Table.Cell>
-                <Table.Cell>
-                  {item.sendAt ? formatDate(item.sendAt) : '—'}
-                </Table.Cell>
+                <Table.Cell>{formatDateTime(item.sendAt)}</Table.Cell>
                 <Table.Cell>
                   {(
                     item.billableTextCount ?? item.textCount
