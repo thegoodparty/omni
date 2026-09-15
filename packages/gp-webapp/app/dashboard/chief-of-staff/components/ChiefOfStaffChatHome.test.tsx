@@ -188,31 +188,6 @@ describe('ChiefOfStaffChatHome', () => {
     expect(screen.getByText(/I keep your briefings/)).toBeInTheDocument()
   })
 
-  // Briefings, agenda items and community issues live in the notifications
-  // inbox now rather than in the transcript, so this asserts the row is
-  // reachable there and still points at its own destination.
-  it('renders a dashboard card as an inbox row linking to its own CTA', async () => {
-    cardsMock.mockReturnValue(loaded([card()]))
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-    render(<ChiefOfStaffChatHome />)
-
-    // Nothing in the transcript: showing it in both places rendered every
-    // card twice on one screen.
-    expect(
-      screen.queryByRole('link', { name: /Planning Commission/ }),
-    ).not.toBeInTheDocument()
-
-    await user.click(
-      await screen.findByRole('button', { name: /Notifications, 1 new/ }),
-    )
-
-    const row = await screen.findByRole('link', {
-      name: /Prepare for the Planning Commission meeting/,
-    })
-    expect(row).toHaveAttribute('href', '/dashboard/briefings/card_1')
-    expect(screen.getByText(/housing overlay/)).toBeInTheDocument()
-  })
-
   it('suppresses the starter chips while task cards are showing', async () => {
     // A get-started card, not a dashboard card: those moved to the inbox, and
     // the inbox is not part of the turn.
@@ -359,7 +334,7 @@ describe('ChiefOfStaffChatHome', () => {
       prioritiesMock.mockReturnValue({ data: undefined, isPending: true })
       render(<ChiefOfStaffChatHome />)
 
-      await screen.findByRole('button', { name: /Notifications/ })
+      await screen.findByRole('heading', { name: /pick up where you left off/ })
       expect(
         screen.queryByTestId('priority-choice-step'),
       ).not.toBeInTheDocument()

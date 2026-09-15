@@ -13,6 +13,7 @@ import {
   BellIcon,
   XCircleIcon,
 } from '@styleguide/components/ui/icons'
+import { useOrganization } from '@shared/organization-picker'
 import { cardCategory } from './cardCategory'
 import { useDashboardCards, useDismissCard } from '../data/use-dashboard'
 import type { DashboardCard } from '../data/contracts'
@@ -110,7 +111,19 @@ const EmptyState = ({ archived }: { archived: boolean }): React.JSX.Element => (
   </p>
 )
 
-export default function NotificationsInbox(): React.JSX.Element {
+/**
+ * Serve-only. The bell rides in the shell chrome, which Win renders too, and
+ * the cards endpoint is scoped to an elected office: a Win user calling it
+ * would get a 4xx for rows they can never have. Gating in a wrapper rather
+ * than inside the panel keeps the data hooks from mounting at all, and keeps
+ * every call site from having to remember the check.
+ */
+export default function NotificationsInbox(): React.JSX.Element | null {
+  const organization = useOrganization()
+  return organization?.electedOfficeId ? <Inbox /> : null
+}
+
+function Inbox(): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [archived, setArchived] = useState(false)
   const { data: active } = useDashboardCards('active')

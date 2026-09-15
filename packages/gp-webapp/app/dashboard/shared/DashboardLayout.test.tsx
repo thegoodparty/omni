@@ -45,6 +45,13 @@ vi.mock('../campaign-manager/CampaignManagerChatProvider', () => ({
     children: React.ReactNode
   }) => <div data-testid="campaign-manager-chat-dock">{children}</div>,
 }))
+// The notifications bell rides in the shell chrome now. These tests are about
+// the layout, so stub it rather than dragging the Serve cards data layer and
+// its icon set into every one of them.
+vi.mock('../chief-of-staff/components/NotificationsInbox', () => ({
+  default: () => null,
+}))
+
 vi.mock('@styleguide/components/ui/icons', () => ({
   MenuIcon: () => null,
   XMarkIcon: () => null,

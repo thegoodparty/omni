@@ -68,6 +68,7 @@ import {
   useOrganization,
   useOrganizationRole,
 } from '@shared/organization-picker'
+import NotificationsInbox from '../chief-of-staff/components/NotificationsInbox'
 import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
 
 interface MenuItem {
@@ -527,7 +528,16 @@ const NewNavMenu = ({
   return (
     <>
       <SidebarHeader>
-        <OrganizationPicker />
+        {/* The mobile bar's bell is lg:hidden along with the hamburger it sits
+            beside, so above lg the sidebar header carries it instead. Same
+            component either way, so the panel and its Serve gate stay in one
+            place. */}
+        <div className="flex items-center gap-1">
+          <div className="min-w-0 flex-1">
+            <OrganizationPicker />
+          </div>
+          <NotificationsInbox />
+        </div>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>

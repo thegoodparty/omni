@@ -28,6 +28,7 @@ import { isElectionResultDismissed } from '../election-result/dismissal'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
 import { useWinVoterContext } from './useWinVoterContext'
 import { DashboardCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
+import NotificationsInbox from '../chief-of-staff/components/NotificationsInbox'
 
 export interface DashboardNavHeaderConfig {
   // Omitted = label-only bar (the Voter Outreach design carries no icon).
@@ -259,14 +260,20 @@ const MobileMenuTrigger = () => {
             </>
           )}
         </div>
-        <button
-          data-testid="mobile-menu-trigger"
-          onClick={() => setOpenMobile(true)}
-          className="flex items-center justify-center rounded-full size-9"
-          aria-label="Open menu"
-        >
-          <MenuIcon size={20} />
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          {/* Sits in the shell rather than on a page so the heads-up items
+              travel with the official everywhere, not just on the home that
+              used to carry them as cards. Renders nothing for Win. */}
+          <NotificationsInbox />
+          <button
+            data-testid="mobile-menu-trigger"
+            onClick={() => setOpenMobile(true)}
+            className="flex items-center justify-center rounded-full size-9"
+            aria-label="Open menu"
+          >
+            <MenuIcon size={20} />
+          </button>
+        </div>
       </div>
       {openMobile && (
         <button
