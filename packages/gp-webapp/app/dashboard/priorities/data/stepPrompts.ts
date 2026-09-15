@@ -252,7 +252,8 @@ export const buildOutreachPrompt = (settled: string): string =>
       'priority; then pick the channel they are likeliest to answer on ' +
       '("phone_banking" for a conversation or an older group, "social" for ' +
       'reach and for people not in the file) and write the message itself, ' +
-      'short, in my voice, one clear question.',
+      'short, in my voice, one clear question, and with no em-dashes in it ' +
+      'either: it is going out under my name.',
     AFFECTEDNESS_METHOD,
     'End the turn with exactly this and nothing else:',
     '```' +
@@ -278,8 +279,9 @@ export const buildOrgsPrompt = (settled: string): string =>
       DIRECTIVE_FENCE +
       '\n{"orgs": [{"name": "the organization", "why": "who they reach that my contact file does not", "askFor": "who to ask for there", "script": "what I actually say to them, ready to send", "email": "their real address", "phone": "their real number", "url": "their page"}]}\n```',
     'askFor and script are required on every one. The script is what I send ' +
-      'or read out, in my voice, saying what I want from them. One or two ' +
-      'lines of prose at most.',
+      'or read out, in my voice, saying what I want from them, and it obeys ' +
+      'the same writing rules as everything else you hand me: no em-dashes. ' +
+      'One or two lines of prose at most.',
     HOUSE_RULES,
   ].join('\n\n')
 
