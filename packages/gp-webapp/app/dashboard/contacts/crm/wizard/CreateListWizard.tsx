@@ -689,7 +689,9 @@ export default function CreateListWizard({
           header already reads "Edit list" and there is no per-step title
           to add here. */}
       {!isEditing && (
-        <h3 className="text-2xl font-semibold text-foreground">{stepTitle}</h3>
+        <h3 className="mb-6 text-2xl font-semibold text-foreground">
+          {stepTitle}
+        </h3>
       )}
       {stepName === 'branch' && (
         <BranchStep

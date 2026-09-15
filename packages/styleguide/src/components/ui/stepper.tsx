@@ -108,9 +108,15 @@ function Stepper(props: StepperProps) {
       <div
         role="progressbar"
         aria-label="Progress"
-        aria-valuemin={1}
+        // valuemin is 0, not 1: the WAI-ARIA percentage screen readers
+        // announce is (valuenow - valuemin) / (valuemax - valuemin), so
+        // valuemin=1 made step 1 of 5 announce as 0% instead of 20%.
+        // valuetext overrides that percentage with a human sentence —
+        // the retired visible label put back for assistive tech alone.
+        aria-valuemin={0}
         aria-valuemax={totalSteps}
         aria-valuenow={currentStep}
+        aria-valuetext={`Step ${currentStep} of ${totalSteps}`}
         className="grid gap-3"
         style={{
           gridTemplateColumns: `repeat(${totalSteps}, minmax(0, 1fr))`,
