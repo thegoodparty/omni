@@ -48,6 +48,11 @@ export enum ElectionCode {
   General = 'General',
   LocalOrMunicipal = 'LocalOrMunicipal',
   ConsolidatedGeneral = 'ConsolidatedGeneral',
+  // Added to close a drift: the election-api enum has carried `Primary`
+  // since the primary-day model shipped, and any consumer that parses an
+  // election code off the wire fails on it while this enum is short a
+  // member.
+  Primary = 'Primary',
 }
 
 export type ProjectedTurnout = {
