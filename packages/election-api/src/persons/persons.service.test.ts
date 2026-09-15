@@ -579,6 +579,30 @@ describe('PersonsService', () => {
         service.getPersonBySlug('jane-doe-a1b2c3d4'),
       ).rejects.toBeInstanceOf(NotFoundException)
     })
+
+    it('404s a broken forwarding address instead of falling through to a live prefix collision', async () => {
+      // An exact retired-slug match is definitive about whose URL this is, so a
+      // broken forward makes it unresolvable — not ambiguous. Continuing down
+      // the ladder would hand the purged person's URL to the one live row that
+      // happens to share the 8 hex, which is the conflation rung 2 exists to
+      // prevent.
+      findMany.mockResolvedValueOnce([
+        {
+          id: 'a1b2c3d4-live',
+          slug: 'jim-poe-a1b2c3d4',
+          OfficeHolders: [],
+        },
+      ])
+      mergeFindMany.mockResolvedValueOnce([
+        { survivingId: 'ghost-id', retiredSlug: 'jane-doe-a1b2c3d4' },
+      ])
+      mergeFindUnique.mockResolvedValueOnce(null)
+      findUnique.mockResolvedValueOnce(null)
+
+      await expect(
+        service.getPersonBySlug('jane-doe-a1b2c3d4'),
+      ).rejects.toBeInstanceOf(NotFoundException)
+    })
   })
 
   describe('getVoterDistrict', () => {

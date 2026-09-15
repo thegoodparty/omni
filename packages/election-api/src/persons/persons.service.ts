@@ -429,6 +429,12 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
     if (exactMerge) {
       const survivor = await this.loadMergeSurvivor(exactMerge.survivingId)
       if (survivor) return this.attachOfficeContext(survivor)
+      // The match was definitive: this URL is that purged person's, and their
+      // forwarding address is broken. Falling through to the prefix rungs would
+      // hand their URL to whichever live person happens to share the 8 hex —
+      // the exact conflation this rung exists to prevent. The URL is
+      // unresolvable, not ambiguous, so stop here.
+      throw new NotFoundException(`Person not found for slug=${slug}`)
     }
 
     // (3) One live person owns the prefix and the URL carries a stale name.

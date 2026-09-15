@@ -648,6 +648,27 @@ describe('GET /v1/persons/by-slug/:slug (canonical URL resolution)', () => {
       expect(res.status).toBe(404)
     })
 
+    it('404s a broken forwarding address rather than serving a live person on the same prefix', async () => {
+      // The same broken forward as above, but now a live person (PERSON_ID,
+      // `jane-doe-11111111`) shares the purged person's 8-hex prefix. The URL
+      // is demonstrably jim-poe's, so it must 404 rather than resolve to the
+      // unrelated jane-doe who merely collides on the prefix.
+      await service.prisma.personMerge.create({
+        data: {
+          retiredId: '11111111-cafe-cafe-cafe-cafecafecafe',
+          survivingId: MISSING_PERSON_ID,
+          retiredSlug: 'jim-poe-11111111',
+          retiredAt: new Date('2026-09-04T00:00:00.000Z'),
+        },
+      })
+
+      const res = await service.client.get(
+        '/v1/persons/by-slug/jim-poe-11111111',
+      )
+
+      expect(res.status).toBe(404)
+    })
+
     it('follows a residual chain to the terminal survivor', async () => {
       // The ETL is contracted to path-compress; this proves an uncompressed
       // chain degrades to an extra hop rather than a dead link.
