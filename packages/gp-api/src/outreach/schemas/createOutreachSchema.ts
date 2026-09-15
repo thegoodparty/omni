@@ -26,6 +26,17 @@ export class CreateOutreachSchema extends createZodDto(
         .optional(),
       message: z.string().optional(),
       date: z.string().datetime({ offset: true }).optional(),
+      // The candidate's chosen wall-clock send time, applied in each
+      // contact's LOCAL timezone when approve books Peerly's window. Capped
+      // at 20:00 so the start never collapses the fixed 21:00 window end.
+      scheduledLocalTime: z
+        .string()
+        .regex(/^\d{2}:\d{2}$/, 'scheduledLocalTime must be HH:mm')
+        .refine(
+          (time) => time >= '09:00' && time <= '20:00',
+          'scheduledLocalTime must be between 09:00 and 20:00',
+        )
+        .optional(),
       imageUrl: z.string().url().optional(),
       voterFileFilterId: z.coerce.number().int().positive().optional(),
       phoneListId: z.coerce.number().int().positive().optional(),

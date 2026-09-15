@@ -128,6 +128,7 @@ interface SubmitOpts {
   outreachType: OutreachType
   script?: string
   date?: string
+  scheduledLocalTime?: string
   imageMime?: string
   phoneListId?: number
   voterFileFilterId?: number
@@ -149,6 +150,9 @@ async function submitOutreach(opts: SubmitOpts) {
   form.append('outreachType', opts.outreachType)
   form.append('status', 'pending')
   if (opts.date) form.append('date', opts.date)
+  if (opts.scheduledLocalTime) {
+    form.append('scheduledLocalTime', opts.scheduledLocalTime)
+  }
   if (opts.script) form.append('script', opts.script)
   if (opts.phoneListId) form.append('phoneListId', String(opts.phoneListId))
   if (opts.voterFileFilterId) {
@@ -584,6 +588,44 @@ describe('Outreach submission flow — single API call contract', () => {
       const list = await service.client.get('/v1/outreach', orgHeaders())
       expect(list.status).toBe(404)
     })
+
+    it('persists the chosen wall-clock send time on the draft row', async () => {
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: draftScript,
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        scheduledLocalTime: '18:00',
+        draft: true,
+      })
+      expect(res.status).toBe(201)
+
+      const row = firstOrThrow(
+        await service.prisma.outreach.findMany({
+          where: { campaignId: campaign.id },
+        }),
+      )
+      expect(row.scheduledLocalTime).toBe('18:00')
+    })
+
+    it.each(['08:00', '20:30', '21:00', '6pm'])(
+      'rejects a send time outside the 09:00-20:00 window (%s)',
+      async (scheduledLocalTime) => {
+        const res = await submitOutreach({
+          outreachType: OutreachType.p2p,
+          script: draftScript,
+          phoneListId: 3180213,
+          date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+          scheduledLocalTime,
+          draft: true,
+        })
+        expect(res.status).toBe(400)
+        const rows = await service.prisma.outreach.findMany({
+          where: { campaignId: campaign.id },
+        })
+        expect(rows).toHaveLength(0)
+      },
+    )
 
     it('finalize submits to Peerly, fires success Slack, and no-ops on repeat', async () => {
       const draft = await createDraftRow()

@@ -48,6 +48,7 @@ const item = (
   createdAt: new Date('2026-08-30T00:00:00Z'),
   sendAt: new Date('2026-09-10T15:00:00Z'),
   scheduledLocalDate: '2026-09-10',
+  scheduledLocalTime: '18:00',
   script: 'Hello {first_name}…',
   imageUrl: null,
   textCount: 1200,

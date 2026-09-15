@@ -30,6 +30,11 @@ export interface CreateOutreachPayload {
   title?: string | null
   script?: string | null
   date?: string | null
+  /**
+   * The wall-clock send time as picked ("HH:mm", 09:00–20:00). Approve
+   * opens Peerly's contact-local send window at it.
+   */
+  scheduledLocalTime?: string
   voterFileFilterId?: number
   audienceRequest?: string | null
   phoneListId?: number
