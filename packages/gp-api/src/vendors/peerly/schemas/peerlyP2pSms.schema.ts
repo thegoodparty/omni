@@ -74,3 +74,23 @@ const jobDetailedStatsResponseSchema = z
 export class JobDetailedStatsResponseDto extends createZodDto(
   jobDetailedStatsResponseSchema,
 ) {}
+
+// Test-job reads parse only the fields the admin test-send path needs —
+// Peerly's test-job shapes drift and everything else is noise here.
+const createTestJobResponseSchema = z.object({
+  id: z.string(),
+})
+
+export class CreateTestJobResponseDto extends createZodDto(
+  createTestJobResponseSchema,
+) {}
+
+const listTestJobsResponseSchema = z.array(
+  z.object({
+    p2p_id: z.string(),
+  }),
+)
+
+export class ListTestJobsResponseDto extends createZodDto(
+  listTestJobsResponseSchema,
+) {}
