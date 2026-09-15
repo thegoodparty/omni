@@ -218,9 +218,18 @@ def disposition_reply(decision: dict, alert: dict) -> str:
 def urgent_mirror(alert: dict, decision: dict, raw_permalink: Any = None) -> str:
     """The copy that goes to the urgent channel.
 
-    Carries the mention and a link back to the raw post rather than repeating
-    the full body, so the urgent channel stays scannable as a list of "things
-    that needed someone" — which is the only thing it is for.
+    THE MENTION IS CARRIED, and it is carried here as well as in the filtered
+    post rather than instead of it. An urgent alert pinging its subteam twice is
+    the intended cost of the two channels having different jobs: the filtered
+    channel is where the alert is worked, #bot-urgent is the standing list of
+    firings that needed somebody. A mirror that arrived without the ping would
+    make the second of those depend on people watching a channel, which is what
+    the whole filter is an argument against.
+
+    The body it carries is the `description` annotation — the same two or three
+    lines the filtered post shows — and the "Full alert" link goes to the raw
+    post, which additionally has the evidence and the filter's own finding
+    threaded under it.
     """
     text = body(alert)
     parts = [f"{URGENT_PREFIX} {text}", f"_{decision.get('reason')}_"]

@@ -172,12 +172,25 @@ class TestReadingLokisResponse:
     # A registry entry whose evidence is a metric query has written something
     # this module cannot check. The classifier should see nothing rather than a
     # number it will misread as a log line.
-    def test_a_metric_query_response_yields_no_lines(self):
-        payload = {"data": {"resultType": "matrix", "result": [{"metric": {}, "values": [[1, "42"]]}]}}
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"data": {"resultType": "matrix", "result": [{"metric": {}, "values": [[1, "42"]]}]}},
+            {"data": {"resultType": "vector", "result": [{"metric": {}, "value": [1, "42"]}]}},
+            # The declared type is what Loki answers with; the per-entry `metric`
+            # key is checked too, because a matrix `values` arm is `[ts, value]`
+            # and is shaped exactly like a log entry's `[ns, line]`.
+            {"data": {"result": [{"metric": {}, "values": [[1, "42"]]}]}},
+        ],
+        ids=["matrix", "vector", "no-declared-result-type"],
+    )
+    def test_a_metric_query_response_yields_no_lines(self, payload):
+        assert ev._lines_from(payload) == []
 
-        # The matrix shape's values are [ts, value] pairs, which this reads as
-        # lines — so the assertion is about the honest case: nothing usable.
-        assert ev._lines_from(payload) == ["42"]
+    def test_a_log_response_is_still_read_when_it_declares_its_type(self):
+        payload = {"data": {"resultType": "streams", "result": [{"stream": {"a": "b"}, "values": [["1", "a line"]]}]}}
+
+        assert ev._lines_from(payload) == ["a line"]
 
     @pytest.mark.parametrize(
         "payload",

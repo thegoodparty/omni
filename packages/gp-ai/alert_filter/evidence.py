@@ -58,6 +58,10 @@ LOOKBACK_SECONDS = 3600
 # cannot be checked here at any limit.
 MAX_LINES = 50
 
+# What Loki calls a result that is numbers rather than log lines. `streams` is
+# the log one; these two are every other thing query_range can answer with.
+METRIC_RESULT_TYPES = ("matrix", "vector")
+
 # Bytes of any single log line passed on. A stack trace can be kilobytes and
 # the discriminating field is almost always near the front; the whole trace in
 # the prompt costs tokens on every firing and buys nothing the first 2KB did
@@ -233,11 +237,23 @@ def _lines_from(payload: Any) -> list[str]:
     registry entry whose evidence is a metric query has written something this
     module cannot check, and the classifier should see nothing rather than a
     number it will misread as a log line.
+
+    A METRIC RESULT IS RECOGNISED RATHER THAN HOPED ABOUT, on both markers Loki
+    gives for one. `resultType` is what it declares; the per-entry `metric` key
+    is what each sample carries, and it is checked as well because the two arms
+    of a matrix response `values` — `[ts, value]` — are shaped exactly like a log
+    entry's `[ns, line]`. Without either check the value `"42"` arrives at the
+    classifier as a log line saying `42`, which is a number it is being asked to
+    read a condition against.
     """
     data = payload.get("data") if isinstance(payload, dict) else None
+    if isinstance(data, dict) and data.get("resultType") in METRIC_RESULT_TYPES:
+        return []
     result = data.get("result") if isinstance(data, dict) else None
     lines: list[str] = []
     for stream in result if isinstance(result, list) else []:
+        if isinstance(stream, dict) and "metric" in stream:
+            continue
         values = stream.get("values") if isinstance(stream, dict) else None
         for entry in values if isinstance(values, list) else []:
             if isinstance(entry, (list, tuple)) and len(entry) >= 2:
