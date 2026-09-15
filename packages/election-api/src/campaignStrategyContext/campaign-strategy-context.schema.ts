@@ -1,5 +1,6 @@
 import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
+import { ElectionCode } from '../generated/prisma'
 
 // Input is the BallotReady race hash (`Race.brHashId`, a base64-encoded
 // gid://... value). gp-api stores this on `campaign.details.raceId` for
@@ -33,6 +34,14 @@ export type CampaignStrategyContextResponse = {
   candidates: CampaignStrategyContextCandidate[]
   civics_win_number: number | null
   contacts_needed_estimate: number | null
+  // The electorate `projected_turnout` was drawn for, straight off the race
+  // row. Classifying an election date is the warehouse's job, not a
+  // caller's: the mart tags each race and the nightly loader lands the tag
+  // here, so a consumer that needs to know whether a race is a November
+  // general reads this rather than re-deriving it from a date. Null
+  // wherever the projection is null, which is every race outside the
+  // model's three-year horizon.
+  election_code: ElectionCode | null
   general_election_date: string | null
   number_of_seats: number | null
   office_level: string | null
