@@ -1,4 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+// Imported rather than repeated: a literal here keeps passing against the old
+// URL after the constant moves, certifying a destination the product no longer
+// uses. It is a plain string with no side effects, so the top-level import is
+// unaffected by the per-test resetModules/doMock below.
+import { HELP_CENTER_URL } from './supportContact'
 
 // Each test gets a fresh copy so module state can never leak between cases,
 // and so the environment gate can be set per test.
@@ -164,7 +169,7 @@ describe('openSupportChat', () => {
 
     await vi.advanceTimersByTimeAsync(11_000)
 
-    expect(openedTabs).toEqual(['https://support.goodparty.org/knowledge-base'])
+    expect(openedTabs).toEqual([HELP_CENTER_URL])
   })
 
   it('does not fall back when the widget did come up', async () => {
@@ -221,7 +226,7 @@ describe('openSupportChat', () => {
 
     openSupportChat()
     await vi.advanceTimersByTimeAsync(11_000)
-    expect(openedTabs).toEqual(['https://support.goodparty.org/knowledge-base'])
+    expect(openedTabs).toEqual([HELP_CENTER_URL])
 
     const { api, state } = sdk()
     window.HubSpotConversations = api
@@ -305,9 +310,7 @@ describe('openSupportChat', () => {
       openSupportChat()
       await vi.advanceTimersByTimeAsync(11_000)
 
-      expect(openedTabs).toEqual([
-        'https://support.goodparty.org/knowledge-base',
-      ])
+      expect(openedTabs).toEqual([HELP_CENTER_URL])
     })
 
     it('starts a fresh watch for a click after an attempt has settled', async () => {
@@ -447,9 +450,7 @@ describe('openSupportChat', () => {
       openSupportChat()
       await vi.advanceTimersByTimeAsync(11_000)
 
-      expect(openedTabs).toEqual([
-        'https://support.goodparty.org/knowledge-base',
-      ])
+      expect(openedTabs).toEqual([HELP_CENTER_URL])
       expect(api.widget.open).toHaveBeenCalledTimes(1)
     })
 
@@ -492,10 +493,8 @@ describe('openSupportChat', () => {
     openSupportChat()
     await vi.advanceTimersByTimeAsync(11_000)
 
-    expect(openedTabs).toEqual(['https://support.goodparty.org/knowledge-base'])
-    expect(navigations).toEqual([
-      'https://support.goodparty.org/knowledge-base',
-    ])
+    expect(openedTabs).toEqual([HELP_CENTER_URL])
+    expect(navigations).toEqual([HELP_CENTER_URL])
   })
 
   // The nav item renders in every environment, so a click where the chat was
@@ -509,9 +508,7 @@ describe('openSupportChat', () => {
 
       openSupportChat()
 
-      expect(openedTabs).toEqual([
-        'https://support.goodparty.org/knowledge-base',
-      ])
+      expect(openedTabs).toEqual([HELP_CENTER_URL])
     })
 
     it('does not touch the SDK even if one happens to be present', async () => {
@@ -532,6 +529,6 @@ describe('openSupportChat', () => {
     openSupportChat()
     await vi.advanceTimersByTimeAsync(11_000)
 
-    expect(openedTabs).toEqual(['https://support.goodparty.org/knowledge-base'])
+    expect(openedTabs).toEqual([HELP_CENTER_URL])
   })
 })
