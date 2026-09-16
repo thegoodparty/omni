@@ -21,6 +21,67 @@ describe('getHistoryStatusLabel', () => {
   })
 })
 
+describe('getHistoryStatusLabel — active jobs follow their send window', () => {
+  const day = 24 * 60 * 60 * 1000
+  const isoDay = (offsetDays: number) =>
+    new Date(Date.now() + offsetDays * day).toISOString().slice(0, 10)
+
+  it('labels an active job Scheduled while its window is in the future', () => {
+    // The regression: CAS activates at approve, weeks before the send —
+    // an activated-but-unstarted job must never read Done (2026-09-16).
+    expect(
+      getHistoryStatusLabel(
+        p2pRow({
+          status: 'in_progress',
+          p2pJob: {
+            status: 'active',
+            start_date: isoDay(19),
+            end_date: isoDay(19),
+          },
+        }),
+      ),
+    ).toBe('Scheduled')
+  })
+
+  it('labels an active job Sending inside its window', () => {
+    expect(
+      getHistoryStatusLabel(
+        p2pRow({
+          status: 'pending',
+          p2pJob: {
+            status: 'active',
+            start_date: isoDay(-1),
+            end_date: isoDay(1),
+          },
+        }),
+      ),
+    ).toBe('Sending')
+  })
+
+  it('labels an active job Done once its end day has fully passed', () => {
+    expect(
+      getHistoryStatusLabel(
+        p2pRow({
+          status: 'in_progress',
+          p2pJob: {
+            status: 'active',
+            start_date: isoDay(-3),
+            end_date: isoDay(-2),
+          },
+        }),
+      ),
+    ).toBe('Done')
+  })
+
+  it('falls back to Done for an active job with no window dates', () => {
+    expect(
+      getHistoryStatusLabel(
+        p2pRow({ status: 'in_progress', p2pJob: { status: 'active' } }),
+      ),
+    ).toBe('Done')
+  })
+})
+
 describe('getHistoryStatusLabel — send failures', () => {
   it("labels a failed robocall row Couldn't send", () => {
     expect(
