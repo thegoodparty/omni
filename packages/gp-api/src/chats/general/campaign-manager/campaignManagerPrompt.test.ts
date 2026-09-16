@@ -173,6 +173,28 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt.toLowerCase()).toContain('when they confirm')
   })
 
+  it('saves each story answer as it is given, so dropping off mid-intake keeps what was answered', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        story: {
+          why: null,
+          background: null,
+          positions: [],
+          complete: false,
+          missing: ['why', 'background', 'positions'],
+        },
+      }),
+    )
+    const lower = prompt.toLowerCase()
+    // The answer is persisted on receipt, not held for the other questions...
+    expect(lower).toContain('as soon as they give it')
+    expect(lower).toContain('answers one question and stops')
+    // ...and the old defer-the-first-draft instruction is gone.
+    expect(lower).not.toContain('do not save their first draft')
+    // But an unapproved AI rewrite still must not replace it (it publishes).
+    expect(lower).toContain('never save a rewrite they have not approved')
+  })
+
   it('tells the manager how to read the generate status so it never misreads generating as an error', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({

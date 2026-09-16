@@ -138,6 +138,33 @@ else may be named.
 main nav on desktop and sits in the account group on mobile, so any wording
 more specific is wrong on one of the two.
 
+### Where the support chat lives
+
+It is HubSpot Conversations, loaded from `gp-webapp/app/layout.tsx` in
+production and on PR previews, and locally behind `NEXT_PUBLIC_SUPPORT_CHAT=1`.
+It used to render its own launcher hovering over every page; the layout now
+sets `hsConversationsSettings.loadImmediately = false` to suppress that, and
+`@shared/utils/supportWidget.ts` opens it from the nav.
+
+Whether it opened is asked of the SDK (`widget.status().loaded`), never
+assumed, and watched rather than checked once: a single check cannot tell
+"never coming" from "still coming", and guessing wrong navigates to a mail
+client over the top of a widget mid-animation. Only a widget still absent at
+the deadline counts as failure, and then the click goes to email rather than
+nowhere.
+
+**HubSpot's chatflow targeting decides whether the widget may open at all**,
+and it is host-based. Measured: on `localhost` the SDK loads and
+`widget.load({widgetOpen: true})` does nothing, `status()` stuck at
+`{loaded: false, pending: false}` with no container, even called from the
+console; on `app.goodparty.org` the same call brings it up in under a second.
+So a host that is not in those rules cannot exercise this, however correct the
+code is.
+
+There is no API to invoke HubSpot's Breeze Customer Agent directly, so the
+widget remains how a user reaches it. That is why this is a relocation rather
+than a replacement.
+
 The product shows two addresses, and which one depends on who works the queue.
 Both live in `gp-webapp/app/shared/utils/supportContact.ts`; import one rather
 than writing an address.
@@ -154,21 +181,6 @@ The assistants name only the general route. A candidate mid-compliance reaches
 campaign success through the Pro and texting flows themselves, where the
 product already knows that is the context; giving the assistant a second
 address to choose between is how eight of them appeared in the first place.
-
-### Where the support chat lives
-
-It is HubSpot Conversations, loaded in production from
-`gp-webapp/app/layout.tsx`. It used to render its own launcher hovering over
-every page. Now the layout sets `hsConversationsSettings.loadImmediately =
-false` to suppress that, and `@shared/utils/supportWidget.ts` opens it from the
-**Get help** item in the nav (`widget.load({ widgetOpen: true })` the first
-time, `widget.open()` after). If the SDK never arrives — the script is
-production-only, and an ad blocker can stop it in production — the click falls
-back to email rather than doing nothing.
-
-There is no API to invoke HubSpot's Breeze Customer Agent directly, so the
-widget is still how a user reaches it. That is why this is a relocation rather
-than a replacement.
 
 ### Answer first, hand off second
 

@@ -35,6 +35,15 @@ stump speech, and voter messaging.
 So a why or issue authored here shows up on the Pro-upgrade flow and the public
 site, and vice versa.
 
+The **campaign manager chat** writes these same three fields too (gp-api
+`chats/general/campaign-manager/campaignStoryIntake.service.ts`, via its
+`campaign_story` tool). It saves **each answer as the candidate gives it**, not
+once the intake finishes, so a candidate who answers one question and drops off
+keeps that answer. An AI rewrite replaces a saved answer only after they approve
+it, because the why and issues publish to the public site. That timing lives in
+the manager's prompt (`campaignManagerPrompt.ts` `storyBlock`) — it is
+instruction-enforced, not gate-enforced.
+
 ## Pro-upgrade sync (no build needed)
 
 The Pro-upgrade candidate profile asks for the "why" and policy priorities too,

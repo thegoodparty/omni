@@ -103,9 +103,46 @@ describe('streamPack', () => {
     expect(frames).toHaveLength(1)
     expect(frames[0]?.kind).toBe(PACK_STREAM_FRAME_KINDS.error)
     expect(frames[0]?.payload.toString('utf8')).toContain('could not be built')
-    expect(onFailure).toHaveBeenCalledWith(expect.any(Error))
+    expect(onFailure).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.any(Number),
+    )
     // The browser is told the map failed; it is not told what people-db said.
     expect(frames[0]?.payload.toString('utf8')).not.toContain('exploded')
+  })
+
+  // The alert on this event counts firings, so a scan that ran into the 25s
+  // statement timeout and a build that fell over immediately notify
+  // identically. This duration is what lets the `known_causes` entry for
+  // `door-knocking-pack-build-failed` tell them apart before a human is asked
+  // to, so it has to measure the build and not the envelope around it.
+  // Fake timers rather than a real delay: the number asserted below is exact,
+  // and a real sleep would make it approximate — which is the same as making
+  // the assertion loose enough that a duration measured from the wrong start
+  // point would also pass.
+  it('reports how long a failed build ran for', async () => {
+    vi.useFakeTimers()
+    try {
+      const onFailure = vi.fn()
+      const elapsed = 25_400
+      let fail: () => void = () => undefined
+
+      const stream = streamPack({
+        build: () =>
+          new Promise<Buffer>((_, reject) => {
+            fail = () => reject(new Error('Code: 57014 statement timeout'))
+          }),
+        onFailure,
+      })
+
+      await vi.advanceTimersByTimeAsync(elapsed)
+      fail()
+      await stream.toArray()
+
+      expect(onFailure).toHaveBeenCalledWith(expect.any(Error), elapsed)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('abandons the build when the client goes away', async () => {
