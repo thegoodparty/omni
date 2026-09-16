@@ -98,10 +98,39 @@ describe('openSupportChat', () => {
     window.HubSpotConversations = api
     const openSupportChat = await loadWidget()
 
+    const widget = renderWidgetContainer()
     openSupportChat()
 
     expect(api.widget.open).toHaveBeenCalledTimes(1)
     expect(api.widget.load).not.toHaveBeenCalled()
+
+    // Asserted here because a re-open that skips the close observer looks
+    // identical until someone closes the panel.
+    await widget.resizeTo(804)
+    await widget.resizeTo(92)
+    expect(api.widget.remove).toHaveBeenCalledTimes(1)
+  })
+
+  // `loaded` without a container is a real ordering, so the re-open path has
+  // to wait for both rather than opening a widget it cannot watch.
+  it('loads rather than re-opening when the container is not there yet', async () => {
+    const { api, state } = sdk(true)
+    window.HubSpotConversations = api
+    const openSupportChat = await loadWidget()
+
+    openSupportChat()
+
+    expect(api.widget.load).toHaveBeenCalledWith({ widgetOpen: true })
+    expect(api.widget.open).not.toHaveBeenCalled()
+
+    const widget = renderWidgetContainer()
+    state.loaded = true
+    await vi.advanceTimersByTimeAsync(1_000)
+    await widget.resizeTo(804)
+    await widget.resizeTo(92)
+
+    expect(api.widget.open).toHaveBeenCalledTimes(1)
+    expect(api.widget.remove).toHaveBeenCalledTimes(1)
   })
 
   // The failure that used to be invisible: the SDK is present, load() is

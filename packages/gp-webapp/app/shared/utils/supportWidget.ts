@@ -130,7 +130,12 @@ export const openSupportChat = (): void => {
   const conversations = window.HubSpotConversations
 
   if (conversations) {
-    if (widgetStatus()?.loaded) {
+    // Same pair the watch below waits for, and for the same reason: a
+    // `loaded` the container has not caught up with would open a widget and
+    // find nothing to attach the close observer to, leaving the launcher
+    // behind on close. Without the container, fall through and load, and let
+    // the watch open it once both are true.
+    if (widgetStatus()?.loaded && widgetOnScreen()) {
       openWidget()
       return
     }
