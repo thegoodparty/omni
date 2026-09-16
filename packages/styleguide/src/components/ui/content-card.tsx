@@ -3,6 +3,7 @@ import * as React from 'react'
 import { cn } from '@styleguide/lib/utils'
 import { Card } from './card'
 import { Button, type ButtonProps } from './button'
+import { Overline } from './overline'
 
 type ContentCardAction = {
   label: React.ReactNode
@@ -65,14 +66,12 @@ function ContentCard({
         {overline || helper ? (
           <div className="flex min-h-7 flex-wrap items-center gap-2">
             {overline ? (
-              <span
-                className={cn(
-                  'flex-1 text-xs font-bold whitespace-nowrap uppercase',
-                  overlineEmphasis ? 'text-primary' : 'text-card-foreground',
-                )}
+              <Overline
+                emphasis={overlineEmphasis}
+                className="flex-1 whitespace-nowrap"
               >
                 {overline}
-              </span>
+              </Overline>
             ) : null}
             {helper ? (
               <div className="text-muted-foreground ml-auto flex shrink-0 items-center [&_svg]:size-6">

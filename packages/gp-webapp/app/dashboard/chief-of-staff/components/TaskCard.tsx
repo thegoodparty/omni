@@ -1,12 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import { Button, Card, cn } from '@styleguide'
-import type { LucideIcon } from 'lucide-react'
+import { Button, Card, Overline, cn } from '@styleguide'
 
 export interface TaskCardProps {
   overlineLabel: string
-  OverlineIcon: LucideIcon
   title: string
   /** Optional date / location lines under the title. */
   meta?: string[]
@@ -40,7 +38,6 @@ const isExternalHref = (href: string): boolean =>
  */
 export default function TaskCard({
   overlineLabel,
-  OverlineIcon,
   title,
   meta,
   summary,
@@ -61,10 +58,7 @@ export default function TaskCard({
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-          <OverlineIcon className="size-3.5" aria-hidden />
-          {overlineLabel}
-        </span>
+        <Overline>{overlineLabel}</Overline>
       </div>
 
       <h3 className="text-lg font-semibold text-card-foreground">{title}</h3>
