@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Badge, Card, Eyebrow } from '@styleguide'
+import { Badge, Card, Overline } from '@styleguide'
 
 // The Overview grid's cell, shared by both list details drawers. It is the
 // union of what the two surfaces needed rather than the intersection: the
@@ -122,7 +122,7 @@ export const DetailsSection = ({
   children: ReactNode
 }) => (
   <section className="space-y-3">
-    <Eyebrow>{title}</Eyebrow>
+    <Overline>{title}</Overline>
     {children}
   </section>
 )

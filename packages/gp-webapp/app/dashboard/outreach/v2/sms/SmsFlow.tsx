@@ -402,10 +402,13 @@ export const SmsFlow = ({
   }, [date, timeSlot, customTime])
 
   const violates48h = scheduledAt ? scheduledAt.getTime() < earliestSend : false
+  // 8 PM cap, not the 9 PM compliance cutoff: the chosen time opens Peerly's
+  // send window and the window always closes at 9 PM, so a later start
+  // would leave a zero-width window (server clamps too).
   const outsideWindow = scheduledAt
     ? scheduledAt.getHours() < 9 ||
-      scheduledAt.getHours() > 21 ||
-      (scheduledAt.getHours() === 21 && scheduledAt.getMinutes() > 0)
+      scheduledAt.getHours() > 20 ||
+      (scheduledAt.getHours() === 20 && scheduledAt.getMinutes() > 0)
     : false
 
   // Auto-name from list + date until the user edits the name.
@@ -595,6 +598,10 @@ export const SmsFlow = ({
             // slices the first 10 chars as the user's send DAY for Peerly,
             // and the UTC rendering puts evening sends on the next day.
             date: format(scheduledAt, "yyyy-MM-dd'T'HH:mm:ssXXX"),
+            // The wall-clock time as picked — approve opens Peerly's
+            // contact-local send window at it ("6 PM" means 6 PM wherever
+            // the contact lives).
+            scheduledLocalTime: format(scheduledAt, 'HH:mm'),
             ...(audience.selectedListId
               ? { voterFileFilterId: audience.selectedListId }
               : {}),

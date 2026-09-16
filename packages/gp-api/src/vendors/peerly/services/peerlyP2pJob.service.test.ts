@@ -640,6 +640,25 @@ describe('PeerlyP2pJobService', () => {
       )
     })
 
+    it('opens the window at the caller-supplied start time', async () => {
+      await service.requestCanvassers('job-1', {
+        date: '2026-09-10',
+        startTime: '18:00',
+      })
+
+      expect(mockHttpService.post).toHaveBeenCalledWith(
+        '/v2/p2p/job-1/request_canvassers',
+        {
+          requested_initials: 'JD',
+          requested_date: '2026-09-10',
+          requested_timeframe: 'CUSTOM',
+          requested_start_time: '18:00:00',
+          requested_end_time: '21:00:00',
+          requested_timezone: 'LOCAL',
+        },
+      )
+    })
+
     it('omits requested_date when no date is given', async () => {
       await service.requestCanvassers('job-1')
 

@@ -139,7 +139,7 @@ const InviteMemberDrawer = ({
         <DrawerHandle />
         <DrawerHeader className="gap-3 px-6 pt-2 pb-4">
           {/* Back stays out on step 2 (drawer-specific chrome). Stepper
-              carries the eyebrow + bars; DrawerTitle stays sr-only for
+              carries the overline + bars; DrawerTitle stays sr-only for
               the drawer's accessible name. No `onExit` — the drawer's
               own close chrome handles exit. */}
           {step === 2 && (
@@ -158,11 +158,7 @@ const InviteMemberDrawer = ({
             variant="bar"
             currentStep={step}
             totalSteps={2}
-            eyebrow={
-              <span className="text-base font-semibold text-foreground">
-                Invite someone
-              </span>
-            }
+            overline="Invite someone"
           />
         </DrawerHeader>
 

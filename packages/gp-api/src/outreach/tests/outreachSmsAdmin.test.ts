@@ -145,6 +145,7 @@ const seedOutreach = (
     script: string
     stripeCheckoutSessionId: string | null
     date: Date
+    scheduledLocalTime: string | null
   }> = {},
 ) =>
   service.prisma.outreach.create({
@@ -169,7 +170,7 @@ const seedOutreach = (
 describe('CAS SMS console (gp-api admin surface)', () => {
   describe('GET /v1/outreach/admin/sms/queue', () => {
     it('lists scheduled sends with standards verdict and live job state', async () => {
-      const row = await seedOutreach()
+      const row = await seedOutreach({ scheduledLocalTime: '18:00' })
       listAccountJobs.mockResolvedValue([liveJob('peerly-job-1')])
 
       const res = await service.client.get('/v1/outreach/admin/sms/queue')
@@ -178,6 +179,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(res.data.items).toHaveLength(1)
       const item = res.data.items[0]
       expect(item.id).toBe(row.id)
+      expect(item.scheduledLocalTime).toBe('18:00')
       expect(item.approvalStatus).toBe('awaiting_review')
       expect(item.standards).toEqual({ passed: true, failures: [] })
       expect(item.job).toMatchObject({
@@ -357,6 +359,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(res.status).toBe(HttpStatus.CREATED)
       expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
         date: SEND_LOCAL_DATE,
+        startTime: '09:00',
       })
       expect(res.data.approvalStatus).toBe('canvass_requested')
       const updated = await service.prisma.outreach.findFirstOrThrow({
@@ -378,6 +381,45 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         { channel: 'sms' },
       )
     })
+
+    it('opens the vendor window at the stored wall-clock send time', async () => {
+      const row = await seedOutreach({ scheduledLocalTime: '18:00' })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+        date: SEND_LOCAL_DATE,
+        startTime: '18:00',
+      })
+    })
+
+    it.each([
+      ['21:30', '20:00'],
+      ['08:00', '09:00'],
+      // Malformed minutes never reach Peerly — the clamp's format guard
+      // drops the value to the floor rather than booking '19:99:00'.
+      ['19:99', '09:00'],
+    ])(
+      'clamps a stored %s start into the bookable window as %s',
+      async (stored, booked) => {
+        const row = await seedOutreach({ scheduledLocalTime: stored })
+
+        const res = await service.client.post(
+          `/v1/outreach/admin/sms/${row.id}/approve`,
+          { approvedBy: 'cas@goodparty.org' },
+        )
+
+        expect(res.status).toBe(HttpStatus.CREATED)
+        expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+          date: SEND_LOCAL_DATE,
+          startTime: booked,
+        })
+      },
+    )
 
     it('keeps the approval when the Slack notice fails', async () => {
       slackMessage.mockRejectedValue(new Error('slack down'))
@@ -440,6 +482,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(res.status).toBe(HttpStatus.CREATED)
       expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
         date: SEND_LOCAL_DATE,
+        startTime: '09:00',
       })
       const updated = await service.prisma.outreach.findFirstOrThrow({
         where: { id: row.id },
@@ -861,8 +904,11 @@ describe('CAS SMS console (gp-api admin surface)', () => {
 
       expect(res.status).toBe(HttpStatus.OK)
       expect(clearCanvassers).toHaveBeenCalledWith('peerly-job-1')
+      // The rebook keeps the honor-send-time window start (09:00 default
+      // for a row with no stored time) — only the day moved.
       expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
         date: NEW_LOCAL_DATE,
+        startTime: '09:00',
       })
       // The stale booking must be cleared before the new day is requested —
       // Peerly allows one open canvasser request per job.

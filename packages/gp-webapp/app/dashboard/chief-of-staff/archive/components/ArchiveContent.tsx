@@ -70,8 +70,8 @@ function ArchiveList({ bucket }: { bucket: ArchiveBucket }): React.JSX.Element {
         return (
           <TaskCard
             key={key}
-            eyebrowLabel={config.eyebrowLabel}
-            EyebrowIcon={SparklesIcon}
+            overlineLabel={config.overlineLabel}
+            OverlineIcon={SparklesIcon}
             title={config.title}
             summary={config.summary}
           />

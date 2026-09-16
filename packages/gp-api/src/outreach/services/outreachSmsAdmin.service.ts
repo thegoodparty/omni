@@ -56,6 +56,19 @@ const vendorReadTimeoutMs = () =>
 
 const DATE_FMT = 'yyyy-MM-dd'
 
+// Peerly's canvass window closes at the fixed 21:00 compliance cutoff, so
+// the booked start is clamped to [09:00, 20:00] — a later start would leave
+// a zero-width window, and legacy rows with no stored time keep the 9am
+// open. Lexicographic compare is safe on zero-padded HH:mm.
+const CANVASS_START_FLOOR = '09:00'
+const CANVASS_START_CEILING = '20:00'
+const clampCanvassStartTime = (time: string | null): string => {
+  if (!time || !/^\d{2}:[0-5]\d$/.test(time)) return CANVASS_START_FLOOR
+  if (time < CANVASS_START_FLOOR) return CANVASS_START_FLOOR
+  if (time > CANVASS_START_CEILING) return CANVASS_START_CEILING
+  return time
+}
+
 // Send-date floor for the console: everything scheduled before the CAS
 // team's chosen cutoff predates the console and was resolved (or
 // abandoned) through the old manual process.
@@ -389,6 +402,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     try {
       await this.peerlyP2pJobService.requestCanvassers(row.projectId, {
         date: row.scheduledLocalDate ?? undefined,
+        startTime: clampCanvassStartTime(row.scheduledLocalTime),
       })
     } catch (error) {
       await this.model.update({
@@ -699,8 +713,11 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
         throw error
       }
       try {
+        // The rebook keeps the candidate's chosen wall-clock window start
+        // (honor-send-time), same as approve — only the day moved.
         await this.peerlyP2pJobService.requestCanvassers(row.projectId, {
           date: input.scheduledLocalDate,
+          startTime: clampCanvassStartTime(row.scheduledLocalTime),
         })
       } catch (error) {
         // The old booking is already cleared at the vendor and the DB is
@@ -1101,6 +1118,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       createdAt: row.createdAt,
       sendAt: row.date,
       scheduledLocalDate: row.scheduledLocalDate,
+      scheduledLocalTime: row.scheduledLocalTime,
       script: row.script,
       imageUrl: row.imageUrl,
       textCount: row.textCount,
