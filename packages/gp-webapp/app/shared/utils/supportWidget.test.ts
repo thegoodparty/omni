@@ -17,9 +17,12 @@ const sdk = (loaded = false) => {
         // A cooperating chatflow renders the widget; an inert one does not.
       }),
       open: vi.fn(),
-      // The real `remove` unmounts the widget, so `loaded` goes false with it.
+      // The real `remove` unmounts the widget: `loaded` goes false and the
+      // container leaves the DOM. A mock that keeps the container would let
+      // `widgetOnScreen()` stay true over a widget that is gone.
       remove: vi.fn(() => {
         state.loaded = false
+        document.getElementById('hubspot-messages-iframe-container')?.remove()
       }),
       status: vi.fn(() => ({ loaded: state.loaded })),
     },
@@ -289,6 +292,44 @@ describe('openSupportChat', () => {
       openSupportChat()
 
       expect(api.widget.load).toHaveBeenCalledTimes(2)
+    })
+
+    it('opens and closes again on a second cycle', async () => {
+      const { api, state } = sdk()
+      window.HubSpotConversations = api
+      const openSupportChat = await loadWidget()
+
+      openSupportChat()
+      const first = await openThePanel(state)
+      await first.resizeTo(92)
+      expect(document.getElementById('hubspot-messages-iframe-container')).toBe(
+        null,
+      )
+
+      openSupportChat()
+      const second = await openThePanel(state)
+      await second.resizeTo(92)
+
+      expect(api.widget.open).toHaveBeenCalledTimes(2)
+      expect(api.widget.remove).toHaveBeenCalledTimes(2)
+    })
+
+    // With no widget left after a close, a click that brings nothing back has
+    // to reach a person rather than reopening something that is not there.
+    it('offers email when a click after a close brings nothing back', async () => {
+      const { api, state } = sdk()
+      window.HubSpotConversations = api
+      const openSupportChat = await loadWidget()
+
+      openSupportChat()
+      const widget = await openThePanel(state)
+      await widget.resizeTo(92)
+
+      openSupportChat()
+      await vi.advanceTimersByTimeAsync(11_000)
+
+      expect(navigations).toEqual(['mailto:support@goodparty.org'])
+      expect(api.widget.open).toHaveBeenCalledTimes(1)
     })
 
     it('unmounts once per close, not once per size change', async () => {
