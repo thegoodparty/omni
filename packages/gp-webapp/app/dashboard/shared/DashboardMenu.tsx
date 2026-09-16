@@ -37,7 +37,7 @@ import { CONTACTS_DATA_TITLE } from './contactsLabels'
 // Labels and icons shared with each tab's page title bar (DashboardNavHeader),
 // so the left rail and the top of the page can never read differently.
 import { NAV_HEADER_ICONS, NAV_LABELS } from './navLabels'
-import { CIRCLE_COMMUNITY_BASE } from 'appEnv'
+import { CIRCLE_COMMUNITY_BASE, SUPPORT_CHAT_ENABLED } from 'appEnv'
 import {
   Avatar,
   DropdownMenu,
@@ -409,6 +409,10 @@ export default function DashboardMenu({
 // Public Profile, where it is visible without opening the account menu first.
 // On mobile the rail already carries the account items, so it stays with
 // Community Forum there rather than adding a row above the feature tabs.
+//
+// Both render sites are gated on SUPPORT_CHAT_ENABLED. Where the HubSpot
+// script is not injected at all, the click has nothing to open and can only
+// wait and then hand off to email, so the honest thing is not to offer it.
 const SUPPORT_MENU_ITEM = {
   label: 'Get help',
   icon: LifeBuoyIcon,
@@ -601,11 +605,13 @@ const NewNavMenu = ({
                     </SidebarMenuItemComponent>
                   )
                 })}
-              {!isMobile && sidebarActionItem(SUPPORT_MENU_ITEM)}
+              {!isMobile &&
+                SUPPORT_CHAT_ENABLED &&
+                sidebarActionItem(SUPPORT_MENU_ITEM)}
               {isMobile && (
                 <>
                   <SidebarSeparator />
-                  {sidebarActionItem(SUPPORT_MENU_ITEM)}
+                  {SUPPORT_CHAT_ENABLED && sidebarActionItem(SUPPORT_MENU_ITEM)}
                   {sidebarItem(accountManagementMenuItems.community)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.profile)}

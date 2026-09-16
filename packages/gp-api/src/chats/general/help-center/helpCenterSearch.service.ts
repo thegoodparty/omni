@@ -17,7 +17,10 @@ const MAX_RESULTS = 5
 
 // Search wraps every term it matched in a highlight span, so a title arrives
 // as 'Send a <span class="hs-search-highlight">Texting</span> Campaign'.
-// Strip it or the model quotes markup back at the user.
+// Strip it or the model quotes markup back at the user. Every string field
+// goes through this, tags included: the endpoint does not appear to highlight
+// tags today, but one field quietly skipping normalization is how markup
+// reaches the model the day that changes.
 const stripHighlights = (value: string): string =>
   value
     .replace(/<[^>]+>/g, '')
@@ -101,7 +104,7 @@ export class HelpCenterSearchService {
             url: r.url,
             summary: stripHighlights(r.description),
             category: stripHighlights(r.category),
-            tags: r.tags,
+            tags: r.tags.map(stripHighlights),
           })),
       }
     } catch (err) {

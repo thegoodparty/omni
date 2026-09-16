@@ -60,6 +60,23 @@ describe('HelpCenterSearchService', () => {
     expect(articles[0]?.tags).toEqual(['Pro'])
   })
 
+  // Uniform normalization: every string field, not just the obvious ones.
+  it('normalizes tags too, so no field can smuggle markup through', async () => {
+    respondWith({
+      results: [
+        {
+          title: 'Send a Texting Campaign',
+          url: 'https://support.goodparty.org/send-a-texting-campaign',
+          tags: ['<span class="hs-search-highlight">Pro</span>', ' Feature '],
+        },
+      ],
+    })
+
+    const { articles } = await service().search('pro')
+
+    expect(articles[0]?.tags).toEqual(['Pro', 'Feature'])
+  })
+
   it('never surfaces a private article, or one with no link', async () => {
     respondWith({
       results: [
