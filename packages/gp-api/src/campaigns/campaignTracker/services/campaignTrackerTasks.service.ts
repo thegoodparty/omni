@@ -147,9 +147,10 @@ export class CampaignTrackerTasksService extends createPrismaBase(
   // status. The static rows are materialized once, so without this a candidate
   // who tells us after onboarding that they have not actually filed never gets
   // the steps, and one who has since filed keeps being told to collect
-  // signatures. Called on every generation (initial, weekly cron, manual), and
-  // under the same advisory lock as materializeStaticTasks so a reconcile
-  // racing the bootstrap cannot double-insert.
+  // signatures. Called on every generation (initial, weekly cron, manual) and
+  // as soon as a campaign update changes ballotStatus, under the same advisory
+  // lock as materializeStaticTasks so a reconcile racing the bootstrap cannot
+  // double-insert.
   async reconcileBallotAccessTasks(campaign: Campaign): Promise<number> {
     return this.client.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY}::integer, ${campaign.id}::integer)`

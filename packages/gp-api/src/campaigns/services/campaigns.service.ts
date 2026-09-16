@@ -57,6 +57,7 @@ import { toCampaignGroupTraits } from '../util/campaignGroupTraits.util'
 import { CampaignPlanVersionsService } from './campaignPlanVersions.service'
 import { CrmCampaignsService } from './crmCampaigns.service'
 import { CampaignTasksService } from '../tasks/services/campaignTasks.service'
+import { CampaignTrackerTasksService } from '../campaignTracker/services/campaignTrackerTasks.service'
 
 enum CandidateVerification {
   yes = 'YES',
@@ -76,6 +77,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     private readonly organizations: OrganizationsService,
     @Inject(forwardRef(() => CampaignTasksService))
     private readonly campaignTasks: WrapperType<CampaignTasksService>,
+    private readonly trackerTasks: CampaignTrackerTasksService,
   ) {
     super()
   }
@@ -532,6 +534,8 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       signupGoal,
     } = body
 
+    let ballotStatusChanged = false
+
     const runUpdate = async (tx: Prisma.TransactionClient) => {
       this.logger.debug({ id, body }, 'Updating campaign json fields')
       const campaign = await tx.campaign.findFirst({
@@ -594,6 +598,9 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       } else if (legacyBallotStatus !== undefined) {
         campaignUpdateData.ballotStatus = legacyBallotStatus
       }
+      ballotStatusChanged =
+        campaignUpdateData.ballotStatus !== undefined &&
+        campaignUpdateData.ballotStatus !== campaign.ballotStatus
       // No legacy details fallback: signupGoal has only ever been a column.
       if (signupGoal !== undefined) {
         campaignUpdateData.signupGoal = signupGoal
@@ -664,6 +671,21 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
 
     if (!updatedCampaign) {
       throw new InternalServerErrorException(`Failed to update campaign ${id}`)
+    }
+
+    // The tracker's ballot-access rows are otherwise reconciled only by the
+    // weekly generation, so a candidate who reports filing would keep seeing
+    // the signature tasks until the next Thursday. Best-effort: the campaign
+    // row is already committed, and the weekly run repairs a miss.
+    if (ballotStatusChanged) {
+      await this.trackerTasks
+        .reconcileBallotAccessTasks(updatedCampaign)
+        .catch((err: unknown) =>
+          this.logger.error(
+            { err, campaignId: id },
+            'ballot-access reconcile after status change failed',
+          ),
+        )
     }
 
     if (trackCampaign) {
