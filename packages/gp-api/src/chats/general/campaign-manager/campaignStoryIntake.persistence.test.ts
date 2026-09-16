@@ -36,7 +36,7 @@ describe('Campaign Story intake persistence', () => {
   }
 
   beforeEach(async () => {
-    const suffix = Date.now()
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const orgSlug = `story-intake-${suffix}`
     await service.prisma.organization.create({
       data: { slug: orgSlug, ownerId: service.user.id },
