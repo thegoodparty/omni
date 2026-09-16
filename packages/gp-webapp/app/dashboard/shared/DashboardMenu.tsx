@@ -16,6 +16,7 @@ import {
   CircleUserRound,
   ClipboardList,
   ExternalLink,
+  LifeBuoy,
   LogOut,
   Send,
   Settings,
@@ -68,6 +69,7 @@ import {
   useOrganizationRole,
 } from '@shared/organization-picker'
 import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
+import { openSupportChat } from '@shared/utils/supportWidget'
 
 // Adding, renaming or removing an item here also means updating the AI
 // assistants' product map, in
@@ -402,6 +404,18 @@ export default function DashboardMenu({
   )
 }
 
+// The support chat has no URL to link to, so it is an action rather than an
+// AccountManagementItem. It sits with Community Forum, the other thing in this
+// menu that takes you outside the dashboard's own pages.
+const SUPPORT_MENU_ITEM = {
+  label: 'Get help',
+  icon: LifeBuoy,
+  id: 'nav-dash-support',
+  onSelect: openSupportChat,
+}
+
+type AccountActionItem = typeof SUPPORT_MENU_ITEM
+
 type AccountManagementItem = {
   label: string
   icon: LucideIcon
@@ -504,6 +518,33 @@ const NewNavMenu = ({
     </SidebarMenuItemComponent>
   )
 
+  const sidebarActionItem = (item: AccountActionItem) => (
+    <SidebarMenuItemComponent key={item.id}>
+      <SidebarMenuButton
+        id={item.id}
+        onClick={() => {
+          item.onSelect()
+          setOpenMobile(false)
+        }}
+        className="px-4 py-2.5 h-10 text-sm gap-2 rounded-md font-opensans"
+      >
+        <item.icon size={16} />
+        <span>{item.label}</span>
+      </SidebarMenuButton>
+    </SidebarMenuItemComponent>
+  )
+
+  const dropDownActionItem = (item: AccountActionItem) => (
+    <DropdownMenuItemComponent
+      id={item.id}
+      className="h-10"
+      onSelect={item.onSelect}
+    >
+      <item.icon size={16} className="text-foreground" />
+      <span>{item.label}</span>
+    </DropdownMenuItemComponent>
+  )
+
   const dropDownItem = (item: AccountManagementItem) => (
     <DropdownMenuItemComponent asChild className="h-10">
       <Link
@@ -572,6 +613,7 @@ const NewNavMenu = ({
               {isMobile && (
                 <>
                   <SidebarSeparator />
+                  {sidebarActionItem(SUPPORT_MENU_ITEM)}
                   {sidebarItem(accountManagementMenuItems.community)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.profile)}
@@ -624,6 +666,7 @@ const NewNavMenu = ({
                   {!isManager &&
                     dropDownItem(accountManagementMenuItems.account)}
                   <DropdownMenuSeparator />
+                  {dropDownActionItem(SUPPORT_MENU_ITEM)}
                   {dropDownItem(accountManagementMenuItems.community)}
                   <DropdownMenuSeparator />
                   {dropDownItem(accountManagementMenuItems.logout)}

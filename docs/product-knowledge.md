@@ -129,27 +129,31 @@ needs rewriting against the current navigation.
 
 ## Support routing
 
-**One route, both assistants:** the support chat (HubSpot Conversations,
-loaded site-wide in `gp-webapp/app/layout.tsx` for production), with
-`help@goodparty.org` as the email fallback. Both are constants (`SUPPORT_ROUTE`, `SUPPORT_EMAIL`) and
+**One route, both assistants:** the support chat, opened from **Get help** in
+the dashboard's account menu, with `help@goodparty.org` as the email fallback. Both are constants (`SUPPORT_ROUTE`, `SUPPORT_EMAIL`) and
 nothing else may be named.
 
-The product shows two addresses, and which one depends on who works the
-queue. Both live in `gp-webapp/app/shared/utils/supportContact.ts`; import one
-rather than writing an address.
+The product shows the same address. It used to show three (`help@` in the
+voter-data and door-knocking error states, `campaignsuccess@` in the Pro
+upgrade and texting-compliance flows, `support@` in the compliance modal and
+the re-election flow); they are now one constant,
+`gp-webapp/app/shared/utils/supportContact.ts`. Import it rather than writing
+an address, in either package.
 
-| Constant                        | Address                       | Used by                                                          |
-| ------------------------------- | ----------------------------- | ---------------------------------------------------------------- |
-| `SUPPORT_EMAIL`                 | `help@goodparty.org`          | General support: voter data, door knocking, re-election, the widget fallback |
-| `PRO_COMPLIANCE_SUPPORT_EMAIL`  | `campaignsuccess@goodparty.org` | Pro upgrades and 10DLC texting compliance, which campaign success works directly |
+### Where the support chat lives
 
-There used to be a third, `support@`, in the compliance modal and the
-re-election flow. That one was an accident and is gone.
+It is HubSpot Conversations, loaded in production from
+`gp-webapp/app/layout.tsx`. It used to render its own launcher hovering over
+every page. Now the layout sets `hsConversationsSettings.loadImmediately =
+false` to suppress that, and `@shared/utils/supportWidget.ts` opens it from the
+**Get help** item in the nav (`widget.load({ widgetOpen: true })` the first
+time, `widget.open()` after). If the SDK never arrives — the script is
+production-only, and an ad blocker can stop it in production — the click falls
+back to email rather than doing nothing.
 
-The assistants name only the general route. A candidate mid-compliance reaches
-campaign success through the Pro and texting flows themselves, where the
-product already knows that is the context; giving the assistant a second
-address to choose between is how eight of them appeared in the first place.
+There is no API to invoke HubSpot's Breeze Customer Agent directly, so the
+widget is still how a user reaches it. That is why this is a relocation rather
+than a replacement.
 
 ### Answer first, hand off second
 

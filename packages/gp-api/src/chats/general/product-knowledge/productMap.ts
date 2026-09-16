@@ -80,6 +80,16 @@ const SHARED_AREAS: ProductArea[] = [
     does: 'Billing, subscription, and closing an account. This is where every payment and cancellation question goes.',
   },
   {
+    navId: 'nav-dash-support',
+    name: 'Get help',
+    path: 'the account menu at the bottom of the left rail',
+    modes: ['win', 'serve'],
+    does: 'Opens the support chat, where a person answers billing, account, and anything that needs changing on their behalf.',
+    inside: [
+      'It opens the chat in place; there is no separate page to navigate to',
+    ],
+  },
+  {
     navId: 'community-dashboard',
     name: 'Community',
     path: 'the GoodParty.org community on Circle',
