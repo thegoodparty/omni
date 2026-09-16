@@ -53,6 +53,7 @@ const stubClipboard = (): void => {
 describe('<MessageActionBar>', () => {
   // Both writes upsert the same row, so delivery order is the rating. These
   // cover the two ways rapid clicking used to lose one.
+
   describe('overlapping votes', () => {
     it('delivers two quick opposite votes in click order', async () => {
       const user = userEvent.setup()

@@ -103,7 +103,7 @@ export default function MessageActionBar({
 
   const vote = useCallback(
     async (target: ChatFeedbackKind): Promise<void> => {
-      const previous = { rating, storedNote }
+      const previous = { rating, storedNote, noteFor }
       const seq = ++latestVote.current
       // A repeat tap on the active thumb retracts the rating and its note.
       if (rating === target) {
@@ -115,9 +115,19 @@ export default function MessageActionBar({
             await chatApi.clearMessageFeedback?.({ conversationId, messageId })
           })
         } catch (err) {
+          // Restore the panel alongside the thumb so the rollback is total.
+          // Unreachable today and deliberately kept anyway: Radix dismisses
+          // the popover on outside pointerdown AND on focus-outside, so
+          // `noteFor` is already null by the time a tap or a keyboard
+          // activation on the lit thumb reaches this branch. Measured, not
+          // assumed. If that dismissal ever changes, a failed retract would
+          // otherwise strand the panel closed with the rating still lit, and
+          // reopening it is only reachable by tapping the thumb — which fires
+          // another vote instead.
           if (seq === latestVote.current) {
             setRating(previous.rating)
             setStoredNote(previous.storedNote)
+            setNoteFor(previous.noteFor)
           }
           reportErrorToSentry(err, {
             surface: 'agent-chat-feedback',
@@ -162,7 +172,7 @@ export default function MessageActionBar({
         })
       }
     },
-    [rating, storedNote, chatApi, conversationId, messageId, enqueue],
+    [rating, storedNote, noteFor, chatApi, conversationId, messageId, enqueue],
   )
 
   const saveNote = useCallback(async (): Promise<void> => {
