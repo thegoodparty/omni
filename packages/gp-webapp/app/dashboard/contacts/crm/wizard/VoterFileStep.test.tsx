@@ -738,3 +738,43 @@ describe('VoterFileStep — recommended-list filter groups', () => {
     )
   })
 })
+
+// Precinct is offered to Win and Serve alike: unlike party, contacts made and
+// voter likelihood, a precinct is a subdivision of the district an elected
+// official already serves. The Serve case is the one that regressed, so it is
+// the one asserted.
+describe('VoterFileStep — Precinct group', () => {
+  const precinctOptions = {
+    options: [{ county: 'LARAMIE', precinct: '14', voters: 900 }],
+    truncated: false,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  }
+
+  it.each([
+    ['a campaign', false],
+    ['an elected official', true],
+  ])('renders the Precinct pills for %s', async (_who, isElectedOfficial) => {
+    const onPrecinctsChange = vi.fn()
+    const user = userEvent.setup()
+
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={vi.fn()}
+        supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={onPrecinctsChange}
+        precinctOptions={precinctOptions}
+        onSupportStatusChange={vi.fn()}
+        isElectedOfficial={isElectedOfficial}
+      />,
+    )
+
+    expect(screen.getByText('Precinct')).toBeInTheDocument()
+    await user.click(screen.getByText('Laramie — 14'))
+
+    expect(onPrecinctsChange).toHaveBeenCalledWith(['LARAMIE|14'])
+  })
+})

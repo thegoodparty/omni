@@ -1,5 +1,6 @@
 import { HttpStatus } from '@nestjs/common'
 import { addDays, format, subDays } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
@@ -21,6 +22,7 @@ const SEND_LOCAL_DATE = format(SEND_DATE, 'yyyy-MM-dd')
 
 const requestCanvassers = vi.fn()
 const activateJob = vi.fn()
+const updateJobSchedule = vi.fn()
 const slackMessage = vi.fn()
 const clearCanvassers = vi.fn()
 const listAccountJobs = vi.fn()
@@ -60,6 +62,7 @@ afterEach(() => {
 beforeEach(async () => {
   requestCanvassers.mockReset().mockResolvedValue(undefined)
   activateJob.mockReset().mockResolvedValue(undefined)
+  updateJobSchedule.mockReset().mockResolvedValue(undefined)
   slackMessage.mockReset().mockResolvedValue(undefined)
   clearCanvassers.mockReset().mockResolvedValue(undefined)
   listAccountJobs.mockReset().mockResolvedValue([])
@@ -78,6 +81,7 @@ beforeEach(async () => {
   const peerly = service.app.get(PeerlyP2pJobService)
   vi.spyOn(peerly, 'requestCanvassers').mockImplementation(requestCanvassers)
   vi.spyOn(peerly, 'activateJob').mockImplementation(activateJob)
+  vi.spyOn(peerly, 'updateJobSchedule').mockImplementation(updateJobSchedule)
   vi.spyOn(service.app.get(SlackService), 'message').mockImplementation(
     slackMessage,
   )
@@ -141,6 +145,7 @@ const seedOutreach = (
     script: string
     stripeCheckoutSessionId: string | null
     date: Date
+    scheduledLocalTime: string | null
   }> = {},
 ) =>
   service.prisma.outreach.create({
@@ -165,7 +170,7 @@ const seedOutreach = (
 describe('CAS SMS console (gp-api admin surface)', () => {
   describe('GET /v1/outreach/admin/sms/queue', () => {
     it('lists scheduled sends with standards verdict and live job state', async () => {
-      const row = await seedOutreach()
+      const row = await seedOutreach({ scheduledLocalTime: '18:00' })
       listAccountJobs.mockResolvedValue([liveJob('peerly-job-1')])
 
       const res = await service.client.get('/v1/outreach/admin/sms/queue')
@@ -174,6 +179,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(res.data.items).toHaveLength(1)
       const item = res.data.items[0]
       expect(item.id).toBe(row.id)
+      expect(item.scheduledLocalTime).toBe('18:00')
       expect(item.approvalStatus).toBe('awaiting_review')
       expect(item.standards).toEqual({ passed: true, failures: [] })
       expect(item.job).toMatchObject({
@@ -353,6 +359,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(res.status).toBe(HttpStatus.CREATED)
       expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
         date: SEND_LOCAL_DATE,
+        startTime: '09:00',
       })
       expect(res.data.approvalStatus).toBe('canvass_requested')
       const updated = await service.prisma.outreach.findFirstOrThrow({
@@ -374,6 +381,45 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         { channel: 'sms' },
       )
     })
+
+    it('opens the vendor window at the stored wall-clock send time', async () => {
+      const row = await seedOutreach({ scheduledLocalTime: '18:00' })
+
+      const res = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+        date: SEND_LOCAL_DATE,
+        startTime: '18:00',
+      })
+    })
+
+    it.each([
+      ['21:30', '20:00'],
+      ['08:00', '09:00'],
+      // Malformed minutes never reach Peerly — the clamp's format guard
+      // drops the value to the floor rather than booking '19:99:00'.
+      ['19:99', '09:00'],
+    ])(
+      'clamps a stored %s start into the bookable window as %s',
+      async (stored, booked) => {
+        const row = await seedOutreach({ scheduledLocalTime: stored })
+
+        const res = await service.client.post(
+          `/v1/outreach/admin/sms/${row.id}/approve`,
+          { approvedBy: 'cas@goodparty.org' },
+        )
+
+        expect(res.status).toBe(HttpStatus.CREATED)
+        expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+          date: SEND_LOCAL_DATE,
+          startTime: booked,
+        })
+      },
+    )
 
     it('keeps the approval when the Slack notice fails', async () => {
       slackMessage.mockRejectedValue(new Error('slack down'))
@@ -436,6 +482,7 @@ describe('CAS SMS console (gp-api admin surface)', () => {
       expect(res.status).toBe(HttpStatus.CREATED)
       expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
         date: SEND_LOCAL_DATE,
+        startTime: '09:00',
       })
       const updated = await service.prisma.outreach.findFirstOrThrow({
         where: { id: row.id },
@@ -744,6 +791,297 @@ describe('CAS SMS console (gp-api admin surface)', () => {
         { script: 'edited', editedBy: 'cas@goodparty.org' },
       )
       expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    })
+  })
+
+  describe('PATCH /v1/outreach/admin/sms/:id/date (staff date edit)', () => {
+    const NEW_SEND_AT = addDays(new Date(), 14)
+    // ET, not runner-local: editDate refuses a pair whose ET calendar day
+    // disagrees, and a runner-local format() drifts from ET in the
+    // evening hours.
+    const NEW_LOCAL_DATE = formatInTimeZone(
+      NEW_SEND_AT,
+      'America/New_York',
+      'yyyy-MM-dd',
+    )
+    const payload = () => ({
+      sendAt: NEW_SEND_AT.toISOString(),
+      scheduledLocalDate: NEW_LOCAL_DATE,
+      editedBy: 'cas@goodparty.org',
+    })
+
+    it('400s a pair whose ET calendar day disagrees', async () => {
+      const row = await seedOutreach()
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        {
+          ...payload(),
+          scheduledLocalDate: formatInTimeZone(
+            addDays(NEW_SEND_AT, 2),
+            'America/New_York',
+            'yyyy-MM-dd',
+          ),
+        },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(updateJobSchedule).not.toHaveBeenCalled()
+    })
+
+    it('clears a denial so the rescheduled row is approvable again', async () => {
+      const row = await seedOutreach({ deniedAt: new Date() })
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: { deniedBy: 'cas@goodparty.org', deniedReason: 'wrong day' },
+      })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(res.data.approvalStatus).toBe('awaiting_review')
+      const updated = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(updated.deniedAt).toBeNull()
+      expect(updated.deniedBy).toBeNull()
+      expect(updated.deniedReason).toBeNull()
+
+      const approved = await service.client.post(
+        `/v1/outreach/admin/sms/${row.id}/approve`,
+        { approvedBy: 'cas@goodparty.org' },
+      )
+      expect(approved.status).toBe(HttpStatus.CREATED)
+    })
+
+    it('moves an unbooked send without touching the booking machinery', async () => {
+      const row = await seedOutreach()
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(updateJobSchedule).toHaveBeenCalledWith({
+        jobId: 'peerly-job-1',
+        campaignId,
+        date: NEW_LOCAL_DATE,
+      })
+      expect(clearCanvassers).not.toHaveBeenCalled()
+      expect(requestCanvassers).not.toHaveBeenCalled()
+      expect(res.data.scheduledLocalDate).toBe(NEW_LOCAL_DATE)
+      expect(res.data.approvalStatus).toBe('awaiting_review')
+      const updated = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(updated.date?.getTime()).toBe(NEW_SEND_AT.getTime())
+      expect(updated.scheduledLocalDate).toBe(NEW_LOCAL_DATE)
+      expect(updated.adminEditedBy).toBe('cas@goodparty.org')
+      expect(updated.adminEditedAt).not.toBeNull()
+      expect(updated.approvedAt).toBeNull()
+      expect(updated.canvassRequestedAt).toBeNull()
+    })
+
+    it('rebooks a booked send on the new day and keeps the approval', async () => {
+      const bookedAt = subDays(new Date(), 1)
+      const row = await seedOutreach({ approvedAt: new Date() })
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: {
+          approvedBy: 'cas@goodparty.org',
+          canvassRequestedAt: bookedAt,
+        },
+      })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(clearCanvassers).toHaveBeenCalledWith('peerly-job-1')
+      // The rebook keeps the honor-send-time window start (09:00 default
+      // for a row with no stored time) — only the day moved.
+      expect(requestCanvassers).toHaveBeenCalledWith('peerly-job-1', {
+        date: NEW_LOCAL_DATE,
+        startTime: '09:00',
+      })
+      // The stale booking must be cleared before the new day is requested —
+      // Peerly allows one open canvasser request per job.
+      expect(clearCanvassers.mock.invocationCallOrder[0]).toBeLessThan(
+        requestCanvassers.mock.invocationCallOrder[0]!,
+      )
+      const updated = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(updated.approvedAt).not.toBeNull()
+      expect(updated.approvedBy).toBe('cas@goodparty.org')
+      expect(updated.canvassRequestedAt!.getTime()).toBeGreaterThan(
+        bookedAt.getTime(),
+      )
+      expect(updated.scheduledLocalDate).toBe(NEW_LOCAL_DATE)
+    })
+
+    it('leaves the row unchanged when the vendor window update fails', async () => {
+      updateJobSchedule.mockRejectedValue(new Error('peerly down'))
+      const row = await seedOutreach()
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBeGreaterThanOrEqual(500)
+      expect(clearCanvassers).not.toHaveBeenCalled()
+      const unchanged = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(unchanged.date?.getTime()).toBe(SEND_DATE.getTime())
+      expect(unchanged.scheduledLocalDate).toBe(SEND_LOCAL_DATE)
+      expect(unchanged.adminEditedAt).toBeNull()
+    })
+
+    it('leaves the dates unchanged when the booking clear fails', async () => {
+      clearCanvassers.mockRejectedValue(new Error('peerly down'))
+      const row = await seedOutreach({ approvedAt: new Date() })
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: { canvassRequestedAt: new Date() },
+      })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBeGreaterThanOrEqual(500)
+      expect(requestCanvassers).not.toHaveBeenCalled()
+      const unchanged = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(unchanged.date?.getTime()).toBe(SEND_DATE.getTime())
+      expect(unchanged.scheduledLocalDate).toBe(SEND_LOCAL_DATE)
+      expect(unchanged.adminEditedAt).toBeNull()
+    })
+
+    it('leaves the dates unchanged when rebooking fails after the clear', async () => {
+      requestCanvassers.mockRejectedValue(new Error('peerly down'))
+      const row = await seedOutreach({ approvedAt: new Date() })
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: { canvassRequestedAt: new Date() },
+      })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBeGreaterThanOrEqual(500)
+      const unchanged = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(unchanged.date?.getTime()).toBe(SEND_DATE.getTime())
+      expect(unchanged.scheduledLocalDate).toBe(SEND_LOCAL_DATE)
+      expect(unchanged.adminEditedAt).toBeNull()
+    })
+
+    it('409s a canceled row before any vendor write', async () => {
+      const row = await seedOutreach({ stripeCheckoutSessionId: null })
+      await service.client.post(`/v1/outreach/admin/sms/${row.id}/cancel`, {
+        canceledBy: 'cas@goodparty.org',
+      })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBe(HttpStatus.CONFLICT)
+      expect(updateJobSchedule).not.toHaveBeenCalled()
+    })
+
+    it('400s a send time in the past', async () => {
+      const row = await seedOutreach()
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        {
+          ...payload(),
+          sendAt: subDays(new Date(), 1).toISOString(),
+        },
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(updateJobSchedule).not.toHaveBeenCalled()
+    })
+
+    it('reschedules an in_progress row that was never booked (same-day unapproved)', async () => {
+      // The sweep-ratchet case REVIEWABLE_STATUSES exists for: pending ->
+      // in_progress at UTC midnight of the send day with no approval. The
+      // guard only blocks in_progress rows that are BOOKED (possibly
+      // mid-send); this one must stay reschedulable.
+      const row = await seedOutreach({ status: OutreachStatus.in_progress })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(updateJobSchedule).toHaveBeenCalledWith({
+        jobId: 'peerly-job-1',
+        campaignId,
+        date: NEW_LOCAL_DATE,
+      })
+      expect(clearCanvassers).not.toHaveBeenCalled()
+      expect(requestCanvassers).not.toHaveBeenCalled()
+      const updated = await service.prisma.outreach.findFirstOrThrow({
+        where: { id: row.id },
+      })
+      expect(updated.date?.getTime()).toBe(NEW_SEND_AT.getTime())
+      expect(updated.scheduledLocalDate).toBe(NEW_LOCAL_DATE)
+      expect(updated.adminEditedBy).toBe('cas@goodparty.org')
+      expect(updated.canvassRequestedAt).toBeNull()
+    })
+
+    it('400s rescheduling a booked row that is already sending', async () => {
+      const row = await seedOutreach({
+        status: OutreachStatus.in_progress,
+        approvedAt: new Date(),
+      })
+      await service.prisma.outreach.update({
+        where: { id: row.id },
+        data: { canvassRequestedAt: new Date() },
+      })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+      expect(updateJobSchedule).not.toHaveBeenCalled()
+    })
+
+    it('is admin-gated', async () => {
+      const row = await seedOutreach()
+      await service.prisma.user.update({
+        where: { id: service.user.id },
+        data: { roles: [UserRole.candidate] },
+      })
+
+      const res = await service.client.patch(
+        `/v1/outreach/admin/sms/${row.id}/date`,
+        payload(),
+      )
+
+      expect(res.status).toBe(HttpStatus.FORBIDDEN)
+      expect(updateJobSchedule).not.toHaveBeenCalled()
     })
   })
 

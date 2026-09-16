@@ -44,8 +44,7 @@ Required vars:
 |-----|-------------------|-------|
 | `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/electiondb` | Postgres connection string |
 | `CORS_ORIGIN` | `http://localhost:4000` | Origin allowed by Fastify CORS |
-| `LOG_LEVEL` | `debug` | pino log level |
-| `ENABLE_QUERY_LOGGING` | `false` | Logs every SQL statement with its params. Local debugging only — it serializes and ships a log line per query on the request event loop. |
+| `LOG_LEVEL` | `debug` | pino log level. Does not enable Prisma query logging — that subscriber was removed, see `src/prisma/prisma.service.ts`. |
 
 `.env.test` mirrors `.env` for the vitest suite (already committed).
 

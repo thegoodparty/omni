@@ -28,7 +28,7 @@ export default function ImpersonationBanner() {
   const isImpersonating = useIsImpersonating()
   const pathname = usePathname()
   const isReviewMode = !!pathname?.startsWith('/dashboard/admin-review/')
-  const { signOut, client, setActive } = useClerk()
+  const { signOut, client, setActive, session } = useClerk()
   const [user] = useUser()
   const { errorSnackbar } = useSnackbar()
 
@@ -95,7 +95,12 @@ export default function ImpersonationBanner() {
   }
 
   async function handleStopImpersonating() {
-    await stopImpersonatingAndReturnToAdmin(signOut)
+    // End only the impersonated (actor) session rather than every session on
+    // this Clerk client, so nothing beyond the impersonation itself is
+    // revoked on the way back to gp-admin.
+    await stopImpersonatingAndReturnToAdmin(() =>
+      session ? signOut({ sessionId: session.id }) : signOut(),
+    )
   }
 
   function handleOpenChange(next: boolean) {

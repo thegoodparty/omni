@@ -1,5 +1,5 @@
 import { Metadata } from 'next'
-import { auth } from '@clerk/nextjs/server'
+import { auth, currentUser } from '@clerk/nextjs/server'
 import { redirect } from 'next/navigation'
 import { Container, Heading, Text } from '@radix-ui/themes'
 import { PERMISSIONS } from '@/lib/permissions'
@@ -19,7 +19,7 @@ export default async function Page() {
     redirect('/dashboard/users')
   }
 
-  const { items } = await getSmsQueue()
+  const [{ items }, user] = await Promise.all([getSmsQueue(), currentUser()])
 
   return (
     <Container size="4">
@@ -30,7 +30,7 @@ export default async function Page() {
         Scheduled text campaigns awaiting the one human approval. Approving
         books the vendor&apos;s canvassers; nothing sends without it.
       </Text>
-      <SmsQueue items={items} />
+      <SmsQueue items={items} viewerName={user?.fullName ?? null} />
     </Container>
   )
 }

@@ -20,8 +20,10 @@ import { PeerlyMediaService } from './peerlyMedia.service'
 import { PeerlyScheduleService } from './peerlySchedule.service'
 import {
   CreateJobResponseDto,
+  CreateTestJobResponseDto,
   GetJobResponseDto,
   JobDetailedStatsResponseDto,
+  ListTestJobsResponseDto,
 } from '../schemas/peerlyP2pSms.schema'
 import { CreateJobParams, PeerlyJob } from '../peerly.types'
 
@@ -332,9 +334,64 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     }
   }
 
+  // Staff date edit: repoints the job's send window without touching the
+  // message. The update PUT overwrites the whole templates array, so the
+  // job is read first and its templates echoed by media_id — the
+  // activateJob pattern — while the reschedule mints a fresh schedule and
+  // sets start/end to the new local day, the same derivation the create
+  // path used for the original date.
+  async updateJobSchedule({
+    jobId,
+    campaignId,
+    date,
+  }: {
+    jobId: string
+    campaignId: number
+    date: string
+  }): Promise<void> {
+    const job = await this.getJob(jobId)
+    try {
+      const scheduleName = `GP P2P - Campaign ${campaignId} - ${date} - ${formatISO(new Date())}`
+      const scheduleId =
+        await this.peerlyScheduleService.createSchedule(scheduleName)
+      await this.peerlyHttpService.put(`/1to1/jobs/${jobId}`, {
+        account_id: this.accountNumber,
+        // Echoed like templates: this runs on approve-activated jobs, and
+        // a full-replace PUT that defaulted status back to paused would
+        // silently deactivate the send (the 2026-09-08 failure mode
+        // activateJob exists for).
+        status: job.status,
+        can_use_mms: job.can_use_mms,
+        templates: job.templates.map((template) => ({
+          is_default: template.is_default,
+          title: template.title,
+          text: template.text,
+          ...(template.media && {
+            media: {
+              media_type: template.media.media_type,
+              media_id: template.media.media_id,
+              title: template.media.title,
+            },
+          }),
+        })),
+        schedule_id: scheduleId,
+        start_date: date,
+        end_date: date,
+      })
+    } catch (error) {
+      await this.peerlyErrorHandling.handleApiError({
+        error,
+        logger: this.logger,
+        context: {
+          customMessage: P2P_ERROR_MESSAGES.JOB_UPDATE_FAILED,
+        },
+      })
+    }
+  }
+
   async requestCanvassers(
     jobId: string,
-    { date }: { date?: string } = {},
+    { date, startTime }: { date?: string; startTime?: string } = {},
   ): Promise<void> {
     try {
       // Peerly validates requested_initials against the REQUESTING user —
@@ -345,15 +402,16 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
       const user = await this.peerlyHttpService.getAuthenticatedUser()
       const initials =
         `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`.toUpperCase()
-      // The send window is a product requirement (2026-09-02): canvassers
-      // work 9am-9pm in each recipient's local timezone. Sent explicitly as
-      // a CUSTOM window rather than relying on the vendor's ANY_TIME
-      // default semantics.
+      // The send window opens at the candidate's chosen wall-clock time
+      // (design settled 2026-09-16) and always closes at the 9pm compliance
+      // cutoff, in each recipient's local timezone. Sent explicitly as a
+      // CUSTOM window rather than relying on the vendor's ANY_TIME default
+      // semantics; callers with no stored time keep the 9am open.
       await this.peerlyHttpService.post(`/v2/p2p/${jobId}/request_canvassers`, {
         requested_initials: initials,
         ...(date && { requested_date: date }),
         requested_timeframe: 'CUSTOM',
-        requested_start_time: '09:00:00',
+        requested_start_time: `${startTime ?? '09:00'}:00`,
         requested_end_time: '21:00:00',
         requested_timezone: 'LOCAL',
       })
@@ -387,6 +445,65 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
       }
       this.logger.error({ error }, P2P_ERROR_MESSAGES.CLEAR_CANVASSERS_FAILED)
       throw new BadGatewayException(P2P_ERROR_MESSAGES.CLEAR_CANVASSERS_FAILED)
+    }
+  }
+
+  // Peerly's test jobs (P2P-TEST) hang off a real job and are what their
+  // platform's own "send test" button drives. Listing lets a repeat send
+  // reuse the job's existing test job instead of minting a vendor object
+  // per click.
+  async listTestJobIds(jobId: string): Promise<string[]> {
+    try {
+      const response = await this.peerlyHttpService.get(
+        `/v2/p2p/${jobId}/tests`,
+      )
+      const validated = this.peerlyHttpService.validateResponse(
+        response.data,
+        ListTestJobsResponseDto,
+        'list test jobs',
+      )
+      return validated.map((testJob) => testJob.p2p_id)
+    } catch (error) {
+      this.logger.error({ error }, P2P_ERROR_MESSAGES.LIST_TEST_JOBS_FAILED)
+      throw new BadGatewayException(P2P_ERROR_MESSAGES.LIST_TEST_JOBS_FAILED)
+    }
+  }
+
+  async createTestJob(jobId: string): Promise<string> {
+    try {
+      const response = await this.peerlyHttpService.post(
+        `/v2/p2p/${jobId}/tests`,
+      )
+      const validated = this.peerlyHttpService.validateResponse(
+        response.data,
+        CreateTestJobResponseDto,
+        'create test job',
+      )
+      return validated.id
+    } catch (error) {
+      // No customMessage: a Peerly 4xx here is CAS-actionable, so the
+      // shared parser keeps Peerly's own message.
+      return this.peerlyErrorHandling.handleApiError({
+        error,
+        logger: this.logger,
+      })
+    }
+  }
+
+  // Sends the test job's template to ONE explicitly supplied 10-digit
+  // phone — a real text to a real handset, so the number must always be
+  // operator-typed, never derived from campaign or contact data.
+  async sendTestMessage(testJobId: string, phone: string): Promise<void> {
+    try {
+      await this.peerlyHttpService.post(
+        `/1to1/jobs/${testJobId}/send_test_message`,
+        { test_contact_phone: phone },
+      )
+    } catch (error) {
+      return this.peerlyErrorHandling.handleApiError({
+        error,
+        logger: this.logger,
+      })
     }
   }
 

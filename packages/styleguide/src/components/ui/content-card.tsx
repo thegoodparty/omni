@@ -3,6 +3,7 @@ import * as React from 'react'
 import { cn } from '@styleguide/lib/utils'
 import { Card } from './card'
 import { Button, type ButtonProps } from './button'
+import { Overline } from './overline'
 
 type ContentCardAction = {
   label: React.ReactNode
@@ -14,9 +15,8 @@ interface ContentCardProps extends Omit<
 > {
   title: React.ReactNode
   description?: React.ReactNode
-  eyebrow?: React.ReactNode
-  eyebrowIcon?: React.ReactNode
-  eyebrowEmphasis?: boolean
+  overline?: React.ReactNode
+  overlineEmphasis?: boolean
   helper?: React.ReactNode
   primaryAction?: ContentCardAction
   secondaryAction?: ContentCardAction
@@ -42,9 +42,8 @@ const renderAction = (
 function ContentCard({
   title,
   description,
-  eyebrow,
-  eyebrowIcon,
-  eyebrowEmphasis = true,
+  overline,
+  overlineEmphasis = true,
   helper,
   primaryAction,
   secondaryAction,
@@ -64,20 +63,15 @@ function ContentCard({
       {...props}
     >
       <div className="flex w-full flex-col gap-1">
-        {eyebrow || helper ? (
+        {overline || helper ? (
           <div className="flex min-h-7 flex-wrap items-center gap-2">
-            {eyebrow ? (
-              <div
-                className={cn(
-                  'flex flex-1 items-center gap-1 [&_svg]:size-4',
-                  eyebrowEmphasis ? 'text-primary' : 'text-card-foreground',
-                )}
+            {overline ? (
+              <Overline
+                emphasis={overlineEmphasis}
+                className="flex-1 whitespace-nowrap"
               >
-                {eyebrowIcon}
-                <span className="text-xs font-bold whitespace-nowrap uppercase">
-                  {eyebrow}
-                </span>
-              </div>
+                {overline}
+              </Overline>
             ) : null}
             {helper ? (
               <div className="text-muted-foreground ml-auto flex shrink-0 items-center [&_svg]:size-6">

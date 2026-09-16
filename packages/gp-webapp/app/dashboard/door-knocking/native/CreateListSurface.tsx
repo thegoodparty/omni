@@ -8,11 +8,13 @@ import {
 } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import {
   addressPreviewQueryOptions,
+  audienceCheckQueryOptions,
   savedListsQueryOptions,
   TURF_COLORS,
 } from './turfQueries'
 import { voterPackQueryOptions } from './useVoterPack'
 import { savedListUnshadeableCriteria } from './savedListFilters'
+import { hasEmptiableCriteria } from './createFlow/emptiableCriteria'
 import CreateListFlow from './createFlow/CreateListFlow'
 import type {
   CreateFlowStep,
@@ -20,6 +22,7 @@ import type {
 } from './createFlow/CreateListFlow'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { audienceOptions } from './createFlow/savedListOptions'
+import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import type { PolygonRing } from './VoterMapCanvas'
 import type { PolygonStats } from './filterEngine'
 
@@ -203,6 +206,12 @@ export interface CreateListSurfaceProps {
   // VoterFileStep. A prop rather than a context read so this stays testable
   // without an organization provider.
   isServeOrg: boolean
+  // The hand-cut precinct selection and the district's precinct vocabulary.
+  // Owned by the orchestrator alongside `filters` — the address preview
+  // assembled below is what needs them, and the query is the page's.
+  precincts: string[]
+  onPrecinctsChange: (value: string[]) => void
+  precinctOptions: PrecinctOptionsResult
   // Draft selections the pack can't shade, computed by the orchestrator
   // because it owns the pack's manifest for the map's sake.
   unpreviewableKeys: string[]
@@ -241,6 +250,9 @@ export default function CreateListSurface({
   drawnStops,
   onListCreated,
   isServeOrg,
+  precincts,
+  onPrecinctsChange,
+  precinctOptions,
   unpreviewableKeys,
   orgSlug,
   preselectedListId,
@@ -326,6 +338,10 @@ export default function CreateListSurface({
     () => ({
       ...transformVoterFileFiltersForBackend(filters),
       ...savedListUnshadeableCriteria(selectedList),
+      // The hand-cut precinct selection is the third mutually-exclusive
+      // source of a precinct clause, beside a picked list's and an accepted
+      // recommendation's: each of the three clears the other two.
+      ...(precincts.length ? { precincts } : {}),
       ...(recommendedCriteria.precincts.length
         ? { precincts: recommendedCriteria.precincts }
         : {}),
@@ -333,8 +349,30 @@ export default function CreateListSurface({
         ? { supportStatus: recommendedCriteria.supportStatus }
         : {}),
     }),
-    [filters, selectedList, recommendedCriteria],
+    [filters, selectedList, precincts, recommendedCriteria],
   )
+  // Does this audience keep anybody? Asked of the same filter payload the
+  // preview sends, and asked HERE rather than beside the picker because this
+  // is where that payload is assembled — a list's support-status and activity
+  // clauses live outside the boolean draft, so the who step itself cannot see
+  // what it just picked.
+  //
+  // Only fires for a draft carrying a criterion that can resolve to nobody.
+  // Everything else narrows a people-db query instead of resolving a set, so
+  // the answer for it is `empty: false` before the request is made and the
+  // round trip would buy nothing.
+  const audienceCheckQuery = useQuery({
+    ...audienceCheckQueryOptions(previewFilters),
+    enabled: hasEmptiableCriteria(previewFilters),
+  })
+  // Fails open, both while pending and on error. A candidate must never be
+  // held out of their own flow by an advisory check: the create's own
+  // refusal is still behind this, so the cost of missing an empty audience is
+  // the status quo, while the cost of a false block is a list that cannot be
+  // cut at all. `data` is undefined in both states, so the `=== true` is the
+  // whole of that policy.
+  const audienceEmpty = audienceCheckQuery.data?.empty === true
+
   const previewQuery = useQuery({
     ...addressPreviewQueryOptions(
       previewPolygon ?? { type: 'Polygon', coordinates: [[]] },
@@ -360,6 +398,9 @@ export default function CreateListSurface({
       step={step}
       filters={filters}
       onFiltersChange={onFiltersChange}
+      precincts={precincts}
+      onPrecinctsChange={onPrecinctsChange}
+      precinctOptions={precinctOptions}
       onStepChange={(next) => {
         // Back to the filters is a re-cut of the audience, and the step
         // forward from it wipes the shape — so the next thing drawn is a
@@ -376,6 +417,7 @@ export default function CreateListSurface({
       districtHouseholdsPending={districtHouseholdsPending}
       districtHouseholdsFailed={districtHouseholdsFailed}
       districtUnavailable={districtUnavailable}
+      audienceEmpty={audienceEmpty}
       savedLists={audience.lists}
       allContactsHouseholds={audience.allContactsHouseholds}
       ring={ring}

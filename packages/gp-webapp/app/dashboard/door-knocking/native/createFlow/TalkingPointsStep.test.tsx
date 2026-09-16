@@ -37,6 +37,15 @@ const OPEN_RING: PolygonRing = [
 const baseProps = {
   filters: {},
   onFiltersChange: vi.fn(),
+  precincts: [],
+  onPrecinctsChange: vi.fn(),
+  precinctOptions: {
+    options: [],
+    truncated: false,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  },
   onStepChange: vi.fn(),
   onClose: vi.fn(),
   districtBounds: null as [[number, number], [number, number]] | null,
@@ -44,6 +53,7 @@ const baseProps = {
   districtHouseholdsPending: false,
   districtHouseholdsFailed: false,
   districtUnavailable: false,
+  audienceEmpty: false,
   savedLists: [],
   allContactsHouseholds: 12000,
   ring: OPEN_RING,

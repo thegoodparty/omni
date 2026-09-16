@@ -33,6 +33,10 @@ import {
   representativeOf,
   sequenceBlockFaces,
 } from '../utils/blockFace.util'
+import {
+  EMPTY_TURF_MESSAGE,
+  emptyAudienceMessage,
+} from '../utils/emptyAudience.util'
 import { routePlannerCredits, routingCredits } from '../utils/geoapifyCost.util'
 import { assertCampaignQuota } from '../utils/campaignQuota.util'
 import { recordWaypointSpend } from '../utils/waypointSpend.util'
@@ -192,11 +196,10 @@ export class DoorKnockingCreateService extends createPrismaBase(
         )
         if (resolved.empty) {
           // Nobody survives the list's own filters, so there is nothing to
-          // route. Same failure the polygon miss below reports, raised before
-          // paying for a people-db scan that can only come back empty.
-          throw new BadRequestException(
-            'No matching voters inside this turf — widen the area or the filters',
-          )
+          // route — and nothing about the polygon, which has not been looked
+          // at yet, could change that. Raised before paying for a people-db
+          // scan that can only come back empty.
+          throw new BadRequestException(emptyAudienceMessage(filter))
         }
 
         const { people } = await this.peopleApi.evaluate({
@@ -390,9 +393,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
           a.addressKey.localeCompare(b.addressKey) || a.id.localeCompare(b.id),
       )
     if (inside.length === 0) {
-      throw new BadRequestException(
-        'No matching voters inside this turf — widen the area or the filters',
-      )
+      throw new BadRequestException(EMPTY_TURF_MESSAGE)
     }
 
     const byCoordinate = new Map<string, PlannedStop>()

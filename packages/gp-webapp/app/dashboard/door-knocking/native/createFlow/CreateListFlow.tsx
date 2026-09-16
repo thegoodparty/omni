@@ -25,7 +25,9 @@ import {
   unpreviewableDisclosureLabels,
   unpreviewableDisclosureSentence,
 } from './voterFilterPreview'
+import { audienceEmptyMessage } from './emptiableCriteria'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
+import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { districtUnavailableMessage, packErrorMessage } from '../useVoterPack'
 import { suggestTravelMode } from '../travelMode'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -116,6 +118,14 @@ interface CreateListFlowProps {
   step: CreateFlowStep
   filters: VoterFileFilters
   onFiltersChange: (filters: VoterFileFilters) => void
+  // The hand-cut precinct selection. Beside `filters` rather than inside it
+  // because precinct values are enumerated per district, so the boolean pill
+  // draft has no key to hold them — the draft carries only the `precincts`
+  // MARK, for the map's unshadeable disclosure. Owned by the page for the
+  // same reason `filters` is: the address preview is assembled up there.
+  precincts: string[]
+  onPrecinctsChange: (value: string[]) => void
+  precinctOptions: PrecinctOptionsResult
   onStepChange: (step: CreateFlowStep) => void
   onClose: () => void
   // The pack's bounding box, framed by the draw step's static-map preview
@@ -136,6 +146,19 @@ interface CreateListFlowProps {
   // offer, so the step says what is actually wrong instead of asking for a
   // refresh that changes nothing.
   districtUnavailable: boolean
+  // The audience resolves to nobody before any shape is drawn, proven against
+  // Postgres rather than estimated from the pack (`audienceCheckQueryOptions`).
+  //
+  // This is the one count on the step the pack genuinely cannot produce. The
+  // three criteria that can empty a list — support status, previous outreach,
+  // contacts made — are exactly the ones the pack has no plane for, so a list
+  // cut by them shades as the whole district and `districtHouseholds` reports
+  // the district. The old failure followed from that: Continue was enabled by a
+  // number that had ignored the filters, the boundary was drawn and named, and
+  // the create refused at the end with a message about the boundary.
+  //
+  // False while the check is pending or failed, deliberately — see the surface.
+  audienceEmpty: boolean
   // The who step's list picker, with the parenthesised district counts the
   // canvas puts beside each row. Empty until the saved lists resolve; the step
   // still offers All Contacts, which is the default anyway.
@@ -302,6 +325,9 @@ export default function CreateListFlow({
   step,
   filters,
   onFiltersChange,
+  precincts,
+  onPrecinctsChange,
+  precinctOptions,
   onStepChange,
   onClose,
   districtBounds,
@@ -309,6 +335,7 @@ export default function CreateListFlow({
   districtHouseholdsPending,
   districtHouseholdsFailed,
   districtUnavailable,
+  audienceEmpty,
   savedLists,
   allContactsHouseholds,
   ring,
@@ -449,13 +476,17 @@ export default function CreateListFlow({
       setHasPickedAudience(true)
       setSavedListId(listId)
       clearRecommendedDraft()
+      // A picked list brings its own precinct clause through
+      // `savedListUnshadeableCriteria`, so a hand-cut selection left standing
+      // would narrow the preview by precincts the list never names.
+      onPrecinctsChange([])
       onFiltersChange(
         listId === null
           ? {}
           : (savedLists.find((list) => list.id === listId)?.filters ?? {}),
       )
     },
-    [onFiltersChange, savedLists, clearRecommendedDraft],
+    [onFiltersChange, onPrecinctsChange, savedLists, clearRecommendedDraft],
   )
 
   // A recommendation that already exists as a saved list selects that list
@@ -501,6 +532,9 @@ export default function CreateListFlow({
       const supportStatus = recommendation.filter.supportStatus ?? []
       setHasPickedAudience(true)
       setSavedListId(null)
+      // Its own precinct clause rides in `recommendedPrecincts` below, so
+      // the hand-cut one goes with the draft it belonged to.
+      onPrecinctsChange([])
       // The boolean MARKS beside the pill draft, exactly as
       // `savedListFilterKeys` leaves them for a picked list: they narrow
       // nothing (`transformVoterFileFiltersForBackend` only emits option
@@ -525,7 +559,13 @@ export default function CreateListFlow({
         voteGoalShare: recommendation.voteGoalShare,
       })
     },
-    [onFiltersChange, selectList, savedLists, recommendedListIntent],
+    [
+      onFiltersChange,
+      onPrecinctsChange,
+      selectList,
+      savedLists,
+      recommendedListIntent,
+    ],
   )
 
   // A list carried in from the outreach hub's door-knocking tile, so "start a
@@ -897,6 +937,11 @@ export default function CreateListFlow({
             // recommendation (docs/features/recommended-lists.md) — empty
             // for a hand-cut audience or one picked from the saved-lists
             // rail, since those never populate this state.
+            // The hand-cut precinct selection, and below it the carry from
+            // an accepted recommendation. Mutually exclusive by
+            // construction — picking either clears the other — so the
+            // second spread can never overwrite a live selection.
+            ...(precincts.length ? { precincts } : {}),
             ...(recommendedPrecincts.length
               ? { precincts: recommendedPrecincts }
               : {}),
@@ -1022,10 +1067,23 @@ export default function CreateListFlow({
   // on a spent day rather than letting a candidate draw and then taking the
   // shape away.
 
-  const unpreviewableDisclosure = unpreviewableDisclosureSentence(
-    unpreviewableDisclosureLabels(unpreviewableKeys),
-    savedListId !== null,
-  )
+  // Named from the draft's own marks rather than from the response, which
+  // carries one bit. The server proved the audience empty; which pills to go
+  // and look at is a question the flow can already answer, and answering it
+  // here keeps the sentence out of the contract.
+  const audienceEmptyDisclosure = audienceEmpty
+    ? audienceEmptyMessage(filters, savedListId !== null)
+    : null
+
+  const unpreviewableDisclosure = audienceEmptyDisclosure
+    ? // Suppressed under a proven-empty audience. This sentence hedges the
+      // count as too big; that one says the count is moot. Both at once reads
+      // as the step arguing with itself.
+      null
+    : unpreviewableDisclosureSentence(
+        unpreviewableDisclosureLabels(unpreviewableKeys),
+        savedListId !== null,
+      )
 
   // Leaving the drawing surface. Back is a step-back inside the flow, not a
   // close — the drawn shape stays and the candidate lands on the draw step
@@ -1126,7 +1184,12 @@ export default function CreateListFlow({
                   districtHouseholdsPending ||
                   districtHouseholdsFailed ||
                   districtUnavailable ||
-                  districtHouseholds === 0,
+                  districtHouseholds === 0 ||
+                  // The only one of these the pack cannot see. Every other
+                  // term above is about whether a count ARRIVED; this is a
+                  // count that arrived, looked healthy, and was about a
+                  // different question than the one the create will ask.
+                  audienceEmpty,
                 loading: districtHouseholdsPending,
                 // Always the draw step. Building a new list is a way of
                 // choosing the audience, not a way of finishing early —
@@ -1210,8 +1273,28 @@ export default function CreateListFlow({
                 // that list will never apply.
                 setSavedListId(null)
                 clearRecommendedDraft()
-                onFiltersChange(withoutUnshadeableCriteria(next))
+                // The hand-cut precinct selection is this draft's own, not
+                // the departing list's, so its mark is re-applied after the
+                // strip — dropping it would hide a filter that IS still
+                // being applied, which is the disclosure lying the other way.
+                onFiltersChange({
+                  ...withoutUnshadeableCriteria(next),
+                  ...(precincts.length ? { precincts: true } : {}),
+                })
               }}
+              precincts={precincts}
+              onPrecinctsChange={(next) => {
+                // Same departure as editing a pill: narrowing by precinct is
+                // cutting a new audience, not the named list.
+                setSavedListId(null)
+                clearRecommendedDraft()
+                onPrecinctsChange(next)
+                onFiltersChange({
+                  ...withoutUnshadeableCriteria(filters),
+                  ...(next.length ? { precincts: true } : {}),
+                })
+              }}
+              precinctOptions={precinctOptions}
               savedLists={savedLists}
               allContactsHouseholds={allContactsHouseholds}
               selectedListId={savedListId}
@@ -1263,6 +1346,18 @@ export default function CreateListFlow({
             {districtUnavailable && (
               <p role="alert" className="text-sm text-muted-foreground">
                 {districtUnavailableMessage(serveMode)}
+              </p>
+            )}
+            {/* Proven empty, so it outranks the disclosure below it: that
+                sentence explains that the count on screen is too BIG, which
+                is a caveat about a list worth drawing. This one says there is
+                no list. Rendered above it and suppressing it, rather than
+                beside it, because two sentences about the same gap — one
+                hedging the count, one saying the count is moot — read as the
+                step contradicting itself. */}
+            {audienceEmptyDisclosure && (
+              <p role="alert" className="text-sm text-destructive">
+                {audienceEmptyDisclosure}
               </p>
             )}
             {/* The count in the CTA is the pack's, and the pack cannot shade

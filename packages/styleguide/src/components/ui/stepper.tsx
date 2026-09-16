@@ -1,6 +1,10 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import { cn } from '@styleguide/lib/utils'
+import { Button } from './button'
+import { Overline } from './overline'
+import { XMarkIcon } from './icons'
 
 type StepperVariant = 'bar' | 'vertical'
 
@@ -8,12 +12,21 @@ interface BarStepperProps {
   variant?: 'bar'
   currentStep: number
   totalSteps: number
-  showLabel?: boolean
+  // Optional overline slot — the flow's identity in the header row. A
+  // channel badge in outreach, a logo in onboarding, or a flow name like
+  // "Create new list" in a wizard drawer. Omit for a bars-only render.
+  // A string is wrapped in the shared <Overline> component; pass a
+  // ReactNode to render your own markup (badge, logo, etc.) verbatim.
+  overline?: ReactNode
+  // Optional Exit affordance. When defined, renders the Exit button in
+  // the header row's right slot. Omit for surfaces with no exit
+  // (onboarding) or whose sheet chrome carries its own close (CRM
+  // wizard, team invite drawer).
+  onExit?: () => void
   className?: string
-  labelClassName?: string
-  // Optional override for each segment's classes — a caller that needs
-  // taller/paddier bars than the default `h-1.5 rounded-full` can pass
-  // its own here without forking the component.
+  // Optional per-segment class override. The default is the chunky bar
+  // consumers standardized on; a caller that needs a different height/
+  // shape can pass its own without forking the component. Rare.
   barClassName?: string
 }
 
@@ -49,14 +62,14 @@ function Stepper(props: StepperProps) {
               aria-label={isCompleted ? `${label} - completed` : undefined}
               className={cn(
                 'flex items-center gap-3 rounded-full px-4 py-3',
-                isActive && 'bg-slate-200',
+                isActive && 'bg-muted',
               )}
             >
               <span
                 className={cn(
                   'flex size-10 shrink-0 items-center justify-center rounded-full',
                   isActive
-                    ? 'bg-slate-600 text-base-foreground-dark'
+                    ? 'bg-foreground text-background'
                     : 'bg-tertiary-light text-tertiary-dark',
                 )}
               >
@@ -70,34 +83,49 @@ function Stepper(props: StepperProps) {
     )
   }
 
-  const {
-    currentStep,
-    totalSteps,
-    showLabel = true,
-    className,
-    labelClassName,
-    barClassName,
-  } = props
+  const { currentStep, totalSteps, overline, onExit, className, barClassName } =
+    props
+  const hasHeaderRow = overline !== undefined || onExit !== undefined
   return (
-    <div
-      className={cn('space-y-3', className)}
-      role="progressbar"
-      aria-label="Progress"
-      aria-valuemin={1}
-      aria-valuemax={totalSteps}
-      aria-valuenow={currentStep}
-    >
-      {showLabel && (
-        <div
-          className={cn(
-            'flex justify-end text-sm font-medium text-muted-foreground',
-            labelClassName,
+    <div className={cn(className)}>
+      {/* Header row: overline slot + Exit button. Both are optional and
+          the whole row disappears when neither is set, so a caller that
+          only wants the bars gets exactly that. */}
+      {hasHeaderRow && (
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            {typeof overline === 'string' ? (
+              <Overline>{overline}</Overline>
+            ) : (
+              overline
+            )}
+          </div>
+          {onExit && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="small"
+              aria-label="Exit"
+              onClick={onExit}
+            >
+              <XMarkIcon className="size-[18px]" />
+              Exit
+            </Button>
           )}
-        >
-          Step {currentStep} of {totalSteps}
         </div>
       )}
       <div
+        role="progressbar"
+        aria-label="Progress"
+        // valuemin is 0, not 1: the WAI-ARIA percentage screen readers
+        // announce is (valuenow - valuemin) / (valuemax - valuemin), so
+        // valuemin=1 made step 1 of 5 announce as 0% instead of 20%.
+        // valuetext overrides that percentage with a human sentence —
+        // the retired visible label put back for assistive tech alone.
+        aria-valuemin={0}
+        aria-valuemax={totalSteps}
+        aria-valuenow={currentStep}
+        aria-valuetext={`Step ${currentStep} of ${totalSteps}`}
         className="grid gap-3"
         style={{
           gridTemplateColumns: `repeat(${totalSteps}, minmax(0, 1fr))`,
@@ -107,11 +135,9 @@ function Stepper(props: StepperProps) {
           <div
             key={index}
             className={cn(
-              'h-1.5 rounded-full',
+              'h-2.5 rounded-full',
               barClassName,
-              index < currentStep
-                ? 'bg-components-input-active'
-                : 'bg-slate-200',
+              index < currentStep ? 'bg-components-input-active' : 'bg-border',
             )}
           />
         ))}

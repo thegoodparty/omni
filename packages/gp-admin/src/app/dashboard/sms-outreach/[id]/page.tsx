@@ -17,12 +17,15 @@ import {
   formatDate,
   formatDateTime,
   formatLocalDateString,
+  formatLocalTimeString,
 } from '@/lib/utils/date'
 import { getSmsDetail } from '../actions'
 import { STANDARDS_RULE_LABELS, STATUS_COLORS, STATUS_LABELS } from '../types'
 import { ApproveDenyActions } from '../components/ApproveDenyActions'
 import { CancelAction } from '../components/CancelAction'
+import { EditDateAction } from '../components/EditDateAction'
 import { EditMessageAction } from '../components/EditMessageAction'
+import { SendTestAction } from '../components/SendTestAction'
 
 export const metadata: Metadata = {
   title: 'SMS Campaign Review | GP Admin',
@@ -94,9 +97,25 @@ export default async function Page({ params }: PageProps) {
             <Text size="2" style={{ whiteSpace: 'pre-wrap' }}>
               {item.script ?? '—'}
             </Text>
-            {canDecide && item.script && item.approvalStatus !== 'canceled' && (
+            {canDecide && item.approvalStatus !== 'canceled' && (
               <Box mt="3">
-                <EditMessageAction id={item.id} script={item.script} />
+                <Flex gap="3">
+                  {item.script && (
+                    <EditMessageAction id={item.id} script={item.script} />
+                  )}
+                  <EditDateAction
+                    id={item.id}
+                    sendAt={
+                      item.sendAt ? new Date(item.sendAt).toISOString() : null
+                    }
+                    scheduledLocalDate={item.scheduledLocalDate}
+                  />
+                </Flex>
+              </Box>
+            )}
+            {canDecide && item.approvalStatus !== 'canceled' && (
+              <Box mt="3">
+                <SendTestAction id={item.id} />
               </Box>
             )}
             {item.adminEditedAt && (
@@ -150,7 +169,9 @@ export default async function Page({ params }: PageProps) {
                   <Flex direction="column">
                     <Text size="2">{formatDateTime(item.sendAt)}</Text>
                     <Text size="1" color="gray">
-                      Peerly books a 9am–9pm window local to each contact on{' '}
+                      Peerly books a{' '}
+                      {formatLocalTimeString(item.scheduledLocalTime) ?? '9am'}
+                      –9pm window local to each contact on{' '}
                       {formatLocalDateString(item.scheduledLocalDate)} — not a
                       guaranteed exact time.
                     </Text>

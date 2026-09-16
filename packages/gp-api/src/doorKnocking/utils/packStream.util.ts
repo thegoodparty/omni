@@ -44,7 +44,20 @@ const frame = (kind: number, payload: Buffer): Buffer => {
 
 type StreamPackOptions = {
   build: (signal: AbortSignal) => Promise<Buffer>
-  onFailure: (error: Error) => void
+  /**
+   * `elapsedMs` is how long the build ran before it threw, and it is reported
+   * from here because this is the only place that knows when it started.
+   *
+   * It is what separates the two failures that reach this callback looking
+   * identical: a district whose scan ran into the 25s people-db statement
+   * timeout, and a build that fell over on its first statement. The alert on
+   * this event cannot tell those apart — it counts the event — so the reader
+   * has always had to open Grafana to find out which one they were looking at.
+   * The `known_causes` registry entry for
+   * `door-knocking-pack-build-failed` is written against this field and the
+   * error code together, so that work can be done before anyone is notified.
+   */
+  onFailure: (error: Error, elapsedMs: number) => void
   heartbeatMs?: number
 }
 
@@ -75,6 +88,11 @@ export const streamPack = ({
   // whatever the client does next contends with a build nobody is waiting for.
   stream.once('close', () => abort.abort())
 
+  // Taken immediately before the build rather than at the top of this
+  // function, so the number reported is the build's duration and not the
+  // envelope's — the two differ by whatever the event loop was doing.
+  const startedAt = Date.now()
+
   build(abort.signal)
     .then((pack) => {
       stream.push(frame(PACK_STREAM_FRAME_KINDS.pack, pack))
@@ -83,7 +101,7 @@ export const streamPack = ({
       // Nobody is listening and nothing failed on our side, so this is not a
       // page — see the abort above.
       if (abort.signal.aborted) return
-      onFailure(error)
+      onFailure(error, Date.now() - startedAt)
       stream.push(
         frame(
           PACK_STREAM_FRAME_KINDS.error,

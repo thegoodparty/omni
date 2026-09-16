@@ -152,7 +152,7 @@ test.describe('Team page — flag forced on', () => {
 
     await page.getByRole('button', { name: 'Invite' }).click()
     await expect(
-      page.getByRole('dialog', { name: 'Who do you want to invite?' }),
+      page.getByRole('dialog', { name: 'Invite someone' }),
     ).toBeVisible()
     await expect(page.getByLabel('Name')).toBeVisible()
     await expect(page.getByLabel('Phone number')).toBeVisible()

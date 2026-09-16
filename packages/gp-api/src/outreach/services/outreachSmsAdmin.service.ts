@@ -9,13 +9,18 @@ import {
   type ApproveSmsOutreachRequest,
   type CancelSmsOutreachRequest,
   type DenySmsOutreachRequest,
+  type EditSmsOutreachDateRequest,
   type EditSmsOutreachRequest,
   type SmsAdminDetailResponse,
   type SmsAdminJobStats,
   type SmsApprovalQueueItem,
   type SmsApprovalStatus,
+  type SmsTestMessageRequest,
+  type SmsTestMessageResponse,
 } from '@goodparty_org/contracts'
-import { addDays, format, subDays } from 'date-fns'
+import { addDays, format, isAfter, subDays } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
+import { EASTERN_TIMEZONE } from 'src/shared/util/date.util'
 import { OutreachStatus, OutreachType, Prisma } from '../../generated/prisma'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -50,6 +55,19 @@ const vendorReadTimeoutMs = () =>
   Number(process.env.VENDOR_READ_TIMEOUT_MS ?? 10_000)
 
 const DATE_FMT = 'yyyy-MM-dd'
+
+// Peerly's canvass window closes at the fixed 21:00 compliance cutoff, so
+// the booked start is clamped to [09:00, 20:00] — a later start would leave
+// a zero-width window, and legacy rows with no stored time keep the 9am
+// open. Lexicographic compare is safe on zero-padded HH:mm.
+const CANVASS_START_FLOOR = '09:00'
+const CANVASS_START_CEILING = '20:00'
+const clampCanvassStartTime = (time: string | null): string => {
+  if (!time || !/^\d{2}:[0-5]\d$/.test(time)) return CANVASS_START_FLOOR
+  if (time < CANVASS_START_FLOOR) return CANVASS_START_FLOOR
+  if (time > CANVASS_START_CEILING) return CANVASS_START_CEILING
+  return time
+}
 
 // Send-date floor for the console: everything scheduled before the CAS
 // team's chosen cutoff predates the console and was resolved (or
@@ -101,6 +119,10 @@ const detailFailedRetryCooldownMs = () =>
   Number(process.env.DETAIL_FAILED_RETRY_COOLDOWN_MS ?? 60_000)
 const detailOutstandingRetryCooldownMs = () =>
   Number(process.env.DETAIL_OUTSTANDING_RETRY_COOLDOWN_MS ?? 10 * 60 * 1000)
+// A test send is a real vendor text; a double-click or impatient retry
+// must not spam it. Env-overridable like the other knobs, for tests.
+const testSendCooldownMs = () =>
+  Number(process.env.TEST_SEND_COOLDOWN_MS ?? 30_000)
 
 // The whole account's job list is one cache entry.
 const ACCOUNT_JOBS_KEY = 'account'
@@ -152,6 +174,10 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     string,
     DetailInFlightEntry<OwnerRead>
   >()
+  // Per-row test-send claims (outreachId -> claimed-at ms), same
+  // per-process posture as the vendor-read maps above: the goal is one
+  // test text per click, not a cluster-wide lock.
+  private readonly testSendClaims = new Map<number, number>()
 
   constructor(
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
@@ -376,6 +402,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     try {
       await this.peerlyP2pJobService.requestCanvassers(row.projectId, {
         date: row.scheduledLocalDate ?? undefined,
+        startTime: clampCanvassStartTime(row.scheduledLocalTime),
       })
     } catch (error) {
       await this.model.update({
@@ -595,6 +622,227 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       registrations.get(updated.campaignId ?? -1),
       null,
     )
+  }
+
+  /**
+   * Staff reschedule: move the send to a new day without touching the
+   * message. Vendor first, then DB — a Peerly failure leaves the row
+   * untouched (the editScript convention). Approval stamps are KEPT (the
+   * editor is the approver, same product decision as the script edit); a
+   * booked row is rebooked on the new day (clear then re-request, since
+   * Peerly allows one open canvasser request per job) and its
+   * canvassRequestedAt re-stamped.
+   */
+  async editDate(
+    outreachId: number,
+    input: EditSmsOutreachDateRequest,
+  ): Promise<SmsApprovalQueueItem> {
+    const row = await this.model.findFirst({
+      where: { id: outreachId, ...this.queueWhere() },
+      include: queueInclude,
+    })
+    if (!row || !row.projectId) {
+      throw new NotFoundException('Scheduled SMS campaign not found')
+    }
+    // A canceled row is in queue scope for the audit trail, but its vendor
+    // job is deleted — there is no send left to move.
+    if (row.status === OutreachStatus.canceled) {
+      throw new ConflictException('A canceled campaign cannot be rescheduled')
+    }
+    // Once the send day has begun AND canvassers are booked, Peerly may be
+    // mid-send: moving the window under live agents is not recoverable.
+    if (
+      row.status === OutreachStatus.in_progress &&
+      row.canvassRequestedAt !== null
+    ) {
+      throw new BadRequestException(
+        'This campaign is already sending and cannot be rescheduled',
+      )
+    }
+    if (row.campaignId === null) {
+      throw new BadRequestException(
+        'This campaign is missing its campaign scope and cannot be rescheduled',
+      )
+    }
+    if (!isAfter(input.sendAt, new Date())) {
+      throw new BadRequestException('The new send time must be in the future')
+    }
+    // The two fields must name the same ET calendar day: the DB stores the
+    // instant while Peerly's window is set from scheduledLocalDate, so an
+    // incoherent pair (possible from a raw M2M caller — the console picker
+    // derives both from one input) would permanently split them. Checked
+    // here, not in contracts: the timezone authority is server-side.
+    if (
+      formatInTimeZone(input.sendAt, EASTERN_TIMEZONE, DATE_FMT) !==
+      input.scheduledLocalDate
+    ) {
+      throw new BadRequestException(
+        'scheduledLocalDate must match the Eastern calendar day of sendAt',
+      )
+    }
+
+    await this.peerlyP2pJobService.updateJobSchedule({
+      jobId: row.projectId,
+      campaignId: row.campaignId,
+      date: input.scheduledLocalDate,
+    })
+
+    // Re-read the booking flag after the vendor window write: a concurrent
+    // approve can book canvassers between the entry read above and here
+    // (its claim CAS guards approvedAt, not this flow), and skipping the
+    // rebook then would leave Peerly's booking on the old day while the
+    // window moved. This narrows the race to the canvasser calls below.
+    const requeried = await this.model.findFirstOrThrow({
+      where: { id: outreachId },
+      select: { canvassRequestedAt: true },
+    })
+    const wasBooked = requeried.canvassRequestedAt !== null
+    if (wasBooked) {
+      try {
+        await this.peerlyP2pJobService.clearCanvassers(row.projectId)
+      } catch (error) {
+        // The vendor window already moved but the DB is deliberately left
+        // unchanged (vendor-first contract). Retrying the date edit is
+        // safe: clearCanvassers no-ops when there is nothing to clear.
+        this.logger.error(
+          { err: error, outreachId },
+          'Reschedule moved the vendor schedule window but could not ' +
+            'clear the canvasser booking; retry the date edit to complete ' +
+            'the reschedule',
+        )
+        throw error
+      }
+      try {
+        // The rebook keeps the candidate's chosen wall-clock window start
+        // (honor-send-time), same as approve — only the day moved.
+        await this.peerlyP2pJobService.requestCanvassers(row.projectId, {
+          date: input.scheduledLocalDate,
+          startTime: clampCanvassStartTime(row.scheduledLocalTime),
+        })
+      } catch (error) {
+        // The old booking is already cleared at the vendor and the DB is
+        // deliberately left unchanged (vendor-first contract): the row
+        // still reads booked, so staff must retry the reschedule (or
+        // re-approve) to restore a real booking.
+        this.logger.error(
+          { err: error, outreachId },
+          'Reschedule cleared the canvasser booking but could not rebook ' +
+            'the new day; retry the date edit to restore the booking',
+        )
+        throw error
+      }
+    }
+    this.invalidateVendorReads(row.projectId)
+
+    const edited = await this.model.updateMany({
+      where: { id: outreachId, status: { in: REVIEWABLE_STATUSES } },
+      data: {
+        date: input.sendAt,
+        scheduledLocalDate: input.scheduledLocalDate,
+        ...(wasBooked && { canvassRequestedAt: new Date() }),
+        // Any edit wipes a denial and re-queues (the console convention
+        // editScript follows) — a date-edited denied row must not stay
+        // parked with approve refusing it.
+        deniedAt: null,
+        deniedBy: null,
+        deniedReason: null,
+        adminEditedAt: new Date(),
+        adminEditedBy: input.editedBy,
+      },
+    })
+    if (edited.count === 0) {
+      this.logger.error(
+        `Outreach ${outreachId} advanced past pending during admin ` +
+          'reschedule; Peerly has the new window but the row kept the old ' +
+          'date — manual reconciliation required',
+      )
+      throw new ConflictException('This campaign is no longer editable')
+    }
+
+    const updated = await this.model.findFirstOrThrow({
+      where: { id: outreachId },
+      include: queueInclude,
+    })
+    const registrations = await this.registrationsByCampaign([updated])
+    return this.toQueueItem(
+      updated,
+      registrations.get(updated.campaignId ?? -1),
+      null,
+    )
+  }
+
+  /**
+   * CAS's pre-approval check: send the campaign's live template to the
+   * reviewer's own handset, the way Peerly's platform "send test" button
+   * does. Find-or-create the job's test job (reused across clicks —
+   * every test job is a real vendor object), then fire the test text to
+   * ONLY the explicitly typed phone — never a number derived from
+   * campaign or contact data. Nothing we cache changes, so no
+   * invalidateVendorReads.
+   */
+  async sendTestMessage(
+    outreachId: number,
+    input: SmsTestMessageRequest,
+  ): Promise<SmsTestMessageResponse> {
+    const phone = this.normalizeUsPhone(input.phone)
+    const row = await this.findFirst({
+      where: { id: outreachId, ...this.queueWhere() },
+    })
+    if (!row || !row.projectId) {
+      throw new NotFoundException('Scheduled SMS campaign not found')
+    }
+    // A canceled row is in queue scope for the audit trail, but its
+    // vendor job was deleted with the cancel — nothing exists to test.
+    if (row.status === OutreachStatus.canceled) {
+      throw new BadRequestException(
+        'This campaign was canceled and its vendor job deleted',
+      )
+    }
+
+    // Claim BEFORE the vendor calls so a double-click's second request is
+    // refused rather than racing the first to two texts; released on a
+    // vendor failure so a real error stays retryable immediately.
+    const now = Date.now()
+    for (const [id, claimedAt] of this.testSendClaims) {
+      if (now - claimedAt >= testSendCooldownMs()) {
+        this.testSendClaims.delete(id)
+      }
+    }
+    const claimedAt = this.testSendClaims.get(outreachId)
+    if (claimedAt !== undefined && now - claimedAt < testSendCooldownMs()) {
+      throw new ConflictException(
+        'A test was just sent for this campaign — wait a moment before ' +
+          'sending another',
+      )
+    }
+    this.testSendClaims.set(outreachId, now)
+
+    try {
+      const existingTestJobIds = await this.peerlyP2pJobService.listTestJobIds(
+        row.projectId,
+      )
+      const testJobId =
+        existingTestJobIds[0] ??
+        (await this.peerlyP2pJobService.createTestJob(row.projectId))
+      await this.peerlyP2pJobService.sendTestMessage(testJobId, phone)
+    } catch (error) {
+      this.testSendClaims.delete(outreachId)
+      throw error
+    }
+    return { sent: true }
+  }
+
+  // Peerly's test send takes the national 10-digit form ("3217891234").
+  private normalizeUsPhone(raw: string): string {
+    const digits = raw.replace(/\D/g, '')
+    const national =
+      digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
+    if (national.length !== 10) {
+      throw new BadRequestException(
+        'Enter a US phone number: 10 digits, or 11 starting with 1',
+      )
+    }
+    return national
   }
 
   private async registrationsByCampaign(
@@ -870,6 +1118,7 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       createdAt: row.createdAt,
       sendAt: row.date,
       scheduledLocalDate: row.scheduledLocalDate,
+      scheduledLocalTime: row.scheduledLocalTime,
       script: row.script,
       imageUrl: row.imageUrl,
       textCount: row.textCount,

@@ -8,7 +8,8 @@ import { join } from 'node:path'
 // every page load rather than when the control can render: in prod that gave
 // GET /v1/contacts/precincts a 29% error rate (a non-Pro page load 400s on the
 // Pro gate) while the sibling count queries, gated this way, took zero across
-// 269 calls.
+// 269 calls. The gates are about when the control can render — the endpoint
+// itself is open to Win and Serve alike.
 //
 // Read off the source for the same reason the reset guards are: mounting either
 // caller needs a query provider, an org, an elected-office fetch and a live
@@ -24,10 +25,9 @@ const callArgs = (source: string): string => {
 }
 
 describe('usePrecinctOptions is gated to when the control can render', () => {
-  it('the CRM wizard gates on open, mode and district resolution', () => {
+  it('the CRM wizard gates on open and district resolution', () => {
     const args = callArgs(read('CreateListWizard.tsx'))
     expect(args).toContain('open')
-    expect(args).toContain('!isElectedOfficial')
     expect(args).toContain('!voterDataUnavailable')
   })
 
@@ -38,6 +38,13 @@ describe('usePrecinctOptions is gated to when the control can render', () => {
     expect(args).toContain('open')
     expect(args).toContain('active')
     expect(args).toContain("mode !== 'picker'")
-    expect(args).toContain('!isElectedOfficial')
+  })
+
+  it('door knocking gates on the create flow and district resolution', () => {
+    const args = callArgs(
+      read('../../../door-knocking/native/NativeDoorKnockingPage.tsx'),
+    )
+    expect(args).toContain('flowStep !== null')
+    expect(args).toContain('!isUnresolvable')
   })
 })

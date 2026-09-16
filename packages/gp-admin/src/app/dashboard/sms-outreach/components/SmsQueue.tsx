@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   Badge,
@@ -27,7 +27,15 @@ import {
 
 interface SmsQueueProps {
   items: SmsApprovalQueueItem[]
+  viewerName: string | null
 }
+
+const MINE_PARAM = 'mine'
+
+// Clerk full name vs HubSpot owner name — no shared id exists, so the
+// match is name equality after trim/case normalization. A mismatch just
+// means the filter shows nothing.
+const normalizeName = (name: string) => name.trim().toLowerCase()
 
 type SortKey = 'candidate' | 'sendDate' | 'assigned'
 type SortDir = 'asc' | 'desc'
@@ -68,19 +76,51 @@ const compareItems = (
   return aTime - bTime
 }
 
-export function SmsQueue({ items }: SmsQueueProps) {
+export function SmsQueue({ items, viewerName }: SmsQueueProps) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [tab, setTab] = useState<QueueTab>('awaiting')
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('sendDate')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
 
+  const viewer = viewerName?.trim() ? normalizeName(viewerName) : null
+  const mineOnly = viewer !== null && searchParams.get(MINE_PARAM) === '1'
+
+  // The mine filter lives in the URL so it survives the router.refresh()
+  // after approve/deny and a full page reload.
+  const toggleMine = () => {
+    const params = new URLSearchParams(searchParams.toString())
+    if (mineOnly) {
+      params.delete(MINE_PARAM)
+    } else {
+      params.set(MINE_PARAM, '1')
+    }
+    const queryString = params.toString()
+    router.replace(
+      `/dashboard/sms-outreach${queryString ? `?${queryString}` : ''}`,
+      { scroll: false }
+    )
+  }
+
+  const scoped = useMemo(
+    () =>
+      mineOnly
+        ? items.filter(
+            (item) =>
+              item.assignedPa !== null &&
+              normalizeName(item.assignedPa) === viewer
+          )
+        : items,
+    [items, mineOnly, viewer]
+  )
+
   const byTab = (key: QueueTab) =>
-    items.filter((item) => TAB_STATUSES[key].includes(item.approvalStatus))
+    scoped.filter((item) => TAB_STATUSES[key].includes(item.approvalStatus))
 
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase()
-    const filtered = items.filter(
+    const filtered = scoped.filter(
       (item) =>
         TAB_STATUSES[tab].includes(item.approvalStatus) &&
         (query.length === 0 ||
@@ -90,7 +130,7 @@ export function SmsQueue({ items }: SmsQueueProps) {
     )
     const sorted = [...filtered].sort((a, b) => compareItems(a, b, sortKey))
     return sortDir === 'asc' ? sorted : sorted.reverse()
-  }, [items, tab, search, sortKey, sortDir])
+  }, [scoped, tab, search, sortKey, sortDir])
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
@@ -127,20 +167,33 @@ export function SmsQueue({ items }: SmsQueueProps) {
             )}
           </Tabs.List>
         </Tabs.Root>
-        <TextField.Root
-          placeholder="Search candidate, campaign, or slug…"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          aria-label="Search campaigns"
-          style={{ minWidth: 220 }}
-        />
+        <Flex gap="3" align="center">
+          {viewer !== null && (
+            <Button
+              variant={mineOnly ? 'solid' : 'outline'}
+              aria-pressed={mineOnly}
+              onClick={toggleMine}
+            >
+              My approvals
+            </Button>
+          )}
+          <TextField.Root
+            placeholder="Search candidate, campaign, or slug…"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            aria-label="Search campaigns"
+            style={{ minWidth: 220 }}
+          />
+        </Flex>
       </Flex>
 
       {visible.length === 0 ? (
         <Text color="gray" size="3" mt="4" as="p">
           {search.trim().length > 0
             ? 'No campaigns match your search.'
-            : 'Nothing here right now.'}
+            : mineOnly
+              ? 'No approvals assigned to you here.'
+              : 'Nothing here right now.'}
         </Text>
       ) : (
         <Table.Root mt="4">
