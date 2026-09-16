@@ -460,6 +460,17 @@ The steps:
    the plan's polyline would thread the faces' representatives rather than the
    doors, so the Routing request is skipped (`fetchGeometry: false`) and the
    route ships without a path.
+
+   **A turf that is a single block face skips the call entirely** and is
+   billed nothing (`SINGLE_FACE_PLAN`). This is a correctness fix before it is
+   a saving: the anchors sit ON face representatives, so with one face the only
+   job and both anchors are the same coordinate, and Geoapify will not plan a
+   request whose every location is one point — it returns no plan and
+   `issues: {unassigned_agents: [0], unassigned_jobs: [0]}`, which surfaced as
+   a 502 for three separate users in a month before it was found. There is also
+   nothing to ask: the vendor's only output is the face order, and one face
+   orders itself. A long thin turf down one side of one street is a single face
+   at any door count, so this is not only the tiny-turf case.
 6. Record the spend (`recordWaypointSpend`, `waypointSpend.util.ts`)
    immediately, on the plain client and NOT the transaction. The vendor has
    been paid by this point, so the ledger row has to commit whether or not the

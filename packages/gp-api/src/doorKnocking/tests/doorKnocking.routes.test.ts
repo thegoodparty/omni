@@ -844,6 +844,86 @@ describe('door-knocking routes', () => {
       expect(evens[1]! - evens[0]!).toBe(1)
     })
 
+    // A turf drawn down one side of one street is a single block face, and a
+    // single face used to 502 every time. The anchors are placed ON face
+    // representatives, so with one face the only job and both anchors were the
+    // same point — a request whose every location is one coordinate, which
+    // Geoapify refuses outright with `unassigned_agents: [0],
+    // unassigned_jobs: [0]` and no plan, which planRoute raises as a
+    // BadGateway. Confirmed against the live API: move an anchor off the job
+    // and the same one-job request plans, so it is the collapse to a single
+    // coordinate that it will not answer, not the geography.
+    //
+    // Three users hit this in a month. It is not an exotic shape — one side of
+    // one street is a normal thing to draw, and a long thin turf lands there
+    // with any number of doors.
+    describe('a turf that is one block face', () => {
+      // Three distinct coordinates, all odd-side W Elm St: three stops that
+      // group into a single face.
+      const oneSideOfOneStreet = [
+        person(1, 41.9, -87.65),
+        person(3, 41.901, -87.651),
+        person(5, 41.902, -87.652),
+      ]
+
+      it('builds the walk without asking the vendor to order one face', async () => {
+        const spy = stubVendors({ people: oneSideOfOneStreet })
+
+        const res = await postTurf()
+
+        expect(res.status).toBe(201)
+        expect(
+          spy.mock.calls.filter(([url]) =>
+            String(url).includes('routeplanner'),
+          ),
+        ).toHaveLength(0)
+      })
+
+      // The vendor's only contribution was ever the order of the faces, and
+      // the doors inside one are sequenced locally either way — so skipping
+      // the call costs nothing a canvasser can see.
+      it('still walks the doors in house-number order', async () => {
+        stubVendors({ people: oneSideOfOneStreet })
+
+        const res = await postTurf()
+
+        expect(res.status).toBe(201)
+        const route = await service.prisma.doorKnockingRoute.findFirstOrThrow({
+          where: { doorKnockingTurfId: res.data.id },
+        })
+        const walked = (
+          await service.prisma.doorKnockingStop.findMany({
+            where: { doorKnockingRouteId: route.id },
+            orderBy: { seq: 'asc' },
+          })
+        ).map((stop) => stop.displayAddress)
+        expect(walked).toEqual(['1 W Elm St', '3 W Elm St', '5 W Elm St'])
+      })
+
+      // A call that was never made is not owed for, and the ledger is what the
+      // budget alerts read — so a zero here is the difference between a saving
+      // and a silent over-report.
+      it('bills nothing for the call it did not make', async () => {
+        stubVendors({ people: oneSideOfOneStreet })
+
+        const res = await postTurf()
+
+        expect(res.status).toBe(201)
+        const route = await service.prisma.doorKnockingRoute.findFirstOrThrow({
+          where: { doorKnockingTurfId: res.data.id },
+        })
+        expect(route.credits).toBe(0)
+        const spend =
+          await service.prisma.doorKnockingRoutePlannerSpend.findFirstOrThrow({
+            where: { organizationSlug: orgSlug },
+          })
+        expect(spend.credits).toBe(0)
+        // The stop count is the quota's column and measures the route, not the
+        // bill, so it still counts every door that was frozen.
+        expect(spend.waypoints).toBe(3)
+      })
+    })
+
     // The wizard's talking-points step: the purpose lands on the turf beside
     // the audience it selected, and the card lands on the envelope's `script`
     // column — the same one every other outreach channel keeps its script in.
@@ -1145,9 +1225,14 @@ describe('door-knocking routes', () => {
         // targets insert then hits `@@unique([doorKnockingStopId, personId])`
         // — a failure strictly AFTER the vendor has answered and been billed,
         // which is the only shape of failure this test is about.
+        //
+        // The second door is even-numbered so the turf is TWO block faces and
+        // the vendor is actually called: a one-face turf is answered without
+        // buying anything (see 'a turf that is one block face'), which would
+        // leave this test asserting a rollback of a call that never happened.
         const duplicated = person(1, 41.9, -87.65, PIPED_KEY)
         const spy = stubVendors({
-          people: [duplicated, duplicated, person(3, 41.901, -87.651)],
+          people: [duplicated, duplicated, person(4, 41.901, -87.651)],
         })
 
         const res = await postTurf()
