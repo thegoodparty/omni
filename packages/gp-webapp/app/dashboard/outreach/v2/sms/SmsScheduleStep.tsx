@@ -25,14 +25,17 @@ import {
 } from '@styleguide/components/ui/icons'
 import { Intro } from '../social/Intro'
 
-// 9:00 AM through 9:00 PM hourly, plus a custom time clamped by validation.
+// 9:00 AM through 8:00 PM hourly, plus a custom time clamped by validation.
+// The last slot is 8 PM, not the 9 PM compliance cutoff: the chosen time is
+// the Peerly window START and the window always closes at 9 PM, so a 9 PM
+// start would leave a zero-width send window.
 // "Send now" is deliberately absent (scheduling decision: 48h minimum).
 export const TIME_OPTIONS: {
   id: string
   label: string
   time: string | null
 }[] = [
-  ...Array.from({ length: 13 }, (_, i) => {
+  ...Array.from({ length: 12 }, (_, i) => {
     const hour24 = 9 + i
     const period = hour24 >= 12 ? 'PM' : 'AM'
     const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12
@@ -198,7 +201,7 @@ export const SmsScheduleStep = ({
       {!violates48h && outsideWindow && (
         <Alert variant="destructive" icon={<CircleAlertIcon />}>
           <AlertDescription>
-            Send times must be between 9:00 AM and 9:00 PM.
+            Send times must be between 9:00 AM and 8:00 PM.
           </AlertDescription>
         </Alert>
       )}

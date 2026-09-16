@@ -54,6 +54,22 @@ export function formatLocalDateString(
   return format(date, 'MMM d, yyyy')
 }
 
+// For a plain "HH:mm" wall-clock string (no date, no zone — e.g.
+// Outreach.scheduledLocalTime, applied in each contact's own timezone).
+// Returns null on a missing/malformed value so callers can fall back to
+// their no-time copy.
+export function formatLocalTimeString(
+  value: string | null | undefined
+): string | null {
+  if (!value) return null
+  const match = /^(\d{2}):(\d{2})$/.exec(value)
+  if (!match) return null
+  const [, hours, minutes] = match
+  const date = new Date(2000, 0, 1, Number(hours), Number(minutes))
+  if (isNaN(date.getTime())) return null
+  return format(date, Number(minutes) === 0 ? 'haaa' : 'h:mmaaa')
+}
+
 export function formatTimestampString(
   timestamp: string | undefined,
   emptyState: ReactNode = '—'

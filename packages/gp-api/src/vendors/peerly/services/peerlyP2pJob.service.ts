@@ -336,7 +336,7 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
 
   async requestCanvassers(
     jobId: string,
-    { date }: { date?: string } = {},
+    { date, startTime }: { date?: string; startTime?: string } = {},
   ): Promise<void> {
     try {
       // Peerly validates requested_initials against the REQUESTING user —
@@ -347,15 +347,16 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
       const user = await this.peerlyHttpService.getAuthenticatedUser()
       const initials =
         `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`.toUpperCase()
-      // The send window is a product requirement (2026-09-02): canvassers
-      // work 9am-9pm in each recipient's local timezone. Sent explicitly as
-      // a CUSTOM window rather than relying on the vendor's ANY_TIME
-      // default semantics.
+      // The send window opens at the candidate's chosen wall-clock time
+      // (design settled 2026-09-16) and always closes at the 9pm compliance
+      // cutoff, in each recipient's local timezone. Sent explicitly as a
+      // CUSTOM window rather than relying on the vendor's ANY_TIME default
+      // semantics; callers with no stored time keep the 9am open.
       await this.peerlyHttpService.post(`/v2/p2p/${jobId}/request_canvassers`, {
         requested_initials: initials,
         ...(date && { requested_date: date }),
         requested_timeframe: 'CUSTOM',
-        requested_start_time: '09:00:00',
+        requested_start_time: `${startTime ?? '09:00'}:00`,
         requested_end_time: '21:00:00',
         requested_timezone: 'LOCAL',
       })

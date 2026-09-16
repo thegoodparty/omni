@@ -106,6 +106,10 @@ export const SmsApprovalQueueItemSchema = z.object({
   createdAt: zCoerceDate(),
   sendAt: zCoerceDate().nullable(),
   scheduledLocalDate: z.string().nullable(),
+  // The candidate's chosen wall-clock send time ("HH:mm"), applied in each
+  // contact's local timezone as the Peerly window start at approve. Null on
+  // rows created before the field existed (approve falls back to 09:00).
+  scheduledLocalTime: z.string().nullable(),
   script: z.string().nullable(),
   imageUrl: z.string().nullable(),
   textCount: z.number().nullable(),
