@@ -57,7 +57,7 @@ here without a data-platform change.
 | `Voter_Independent_Affinity`                                | BOOLEAN | **No nulls.** 66.45% true                                                                     |
 | `hf_ideology_general`                                       | STRING  | 59.9% fill. `Conservative` 51.2M, `Liberal` 45.7M, `Moderate` 34.2M, null 87.9M               |
 | `Voter_Turnout_Probability`                                 | DOUBLE  | ~97.5%. Not referenced anywhere in gp-api                                                     |
-| `Residence_Addresses_AddressLine`                           | STRING  | **100% populated**, which is why there is no address filter |
+| `Residence_Addresses_AddressLine`                           | STRING  | **100% populated**, which is why there is no address filter                                   |
 | `VoterTelephones_CellPhoneFormatted` / `_LandlineFormatted` | STRING  | Sparse                                                                                        |
 | `County`, `Precinct`, `City`, `City_Ward`                   | STRING  | Precinct has gaps — see the gotcha below                                                      |
 
@@ -88,6 +88,57 @@ PA-12 that is 435,661 of 529,131 people. A list that size is the contact
 database, not a recommendation. `Unreliable` alone carries a median 21% of that
 bloat, which is why it is excluded from `reliable`.
 
+### `reliable` is a November band, so it scales with the electorate
+
+There is exactly **one** voter-level turnout score in the people API, and every
+row of it is modelled for the November general of the current even year. Since
+`Voter_Status` is an absolute cut on that one score, `reliable` is calibrated to
+a **November electorate** — and calibrated well: across 3,378 upcoming November
+races the band's size is a median **1.01×** the race's projected turnout, which
+is the property the design wants.
+
+An off-cycle election draws roughly half that electorate. The voter contact goal
+(`3 × votesNeededToWin`, so ~1.5× projected turnout) halves with it; the band
+does not move at all. Measured across 4,218 upcoming races:
+
+| `electionCode`     | Races | Median ratio to contact goal | Over goal | Over 2× |
+| ------------------ | ----- | ---------------------------- | --------- | ------- |
+| `General`          | 3,378 | 0.67                         | 0.8%      | 0.1%    |
+| `LocalOrMunicipal` | 836   | **1.27**                     | **62.9%** | 21.4%   |
+
+Off-cycle races were **94.6%** of every over-goal recommendation. So
+`reliableBandFor` narrows `reliable` to `high` (Super alone, p ≥ 0.75) for any
+race whose `electionCode` is a known non-`General` value, which brings off-cycle
+lists to a median 0.83× the contact goal and 1.26× projected turnout.
+
+`high` specifically, and not a new threshold, because a recommendation has to
+stay something the candidate could have built themselves: `voterStatus` is an
+inclusion array over four labels, so the only cutoffs it can express are 0.25,
+0.50 and 0.75.
+
+Three things this does **not** do:
+
+- **The GOTV and event bands don't move.** `mid` and `belowHigh` sit
+  deliberately _below_ the likely-voter screen because chasing near-certain
+  voters on election day is wasted contact, so their off-cycle analogue is not
+  simply one notch tighter. The event variants are already at `high`.
+- **An unresolved race keeps `reliable`.** A null `electionCode` means the race
+  didn't resolve (no `raceId`, no row, an election-api outage) — not that it has
+  no electorate; the mart tags every served race. Rather than quietly narrow a
+  race we can't classify, the fallback is today's wider band. This is a
+  reversible decision, marked in `recommendedListsUniverse.util.ts`.
+- **It doesn't fix the denominator.** 7.9% of races stay over goal even at
+  p ≥ 0.75, because some off-cycle turnout projections are implausibly low (one
+  projects 70 ballots in a city of 12,961 registrants whose last municipal
+  election drew 821). That is a turnout-model problem, tracked separately.
+
+One consequence worth knowing: because the vote-goal floor below is a share of
+the same goal, a narrower band means a handful of off-cycle lists that used to
+clear the floor now fall under it and aren't offered. That is the floor working
+as intended — a Super-only list too small to move the race isn't worth a card —
+but it means this change can reduce the _number_ of cards an off-cycle campaign
+sees, not just their size.
+
 ## The intent universes
 
 Each intent yields **one to three** recommendations. Multiple recommendations
@@ -103,19 +154,23 @@ carry an answer. `unsure` rolls up to `undecided`.
 
 | Intent           | Variant                 | `voterStatus`                | Other filters                                                                  |
 | ---------------- | ----------------------- | ---------------------------- | ------------------------------------------------------------------------------ |
-| Introduce myself | `introNeverIded`        | reliable                     | `supportStatus` = unknown                                                      |
-| Persuade         | `persuadeAffinity`      | reliable                     | `affinity` = true                                                              |
-| Persuade         | `persuadeIdeology`      | reliable                     | `ideology` = target bucket                                                     |
-| Persuade         | `persuadeUndecided`     | reliable                     | `supportStatus` = undecided                                                    |
+| Introduce myself | `introNeverIded`        | reliable †                   | `supportStatus` = unknown                                                      |
+| Persuade         | `persuadeAffinity`      | reliable †                   | `affinity` = true                                                              |
+| Persuade         | `persuadeIdeology`      | reliable †                   | `ideology` = target bucket                                                     |
+| Persuade         | `persuadeUndecided`     | reliable †                   | `supportStatus` = undecided                                                    |
 | Invite to event  | `eventSupporters`       | —                            | `supportStatus` = supporter                                                    |
 | Invite to event  | `eventAffinity`         | high                         | `affinity` = true, `supportStatus` in (supporter, undecided, unknown, refused) |
 | Invite to event  | `eventIdeology`         | high                         | `ideology` = target bucket, same support exclusion                             |
 | Early voting     | `earlyVoteSupporters`   | —                            | `supportStatus` = supporter                                                    |
-| Early voting     | `earlyVoteAffinity`     | reliable                     | `affinity` = true                                                              |
-| Early voting     | `earlyVoteIdeology`     | reliable                     | `ideology` = target bucket                                                     |
+| Early voting     | `earlyVoteAffinity`     | reliable †                   | `affinity` = true                                                              |
+| Early voting     | `earlyVoteIdeology`     | reliable †                   | `ideology` = target bucket                                                     |
 | Election day     | `electionDaySupporters` | Likely, Unreliable, Unlikely | `supportStatus` = supporter                                                    |
 | Election day     | `electionDayAffinity`   | mid                          | `affinity` = true                                                              |
 | Election day     | `electionDayIdeology`   | mid                          | `ideology` = target bucket                                                     |
+
+† `reliable` only for a November general. Any known non-`General`
+`electionCode` narrows these six to `high` — see
+[`reliable` is a November band](#reliable-is-a-november-band-so-it-scales-with-the-electorate).
 
 Notes on specific rows:
 
@@ -154,11 +209,11 @@ mail and need no encouragement) or promoting `hf_likely_vbm` into the mart.
 The channel never changes the universe. It only adds a contactability filter,
 and for door knocking a precinct restriction.
 
-| Channel       | Refinement                                              |
-| ------------- | ------------------------------------------------------- |
-| SMS           | `hasCellPhone`                                          |
-| Robocall      | `hasAnyPhone`                                           |
-| Phone banking | `hasAnyPhone`                                           |
+| Channel       | Refinement                           |
+| ------------- | ------------------------------------ |
+| SMS           | `hasCellPhone`                       |
+| Robocall      | `hasAnyPhone`                        |
+| Phone banking | `hasAnyPhone`                        |
 | Door knocking | the top 3 precincts for that variant |
 
 Email is not a channel — the product doesn't support email outreach, and there
@@ -376,15 +431,15 @@ reasons alone.
 Returns an ordered array of recommendations. Each carries the unsaved filter
 shape plus everything the card displays:
 
-| Field              | Notes                                                       |
-| ------------------ | ----------------------------------------------------------- |
-| `variant`          | the registry key, e.g. `persuadeAffinity`                   |
-| `filter`           | the unsaved `VoterFileFilter` shape                         |
-| `count`            | contactable size after the channel refinement               |
-| `voteGoalShare`    | `count` over `votesNeededToWin`. Omitted — not nulled — when the vote goal can't be resolved. Deliberately unbounded above: a list can hold several times the votes a race needs |
+| Field                | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `variant`            | the registry key, e.g. `persuadeAffinity`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `filter`             | the unsaved `VoterFileFilter` shape                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `count`              | contactable size after the channel refinement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `voteGoalShare`      | `count` over `votesNeededToWin`. Omitted — not nulled — when the vote goal can't be resolved. Deliberately unbounded above: a list can hold several times the votes a race needs                                                                                                                                                                                                                                                                                                                                                 |
 | `estimatedCostCents` | per-contact cost x count, in cents, from the same pricing utils the checkout charges from (`textPricing.util.ts` at 35 tenth-cents, `robocallPricing.util.ts` at 45). SMS and robocall only — phone banking and door knocking are volunteer-run and the field is omitted rather than zero, since "$0" reads as free where the truth is "not applicable". Robocall prices the calls portion alone: the $2 caller-ID number fee is charged once per run, not per contact, and no pre-purchase screen puts it in an estimate either |
-| `copy`             | `{ title, criteriaSummary }` with placeholders filled       |
-| `existingFilterId` | set when this recommendation already exists as a saved list |
+| `copy`               | `{ title, criteriaSummary }` with placeholders filled                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `existingFilterId`   | set when this recommendation already exists as a saved list                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 Behavior:
 
@@ -457,25 +512,25 @@ Rules that hold the house voice:
 
 Listed so nobody helpfully reimplements them.
 
-| Cut                                                         | Why                                                                                                                 | Cost                                                                                                                                                                                                                |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Every top-level OR                                          | Not expressible as a saved filter                                                                                   | Rewrites the event and election-day universes, whose union branches were load-bearing                                                                                                                               |
-| Within-district turnout percentiles                         | Not a filter dimension; only the four `Voter_Status` bands are                                                      | Bands are absolute, not district-relative                                                                                                                                                                           |
-| The `3 × votesNeededToWin` cut                              | Computable, but there's nowhere to store "the top N by propensity"                                                  | Lists are not _sized_ to the race — two candidates needing 400 and 40,000 votes in similar districts get the same list. The vote-goal floor makes the race decide whether a list is offered at all, which is weaker but is not nothing |
-| County and city geography levels                            | You can't door-knock a county                                                                                       | None. `pickSubGeo` is gone; always precinct                                                                                                                                                                         |
-| Geography on the event intent                               | We don't know the venue at recommendation time, so "densest 3 precincts" doesn't do the job its rationale claims    | Event invites aren't geographically targeted. Revisit if the flow starts collecting an event location                                                                                                               |
-| `regAddon` / `modeledIAddon` per-campaign party adjustments | `modeledIAddon` needs `hs_` columns absent from the mart; `regAddon` widens with an OR, which AND-only would invert | **The affinity list doesn't know who you're running against.** A candidate facing a lone Republican and one facing a lone Democrat get the same list. Best candidate for reinstatement once unions are on the table |
-| `hf_likely_vbm`                                             | Not in the mart, and adding it was declined for v1                                                                  | Early voting has no distinct audience                                                                                                                                                                               |
-| Opponent placement and district-lean gating on ideology     | v1 simplification                                                                                                   | No "target moderate when you and your opponent are at opposite extremes" case. The district-lean guard is partly redundant with the size floor anyway                                                               |
+| Cut                                                         | Why                                                                                                                 | Cost                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Every top-level OR                                          | Not expressible as a saved filter                                                                                   | Rewrites the event and election-day universes, whose union branches were load-bearing                                                                                                                                                                                                                                                                    |
+| Within-district turnout percentiles                         | Not a filter dimension; only the four `Voter_Status` bands are                                                      | Bands are absolute, not district-relative                                                                                                                                                                                                                                                                                                                |
+| The `3 × votesNeededToWin` cut                              | Computable, but there's nowhere to store "the top N by propensity"                                                  | Lists are not _sized_ to the race — two candidates needing 400 and 40,000 votes in similar districts get the same list. Two things claw back some of it: the vote-goal floor makes the race decide whether a list is offered at all, and the `reliable` band now steps down by `electionCode`, which sizes to the race's _electorate_ if not to its goal |
+| County and city geography levels                            | You can't door-knock a county                                                                                       | None. `pickSubGeo` is gone; always precinct                                                                                                                                                                                                                                                                                                              |
+| Geography on the event intent                               | We don't know the venue at recommendation time, so "densest 3 precincts" doesn't do the job its rationale claims    | Event invites aren't geographically targeted. Revisit if the flow starts collecting an event location                                                                                                                                                                                                                                                    |
+| `regAddon` / `modeledIAddon` per-campaign party adjustments | `modeledIAddon` needs `hs_` columns absent from the mart; `regAddon` widens with an OR, which AND-only would invert | **The affinity list doesn't know who you're running against.** A candidate facing a lone Republican and one facing a lone Democrat get the same list. Best candidate for reinstatement once unions are on the table                                                                                                                                      |
+| `hf_likely_vbm`                                             | Not in the mart, and adding it was declined for v1                                                                  | Early voting has no distinct audience                                                                                                                                                                                                                                                                                                                    |
+| Opponent placement and district-lean gating on ideology     | v1 simplification                                                                                                   | No "target moderate when you and your opponent are at opposite extremes" case. The district-lean guard is partly redundant with the size floor anyway                                                                                                                                                                                                    |
 
 ## Gotchas
 
-- **There is no *persisted* address filter, deliberately.**
+- **There is no _persisted_ address filter, deliberately.**
   `Residence_Addresses_AddressLine` is 100% populated — zero null or empty rows
   across 30.6M voters in CA, MD and LA — and a door-knocking refinement on it
   was a no-op in all 390 measured eval cells. So there is no
   `VoterFileFilter` column and no catalog entry, and the precinct restriction is
-  the only thing that narrows a door list. The pre-existing *wire* filter does
+  the only thing that narrows a door list. The pre-existing _wire_ filter does
   survive (`PeopleFilters.schema.ts:249`, plus its SQL case) because it backs
   the reachability figure described next — don't go looking for it as though it
   were removed. Note this was already true before this feature: the `doorKnocking`
@@ -510,6 +565,14 @@ Listed so nobody helpfully reimplements them.
 - Reconciliation with Nigel's revised model once he lands the AND-only rewrite.
   The propensity-band narrowing (dropping `Unreliable` from `reliable`), the
   precinct-count metric, and dropping event geography all need his sign-off.
+- **The GOTV bands off-cycle.** The electorate step-down above moves only
+  `reliable`. `mid` and `belowHigh` are calibrated to the same November-only
+  turnout score and have the same mismatch in principle, but they sit
+  deliberately below the likely-voter screen, so their off-cycle analogue isn't
+  "one notch tighter" and nothing has measured them against the contact goal.
+  Needs its own evidence.
+- **Off-cycle turnout projections.** The 7.9% of races still over goal at
+  p ≥ 0.75 are a turnout-model problem, not a band problem. Tracked separately.
 
 ## Where the eval lives
 

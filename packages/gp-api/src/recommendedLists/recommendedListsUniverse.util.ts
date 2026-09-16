@@ -39,14 +39,20 @@ type VoterFilterShape = VoterFilterBase
 // recommended list has to stay something the candidate could have built
 // themselves. See docs/features/recommended-lists.md.
 //
-// DECISION FOR REVIEW -- the null case. `electionCode` is null for any race
-// the turnout model's three-year horizon does not reach, and also whenever
-// the election-api call fails (no raceId, a 404, an outage), since the
-// caller collapses all of those to null. This keeps `reliable`, i.e. today's
-// behaviour, on the grounds that an unresolved race should not have its
-// recommendations quietly narrowed. The other defensible choice is to treat
-// unknown as off-cycle and prefer the smaller list. Flipping the condition
-// below is the whole change, and one test asserts each direction.
+// DECISION FOR REVIEW -- the null case. Null here means "we could not
+// resolve the race", not "the race has no electorate": the mart derives the
+// tag from the race's own election date and inner-joins it, so every served
+// race carries one, independent of whether a turnout projection joined. What
+// reaches this function as null is a campaign with no `raceId`, a race
+// election-api has no row for, an election-api outage, or an election-api
+// deployed before the field existed -- the caller collapses all of those to
+// null.
+//
+// This keeps `reliable`, i.e. today's behaviour, on the grounds that an
+// unresolved race should not have its recommendations quietly narrowed. The
+// other defensible choice is to treat unknown as off-cycle and prefer the
+// smaller list. Flipping the condition below is the whole change, and one
+// test asserts each direction.
 //
 // Note the shape of that condition: only a KNOWN non-General code narrows
 // the band, and `== null` catches undefined as well as null, so a caller
