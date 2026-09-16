@@ -943,6 +943,8 @@ export {
   type EditSmsOutreachDateRequest,
   SmsTestMessageRequestSchema,
   type SmsTestMessageRequest,
+  SmsTestMessageResponseSchema,
+  type SmsTestMessageResponse,
 } from './outreach/SmsAdminConsole.schema'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'

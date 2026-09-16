@@ -28,18 +28,14 @@ const OnboardingTopBar = ({
           scrolled ? 'border-base-border' : 'border-transparent'
         }`}
       >
-        <div className="flex items-end justify-between">
-          <GoodPartyOrgLogo />
-          <span className="text-sm font-medium text-muted-foreground">
-            Step {currentStep} of {totalSteps}
-          </span>
-        </div>
+        {/* Logo is the eyebrow slot (same role ChannelBadge plays in the
+            outreach shell). No `onExit` — a candidate can't leave
+            onboarding partway. Step title lives on the page body. */}
         <Stepper
           variant="bar"
-          showLabel={false}
           currentStep={currentStep}
           totalSteps={totalSteps}
-          className="mt-4"
+          eyebrow={<GoodPartyOrgLogo />}
         />
       </div>
     </div>

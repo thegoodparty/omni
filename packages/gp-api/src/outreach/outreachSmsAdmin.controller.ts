@@ -18,11 +18,14 @@ import {
   SmsAdminDetailResponseSchema,
   SmsApprovalQueueItemSchema,
   SmsApprovalQueueResponseSchema,
+  SmsTestMessageRequestSchema,
+  SmsTestMessageResponseSchema,
   type ApproveSmsOutreachRequest,
   type CancelSmsOutreachRequest,
   type DenySmsOutreachRequest,
   type EditSmsOutreachDateRequest,
   type EditSmsOutreachRequest,
+  type SmsTestMessageRequest,
 } from '@goodparty_org/contracts'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
@@ -87,6 +90,16 @@ export class OutreachSmsAdminController {
     input: EditSmsOutreachDateRequest,
   ) {
     return this.adminService.editDate(id, input)
+  }
+
+  @Post(':id/test')
+  @ResponseSchema(SmsTestMessageResponseSchema)
+  sendTest(
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(SmsTestMessageRequestSchema))
+    input: SmsTestMessageRequest,
+  ) {
+    return this.adminService.sendTestMessage(id, input)
   }
 
   @Patch(':id')

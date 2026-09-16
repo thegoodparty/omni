@@ -152,7 +152,14 @@ describe('CreateListWizard — step navigation', () => {
   it('keeps the Win wizard at three steps with both branch cards', () => {
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
-    expect(screen.getByText('Step 1 of 3')).toBeInTheDocument()
+    // Stepper's own "Step X of Y" label was retired; position is read off
+    // the accessible progressbar attributes now. valuemin=0 is pinned
+    // because the a11y percentage math depends on it — reverting it to 1
+    // would make screen readers announce step 1 of 3 as 0%.
+    const stepper = screen.getByRole('progressbar', { name: 'Progress' })
+    expect(stepper).toHaveAttribute('aria-valuenow', '1')
+    expect(stepper).toHaveAttribute('aria-valuemax', '3')
+    expect(stepper).toHaveAttribute('aria-valuemin', '0')
     expect(
       screen.getByRole('radio', {
         name: /build a list from previous campaign activity/i,
@@ -174,7 +181,9 @@ describe('CreateListWizard — step navigation', () => {
     expect(
       screen.getByRole('heading', { name: 'Build a constituent list' }),
     ).toBeInTheDocument()
-    expect(screen.getByText('Step 1 of 2')).toBeInTheDocument()
+    const stepper = screen.getByRole('progressbar', { name: 'Progress' })
+    expect(stepper).toHaveAttribute('aria-valuenow', '1')
+    expect(stepper).toHaveAttribute('aria-valuemax', '2')
     expect(
       screen.queryByRole('radio', { name: /previous campaign activity/i }),
     ).not.toBeInTheDocument()
@@ -199,13 +208,17 @@ describe('CreateListWizard — step navigation', () => {
     expect(
       screen.getByRole('heading', { name: 'Name your list' }),
     ).toBeInTheDocument()
-    expect(screen.getByText('Step 2 of 2')).toBeInTheDocument()
+    const nameStepper = screen.getByRole('progressbar', { name: 'Progress' })
+    expect(nameStepper).toHaveAttribute('aria-valuenow', '2')
+    expect(nameStepper).toHaveAttribute('aria-valuemax', '2')
 
     await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(
       screen.getByRole('heading', { name: 'Build a constituent list' }),
     ).toBeInTheDocument()
-    expect(screen.getByText('Step 1 of 2')).toBeInTheDocument()
+    const filtersStepper = screen.getByRole('progressbar', { name: 'Progress' })
+    expect(filtersStepper).toHaveAttribute('aria-valuenow', '1')
+    expect(filtersStepper).toHaveAttribute('aria-valuemax', '2')
   })
 
   it('advances to the activity step 2 and disables the step-2 CTA until every row has a channel', async () => {

@@ -20,8 +20,10 @@ import { PeerlyMediaService } from './peerlyMedia.service'
 import { PeerlyScheduleService } from './peerlySchedule.service'
 import {
   CreateJobResponseDto,
+  CreateTestJobResponseDto,
   GetJobResponseDto,
   JobDetailedStatsResponseDto,
+  ListTestJobsResponseDto,
 } from '../schemas/peerlyP2pSms.schema'
 import { CreateJobParams, PeerlyJob } from '../peerly.types'
 
@@ -442,6 +444,65 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
       }
       this.logger.error({ error }, P2P_ERROR_MESSAGES.CLEAR_CANVASSERS_FAILED)
       throw new BadGatewayException(P2P_ERROR_MESSAGES.CLEAR_CANVASSERS_FAILED)
+    }
+  }
+
+  // Peerly's test jobs (P2P-TEST) hang off a real job and are what their
+  // platform's own "send test" button drives. Listing lets a repeat send
+  // reuse the job's existing test job instead of minting a vendor object
+  // per click.
+  async listTestJobIds(jobId: string): Promise<string[]> {
+    try {
+      const response = await this.peerlyHttpService.get(
+        `/v2/p2p/${jobId}/tests`,
+      )
+      const validated = this.peerlyHttpService.validateResponse(
+        response.data,
+        ListTestJobsResponseDto,
+        'list test jobs',
+      )
+      return validated.map((testJob) => testJob.p2p_id)
+    } catch (error) {
+      this.logger.error({ error }, P2P_ERROR_MESSAGES.LIST_TEST_JOBS_FAILED)
+      throw new BadGatewayException(P2P_ERROR_MESSAGES.LIST_TEST_JOBS_FAILED)
+    }
+  }
+
+  async createTestJob(jobId: string): Promise<string> {
+    try {
+      const response = await this.peerlyHttpService.post(
+        `/v2/p2p/${jobId}/tests`,
+      )
+      const validated = this.peerlyHttpService.validateResponse(
+        response.data,
+        CreateTestJobResponseDto,
+        'create test job',
+      )
+      return validated.id
+    } catch (error) {
+      // No customMessage: a Peerly 4xx here is CAS-actionable, so the
+      // shared parser keeps Peerly's own message.
+      return this.peerlyErrorHandling.handleApiError({
+        error,
+        logger: this.logger,
+      })
+    }
+  }
+
+  // Sends the test job's template to ONE explicitly supplied 10-digit
+  // phone — a real text to a real handset, so the number must always be
+  // operator-typed, never derived from campaign or contact data.
+  async sendTestMessage(testJobId: string, phone: string): Promise<void> {
+    try {
+      await this.peerlyHttpService.post(
+        `/1to1/jobs/${testJobId}/send_test_message`,
+        { test_contact_phone: phone },
+      )
+    } catch (error) {
+      return this.peerlyErrorHandling.handleApiError({
+        error,
+        logger: this.logger,
+      })
     }
   }
 

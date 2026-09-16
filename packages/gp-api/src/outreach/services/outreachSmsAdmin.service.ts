@@ -15,6 +15,8 @@ import {
   type SmsAdminJobStats,
   type SmsApprovalQueueItem,
   type SmsApprovalStatus,
+  type SmsTestMessageRequest,
+  type SmsTestMessageResponse,
 } from '@goodparty_org/contracts'
 import { addDays, format, isAfter, subDays } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -104,6 +106,10 @@ const detailFailedRetryCooldownMs = () =>
   Number(process.env.DETAIL_FAILED_RETRY_COOLDOWN_MS ?? 60_000)
 const detailOutstandingRetryCooldownMs = () =>
   Number(process.env.DETAIL_OUTSTANDING_RETRY_COOLDOWN_MS ?? 10 * 60 * 1000)
+// A test send is a real vendor text; a double-click or impatient retry
+// must not spam it. Env-overridable like the other knobs, for tests.
+const testSendCooldownMs = () =>
+  Number(process.env.TEST_SEND_COOLDOWN_MS ?? 30_000)
 
 // The whole account's job list is one cache entry.
 const ACCOUNT_JOBS_KEY = 'account'
@@ -155,6 +161,10 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
     string,
     DetailInFlightEntry<OwnerRead>
   >()
+  // Per-row test-send claims (outreachId -> claimed-at ms), same
+  // per-process posture as the vendor-read maps above: the goal is one
+  // test text per click, not a cluster-wide lock.
+  private readonly testSendClaims = new Map<number, number>()
 
   constructor(
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
@@ -742,6 +752,80 @@ export class OutreachSmsAdminService extends createPrismaBase(MODELS.Outreach) {
       registrations.get(updated.campaignId ?? -1),
       null,
     )
+  }
+
+  /**
+   * CAS's pre-approval check: send the campaign's live template to the
+   * reviewer's own handset, the way Peerly's platform "send test" button
+   * does. Find-or-create the job's test job (reused across clicks —
+   * every test job is a real vendor object), then fire the test text to
+   * ONLY the explicitly typed phone — never a number derived from
+   * campaign or contact data. Nothing we cache changes, so no
+   * invalidateVendorReads.
+   */
+  async sendTestMessage(
+    outreachId: number,
+    input: SmsTestMessageRequest,
+  ): Promise<SmsTestMessageResponse> {
+    const phone = this.normalizeUsPhone(input.phone)
+    const row = await this.findFirst({
+      where: { id: outreachId, ...this.queueWhere() },
+    })
+    if (!row || !row.projectId) {
+      throw new NotFoundException('Scheduled SMS campaign not found')
+    }
+    // A canceled row is in queue scope for the audit trail, but its
+    // vendor job was deleted with the cancel — nothing exists to test.
+    if (row.status === OutreachStatus.canceled) {
+      throw new BadRequestException(
+        'This campaign was canceled and its vendor job deleted',
+      )
+    }
+
+    // Claim BEFORE the vendor calls so a double-click's second request is
+    // refused rather than racing the first to two texts; released on a
+    // vendor failure so a real error stays retryable immediately.
+    const now = Date.now()
+    for (const [id, claimedAt] of this.testSendClaims) {
+      if (now - claimedAt >= testSendCooldownMs()) {
+        this.testSendClaims.delete(id)
+      }
+    }
+    const claimedAt = this.testSendClaims.get(outreachId)
+    if (claimedAt !== undefined && now - claimedAt < testSendCooldownMs()) {
+      throw new ConflictException(
+        'A test was just sent for this campaign — wait a moment before ' +
+          'sending another',
+      )
+    }
+    this.testSendClaims.set(outreachId, now)
+
+    try {
+      const existingTestJobIds = await this.peerlyP2pJobService.listTestJobIds(
+        row.projectId,
+      )
+      const testJobId =
+        existingTestJobIds[0] ??
+        (await this.peerlyP2pJobService.createTestJob(row.projectId))
+      await this.peerlyP2pJobService.sendTestMessage(testJobId, phone)
+    } catch (error) {
+      this.testSendClaims.delete(outreachId)
+      throw error
+    }
+    return { sent: true }
+  }
+
+  // Peerly's test send takes the national 10-digit form ("3217891234").
+  private normalizeUsPhone(raw: string): string {
+    const digits = raw.replace(/\D/g, '')
+    const national =
+      digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
+    if (national.length !== 10) {
+      throw new BadRequestException(
+        'Enter a US phone number: 10 digits, or 11 starting with 1',
+      )
+    }
+    return national
   }
 
   private async registrationsByCampaign(

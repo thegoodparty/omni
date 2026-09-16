@@ -7,6 +7,8 @@ import type {
   SmsAdminDetailResponse,
   SmsApprovalQueueItem,
   SmsApprovalQueueResponse,
+  SmsTestMessageRequest,
+  SmsTestMessageResponse,
 } from '@goodparty_org/contracts'
 import { BaseResource } from './BaseResource'
 
@@ -63,6 +65,17 @@ export class SmsOutreachAdminResource extends BaseResource {
   ): Promise<SmsApprovalQueueItem> =>
     this.patchRequest<SmsApprovalQueueItem>(
       `${this.resourceBasePath}/${id}/date`,
+      input,
+    )
+
+  // Sends the campaign's live template as a real text to the supplied
+  // phone (CAS's own handset) via the job's Peerly test job.
+  sendTest = (
+    id: number,
+    input: SmsTestMessageRequest,
+  ): Promise<SmsTestMessageResponse> =>
+    this.postRequest<SmsTestMessageResponse>(
+      `${this.resourceBasePath}/${id}/test`,
       input,
     )
 }

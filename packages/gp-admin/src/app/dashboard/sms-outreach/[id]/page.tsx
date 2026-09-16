@@ -24,6 +24,7 @@ import { ApproveDenyActions } from '../components/ApproveDenyActions'
 import { CancelAction } from '../components/CancelAction'
 import { EditDateAction } from '../components/EditDateAction'
 import { EditMessageAction } from '../components/EditMessageAction'
+import { SendTestAction } from '../components/SendTestAction'
 
 export const metadata: Metadata = {
   title: 'SMS Campaign Review | GP Admin',
@@ -109,6 +110,11 @@ export default async function Page({ params }: PageProps) {
                     scheduledLocalDate={item.scheduledLocalDate}
                   />
                 </Flex>
+              </Box>
+            )}
+            {canDecide && item.approvalStatus !== 'canceled' && (
+              <Box mt="3">
+                <SendTestAction id={item.id} />
               </Box>
             )}
             {item.adminEditedAt && (
