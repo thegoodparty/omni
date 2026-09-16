@@ -2,7 +2,7 @@ import { COS_INTRO_MESSAGES } from './chat/chatConstants'
 import type { OnboardingCardKey } from '../data/contracts'
 
 export interface OnboardingCardConfig {
-  eyebrowLabel: string
+  overlineLabel: string
   title: string
   summary: string
   ctaLabel: string
@@ -20,7 +20,7 @@ export const ONBOARDING_CARD_ORDER: OnboardingCardKey[] = ['meet', 'priorities']
 export const ONBOARDING_CARDS: Record<OnboardingCardKey, OnboardingCardConfig> =
   {
     meet: {
-      eyebrowLabel: 'Get started',
+      overlineLabel: 'Get started',
       title: 'Meet your virtual chief of staff',
       summary:
         'See how your Chief of Staff can help you prepare for meetings, ' +
@@ -29,7 +29,7 @@ export const ONBOARDING_CARDS: Record<OnboardingCardKey, OnboardingCardConfig> =
       opener: COS_INTRO_MESSAGES,
     },
     priorities: {
-      eyebrowLabel: 'Get started',
+      overlineLabel: 'Get started',
       title: "Tell us more about the most important issues you're facing",
       summary:
         'Share the priorities that matter most so your Chief of Staff can ' +

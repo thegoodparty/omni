@@ -20,7 +20,7 @@ const BY_TYPE: Record<DashboardCardType, CardCategory> = {
 }
 
 /**
- * Map a card type to its eyebrow label + icon. `comms` / CoS categories
+ * Map a card type to its overline label + icon. `comms` / CoS categories
  * (message-square / sparkles) are reserved for future card sources.
  */
 export function cardCategory(type: DashboardCardType): CardCategory {

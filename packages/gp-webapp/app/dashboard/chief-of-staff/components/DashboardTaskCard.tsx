@@ -29,8 +29,8 @@ export default function DashboardTaskCard({
   const dueLine = formatDueDate(card.dueDate)
   return (
     <TaskCard
-      eyebrowLabel={label}
-      EyebrowIcon={Icon}
+      overlineLabel={label}
+      OverlineIcon={Icon}
       title={card.title}
       meta={dueLine ? [dueLine] : undefined}
       summary={card.summary}

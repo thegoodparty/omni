@@ -66,7 +66,7 @@ const taskHref = (task: {
     : TRACKER_HREF
 }
 
-// Eyebrow label + icon per tracker flowType (same set buildTrackerStrategy maps
+// Overline label + icon per tracker flowType (same set buildTrackerStrategy maps
 // to channels). Unknown/static rows fall back to a generic priority label.
 const FLOW_TYPE_META: Record<string, { label: string; Icon: LucideIcon }> = {
   text: { label: 'Messaging', Icon: MessageSquareIcon },
@@ -181,8 +181,8 @@ export default function CampaignManagerTasks({
               return (
                 <TaskCard
                   key={task.id}
-                  eyebrowLabel={label}
-                  EyebrowIcon={Icon}
+                  overlineLabel={label}
+                  OverlineIcon={Icon}
                   title={task.title}
                   meta={[formatDue(task.date)]}
                   summary={task.description || undefined}

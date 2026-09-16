@@ -12,16 +12,17 @@ const meta: Meta<typeof Stepper> = {
 export default meta
 type Story = StoryObj<typeof Stepper>
 
-// Plain bars — a stepper without any header row (no eyebrow, no exit).
+// Plain bars — a stepper without any header row (no overline, no exit).
 export const Bar: Story = {
   parameters: { controls: { disable: true } },
   render: () => <Stepper variant="bar" currentStep={2} totalSteps={5} />,
 }
 
-// Eyebrow only: a flow whose sheet chrome carries its own close (CRM
+// Overline only: a flow whose sheet chrome carries its own close (CRM
 // wizard, team invite drawer) or that has no exit at all (onboarding).
-// Any ReactNode works — a badge, a logo, or plain text.
-export const WithEyebrow: Story = {
+// A string is wrapped in the shared <Overline> component; pass a
+// ReactNode to render your own markup (badge, logo, etc.) verbatim.
+export const WithOverline: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
     <div className="flex flex-col gap-6">
@@ -29,7 +30,7 @@ export const WithEyebrow: Story = {
         variant="bar"
         currentStep={2}
         totalSteps={5}
-        eyebrow={
+        overline={
           <Badge className="bg-brand-blue-100 text-foreground">SMS</Badge>
         }
       />
@@ -37,36 +38,30 @@ export const WithEyebrow: Story = {
         variant="bar"
         currentStep={1}
         totalSteps={3}
-        eyebrow={
-          <span className="text-base font-semibold text-foreground">
-            Create new list
-          </span>
-        }
+        overline="Create new list"
       />
       <Stepper
         variant="bar"
         currentStep={3}
         totalSteps={10}
-        eyebrow={<GoodPartyOrgLogo />}
+        overline={<GoodPartyOrgLogo />}
       />
     </div>
   ),
 }
 
-// Eyebrow + Exit: the outreach flow pattern. Every channel flow renders
+// Overline + Exit: the outreach flow pattern. Every channel flow renders
 // the stepper this way — the badge names the channel, the Exit button
 // leaves the flow.
-export const WithEyebrowAndExit: Story = {
+export const WithOverlineAndExit: Story = {
   parameters: { controls: { disable: true } },
   render: () => (
     <Stepper
       variant="bar"
       currentStep={2}
       totalSteps={5}
-      eyebrow={
-        <Badge className="border-transparent bg-brand-blue-100 text-foreground">
-          SMS
-        </Badge>
+      overline={
+        <Badge className="bg-brand-blue-100 text-foreground">SMS</Badge>
       }
       onExit={() => {}}
     />

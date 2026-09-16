@@ -28,14 +28,14 @@ const OnboardingTopBar = ({
           scrolled ? 'border-base-border' : 'border-transparent'
         }`}
       >
-        {/* Logo is the eyebrow slot (same role ChannelBadge plays in the
+        {/* Logo is the overline slot (same role ChannelBadge plays in the
             outreach shell). No `onExit` — a candidate can't leave
             onboarding partway. Step title lives on the page body. */}
         <Stepper
           variant="bar"
           currentStep={currentStep}
           totalSteps={totalSteps}
-          eyebrow={<GoodPartyOrgLogo />}
+          overline={<GoodPartyOrgLogo />}
         />
       </div>
     </div>

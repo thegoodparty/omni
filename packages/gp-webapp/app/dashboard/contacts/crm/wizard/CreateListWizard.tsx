@@ -598,7 +598,7 @@ export default function CreateListWizard({
       }
       header={
         isEditing ? (
-          // Edit is a single-step surface — no stepper, no eyebrow slot:
+          // Edit is a single-step surface — no stepper, no overline slot:
           // the visible DrawerTitle stays as the flow's identity and
           // the name input takes the stepper's place.
           <>
@@ -616,7 +616,7 @@ export default function CreateListWizard({
             />
           </>
         ) : (
-          // Create flow: the Stepper renders the visible eyebrow and the
+          // Create flow: the Stepper renders the visible overline and the
           // bars. DrawerTitle stays sr-only for the drawer's accessible
           // name (no `onExit` — CrmSheet's own close chrome handles it).
           <>
@@ -625,11 +625,7 @@ export default function CreateListWizard({
               variant="bar"
               currentStep={stepIndex + 1}
               totalSteps={steps.length}
-              eyebrow={
-                <span className="text-base font-semibold text-foreground">
-                  Create new list
-                </span>
-              }
+              overline="Create new list"
             />
           </>
         )
