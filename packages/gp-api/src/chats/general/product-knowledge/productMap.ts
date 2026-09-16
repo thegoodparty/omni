@@ -55,22 +55,23 @@ export interface ProductArea {
 // single most common escalation the assistants get wrong.
 const SHARED_AREAS: ProductArea[] = [
   {
-    navId: 'campaign-details-dashboard',
-    name: 'My Profile',
-    path: '/dashboard/profile',
-    modes: ['win', 'serve'],
-    does: 'Edit your own name, contact details, and campaign or office details.',
-    inside: [
-      'Also reachable from the account menu at the bottom of the left rail, where it reads Profile',
-    ],
-  },
-  {
+    // The rendered one. `campaign-details-dashboard` below carries the label
+    // 'My Profile', but that menu item has no v2Category and the nav filters
+    // it out, so no user has ever seen those words. What they see is this.
     navId: 'nav-dash-profile',
     name: 'Profile',
     path: '/dashboard/profile',
     modes: ['win', 'serve'],
-    does: 'The same profile page, reached from the account menu.',
-    aliasOf: 'My Profile',
+    does: 'Edit your own name, contact details, and campaign or office details.',
+    inside: ['In the account menu, at the bottom of the left-hand menu'],
+  },
+  {
+    navId: 'campaign-details-dashboard',
+    name: 'My Profile',
+    path: '/dashboard/profile',
+    modes: ['win', 'serve'],
+    does: 'The same profile page. This menu entry is filtered out of the nav and never renders.',
+    aliasOf: 'Profile',
   },
   {
     navId: 'nav-dash-account',
@@ -92,19 +93,23 @@ const SHARED_AREAS: ProductArea[] = [
     ],
   },
   {
+    // Same story as Profile: the rendered label is "Community Forum", in the
+    // account menu. The 'community-dashboard' entry's "Community" label is
+    // filtered out of the nav and never reaches a screen.
+    navId: 'nav-dash-community',
+    name: 'Community Forum',
+    path: 'the GoodParty.org community on Circle',
+    modes: ['win', 'serve'],
+    does: 'A separate community site where candidates and elected officials talk to each other. It opens in a new tab and is not part of the dashboard.',
+    inside: ['In the account menu, at the bottom of the left-hand menu'],
+  },
+  {
     navId: 'community-dashboard',
     name: 'Community',
     path: 'the GoodParty.org community on Circle',
     modes: ['win', 'serve'],
-    does: 'A separate community site where candidates and elected officials talk to each other. It opens in a new tab and is not part of the dashboard.',
-  },
-  {
-    navId: 'nav-dash-community',
-    name: 'Community',
-    path: 'the GoodParty.org community on Circle',
-    modes: ['win', 'serve'],
-    does: 'The same community site, reached from the account menu.',
-    aliasOf: 'Community',
+    does: 'The same community site. This menu entry is filtered out of the nav and never renders.',
+    aliasOf: 'Community Forum',
   },
 ]
 

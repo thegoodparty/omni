@@ -1,13 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// The module keeps whether the widget has been loaded, so each test needs a
-// fresh copy of it.
+// The module is stateless now, but each test still gets a fresh copy so an
+// import-time change can never leak between cases.
 const loadWidget = async () => {
   vi.resetModules()
   return (await import('./supportWidget')).openSupportChat
 }
 
-const sdk = () => ({ widget: { load: vi.fn(), open: vi.fn() } })
+// `loaded` is what the real SDK reports, and the only thing that proves the
+// widget is actually on screen.
+const sdk = (loaded = false) => {
+  const state = { loaded }
+  return {
+    state,
+    api: {
+      widget: {
+        load: vi.fn(() => {
+          // A cooperating chatflow renders the widget; an inert one does not.
+        }),
+        open: vi.fn(),
+        status: vi.fn(() => ({ loaded: state.loaded })),
+      },
+    },
+  }
+}
 
 // jsdom refuses to navigate, so the email fallback is asserted against a
 // stubbed location rather than a real one.
@@ -25,32 +41,75 @@ afterEach(() => {
 
 describe('openSupportChat', () => {
   it('renders the widget open on the first click', async () => {
-    const conversations = sdk()
-    window.HubSpotConversations = conversations
+    const { api, state } = sdk()
+    window.HubSpotConversations = api
+    const openSupportChat = await loadWidget()
+
+    openSupportChat()
+    state.loaded = true
+
+    expect(api.widget.load).toHaveBeenCalledWith({ widgetOpen: true })
+    expect(api.widget.open).not.toHaveBeenCalled()
+  })
+
+  it('re-opens rather than re-loading once the widget is up', async () => {
+    const { api } = sdk(true)
+    window.HubSpotConversations = api
     const openSupportChat = await loadWidget()
 
     openSupportChat()
 
-    expect(conversations.widget.load).toHaveBeenCalledWith({
-      widgetOpen: true,
-    })
-    expect(conversations.widget.open).not.toHaveBeenCalled()
+    expect(api.widget.open).toHaveBeenCalledTimes(1)
+    expect(api.widget.load).not.toHaveBeenCalled()
   })
 
-  it('re-opens rather than re-loading on later clicks', async () => {
-    const conversations = sdk()
-    window.HubSpotConversations = conversations
+  // The failure that used to be invisible: the SDK is present, load() is
+  // called, and nothing appears — which is what a chatflow whose targeting
+  // excludes this host actually does. Trusting load() left this a dead click.
+  it('falls back to email when the SDK loads but no widget appears', async () => {
+    const { api, state } = sdk()
+    window.HubSpotConversations = api
     const openSupportChat = await loadWidget()
 
     openSupportChat()
-    openSupportChat()
+    expect(api.widget.load).toHaveBeenCalled()
+    expect(state.loaded).toBe(false)
 
-    expect(conversations.widget.load).toHaveBeenCalledTimes(1)
-    expect(conversations.widget.open).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(11_000)
+
+    expect(window.location.href).toBe('mailto:support@goodparty.org')
   })
 
-  // The script is production-only and an ad blocker can stop it in
-  // production, so a click before the SDK exists must still do something.
+  it('does not fall back when the widget did come up', async () => {
+    const { api, state } = sdk()
+    window.HubSpotConversations = api
+    const openSupportChat = await loadWidget()
+
+    openSupportChat()
+    state.loaded = true
+    await vi.advanceTimersByTimeAsync(11_000)
+
+    expect(window.location.href).not.toContain('mailto:')
+  })
+
+  // The regression that prompted the watch: a widget that takes longer than a
+  // couple of seconds must not be navigated out from under the user.
+  it('waits for a slow widget instead of redirecting over the top of it', async () => {
+    const { api, state } = sdk()
+    window.HubSpotConversations = api
+    const openSupportChat = await loadWidget()
+
+    openSupportChat()
+
+    // Well past the old 2.5s deadline, still loading.
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(window.location.href).not.toContain('mailto:')
+
+    state.loaded = true
+    await vi.advanceTimersByTimeAsync(7_000)
+    expect(window.location.href).not.toContain('mailto:')
+  })
+
   it('queues on HubSpot’s ready hook when the SDK has not arrived', async () => {
     const openSupportChat = await loadWidget()
 
@@ -58,32 +117,19 @@ describe('openSupportChat', () => {
 
     expect(window.hsConversationsOnReady).toHaveLength(1)
 
-    const conversations = sdk()
-    window.HubSpotConversations = conversations
+    const { api } = sdk()
+    window.HubSpotConversations = api
     window.hsConversationsOnReady?.[0]?.()
 
-    expect(conversations.widget.load).toHaveBeenCalledWith({
-      widgetOpen: true,
-    })
+    expect(api.widget.load).toHaveBeenCalledWith({ widgetOpen: true })
   })
 
-  it('never leaves the click dead: falls back to email', async () => {
+  it('falls back to email when the SDK never arrives at all', async () => {
     const openSupportChat = await loadWidget()
 
     openSupportChat()
-    vi.advanceTimersByTime(3_000)
+    await vi.advanceTimersByTimeAsync(11_000)
 
     expect(window.location.href).toBe('mailto:support@goodparty.org')
-  })
-
-  it('does not fall back once the widget has opened', async () => {
-    const openSupportChat = await loadWidget()
-
-    openSupportChat()
-    window.HubSpotConversations = sdk()
-    window.hsConversationsOnReady?.[0]?.()
-    vi.advanceTimersByTime(3_000)
-
-    expect(window.location.href).not.toContain('mailto:')
   })
 })
