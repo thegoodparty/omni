@@ -11,8 +11,8 @@ interface ButtonLoadingProps {
   className?: string
 }
 
-// Replaces MUI's <CircularProgress> — an inline CSS spinner. `border-current`
-// picks up the button's own text color (same behavior as MUI's color="inherit").
+// Inline CSS spinner — `border-current` picks up the button's own text color,
+// so a spinner inside a light-on-dark button reads light without a prop.
 export default function ButtonLoading({
   size = 'medium',
   className = '',

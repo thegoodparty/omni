@@ -17,7 +17,7 @@ interface CheckboxProps {
   required?: boolean
   className?: string
   // Site-theme accent color, applied to the checked-state fill and the
-  // focus ring. Replaces the MUI `theme.muiColor` prop.
+  // focus ring. Key name kept for caller compatibility.
   theme?: {
     muiColor?: string
   }
@@ -54,8 +54,8 @@ const Checkbox = ({
       className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-gray-500 bg-white transition-colors data-[state=checked]:bg-primary data-[state=checked]:border-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50 ${className || ''}`}
       style={checked ? checkedStyle : style}
       onCheckedChange={(state) => {
-        // Preserves the shape callers already pass (`onChange({ target: { checked } })`
-        // mirroring the MUI input event surface).
+        // Preserves the shape callers pass — `onChange({ target: { checked } })`
+        // mirrors a native input event so consumers don't need a per-control adapter.
         onChange?.({
           target: { checked: state === true, name },
         })

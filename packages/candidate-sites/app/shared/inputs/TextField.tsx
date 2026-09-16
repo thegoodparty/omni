@@ -32,7 +32,8 @@ interface TextFieldProps {
   rows?: number
   className?: string
   // Site-theme accent color applied to the label, focus ring, and focused
-  // border. Replaces the MUI `sx={muiInputSx}` runtime style block.
+  // border. A single hex string rather than a runtime style block, since the
+  // color varies per candidate site and can't be a Tailwind class.
   accentColor?: string
   endAdornments?: (AdornmentKey | ReactElement)[]
   onChange?: (
@@ -47,10 +48,9 @@ interface TextFieldProps {
 }
 
 /**
- * Plain-input replacement for MUI's TextField — always renders a floating-style
- * label above the field (the design's own choice), with an optional accent
- * color for the label + focus states. Supports `multiline` (renders a textarea)
- * and `endAdornments` (a keyed 'error' icon or an inline ReactElement).
+ * Plain input with a label above the field, an optional accent color for the
+ * label + focus states, `multiline` (renders a textarea) and `endAdornments`
+ * (a keyed 'error' icon or an inline ReactElement).
  */
 export default function TextField({
   value,

@@ -22,10 +22,9 @@ interface ResponsiveModalProps {
   }
 }
 
-// Replaces MUI's <Modal> — Radix Dialog underneath. On mobile the panel
-// docks to the bottom edge (matching the old bottom-sheet); on lg+ it
-// centers. Radix handles focus trap, Escape, and outside-click for us —
-// preventBackdropClose / preventEscClose are wired through Radix's own
+// Radix Dialog underneath. On mobile the panel docks to the bottom edge
+// (bottom-sheet); on lg+ it centers. Radix owns focus trap, Escape, and
+// outside-click; preventBackdropClose / preventEscClose ride Radix's own
 // onInteractOutside / onEscapeKeyDown events.
 export default function ResponsiveModal({
   open,
