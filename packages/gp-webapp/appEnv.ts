@@ -13,6 +13,15 @@ export const IS_LOCAL =
     typeof window !== 'undefined' && window.location.href.includes('localhost'),
   )
 
+// The support chat loads in production and on PR previews, so the widget and
+// the nav's Get help item can be exercised before they reach candidates. It
+// stays off locally unless you opt in, because there is one HubSpot portal and
+// no sandbox: every conversation started anywhere lands in the real support
+// inbox. Set NEXT_PUBLIC_SUPPORT_CHAT=1 in .env.local to test it locally, and
+// expect whatever you send to reach a person.
+export const SUPPORT_CHAT_ENABLED =
+  IS_PROD || IS_PREVIEW || process.env.NEXT_PUBLIC_SUPPORT_CHAT === '1'
+
 export const API_ROOT =
   process.env.NEXT_PUBLIC_API_BASE || 'https://gp-api-dev.goodparty.org'
 

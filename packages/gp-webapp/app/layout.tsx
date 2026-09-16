@@ -4,7 +4,7 @@ import { Suspense } from 'react'
 import PageWrapper from './shared/layouts/PageWrapper'
 import './globals.css'
 import VwoScript from '@shared/scripts/VwoScript'
-import { APP_BASE, IS_PROD } from 'appEnv'
+import { APP_BASE, IS_PROD, SUPPORT_CHAT_ENABLED } from 'appEnv'
 import RouteTracker from '@shared/scripts/RouteTrackerScript'
 import AnalyticsSessionReplayMiddleware from '@shared/AnalyticsSessionReplayMiddleware'
 import { SerwistProvider } from '@serwist/next/react'
@@ -94,7 +94,7 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
       </noscript>
     </body>
 
-    {IS_PROD && (
+    {SUPPORT_CHAT_ENABLED && (
       <>
         {/* The support chat is opened from "Get help" in the dashboard nav,
             not from a launcher hovering over every page. This suppresses the
