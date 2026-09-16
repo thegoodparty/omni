@@ -28,6 +28,19 @@ const GIVE_UP_MS = 10_000
 
 const widgetStatus = () => window.HubSpotConversations?.widget.status()
 
+// One ready-hook callback is enough for the life of the page, and one watch is
+// enough at a time. Without these, an impatient user clicking Get help while
+// the SDK is still loading queues a callback and starts a timer per click —
+// every callback firing `load()` again, and every timer able to navigate to
+// `mailto:` on its own. That accumulation is observable: six clicks against a
+// missing SDK left six entries on `hsConversationsOnReady`.
+//
+// `queuedOnReady` never resets, because the hook only ever needs one callback.
+// `watching` resets when a watch settles, so a click after a failed attempt
+// gets a fresh one rather than being silently ignored forever.
+let queuedOnReady = false
+let watching = false
+
 // The root layout configures the widget with `loadImmediately: false`, so
 // nothing is on screen until someone asks for help. `load` renders it the
 // first time; `open` re-opens it once it is up.
@@ -48,10 +61,11 @@ export const openSupportChat = (): void => {
       return
     }
     conversations.widget.load({ widgetOpen: true })
-  } else {
+  } else if (!queuedOnReady) {
     // The SDK is not here yet: outside production it loads only behind
     // NEXT_PUBLIC_SUPPORT_CHAT, and in production an ad blocker can stop it.
     // Queue on HubSpot's own ready hook in case it is still coming.
+    queuedOnReady = true
     window.hsConversationsOnReady = [
       ...(window.hsConversationsOnReady ?? []),
       () => {
@@ -66,10 +80,16 @@ export const openSupportChat = (): void => {
   // mid-animation. Only a widget that is still absent at the deadline counts
   // as a failure, and then the click goes somewhere a person will answer
   // rather than nowhere.
+  if (watching) return
+  watching = true
   const deadline = Date.now() + GIVE_UP_MS
   const check = () => {
-    if (widgetStatus()?.loaded) return
+    if (widgetStatus()?.loaded) {
+      watching = false
+      return
+    }
     if (Date.now() >= deadline) {
+      watching = false
       window.location.href = `mailto:${SUPPORT_EMAIL}`
       return
     }

@@ -26,10 +26,21 @@ const sdk = (loaded = false) => {
 }
 
 // jsdom refuses to navigate, so the email fallback is asserted against a
-// stubbed location rather than a real one.
+// stubbed location. It counts writes rather than just holding the last value:
+// several timers all setting the same href is invisible otherwise.
+let navigations: string[] = []
+
 beforeEach(() => {
   vi.useFakeTimers()
-  vi.stubGlobal('location', { href: 'http://localhost:3000/' })
+  navigations = []
+  vi.stubGlobal('location', {
+    get href() {
+      return navigations[navigations.length - 1] ?? 'http://localhost:3000/'
+    },
+    set href(value: string) {
+      navigations.push(value)
+    },
+  })
   delete window.HubSpotConversations
   delete window.hsConversationsOnReady
 })
@@ -122,6 +133,44 @@ describe('openSupportChat', () => {
     window.hsConversationsOnReady?.[0]?.()
 
     expect(api.widget.load).toHaveBeenCalledWith({ widgetOpen: true })
+  })
+
+  // An impatient user clicking several times must not queue a callback and a
+  // timer per click: every callback fires load() again, and every timer can
+  // navigate on its own.
+  describe('repeated clicks while the widget is still coming', () => {
+    it('queues one ready-hook callback no matter how many clicks', async () => {
+      const openSupportChat = await loadWidget()
+
+      openSupportChat()
+      openSupportChat()
+      openSupportChat()
+
+      expect(window.hsConversationsOnReady).toHaveLength(1)
+    })
+
+    it('runs one watch, so email is offered once rather than per click', async () => {
+      const openSupportChat = await loadWidget()
+
+      openSupportChat()
+      openSupportChat()
+      openSupportChat()
+      await vi.advanceTimersByTimeAsync(11_000)
+
+      expect(navigations).toEqual(['mailto:support@goodparty.org'])
+    })
+
+    it('starts a fresh watch for a click after an attempt has settled', async () => {
+      const openSupportChat = await loadWidget()
+
+      openSupportChat()
+      await vi.advanceTimersByTimeAsync(11_000)
+      expect(navigations).toHaveLength(1)
+
+      openSupportChat()
+      await vi.advanceTimersByTimeAsync(11_000)
+      expect(navigations).toHaveLength(2)
+    })
   })
 
   it('falls back to email when the SDK never arrives at all', async () => {
