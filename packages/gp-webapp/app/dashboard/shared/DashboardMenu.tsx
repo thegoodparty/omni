@@ -59,6 +59,7 @@ import {
 } from '@styleguide'
 import {
   FlagIcon,
+  LifeBuoyIcon,
   MegaphoneIcon,
   ScrollTextIcon,
 } from '@styleguide/components/ui/icons'
@@ -68,6 +69,7 @@ import {
   useOrganizationRole,
 } from '@shared/organization-picker'
 import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
+import { openSupportChat } from '@shared/utils/supportWidget'
 
 // Adding, renaming or removing an item here also means updating the AI
 // assistants' product map, in
@@ -402,6 +404,27 @@ export default function DashboardMenu({
   )
 }
 
+// The support chat has no URL to link to, so it is an action rather than an
+// AccountManagementItem. On desktop it sits at the end of the main nav, below
+// Public Profile, where it is visible without opening the account menu first.
+// On mobile the rail already carries the account items, so it stays with
+// Community Forum there rather than adding a row above the feature tabs.
+//
+// It renders in every environment, deliberately. Gating it on whether the
+// HubSpot script loads would hide it everywhere but production, including on
+// dev, while the assistants' product map goes on telling people support opens
+// from "Get help" at the bottom of this menu — pointing at an item that is not
+// there is the failure that map exists to prevent. Where the chat is not
+// loaded the click goes straight to email instead.
+const SUPPORT_MENU_ITEM = {
+  label: 'Get help',
+  icon: LifeBuoyIcon,
+  id: 'nav-dash-support',
+  onSelect: openSupportChat,
+}
+
+type AccountActionItem = typeof SUPPORT_MENU_ITEM
+
 type AccountManagementItem = {
   label: string
   icon: LucideIcon
@@ -504,6 +527,22 @@ const NewNavMenu = ({
     </SidebarMenuItemComponent>
   )
 
+  const sidebarActionItem = (item: AccountActionItem) => (
+    <SidebarMenuItemComponent key={item.id}>
+      <SidebarMenuButton
+        id={item.id}
+        onClick={() => {
+          item.onSelect()
+          setOpenMobile(false)
+        }}
+        className="px-4 py-2.5 h-10 text-sm gap-2 rounded-md font-opensans"
+      >
+        <item.icon size={16} />
+        <span>{item.label}</span>
+      </SidebarMenuButton>
+    </SidebarMenuItemComponent>
+  )
+
   const dropDownItem = (item: AccountManagementItem) => (
     <DropdownMenuItemComponent asChild className="h-10">
       <Link
@@ -569,9 +608,11 @@ const NewNavMenu = ({
                     </SidebarMenuItemComponent>
                   )
                 })}
+              {!isMobile && sidebarActionItem(SUPPORT_MENU_ITEM)}
               {isMobile && (
                 <>
                   <SidebarSeparator />
+                  {sidebarActionItem(SUPPORT_MENU_ITEM)}
                   {sidebarItem(accountManagementMenuItems.community)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.profile)}

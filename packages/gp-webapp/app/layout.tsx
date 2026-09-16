@@ -4,7 +4,7 @@ import { Suspense } from 'react'
 import PageWrapper from './shared/layouts/PageWrapper'
 import './globals.css'
 import VwoScript from '@shared/scripts/VwoScript'
-import { APP_BASE, IS_PROD } from 'appEnv'
+import { APP_BASE, IS_PROD, SUPPORT_CHAT_ENABLED } from 'appEnv'
 import RouteTracker from '@shared/scripts/RouteTrackerScript'
 import AnalyticsSessionReplayMiddleware from '@shared/AnalyticsSessionReplayMiddleware'
 import { SerwistProvider } from '@serwist/next/react'
@@ -70,6 +70,24 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 })(window,document,'script','dataLayer','GTM-M53W2ZV');
       `}
       </Script>
+
+      {SUPPORT_CHAT_ENABLED && (
+        <>
+          {/* The support chat is opened from "Get help" in the dashboard nav,
+              not from a launcher hovering over every page. This suppresses the
+              launcher and must run before the loader below. Opened via
+              @shared/utils/supportWidget. */}
+          <Script id="hs-conversations-settings" strategy="beforeInteractive">
+            {'window.hsConversationsSettings = { loadImmediately: false };'}
+          </Script>
+          <Script
+            type="text/javascript"
+            id="hs-script-loader"
+            strategy="afterInteractive"
+            src="//js.hs-scripts.com/21589597.js"
+          />
+        </>
+      )}
     </head>
     <body>
       {/* Registers the Serwist service worker (public/sw.js, built by the
@@ -93,15 +111,6 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
         />
       </noscript>
     </body>
-
-    {IS_PROD && (
-      <Script
-        type="text/javascript"
-        id="hs-script-loader"
-        strategy="afterInteractive"
-        src="//js.hs-scripts.com/21589597.js"
-      />
-    )}
   </html>
 )
 export default RootLayout

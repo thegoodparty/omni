@@ -108,6 +108,7 @@ export {
   FolderHeart as FolderHeartIcon,
   Gift as GiftIcon,
   HandHeart as HandHeartIcon,
+  LifeBuoy as LifeBuoyIcon,
   Megaphone as MegaphoneIcon,
   ScrollText as ScrollTextIcon,
   Clock as ClockIcon,

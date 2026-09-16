@@ -129,14 +129,81 @@ needs rewriting against the current navigation.
 
 ## Support routing
 
-**One route, both assistants:** the support chat in the bottom-right corner of
-any page (HubSpot Conversations, loaded site-wide in
-`gp-webapp/app/layout.tsx` for production), with `support@goodparty.org` as
-the email fallback. Both are constants (`SUPPORT_ROUTE`, `SUPPORT_EMAIL`) and
-nothing else may be named.
+**One route, both assistants:** the support chat, opened from **Get help** at
+the bottom of the left-hand menu, with `support@goodparty.org` as the email
+fallback. Both are constants (`SUPPORT_ROUTE`, `SUPPORT_EMAIL`) and nothing
+else may be named.
 
-Moving that launcher behind a **Get help** nav item is a separate change, on
-the `support-link-move` branch. `SUPPORT_ROUTE` moves with it when it lands.
+`SUPPORT_ROUTE` names no section of that menu on purpose: Get help ends the
+main nav on desktop and sits in the account group on mobile, so any wording
+more specific is wrong on one of the two.
+
+### Where the support chat lives
+
+**Get help renders in every environment.** What changes per environment is
+only what answers the click. The nav item is not gated on the chat, because
+gating it hid the item everywhere but production — including on dev — while
+`SUPPORT_ROUTE` went on telling both assistants that support opens from it.
+An assistant pointing at a menu item that is not there is the failure this
+whole map exists to prevent, so the item stays and the click degrades instead:
+where the chat was never loaded, `openSupportChat` goes straight to
+`SUPPORT_EMAIL` rather than waiting out a widget that cannot arrive.
+
+The chat itself is HubSpot Conversations, loaded from the root `<head>` in
+`gp-webapp/app/layout.tsx` in production, and anywhere else only behind
+`NEXT_PUBLIC_SUPPORT_CHAT=1` — in `.env.local` for local, or in Vercel's
+Preview environment to exercise it on a PR preview. Do not reach for
+`IS_PREVIEW` instead: it reads `NEXT_PUBLIC_VERCEL_TARGET_ENV`, which this app
+does not reliably get, and on a real PR preview it was not `preview`, so the
+script did not load at all. Both script tags belong in `<head>`: a
+`beforeInteractive` script has to be there, and a `<script>` anywhere else
+under `<html>` is invalid HTML that React reports as three hydration errors.
+
+It used to render its own launcher hovering over every page; the layout now
+sets `hsConversationsSettings.loadImmediately = false` to suppress that, and
+`@shared/utils/supportWidget.ts` opens it from the nav. Closing the chat
+unmounts it with `widget.remove()`, because HubSpot otherwise collapses back to
+that launcher — a fixed button in the corner this product uses for the
+assistant's message box, which is the thing moving support into the nav was
+meant to get rid of. The next Get help click mounts it again.
+
+Whether it opened is asked of the SDK (`widget.status().loaded`), never
+assumed, and watched rather than checked once: a single check cannot tell
+"never coming" from "still coming", and guessing wrong navigates to a mail
+client over the top of a widget mid-animation. Only a widget still absent at
+the deadline counts as failure, and then the click goes to email rather than
+nowhere.
+
+Two things about the SDK are worth knowing before changing that helper, both
+measured rather than read off the docs:
+
+- **`load({widgetOpen: true})` does not open the panel.** It renders the
+  launcher and the greeting bubble and leaves the panel shut. `open()` is what
+  opens it, so the watch calls `open()` as soon as the widget exists.
+- **`status()` lags reality, in both directions.** On a cold local load it
+  reported `{loaded: false, pending: false}` for around ten seconds after the
+  container was already in the DOM and the iframe was fetching; on another load
+  it flipped to `loaded` before the container existed. So the watch waits for
+  both, and the deadline branch checks the DOM before giving up — believing
+  `status()` there would send a mail client over the top of a widget the user
+  can see.
+- **The `on()` event API delivered nothing.** With `widgetClosed` and
+  `widgetOpened` listeners registered before `load()`, opening and closing the
+  panel raised neither. The close is detected from the container's inline size
+  instead, which HubSpot writes itself: 92x92 collapsed, 448x804 open.
+
+**HubSpot's chatflow targeting decides whether the widget may load at all**,
+and it is host-based: website-URL rules on the chatflow, edited in the HubSpot
+UI under Service > Chatflows > Edit > Target, with no API. The rules cover
+production, Vercel previews (`good-party.vercel.app`) and `localhost`. A host
+outside them loads the SDK and then does nothing at all — `status()` stuck at
+`{loaded: false, pending: false}`, no container, even calling `load()` from the
+console — which is what `localhost` did before those rules existed. If the
+widget stops appearing on some new host, look there before looking here.
+
+There is no API to invoke HubSpot's Breeze Customer Agent directly, so the
+widget remains how a user reaches it. That is why this is a relocation rather
+than a replacement.
 
 The product shows two addresses, and which one depends on who works the queue.
 Both live in `gp-webapp/app/shared/utils/supportContact.ts`; import one rather
