@@ -75,7 +75,7 @@ export const fetchListDetailThrottled = async (
 }
 
 // `enabled` is required, not defaulted: this hook ran unconditionally for every
-// saved list, and getListDetail is pro-gated, so a non-pro user 400d once per row
+// saved list, and getListDetail is pro-gated, so a non-pro user 403d once per row
 // on mount without touching anything. A default would let that reappear silently.
 export const useListRowDetail = (segmentId: number, enabled: boolean) => {
   const orgSlug = useOrganization()?.slug

@@ -52,7 +52,7 @@ All sentiment comes from ONE table: `goodparty_data_catalog.dbt.int__l2_nationwi
 - **District scoping is two columns**: `Residence_Addresses_State = '<state>'` plus the backtick-quoted L2 district column, where the COLUMN NAME is the value of `l2DistrictType` and the value to match is `l2DistrictName`: `` `City` = 'HENDERSONVILLE CITY' ``. Running locally you add both clauses yourself. (Port note: in the cloud the broker auto-injects the state/city predicates and adding them yourself returns HTTP 422 `ScopeViolation: scope_predicate_override`; the experiment adds only the L2 district clause and `Voters_Active = 'A'`.)
 - **Scope by the L2 district column, NOT the mailing city.** `Residence_Addresses_City = 'HENDERSONVILLE'` matches 46,071 active NC voters (mailing addresses, mostly outside city limits); `` `City` = 'HENDERSONVILLE CITY' `` matches 9,449 (the actual council electorate). If the count looks like the whole metro area, your district clause did not hit.
 - **Verify the L2 district value before trusting it.** The resolver's `l2DistrictName` should match the L2 value verbatim, but confirm with `SELECT DISTINCT` on the column if the scoped count looks wrong (`'HENDERSONVILLE'` vs `'HENDERSONVILLE CITY'` is exactly the kind of mismatch that silently matches zero rows).
-- **Coverage rule + cell-size floor.** In the batched query also select `COUNT(col)` per column. Drop any column whose coverage is below ~80% of `total_active` (whole Haystaq models are missing per state: in NC, `hs_violent_crime_very_worried` and `hs_min_wage_15_increase_support` both return 0% coverage). Also treat the result as no-coverage when `total_active < 50` or a per-column `>= 50` count is under ~25 voters: below that floor the percentage is noise, not sentiment. No coverage never kills the card; it removes its numbers (see the degrade path).
+- **Coverage rule + cell-size floor.** In the batched query also select `COUNT(col)` per column. Drop any column whose coverage is below ~80% of `total_active` (whole Haystaq models can be absent for a given state and return 0% coverage there). Also treat the result as no-coverage when `total_active < 50` or a per-column `>= 50` count is under ~25 voters: below that floor the percentage is noise, not sentiment. No coverage never kills the card; it removes its numbers (see the degrade path).
 - **Never substitute an adjacent column to get a number.** If the direct column for the card's issue has no coverage, the card goes out numberless; do not quietly cite a related-sounding column instead.
 
 ## Steps
@@ -165,7 +165,7 @@ print("ok:", len(out["cards"]), "cards")
 Cards still generate; only the numbers disappear.
 
 - **`district` is `null`** (the org's position did not resolve): skip Steps 2-4 entirely. Every card is written from the summaries and platform alone, `haystaq: null` on all of them. The bodies carry the opponent-vs-platform contrast without any statistic and without any invented substitute ("many voters feel..." backed by nothing is fabrication; just make the contrast).
-- **A column has no coverage in this state, or the counts are under the cell-size floor**: that card only goes out numberless (`haystaq: null`); the other cards keep their numbers. Do not swap in an adjacent column. Sample card 3 below is a live example: `hs_violent_crime_very_worried` has 0% coverage in NC, so the public-safety card carries no statistic while the other four cite real numbers.
+- **A column has no coverage in this state, or the counts are under the cell-size floor**: that card only goes out numberless (`haystaq: null`); the other cards keep their numbers. Do not swap in an adjacent column. Sample card 3 below is a live example: the public-safety column had 0% coverage in NC, so that card carries no statistic while the other four cite real numbers. (The two columns that produced the zeroes in that run have since been dropped from the vendor feed, so their names are no longer listed.)
 - **What a numberless body looks like**: same 3-sentence spine, with the statistic slot replaced by grounded salience from the inputs (e.g. the issue is contested in the race) or by the candidate's own commitment. It never apologizes for or explains the missing data to the voter; only the internal `haystaq: null` records it.
 
 ## Validated sample run — Hendersonville City Council, NC (real data)
@@ -227,8 +227,7 @@ Cards still generate; only the numbers disappear.
 | `hs_climate_change_believer` | 4,408 (46.7%) | 2,769 (29.3%) | 97% |
 | `hs_tax_cuts_support` | 3,754 (39.7%) | 1,740 (18.4%) | 97% |
 | `hs_gentrification_oppose` | 3,755 (39.7%) | 1,880 (19.9%) | 93% |
-| `hs_violent_crime_very_worried` | 0 | 0 | **0% — dropped** |
-| `hs_min_wage_15_increase_support` | 0 | 0 | **0% — dropped** |
+| _(2 columns since retired by the vendor)_ | 0 | 0 | **0% — dropped** |
 
 (For contrast, the mailing-address scope `Residence_Addresses_City = 'HENDERSONVILLE'` matches 46,071 active voters; the L2 `City` column is the real council electorate.)
 

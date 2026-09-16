@@ -823,6 +823,18 @@ export {
   PhoneBankingScriptDraftResponseSchema,
   type PhoneBankingScriptDraftResponse,
 } from './outreach/PhoneBankingScript.schema'
+
+export {
+  DoorKnockingTalkingPointsPurposeSchema,
+  type DoorKnockingTalkingPointsPurpose,
+  ServeDoorKnockingTalkingPointsPurposeSchema,
+  type ServeDoorKnockingTalkingPointsPurpose,
+  DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH,
+  DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH,
+  DOOR_KNOCKING_INSTRUCTIONS_MAX_LENGTH,
+  DoorKnockingTalkingPointsDraftResponseSchema,
+  type DoorKnockingTalkingPointsDraftResponse,
+} from './outreach/DoorKnockingTalkingPoints.schema'
 export {
   ROBOCALL_PURPOSE_VALUES,
   RobocallPurposeSchema,
@@ -927,8 +939,12 @@ export {
   type CancelSmsOutreachRequest,
   EditSmsOutreachRequestSchema,
   type EditSmsOutreachRequest,
+  EditSmsOutreachDateRequestSchema,
+  type EditSmsOutreachDateRequest,
   SmsTestMessageRequestSchema,
   type SmsTestMessageRequest,
+  SmsTestMessageResponseSchema,
+  type SmsTestMessageResponse,
 } from './outreach/SmsAdminConsole.schema'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
@@ -996,6 +1012,11 @@ export {
 } from './doorKnocking/DoorKnockingAddressPreview.schema'
 
 export {
+  DoorKnockingAudienceCheckResponseSchema,
+  type DoorKnockingAudienceCheckResponse,
+} from './doorKnocking/DoorKnockingAudienceCheck.schema'
+
+export {
   DoorKnockingQuotaResponseSchema,
   type DoorKnockingQuotaResponse,
 } from './doorKnocking/DoorKnockingQuota.schema'
@@ -1052,6 +1073,8 @@ export {
   type DoorKnockingRouteHeader,
   DoorKnockingModeSchema,
   type DoorKnockingMode,
+  DoorKnockingPurposeSchema,
+  type DoorKnockingPurpose,
 } from './doorKnocking/DoorKnockingTurf.schema'
 
 export {
@@ -1070,6 +1093,8 @@ export {
   type RoutePayloadAddress,
   RoutePayloadStopSchema,
   type RoutePayloadStop,
+  RoutePayloadRepresentingSchema,
+  type RoutePayloadRepresenting,
   DoorKnockingRoutePayloadSchema,
   type DoorKnockingRoutePayload,
   RoutePathGeometrySchema,

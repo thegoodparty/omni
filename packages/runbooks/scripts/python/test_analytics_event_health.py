@@ -422,6 +422,35 @@ def test_rank_record_zero_calls_active_with_anomaly_stays_rank_2():
     assert eh.rank_record(rec) == 2
 
 
+def test_rank_record_zero_calls_firing_only_before_removal_is_not_canary():
+    # DATA-2427: the canary's premise ("a client event cannot fire normally with zero call
+    # sites") breaks when the 30-day window STRADDLES the call site's removal -- the firing is
+    # all pre-removal traffic, so the zero is a genuine retirement, not a blind counter. Same
+    # straddle trap DATA-2140 fixed for orphaned_firing, now on call_site_retired_date. Without
+    # this gate a single flag-removal PR posts a burst of false rank-0 tooling alerts.
+    rec = {"status": "active", "elevated": False, "anomaly": None, "divergence": None,
+           "call_site_count": 0, "event_count_30d": 1883,
+           "call_site_retired_date": "2026-09-08", "last_seen_date": "2026-09-09"}
+    assert eh.rank_record(rec) == 2
+
+
+def test_rank_record_zero_calls_firing_after_removal_stays_canary():
+    # Firing that continues well past the removal is the real contradiction: the counter is
+    # blind, or the event fires from somewhere the scan cannot see. Still rank 0.
+    rec = {"status": "active", "elevated": False, "anomaly": None, "divergence": None,
+           "call_site_count": 0, "event_count_30d": 1883,
+           "call_site_retired_date": "2026-09-01", "last_seen_date": "2026-09-09"}
+    assert eh.rank_record(rec) == 0
+
+
+def test_rank_record_zero_calls_with_no_removal_date_stays_canary():
+    # No attributable removal at all -> nothing to straddle -> the canary still fires.
+    rec = {"status": "active", "elevated": False, "anomaly": None, "divergence": None,
+           "call_site_count": 0, "event_count_30d": 50,
+           "call_site_retired_date": None, "last_seen_date": "2026-09-09"}
+    assert eh.rank_record(rec) == 0
+
+
 def test_rank_record_null_call_sites_never_canary():
     # Backend / dynamic events (no resolvable key-path) have None, not zero: no canary.
     rec = {"status": "active", "elevated": False, "anomaly": None,

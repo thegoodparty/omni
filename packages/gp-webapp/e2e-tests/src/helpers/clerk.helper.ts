@@ -126,11 +126,14 @@ export const fillClerkSignUpForm = async (page: Page) => {
   const generated = TestDataHelper.generateTestUserData()
   const testUser = { ...generated, email: toClerkTestEmail(generated.email) }
 
-  // The custom form (app/sign-up/SignUpForm.tsx) always renders all four fields
-  // and a required password; field `name`s mirror Clerk's so this stays stable.
+  // The custom form (app/sign-up/SignUpForm.tsx) always renders all five
+  // fields and a required password; field `name`s mirror Clerk's so this
+  // stays stable. Submit is disabled until the phone parses as a real
+  // number, so a partial one would hang the click below.
   await page.locator('input[name=firstName]').fill(testUser.firstName)
   await page.locator('input[name=lastName]').fill(testUser.lastName)
   await page.locator('input[name=emailAddress]').fill(testUser.email)
+  await page.locator('input[name=phone]').fill(testUser.phone)
   await page.locator('input[name=password]').fill(testUser.password)
 
   // Submission is gated on the Terms & Conditions checkbox (a Radix

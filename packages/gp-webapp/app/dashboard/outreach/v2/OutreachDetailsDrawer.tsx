@@ -19,7 +19,7 @@ import {
   AlertDialogTitle,
   Button,
   Card,
-  Eyebrow,
+  Overline,
   Progress,
   StatusText,
   Table,
@@ -837,7 +837,7 @@ export const OutreachDetailsDrawer = ({
             )}
             {social && (
               <section className="space-y-3">
-                <Eyebrow>Posts · {social.assets.length}</Eyebrow>
+                <Overline>Posts · {social.assets.length}</Overline>
                 <p className="text-sm text-muted-foreground">
                   The text created for each platform. Copy any post again below.
                 </p>

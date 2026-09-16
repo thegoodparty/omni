@@ -577,4 +577,132 @@ describe('GET /v1/persons/by-slug/:slug (canonical URL resolution)', () => {
     const res = await service.client.get('/v1/persons/by-slug/Jane_Doe')
     expect(res.status).toBe(400)
   })
+
+  // The data team purges duplicate persons on an ongoing basis. Because the
+  // id8 that makes a slug unique is the deleted row's PK, nothing in Person
+  // can match the old URL — PersonMerge is the forwarding address that lets
+  // the marketing page 308 to the survivor instead of 404-ing.
+  describe('when the person was purged as a duplicate', () => {
+    // Two duplicates of PERSON_ID's subject, both absorbed by them. Distinct
+    // 8-hex prefixes, so neither collides with a live person.
+    const RETIRED_A = 'aaaa1111-0000-0000-0000-000000000000'
+    const RETIRED_A_SLUG = 'jane-d-aaaa1111'
+    const RETIRED_B = 'bbbb2222-0000-0000-0000-000000000000'
+    const RETIRED_B_SLUG = 'j-doe-bbbb2222'
+
+    beforeEach(async () => {
+      await service.prisma.personMerge.createMany({
+        data: [
+          {
+            retiredId: RETIRED_A,
+            survivingId: PERSON_ID,
+            retiredSlug: RETIRED_A_SLUG,
+            retiredAt: new Date('2026-09-01T00:00:00.000Z'),
+          },
+          {
+            retiredId: RETIRED_B,
+            survivingId: PERSON_ID,
+            retiredSlug: RETIRED_B_SLUG,
+            retiredAt: new Date('2026-09-01T00:00:00.000Z'),
+          },
+        ],
+      })
+    })
+
+    it('forwards a purged slug to the surviving person, with the full spine', async () => {
+      const res = await service.client.get(
+        `/v1/persons/by-slug/${RETIRED_A_SLUG}`,
+      )
+
+      expect(res.status).toBe(200)
+      expect(res.data.id).toBe(PERSON_ID)
+      // The survivor's own slug differs from the requested one — that
+      // difference is exactly what gp-marketing turns into a 308.
+      expect(res.data.slug).toBe(PERSON_SLUG)
+      // Not a degraded payload: same shape as resolving the survivor directly.
+      expect(res.data.OfficeHolders).toHaveLength(2)
+      expect(findOffice(res.data).positionSlug).toBe(OFFICE_RACE_SLUG)
+      expectNoPersonPii(res.data)
+    })
+
+    it('forwards every duplicate of the same person to the one survivor', async () => {
+      // Many-to-one is the normal shape of a purge, not an edge case.
+      for (const slug of [RETIRED_A_SLUG, RETIRED_B_SLUG]) {
+        const res = await service.client.get(`/v1/persons/by-slug/${slug}`)
+        expect(res.status).toBe(200)
+        expect(res.data.id).toBe(PERSON_ID)
+      }
+    })
+
+    it('still 404s a purged id whose survivor is also gone', async () => {
+      await service.prisma.personMerge.create({
+        data: {
+          retiredId: 'cccc3333-0000-0000-0000-000000000000',
+          survivingId: MISSING_PERSON_ID,
+          retiredSlug: 'ghost-cccc3333',
+          retiredAt: new Date('2026-09-01T00:00:00.000Z'),
+        },
+      })
+
+      const res = await service.client.get('/v1/persons/by-slug/ghost-cccc3333')
+      expect(res.status).toBe(404)
+    })
+
+    it('404s a broken forwarding address rather than serving a live person on the same prefix', async () => {
+      // The same broken forward as above, but now a live person (PERSON_ID,
+      // `jane-doe-11111111`) shares the purged person's 8-hex prefix. The URL
+      // is demonstrably jim-poe's, so it must 404 rather than resolve to the
+      // unrelated jane-doe who merely collides on the prefix.
+      await service.prisma.personMerge.create({
+        data: {
+          retiredId: '11111111-cafe-cafe-cafe-cafecafecafe',
+          survivingId: MISSING_PERSON_ID,
+          retiredSlug: 'jim-poe-11111111',
+          retiredAt: new Date('2026-09-04T00:00:00.000Z'),
+        },
+      })
+
+      const res = await service.client.get(
+        '/v1/persons/by-slug/jim-poe-11111111',
+      )
+
+      expect(res.status).toBe(404)
+    })
+
+    it('follows a residual chain to the terminal survivor', async () => {
+      // The ETL is contracted to path-compress; this proves an uncompressed
+      // chain degrades to an extra hop rather than a dead link.
+      await service.prisma.personMerge.create({
+        data: {
+          retiredId: 'dddd4444-0000-0000-0000-000000000000',
+          survivingId: RETIRED_A,
+          retiredSlug: 'jane-dddd4444',
+          retiredAt: new Date('2026-09-02T00:00:00.000Z'),
+        },
+      })
+
+      const res = await service.client.get('/v1/persons/by-slug/jane-dddd4444')
+
+      expect(res.status).toBe(200)
+      expect(res.data.id).toBe(PERSON_ID)
+    })
+
+    it('does not let a purged id shadow a live person on the same prefix', async () => {
+      // A retired id sharing PERSON_ID's 8-hex prefix must not hijack the live
+      // person's own URL.
+      await service.prisma.personMerge.create({
+        data: {
+          retiredId: '11111111-dead-dead-dead-deaddeaddead',
+          survivingId: OTHER_PERSON_ID,
+          retiredSlug: 'someone-else-11111111',
+          retiredAt: new Date('2026-09-03T00:00:00.000Z'),
+        },
+      })
+
+      const res = await service.client.get(`/v1/persons/by-slug/${PERSON_SLUG}`)
+
+      expect(res.status).toBe(200)
+      expect(res.data.id).toBe(PERSON_ID)
+    })
+  })
 })

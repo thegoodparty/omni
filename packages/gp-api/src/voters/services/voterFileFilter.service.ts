@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
 } from '@nestjs/common'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -17,7 +18,8 @@ import { UpdateVoterFileFilterSchema } from '../schemas/UpdateVoterFileFilterSch
 
 // Exported so the assistant's saved-filter tool can recognize this exact
 // business-rule rejection (and suggest the Pro upgrade) without duplicating
-// the string.
+// the string. Thrown as a ForbiddenException (403) like every other pro gate
+// — see PRO_FILTERING_REQUIRED_MESSAGE in contacts.service.ts.
 export const FILTER_PRO_REQUIRED_MESSAGE = 'Campaign is not pro'
 
 const ACTIVITY_CONDITIONS_INCLUDE = {
@@ -409,7 +411,7 @@ export class VoterFileFilterService extends createPrismaBase(
       })
 
       if (!campaign?.isPro) {
-        throw new BadRequestException(FILTER_PRO_REQUIRED_MESSAGE)
+        throw new ForbiddenException(FILTER_PRO_REQUIRED_MESSAGE)
       }
     }
   }

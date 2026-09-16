@@ -190,6 +190,65 @@ def write_meta_sheet(
     return len(values) - 1
 
 
+ANCHORS_COLUMNS = [
+    "event", "fires_on", "url", "confidence", "flag_reason", "evidence",
+    "disposition", "reason", "first_seen", "last_seen", "written_date",
+]
+# The tab column "event" is the entry key; every other column is a direct state key.
+_ANCHOR_COL_KEY = {"event": "_id"}
+
+
+def build_anchor_values(state: dict) -> list[list[str]]:
+    """ANCHORS_COLUMNS header + one stringified row per anchor, sorted by event id.
+    Mirrors build_values: every cell a string, None/missing -> "" for a RAW write."""
+    matrix: list[list[str]] = [list(ANCHORS_COLUMNS)]
+    for event_id in sorted(state):
+        entry = {**state[event_id], "_id": event_id}
+        matrix.append([
+            "" if entry.get(_ANCHOR_COL_KEY.get(c, c)) is None
+            else str(entry.get(_ANCHOR_COL_KEY.get(c, c), ""))
+            for c in ANCHORS_COLUMNS
+        ])
+    return matrix
+
+
+ANCHORS_TAB = "anchors"
+
+
+def load_anchors_state(path: Path) -> dict | None:
+    """Read the committed disposition state for the anchors tab. Missing -> {} (nothing to
+    show yet). Unreadable or non-dict -> None so the caller skips the anchors write with a
+    warning rather than crashing the sheet refresh — a bad hand-edit must never take the
+    whole refresh down. Mirrors load_gaps_state."""
+    path = Path(path)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def write_anchors_sheet(state: dict, *, service: Any, spreadsheet_id: str,
+                        tab: str = ANCHORS_TAB) -> int:
+    """Full-overwrite `tab` with the anchor rows; returns the data-row count (excl. header).
+    Same write-then-clear order as write_gaps_sheet: a failed update never leaves an empty
+    tab."""
+    values = build_anchor_values(state)
+    sheets = service.spreadsheets()
+    _execute(sheets.values().update(
+        spreadsheetId=spreadsheet_id,
+        range=f"{tab}!A1",
+        valueInputOption="RAW",
+        body={"values": values},
+    ))
+    _execute(sheets.values().clear(
+        spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ"
+    ))
+    return len(values) - 1
+
+
 QUESTIONS_TAB = "questions"
 QUESTIONS_COLUMNS = [
     "question", "state", "asked_by", "behaviors", "answering_events",
@@ -335,7 +394,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Write the event-state table to a Google Sheet.")
     parser.add_argument(
         "command",
-        choices=["refresh", "refresh-gaps", "refresh-questions", "writeback-questions"],
+        choices=["refresh", "refresh-gaps", "refresh-questions", "refresh-anchors",
+                "writeback-questions"],
     )
     parser.add_argument(
         "--dry-run",
@@ -346,6 +406,11 @@ def main(argv: list[str] | None = None) -> int:
         "--state",
         default=str(DATA_DIR / "instrumentation_gaps.json"),
         help="disposition state JSON for refresh-gaps (default: instrumentation_data/)",
+    )
+    parser.add_argument(
+        "--anchors-state",
+        default=str(DATA_DIR / "event_anchors.json"),
+        help="disposition state JSON for refresh-anchors (default: instrumentation_data/)",
     )
     parser.add_argument(
         "--spreadsheet-id",
@@ -431,6 +496,26 @@ def main(argv: list[str] | None = None) -> int:
         service = get_sheets_service(client_secrets_file=args.client_secrets)
         count = write_gaps_sheet(state, service=service, spreadsheet_id=args.spreadsheet_id)
         print(f"wrote {count} gaps to sheet {args.spreadsheet_id} (tab {GAPS_TAB})")
+        return 0
+
+    if args.command == "refresh-anchors":
+        state = load_anchors_state(Path(args.anchors_state))
+        if state is None:
+            print(f"anchors state at {args.anchors_state} is unreadable; skipping the "
+                  f"anchors tab refresh.", file=sys.stderr)
+            return 0
+        if args.dry_run:
+            values = build_anchor_values(state)
+            print(f"{len(values)} rows x {len(values[0])} cols (incl. header); "
+                  f"{len(state)} anchors")
+            return 0
+        if not args.spreadsheet_id:
+            print("--spreadsheet-id or GP_EVENT_STATE_SHEET_ID required for a live write",
+                  file=sys.stderr)
+            return 2
+        service = get_sheets_service(client_secrets_file=args.client_secrets)
+        count = write_anchors_sheet(state, service=service, spreadsheet_id=args.spreadsheet_id)
+        print(f"wrote {count} anchors to sheet {args.spreadsheet_id} (tab {ANCHORS_TAB})")
         return 0
 
     # Dry-run previews the real output dimensions, so it still runs the (read-only)

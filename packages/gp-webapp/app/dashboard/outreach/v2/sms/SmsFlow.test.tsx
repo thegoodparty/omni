@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import type { SmsDraftRequest } from '@goodparty_org/contracts'
+import { createOutreach } from 'helpers/createOutreach'
 import { SmsFlow, SuccessScreen } from './SmsFlow'
 import type { TcrCompliance } from 'helpers/types'
 
@@ -274,6 +275,12 @@ describe('SmsFlow', () => {
 
     await waitFor(() =>
       expect(screen.getByText('Scheduled!')).toBeInTheDocument(),
+    )
+    // The draft create carries the picked wall-clock time (default 10 AM
+    // slot) — approve opens Peerly's contact-local window at it.
+    expect(vi.mocked(createOutreach)).toHaveBeenCalledWith(
+      expect.objectContaining({ scheduledLocalTime: '10:00' }),
+      expect.anything(),
     )
     expect(completeFreePurchase).toHaveBeenCalledWith(
       'TEXT',

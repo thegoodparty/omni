@@ -106,6 +106,10 @@ export const SmsApprovalQueueItemSchema = z.object({
   createdAt: zCoerceDate(),
   sendAt: zCoerceDate().nullable(),
   scheduledLocalDate: z.string().nullable(),
+  // The candidate's chosen wall-clock send time ("HH:mm"), applied in each
+  // contact's local timezone as the Peerly window start at approve. Null on
+  // rows created before the field existed (approve falls back to 09:00).
+  scheduledLocalTime: z.string().nullable(),
   script: z.string().nullable(),
   imageUrl: z.string().nullable(),
   textCount: z.number().nullable(),
@@ -205,6 +209,26 @@ export type EditSmsOutreachRequest = z.infer<
   typeof EditSmsOutreachRequestSchema
 >
 
+// Staff reschedule: both fields derive from one picker — sendAt is the
+// instant, scheduledLocalDate the calendar day Peerly's job window and
+// canvasser booking use. Coherence is validated loosely (the day is the
+// picker's own reading of the same choice); the future-send check lives
+// server-side where "now" is authoritative.
+export const EditSmsOutreachDateRequestSchema = z.object({
+  sendAt: zCoerceDate(),
+  scheduledLocalDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use yyyy-MM-dd')
+    .refine(
+      (value) => !Number.isNaN(Date.parse(value)),
+      'Not a real calendar day',
+    ),
+  editedBy: z.string().min(1).max(255),
+})
+export type EditSmsOutreachDateRequest = z.infer<
+  typeof EditSmsOutreachDateRequestSchema
+>
+
 export const SmsTestMessageRequestSchema = z.object({
   // E.164-ish: digits with optional leading +, 10-15 digits.
   phone: z
@@ -212,3 +236,10 @@ export const SmsTestMessageRequestSchema = z.object({
     .regex(/^\+?\d{10,15}$/, 'Use digits only, e.g. +15551234567'),
 })
 export type SmsTestMessageRequest = z.infer<typeof SmsTestMessageRequestSchema>
+
+export const SmsTestMessageResponseSchema = z.object({
+  sent: z.boolean(),
+})
+export type SmsTestMessageResponse = z.infer<
+  typeof SmsTestMessageResponseSchema
+>

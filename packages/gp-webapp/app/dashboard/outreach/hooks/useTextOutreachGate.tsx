@@ -57,7 +57,7 @@ export const useTextOutreachGate = (
       <ComplianceModal
         {...{
           open: showComplianceModal,
-          tcrComplianceStatus: tcrCompliance?.status,
+          tcrCompliance,
           onClose: () => setShowComplianceModal(false),
         }}
       />

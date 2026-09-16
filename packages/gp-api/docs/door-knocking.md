@@ -46,7 +46,7 @@ added in either direction.
 | -------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `door_knocking_turf`             | The drawn area: name, color, geoPoly                                  | `voterFileFilterId` NOT unique (N turfs per filter). Always has exactly one route and one envelope. `deletedAt` is its only lifecycle column, and it is always a tombstone — see below                                                                                                                                                                                                                                                                     |
 | `door_knocking_route`            | Frozen route header                                                   | `doorKnockingTurfId` UNIQUE. Written in the create transaction and never mutated after                                                                                                                                                                                                                                                                                                                                                                     |
-| `door_knocking_stop`             | One per unique lat/lng, in visit order                                | `(routeId, seq)` unique; `displayAddress` copied verbatim from `Residence_Addresses_AddressLine` at freeze                                                                                                                                                                                                                                                                                                                                                 |
+| `door_knocking_stop`             | One per building (lat/lng snapped to ~1m), in walk order              | `(routeId, seq)` unique; `displayAddress` copied verbatim from `Residence_Addresses_AddressLine` at freeze; `seq` is serpentine by block face, not the vendor's tour order — see § Why the vendor does not order the doors                                                                                                                                                                                                                                 |
 | `door_knocking_stop_target`      | Bare-minimum person snapshot                                          | personId (people-db UUID — never raw LALVOTERIDs), name, addressKey. Redact-in-place on deletion requests                                                                                                                                                                                                                                                                                                                                                  |
 | `contact_interaction_door_knock` | One row per knock on a person (CRM epic's model, extended additively) | Writes land here via `POST /v1/door-knocking/interactions`: `sourceId` = the phone's clientKey (replay-idempotent upsert; the latest sync of a clientKey wins, so a corrected answer replaces the row rather than duplicating it), `occurredAt` server-stamped. The vocabulary was extended additively for the question flow: `inaccessible` + `not_a_voter` outcomes, nullable `willVote` — `supportAnswer` stays the CRM's 3-way. CRM readers unaffected |
 
@@ -428,7 +428,9 @@ The steps:
    `activityConditions`, `supportStatus`, `contactsMade*` and the
    voter-likelihood overrides, so a list previewed in Contacts used to knock a
    different audience than it displayed. A filter resolving to nobody → 400,
-   no people-db round trip.
+   no people-db round trip — and that 400 names the list's criteria, because
+   it is raised before the polygon is read. See "Two ways of finding nobody"
+   below.
 3. Evaluate the turf fresh via `src/peopleDb/` (resolved filters + the
    `idOverrides`/`contactsMadeIdOverrides` clauses that travel beside them +
    bbox; exact point-in-polygon ray-cast in-process — see "Interim geo"
@@ -446,10 +448,18 @@ The steps:
    § The daily campaign gate. Nothing serializes two creates in one org, so
    simultaneous ones can overshoot by one; that's deliberate, and the util
    says why.
-5. One Geoapify Route Planner call (coords + opaque job ids only — no PII
-   leaves; loop → start=end anchor at the first stop by address order;
-   open → end-only anchor at the farthest-from-centroid stop; both
-   deterministic, never random).
+5. Group the stops into **block faces** — one side of one street, by house
+   number parity — in `blockFace.util.ts`. Then one Geoapify Route Planner
+   call to order those faces (coords + opaque job ids only — no PII leaves;
+   loop → start=end anchor at the first face by address order; open →
+   end-only anchor at the farthest-from-centroid face; both deterministic,
+   never random). The doors inside a face are sequenced locally by house
+   number, and the direction each face is walked in is chosen so the
+   transitions between them are shortest. **The vendor orders faces, not
+   doors** — see § Why the vendor does not order the doors. One billed call:
+   the plan's polyline would thread the faces' representatives rather than the
+   doors, so the Routing request is skipped (`fetchGeometry: false`) and the
+   route ships without a path.
 6. Record the spend (`recordWaypointSpend`, `waypointSpend.util.ts`)
    immediately, on the plain client and NOT the transaction. The vendor has
    been paid by this point, so the ledger row has to commit whether or not the
@@ -494,6 +504,108 @@ vendor call still leaves its spend in the ledger; (d) a saved list's exclusions
 shrink the stop set; (e) a Serve create writes its envelope with
 `campaignId: null`; (f) a dual-role org's Win and Serve rails do not see each
 other's turfs.
+
+### Why the vendor does not order the doors
+
+It used to. `seq` was Geoapify's tour index verbatim, and QA filmed what that
+produces: `3620 NE 64th Ave → 3629 → 3630`, two even-side neighbours with a
+trip across the street wedged between them, every leg logged "1m walk".
+
+Geoapify was not wrong. It is sent coordinates and a travel mode and nothing
+else — it has never been told what a street or a house number is — so it
+minimizes road-network travel time, and by that measure crossing a residential
+street is free. The tour it returned was a good answer to the question being
+asked. The question was wrong.
+
+The trap worth knowing before touching this: **re-optimizing the vendor's order
+locally does not fix it.** Crossing the street is a short distance as well as a
+short time, so a 2-opt pass over great-circle distance — or asking the vendor
+for `type: "short"` — reproduces the same zigzag. What makes an order
+unwalkable is a domain fact that lives in neither metric: a canvasser wants to
+finish one side of one street before crossing.
+
+So the doors are grouped into block faces in `blockFace.util.ts`, where the
+addresses are, and the vendor is demoted to ordering the faces — which
+genuinely is a routing problem, since getting from one block to the next uses
+roads. Inside a face, doors are sequenced by house number and legs are measured
+locally, because along one side of one street the sidewalk _is_ the straight
+line. The direction each face is walked in is solved exactly (a shortest path
+over two orientations per face) rather than alternated, because blind
+alternation is only right when faces arrive in adjacent antiparallel pairs.
+
+Three consequences:
+
+- **Grouping runs on `addressKey`, not on structured columns.** Segment 0 is
+  the file's whole `AddressLine`, uppercased and trimmed; a leading integer is
+  the house number and the remainder is an opaque street key that is only ever
+  compared for equality, never interpreted. That is what makes parsing safe
+  here — `1234 S 5678 W` and `742 NORTH AVE` need to group, not to be
+  understood. Projecting `Residence_Addresses_HouseNumber`/`StreetName`
+  instead would be worse, not better: the two direction columns are INTEGER in
+  the mirror and every letter in them casts to NULL, so `1234 S MAIN ST` and
+  `1234 N MAIN ST` would group together (the defect the AddressLine key was
+  introduced to fix — see § `addressKey`).
+- **A line with no readable house number gets a face of its own**, so it keeps
+  the vendor-ordered behaviour it always had rather than being guessed into
+  somebody else's block.
+- **The side of the street is the LAST run of digits in the house number, not
+  the first.** On the grids that number a house as `<block>-<house>` — Hawaii
+  statewide (333k rows), Bergen County NJ (29k), and the Queens rows L2 ships
+  with the hyphen intact (~1.8k; L2 strips it for the other 99.8% of Queens,
+  writing `106-14` as `10614`, where the last digit is the house anyway) —
+  the first run is the block. Reading it was a **regression against the
+  pre-grouping behaviour**, not a wash: a whole street collapsed onto one
+  face, so the vendor was handed a single point and had no ordering decision
+  left, and every door tied at the same number so the within-face sort fell
+  through to `addressKey` order. That order crosses the street on every leg.
+  On real L2 geometry (Heeia St, Kaneohe HI, 110 doors) it walked 5,037m with
+  86 crossings where side-grouping walks 2,751m with one; on 2nd St in Fair
+  Lawn NJ, 5,417m and 74 crossings against 2,955m and one. Before grouping
+  existed, those doors were separate jobs with real coordinates and Geoapify
+  optimized over them, so it was a defect the fix introduced. A range
+  (`120-122 Main St`) is unaffected — both ends of a range share a parity.
+- **Only new lists benefit.** A route is bought once and never re-bought (see
+  § The list lifecycle), so every list already in the field keeps its original
+  order. There is no re-route path and adding one would have to confront the
+  1:1:1 turf → route → outreach chain.
+
+**`SequenceOddEven` and `SequenceZigZag` are checked and deliberately unused.**
+This used to read "worth checking before extending this… if they turn out to
+be populated they are the industry-standard answer handed to us". They are
+populated — 100% non-null across all 217,927,655 rows of
+`dbt.m_people_api__voter` — and they are not the answer. What they are:
+
+- Both are **decimal integers in a string column**, 1 to 10 digits, 0 through
+  1,600,338,072, near-unique per voter (not per address — five voters at one
+  door get five consecutive values). They are national ordinals, not
+  per-street positions, and carry no side, block or street identifier that
+  could be read out of them.
+- The names mean what they say, and the difference is the whole point. On
+  NE 64th Ave in Portland (97213), `SequenceOddEven` orders every even number
+  1502→4036 and then every odd number 1505→…; `SequenceZigZag` orders
+  1502, 1505, 1520, 1528, 1600, 1609, 1610, 1620, 1621 … — strictly by house
+  number, crossing the street wherever both sides are present.
+  **`SequenceZigZag` IS the defect this section describes**, and the pair is
+  not interchangeable.
+- Neither is usable for face grouping, which is why nothing reads them.
+  Deriving faces from L2's own order (sort by `SequenceOddEven`, cut a face
+  wherever `SequenceZigZag` steps backwards — the only rule the two fields
+  support) was measured against the parity rule above on real geometry. On
+  ordinary streets it is **worse**: 3–5 street crossings against one, and a
+  longer walk, on four of five Portland streets. On the hyphenated grids it
+  adds nothing, because L2 does not parse those either: its own order yields
+  a single undivided face on 2,862 of Hawaii's 2,921 hyphenated streets,
+  which is L2 declining to have an odd/even opinion about them.
+- Provenance is undocumented. The public L2 dictionaries list "Walking List
+  Sequence" as a field family and define neither column; the mart carries no
+  column comment; and `gp-data-platform` passes them through from
+  `Voters_SequenceOddEven`/`Voters_SequenceZigZag` unchanged. Everything above
+  is inferred from the data, not from a spec, so treat it the way
+  `filterDimensions.catalog.ts` treats an unmarked dimension.
+
+The measurements are in PR #1849. Re-deriving them needs only the Databricks
+CLI (`docs/databricks.md`) — they are two `GROUP BY`s over
+`dbt.m_people_api__voter`.
 
 ### The daily campaign gate
 
@@ -602,22 +714,25 @@ fires and someone has to say which organization caused it.
 What a route costs is priced in `doorKnocking/utils/geoapifyCost.util.ts`, the
 one transcription of [Geoapify's cost
 calculator](https://www.geoapify.com/pricing-details/), and it is neither flat
-nor linear. Every create makes **two** billed calls: the Route Planner
-optimization, charged per location — every stop plus the agent's start and end
-anchors, squared rather than multiplied when there are fewer than ten of them —
-and `fetchPathGeometry`'s Routing request, charged one credit per pair of the
-waypoints in the resulting plan. A stop therefore costs a little over ten
-credits all in, and a small turf costs far less than that: two stops is about
-five credits, 150 is about 1,650.
+nor linear. A create makes **one** billed call: the Route Planner
+optimization, charged per location — every **block face** plus the agent's
+start and end anchors, squared rather than multiplied when there are fewer than
+ten of them. `fetchPathGeometry`'s Routing request was a second billed call and
+is no longer made, because a polyline through face representatives traces a
+route nobody walks; the code path survives behind `fetchGeometry` for a caller
+that wants it.
 
-Both calls are in `credits` everywhere it appears — the route row, the log
-line, the ledger, the counter. **`waypoints` is not credits divided by
-anything**: it counts stops, and the two numbers do not convert into each other
-in either direction, because the Route Planner's rate is quadratic under ten
-locations, every route also pays for its agent's anchors, and a geometry fetch
-that never completed is free. `waypoints` is now a measurement rather than an
-allowance — nothing caps stops per organization — so read this line for money
-through `credits` and for how much walking was bought through `waypoints`.
+Faces are the unit that matters for money, and there are far fewer of them than
+stops — a 150-stop turf on a grid is a couple of dozen faces. So a stop no
+longer has a stable price, and the old rule of thumb (about eleven credits a
+stop, ~1,650 for a full turf) is now an upper bound rather than an estimate.
+Read cost off the face count, which is what the vendor was actually sent.
+
+**`waypoints` is not credits divided by anything**: it counts stops, while
+credits are priced off faces, so the two convert into each other even less
+directly than before. `waypoints` is a measurement rather than an allowance —
+nothing caps stops per organization — so read this line for money through
+`credits` and for how much walking was bought through `waypoints`.
 
 No surface here can carry the API key: the Route Planner SDK puts the key in
 its request URL, so nothing sourced from a URL or a caught error is ever logged
@@ -639,6 +754,81 @@ tiers below it, and the `≥ 500` route alerts on this controller — including 
 Deliberately a chart-and-alert rather than an enforced global cap: a hard
 ceiling across organizations would let one org's knocking fail another's, which
 is worse than a page during a pilot.
+
+### Which 5xx the candidate is allowed to read
+
+Building a route runs a people-db scan with a 60-second statement ceiling
+(`STATEMENT_TIMEOUT_MS`). A district big enough to hit it gets a 504, and an
+unreachable warehouse gets a 502 — never an empty result, which is the
+invariant `DatabricksVoterService.run` exists to hold: "a district with no
+voters is a MEANINGFUL null", so a read failure must never present as one.
+
+Both of those messages are written for the candidate ("Narrow the audience and
+try again", "This is a connection problem, not an empty district"). Most 5xx
+messages are not — Geoapify answers 502 with "Route optimization returned an
+unidentifiable stop" — so `toCreateErrorMessage` in the webapp drops 5xx text
+by default and shows a generic failure. That default was swallowing the two
+sentences above, which is how a warehouse timeout came to read as "Building the
+route failed — try again in a moment", advice that is the opposite of correct
+for the district that caused it.
+
+So the two read failures carry `VOTER_QUERY_TIMEOUT` and
+`VOTER_DATA_UNREACHABLE` (`shared/constants/voterData.consts.ts`), and the
+client passes a message through on the **code**, not the status — status alone
+cannot separate a people-db 502 from a vendor's. Distinct from
+`VOTER_DATA_UNAVAILABLE`, which is a 4xx eligibility state (no district, no
+stats row) rather than a read that failed.
+
+**Neither of these is a found-nobody 400**, and there are two of those now
+(see "Two ways of finding nobody" below). A found-nobody 400 cannot be a
+masked timeout: a timeout throws before any rows are shaped, and the
+over-cap guard rejects rather than truncating. The reason to say so is that
+they are easy to confuse from the outside, where both look like "it found
+nobody" — and the confusion has happened, which is why the next paragraph is
+measurements rather than reasoning.
+
+**Measured, not argued.** QA reported a valid selection rejected as "No
+matching voters" and the first hypothesis was a masked timeout. Prod over 8
+days says otherwise. One reported occurrence, read end to end:
+
+```
+requestId 8e129d4a-…  op=dk-evaluate  dbxMs=869  responseTimeMs=1039  400
+```
+
+869ms. Across the whole window the slowest `dk-evaluate` was **5.0s**,
+against the 60s statement ceiling — so on this path the query is not close
+to timing out, it is succeeding quickly and correctly finding nobody. Every
+occurrence threw from `buildStops`, which is the polygon site rather than
+the empty-audience one: the audience resolved to real people and then none
+of them were inside the drawn shape.
+
+That points at the client/server disagreement rather than at the warehouse.
+The pack cannot express `supportStatus`, `activityConditions` or
+`precincts` (`UNSHADEABLE_LIST_CRITERIA`), so the map shades people the
+server excludes, and the candidate draws over dots that really are there.
+One user hit this six times in 62 seconds — redrawing the boundary, which
+is what the message asks for and what cannot help.
+
+**Where the slow reads actually are**, from the same window, max `dbxMs` by
+op: `dk-evaluate` 5.0s, `dk-residents` 13.4s, `list` 26.3s, **`dk-pack`
+54.9s**, **`stats` 62.1s**. So the pack download the audience step waits on
+runs to within 5s of the ceiling, and `stats` exceeds it — every voter
+timeout in the window (7) was `GET /v1/onboarding/contacts/stats` at
+`dbxMs=62057`. Worth knowing before attributing a slow door-knocking
+create to the warehouse: on this evidence it is the wrong suspect, and the
+two ops above it are the right ones.
+
+Those `stats` timeouts also show the timeout copy landing badly. "Narrow
+the audience and try again" is read by someone on an onboarding stats call
+who is not choosing an audience at all; the pack's own timeout sentence is
+correctly capacity-neutral, and it is the one that never reaches a user.
+
+To check a suspected timeout in Grafana, every voter read logs one line at
+`people-db voter read` with flat `op`, `districtId`, `dbxMs` and `statementIds`
+fields (`VoterReadLogService`), emitted on the failure path too — deliberately,
+so cold-start attribution is not biased toward the reads that were already
+fast. The door-knocking create is `op="dk-evaluate"`; the map download is the
+pack build.
 
 ### Raising one organization's allowance
 
@@ -669,11 +859,12 @@ between it and the vendor.
   `GET /organizations/:slug` do not carry it, and neither does the
   `/admin/list` search table.
 - **How high:** capped at `MAX_DAILY_CAMPAIGN_LIMIT` (30 campaigns), which is
-  derived rather than chosen. A campaign holds at most `MAX_STOPS` (150) stops
-  and a stop draws about eleven credits — ten for its Route Planner location
-  plus its share of the path-geometry Routing call — so a full-sized campaign
-  is near 1,650 credits and thirty of them is about the account's assumed daily
-  pool of 50,000. Most campaigns are far smaller, so in practice thirty sits
+  derived rather than chosen. The derivation is now conservative in the
+  account's favour: it assumed a campaign of `MAX_STOPS` (150) billed
+  locations at ten credits each, near 1,650 credits, and thirty of those is
+  about the account's assumed daily pool of 50,000. Since the vendor is billed
+  per block face rather than per stop, a full-sized campaign costs a fraction
+  of that. Most campaigns are far smaller still, so in practice thirty sits
   well under the pool; the point is that no admin can hand one organization an
   allowance the account could not fund even in the worst case. Above it the
   number is unhonourable no matter which org asks, so the DTO rejects it with a
@@ -757,14 +948,18 @@ order by credits desc;
 
 Both queries measure money, and `credits` is the same figure in either. There
 is no per-organization spend cap to read a heavy org against any more, so the
-yardstick is the campaign limit: a full-sized campaign is about 1,650 credits,
-so an organization far above five of those (~8,000 in a rolling 24h) has either
-been granted an override — check `override_door_knocking_campaign_limit` on the
-org — or is looping. The `waypoints` sum beside it is stops, and it answers a
+yardstick is the campaign limit: a full-sized 150-stop campaign is about 210
+credits now that the vendor is billed per block face — the 1,650 that figure
+replaced was one billed location per stop, and it survives only as the
+worst-case bound `MAX_DAILY_CAMPAIGN_LIMIT` is derived from. So an
+organization far above five of those (~1,000 in a rolling 24h) has either been
+granted an override — check `override_door_knocking_campaign_limit` on the org
+— or is looping. The `waypoints` sum beside it is stops, and it answers a
 different question: how much walking the organization actually bought. It is
 not a credit figure divided by anything, because credits are not proportional
-to stops — a turf under ten locations is billed on its square, and every route
-also pays for its anchors and its Routing call.
+to stops — the vendor is billed per block face rather than per stop, a turf
+under ten locations is billed on its square, and every route also pays for its
+anchors.
 
 ## Serving
 
@@ -774,10 +969,11 @@ containing a target; targets get live age/party; otherResidents are
 name-only) + each stop's **effective** knock status (org-wide; prior-route and
 prior-campaign contact is deliberately visible). Effective means the CRM's rule,
 `override ?? derived`: a manual `support_status` override in
-`contact_current_status` wins, otherwise the latest ANSWER-bearing
+`contact_current_status` wins, otherwise the FIRMEST
 `contact_interaction_door_knock` row wins — matching
 `SupportStatusService.derivedStatusSql`, so a later "not home" reads as a failed
-re-attempt rather than a retraction of support already given. Pure
+re-attempt rather than a retraction of support already given, and so does a
+later "unsure" (see § Firmness, not recency). Pure
 last-write-wins made the door and Contacts disagree about the same person, and
 made a hand correction invisible at the door. `undecided` has no map member and
 reads as unknown (still worth knocking). The route
@@ -809,6 +1005,41 @@ The pack's `party` dim is deliberately untouched. It is district-scoped and
 cacheable, nothing on the Serve surface can select it once the filter control
 and the saved-list re-expansion are gated webapp-side, and removing it would
 fork the district cache. `PACK_FORMAT_REVISION` does not move.
+
+### The talking-points card
+
+The payload carries `talkingPoints` when the list has one: the card the
+candidate wrote in the wizard, read at every door on the walk. It is one
+string, four sections newline-separated, off `Outreach.script` — the column
+every other outreach channel already keeps its script in, which is why this
+feature added no column of its own. `ROUTE_INCLUDE` selects it beside the
+envelope id the volunteer assignment check already needed, so it costs no
+query. The field is **optional and never `''`**: absent means a list frozen
+before this shipped or a candidate who skipped the step, and the door script
+falls back to the static build for both, so absent and empty must not be
+distinguishable.
+
+**The card is five sections and only three of them were written by a model.**
+Sections 1a (the identity clause — "Hi, I'm Jane Doe, running for City
+Council") and 5 (the thank-you) are composed at RENDER time by the webapp,
+because they depend on who is reading the card rather than on which list it
+is: a candidate freezing a list on a laptop cannot write the opener a
+volunteer will speak at a door three weeks later. Section 3 (the call to
+action) is composed at CREATE time from `campaign.details.website` and stored,
+because it is real data a model asked to phrase it could equally well invent.
+Sections 1b (the engagement question), 2 (context) and 4 (the ask) are the
+generated ones. `POST /v1/outreach/door-knocking/draft` and its `serve/`
+sibling return exactly those three; the wizard stores four (those plus the
+composed CTA) in card order.
+
+**The list's purpose and its audience are the whole prompt input that is
+specific to this channel.** `DoorKnockingTurf.purpose` takes the same nine
+slugs phone banking uses, and the audience reaches the prompt through
+`describeFilterForTalkingPoints` (`src/contacts/utils/describeFilter.util.ts`)
+rather than as raw filter columns — an allowlist of conversational dimensions,
+which is how **party never reaches the prompt** on either rail. The filters
+select and order what the candidate already believes; they are never used to
+make a claim about the person opening the door.
 
 ### The Serve door's own answer
 
@@ -859,15 +1090,37 @@ than the first: the event was already unreachable on an `eo-` org, but a stored
 never shown, and every later reader of the interaction table would read it as
 one that was given.
 
-**Two derivations read this history and they have to agree.**
-`DoorKnockingStatusService.latestKnockStatuses` colours the row a canvasser taps
-and `DoorKnockingPackService` colours the pin they tapped it from, so both take
-the same preference over a person's rows: newest first, but the newest
-**answer-bearing** row wins over a newer one without an answer. A later "not
-home" is a failed re-attempt, not a retraction. The pack used to take the newest
-row outright, which was the same divergence on `supportAnswer`; the Serve answer
-is what made it reachable in a single evening, since returning to a door is the
-whole point of a follow-up.
+### Firmness, not recency
+
+**Three derivations read this history and they have to agree.**
+`DoorKnockingStatusService.latestKnockStatuses` colours the row a canvasser
+taps, `DoorKnockingPackService` colours the pin they tapped it from, and
+`SupportStatusService.derivedStatusSql` colours the same person in Contacts. All
+three rank a person's rows the same way: **the firmest answer wins, and recency
+only settles ties between equally firm ones.** The scale is one constant,
+`SUPPORT_ANSWER_FIRMNESS` in `contactInteraction.types.ts` — `supporter` and
+`non_supporter` are firm, `unsure` is soft, no answer at all is bottom — and the
+two in-process callers share one selection function, `firmestAnswerPerPerson`.
+
+So a later "not home" is a failed re-attempt rather than a retraction, and a
+later "unsure" is not a retraction either. That second case is what QA reported
+as **"the second pass overwrites previous SQs"**: re-knock a door you already
+have a supporter from, the resident is non-committal, log "unsure", and under
+pure recency the person went grey on the walk list, on the map, in the per-list
+counts and in the CRM all at once. Nothing was ever lost — both rows are in
+`contact_interaction_door_knock`, each with its own `supportAnswer`,
+`willVote` and `note`, and the `voter_likelihood` event log is append-only. It
+was the projection over them that was wrong.
+
+Two deliberate exceptions, both in `DoorKnockingStatsService`'s rollup, both
+argued in their own SQL headers: `committedVoters` takes the LATEST support
+answer, because "is this person committed right now" is a narrower question
+than "where do they stand"; and `votersPersuaded` is historical, so someone who
+flips back stays counted.
+
+The pack used to take the newest row outright, which was the same divergence on
+`supportAnswer`; the Serve answer is what made it reachable in a single
+evening, since returning to a door is the whole point of a follow-up.
 
 ## Previous outreach, at the door
 
@@ -1101,11 +1354,56 @@ from both sides.
 
 **The cost is about twenty bytes, once.** The plane is one byte per person
 either way and nine values is nowhere near the 256 a byte holds; only the
-manifest's value list grew. **`PACK_FORMAT_REVISION` is now 2** because the
+manifest's value list grew. **`PACK_FORMAT_REVISION` moved to 2** because the
 meaning of the shared district build changed, while the manifest's `version`
 stays at 1 because its framing did not — see
 [ADR 0014](adr/0014-the-voter-pack-has-two-versions.md) for why those are two
 different numbers.
+
+**`PACK_FORMAT_REVISION` is now 3**, for the language plane. Byte 0 used to be
+`Other` and double as the no-data slot, so a person with no `Language_Code`
+shaded as an Other-language speaker; the bytes are now
+`Unknown / English / Spanish / Other`, with 0 meaning "no data" as it does in
+every other dim. `version` stays at 1 again — one u8 per person per dim either
+way, and a client reads the bucket list out of the manifest, so a tab open
+across the deploy reads an old three-value pack correctly and simply finds no
+`languageUnknown` bucket in it.
+
+### Language: Other is not Unknown
+
+`Language_Code` is nullable with no sentinel, so "speaks something else" and
+"we were never told" are two distinguishable facts. `buildLanguageFilter` used
+to answer for both with one predicate:
+
+```sql
+(Language_Code NOT IN ('English','Spanish') OR Language_Code IS NULL)
+```
+
+That `OR ... IS NULL` returned everyone whose language was never recorded —
+QA measured it at roughly 60% of a district — under a pill labelled "Other".
+`Other` is now `NOT IN (...) AND IS NOT NULL`, and a fourth `Unknown` value
+takes `IS NULL`. The door-knocking resident path already drew this line
+(`voterDoorKnocking.service.ts`), so this brings the filter into agreement
+with it rather than inventing a distinction.
+
+Three things had to move together or the split leaks:
+
+- **The all-selected short-circuit counts four values, not three.** Left at
+  three, selecting all four would drop the filter entirely and silently
+  return the district — the widest possible way to get a filter wrong.
+- **The pack gained its fourth byte** (above), or the map would keep shading
+  unknowns as Other while the filter no longer matched them.
+- **Saved lists are migrated**, `['other'] → ['other','unknown']`
+  (`20260914190000_language_other_keeps_unknowns`). Selecting both reproduces
+  the old predicate exactly, so an existing list keeps addressing the same
+  people instead of silently shrinking the next time it is counted or
+  knocked. The deliberate trade: existing lists keep the broad meaning until
+  someone edits them, which is at least visible in the pills rather than
+  hidden in a predicate.
+
+Blast radius is wider than door knocking — `filters.config.ts` feeds SMS,
+phone banking, robocall and social through the shared `OutreachAudienceStep`,
+so the new pill appears on all of them.
 
 Single-year buckets are a **filtering** vocabulary. gp-webapp's
 `groupAgeSlices` rolls them into the current generation's five bands before any
@@ -1310,6 +1608,59 @@ families into one door — so it is not shippable, and `hashtextextended` comes
 back from the driver as a string, which reintroduces the allocation it was
 meant to remove.
 
+## The audience check (who step)
+
+`POST /v1/door-knocking/audience-check` answers "does this list keep anybody at
+all?" — the create's own empty-audience refusal, asked two steps before a
+boundary exists.
+
+It exists because the create flow's counts are pack arithmetic and the pack
+encodes no support status, no previous outreach and no contacts-made. A list cut
+by one of those shades as the whole district, so `districtHouseholds` reports the
+district, the who step's Continue is enabled by that number, and the audience is
+not resolved for real until the paid create — which then refuses. QA reported
+that as a valid selection being rejected, and reasonably: the boundary was fine,
+and redrawing it (the only thing that refusal suggested) could not have helped.
+Rewording the refusal is the other half of this gap and is worth doing; this is
+the half that stops a candidate reaching it after they have drawn and named a
+turf.
+
+**The question does not involve the shape**, which is the whole design. Those
+criteria resolve to a person-id set before any polygon is consulted, and an empty
+set is empty for every polygon — so the answer is knowable the moment a list is
+picked. `DoorKnockingAudienceCheckService` calls the same
+`ContactsService.resolveSavedFilterForQuery` the create and the address preview
+call, and returns its `empty` flag and nothing else. A list this endpoint calls
+empty is therefore exactly a list the create would refuse, rather than a second
+opinion that can drift from it.
+
+**It reads no voter data.** Every branch of that resolution is Prisma against
+`contact_current_status` and the four `contact_interaction_*` tables, so unlike
+the address preview below there is no people-db scan to pay for and no district
+to resolve first. That is what lets it fire on a list pick rather than on an
+explicit press: [ADR 0010](adr/0010-draw-time-address-preview.md) made the
+preview explicit because each firing costs a scan, and moving the emptiness check
+earlier would have moved that cost earlier with it if it were answered the same
+way. It deliberately skips `resolveEligibleDistrictId` for the same reason — an
+election-api round trip to find a district nothing here scans. An org with no
+resolvable district meets that problem at the draw step, where
+`districtUnavailable` already says so.
+
+**`empty: false` is the weaker claim**, and the asymmetry is deliberate. It means
+the id-set resolution did not collapse, not that the audience is non-empty:
+party, age, precinct and language narrow a query rather than resolving a set, and
+whether they match anybody is a people-db question. So the gate refuses what it
+can prove and stays out of the way otherwise, with the create's own 400 still
+behind it as the backstop.
+
+The webapp fires it from `CreateListSurface` — where the picked list's clauses
+are already assembled for the preview request — and only for a draft carrying one
+of the three criteria that can resolve to nobody (`emptiableCriteria.ts`).
+Everything else has a known answer and buys nothing. The gate **fails open** on
+error and while pending: an advisory check must not hold a candidate out of their
+own flow, since a missed empty audience is the status quo while a false block is
+a list that cannot be cut at all.
+
 ## The address preview (draw step)
 
 `POST /v1/door-knocking/address-preview` answers "which houses are inside this
@@ -1342,7 +1693,49 @@ Three things about it are load-bearing:
   intended one.
 - **An empty shape returns zeros, not a 400.** The knock throws there because a
   turf is being committed; a shape still being drawn is allowed to enclose
-  nobody.
+  nobody. The zeros carry `audienceEmpty` to say _which_ nobody — see below.
+
+### Two ways of finding nobody
+
+A create can come up empty for two unrelated reasons, and they want opposite
+advice:
+
+|                    | Cause                                                                                        | What fixes it                                      |
+| ------------------ | -------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| **Empty audience** | The list's own filters resolve to an empty person-id set. Raised before the polygon is read. | Edit the list's filters, or pick another audience. |
+| **Empty turf**     | The audience is real; the drawn shape encloses none of it.                                   | Move or widen the boundary.                        |
+
+Both used to throw the same sentence — `No matching voters inside this turf —
+widen the area or the filters` — so the first blamed a boundary it had not
+looked at, and QA reported a valid selection being rejected. `emptyAudience.util.ts`
+now holds one message per case; `EMPTY_TURF_MESSAGE` is the second, verbatim.
+
+The empty-audience message names every criterion on the list that _can_ resolve
+to nobody (support status, previous outreach, contacts made) rather than the one
+that was decisive. Which one was decisive is not knowable at the throw site —
+`intersectIdFilterResolutions` intersects its inputs and reports a single
+`empty` for the result — and threading a reason back through every id-filter
+path in the CRM is a large change for one sentence. Their intersection is what
+came back empty, so naming all of them is true, and it points at the pills to go
+and look at.
+
+**Why this is easy to hit without knowing it**: those three criteria are exactly
+the ones the voter pack cannot shade (`UNSHADEABLE_LIST_CRITERIA` in gp-webapp's
+`savedListFilters.ts`). The map shades a district full of matching voters while
+the audience behind it is empty, so the create's 400 is the first news of it.
+`DoorKnockingPreviewService` reports `audienceEmpty` for this reason — it is the
+one moment the condition is cheap to state, before anything is bought.
+
+**Not yet surfaced in the UI.** Nothing on the draw step consumes
+`audienceEmpty` today: `DoorsPanel` was removed in a design change, and with it
+the only caller of `onShowAddresses`, so the address-preview request never
+fires. Wiring this up means either reviving that request path (ADR 0010 rejected
+firing it automatically — it bills a people-db scan per shape) or, better,
+asking the question where it actually belongs: emptiness depends only on the
+list's filters, needs no polygon, and is answerable from Postgres alone, so the
+**who** step could check it before a boundary is ever drawn. The
+`continueDisabled={!ring || stops === 0 || overCap}` gate on the draw step still
+trusts the unfiltered pack estimate and would let an empty audience through.
 
 `locations` is capped at `MAX_STOPS` (exported from the knock service, so one
 constant blocks the save and bounds the listing) while `stops` reports the true
@@ -1536,8 +1929,13 @@ writes.** The gate is `ContactsService.assertProAccess(organization)`, called at
 the top of each controller method — the CRM's own predicate, reused rather than
 reimplemented, so `hasElectedOfficeAccess` still short-circuits ahead of
 `isPro` and an `eo-` (Serve) org stays license-equivalent to Pro here exactly as
-it is across Contacts. Refusal is that method's `BadRequestException`, 400 with
-`This feature is only available for pro campaigns`.
+it is across Contacts. Refusal is that method's `ForbiddenException`, 403 with
+`This feature is only available for pro campaigns`. It is a 403 and not a 400
+for the same reason every other pro gate is: the request is well formed and the
+org simply isn't entitled. The original push for it was alerting — the
+per-route error-count rules counted 400 and excluded 403 — and those rules
+(`deploy/components/alerting/controller-alerts.ts`) now exclude 400 as well, so
+either status would stay quiet and the convention rests on the semantics.
 
 | Route                   | Gated  |
 | ----------------------- | ------ |
@@ -1552,6 +1950,7 @@ it is across Contacts. Refusal is that method's `BadRequestException`, 400 with
 | `GET /pack`             | yes    |
 | `GET /quota`            | yes    |
 | `POST /address-preview` | yes    |
+| `POST /audience-check`  | yes    |
 | `POST /interactions`    | yes    |
 | `POST /do-not-knock`    | **no** |
 | `POST /not-a-voter`     | **no** |
@@ -1601,9 +2000,9 @@ Six routes carry `@AllowVolunteer()`, admitting an assigned volunteer past
 `POST do-not-knock`, `POST not-a-voter` — the whole loop of reading a turf,
 walking its route, logging a knock, and ending the session. Every other
 route (create, list, update, delete, archive, `GET pack`, `GET quota`,
-`POST address-preview`) stays manager+: `pack` answers for the whole
-district rather than one turf, and quota/address-preview describe spend and
-audience a volunteer never draws from.
+`POST address-preview`, `POST audience-check`) stays manager+: `pack` answers
+for the whole district rather than one turf, and quota/address-preview/
+audience-check describe spend and audience a volunteer never draws from.
 
 One shared predicate enforces it, `assertVolunteerAssignedToOutreach`
 (`utils/doorKnockingAccess.util.ts`): a no-op for owner/campaignAdmin, and

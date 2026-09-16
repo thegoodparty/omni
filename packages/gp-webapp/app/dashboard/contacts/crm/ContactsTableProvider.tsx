@@ -181,9 +181,10 @@ const contactTableQueryOptions = (params: {
         ...(params.search ? { search: params.search } : {}),
       }).then((res) => res.data),
     refetchOnMount: false,
-    // Contacts 4xx are deterministic (VOTER_DATA_UNAVAILABLE / not-pro =
-    // 400); retrying just makes ineligible users wait through the global
-    // 2-retry backoff before the ineligible state renders. Keep the global
+    // Contacts 4xx are deterministic (VOTER_DATA_UNAVAILABLE = 400, not-pro =
+    // 403); retrying just makes ineligible users wait through the global
+    // 2-retry backoff before the ineligible state renders. The check below is
+    // a 4xx range, not a list of codes, so both are covered. Keep the global
     // budget for everything else (5xx, network).
     retry: (failureCount, error) =>
       !(

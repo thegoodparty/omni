@@ -99,8 +99,11 @@ type PostBody = {
   agents?: Array<Record<string, unknown>>
 }
 
-// Geoapify visits the jobs in REVERSED id order so tests prove seq comes
-// from the vendor plan, not from input order.
+// Geoapify visits the jobs in REVERSED id order so tests prove the FACE order
+// comes from the vendor plan and not from input order. What it no longer
+// proves is the order of the stops: a job is a block face now, and the doors
+// inside one are sequenced by house number locally (see blockFace.util.ts), so
+// reversing the jobs reverses which face is walked first and nothing else.
 // Response-faithful FeatureCollection: the SDK's result converter reads
 // properties.params (the input echo) and each feature's agent_index.
 const geoapifyPlan = (body: PostBody) => {
@@ -150,10 +153,6 @@ const stubVendors = (
   overrides: {
     people?: Array<ReturnType<typeof person>>
     geoapify?: (body: PostBody) => unknown
-    // The path-geometry call, overridable on its own: it is the second billed
-    // call of a create and the only one a route can survive losing, so the
-    // two have to be able to fail independently.
-    routing?: () => Promise<Response>
     residents?: { addresses: Array<Record<string, unknown>> }
   } = {},
 ) => {
@@ -165,8 +164,12 @@ const stubVendors = (
     (overrides.residents ?? { addresses: [] }) as never,
   )
   return vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    // A net, not a fixture. Creating a list stopped buying path geometry when
+    // the vendor moved to ordering block faces, so nothing should reach this —
+    // it is here so a regression that re-enables the second billed call hits a
+    // stub instead of Geoapify, and gets caught by the routing-call count
+    // asserted in the create test rather than by a surprise invoice.
     if (String(url).includes('/v1/routing')) {
-      if (overrides.routing) return overrides.routing()
       return new Response(
         JSON.stringify({
           features: [
@@ -269,6 +272,18 @@ describe('door-knocking routes', () => {
     const res = await postTurf({ name })
     expect(res.status).toBe(201)
     return res.data as { id: number; doorCount: number }
+  }
+
+  // The envelope for a turf, reached the only way there is: the route points
+  // at the turf and the envelope points at the route, so there is no turf
+  // column to join from.
+  const envelopeFor = async (turfId: number) => {
+    const route = await service.prisma.doorKnockingRoute.findFirstOrThrow({
+      where: { doorKnockingTurfId: turfId },
+    })
+    return service.prisma.outreach.findFirstOrThrow({
+      where: { doorKnockingRouteId: route.id },
+    })
   }
 
   // The 1:1:1 chain read back from the database, which is also how these
@@ -711,7 +726,7 @@ describe('door-knocking routes', () => {
   // question — there is no second request that can buy a route for a turf that
   // already has one, because there is no turf without one.
   describe('create (the money path)', () => {
-    it('writes the whole chain atomically: stops in vendor order, targets, envelope, filter lock', async () => {
+    it('writes the whole chain atomically: stops in walk order, targets, envelope, filter lock', async () => {
       const spy = stubVendors()
 
       const res = await postTurf()
@@ -724,13 +739,15 @@ describe('door-knocking routes', () => {
       const route = await service.prisma.doorKnockingRoute.findFirstOrThrow({
         where: { doorKnockingTurfId: res.data.id },
       })
-      expect(route.pathGeometry).toMatchObject({ type: 'MultiLineString' })
-      expect(route.totalSeconds).toBe(900)
-      // Three stops and an end anchor is four billed Route Planner locations,
-      // under the crossover so squared rather than multiplied (16), plus two
-      // credits for the three-waypoint Routing call behind the geometry.
-      expect(route.credits).toBe(18)
-      expect(res.data.routeSeconds).toBe(900)
+      // The vendor ordered block faces, so its polyline threads those faces'
+      // representatives rather than the doors — not worth a second billed
+      // call. Consumers draw straight legs instead, which under a serpentine
+      // order run between next-door neighbours.
+      expect(route.pathGeometry).toBeNull()
+      // Two faces (odd and even W Elm St) and an end anchor is three billed
+      // Route Planner locations, under the crossover so squared rather than
+      // multiplied. Nothing for Routing: it was never called.
+      expect(route.credits).toBe(9)
 
       const stops = await service.prisma.doorKnockingStop.findMany({
         where: { doorKnockingRouteId: route.id },
@@ -739,9 +756,14 @@ describe('door-knocking routes', () => {
       })
       expect(stops).toHaveLength(3)
       // Free-start open route: the first visited stop has no incoming leg;
-      // the vendor's first leg belongs to the second stop.
+      // the vendor's first inter-face leg belongs to the second stop.
       expect(stops[0]?.legSeconds).toBe(0)
       expect(stops[1]?.legSeconds).toBe(60)
+      // Totals are re-derived from the legs actually written, so the per-leg
+      // minutes on the walk sheet add up to the total printed above them.
+      const legTotal = stops.reduce((sum, stop) => sum + stop.legSeconds, 0)
+      expect(route.totalSeconds).toBe(legTotal)
+      expect(res.data.routeSeconds).toBe(legTotal)
       const dedupedStop = stops.find((stop) => stop.targets.length === 2)
       expect(dedupedStop?.targets.map((t) => t.addressKey)).toEqual([
         PIPED_KEY,
@@ -769,6 +791,99 @@ describe('door-knocking routes', () => {
       expect(
         spy.mock.calls.filter(([url]) => String(url).includes('routeplanner')),
       ).toHaveLength(1)
+      // The second billed call is not made at all any more. Pinned because
+      // re-enabling it is one boolean, and the money is the reason not to.
+      expect(
+        spy.mock.calls.filter(([url]) => String(url).includes('/v1/routing')),
+      ).toHaveLength(0)
+    })
+
+    // The bug QA filmed: 3620 -> 3629 -> 3630 NE 64th Ave, two even-side
+    // neighbours with a trip across the street wedged between them, every leg
+    // logged "1m walk". Geoapify was answering the question it was asked —
+    // minimize travel time over bare coordinates, where crossing a
+    // residential street is free — so the doors are grouped into block faces
+    // before it sees them and it orders the groups instead.
+    it('finishes one side of a street before crossing to the other', async () => {
+      // NE 64th Ave runs north-south, so its two sides are two longitudes a
+      // street apart. Placed inside the test polygon, which is around Chicago.
+      const evenSide = -87.65
+      const oddSide = -87.6503
+      const door = (houseNumber: number, lat: number, lng: number) => ({
+        ...person(houseNumber, lat, lng, `${houseNumber} NE 64TH AVE`),
+        displayAddress: `${houseNumber} NE 64th Ave`,
+      })
+      stubVendors({
+        people: [
+          door(3620, 41.9, evenSide),
+          door(3629, 41.9001, oddSide),
+          door(3630, 41.9002, evenSide),
+        ],
+      })
+
+      const res = await postTurf()
+
+      expect(res.status).toBe(201)
+      const route = await service.prisma.doorKnockingRoute.findFirstOrThrow({
+        where: { doorKnockingTurfId: res.data.id },
+      })
+      const walked = (
+        await service.prisma.doorKnockingStop.findMany({
+          where: { doorKnockingRouteId: route.id },
+          orderBy: { seq: 'asc' },
+        })
+      ).map((stop) => stop.displayAddress)
+
+      expect(walked).toHaveLength(3)
+      const evens = [
+        walked.indexOf('3620 NE 64th Ave'),
+        walked.indexOf('3630 NE 64th Ave'),
+      ].sort((a, b) => a - b)
+      // Adjacent in the walk, with the odd-side door before or after the pair
+      // but never between them.
+      expect(evens[1]! - evens[0]!).toBe(1)
+    })
+
+    // The wizard's talking-points step: the purpose lands on the turf beside
+    // the audience it selected, and the card lands on the envelope's `script`
+    // column — the same one every other outreach channel keeps its script in.
+    // Frozen here, in the transaction that buys the route, for the reason the
+    // door list is: everyone works from the same plan.
+    it('freezes the purpose and the talking points with the walk', async () => {
+      stubVendors()
+      const talkingPoints = [
+        'What would you fix around here first?',
+        'Fix our roads with a real maintenance plan, not patchwork.',
+        'Point them to janedoe.org to learn more.',
+        'Ask whether we can count on them in November.',
+      ].join('\n')
+
+      const res = await postTurf({
+        purpose: 'election_day_turnout',
+        talkingPoints,
+      })
+
+      expect(res.status).toBe(201)
+      const turf = await service.prisma.doorKnockingTurf.findUniqueOrThrow({
+        where: { id: res.data.id },
+      })
+      expect(turf.purpose).toBe('election_day_turnout')
+      expect((await envelopeFor(turf.id)).script).toBe(talkingPoints)
+    })
+
+    // Both fields are optional, and every list created before the step existed
+    // has neither. A walk must still be buyable without a card.
+    it('creates a turf with no purpose and no points', async () => {
+      stubVendors()
+
+      const res = await postTurf()
+
+      expect(res.status).toBe(201)
+      const turf = await service.prisma.doorKnockingTurf.findUniqueOrThrow({
+        where: { id: res.data.id },
+      })
+      expect(turf.purpose).toBeNull()
+      expect((await envelopeFor(turf.id)).script).toBeNull()
     })
 
     // A vendor outage is the failure mode the flow is built to absorb: nothing
@@ -866,8 +981,11 @@ describe('door-knocking routes', () => {
     // earlier. Pinned here because the preview is advisory and this is the
     // write — and because it must refuse before the vendor is paid.
     it('rejects a turf over the 150-stop cap before calling the vendor', async () => {
+      // Spaced ~1.7m apart: far enough that the ~1m dedupe grid keeps them as
+      // 151 separate stops, which is the point of the fixture. They used to
+      // sit 0.1m apart, which is one building and now collapses to one stop.
       const manyPeople = Array.from({ length: 151 }, (_, i) =>
-        person(i + 100, 41.9, -87.65 + i * 0.000001),
+        person(i + 100, 41.9, -87.6515 + i * 0.00002),
       )
       const spy = stubVendors({ people: manyPeople })
 
@@ -982,10 +1100,32 @@ describe('door-knocking routes', () => {
       // No interaction rows exist, so nobody derives to 'supporter' and the
       // list is empty before the polygon is even considered.
       expect(res.status).toBe(400)
-      expect(res.data.message).toContain('No matching voters')
+      // Names the criterion that could have emptied the list, and says
+      // nothing about the area — the polygon is fine and has not been read
+      // yet, so telling them to widen it sends them to redraw a shape that
+      // was never the problem. This is what QA reported.
+      expect(res.data.message).toContain('support status')
+      expect(res.data.message).not.toContain('widen the area')
       expect(
         spy.mock.calls.filter(([url]) => String(url).includes('routeplanner')),
       ).toHaveLength(0)
+      expect(await service.prisma.doorKnockingTurf.count()).toBe(0)
+    })
+
+    // The other half of the pair, which had no test at all — which is how the
+    // two came to share a sentence. `bboxOnlyPerson` is the fixture for
+    // exactly this: near enough to survive the bbox the people-db is queried
+    // with, outside the ring the ray cast then applies.
+    it('blames the area, not the filters, when the shape encloses nobody', async () => {
+      stubVendors({ people: [bboxOnlyPerson] })
+
+      const res = await postTurf()
+
+      expect(res.status).toBe(400)
+      // The audience is real here — the list carries no criterion that could
+      // resolve to nobody — so the boundary is the thing to change, and this
+      // is the one of the two that should say so.
+      expect(res.data.message).toContain('widen the area')
       expect(await service.prisma.doorKnockingTurf.count()).toBe(0)
     })
 
@@ -1051,17 +1191,15 @@ describe('door-knocking routes', () => {
           organizationSlug: orgSlug,
           turfId: res.data.id,
           waypoints: 3,
-          credits: 18,
+          credits: 9,
         })
       })
 
-      // A create is billed at two APIs with two unrelated rates, and the
-      // ledger's `credits` is the only place the second one is totalled
-      // against the first. The pair below pins both halves: three stops plus
-      // an end anchor is four Route Planner locations, squared because that
-      // is under the crossover, and the geometry call adds one credit per
-      // pair of the plan's three waypoints.
-      it('bills both vendor calls to the ledger', async () => {
+      // The ledger's `credits` is where the bill is totalled. Pinned against
+      // the rate card: two block faces plus an end anchor is three Route
+      // Planner locations, squared because that is under the crossover. The
+      // Routing API contributes nothing because it is not called.
+      it('bills the vendor call to the ledger', async () => {
         stubVendors()
 
         const res = await postTurf()
@@ -1071,36 +1209,45 @@ describe('door-knocking routes', () => {
           await service.prisma.doorKnockingRoutePlannerSpend.findFirstOrThrow({
             where: { organizationSlug: orgSlug },
           })
-        expect(spend.credits).toBe(18)
-        // Stops, not credits: this is the column the daily quota sums, and it
-        // must not move when the pricing beside it does.
+        expect(spend.credits).toBe(9)
+        // Stops, not credits, and stops rather than the faces the vendor was
+        // billed for: this is the column the daily quota sums and it measures
+        // how big the route is, so it must not move when the pricing beside
+        // it does.
         expect(spend.waypoints).toBe(3)
       })
 
-      // The geometry fetch is best-effort and the route ships without a path,
-      // so the only thing that changes is the bill. Charging for it anyway
-      // would be an over-count, and inferring the charge from the stored
-      // geometry would be an under-count on every response Geoapify billed us
-      // for and we then found unusable.
-      it('drops the geometry call from the bill when it never completed', async () => {
+      // Grouping the doors into faces before the vendor sees them cut both
+      // halves of the bill: fewer billed locations, and no second call at all.
+      // The saving is the reason the polyline was given up, so a silent
+      // regression would spend it back.
+      //
+      // The job count is the exact figure here; the credits line is a
+      // comparison against what this same turf used to cost, which is the
+      // claim worth making at this seam. The exact credit total is pinned in
+      // `logs the spend` above rather than restated here.
+      it('bills fewer locations than the route has stops', async () => {
+        let jobsSent = 0
         stubVendors({
-          routing: () => Promise.reject(new Error('routing down')),
+          geoapify: (body) => {
+            jobsSent = body.jobs.length
+            return geoapifyPlan(body)
+          },
         })
 
         const res = await postTurf()
 
         expect(res.status).toBe(201)
+        // Three stops, two faces.
+        expect(jobsSent).toBe(2)
         const route = await service.prisma.doorKnockingRoute.findFirstOrThrow({
           where: { doorKnockingTurfId: res.data.id },
         })
-        expect(route.pathGeometry).toBeNull()
-        expect(route.credits).toBe(16)
-        const spend =
-          await service.prisma.doorKnockingRoutePlannerSpend.findFirstOrThrow({
-            where: { organizationSlug: orgSlug },
-          })
-        expect(spend.credits).toBe(16)
-        expect(spend.waypoints).toBe(3)
+        expect(route.credits).toBeLessThan(
+          // What the same turf cost when the vendor ordered doors: three jobs
+          // and an anchor, squared, plus a credit per waypoint pair.
+          18,
+        )
       })
     })
 
@@ -1464,9 +1611,11 @@ describe('door-knocking routes', () => {
       ],
     }
 
-    const knockAndServe = async () => {
+    const knockAndServe = async (body: Record<string, unknown> = {}) => {
       stubVendors({ residents: liveResidents })
-      const turf = await createTurf()
+      const created = await postTurf({ name: 'Elm St turf', ...body })
+      expect(created.status).toBe(201)
+      const turf = created.data as { id: number; doorCount: number }
       const res = await service.client.get(
         `/v1/door-knocking/turfs/${turf.id}/route`,
         { ...orgHeaders(), validateStatus: () => true },
@@ -1714,7 +1863,7 @@ describe('door-knocking routes', () => {
       })
     })
 
-    it('derives org-wide knock statuses, latest answer per person', async () => {
+    it('derives org-wide knock statuses, firmest answer per person', async () => {
       await service.prisma.contactInteractionDoorKnock.createMany({
         data: [
           {
@@ -1754,14 +1903,74 @@ describe('door-knocking routes', () => {
       const key1 = addresses.find((a) => a.addressKey === PIPED_KEY)
       const statusFor = (personId: string) =>
         key1?.targets.find((t) => t.personId === personId)?.knockStatus
-      // The latest ANSWER wins, matching how Contacts derives the same person:
-      // the newer not_home is a failed re-attempt, not a retraction of the
-      // support they already gave.
+      // The FIRMEST answer wins, matching how Contacts derives the same
+      // person: the newer not_home is a failed re-attempt, not a retraction of
+      // the support they already gave.
       expect(statusFor(PERSON_1)).toBe('supporter')
       expect(statusFor(PERSON_2)).toBe('unknown')
 
       const key3 = addresses.find((a) => a.addressKey === 'KEY-3')
       expect(key3?.targets[0]?.knockStatus).toBe('supporter')
+    })
+
+    // The second half of the same rule, and the one QA reported: a re-canvass
+    // where the resident was non-committal used to flip a known supporter to
+    // "Support unknown" on the walk list, on the map, in the per-list counts
+    // and in the CRM — which reads exactly like the first pass having been
+    // overwritten. Both rows were always there; this is the projection over
+    // them. Pinned at the door as well as in Contacts because the two showing
+    // one person two different statuses is the failure this shares a constant
+    // to prevent.
+    it('keeps a firm answer when a later knock only got an unsure', async () => {
+      await service.prisma.contactInteractionDoorKnock.createMany({
+        data: [
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            occurredAt: new Date('2026-07-01T10:00:00Z'),
+            outcome: 'answered',
+            supportAnswer: 'supporter',
+          },
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            occurredAt: new Date('2026-07-10T10:00:00Z'),
+            outcome: 'answered',
+            supportAnswer: 'unsure',
+          },
+          // A person whose only answer is unsure still reads unknown at the
+          // door: there is no `undecided` in the door's vocabulary, and the
+          // door is still worth knocking.
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_3,
+            occurredAt: new Date('2026-07-05T10:00:00Z'),
+            outcome: 'answered',
+            supportAnswer: 'unsure',
+          },
+        ],
+      })
+
+      const { res } = await knockAndServe()
+
+      const addresses = (
+        res.data.stops as Array<{
+          addresses: Array<{
+            addressKey: string
+            targets: Array<{ personId: string; knockStatus: string }>
+          }>
+        }>
+      ).flatMap((stop) => stop.addresses)
+
+      expect(
+        addresses
+          .find((a) => a.addressKey === PIPED_KEY)
+          ?.targets.find((t) => t.personId === PERSON_1)?.knockStatus,
+      ).toBe('supporter')
+      expect(
+        addresses.find((a) => a.addressKey === 'KEY-3')?.targets[0]
+          ?.knockStatus,
+      ).toBe('unknown')
     })
 
     // Contacts lets a candidate correct a status by hand, and that correction
@@ -2392,6 +2601,132 @@ describe('door-knocking routes', () => {
         expect((await serveTurf('flag')).data.isServe).toBe(true)
         expect((await knockAndServe()).res.data.isServe).toBe(false)
       })
+
+      // Whose campaign the walk is for, riding the payload for the same reason
+      // `isServe` above does with a sharper case: a volunteer's session has no
+      // campaign at all (`GET /v1/campaigns/mine` 403s them, ENG-11072), so
+      // this is the only way their door script can name the candidate. Without
+      // it the card read "Hi, I'm {volunteer}." under a "Talking points"
+      // heading.
+      it('carries the campaign identity behind the door script opener', async () => {
+        await service.prisma.organization.update({
+          where: { slug: orgSlug },
+          // No positionId on this fixture, so the name resolves off the org
+          // itself and the served payload owes nothing to election-api.
+          data: { customPositionName: 'Town Board of Commissioners' },
+        })
+        const owner = await service.prisma.user.findUniqueOrThrow({
+          where: { id: service.user.id },
+          select: { firstName: true, lastName: true, name: true },
+        })
+
+        const { res } = await knockAndServe()
+
+        expect(res.data.representing).toEqual({
+          // The org OWNER, never the requesting user — on a volunteer's walk
+          // those are two different people, which is the whole point.
+          name:
+            [owner.firstName, owner.lastName]
+              .filter(Boolean)
+              .join(' ')
+              .trim() || (owner.name ?? '').trim(),
+          office: 'Town Board of Commissioners',
+        })
+      })
+
+      // Best-effort by contract: an org with neither a resolvable office nor a
+      // named owner sends no key at all, rather than a pair of empty strings a
+      // renderer would have to tell apart from a real answer.
+      it('omits the campaign identity when nothing resolves', async () => {
+        // The owner is blanked in place rather than swapped for a nameless
+        // one: both creating a turf and reading its route are gated on the
+        // requesting user's claim to the org, so reassigning ownership makes
+        // the whole path 404 and tests nothing about name resolution. Restored
+        // in `finally` because two other cases in this file assert on this
+        // user's name.
+        const owner = await service.prisma.user.findUniqueOrThrow({
+          where: { id: service.user.id },
+          select: { firstName: true, lastName: true, name: true },
+        })
+        await service.prisma.user.update({
+          where: { id: service.user.id },
+          data: { firstName: '', lastName: '', name: '' },
+        })
+        await service.prisma.organization.update({
+          where: { slug: orgSlug },
+          data: { customPositionName: null },
+        })
+
+        try {
+          const { res } = await knockAndServe()
+
+          expect(res.status).toBe(200)
+          expect(res.data.representing).toBeUndefined()
+        } finally {
+          await service.prisma.user.update({
+            where: { id: service.user.id },
+            data: owner,
+          })
+        }
+      })
+
+      // The one half-resolved case, and the reason the guard is on the name
+      // alone. An office with no name in front of it cannot be said out loud,
+      // so sending it would only make a failed resolution look like a real
+      // answer — and the opener would drop it and fall back to the bare
+      // "Hi, I'm {volunteer}" this whole path exists to fix.
+      it('omits the campaign identity when only the office resolves', async () => {
+        const owner = await service.prisma.user.findUniqueOrThrow({
+          where: { id: service.user.id },
+          select: { firstName: true, lastName: true, name: true },
+        })
+        await service.prisma.user.update({
+          where: { id: service.user.id },
+          data: { firstName: '', lastName: '', name: '' },
+        })
+
+        try {
+          // customPositionName is left alone, so the office still resolves.
+          const { res } = await knockAndServe()
+
+          expect(res.status).toBe(200)
+          expect(res.data.representing).toBeUndefined()
+        } finally {
+          await service.prisma.user.update({
+            where: { id: service.user.id },
+            data: owner,
+          })
+        }
+      })
+
+      // The card the candidate wrote in the wizard, read back at the door.
+      // It rides the payload rather than being fetched by the person sheet
+      // for the reason `representing` above does, plus one of its own: the
+      // sheet is deliberately fetch-free because the moment a canvasser opens
+      // it is the moment they are standing on a porch with no signal.
+      it('carries the frozen talking points to the door', async () => {
+        const talkingPoints = [
+          'What would you fix around here first?',
+          'Fix our roads with a real maintenance plan.',
+          'Point them to janedoe.org to learn more.',
+          'Ask whether we can count on them in November.',
+        ].join('\n')
+
+        const { res } = await knockAndServe({ talkingPoints })
+
+        expect(res.status).toBe(200)
+        expect(res.data.talkingPoints).toBe(talkingPoints)
+      })
+
+      // Every list created before the points step shipped, and every list
+      // whose candidate skipped it. The key is absent rather than empty, so
+      // the door script falls back to the static card on both.
+      it('omits the talking points for a list that has none', async () => {
+        const { res } = await knockAndServe()
+
+        expect(res.status).toBe(200)
+        expect(res.data.talkingPoints).toBeUndefined()
+      })
     })
 
     // The routeless turf this used to guard against no longer exists — a turf
@@ -2695,6 +3030,41 @@ describe('door-knocking routes', () => {
         manual: false,
       })
       expect(row.occurredAt).toBeInstanceOf(Date)
+    })
+
+    // What comes back recolors the dot on the phone without re-fetching the
+    // route, so it has to answer for the PERSON the way every other surface
+    // does. Deriving it from the row just written made this the last place
+    // that still answered by recency: the canvasser logged the unsure, watched
+    // the dot go grey, and only a refresh put it back to green. That flicker
+    // is the reported bug, seen sooner than anywhere else.
+    it('returns the firmest status for the person, not the row just written', async () => {
+      const target = await knockAndGetTarget()
+
+      const first = await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'answered',
+        supportAnswer: 'supporter',
+      })
+      expect(first.data.knockStatus).toBe('supporter')
+
+      const second = await record({
+        stopTargetId: target.id,
+        clientKey: 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff',
+        outcome: 'answered',
+        supportAnswer: 'unsure',
+      })
+
+      expect(second.status).toBe(201)
+      expect(second.data.knockStatus).toBe('supporter')
+      // Both knocks are on file — the unsure was recorded, it just doesn't
+      // outrank the firm answer it followed.
+      const rows = await service.prisma.contactInteractionDoorKnock.findMany({
+        where: { organizationSlug: orgSlug },
+        orderBy: { id: 'asc' },
+      })
+      expect(rows.map((r) => r.supportAnswer)).toEqual(['supporter', 'unsure'])
     })
 
     it('replaying the same clientKey re-syncs one row, never a duplicate', async () => {
@@ -4118,6 +4488,7 @@ describe('door-knocking routes', () => {
           },
           { doors: [{ address: 'KEY-4', people: 1 }] },
         ],
+        audienceEmpty: false,
       })
     })
 
@@ -4163,7 +4534,25 @@ describe('door-knocking routes', () => {
         doors: 0,
         people: 0,
         locations: [],
+        // The audience is real; the ring just missed it. Moving the boundary
+        // is the fix, so this is the case that must NOT be flagged.
+        audienceEmpty: false,
       })
+    })
+
+    // Same zeros, different cause — and the preview used to return them
+    // identically, which is the create's two-messages-in-one bug wearing
+    // another hat. No boundary rescues this one.
+    it('distinguishes an empty audience from a shape that caught nobody', async () => {
+      stubVendors()
+
+      // No interaction rows exist, so nobody derives to 'supporter' and the
+      // draft resolves to an empty id set — regardless of the ring, which is
+      // the same ring every other test here draws people inside of.
+      const res = await preview({ filters: { supportStatus: ['supporter'] } })
+
+      expect(res.status).toBe(201)
+      expect(res.data).toMatchObject({ stops: 0, audienceEmpty: true })
     })
 
     it('asks evaluation to drop the org suppressed people (ADR 0007/0008)', async () => {
@@ -4251,6 +4640,92 @@ describe('door-knocking routes', () => {
     })
   })
 
+  // The same refusal the create raises for an empty audience, asked before a
+  // boundary exists. The create's own version is tested at 'rejects a list
+  // that resolves to nobody without calling the vendor'; these pin that this
+  // endpoint agrees with it, and that it pays nothing to do so.
+  describe('audience check', () => {
+    const checkOpts = () => ({ ...orgHeaders(), validateStatus: () => true })
+
+    const check = (filters: Record<string, unknown> = {}) =>
+      service.client.post(
+        '/v1/door-knocking/audience-check',
+        { filters },
+        checkOpts(),
+      )
+
+    it('reports an audience its own filters resolve to nobody', async () => {
+      stubVendors()
+
+      const res = await check({ supportStatus: ['supporter'] })
+
+      // No interaction rows exist, so nobody derives to 'supporter'. Same
+      // condition the create refuses on, reached without a polygon.
+      expect(res.status).toBe(201)
+      expect(res.data.empty).toBe(true)
+    })
+
+    it('reports a list that keeps somebody', async () => {
+      await service.prisma.contactCurrentStatus.create({
+        data: {
+          organizationSlug: orgSlug,
+          // Any id: the resolution reads this table, and whether the person
+          // also exists in the voter mart is the people-db question this
+          // endpoint deliberately never asks.
+          personId: 'audience-check-supporter',
+          field: 'support_status',
+          value: 'supporter',
+        },
+      })
+      stubVendors()
+
+      const res = await check({ supportStatus: ['supporter'] })
+
+      expect(res.status).toBe(201)
+      expect(res.data.empty).toBe(false)
+    })
+
+    // The weaker half of the contract, and the reason the gate refuses only
+    // what it can prove. A party cut resolves no id set at all, so this
+    // endpoint has nothing to say about it — whether anybody is a Democrat is
+    // a question for the people database, which this deliberately never asks.
+    it('does not call a filter empty just because it narrows', async () => {
+      stubVendors()
+
+      const res = await check({ partyDemocrat: true })
+
+      expect(res.status).toBe(201)
+      expect(res.data.empty).toBe(false)
+    })
+
+    // The whole reason this can fire on a list pick rather than on a press.
+    // ADR 0010 made the address preview explicit because it buys a people-db
+    // scan; if this one did too, moving the check earlier would just move that
+    // cost earlier with it.
+    it('reads no voter data and spends no vendor credit', async () => {
+      const fetchSpy = stubVendors()
+      const peopleApi = service.app.get(DoorKnockingPeopleApiService)
+
+      expect((await check({ supportStatus: ['supporter'] })).status).toBe(201)
+
+      expect(vi.mocked(peopleApi.evaluate)).not.toHaveBeenCalled()
+      expect(
+        fetchSpy.mock.calls.filter(([url]) =>
+          String(url).includes('routeplanner'),
+        ),
+      ).toHaveLength(0)
+    })
+
+    it('writes nothing', async () => {
+      stubVendors()
+
+      await check({ supportStatus: ['supporter'] })
+
+      expect(await service.prisma.doorKnockingTurf.count()).toBe(0)
+      expect(await service.prisma.doorKnockingRoute.count()).toBe(0)
+    })
+  })
+
   describe('Pro gate (ENG-10888)', () => {
     const downgrade = () =>
       service.prisma.campaign.update({
@@ -4291,6 +4766,10 @@ describe('door-knocking routes', () => {
           '/v1/door-knocking/address-preview',
           { geoPoly: GEO_POLY, filters: {} },
         ],
+        // Reads no voter data itself, and gated anyway: it reports ON an
+        // audience, and a candidate who cannot route a list has no use for
+        // knowing whether it is empty.
+        ['post', '/v1/door-knocking/audience-check', { filters: {} }],
         [
           'post',
           '/v1/door-knocking/interactions',
@@ -4328,7 +4807,7 @@ describe('door-knocking routes', () => {
           body === undefined
             ? await service.client[method](path, opts())
             : await service.client[method](path, body, opts())
-        expect(res.status, `${method.toUpperCase()} ${path}`).toBe(400)
+        expect(res.status, `${method.toUpperCase()} ${path}`).toBe(403)
         expect(res.data.message, `${method.toUpperCase()} ${path}`).toBe(
           'This feature is only available for pro campaigns',
         )
@@ -4380,7 +4859,7 @@ describe('door-knocking routes', () => {
         `/v1/door-knocking/turfs/${turf.id}/route`,
         opts(),
       )
-      expect(route.status).toBe(400)
+      expect(route.status).toBe(403)
 
       // ...but "don't come back" and "wrong door" still land.
       const dnk = await service.client.post(
@@ -4674,6 +5153,7 @@ describe('door-knocking routes', () => {
           '/v1/door-knocking/address-preview',
           { geoPoly: GEO_POLY, filters: {} },
         ],
+        ['post', '/v1/door-knocking/audience-check', { filters: {} }],
         // Last: a delete would leave nothing for a later row in this list
         // to act on.
         ['delete', `/v1/door-knocking/turfs/${turf.id}`, undefined],

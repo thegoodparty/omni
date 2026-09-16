@@ -290,11 +290,13 @@ as "Likely Married" and `Completed Graduate School Likely` as "Graduate Degree",
 worded identically in both products. Two of those mappers are **presence-only**
 — `mapVeteranStatus` and `mapBusinessOwner` return `'Yes'` or null, because the
 columns hold a value meaning yes or nothing at all — so absence is
-indistinguishable from unknown and no consumer may render "No" for them. The one
-deliberate departure is `language`: `mapLanguage` returns `'Other'` for an
-absent value, which is right for a CSV column that must always have a cell and
-wrong at a door, so the service keeps a null column null and only maps a present
-value. That mirrors the `politicalParty` rule three lines above it.
+indistinguishable from unknown and no consumer may render "No" for them.
+`mapLanguage` used to be a third case, returning `'Other'` for an absent value
+— at a door that told a canvasser someone speaks something other than English
+or Spanish on the strength of an empty column, so the service guarded it. It
+returns null for an absent value now, alongside the language filter's split of
+'Other' from 'Unknown', and the guard is gone. A present but unrecognized value
+is still `'Other'`.
 
 ## Reject rather than truncate — do not "fix" this into pagination
 

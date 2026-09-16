@@ -13,11 +13,17 @@ class ResizeObserverMock {
 globalThis.ResizeObserver =
   ResizeObserverMock as unknown as typeof ResizeObserver
 
-const { mockPush } = vi.hoisted(() => ({ mockPush: vi.fn() }))
+const { mockPush, mockReplace, searchParamsRef } = vi.hoisted(() => ({
+  mockPush: vi.fn(),
+  mockReplace: vi.fn(),
+  searchParamsRef: { current: new URLSearchParams() },
+}))
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     push: mockPush,
+    replace: mockReplace,
   }),
+  useSearchParams: () => searchParamsRef.current,
 }))
 // Plain anchor so clicking the campaign link in jsdom exercises our
 // bubbling behavior instead of Next's router internals.
@@ -35,6 +41,8 @@ vi.mock('next/link', () => ({
 
 beforeEach(() => {
   mockPush.mockReset()
+  mockReplace.mockReset()
+  searchParamsRef.current = new URLSearchParams()
 })
 
 const item = (
@@ -48,6 +56,7 @@ const item = (
   createdAt: new Date('2026-08-30T00:00:00Z'),
   sendAt: new Date('2026-09-10T15:00:00Z'),
   scheduledLocalDate: '2026-09-10',
+  scheduledLocalTime: '18:00',
   script: 'Hello {first_name}…',
   imageUrl: null,
   textCount: 1200,
@@ -82,6 +91,7 @@ describe('SmsQueue', () => {
     render(
       <Theme>
         <SmsQueue
+          viewerName={null}
           items={[
             item({ id: 41 }),
             item({
@@ -116,6 +126,12 @@ describe('SmsQueue', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Likely voters — SMS')).toBeInTheDocument()
     expect(screen.queryByText('Booked send')).not.toBeInTheDocument()
+    // The queue shows the requested send TIME, not just the date, labeled
+    // with the fixed timezone it renders in.
+    expect(
+      screen.getByRole('button', { name: /Requested send \(ET\)/ })
+    ).toBeInTheDocument()
+    expect(screen.getByText('Sep 10, 2026, 11:00 AM EDT')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('tab', { name: /Booked \(1\)/ }))
     expect(screen.getByText('Booked send')).toBeInTheDocument()
@@ -139,7 +155,7 @@ describe('SmsQueue', () => {
   it('does not double-navigate or hijack modified clicks', async () => {
     render(
       <Theme>
-        <SmsQueue items={[item({ id: 41 })]} />
+        <SmsQueue viewerName={null} items={[item({ id: 41 })]} />
       </Theme>
     )
 
@@ -162,6 +178,7 @@ describe('SmsQueue', () => {
     render(
       <Theme>
         <SmsQueue
+          viewerName={null}
           items={[
             item({
               id: 46,
@@ -189,6 +206,7 @@ describe('SmsQueue', () => {
     render(
       <Theme>
         <SmsQueue
+          viewerName={null}
           items={[
             item({
               id: 44,
@@ -218,7 +236,7 @@ describe('SmsQueue', () => {
   it('renders the empty state', () => {
     render(
       <Theme>
-        <SmsQueue items={[]} />
+        <SmsQueue viewerName={null} items={[]} />
       </Theme>
     )
     expect(screen.getByText('Nothing here right now.')).toBeInTheDocument()
@@ -228,6 +246,7 @@ describe('SmsQueue', () => {
     render(
       <Theme>
         <SmsQueue
+          viewerName={null}
           items={[
             item({
               id: 51,
@@ -280,5 +299,108 @@ describe('SmsQueue', () => {
     )
     expect(screen.getByText('Amy campaign')).toBeInTheDocument()
     expect(screen.queryByText('Zoe campaign')).not.toBeInTheDocument()
+  })
+
+  describe('my approvals filter', () => {
+    const teamItems = () => [
+      item({ id: 61, name: 'Mine send', assignedPa: '  jane SMITH ' }),
+      item({
+        id: 62,
+        name: 'Bob send',
+        candidateName: 'Amy Brown',
+        campaignSlug: 'amy-brown',
+        assignedPa: 'Bob Ross',
+      }),
+      item({
+        id: 63,
+        name: 'Unassigned send',
+        candidateName: 'Zoe Adams',
+        campaignSlug: 'zoe-adams',
+        assignedPa: null,
+      }),
+    ]
+
+    it('hides the toggle when the viewer has no name', () => {
+      render(
+        <Theme>
+          <SmsQueue viewerName={null} items={teamItems()} />
+        </Theme>
+      )
+      expect(
+        screen.queryByRole('button', { name: 'My approvals' })
+      ).not.toBeInTheDocument()
+    })
+
+    it('shows every row until toggled, then writes the filter to the URL', async () => {
+      render(
+        <Theme>
+          <SmsQueue viewerName="Jane Smith" items={teamItems()} />
+        </Theme>
+      )
+
+      expect(screen.getByText('Mine send')).toBeInTheDocument()
+      expect(screen.getByText('Bob send')).toBeInTheDocument()
+      expect(screen.getByText('Unassigned send')).toBeInTheDocument()
+
+      const toggle = screen.getByRole('button', { name: 'My approvals' })
+      expect(toggle).toHaveAttribute('aria-pressed', 'false')
+      await userEvent.click(toggle)
+      expect(mockReplace).toHaveBeenCalledWith(
+        '/dashboard/sms-outreach?mine=1',
+        { scroll: false }
+      )
+    })
+
+    // The URL is the persistence mechanism: a fresh mount (post
+    // router.refresh() or reload) with ?mine=1 restores the filter.
+    it('filters to the viewer when the URL carries mine=1', () => {
+      searchParamsRef.current = new URLSearchParams('mine=1')
+      render(
+        <Theme>
+          <SmsQueue viewerName="Jane Smith" items={teamItems()} />
+        </Theme>
+      )
+
+      // Assigned-PA match is case-insensitive and whitespace-trimmed.
+      expect(screen.getByText('Mine send')).toBeInTheDocument()
+      expect(screen.queryByText('Bob send')).not.toBeInTheDocument()
+      expect(screen.queryByText('Unassigned send')).not.toBeInTheDocument()
+      // Tab counts narrow with the filter.
+      expect(
+        screen.getByRole('tab', { name: /Awaiting review \(1\)/ })
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'My approvals' })
+      ).toHaveAttribute('aria-pressed', 'true')
+    })
+
+    it('clears the URL param when toggled off', async () => {
+      searchParamsRef.current = new URLSearchParams('mine=1')
+      render(
+        <Theme>
+          <SmsQueue viewerName="Jane Smith" items={teamItems()} />
+        </Theme>
+      )
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'My approvals' })
+      )
+      expect(mockReplace).toHaveBeenCalledWith('/dashboard/sms-outreach', {
+        scroll: false,
+      })
+    })
+
+    it('shows the no-match empty state when nothing is assigned to the viewer', () => {
+      searchParamsRef.current = new URLSearchParams('mine=1')
+      render(
+        <Theme>
+          <SmsQueue viewerName="Pat Newhire" items={teamItems()} />
+        </Theme>
+      )
+
+      expect(
+        screen.getByText('No approvals assigned to you here.')
+      ).toBeInTheDocument()
+    })
   })
 })

@@ -13,6 +13,7 @@ import {
 } from '../../generated/prisma'
 import {
   deriveKnockStatus,
+  firmestAnswerPerPerson,
   overrideToKnockStatus,
 } from '../utils/knockStatus.util'
 
@@ -71,30 +72,15 @@ export class DoorKnockingStatusService extends createPrismaBase(
       ),
     ])
 
-    // Rows arrive newest-first, so the first row per person is the latest and
-    // the first answer-bearing one is the latest answer. Preferring the answer
-    // mirrors derivedStatusSql's `(support_answer IS NOT NULL) DESC` ordering:
-    // a later "not home" is a failed re-attempt, not a retraction of the
-    // support they already told us about.
+    // The firmest answer per person, mirroring derivedStatusSql's ORDER BY —
+    // same scale, same tiebreak — because the door and Contacts showing one
+    // person two different statuses is the whole failure mode.
     //
-    // "Answer-bearing" means either surface's answer. A Serve row carries only
-    // `followUp`, so reading support alone would leave every Serve knock out of
-    // this map and hand a later not-home the last word over the conversation
-    // that actually happened — the Serve version of exactly the retraction this
-    // preference exists to prevent.
-    const latest = new Map<string, (typeof interactions)[number]>()
-    const latestAnswered = new Map<string, (typeof interactions)[number]>()
-    for (const interaction of interactions) {
-      if (!latest.has(interaction.personId)) {
-        latest.set(interaction.personId, interaction)
-      }
-      if (
-        (interaction.supportAnswer !== null || interaction.followUp !== null) &&
-        !latestAnswered.has(interaction.personId)
-      ) {
-        latestAnswered.set(interaction.personId, interaction)
-      }
-    }
+    // A later "not home" is a failed re-attempt rather than a retraction, and
+    // a later "unsure" is not a retraction either: that second case is the one
+    // QA reported as the second pass overwriting the first. See
+    // SUPPORT_ANSWER_FIRMNESS.
+    const firmest = firmestAnswerPerPerson(interactions)
 
     const statusByPersonId = new Map<string, DoorKnockStatus>()
     for (const personId of new Set(personIds)) {
@@ -103,7 +89,7 @@ export class DoorKnockingStatusService extends createPrismaBase(
         statusByPersonId.set(personId, overridden)
         continue
       }
-      const interaction = latestAnswered.get(personId) ?? latest.get(personId)
+      const interaction = firmest.get(personId)
       if (interaction) {
         statusByPersonId.set(personId, deriveKnockStatus(interaction))
       }

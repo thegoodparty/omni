@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common'
+import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import { FastifyReply } from 'fastify'
 import {
   Campaign,
@@ -167,13 +163,13 @@ describe('VoterFileController', () => {
   describe('createVoterFileFilter', () => {
     it('throws when filterAccessCheck rejects', async () => {
       mockVoterFileFilterService.filterAccessCheck.mockRejectedValue(
-        new BadRequestException('Campaign is not pro'),
+        new ForbiddenException('Campaign is not pro'),
       )
       const body = { name: 'My Filter' } as never
 
       await expect(
         controller.createVoterFileFilter(baseOrg, body),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toThrow(ForbiddenException)
 
       expect(mockVoterFileFilterService.filterAccessCheck).toHaveBeenCalledWith(
         baseOrg.slug,
@@ -232,7 +228,7 @@ describe('VoterFileController', () => {
   describe('updateVoterFileFilter', () => {
     it('throws when filterAccessCheck rejects', async () => {
       mockVoterFileFilterService.filterAccessCheck.mockRejectedValue(
-        new BadRequestException('Campaign is not pro'),
+        new ForbiddenException('Campaign is not pro'),
       )
       const body = { name: 'Updated Filter' } as never
 
@@ -284,7 +280,7 @@ describe('VoterFileController', () => {
 
     it('throws when filterAccessCheck rejects', async () => {
       mockVoterFileFilterService.filterAccessCheck.mockRejectedValue(
-        new BadRequestException('Campaign is not pro'),
+        new ForbiddenException('Campaign is not pro'),
       )
 
       await expect(

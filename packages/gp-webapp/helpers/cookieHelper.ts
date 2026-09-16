@@ -44,10 +44,20 @@ export const deleteCookies = (): void => {
   })
 }
 
+// Must mirror `setCookie`'s attributes: a cookie is identified by name AND
+// path, so an expiry written without `path=/` lands on a different cookie than
+// the one setCookie created and expires nothing (it only matched while the
+// document happened to be at "/", which is why this looked fine in tests).
+//
+// Previously this wrote the value away via `setCookie(name, '', 0)` — but
+// `setCookie` guards its expiry with `if (days)`, and 0 is falsy, so that left
+// an empty-valued session cookie standing rather than deleting anything. Every
+// caller reads through `getCookie`, which reports an empty value as `false`, so
+// that behaved like a deletion; it just never was one.
 export const deleteCookie = (name: string): void => {
   if (typeof window === 'undefined') {
     return
   }
-  setCookie(name, '', 0)
-  document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:01 GMT;'
+  const secure = window.location.protocol === 'https:' ? '; Secure' : ''
+  document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:01 GMT; path=/; SameSite=Lax${secure}`
 }

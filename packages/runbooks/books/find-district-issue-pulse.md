@@ -71,8 +71,8 @@ cd scripts/python
 uv run python databricks_query.py "
 SELECT
   AVG(hs_dei_support) AS dei_avg, MAX(hs_dei_support) AS dei_max,
-  AVG(hs_violent_crime_very_worried) AS vc_avg, MAX(hs_violent_crime_very_worried) AS vc_max,
-  AVG(hs_min_wage_15_increase_support) AS mw_avg, MAX(hs_min_wage_15_increase_support) AS mw_max
+  AVG(hs_violent_crime_worried) AS vc_avg, MAX(hs_violent_crime_worried) AS vc_max,
+  AVG(hs_tax_cuts_support) AS tc_avg, MAX(hs_tax_cuts_support) AS tc_max
 FROM goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq
 WHERE Residence_Addresses_State = '$STATE'
   AND Residence_Addresses_City = '$CITY'
@@ -90,12 +90,7 @@ One query, all candidates at once. Replace the candidate list with whatever you 
 ```bash
 CANDIDATES=(
   hs_dei_support
-  hs_violent_crime_very_worried
-  hs_conspiracy_believer
-  hs_united_healthcare_at_fault
-  hs_min_wage_15_increase_support
-  hs_opioid_crisis_treat
-  hs_social_security_tax_increase_support
+  hs_right_wing_conspiracy_believer
   hs_infrastructure_funding_fund_more
   hs_police_trust_yes
   hs_trump_ukraine_policy_oppose
@@ -125,10 +120,10 @@ This returns one row: total active voters + per-issue counts. Sort the per-issue
 
 ### 5. Pull one news source per top issue
 
-For each of the top 5 columns, do a Google search and pick the most recent local news result. The `_oppose` and `_support` suffixes carry stance — strip them when forming the query (e.g. `hs_min_wage_15_increase_support` → "minimum wage 15 increase").
+For each of the top 5 columns, do a Google search and pick the most recent local news result. The `_oppose` and `_support` suffixes carry stance — strip them when forming the query (e.g. `hs_tax_cuts_support` → "tax cuts").
 
 ```bash
-for ISSUE in "Min Wage 15 Increase" "Violent Crime" "DEI"; do
+for ISSUE in "Tax Cuts" "Violent Crime" "DEI"; do
   echo "=== $ISSUE ==="
   curl -s "https://www.google.com/search?q=$(echo "$CITY $STATE $ISSUE 2026" | sed 's/ /+/g')" \
     -A "Mozilla/5.0" | grep -oE 'https?://[^"]+' | grep -v google | head -3

@@ -197,7 +197,6 @@ const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/dashboard/website', 'Website'],
   ['/dashboard/profile', 'My Profile'],
   ['/dashboard/account', 'Account Settings'],
-  ['/dashboard/content', 'Content Builder'],
   ['/dashboard/door-knocking', 'Door Knocking'],
   ['/dashboard/team', NAV_LABELS.team],
 ]

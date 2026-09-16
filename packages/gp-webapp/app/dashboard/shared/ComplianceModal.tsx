@@ -6,7 +6,7 @@ import Body2 from '@shared/typography/Body2'
 import { Button } from '@styleguide'
 import Link from 'next/link'
 import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
-import type { TcrComplianceStatus } from 'helpers/types'
+import type { TcrCompliance } from 'helpers/types'
 
 export const SUBMIT_PIN_PATH =
   '/dashboard/profile/texting-compliance/submit-pin'
@@ -20,13 +20,16 @@ export const ELECTION_FILING_PATH =
 
 interface ComplianceModalProps {
   open: boolean
-  tcrComplianceStatus?: TcrComplianceStatus | null
+  tcrCompliance?: Pick<
+    TcrCompliance,
+    'status' | 'peerlyIdentityId' | 'cvValidationFailedAt'
+  > | null
   onClose: () => void
 }
 
 export function ComplianceModal({
   open,
-  tcrComplianceStatus,
+  tcrCompliance,
   onClose,
 }: ComplianceModalProps): React.JSX.Element {
   const helpTrailer = (
@@ -54,20 +57,48 @@ export function ComplianceModal({
     cta: string,
     ctaHref: string | undefined
 
-  switch (tcrComplianceStatus) {
+  switch (tcrCompliance?.status) {
     case TCR_COMPLIANCE_STATUS.SUBMITTED:
-      title = 'Submit your PIN to finish texting registration'
-      description = (
-        <>
-          Your registration is in. To verify your identity, CampaignVerify will
-          send a PIN within 2-3 business days to the email, phone, or address
-          that matches your election filing. Enter it here to finish and start
-          texting.
-          {helpTrailer}
-        </>
-      )
-      cta = 'Enter PIN'
-      ctaHref = SUBMIT_PIN_PATH
+      // `submitted` spans three states (ENG-11018): a PIN exists only once a
+      // Peerly identity does, and a validation hold needs corrected filing
+      // details, not a PIN.
+      if (tcrCompliance?.peerlyIdentityId) {
+        title = 'Submit your PIN to finish texting registration'
+        description = (
+          <>
+            Your registration is in. To verify your identity, CampaignVerify
+            will send a PIN within 2-3 business days to the email, phone, or
+            address that matches your election filing. Enter it here to finish
+            and start texting.
+            {helpTrailer}
+          </>
+        )
+        cta = 'Enter PIN'
+        ctaHref = SUBMIT_PIN_PATH
+      } else if (tcrCompliance?.cvValidationFailedAt) {
+        title = 'Update your election filing link'
+        description = (
+          <>
+            We couldn&apos;t confirm your candidacy from the filing link you
+            gave us. Update your filing details with a link to your official
+            election filing to keep your registration moving.
+            {helpTrailer}
+          </>
+        )
+        cta = 'Update Filing Details'
+        ctaHref = ELECTION_FILING_PATH
+      } else {
+        title = 'Texting registration in progress'
+        description = (
+          <>
+            We&apos;re setting up your texting registration. There&apos;s
+            nothing you need to do right now. Check back soon.
+            {helpTrailer}
+          </>
+        )
+        cta = 'Got it'
+        ctaHref = undefined
+      }
       break
     case TCR_COMPLIANCE_STATUS.PENDING:
       title = 'Texting registration under review'

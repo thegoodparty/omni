@@ -58,6 +58,15 @@ export const DoorKnockingAddressPreviewResponseSchema = z.object({
   // would report fewer doors than the building has. `locations.length` below
   // `stops` is what tells the panel it is showing a prefix.
   locations: z.array(DoorKnockingPreviewLocationSchema),
+  // Which of the two ways of finding nobody this is, when the counts are
+  // zero. A shape that encloses none of a real audience is ordinary drawing
+  // and stays `false`; `true` means the list's own filters resolved to an
+  // empty person-id set, which no boundary can fix and which the create will
+  // reject outright. Reported rather than flattened into the zeros because
+  // the two used to be indistinguishable here for the same reason the two
+  // create errors shared a sentence — and this is the moment the condition
+  // is cheap to say, before anything is bought.
+  audienceEmpty: z.boolean(),
 })
 
 export type DoorKnockingAddressPreviewResponse = z.infer<

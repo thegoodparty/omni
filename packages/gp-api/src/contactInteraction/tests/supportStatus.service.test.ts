@@ -103,6 +103,78 @@ describe('SupportStatusService', () => {
     expect(statuses.get('p-1')).toBe('unknown')
   })
 
+  // The reported "second pass overwrites previous SQs". Both rows are still in
+  // the table — nothing was ever lost — but the projection over them read the
+  // newest answer, so a re-canvass where the resident was non-committal flipped
+  // a known supporter to undecided everywhere it is displayed.
+  it('a newer unsure never overrides an older firm answer', async () => {
+    const org = await seedOrganization('campaign-unsure-ignored')
+    await knock(
+      org,
+      'p-1',
+      new Date('2026-06-01T12:00:00.000Z'),
+      SupportAnswer.supporter,
+    )
+    await knock(
+      org,
+      'p-1',
+      new Date('2026-06-09T12:00:00.000Z'),
+      SupportAnswer.unsure,
+    )
+
+    const statuses = await supportStatus.statusForPeople(org, ['p-1'])
+    expect(statuses.get('p-1')).toBe('supporter')
+  })
+
+  // The other direction is not symmetric: a soft answer is displaced by a firm
+  // one whenever it arrives, because the firm one is the better evidence.
+  it('a newer firm answer does override an older unsure', async () => {
+    const org = await seedOrganization('campaign-unsure-replaced')
+    await knock(
+      org,
+      'p-1',
+      new Date('2026-06-01T12:00:00.000Z'),
+      SupportAnswer.unsure,
+    )
+    await knock(
+      org,
+      'p-1',
+      new Date('2026-06-09T12:00:00.000Z'),
+      SupportAnswer.non_supporter,
+    )
+
+    const statuses = await supportStatus.statusForPeople(org, ['p-1'])
+    expect(statuses.get('p-1')).toBe('non_supporter')
+  })
+
+  // And an older firm answer does not outrank a newer one: someone who has
+  // changed their mind has changed their mind.
+  it('an older firm answer does not outrank a newer firm answer', async () => {
+    const org = await seedOrganization('campaign-firm-replaced')
+    await knock(
+      org,
+      'p-1',
+      new Date('2026-06-01T12:00:00.000Z'),
+      SupportAnswer.supporter,
+    )
+    await knock(
+      org,
+      'p-1',
+      new Date('2026-06-09T12:00:00.000Z'),
+      SupportAnswer.non_supporter,
+    )
+    // An unsure after both must not reinstate the first.
+    await knock(
+      org,
+      'p-1',
+      new Date('2026-06-12T12:00:00.000Z'),
+      SupportAnswer.unsure,
+    )
+
+    const statuses = await supportStatus.statusForPeople(org, ['p-1'])
+    expect(statuses.get('p-1')).toBe('non_supporter')
+  })
+
   it('a newer null-answer row never overrides an older answer', async () => {
     const org = await seedOrganization('campaign-null-ignored')
     await knock(

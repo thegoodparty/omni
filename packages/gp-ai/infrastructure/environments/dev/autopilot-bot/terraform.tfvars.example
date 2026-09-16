@@ -1,0 +1,22 @@
+# autopilot-bot dev variables
+#
+# The real board/Slack values are wired in terraform.auto.tfvars (committed —
+# see that file and this directory's README.md), so you do NOT need a
+# terraform.tfvars file for a normal dev apply. This example exists only to
+# document the variables and their placeholder defaults in main.tf.
+
+# Comma-separated ClickUp list IDs in scope. Placeholder default "" means
+# every webhook event 200-skips as "list not in scope" until this is set.
+autopilot_list_ids = ""
+
+
+# ClickUp user id the human-actor gate treats as the bot's own writes.
+autopilot_bot_user_id = ""
+
+# Slack channel id the epic supervisor posts stall/close-out alerts to
+# (not a secret — a channel id, not a credential).
+autopilot_slack_channel = ""
+
+# Private subnet IDs for the ECS tasks this Lambda launches.
+# Default: the same dev subnets every other dev gp-ai Fargate root uses.
+private_subnet_ids = ["subnet-053357b931f0524d4", "subnet-0bb591861f72dcb7f"]

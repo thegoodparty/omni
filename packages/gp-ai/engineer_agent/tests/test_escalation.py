@@ -14,6 +14,7 @@ from engineer_agent.agent.escalation import (
     already_queued,
     escalation_enabled,
     maybe_escalate,
+    parse_repo,
     parse_verdict,
 )
 from shared.clickup_client import ClickUpTask
@@ -55,10 +56,18 @@ def log(monkeypatch):
 class FakeClickUpClient:
     """Records tag writes. Constructed via a factory, used as a context manager."""
 
-    def __init__(self, task: dict | None = None, get_task_error: Exception | None = None):
+    def __init__(
+        self,
+        task: dict | None = None,
+        get_task_error: Exception | None = None,
+        add_tag_error: Exception | None = None,
+    ):
         self._task = task if task is not None else {"id": TASK_ID, "tags": []}
         self._get_task_error = get_task_error
+        self._add_tag_error = add_tag_error
         self.added_tags: list[tuple[str, str]] = []
+        self.comments: list[tuple[str, str]] = []
+        self.writes: list[tuple[str, str]] = []
         self.closed = False
 
     def get_task(self, task_id: str):
@@ -71,7 +80,18 @@ class FakeClickUpClient:
         return FakeTask(self._task)
 
     def add_tag_to_task(self, task_id: str, tag_name: str):
+        if self._add_tag_error is not None:
+            raise self._add_tag_error
+        # Appends to the SAME list the comment writer uses, so a test can assert
+        # the order of the two. That order is load-bearing: the tag launches the
+        # implement run and the comment tells it where to go.
         self.added_tags.append((task_id, tag_name))
+        self.writes.append(("tag", tag_name))
+        return {}
+
+    def create_task_comment(self, task_id: str, comment_text: str):
+        self.comments.append((task_id, comment_text))
+        self.writes.append(("comment", comment_text))
         return {}
 
     def __enter__(self):
@@ -560,3 +580,228 @@ def test_already_queued_says_no_when_it_cannot_tell(task):
 
 def test_already_queued_matches_case_insensitively():
     assert already_queued({"tags": [{"name": "GPBot-Work"}]}) is True
+
+
+# ---------------------------------------------------------------------------
+# Following the cause into another repo.
+#
+# A ticket is routed by the ClickUp list it was filed in, which records where a
+# human put it and not where the code is. The first marketing ticket the bot
+# ever saw was routed to gp-marketing and turned out to be a gp-api email.
+#
+# The analysis is now allowed to read across repos and to say where the fix
+# belongs. These pin the half that has to survive this process exiting: the
+# implement run is launched by a tag, a tag cannot carry a repo, so the answer
+# is written onto the ticket for the Lambda to read back.
+# ---------------------------------------------------------------------------
+
+MARKETING = "thegoodparty/gp-marketing"
+OMNI = "thegoodparty/omni"
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        (f"GPBOT-REPO: {MARKETING}", MARKETING),
+        (f"GPBOT-REPO:{MARKETING}", MARKETING),
+        (f"GPBOT-REPO:   {MARKETING}", MARKETING),
+        (f"cause is an email\n\nGPBOT-REPO: {OMNI}\nGPBOT-VERDICT: fix", OMNI),
+    ],
+)
+def test_parse_repo_reads_the_documented_forms(text, expected):
+    assert parse_repo(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        None,
+        123,
+        "",
+        "no repo line here",
+        "GPBOT-REPO: thegoodparty/gp-data-platform",
+        "GPBOT-REPO: some-fork/omni",
+        "GPBOT REPO: thegoodparty/omni",
+        "GPBOT-REPO: omni",
+    ],
+)
+def test_parse_repo_returns_none_for_anything_it_cannot_vouch_for(text):
+    # Unknown names are dropped rather than honoured. Honouring one would point
+    # a run at a repo the agent has no briefing for and could not work in, and
+    # `some-fork/omni` shows why matching on the bare name is not enough.
+    assert parse_repo(text) is None
+
+
+def test_parse_repo_takes_the_last_one_not_the_instructions_own_example():
+    # The instruction spells the line out with gp-marketing in it. Reading the
+    # first match would let the example redirect every run that quoted it.
+    text = f"I was told to write GPBOT-REPO: {MARKETING}\n\nThe cause is in the API.\n\nGPBOT-REPO: {OMNI}"
+
+    assert parse_repo(text) == OMNI
+
+
+def test_a_named_repo_is_recorded_on_the_ticket_for_the_implement_run(monkeypatch):
+    monkeypatch.setenv(escalation.ESCALATION_REPOS_ENV, f"{OMNI},{MARKETING}")
+    client = FakeClickUpClient()
+
+    outcome = maybe_escalate(
+        analysis(f"the cause is a page template\n\nGPBOT-REPO: {MARKETING}\nGPBOT-VERDICT: fix"),
+        "analyze",
+        factory_for(client),
+        target_repo=OMNI,
+    )
+
+    assert outcome == "escalated"
+    assert len(client.comments) == 1
+    assert MARKETING in client.comments[0][1]
+
+
+def test_the_marker_is_written_before_the_tag_that_launches_the_run(monkeypatch):
+    """Order is the whole correctness of the redirect.
+
+    The tag is what makes ClickUp fire the webhook that launches the implement
+    run, and the Lambda decides that run's repo by reading the marker. Written
+    afterwards, the webhook can arrive first and the run starts against the
+    list's guess — the exact redirect this exists to perform.
+    """
+    monkeypatch.setenv(escalation.ESCALATION_REPOS_ENV, f"{OMNI},{MARKETING}")
+    client = FakeClickUpClient()
+
+    maybe_escalate(
+        analysis(f"GPBOT-REPO: {MARKETING}\nGPBOT-VERDICT: fix"),
+        "analyze",
+        factory_for(client),
+        target_repo=OMNI,
+    )
+
+    assert [kind for kind, _ in client.writes] == ["comment", "tag"]
+
+
+def test_no_marker_when_the_analysis_agrees_with_the_list():
+    # The line exists to correct the routing, not to confirm it. A marker on
+    # every ticket would be noise on the ticket and a write nobody needed.
+    client = FakeClickUpClient()
+
+    maybe_escalate(
+        analysis(f"GPBOT-REPO: {OMNI}\nGPBOT-VERDICT: fix"),
+        "analyze",
+        factory_for(client),
+        target_repo=OMNI,
+    )
+
+    assert client.comments == []
+    assert client.added_tags == [(TASK_ID, "gpbot-work")]
+
+
+def test_the_ramp_is_applied_to_the_repo_the_fix_is_in(monkeypatch):
+    """Not the repo that was read. This is the point of the whole change.
+
+    A marketing bug filed into an omni list is routed to omni, and omni is past
+    its ramp. Checking the routed repo would wave it through and open a PR in
+    gp-marketing while gp-marketing is still analyze-only — the ramp would be
+    measuring a repo the PR was never going to land in.
+    """
+    monkeypatch.setenv(escalation.ESCALATION_REPOS_ENV, OMNI)
+    client = FakeClickUpClient()
+
+    outcome = maybe_escalate(
+        analysis(f"GPBOT-REPO: {MARKETING}\nGPBOT-VERDICT: fix"),
+        "analyze",
+        factory_for(client),
+        target_repo=OMNI,
+    )
+
+    assert outcome == f"analyze-only repo ({MARKETING})"
+    assert client.added_tags == []
+    assert client.comments == [], "a ticket that was not queued must not claim an implementation is coming"
+
+
+def test_a_redirect_into_a_repo_that_is_ramped_on_does_escalate(monkeypatch):
+    # The other direction, so the test above is pinning the ramp rather than
+    # just "a redirect never escalates".
+    monkeypatch.setenv(escalation.ESCALATION_REPOS_ENV, f"{OMNI},{MARKETING}")
+    client = FakeClickUpClient()
+
+    outcome = maybe_escalate(
+        analysis(f"GPBOT-REPO: {MARKETING}\nGPBOT-VERDICT: fix"),
+        "analyze",
+        factory_for(client),
+        target_repo=OMNI,
+    )
+
+    assert outcome == "escalated"
+    assert client.added_tags == [(TASK_ID, "gpbot-work")]
+
+
+def test_an_unknown_repo_leaves_the_routing_alone(monkeypatch):
+    # Falls back to the routed repo rather than refusing the escalation: the
+    # analysis is still good, only its redirect is unusable.
+    monkeypatch.setenv(escalation.ESCALATION_REPOS_ENV, OMNI)
+    client = FakeClickUpClient()
+
+    outcome = maybe_escalate(
+        analysis("GPBOT-REPO: thegoodparty/gp-data-platform\nGPBOT-VERDICT: fix"),
+        "analyze",
+        factory_for(client),
+        target_repo=OMNI,
+    )
+
+    assert outcome == "escalated"
+    assert client.comments == []
+
+
+def test_a_failed_tag_write_retracts_the_redirect_it_already_announced(monkeypatch):
+    """The comment cannot be unwritten, so it has to be corrected.
+
+    The redirect note goes on the ticket BEFORE the tag, because the tag is what
+    launches the run and the run reads the note (see the ordering test above).
+    That ordering has a cost: if the tag write then fails, the ticket carries a
+    note announcing an implementation run that nobody queued, and ClickUpClient
+    has no delete to take it back with.
+
+    Left alone that note is worse than noise, because it is machine-read. A human
+    retrying the escalation by hand gets routed by a note written for a run that
+    never happened, to a repo chosen by an analysis they may not have read.
+
+    So the ticket gets a correction where the claim is, not just a line in
+    CloudWatch that nobody is watching.
+    """
+    monkeypatch.setenv(escalation.ESCALATION_REPOS_ENV, f"{OMNI},{MARKETING}")
+    client = FakeClickUpClient(add_tag_error=RuntimeError("clickup 429"))
+
+    outcome = maybe_escalate(
+        analysis(f"GPBOT-REPO: {MARKETING}\nGPBOT-VERDICT: fix"),
+        "analyze",
+        factory_for(client),
+        target_repo=OMNI,
+    )
+
+    assert outcome == "escalation failed"
+    assert client.added_tags == []
+    kinds = [kind for kind, _ in client.writes]
+    assert kinds == ["comment", "comment"], "the redirect was announced, so a correction is owed"
+    correction = client.comments[-1][1]
+    assert "never queued" in correction
+    assert "not in effect" in correction
+
+
+def test_the_correction_note_cannot_itself_be_read_as_a_redirect(monkeypatch):
+    """It names a repo, and a note that names a repo must not route anything.
+
+    The correction has to say which repo the retracted note pointed at, or it
+    does not tell the reader what to check. But the Lambda finds redirects by
+    scanning comment text for the marker phrase, so a correction that happened to
+    carry that phrase would re-assert the very routing it exists to withdraw.
+    """
+    monkeypatch.setenv(escalation.ESCALATION_REPOS_ENV, f"{OMNI},{MARKETING}")
+    client = FakeClickUpClient(add_tag_error=RuntimeError("clickup 500"))
+
+    maybe_escalate(
+        analysis(f"GPBOT-REPO: {MARKETING}\nGPBOT-VERDICT: fix"),
+        "analyze",
+        factory_for(client),
+        target_repo=OMNI,
+    )
+
+    correction = client.comments[-1][1]
+    assert escalation.REPO_MARKER_PREFIX not in correction

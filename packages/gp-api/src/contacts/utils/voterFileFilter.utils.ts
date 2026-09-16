@@ -121,6 +121,9 @@ export const LANGUAGE_CODE_TO_LABEL: Record<string, string> = {
   en: 'English',
   es: 'Spanish',
   other: 'Other',
+  // Language_Code IS NULL. Split out of 'other', which carried both and so
+  // matched most of a district.
+  unknown: 'Unknown',
 }
 
 // The only incomeRanges strings the conversion below understands; anything

@@ -16,7 +16,12 @@ const INITIAL_VISIBLE = 3
  * control revealing the rest, and Skip on each card dismissing it via
  * `PUT /v1/dashboard/cards/:id/dismiss`.
  */
-export default function TaskList(): React.JSX.Element | null {
+export default function TaskList({
+  briefingInFlight = false,
+}: {
+  /** True while a briefing is generating, so the empty state stays hidden. */
+  briefingInFlight?: boolean
+}): React.JSX.Element | null {
   const { data: cards, isPending, isError } = useDashboardCards('active')
   const { data: onboarding } = useOnboardingCards()
   const dismissCard = useDismissCard()
@@ -42,18 +47,18 @@ export default function TaskList(): React.JSX.Element | null {
   }
 
   if (!cards || cards.length === 0) {
-    // Don't claim "all caught up" while the get-started onboarding cards are
-    // shown above this list (or are still loading) — that reads as a
-    // contradiction. Show the empty state only once those are gone.
+    // Nothing above this list may contradict the empty state. The get-started
+    // onboarding cards and the briefing banner both sit above it, and either
+    // one showing means there IS something in progress.
     const onboardingActive = onboarding?.some((c) => c.status === 'active')
     if (onboardingActive || onboarding === undefined) return null
+    if (briefingInFlight) return null
     return (
       <p
         className="text-sm text-muted-foreground"
         data-testid="task-list-empty"
       >
-        You&apos;re all caught up. New tasks appear here as your briefings are
-        ready.
+        No tasks this week. Ask your chief of staff what is worth moving.
       </p>
     )
   }

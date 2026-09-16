@@ -121,6 +121,7 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 | Overall architecture / stack / module shape                  | `docs/architecture.md`                                           |
 | Auth (cookie/JWT, server vs client, impersonation)           | `docs/architecture.md` § Auth                                    |
 | Adding or migrating an API call                              | `docs/api-clients.md` + `gpApi/AGENTS.md`                        |
+| **Writing any user-facing copy**                             | **`docs/product-copy.md`** (repo root)                           |
 | Writing a unit/component test                                | `docs/testing.md`                                                |
 | Reproducing a Sentry issue locally                           | `docs/debugging.md`                                              |
 | State / providers / React Query patterns                     | `docs/state-management.md`                                       |

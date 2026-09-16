@@ -327,6 +327,25 @@ def divergence(
     return None
 
 
+def call_site_removal_straddles_window(record: Mapping[str, Any]) -> bool:
+    """True when a zero call-site count reflects a removal INSIDE the 30-day window.
+
+    The rank-0 canary reads "firing with zero call sites" as a blind counter, on the premise
+    that a client event cannot fire while nothing calls it. A window straddling the removal
+    breaks that premise: the traffic is all pre-removal, so the zero is a genuine retirement
+    (DATA-2427). Same trap DATA-2140 fixed for ``orphaned_firing``, one column over.
+
+    A missing removal date means nothing to straddle, and a missing ``last_seen`` (Databricks
+    catalog gap) is ambiguous -- both fall back to False so a real blind spot is never hidden
+    behind a null date.
+    """
+    removed = to_date(record.get("call_site_retired_date"))
+    last_seen = to_date(record.get("last_seen_date"))
+    if removed is None or last_seen is None:
+        return False
+    return last_seen <= removed + timedelta(days=ORPHAN_GRACE_DAYS)
+
+
 def rank_record(record: Mapping[str, Any]) -> int:
     """Digest severity rank (0 = highest). 99 = not flagged."""
     status, elevated, anomaly = record["status"], record["elevated"], record["anomaly"]
@@ -337,7 +356,12 @@ def rank_record(record: Mapping[str, Any]) -> int:
     # event dead: a tooling alert, never the rank-2 retirement path. An anomaly drop
     # alongside the zero is instead the signature of a genuine recent removal (counts
     # draining after the call site went away) and falls through to rank 2 below.
-    if record.get("call_site_count") == 0 and status == "active" and not anomaly:
+    if (
+        record.get("call_site_count") == 0
+        and status == "active"
+        and not anomaly
+        and not call_site_removal_straddles_window(record)
+    ):
         return 0
     if status == "orphaned_firing" or div.endswith("still firing"):
         return 1
@@ -349,7 +373,7 @@ def rank_record(record: Mapping[str, Any]) -> int:
     if (
         record.get("call_site_count") == 0
         and status in ("active", "dormant")
-        and (status == "dormant" or anomaly)
+        and (status == "dormant" or anomaly or call_site_removal_straddles_window(record))
     ):
         return 2
     if anomaly and status == "active" and elevated:

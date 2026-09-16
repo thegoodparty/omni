@@ -159,20 +159,6 @@ export const apiRoutes = {
       path: '/campaigns/mine/district',
       method: 'PUT',
     },
-    ai: {
-      create: {
-        path: '/campaigns/ai',
-        method: 'POST',
-      },
-      rename: {
-        path: '/campaigns/ai/rename',
-        method: 'PUT',
-      },
-      delete: {
-        path: '/campaigns/ai/:key',
-        method: 'DELETE',
-      },
-    },
     updateHistory: {
       create: {
         path: '/campaigns/mine/update-history',
@@ -260,16 +246,6 @@ export const apiRoutes = {
         path: '/campaigns/tcr-compliance/:tcrComplianceId/submit-cv-pin',
         method: 'POST',
       },
-    },
-  },
-  content: {
-    getByType: {
-      path: '/content/type/:type',
-      method: 'GET',
-    },
-    byType: {
-      path: '/content/type',
-      method: 'GET',
     },
   },
   topIssue: {

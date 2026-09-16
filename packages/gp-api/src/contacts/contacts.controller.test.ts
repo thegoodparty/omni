@@ -1,5 +1,6 @@
 import { useTestService } from '@/test-service'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from '@/contacts/contacts.types'
 import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -279,7 +280,11 @@ describe('GET /v1/contacts/precincts', () => {
     expect(called).toBeGreaterThan(0)
   })
 
-  it('rejects an elected-office org before the pro gate', async () => {
+  // Precinct is offered to Serve as well as Win, so an `eo-` org must reach
+  // district resolution rather than being turned away for being one. Asserted
+  // on the district error code: a reinstated elected-office gate would refuse
+  // before that point and the code would be absent.
+  it('lets an elected-office org through to district resolution', async () => {
     await service.prisma.organization.create({
       data: { slug: 'eo-precinct', ownerId: service.user.id },
     })
@@ -289,7 +294,9 @@ describe('GET /v1/contacts/precincts', () => {
     })
 
     expect(result.status).toBe(400)
-    expect(JSON.stringify(result.data)).toContain('not available')
+    expect((result.data as { errorCode?: string }).errorCode).toBe(
+      VOTER_DATA_UNAVAILABLE_ERROR_CODE,
+    )
   })
 
   it('rejects a non-pro Win campaign', async () => {
@@ -303,6 +310,6 @@ describe('GET /v1/contacts/precincts', () => {
       headers: { [ORG_SLUG_HEADER]: 'campaign-precinct-free' },
     })
 
-    expect(result.status).toBe(400)
+    expect(result.status).toBe(403)
   })
 })

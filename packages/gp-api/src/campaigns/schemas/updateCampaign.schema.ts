@@ -7,6 +7,7 @@ import {
 } from '@goodparty_org/contracts'
 import { StateSchema } from '@/shared/schemas/State.schema'
 import { BallotStatusSchema } from './ballotStatus.schema'
+import { SignupGoalSchema } from './signupGoal.schema'
 
 const CampaignDetailsSchema = z
   .object({
@@ -87,6 +88,7 @@ export const updateCampaignBodySchema = CampaignSchema.pick({
     details: CampaignDetailsSchema.optional(),
     primaryResult: z.enum(['won', 'lost']).nullish(),
     ballotStatus: BallotStatusSchema.nullish(),
+    signupGoal: SignupGoalSchema.nullish(),
   })
   .strict()
 

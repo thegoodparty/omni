@@ -171,7 +171,19 @@ export type DoorKnockingPackArray = z.infer<typeof DoorKnockingPackArraySchema>
 //   2 — age re-cut at every boundary both generations of age key use, so
 //       `age65Plus` and `age50_64` have somewhere exact to map
 //       (PackAgeBuckets.ts).
-export const PACK_FORMAT_REVISION = 2
+//   3 — language gained an Unknown bucket. Byte 0 was 'Other' and doubled as
+//       the no-data slot, so a person with no Language_Code shaded as an
+//       Other-language speaker — the pack's copy of buildLanguageFilter's
+//       `OR ... IS NULL`. Now UNKNOWN/English/Spanish/Other, byte 0 meaning
+//       "no data" as it does in every other dim.
+//
+// Note this is the vocabulary axis and not `version`: a client reads the
+// bucket list out of the manifest, so one shipping the new keys reads an old
+// three-value pack correctly too ('Other' is simply that pack's byte 0) and
+// finds nothing for `languageUnknown`, which is the old pack honestly having
+// no such bucket. Bumping `version` would instead make every tab open across
+// the deploy reject the pack outright, which this change does not warrant.
+export const PACK_FORMAT_REVISION = 3
 
 export const DoorKnockingPackManifestSchema = z
   .object({

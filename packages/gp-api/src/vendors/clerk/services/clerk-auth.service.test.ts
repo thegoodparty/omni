@@ -231,6 +231,59 @@ describe('ClerkAuthService', () => {
       })
     })
 
+    it('reads the sign-up phone out of unsafeMetadata', async () => {
+      getUser.mockResolvedValue({
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
+        firstName: 'A',
+        lastName: 'B',
+        unsafeMetadata: { phone: ' 5551234567 ' },
+      })
+
+      await expect(service.getUser('user_1')).resolves.toMatchObject({
+        phone: '5551234567',
+      })
+    })
+
+    it('prefers a verified Clerk phone number over the metadata one', async () => {
+      getUser.mockResolvedValue({
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
+        primaryPhoneNumber: { phoneNumber: '+15559999999' },
+        unsafeMetadata: { phone: '5551234567' },
+      })
+
+      await expect(service.getUser('user_1')).resolves.toMatchObject({
+        phone: '+15559999999',
+      })
+    })
+
+    it('reports no phone when unsafeMetadata carries none', async () => {
+      getUser.mockResolvedValue({
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
+        unsafeMetadata: { somethingElse: true },
+      })
+
+      await expect(service.getUser('user_1')).resolves.toMatchObject({
+        phone: undefined,
+      })
+    })
+
+    it('drops a metadata phone that is not a real number', async () => {
+      // unsafeMetadata is user-writable through Clerk's client SDK, so this
+      // path must not trust it — PhoneSchema guards only the HTTP routes.
+      getUser.mockResolvedValue({
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
+        unsafeMetadata: { phone: 'ARBITRARY-INJECTED-VALUE' },
+      })
+
+      await expect(service.getUser('user_1')).resolves.toMatchObject({
+        phone: undefined,
+      })
+    })
+
     it('returns null when the Clerk lookup fails', async () => {
       getUser.mockRejectedValue(new Error('clerk down'))
 

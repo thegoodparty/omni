@@ -137,7 +137,7 @@ WHERE `{L2_TYPE}` = :district_name
 
 The result is one row: `total_active` + one count per candidate column. Sort the per-candidate counts descending and take the top 5. Compute `voter_percentage = round(100.0 * voter_count / total_active, 1)` per issue.
 
-Keep `hs_column` as the raw column name. Derive `issue_label` by stripping the `hs_` prefix and the stance suffix, replacing underscores with spaces, and title-casing (e.g. `hs_min_wage_15_increase_support` → "Min Wage 15 Increase").
+Keep `hs_column` as the raw column name. Derive `issue_label` by stripping the `hs_` prefix and the stance suffix, replacing underscores with spaces, and title-casing (e.g. `hs_tax_cuts_support` → "Tax Cuts").
 
 ### Step 5 — One news source per top issue
 

@@ -2,7 +2,25 @@ import { ControllerName, ROUTE_MAP } from '../../../src/generated/route-types'
 import { Alert, SlackGroup } from './alerts.types'
 import { ALERT_OWNERSHIP, SERVER_ERRORS_ONLY } from '../alerts'
 
-const EXCLUDED_STATUS_CODES = [401, 403, 404, 409, 498]
+// 400 is excluded because a 400 is never evidence of a fault on its own. In
+// this codebase it is overwhelmingly designed vocabulary — Zod rejecting a
+// payload, an eligibility refusal (VOTER_DATA_UNAVAILABLE), a Serve org asking
+// for a Win-only filter, the 100k id-set cap — and nothing in a generated rule
+// can tell one of those from an accidental one. Counting it paged on the
+// product working: the Pro gate alone did it with a single free-tier user
+// before it moved to 403 (#1847), and every route that validates its input can
+// be made to fire by anyone typing a bad value. A real fault answers 5xx, or
+// answers nothing at all (see noStatusFilter below), and those still page.
+//
+// The cost is real and accepted: a 400 that IS a bug — a webapp sending a
+// payload the API stopped accepting, say — no longer pages, and shows up as a
+// support report or in the logs instead.
+const EXCLUDED_STATUS_CODES = [400, 401, 403, 404, 409, 498]
+
+// The notification has to state the same vocabulary the filter applies, so it
+// reads from the constant instead of restating it. The previous hardcoded
+// prose was already one edit away from lying to whoever it paged.
+const EXCLUDED_STATUS_PROSE = EXCLUDED_STATUS_CODES.join('/')
 
 // A request the gateway kills mid-flight completes with `statusCode: null`,
 // which is neither 4xx nor 5xx — so every status-range filter below misses it
@@ -91,7 +109,7 @@ export const controllerAlerts = (controller: ControllerName): Alert[] => {
       message: [
         serverErrorsOnly
           ? `\`{{ $labels.request_endpoint }}\` returned server errors, or no status at all, in the last ${LOOKBACK_PROSE} (status ≥ 500 or null). 4xx responses are deliberately excluded on this controller — see SERVER_ERRORS_ONLY in alerts.ts.`
-          : `\`{{ $labels.request_endpoint }}\` returned unexpected error responses, or no status at all, in the last ${LOOKBACK_PROSE} (status ≥ 400 excluding 401/403/404/409/498, or null).`,
+          : `\`{{ $labels.request_endpoint }}\` returned unexpected error responses, or no status at all, in the last ${LOOKBACK_PROSE} (status ≥ 400 excluding ${EXCLUDED_STATUS_PROSE}, or null).`,
         'Click *View in Grafana* to find the failing requests, then examine their logs and stack traces to understand why errors are occurring and ship fixes.',
         'A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Check `responseTimeMs` on those lines — a cluster at ~120,000ms is the timeout, not the handler.',
       ].join('\n\n'),

@@ -87,6 +87,26 @@ Both the `questions` and `gaps` tabs refresh **only** via the scheduled `analyti
 workflow. `scripts/shell/refresh-event-state.sh` runs `refresh` alone, so a manual run updates
 the `events` and `meta` tabs and leaves those two as the scheduled run last left them.
 
+## The anchors tab (DATA-2426)
+
+The `anchors` tab is a read-only render of `event_anchors.py`'s review queue: one row per
+candidate event's drafted `fires_on`/`url`, its confidence and (when low) `flag_reason`, the
+call-site `evidence`, and the human `disposition`. Nothing about this tab writes to
+Amplitude — see `event_anchors.py`'s own module docstring; the tab only ever displays
+whatever is already committed to `instrumentation_data/event_anchors.json`.
+
+- `uv run python event_state_gsheet.py refresh-anchors` — full overwrite of the `anchors`
+  tab. Same auth as `refresh` (`GP_EVENT_STATE_SHEET_ID` + the cached Google token); no
+  Databricks read. `--anchors-state PATH` points at a non-default state file; `--dry-run`
+  prints the matrix dimensions without writing.
+- A corrupt `--anchors-state` file skips just the `anchors` tab refresh, with a warning on
+  stderr, rather than crashing the command — same as `refresh-gaps`'s handling of a corrupt
+  gaps state file.
+
+Unlike `refresh`, `refresh-gaps` and `refresh-questions`, `refresh-anchors` is **not** wired
+into the scheduled `analytics-governance` workflow — run it by hand until DATA-2426's
+calibration pilot has been read and the batch writer (a separate, later plan) lands.
+
 ## Steps
 
 1. Make sure the provenance CSV is current — run the provenance walk first if needed:

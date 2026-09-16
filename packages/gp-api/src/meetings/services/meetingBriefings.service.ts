@@ -1281,7 +1281,7 @@ export class MeetingBriefingsService extends createPrismaBase(
     try {
       await this.analytics.track(
         electedOffice.userId,
-        'Briefing Assistant - Agenda Not Created',
+        EVENTS.BriefingAssistant.AgendaNotCreated,
         {
           electedOfficeId: electedOffice.id,
           experimentRunId: run.runId,
@@ -1344,7 +1344,7 @@ export class MeetingBriefingsService extends createPrismaBase(
     try {
       await this.analytics.track(
         userId,
-        'Briefing Assistant - Agenda Created',
+        EVENTS.BriefingAssistant.AgendaCreated,
         {
           agendaId: dateString,
           meetingDate: parseIsoDateAsUTC(dateString).getTime(),

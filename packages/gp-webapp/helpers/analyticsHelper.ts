@@ -198,7 +198,6 @@ export const EVENTS = {
       ClickDashboard: 'Navigation - Dashboard: Click Dashboard',
       ClickVoterData: 'Navigation - Dashboard: Click Voter Data',
       ClickDoorKnocking: 'Navigation - Dashboard: Click Door Knocking',
-      ClickContentBuilder: 'Navigation - Dashboard: Click Content Builder',
       ClickMyProfile: 'Navigation - Dashboard: Click My Profile',
       ClickCampaignTeam: 'Navigation - Dashboard: Click Campaign Team',
       ClickCommunity: 'Navigation - Dashboard: Click Community',
@@ -425,6 +424,22 @@ export const EVENTS = {
       PinEntryViewed: 'Pro Upgrade - PIN Entry Viewed',
     },
   },
+  // Candidate questions flow. The event string is snake_case, predating the
+  // 'Product Area - Action' convention; the name is kept exactly as ingested so
+  // moving it into the registry stays a no-op for Amplitude and HubSpot.
+  Questions: {
+    Completed: 'question_complete',
+  },
+  // Peer-to-peer texting upsell modal, a sibling of ProUpgrade.Modal above with
+  // its own event family. Every event carries `variant` (P2PModalVariant) so the
+  // two upsell copies are a property filter, not separate events.
+  P2PUpgrade: {
+    Modal: {
+      Shown: 'P2P Upgrade - Modal: Modal Shown',
+      Exit: 'P2P Upgrade - Modal: Exit',
+      ClickButton: 'P2P Upgrade - Modal: Click Button',
+    },
+  },
   // Shared Serve (elected office) + Win (campaign) contacts experience, both on
   // the People API. Every event carries a `context: 'win' | 'serve'` property
   // (sourced from ContactsTableProvider's isWinContext) so Win adoption of the
@@ -518,28 +533,6 @@ export const EVENTS = {
     // { field, from, to } — never on a failed PATCH. Win-only surface (Opt In
     // Status is read-only, no event), so there is no ConstituentData variant.
     ContactStatusChanged: 'Voter Data - Contact Status Changed',
-  },
-  ContentBuilder: {
-    ClickContinueQuestions: 'Content Builder: Click Continue Questions',
-    ClickGenerate: 'Content Builder: Click Generate',
-    SelectTemplate: 'Content Builder: Select Template',
-    CloseAdditionalInputs: 'Content Builder: Close Additional Inputs',
-    SubmitAdditionalInputs: 'Content Builder: Submit Additional Inputs',
-    ClickContent: 'Content Builder: Click Content',
-    Editor: {
-      ClickRegenerate: 'Content Builder - Editor: Click Regenerate',
-      SubmitRegenerate: 'Content Builder - Editor: Submit Regenerate',
-      ClickCopy: 'Content Builder - Editor: Click Copy',
-      ClickTranslate: 'Content Builder - Editor: Click Translate',
-      SubmitTranslate: 'Content Builder - Editor: Submit Translate',
-      OpenVersionPicker: 'Content Builder - Editor: Open Version Picker',
-      SelectVersion: 'Content Builder - Editor: Select Version',
-    },
-    OpenKebabMenu: 'Content Builder - Editor: Open Kebab Menu',
-    KebabMenu: {
-      ClickRename: 'Content Builder - Editor: Click Rename',
-      ClickDelete: 'Content Builder - Editor: Click Delete',
-    },
   },
   Profile: {
     CampaignDetails: {
@@ -731,6 +724,8 @@ export const EVENTS = {
     IssuesViewed: 'Onboarding V2 - What Issues Do You Want To Solve Viewed',
     IssuesCompleted:
       'Onboarding V2 - What Issues Do You Want To Solve Completed',
+    SignupGoalViewed: 'Onboarding V2 - Signup Goal Viewed',
+    SignupGoalCompleted: 'Onboarding V2 - Signup Goal Completed',
     OnboardingSkipped: 'Onboarding V2 - Onboarding Skipped',
   },
   CommunityIssues: {
@@ -766,6 +761,10 @@ export const EVENTS = {
   // (left having logged none). RouteBuildFailed is the funnel's only real
   // failure, since building a route is the one step that calls a paid vendor.
   //
+  // RouteBuildFailed has no success twin: the route is bought inside the
+  // list-creation transaction, so ListCreated is that success and a second
+  // event would count one press twice.
+  //
   // Session Completed also fires the canonical
   // Dashboard.VoterContact.CampaignCompleted with medium 'doorKnocking' —
   // that's the event the door-knocking activation metric counts, and the
@@ -774,16 +773,13 @@ export const EVENTS = {
     ListCreated: 'Door Knocking - List Created',
     ListEdited: 'Door Knocking - List Edited',
     ListDeleted: 'Door Knocking - List Deleted',
-    RouteBuilt: 'Door Knocking - Route Built',
     RouteBuildFailed: 'Door Knocking - Route Build Failed',
     SessionStarted: 'Door Knocking - Session Started',
     SessionCompleted: 'Door Knocking - Session Completed',
     SessionAbandoned: 'Door Knocking - Session Abandoned',
     DoorLogged: 'Door Knocking - Door Logged',
-    // ADR 0007. Both directions, because the ratio is the signal: a rising
-    // clear rate means the button is being mis-tapped, not that voters changed
-    // their minds.
-    DoNotKnockSet: 'Door Knocking - Do Not Knock Set',
+    // ADR 0007, clear direction only: the walk's door is read-only-plus-Undo
+    // (DoNotKnockControl), so nothing in the product sets the flag.
     DoNotKnockCleared: 'Door Knocking - Do Not Knock Cleared',
     // ADR 0008. Both directions for the same reason, and the Set event carries
     // which reason was given: the follow-up is optional, so how often it is

@@ -969,7 +969,7 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
 
     const res = await postAuthorize(outreachId)
 
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
     expect(paymentIntentsCreate).not.toHaveBeenCalled()
     expect(paymentMethodsRetrieve).not.toHaveBeenCalled()
   })

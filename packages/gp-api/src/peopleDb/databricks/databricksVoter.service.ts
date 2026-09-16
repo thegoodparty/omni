@@ -26,7 +26,11 @@ import {
   SamplePeopleDTO,
 } from '../schemas/people.schema'
 import { filtersSchema } from '../schemas/filters.schema'
-import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from '@/shared/constants/voterData.consts'
+import {
+  VOTER_DATA_UNAVAILABLE_ERROR_CODE,
+  VOTER_DATA_UNREACHABLE_ERROR_CODE,
+  VOTER_QUERY_TIMEOUT_ERROR_CODE,
+} from '@/shared/constants/voterData.consts'
 import { hash32 } from '../util/hash.util'
 import { buildVoterSelectSql, type BaseDbPerson } from '../voter.select'
 import { transformToPersonOutput } from '../utils/transformToPersonOutput.util'
@@ -561,13 +565,24 @@ export class DatabricksVoterService {
       // 502, never a bare 500 and never an empty result: voter data has no
       // fallback store now, so an unreachable warehouse has to be diagnosable
       // and must not be mistaken for a district that simply has no voters.
+      //
+      // The error code carries that same intent one layer further out. Saying
+      // "not an empty district" in a message a client then drops on the floor
+      // for being a 5xx achieves nothing; the code is what lets the client
+      // tell this 502 from a vendor's.
       if (err instanceof PeopleDbxUnavailableError) {
         this.logger.error({ err }, 'databricks voter data is unreachable')
-        throw new BadGatewayException(UNAVAILABLE_MESSAGE)
+        throw new BadGatewayException({
+          message: UNAVAILABLE_MESSAGE,
+          errorCode: VOTER_DATA_UNREACHABLE_ERROR_CODE,
+        })
       }
       if (!(err instanceof PeopleDbxTimeoutError)) throw err
       this.logger.error({ err }, 'databricks voter query exceeded its ceiling')
-      throw new GatewayTimeoutException(TIMEOUT_MESSAGE)
+      throw new GatewayTimeoutException({
+        message: TIMEOUT_MESSAGE,
+        errorCode: VOTER_QUERY_TIMEOUT_ERROR_CODE,
+      })
     }
   }
 }

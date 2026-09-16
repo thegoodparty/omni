@@ -3,9 +3,17 @@ import { zCoerceDate, zDate } from '../shared/Date.schema'
 import {
   DoorKnockingModeSchema,
   type DoorKnockingMode,
+  DoorKnockingPurposeSchema,
+  type DoorKnockingPurpose,
 } from '../generated/enums'
+import { DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH } from '../outreach/DoorKnockingTalkingPoints.schema'
 
-export { DoorKnockingModeSchema, type DoorKnockingMode }
+export {
+  DoorKnockingModeSchema,
+  type DoorKnockingMode,
+  DoorKnockingPurposeSchema,
+  type DoorKnockingPurpose,
+}
 
 // GeoJSON coordinate order: [lng, lat].
 const PositionSchema = z.tuple([
@@ -52,6 +60,33 @@ export const CreateDoorKnockingTurfSchema = z
     geoPoly: GeoJsonPolygonSchema,
     mode: DoorKnockingModeSchema,
     loop: z.boolean(),
+    // The goal the candidate picked on the wizard's first step. It has always
+    // been asked and never persisted — until now it decided a suggested list
+    // name and was dropped on submit.
+    //
+    // Optional on the wire, and the column is nullable to match: the flow can
+    // reach submit without it (the "Something else" card carries no slug the
+    // server would store), and a client that has not shipped this field yet
+    // must keep creating lists.
+    //
+    // The union of both rails' vocabularies, because door knocking has ONE
+    // route for both surfaces — the server does not re-derive which rail is
+    // asking, so a Serve-only slug and a Win-only slug both have to be
+    // acceptable here. The wizard only ever offers the six for the rail it is
+    // drawing.
+    purpose: DoorKnockingPurposeSchema.optional(),
+    // The generated talking points, frozen with the list.
+    //
+    // Plain text, one line per section, landing on the `Outreach.script`
+    // column that every other channel already uses for exactly this. Sent by
+    // the client rather than generated here because generation is a separate,
+    // stateless draft endpoint — the create transaction already carries a paid
+    // Geoapify round trip inside a 120-second window, and an LLM call has no
+    // business inside it.
+    talkingPoints: z
+      .string()
+      .max(DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH)
+      .optional(),
   })
   .strict()
 

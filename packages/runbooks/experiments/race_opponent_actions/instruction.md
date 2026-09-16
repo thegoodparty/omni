@@ -83,17 +83,17 @@ Grouped into 9 topics:
 
 **housing** — `hs_affordable_housing_gov_has_role` (gov has a role in affordable housing), `hs_affordable_housing_gov_no_role` (opposes gov role), `hs_gentrification_support`, `hs_gentrification_oppose` (`hs_new_home_buyer`/`hs_any_home_buyer` are deliberately excluded: ~60-baseline propensity models, not sentiment — never select them as a card column; see the score rule above)
 
-**taxes** — `hs_tax_cuts_support`, `hs_tax_cuts_oppose`, `hs_gas_tax_support`, `hs_gas_tax_oppose`, `hs_social_security_tax_increase_support`, `hs_social_security_tax_increase_oppose`, `hs_min_wage_15_increase_support`, `hs_min_wage_15_increase_oppose`, `hs_ideology_fiscal_conserv`, `hs_ideology_fiscal_liberal`
+**taxes** — `hs_tax_cuts_support`, `hs_tax_cuts_oppose`, `hs_gas_tax_support`, `hs_gas_tax_oppose`, `hs_ideology_fiscal_conservative`, `hs_ideology_fiscal_liberal`
 
-**education** — `hs_school_choice_support`, `hs_school_choice_oppose`, `hs_school_funding_more`, `hs_school_funding_less`, `hs_charter_schools_support`, `hs_charter_schools_oppose`, `hs_teachers_union_positive`, `hs_teachers_union_negative`, `hs_community_college_free_support`, `hs_community_college_free_oppose`
+**education** — `hs_school_choice_support`, `hs_school_choice_oppose`, `hs_school_funding_more`, `hs_school_funding_less`, `hs_charter_schools_support`, `hs_charter_schools_oppose`, `hs_teachers_union_positive`, `hs_teachers_union_negative`
 
-**healthcare** — `hs_medicaid_expansion_support`, `hs_medicaid_expansion_oppose`, `hs_medicare_for_all_support`, `hs_medicare_for_all_oppose`, `hs_obamacare_aca_expand`, `hs_obamacare_aca_protect`, `hs_obamacare_aca_oppose`, `hs_family_medical_leave_support`, `hs_family_medical_leave_oppose`, `hs_opioid_crisis_treat`, `hs_opioid_crisis_enforce`
+**healthcare** — `hs_medicaid_expansion_support`, `hs_medicaid_expansion_oppose`, `hs_medicare_for_all_support`, `hs_medicare_for_all_oppose`, `hs_obamacare_aca_expand`, `hs_obamacare_aca_protect`, `hs_obamacare_aca_oppose`
 
-**climate_energy** — `hs_climate_change_believer`, `hs_climate_change_nonbeliever`, `hs_electric_vehicle_likely_buyer`, `hs_electric_vehicle_not_likely`, `hs_solar_panel_buyer_yes`, `hs_solar_panel_buyer_no`, `hs_pipeline_fracking_support`, `hs_pipeline_fracking_oppose`, `hs_green_new_deal_support`, `hs_green_new_deal_oppose`, `hs_sell_federal_lands_support`, `hs_sell_federal_lands_oppose`
+**climate_energy** — `hs_climate_change_believer`, `hs_climate_change_nonbeliever`, `hs_electric_vehicle_likely_buyer`, `hs_electric_vehicle_not_likely`, `hs_solar_panel_buyer_yes`, `hs_solar_panel_buyer_no`, `hs_pipeline_fracking_support`, `hs_pipeline_fracking_oppose`, `hs_green_new_deal_support`, `hs_green_new_deal_oppose`
 
-**immigration** — `hs_mass_deporations_support`, `hs_mass_deporations_oppose`, `hs_mexican_wall_support`, `hs_mexican_wall_oppose`, `hs_immigration_process_unfair`, `hs_immigration_undesirable`
+**immigration** — `hs_mass_deportations_support`, `hs_mass_deportations_oppose`, `hs_mexican_wall_support`, `hs_mexican_wall_oppose`, `hs_illegal_imm_process_unfair`, `hs_illegal_imm_undesirable`
 
-**crime_safety** — `hs_violent_crime_very_worried`, `hs_violent_crime_not_worried`, `hs_gun_control_support`, `hs_gun_control_oppose`, `hs_police_trust_yes`, `hs_police_trust_no`, `hs_death_penalty_support`, `hs_death_penalty_oppose`
+**crime_safety** — `hs_violent_crime_worried`, `hs_violent_crime_not_worried`, `hs_gun_control_support`, `hs_gun_control_oppose`, `hs_police_trust_yes`, `hs_police_trust_no`, `hs_death_penalty_support`, `hs_death_penalty_oppose`
 
 **social_issues** — `hs_abortion_pro_choice`, `hs_abortion_pro_life`, `hs_same_sex_marriage_support`, `hs_same_sex_marriage_oppose`, `hs_trans_athlete_yes`, `hs_trans_athlete_no`, `hs_dei_support`, `hs_dei_oppose`, `hs_religion_important`, `hs_religion_not_important`
 
@@ -201,44 +201,37 @@ ALLOWED_COLS = {
     "hs_capitalism_believe_flawed",
     "hs_capitalism_believe_sound", "hs_charter_schools_oppose",
     "hs_charter_schools_support", "hs_climate_change_believer",
-    "hs_climate_change_nonbeliever", "hs_community_college_free_oppose",
-    "hs_community_college_free_support", "hs_death_penalty_oppose",
+    "hs_climate_change_nonbeliever", "hs_death_penalty_oppose",
     "hs_death_penalty_support", "hs_dei_oppose",
     "hs_dei_support", "hs_electric_vehicle_likely_buyer",
-    "hs_electric_vehicle_not_likely", "hs_family_medical_leave_oppose",
-    "hs_family_medical_leave_support", "hs_gas_tax_oppose",
+    "hs_electric_vehicle_not_likely", "hs_gas_tax_oppose",
     "hs_gas_tax_support", "hs_gentrification_oppose",
     "hs_gentrification_support", "hs_green_new_deal_oppose",
     "hs_green_new_deal_support", "hs_gun_control_oppose",
-    "hs_gun_control_support", "hs_ideology_fiscal_conserv",
-    "hs_ideology_fiscal_liberal", "hs_immigration_process_unfair",
-    "hs_immigration_undesirable", "hs_income_inequality_no_issue",
+    "hs_gun_control_support", "hs_ideology_fiscal_conservative",
+    "hs_ideology_fiscal_liberal", "hs_illegal_imm_process_unfair",
+    "hs_illegal_imm_undesirable", "hs_income_inequality_no_issue",
     "hs_income_inequality_serious", "hs_infrastructure_funding_enough_spent",
-    "hs_infrastructure_funding_fund_more", "hs_mass_deporations_oppose",
-    "hs_mass_deporations_support", "hs_medicaid_expansion_oppose",
+    "hs_infrastructure_funding_fund_more", "hs_mass_deportations_oppose",
+    "hs_mass_deportations_support", "hs_medicaid_expansion_oppose",
     "hs_medicaid_expansion_support", "hs_medicare_for_all_oppose",
     "hs_medicare_for_all_support", "hs_mexican_wall_oppose",
-    "hs_mexican_wall_support", "hs_min_wage_15_increase_oppose",
-    "hs_min_wage_15_increase_support",
-    "hs_obamacare_aca_expand", "hs_obamacare_aca_oppose",
-    "hs_obamacare_aca_protect", "hs_opioid_crisis_enforce",
-    "hs_opioid_crisis_treat", "hs_pipeline_fracking_oppose",
+    "hs_mexican_wall_support", "hs_obamacare_aca_expand", "hs_obamacare_aca_oppose",
+    "hs_obamacare_aca_protect", "hs_pipeline_fracking_oppose",
     "hs_pipeline_fracking_support", "hs_police_trust_no",
     "hs_police_trust_yes", "hs_regulations_good",
     "hs_regulations_too_harsh", "hs_religion_important",
     "hs_religion_not_important", "hs_same_sex_marriage_oppose",
     "hs_same_sex_marriage_support", "hs_school_choice_oppose",
     "hs_school_choice_support", "hs_school_funding_less",
-    "hs_school_funding_more", "hs_sell_federal_lands_oppose",
-    "hs_sell_federal_lands_support", "hs_social_security_tax_increase_oppose",
-    "hs_social_security_tax_increase_support", "hs_solar_panel_buyer_no",
+    "hs_school_funding_more", "hs_solar_panel_buyer_no",
     "hs_solar_panel_buyer_yes", "hs_tax_cuts_oppose",
     "hs_tax_cuts_support", "hs_teachers_union_negative",
     "hs_teachers_union_positive", "hs_trans_athlete_no",
     "hs_trans_athlete_yes", "hs_unions_beneficial",
     "hs_unions_not_beneficial", "hs_violent_crime_not_worried",
-    "hs_violent_crime_very_worried",
-}  # every hs_* name in the inline catalog above
+    "hs_violent_crime_worried",
+    }  # every hs_* name in the inline catalog above
 cols = [...]  # the Step 3 columns, one per angle that found a match
 # If no angle matched a catalog column, do NOT run any Databricks query:
 # skip the rest of this step, set haystaq_status = "no_coverage", and write

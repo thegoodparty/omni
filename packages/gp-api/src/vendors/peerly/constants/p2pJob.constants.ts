@@ -23,6 +23,7 @@ export const P2P_ERROR_MESSAGES = {
   CLEAR_CANVASSERS_FAILED: 'Failed to clear canvasser request for P2P job',
   JOB_STATS_FAILED: 'Failed to fetch P2P job stats',
   RETRIEVE_JOBS_FAILED: 'Failed to fetch P2P jobs',
+  LIST_TEST_JOBS_FAILED: 'Failed to fetch P2P test jobs',
 } as const
 
 export const P2P_PHONE_LIST_MAP = {

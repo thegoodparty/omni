@@ -2,6 +2,7 @@
 
 import { createContext, useContext, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import type { RoutePayloadRepresenting } from '@goodparty_org/contracts'
 import { turfsQueryOptions } from './turfQueries'
 
 // Which surface this page is: a candidate's Win rail or an elected official's
@@ -44,23 +45,68 @@ export const DoorKnockingOfficeProvider = DoorKnockingOfficeContext.Provider
 export const useDoorKnockingOfficeName = () =>
   useContext(DoorKnockingOfficeContext)
 
-// Both of the above as one element, so the page states its surface once. Two
-// nested providers around a subtree this large is a re-indentation of the
-// whole page for a second value, which buries the change that actually
-// happened — and there is no case for setting one without the other, since
-// they are the same answer to "which product is this" read at two grains.
+// Who is holding the phone, and — when it isn't the candidate — who they are
+// canvassing for.
+//
+// The two travel together because they answer one question the door script
+// cannot get anywhere else: whether the opener is spoken in the first person
+// about the reader, or by a volunteer about someone else. `useCampaign()` is
+// null for a volunteer (`GET /v1/campaigns/mine` 403s them, ENG-11072), so
+// there is no session-side signal to read, and the surface flag beside this
+// one deliberately answers a different question — a volunteer walks both Win
+// and Serve routes.
+//
+// Kept as a pair rather than deriving `isVolunteer` from a non-null
+// `representing`, because the payload's `representing` is best-effort. A
+// volunteer whose route arrived without it must still not fall through to the
+// candidate's opener: on a Serve route that would introduce them, by name, as
+// the office holder.
+export interface DoorKnockingCanvasser {
+  isVolunteer: boolean
+  representing: RoutePayloadRepresenting | null
+}
+
+// The candidate reading their own script — the dashboard walk, the print
+// route, and every test that mounts a leaf without a provider. A module
+// constant rather than a literal at each use: a fresh object every render is a
+// fresh context value, which re-renders every consumer of it for nothing.
+const CANDIDATE_CANVASSER: DoorKnockingCanvasser = {
+  isVolunteer: false,
+  representing: null,
+}
+
+const DoorKnockingCanvasserContext =
+  createContext<DoorKnockingCanvasser>(CANDIDATE_CANVASSER)
+
+export const useDoorKnockingCanvasser = () =>
+  useContext(DoorKnockingCanvasserContext)
+
+// All of the above as one element, so the page states its surface once. Nested
+// providers around a subtree this large are a re-indentation of the whole page
+// per value, which buries the change that actually happened — and there is no
+// case for setting one without the others, since they are the same answer to
+// "whose product is this, and who is reading it" at three grains.
 export const DoorKnockingSurface = ({
   serveMode,
   officeName,
+  canvasser,
   children,
 }: {
   serveMode: boolean
   officeName: string
+  // Optional because only the volunteer walk has anything to say here, and
+  // every other mount site — the dashboard page, the print route, the leaf
+  // tests — means the default.
+  canvasser?: DoorKnockingCanvasser
   children: ReactNode
 }) => (
   <DoorKnockingSurfaceProvider value={serveMode}>
     <DoorKnockingOfficeProvider value={officeName}>
-      {children}
+      <DoorKnockingCanvasserContext.Provider
+        value={canvasser ?? CANDIDATE_CANVASSER}
+      >
+        {children}
+      </DoorKnockingCanvasserContext.Provider>
     </DoorKnockingOfficeProvider>
   </DoorKnockingSurfaceProvider>
 )

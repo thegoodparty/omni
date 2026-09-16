@@ -488,9 +488,13 @@ def test_post_digest_survives_thread_failure_and_returns_parent_ts():
 
 def test_post_digest_noop_when_quiet():
     tx = _FakeTransport()
-    # quiet: no status changes and the anomaly persisted from last run
+    # quiet: no status changes and the anomaly persisted from last run. The anchor queue is
+    # injected rather than left to load from the committed file — otherwise this passes only
+    # because no committed row happens to carry RESULT's run_date, and the next seeding run
+    # on that date would flip it.
     ts = slk.post_digest(RESULT, QUIET, PRIOR, token="xoxb-t", channel="C0BECEK0603",
-                         transport=tx, prior_anomalous={"donation_submitted"})
+                         transport=tx, prior_anomalous={"donation_submitted"},
+                         anchor_queue={"queued": 0, "flagged": 0, "new": 0})
     assert ts is None
     assert tx.calls == []
 
@@ -717,3 +721,176 @@ def test_legacy_layout_unchanged_when_triage_none():
     explicit = slk.build_digest_blocks(result, changes, {}, set(), gap=None, triage=None)
     assert legacy == explicit
     assert "Needs action" not in _flatten_text(legacy[0])
+
+
+# --- anchors review entry point (DATA-2426) ----------------------------------
+
+
+def test_anchor_block_carries_both_links_and_is_silent_on_an_empty_queue():
+    """The block exists to be an entry point: a count plus where to read and where to edit.
+    An empty queue renders nothing rather than posting a zero."""
+    assert slk.build_anchor_blocks({"queued": 0, "flagged": 0}) == []
+
+    blocks = slk.build_anchor_blocks({"queued": 12, "flagged": 9})
+    body = blocks[0]["text"]["text"]
+    assert "12 drafted anchor(s) queued, 9 flagged" in body
+    # The reviewer has to be told what to DO, not just that work exists.
+    assert "disposition" in body
+    links = blocks[-1]["elements"][0]["text"]
+    # Asserted against the literal constant, not against anchors_review_url() — calling the
+    # same function for stimulus and oracle only proves it returns something.
+    assert slk.ANCHOR_REVIEW_URL in links
+    assert "Review and edit" in links
+
+
+def test_anchor_queue_counts_only_undecided_rows(tmp_path):
+    """A reviewed row must leave the queue, or the digest nags forever about work that is
+    done. `open` is deliberately still queued — it is the "come back to this" disposition."""
+    state = {
+        "A": {"disposition": "new", "confidence": "low"},
+        "B": {"disposition": "open", "confidence": "high"},
+        "C": {"disposition": "accepted", "confidence": "low"},
+        "D": {"disposition": "dismissed", "confidence": "low"},
+    }
+    path = tmp_path / "event_anchors.json"
+    path.write_text(json.dumps(state))
+    assert slk.load_anchor_queue(path) == {"queued": 2, "flagged": 1, "new": 0}
+
+
+def test_anchor_queue_survives_a_missing_or_corrupt_state_file(tmp_path):
+    """Pre-seed the file does not exist, and a bad hand-edit must not take the digest down
+    with it — both degrade to a skipped block, never an exception."""
+    empty = {"queued": 0, "flagged": 0, "new": 0}
+    assert slk.load_anchor_queue(tmp_path / "absent.json") == empty
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+    assert slk.load_anchor_queue(bad) == empty
+    listish = tmp_path / "list.json"
+    listish.write_text("[]")
+    assert slk.load_anchor_queue(listish) == empty
+
+
+def test_a_run_whose_only_news_is_a_freshly_drafted_anchor_still_posts():
+    """The thread renders anchor content, so the gate has to know anchors exist. This is
+    the gap-sweep first-run regression one queue over: without it the digest goes quiet on
+    exactly the run that introduces the review link."""
+    result = {"run_date": "2026-09-11", "events": []}
+    quiet = {"new": [], "escalated": [], "resolved": [], "still_open": []}
+    assert slk.should_post(result, quiet, set(), None, anchor_queue={"queued": 0, "new": 0}) is False
+    # Omitted is "no anchor news", never "go and read the file" — the builders and the gate
+    # are pure, and post_digest is the only place the queue is read from disk.
+    assert slk.should_post(result, quiet, set(), None) is False
+    assert slk.should_post(result, quiet, set(), None,
+                           anchor_queue={"queued": 5, "new": 5}) is True
+
+
+def test_a_standing_anchor_backlog_is_not_news():
+    """362 queued anchors must not force a post on every run until the last one is
+    reviewed — a digest that shouts the same number every time is one the channel learns
+    to skip. The block still renders when the digest posts for another reason."""
+    result = {"run_date": "2026-09-14", "events": []}
+    quiet = {"new": [], "escalated": [], "resolved": [], "still_open": []}
+    backlog = {"queued": 362, "flagged": 185, "new": 0}
+    assert slk.should_post(result, quiet, set(), None, anchor_queue=backlog) is False
+    assert slk.build_anchor_blocks(backlog) != []
+
+
+def test_anchor_news_counts_only_rows_first_drafted_on_this_run(tmp_path):
+    state = {
+        "A": {"disposition": "new", "confidence": "low", "first_seen": "2026-09-11"},
+        "B": {"disposition": "new", "confidence": "high", "first_seen": "2026-09-04"},
+        "C": {"disposition": "accepted", "confidence": "low", "first_seen": "2026-09-11"},
+    }
+    path = tmp_path / "event_anchors.json"
+    path.write_text(json.dumps(state))
+    assert slk.load_anchor_queue(path, run_date="2026-09-11") == {
+        "queued": 2, "flagged": 1, "new": 1}
+    # No run date (an older caller) means nothing reads as new, never everything.
+    assert slk.load_anchor_queue(path)["new"] == 0
+
+
+def test_builders_and_gate_never_touch_disk_for_the_anchor_queue(monkeypatch):
+    """The module's contract is that the gate and the block builders are pure. Reading the
+    committed state inside them made every existing builder test read a 100KB+ file and
+    inherit whatever anchors happened to be queued that day — including making
+    test_post_digest_noop_when_quiet pass only because no row carried its run_date."""
+    def explode(*a, **k):
+        raise AssertionError("load_anchor_queue must not be called from a builder or the gate")
+    monkeypatch.setattr(slk, "load_anchor_queue", explode)
+
+    result = {"run_date": "2026-09-11", "events": []}
+    quiet = {"new": [], "escalated": [], "resolved": [], "still_open": []}
+    slk.should_post(result, quiet, set(), None)
+    slk.build_digest_blocks(result, quiet, None)
+    slk.build_digest_blocks(result, quiet, None, None, None,
+                            {"items": [], "run_date": "2026-09-11"})
+
+
+def test_post_digest_threads_the_injected_queue_into_the_thread():
+    """post_digest is the IO boundary, so an injected queue has to reach the block that
+    renders the review link — otherwise the parameter is decoration."""
+    tx = _FakeTransport()
+    result = {"run_date": "2026-09-11", "events": [], "status_counts": {"active": 1}}
+    changes = {"new": ["E"], "escalated": [], "resolved": [], "still_open": []}
+    slk.post_digest(result, changes, None, token="t", channel="C", transport=tx,
+                    anchor_queue={"queued": 7, "flagged": 4, "new": 7})
+    thread_text = json.dumps(tx.calls)
+    assert "7 drafted anchor(s) queued" in thread_text
+    assert slk.ANCHOR_REVIEW_URL in thread_text
+
+
+def test_tiered_layout_renders_the_anchor_block_too():
+    """The tiered layout is the one the governance workflow actually posts, so the anchor
+    entry point has to be covered there and not only on the legacy branch."""
+    result = {"run_date": "2026-09-11", "events": [], "status_counts": {"active": 1}}
+    quiet = {"new": [], "escalated": [], "resolved": [], "still_open": []}
+    triage = {"items": [], "run_date": "2026-09-11"}
+    _parent, thread = slk.build_digest_blocks(
+        result, quiet, None, None, None, triage,
+        {"queued": 9, "flagged": 6, "new": 0})
+    text = json.dumps(thread)
+    assert "9 drafted anchor(s) queued, 6 flagged" in text
+    assert slk.ANCHOR_REVIEW_URL in text
+
+
+def test_anchors_review_url_prefers_an_explicit_override(monkeypatch):
+    """Mirrors test_sheet_url_prefers_explicit_override: the env hook and the committed
+    fallback each need their own assertion against a literal."""
+    monkeypatch.setenv("GP_ANCHORS_REVIEW_URL", "https://example.test/queue.md")
+    assert slk.anchors_review_url() == "https://example.test/queue.md"
+    monkeypatch.delenv("GP_ANCHORS_REVIEW_URL", raising=False)
+    assert slk.anchors_review_url() == slk.ANCHOR_REVIEW_URL
+    assert slk.ANCHOR_REVIEW_URL.startswith(
+        "https://github.com/thegoodparty/omni/blob/main/")
+    assert slk.ANCHOR_REVIEW_URL.endswith("event-anchors-review.md")
+
+
+def test_anchors_browse_url_covers_all_three_paths(monkeypatch):
+    """Mirrors the three sheet_url tests. The block omits the browse link when this returns
+    None, so a typo in the env name or the #gid= derivation would otherwise just show up as
+    a quietly missing link in Slack."""
+    monkeypatch.setenv("GP_EVENT_STATE_SHEET_ID", "abc123")
+
+    monkeypatch.setenv("GP_ANCHORS_BROWSE_URL", "https://example.test/browse")
+    assert slk.anchors_browse_url() == "https://example.test/browse"
+
+    monkeypatch.delenv("GP_ANCHORS_BROWSE_URL", raising=False)
+    monkeypatch.delenv("GP_ANCHORS_TAB_GID", raising=False)
+    assert slk.anchors_browse_url() == "https://docs.google.com/spreadsheets/d/abc123/edit"
+
+    monkeypatch.setenv("GP_ANCHORS_TAB_GID", "999")
+    assert slk.anchors_browse_url() == (
+        "https://docs.google.com/spreadsheets/d/abc123/edit#gid=999")
+
+    monkeypatch.delenv("GP_EVENT_STATE_SHEET_ID", raising=False)
+    assert slk.anchors_browse_url() is None
+
+
+def test_anchor_block_renders_the_browse_link_when_a_sheet_is_configured(monkeypatch):
+    """The happy path the other block test cannot see: with no sheet id configured the
+    browse link is legitimately omitted, so that test proves nothing about it."""
+    monkeypatch.setenv("GP_EVENT_STATE_SHEET_ID", "abc123")
+    monkeypatch.setenv("GP_ANCHORS_TAB_GID", "999")
+    links = slk.build_anchor_blocks({"queued": 3, "flagged": 1})[-1]["elements"][0]["text"]
+    assert "#gid=999" in links
+    assert "Browse anchors" in links

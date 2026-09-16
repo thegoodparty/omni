@@ -585,7 +585,7 @@ describe('POST /v1/outreach/robocall — draft-first create', () => {
 
     const res = await postDraft(validDraftBody())
 
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
     // The Pro gate rejects before the service does any people-db work.
     expect(findContactsForFilter).not.toHaveBeenCalled()
     const rows = await service.prisma.outreach.count({

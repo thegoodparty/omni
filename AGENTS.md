@@ -52,6 +52,7 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Background agents / PMF Engine / evals | `docs/cap-background-agents.md`               |
 | Interactive AI chat (the `ai` SDK)     | `docs/cap-interactive-agents.md`              |
 | The Python AI services + their infra   | `packages/gp-ai/AGENTS.md`                    |
+| **Writing any user-facing copy**       | **`docs/product-copy.md`**                    |
 | Setting up / running locally           | `docs/development.md`                         |
 | Writing or fixing a test               | `docs/testing.md`                             |
 | Adding a scheduled / cron job          | `docs/scheduled-jobs.md`                      |
@@ -105,6 +106,10 @@ packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
 - **Comments:** default to none. Add one only for a non-obvious WHY (a hidden
   constraint, a subtle invariant, a workaround). Never explain WHAT the code does.
   Never remove existing comments unless asked.
+- **Copy:** every user-facing string follows `docs/product-copy.md`. Step
+  titles are questions the user can answer, captions are one sentence of 20
+  words or fewer, and nothing on screen explains how the system works. The
+  voter outreach flows and onboarding are the reference implementations.
 - **WET over premature DRY.** Don't extract a helper used in one place. Prefer the
   simplest approach first; don't over-engineer.
 - **Validation:** Zod everywhere. API responses validated at runtime via response

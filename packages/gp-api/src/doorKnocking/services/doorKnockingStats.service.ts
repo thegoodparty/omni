@@ -202,6 +202,15 @@ export class DoorKnockingStatsService extends createPrismaBase(
       -- SupportStatusService.derivedStatusSql, which unions phone banking.
       -- The two answers have their own latest row: a canvasser can capture
       -- support on one visit and the GOTV answer on the next.
+      --
+      -- Latest, NOT firmest, which is the other deliberate difference from
+      -- derivedStatusSql. A displayed status answers "where does this person
+      -- stand", so an "I'm not sure today" must not erase the supporter they
+      -- were last month (SUPPORT_ANSWER_FIRMNESS). "Committed voters" asks
+      -- something narrower -- who is a supporter AND says they will vote right
+      -- now -- and someone who has gone non-committal is not that, whatever
+      -- they said before. The persuaded CTE above is historical for the
+      -- opposite reason, spelled out in its own header.
       latest_support AS (
         SELECT DISTINCT ON (person_id) person_id, support_answer
         FROM knock

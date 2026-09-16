@@ -9,7 +9,10 @@ import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
 import { GeoapifyRoutePlannerService } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
-import type { LngLat } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
+import type {
+  LngLat,
+  RoutePlannerPlan,
+} from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 import type { GeoapifyApi } from '@/vendors/geoapify/observability/geoapify.metrics'
 import { recordGeoapifyCredits } from '@/vendors/geoapify/observability/geoapify.metrics'
 import {
@@ -24,6 +27,16 @@ import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { DoorKnockingStatsService } from './doorKnockingStats.service'
 import { DoorKnockingTurfService } from './doorKnockingTurf.service'
 import { pointInPolygon, polygonBbox } from '../utils/geo.util'
+import {
+  coordinateKey,
+  groupIntoBlockFaces,
+  representativeOf,
+  sequenceBlockFaces,
+} from '../utils/blockFace.util'
+import {
+  EMPTY_TURF_MESSAGE,
+  emptyAudienceMessage,
+} from '../utils/emptyAudience.util'
 import { routePlannerCredits, routingCredits } from '../utils/geoapifyCost.util'
 import { assertCampaignQuota } from '../utils/campaignQuota.util'
 import { recordWaypointSpend } from '../utils/waypointSpend.util'
@@ -163,6 +176,11 @@ export class DoorKnockingCreateService extends createPrismaBase(
             name: input.name,
             color: input.color,
             geoPoly: input.geoPoly,
+            // Why the list was walked, kept on the turf beside the audience
+            // it selected. Optional because every turf created before the
+            // talking-points step existed has none, and because the wizard
+            // does not require a purpose to route a walk.
+            purpose: input.purpose,
           },
         })
 
@@ -178,11 +196,10 @@ export class DoorKnockingCreateService extends createPrismaBase(
         )
         if (resolved.empty) {
           // Nobody survives the list's own filters, so there is nothing to
-          // route. Same failure the polygon miss below reports, raised before
-          // paying for a people-db scan that can only come back empty.
-          throw new BadRequestException(
-            'No matching voters inside this turf — widen the area or the filters',
-          )
+          // route — and nothing about the polygon, which has not been looked
+          // at yet, could change that. Raised before paying for a people-db
+          // scan that can only come back empty.
+          throw new BadRequestException(emptyAudienceMessage(filter))
         }
 
         const { people } = await this.peopleApi.evaluate({
@@ -284,6 +301,11 @@ export class DoorKnockingCreateService extends createPrismaBase(
             voterFileFilterId: filter.id,
             doorKnockingRouteId: route.id,
             date: new Date(),
+            // The talking points, frozen with the walk on the same column
+            // every other channel already stores its script in. Frozen for
+            // the same reason the route is: a canvasser who started the list
+            // and a canvasser who picks it up next week read the same card.
+            script: input.talkingPoints,
           },
         })
 
@@ -371,14 +393,17 @@ export class DoorKnockingCreateService extends createPrismaBase(
           a.addressKey.localeCompare(b.addressKey) || a.id.localeCompare(b.id),
       )
     if (inside.length === 0) {
-      throw new BadRequestException(
-        'No matching voters inside this turf — widen the area or the filters',
-      )
+      throw new BadRequestException(EMPTY_TURF_MESSAGE)
     }
 
     const byCoordinate = new Map<string, PlannedStop>()
     for (const person of inside) {
-      const key = `${person.lat}|${person.lng}`
+      // Snapped to ~1m rather than compared exactly: two voter rows for one
+      // building whose coordinates differ in the last decimal used to become
+      // two stops, which the route planner was then free to put a trip across
+      // the street between. The stop still keeps the first resident's real
+      // coordinate — this is a grouping key, not a position.
+      const key = coordinateKey(person.lat, person.lng)
       let stop = byCoordinate.get(key)
       if (!stop) {
         stop = {
@@ -402,21 +427,38 @@ export class DoorKnockingCreateService extends createPrismaBase(
     return stops
   }
 
-  private async planStops(stops: PlannedStop[], request: RouteRequest) {
-    const jobs = stops.map((stop, index) => ({
-      id: String(index),
-      location: [stop.lng, stop.lat] as LngLat,
+  // The vendor orders BLOCK FACES; this orders the doors inside them.
+  //
+  // Sending it the doors themselves is what produced the reported zigzag: with
+  // nothing but coordinates to go on it minimizes travel time, and crossing a
+  // residential street costs about a minute either way, so two even-side
+  // neighbours with an odd-side door between them is a perfectly good answer
+  // to the question we were asking. Grouping first asks a better one — which
+  // block face next — and leaves the part that is genuinely a routing problem
+  // where the road network is. See utils/blockFace.util.ts.
+  private async planStops(
+    stops: PlannedStop[],
+    request: RouteRequest,
+  ): Promise<RoutePlannerPlan> {
+    const faces = groupIntoBlockFaces(stops)
+    const representatives = faces.map((face) => representativeOf(face, stops))
+    const jobs = representatives.map((stopIndex, faceIndex) => ({
+      id: String(faceIndex),
+      location: [stops[stopIndex]!.lng, stops[stopIndex]!.lat] as LngLat,
     }))
 
-    // Anchors are deterministic, never random. Loop: start = end at the
-    // first stop by address (a closed tour is the same cycle from anywhere,
-    // so the anchor is cost-free). Open: end-only anchor at the stop
-    // farthest from the centroid, letting the vendor pick the best start.
+    // Anchors are deterministic, never random, and are now placed on face
+    // representatives for the same reasons they were placed on stops. Loop:
+    // start = end at the first by address (a closed tour is the same cycle
+    // from anywhere, so the anchor is cost-free). Open: end-only anchor at the
+    // face farthest from the centroid, letting the vendor pick the best start.
+    const anchorStops = representatives.map((stopIndex) => stops[stopIndex]!)
     let agent: { start_location?: LngLat; end_location?: LngLat }
     if (request.loop) {
-      const anchorIndex = stops.reduce(
+      const anchorIndex = anchorStops.reduce(
         (best, stop, index) =>
-          stop.displayAddress.localeCompare(stops[best]!.displayAddress) < 0
+          stop.displayAddress.localeCompare(anchorStops[best]!.displayAddress) <
+          0
             ? index
             : best,
         0,
@@ -425,17 +467,52 @@ export class DoorKnockingCreateService extends createPrismaBase(
       agent = { start_location: anchor, end_location: anchor }
     } else {
       const centroidLat =
-        stops.reduce((sum, stop) => sum + stop.lat, 0) / stops.length
+        anchorStops.reduce((sum, stop) => sum + stop.lat, 0) /
+        anchorStops.length
       const centroidLng =
-        stops.reduce((sum, stop) => sum + stop.lng, 0) / stops.length
-      const anchorIndex = stops.reduce((best, stop, index) => {
+        anchorStops.reduce((sum, stop) => sum + stop.lng, 0) /
+        anchorStops.length
+      const anchorIndex = anchorStops.reduce((best, stop, index) => {
         const d = (s: PlannedStop) =>
           (s.lat - centroidLat) ** 2 + (s.lng - centroidLng) ** 2
-        return d(stop) > d(stops[best]!) ? index : best
+        return d(stop) > d(anchorStops[best]!) ? index : best
       }, 0)
       agent = { end_location: jobs[anchorIndex]!.location }
     }
 
-    return this.geoapify.planRoute({ mode: request.mode, agent, jobs })
+    const plan = await this.geoapify.planRoute({
+      mode: request.mode,
+      agent,
+      jobs,
+      // The plan's polyline would thread the face representatives, not the
+      // doors, so it is not worth a second billed call. Consumers fall back to
+      // straight legs between consecutive stops — and under a serpentine order
+      // those consecutive stops are next-door neighbours, so the straight line
+      // IS the sidewalk.
+      fetchGeometry: false,
+    })
+
+    const sequenced = sequenceBlockFaces({
+      stops,
+      faces,
+      faceOrder: plan.orderedJobIds.map(Number),
+      faceLegSeconds: plan.legSeconds,
+      faceLegMeters: plan.legMeters,
+      mode: request.mode,
+      loop: request.loop,
+    })
+
+    // Totals are re-derived rather than passed through: the vendor's are for
+    // its own tour of representatives, and the per-leg numbers on the walk
+    // sheet should add up to the total printed above them.
+    return {
+      ...plan,
+      orderedJobIds: sequenced.stopIndexes.map(String),
+      legSeconds: sequenced.legSeconds,
+      legMeters: sequenced.legMeters,
+      totalSeconds: sequenced.totalSeconds,
+      totalMeters: sequenced.totalMeters,
+      pathGeometry: null,
+    }
   }
 }

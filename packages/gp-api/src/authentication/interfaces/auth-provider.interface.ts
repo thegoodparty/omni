@@ -18,6 +18,7 @@ export interface AuthProvider {
     firstName?: string
     lastName?: string
     avatarUrl?: string
+    phone?: string
   } | null>
 }
 

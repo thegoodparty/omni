@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { LlmService } from '@/llm/services/llm.service'
 import {
+  NO_SPEECH_ISSUE,
   RobocallComplianceService,
   SYSTEM_PROMPT,
 } from './robocallCompliance.service'
@@ -106,6 +107,24 @@ describe('RobocallComplianceService', () => {
     expect(verdict.checks.hasOrganization).toBe(false)
     expect(verdict.issues).toHaveLength(2)
     expect(verdict.issues.join(' ')).toMatch(/organization/i)
+  })
+
+  it('an empty transcript is a re-record prompt, not an all-false content fail', async () => {
+    // A COMPLETED transcription with no text = silent/truncated upload. It must
+    // not run the LLM or read as three "missing element" issues.
+    transcription.transcribe.mockResolvedValue('   ')
+
+    const verdict = await service.checkRecording(params)
+
+    expect(verdict.passed).toBe(false)
+    expect(verdict.checks).toEqual({
+      hasSelfIdentification: false,
+      hasOrganization: false,
+      hasCallbackNumber: false,
+    })
+    expect(verdict.issues).toEqual([NO_SPEECH_ISSUE])
+    expect(verdict.issues.join(' ')).not.toMatch(/must state|must name/i)
+    expect(llm.jsonCompletion).not.toHaveBeenCalled()
   })
 
   it('fail-closed: a transcription failure propagates and never runs the check', async () => {

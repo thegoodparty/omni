@@ -374,7 +374,18 @@ import { dirname, join, relative } from 'node:path'
 // section, plus the client-side gate component and the flag hook it read.
 // Nothing was converted to a server component here — the win is entirely
 // deletion, which is why it is this large in one step.
-const BASELINE = 579
+// 2026-09-10: 565 -> 566 for TalkingPointsStep, the door-knocking wizard's
+// talking-points step. It cannot render on the server: it drafts from an LLM
+// endpoint on arrival, streams while that call is in flight, and keeps five
+// editable fields whose edits have to be distinguishable from generated text
+// so a re-draft never discards what the candidate typed. All of that is
+// client state on a step that only exists inside an already-client wizard.
+// 2026-09-11: 566 -> 567 for SignUpPhoneForm, the Google signup's phone
+// step. OAuth can't carry a phone number, so this step collects one after
+// the handshake — it reads the Clerk session through `useUser`, holds the
+// field's state, and redirects on success, none of which a server component
+// can do. Its page shell stays a server component.
+const BASELINE = 567
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

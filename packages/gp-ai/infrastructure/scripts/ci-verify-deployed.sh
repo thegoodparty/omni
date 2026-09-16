@@ -74,6 +74,8 @@ check_taskdef "pmf-engine-$env"          "pmf-engine-$sha"
 check_taskdef "serve-analyze-$env"       "serve-analyze-$sha"
 check_taskdef "ddhq-matcher-$env"        "ddhq-matcher-$sha"
 check_taskdef "engineer-agent-$env"      "engineer-agent-$sha"
+check_taskdef "autopilot-agent-$env"            "autopilot-agent-$sha"
+check_taskdef "autopilot-agent-playwright-$env" "autopilot-agent-playwright-$sha"
 
 echo
 if [ "$fails" -ne 0 ]; then

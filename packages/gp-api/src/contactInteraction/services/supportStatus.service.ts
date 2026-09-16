@@ -3,8 +3,10 @@ import { ContactStatusField, Prisma } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { SupportStatusRollupSchema } from '@goodparty_org/contracts'
 import {
+  ANSWER_FIRMNESS,
   DERIVED_SUPPORT_STATUS_VALUES,
   DerivedSupportStatusRollup,
+  SUPPORT_ANSWER_FIRMNESS,
   SUPPORT_ANSWER_ROLLUP,
   SUPPORT_STATUS_UNKNOWN,
   SupportStatusRollup,
@@ -14,6 +16,16 @@ import { ContactStatusService } from './contactStatus.service'
 const rollupCaseArms = Prisma.join(
   Object.entries(SUPPORT_ANSWER_ROLLUP).map(
     ([answer, rollup]) => Prisma.sql`WHEN ${answer} THEN ${rollup}`,
+  ),
+  ' ',
+)
+
+// The same scale the door-knocking projection ranks by, compiled into the
+// ORDER BY that DISTINCT ON picks from. A null answer falls to the ELSE arm,
+// which is where `(support_answer IS NOT NULL) DESC` used to put it.
+const firmnessCaseArms = Prisma.join(
+  Object.entries(SUPPORT_ANSWER_FIRMNESS).map(
+    ([answer, firmness]) => Prisma.sql`WHEN ${answer} THEN ${firmness}`,
   ),
   ' ',
 )
@@ -132,10 +144,13 @@ export class SupportStatusService extends createPrismaBase(
     return rows.map((row) => row.personId)
   }
 
-  // Derivation policy: the most recent row with a non-null support_answer
-  // per (organization_slug, person_id) wins; answered rows sort ahead of
-  // null-answer rows so a newer null can never override an older answer,
-  // and id DESC makes identical occurred_at values deterministic. The CTE
+  // Derivation policy: the FIRMEST answer per (organization_slug, person_id)
+  // wins, and recency only settles ties between equally firm ones. So a newer
+  // null can never override an older answer (which is what this did before,
+  // via `(support_answer IS NOT NULL) DESC`), and a newer `unsure` can no
+  // longer override an older `supporter` either — see SUPPORT_ANSWER_FIRMNESS
+  // for why that second case was reported as the second pass overwriting the
+  // first. `id DESC` makes identical occurred_at values deterministic. The CTE
   // is the extension point: UNION ALL other contact_interaction_* tables
   // there once they carry support answers — phone banking (ENG-10915) is
   // the second.
@@ -173,7 +188,8 @@ export class SupportStatusService extends createPrismaBase(
       ORDER BY
         organization_slug,
         person_id,
-        (support_answer IS NOT NULL) DESC,
+        (CASE support_answer ${firmnessCaseArms}
+          ELSE ${ANSWER_FIRMNESS.none} END) DESC,
         occurred_at DESC,
         id DESC
     `

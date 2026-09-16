@@ -24,8 +24,10 @@ injectable ``transport`` so the network call is faked in tests.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+from pathlib import Path
 from typing import Any, Callable
 
 import requests
@@ -211,6 +213,93 @@ def build_gap_thread_blocks(gap: dict) -> list[dict]:
     return blocks
 
 
+ANCHOR_STATE_PATH = (Path(__file__).parent / "instrumentation_data" / "event_anchors.json")
+ANCHOR_REVIEW_URL = ("https://github.com/thegoodparty/omni/blob/main/packages/runbooks/"
+                     "scripts/python/instrumentation_data/event-anchors-review.md")
+
+
+def anchors_review_url() -> str:
+    """The rendered review queue on main — the file a reviewer actually edits. Mirrors
+    gaps_feedback_url, except it points at the rendered markdown rather than the state
+    JSON: the markdown carries its own instructions, so the link is not a dead end."""
+    return os.environ.get("GP_ANCHORS_REVIEW_URL") or ANCHOR_REVIEW_URL
+
+
+def anchors_browse_url() -> str | None:
+    """Read-only anchors tab in the event-state sheet. Mirrors gaps_browse_url; None when
+    no sheet id is set, and the post then omits the link."""
+    explicit = os.environ.get("GP_ANCHORS_BROWSE_URL")
+    if explicit:
+        return explicit
+    sheet_id = os.environ.get("GP_EVENT_STATE_SHEET_ID")
+    if not sheet_id:
+        return None
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
+    gid = os.environ.get("GP_ANCHORS_TAB_GID")
+    return f"{url}#gid={gid}" if gid else url
+
+
+def load_anchor_queue(path: Path | None = None, run_date: str | None = None) -> dict:
+    """Counts for the anchor block, read straight from the committed state file.
+
+    Read here rather than imported from event_anchors because that module imports
+    analytics_event_health, which imports this one — going the other way would close an
+    import cycle. Counting two dispositions needs no shared code.
+
+    A missing file is the pre-seed state and yields zeros, so the block is skipped. An
+    unreadable one yields zeros too: a malformed state file must not take the whole digest
+    down, and the anchors tab refresh already warns about it separately.
+
+    ``new`` counts rows first drafted on ``run_date``. The quiet gate keys on that rather
+    than on ``queued``, which is a backlog: a 362-row queue would otherwise force a post on
+    every run until the last row is reviewed, and a digest that shouts the same number every
+    time is one the channel learns to skip.
+    """
+    empty = {"queued": 0, "flagged": 0, "new": 0}
+    path = path or ANCHOR_STATE_PATH
+    try:
+        state = json.loads(Path(path).read_text())
+    except (OSError, json.JSONDecodeError):
+        return empty
+    if not isinstance(state, dict):
+        return empty
+    open_rows = [e for e in state.values()
+                 if isinstance(e, dict) and e.get("disposition") in ("new", "open")]
+    return {
+        "queued": len(open_rows),
+        "flagged": sum(1 for e in open_rows if e.get("confidence") == "low"),
+        "new": sum(1 for e in open_rows
+                   if run_date and e.get("first_seen") == run_date),
+    }
+
+
+def anchor_has_news(queue: dict | None) -> bool:
+    """True iff anchors were drafted on this run. Mirrors gap_has_news deliberately: both
+    gate on what is new, never on what is outstanding."""
+    return bool(queue) and queue.get("new", 0) > 0
+
+
+def build_anchor_blocks(queue: dict) -> list[dict]:
+    """One thread block: how many drafted anchors are waiting, and the two links — where to
+    read them and where to edit them. Empty when nothing is queued, so a fully reviewed
+    queue goes quiet instead of posting a zero."""
+    queued = queue.get("queued", 0)
+    if not queued:
+        return []
+    flagged = queue.get("flagged", 0)
+    body = (f"*Where-it-fires anchors awaiting review*\n"
+            f"• {queued} drafted anchor(s) queued, {flagged} flagged low-confidence\n"
+            f"Edit `fires_on` / `url` and set `disposition` in the review file, then ask "
+            f"Claude to load it back.")
+    blocks = [_section(body)]
+    links = [b for b in (
+        f"<{anchors_browse_url()}|📄 Browse anchors>" if anchors_browse_url() else None,
+        f"<{anchors_review_url()}|✍️ Review and edit>",
+    ) if b]
+    blocks.append(_context(" · ".join(links)))
+    return blocks
+
+
 def build_triage_invocation(result: dict, gap: dict | None) -> str | None:
     """Copy-ready `/triage-instrumentation-gaps` line (DATA-2152). The skill reviews two
     queues — new instrumentation gaps AND watchlist proposals — so the entry point renders
@@ -232,17 +321,27 @@ def should_post(
     prior_anomalous: set[str] | None = None,
     gap: dict | None = None,
     red_open: bool = False,
+    anchor_queue: dict | None = None,
 ) -> bool:
     """Quiet gate: post only when something changed — or when a red (OKR-anchored) item
     is open. ``red_open`` (DATA-2174) keeps a broken OKR anchor posting every run until
-    it resolves; everything else is change-driven and ``still_open`` alone is not news."""
+    it resolves; everything else is change-driven and ``still_open`` alone is not news.
+
+    ``anchor_queue`` closes the same hole the gap sweep hit on its first run: the thread
+    renders anchor content, so the gate has to know anchors exist or a run whose only news
+    is a freshly drafted anchor is suppressed and the review link never appears. It gates on
+    newly drafted anchors, not on the queue's size — see load_anchor_queue. Passed in for
+    testability by post_digest, which is the one place it is read from disk; omitted means
+    no anchor news, never "go and look"."""
     if red_open:
         return True
     if any(changes.get(k) for k in ("new", "escalated", "resolved")):
         return True
     if _new_anomalies(result, prior_anomalous):
         return True
-    return gap_has_news(gap)
+    if gap_has_news(gap):
+        return True
+    return anchor_has_news(anchor_queue)
 
 
 def _transition_lines(result: dict, changes: dict, prior_state: dict | None) -> list[str]:
@@ -365,6 +464,7 @@ def build_digest_blocks(
     prior_anomalous: set[str] | None = None,
     gap: dict | None = None,
     triage: dict | None = None,
+    anchor_queue: dict | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Return ``(parent_blocks, thread_blocks)`` for a Source B health-digest post.
 
@@ -382,7 +482,8 @@ def build_digest_blocks(
     / FYI layout; ``None`` keeps this byte-identical to the legacy delta-led digest.
     """
     if triage is not None:
-        return _build_tiered_blocks(result, changes, prior_anomalous, gap, triage)
+        return _build_tiered_blocks(result, changes, prior_anomalous, gap, triage,
+                                    anchor_queue)
 
     n_changes = sum(len(changes.get(k, [])) for k in ("new", "escalated", "resolved"))
     anomalies = _new_anomalies(result, prior_anomalous)
@@ -444,6 +545,7 @@ def build_digest_blocks(
     if gap is not None:
         parent.append(_context(build_gap_summary_line(gap)))
         thread.extend(build_gap_thread_blocks(gap))
+    thread.extend(build_anchor_blocks(anchor_queue or {}))
     triage_line = build_triage_invocation(result, gap)
     if triage_line:
         thread.append(_context(triage_line))
@@ -457,6 +559,7 @@ def _build_tiered_blocks(
     prior_anomalous: set[str] | None,
     gap: dict | None,
     triage: dict,
+    anchor_queue: dict | None = None,
 ) -> tuple[list[dict], list[dict]]:
     red = _tier_items(triage, "red")
     yellow = _tier_items(triage, "yellow")
@@ -523,6 +626,7 @@ def _build_tiered_blocks(
         thread.append(_section("No additional detail."))
     if gap is not None:
         thread.extend(build_gap_thread_blocks(gap))
+    thread.extend(build_anchor_blocks(anchor_queue or {}))
     triage_line = build_triage_invocation(result, gap)
     if triage_line:
         thread.append(_context(triage_line))
@@ -578,6 +682,7 @@ def post_digest(
     prior_anomalous: set[str] | None = None,
     gap: dict | None = None,
     triage: dict | None = None,
+    anchor_queue: dict | None = None,
 ) -> str | None:
     """Post the health digest: parent message, then the detail as a threaded reply.
     No-op (returns None) when the quiet gate says nothing changed. ``gap`` (Task 4's
@@ -587,10 +692,17 @@ def post_digest(
     on an otherwise quiet run."""
     red_open = bool(triage) and any(
         i.get("tier") == "red" for i in triage.get("items") or [])
-    if not should_post(result, changes, prior_anomalous, gap, red_open=red_open):
+    # The one place the anchor queue is read from disk. Loading it here rather than inside
+    # the gate and the two builders keeps all three pure — the module's contract — and means
+    # a test of any of them controls the anchor content by fixture instead of inheriting
+    # whatever the committed state file happens to hold that day.
+    if anchor_queue is None:
+        anchor_queue = load_anchor_queue(run_date=result.get("run_date"))
+    if not should_post(result, changes, prior_anomalous, gap, red_open=red_open,
+                       anchor_queue=anchor_queue):
         return None
     parent, thread = build_digest_blocks(result, changes, prior_state, prior_anomalous,
-                                         gap, triage)
+                                         gap, triage, anchor_queue)
     # Fallback text mirrors whichever header the parent actually rendered — the tiered
     # layout dropped "& instrumentation gaps" from its header (Task 5 folded gaps into a
     # context line, not the title), so the legacy string is stale once triage is present.

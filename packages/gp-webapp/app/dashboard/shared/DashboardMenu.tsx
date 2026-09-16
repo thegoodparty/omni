@@ -16,7 +16,6 @@ import {
   CircleUserRound,
   ClipboardList,
   ExternalLink,
-  FileText,
   LogOut,
   Send,
   Settings,
@@ -125,16 +124,6 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     id: 'campaign-details-dashboard',
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickMyProfile),
   },
-  {
-    label: 'Content Builder',
-    icon: <MdFileOpen />,
-    v2Icon: FileText,
-    v2Category: 'campaign',
-    link: '/dashboard/content',
-    id: 'my-content-dashboard',
-    onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickContentBuilder),
-  },
-
   {
     label: 'Community',
     icon: (

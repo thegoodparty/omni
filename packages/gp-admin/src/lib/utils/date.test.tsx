@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { render } from '@testing-library/react'
-import { formatDate, formatTimestampString } from './date'
+import {
+  formatDate,
+  formatDateTime,
+  formatLocalDateString,
+  formatLocalTimeString,
+  formatTimestampString,
+} from './date'
 
 describe('formatDate', () => {
   it('displays dates in "Mon D, YYYY" format', () => {
@@ -37,6 +43,75 @@ describe('formatDate', () => {
   it('shows em-dash for invalid date strings', () => {
     const { container } = render(<>{formatDate('invalid-date')}</>)
     expect(container.textContent).toBe('—')
+  })
+})
+
+describe('formatDateTime', () => {
+  it('includes the time and Eastern zone label', () => {
+    // 3pm UTC on a summer date is 11am EDT.
+    const { container } = render(
+      <>{formatDateTime(new Date('2026-09-10T15:00:00Z'))}</>
+    )
+    expect(container.textContent).toBe('Sep 10, 2026, 11:00 AM EDT')
+  })
+
+  it('shows em-dash when the value is missing', () => {
+    const { container } = render(<>{formatDateTime(null)}</>)
+    expect(container.textContent).toBe('—')
+  })
+
+  it('shows em-dash for invalid date strings', () => {
+    const { container } = render(<>{formatDateTime('invalid-date')}</>)
+    expect(container.textContent).toBe('—')
+  })
+})
+
+describe('formatLocalDateString', () => {
+  it('renders the calendar day with no timezone conversion', () => {
+    const { container } = render(<>{formatLocalDateString('2026-09-10')}</>)
+    expect(container.textContent).toBe('Sep 10, 2026')
+  })
+
+  it('ignores a trailing time component', () => {
+    const { container } = render(
+      <>{formatLocalDateString('2026-09-10T00:00:00.000Z')}</>
+    )
+    expect(container.textContent).toBe('Sep 10, 2026')
+  })
+
+  it('shows em-dash when the value is missing', () => {
+    const { container } = render(<>{formatLocalDateString(null)}</>)
+    expect(container.textContent).toBe('—')
+  })
+
+  it('shows em-dash for a malformed date string', () => {
+    const { container } = render(<>{formatLocalDateString('not-a-date')}</>)
+    expect(container.textContent).toBe('—')
+  })
+})
+
+describe('formatLocalTimeString', () => {
+  it('formats a whole-hour time without minutes', () => {
+    expect(formatLocalTimeString('09:00')).toBe('9am')
+  })
+
+  it('formats a time with non-zero minutes', () => {
+    expect(formatLocalTimeString('09:30')).toBe('9:30am')
+  })
+
+  it('formats an evening time', () => {
+    expect(formatLocalTimeString('20:00')).toBe('8pm')
+  })
+
+  // Null (not an em-dash) so the caller can fall back to its no-time copy.
+  it('returns null for null/undefined', () => {
+    expect(formatLocalTimeString(null)).toBeNull()
+    expect(formatLocalTimeString(undefined)).toBeNull()
+  })
+
+  it('returns null for malformed input', () => {
+    expect(formatLocalTimeString('9:00')).toBeNull()
+    expect(formatLocalTimeString('not-a-time')).toBeNull()
   })
 })
 

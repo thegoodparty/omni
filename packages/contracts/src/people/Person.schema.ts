@@ -143,7 +143,12 @@ export const PersonSchema = z.object({
   ethnicityGroup: z
     .enum(['Asian', 'European', 'Hispanic', 'African American', 'Other'])
     .nullable(),
-  language: z.enum(['English', 'Spanish', 'Other']),
+  // Nullable like every other mapped attribute here: `Language_Code` is
+  // nullable with no sentinel, and this field used to report 'Other' for an
+  // absent one — the display half of the `OR ... IS NULL` the filter carried,
+  // so a person the filter now calls Unknown read as an Other-language
+  // speaker in the person detail.
+  language: z.enum(['English', 'Spanish', 'Other']).nullable(),
   // Populated only when people-api runs in household-grouped mode (door
   // knocking). `householdId` is a normalized residence-address composite (see
   // HOUSEHOLD_KEY_RESIDENCE_COLUMNS) shared by every voter at the same physical

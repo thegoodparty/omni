@@ -15,9 +15,9 @@ interface CampaignTrackerHeroProps {
 }
 
 // Lovable-style campaign-tracker hero: candidate + race headline, district /
-// election-day line, and intro copy. The "Campaign tracker" eyebrow is gone —
+// election-day line, and intro copy. The "Campaign tracker" overline is gone —
 // the page's title bar (DashboardLayout's navHeader) carries the tab name now,
-// so the eyebrow only repeated it — and the download action portals up into
+// so the overline only repeated it — and the download action portals up into
 // that bar, aligned top right.
 const CampaignTrackerHero = ({
   candidateName,

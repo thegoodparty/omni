@@ -862,7 +862,7 @@ describe('phone banking call outcome routes', () => {
   })
 
   describe('access control', () => {
-    it('400s a non-Pro campaign', async () => {
+    it('403s a non-Pro campaign', async () => {
       const { listId, entry } = await buildList(
         [{ firstName: 'A' }],
         '3075551014',
@@ -877,7 +877,7 @@ describe('phone banking call outcome routes', () => {
         outcome: 'no_answer',
       })
 
-      expect(res.status).toBe(400)
+      expect(res.status).toBe(403)
     })
 
     it('404s a list belonging to another organization', async () => {

@@ -63,6 +63,7 @@ import type {
   OnboardingStepId,
   PartyAffiliation,
   SelectedOffice,
+  SignupGoal,
 } from './onboardingTypes'
 
 type OnboardingUpdateAttribute = {
@@ -118,6 +119,40 @@ const partyAffiliationOptions: ReadonlyArray<
     description: 'Running as a Republican.',
   },
 ]
+
+const signupGoalOptions: ReadonlyArray<RadioCardOption<SignupGoal>> = [
+  {
+    value: 'voter-data',
+    title: 'I need voter data for my race',
+    description: 'Who your voters are and where they live.',
+  },
+  {
+    value: 'voter-outreach',
+    title: 'I want to reach voters',
+    description: 'Texting, door-knocking and robocalls.',
+  },
+  {
+    value: 'campaign-strategy',
+    title: 'I want help with campaign strategy',
+    description: 'Your win number and what to do next.',
+  },
+  {
+    value: 'templates-resources',
+    title: 'I want templates and resources',
+    description: 'Scripts, letters and materials you can make your own.',
+  },
+  {
+    value: 'exploring',
+    title: "I'm just exploring",
+    description: 'Look around and see what is here.',
+  },
+]
+
+// The Segment property is the selected option's own title, so the event reads
+// the same as the screen did. Derived from the options rather than a second
+// copy of the strings, which would drift the moment one is reworded.
+const signupGoalLabel = (value: SignupGoal): string =>
+  signupGoalOptions.find((option) => option.value === value)?.title ?? value
 
 const isMajorPartyAffiliation = (
   value: PartyAffiliation | undefined,
@@ -385,6 +420,17 @@ const StepBody = ({
     )
   }
 
+  if (activeStep.id === 'signup-goal') {
+    return (
+      <RadioCardGroup
+        name="signup-goal"
+        value={answers.signupGoal}
+        onChange={(value) => updateAnswers({ signupGoal: value })}
+        options={signupGoalOptions}
+      />
+    )
+  }
+
   if (activeStep.id === 'pledge') {
     return <PledgeStep />
   }
@@ -410,6 +456,7 @@ export default function OnboardingFlow({
     firstOnboardingStepId,
   )
   const [isSavingOffice, setIsSavingOffice] = useState(false)
+  const [isSavingSignupGoal, setIsSavingSignupGoal] = useState(false)
   const [isHydratingOffice, setIsHydratingOffice] = useState(false)
   // The three story steps share one in-memory draft; nothing persists until the
   // final step's Continue. Gated on the flag AND on actually being on a story
@@ -475,6 +522,7 @@ export default function OnboardingFlow({
   const isOfficeHydrationBlocking =
     activeStep.id === 'office-selection' && isHydratingOffice
   const isStoryStep = isStoryStepId(activeStep.id)
+  const isSignupGoalStep = activeStep.id === 'signup-goal'
   // Continue requires content on every story step: an empty field can only be
   // passed with Skip, which preserves any existing saved value (Continue would
   // otherwise persist the empty field and clear a returning candidate's data).
@@ -558,6 +606,7 @@ export default function OnboardingFlow({
       'campaign-story-why': EVENTS.OnboardingV2.WhyAreYouRunningViewed,
       'campaign-story-background': EVENTS.OnboardingV2.BackgroundViewed,
       'campaign-story-issues': EVENTS.OnboardingV2.IssuesViewed,
+      'signup-goal': EVENTS.OnboardingV2.SignupGoalViewed,
       pledge: EVENTS.OnboardingV2.PledgeViewed,
     }
     const viewedEvent = viewedEventByStep[activeStepId]
@@ -653,10 +702,12 @@ export default function OnboardingFlow({
   }
 
   const goBack = () => {
-    // Skipping jumps straight from a story step to the pledge, so Back from the
-    // pledge must return to the story question the candidate left unanswered —
-    // not step them back through each story question one at a time.
-    if (activeStep.id === 'pledge') {
+    // Skipping jumps straight from a story step to signup-goal (the story
+    // block's successor), so Back from there must return to the story question
+    // the candidate left unanswered — not step them back through each story
+    // question one at a time. Back from the pledge is ordinary: signup-goal is
+    // its previous visible step.
+    if (activeStep.id === 'signup-goal') {
       setActiveStepId(firstUnansweredStoryStepId())
       return
     }
@@ -1062,17 +1113,17 @@ export default function OnboardingFlow({
     }
   }
 
-  // Skip and the final Continue both leave the story for the pledge (pledge is
-  // the fixed successor of the story block). currentStep is navigation state
-  // only, so a failed update mustn't block the move.
-  const advanceToPledge = async (): Promise<void> => {
+  // Moves to a fixed step out of the story / signup-goal block, recording it as
+  // the resumable currentStep. currentStep is navigation state only, so a
+  // failed update mustn't block the move.
+  const advanceTo = async (stepId: OnboardingStepId): Promise<void> => {
     if (campaign) {
       await updateCampaign([
-        { key: 'data.currentStep', value: 'pledge' },
+        { key: 'data.currentStep', value: stepId },
         { key: 'data.onboarding', value: answers },
       ])
     }
-    setActiveStepId('pledge')
+    setActiveStepId(stepId)
   }
 
   // Advance to the next story step, recording it as the resumable currentStep.
@@ -1088,11 +1139,11 @@ export default function OnboardingFlow({
     setActiveStepId(nextStep.id)
   }
 
-  // Leaving the story for the pledge (from the final issues step). Persistence
-  // and the per-step funnel events already happened in advanceStory; here we
-  // only kick off plan generation, once, when every question was answered this
-  // session.
-  const leaveStoryForPledge = async (): Promise<void> => {
+  // Leaving the story (from the final issues step) for signup-goal, the story
+  // block's successor. Persistence and the per-step funnel events already
+  // happened in advanceStory; here we only kick off plan generation, once, when
+  // every question was answered this session.
+  const leaveStory = async (): Promise<void> => {
     const answered = storyAnsweredRef.current
     const complete = answered.why && answered.background && answered.issues
     if (complete && !storyGenFiredRef.current) {
@@ -1102,7 +1153,52 @@ export default function OnboardingFlow({
       // is never blocked from reaching the pledge.
       void prewarmStrategicLandscape()
     }
-    await advanceToPledge()
+    await advanceTo('signup-goal')
+  }
+
+  // Continue persists the selection and fires Completed; Skip persists nothing
+  // and fires the shared Onboarding Skipped. Both leave for the pledge, so a
+  // candidate is never held here by a question they don't want to answer.
+  const advanceSignupGoal = async (skip: boolean): Promise<void> => {
+    if (isAdvancingRef.current) return
+    isAdvancingRef.current = true
+    try {
+      const campaignId = liveCampaign?.id ?? campaign?.id
+      if (skip) {
+        trackEvent(EVENTS.OnboardingV2.OnboardingSkipped, {
+          step: 'Signup Goal',
+          campaignId,
+        })
+      } else {
+        const goal = answers.signupGoal
+        if (!goal) return
+        if (campaign) {
+          setIsSavingSignupGoal(true)
+          try {
+            const updated = await updateCampaign([
+              { key: 'signupGoal', value: goal },
+            ])
+            if (updated === false) {
+              errorSnackbar('Could not save your answer. Please try again.')
+              return
+            }
+          } finally {
+            setIsSavingSignupGoal(false)
+          }
+        }
+        trackEvent(EVENTS.OnboardingV2.SignupGoalCompleted, {
+          campaignId,
+          signupGoal: goal,
+          signupGoalLabel: signupGoalLabel(goal),
+        })
+        if (user?.id) {
+          await identifyUser(user.id, { signupGoal: goal })
+        }
+      }
+      await advanceTo('pledge')
+    } finally {
+      isAdvancingRef.current = false
+    }
   }
 
   // Continue and Skip both move one story step at a time. Continue persists the
@@ -1160,7 +1256,7 @@ export default function OnboardingFlow({
       }
 
       if (activeStep.id === 'campaign-story-issues') {
-        await leaveStoryForPledge()
+        await leaveStory()
       } else {
         await advanceToNextStoryStep()
       }
@@ -1336,6 +1432,29 @@ export default function OnboardingFlow({
                   storyDictationActive ||
                   storyStepEmpty
                 }
+              >
+                Continue
+              </Button>
+            </div>
+          ) : isSignupGoalStep ? (
+            // Skippable like the story questions: Continue needs a selection,
+            // Skip moves on without one. Both land on the pledge.
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                variant="ghost"
+                size="large"
+                onClick={() => void advanceSignupGoal(true)}
+                disabled={isSavingSignupGoal}
+              >
+                Skip
+              </Button>
+              <Button
+                type="button"
+                variant="default"
+                size="large"
+                onClick={() => void advanceSignupGoal(false)}
+                disabled={!canContinue || isSavingSignupGoal}
               >
                 Continue
               </Button>

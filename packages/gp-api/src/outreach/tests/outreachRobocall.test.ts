@@ -292,7 +292,7 @@ describe('POST /v1/outreach/robocall/draft', () => {
     expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
   })
 
-  it('rejects a non-Pro campaign with a 400', async () => {
+  it('rejects a non-Pro campaign with a 403', async () => {
     await service.prisma.campaign.update({
       where: { id: campaign.id },
       data: { isPro: false },
@@ -300,7 +300,7 @@ describe('POST /v1/outreach/robocall/draft', () => {
 
     const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
 
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
     expect(jsonCompletion).not.toHaveBeenCalled()
   })
 })
@@ -390,7 +390,7 @@ describe('POST /v1/outreach/robocall/number', () => {
 
     const res = await postNumber()
 
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
     expect(rentNumber).not.toHaveBeenCalled()
   })
 
@@ -554,7 +554,7 @@ describe('POST /v1/outreach/robocall/compliance', () => {
 
     const res = await postCompliance(validCompliancePayload)
 
-    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
     expect(checkRecording).not.toHaveBeenCalled()
   })
 

@@ -25,6 +25,7 @@ describe('flowStage / stageStep', () => {
     expect(stageStep('who')).toBe('filters')
     expect(stageStep('draw')).toBe('draw')
     expect(stageStep('confirm')).toBe('confirm')
+    expect(stageStep('points')).toBe('points')
     expect(stageStep('route')).toBe('route')
   })
 
@@ -34,6 +35,7 @@ describe('flowStage / stageStep', () => {
       'who',
       'draw',
       'confirm',
+      'points',
       'route',
     ]
     for (const stage of stages) {
@@ -44,22 +46,26 @@ describe('flowStage / stageStep', () => {
   })
 })
 
-// One path of five steps, always. Door knocking has no ending that skips the
+// One path of six steps, always. Door knocking has no ending that skips the
 // boundary and the route, so there is no audience choice — picking a saved
 // list, or cutting a new one from the filter pills — that shortens the flow.
 describe('stepperPosition', () => {
-  it('numbers five steps, in order, on the only path there is', () => {
+  it('numbers six steps, in order, on the only path there is', () => {
     expect(stepperPosition('purpose')).toEqual({
       currentStep: 1,
-      totalSteps: 5,
+      totalSteps: 6,
     })
-    expect(stepperPosition('who')).toEqual({ currentStep: 2, totalSteps: 5 })
-    expect(stepperPosition('draw')).toEqual({ currentStep: 3, totalSteps: 5 })
+    expect(stepperPosition('who')).toEqual({ currentStep: 2, totalSteps: 6 })
+    expect(stepperPosition('draw')).toEqual({ currentStep: 3, totalSteps: 6 })
     expect(stepperPosition('confirm')).toEqual({
       currentStep: 4,
-      totalSteps: 5,
+      totalSteps: 6,
     })
-    expect(stepperPosition('route')).toEqual({ currentStep: 5, totalSteps: 5 })
+    expect(stepperPosition('points')).toEqual({
+      currentStep: 5,
+      totalSteps: 6,
+    })
+    expect(stepperPosition('route')).toEqual({ currentStep: 6, totalSteps: 6 })
   })
 
   // The regression that sent a candidate who touched a filter pill from
@@ -72,20 +78,21 @@ describe('stepperPosition', () => {
       'who',
       'draw',
       'confirm',
+      'points',
       'route',
     ]
     for (const stage of stages) {
-      expect(stepperPosition(stage).totalSteps).toBe(5)
+      expect(stepperPosition(stage).totalSteps).toBe(6)
     }
   })
 
   // The property that matters more than any single number: the last step is
-  // the total, so the stepper never reads "Step 4 of 5" on the screen that
+  // the total, so the stepper never reads "Step 5 of 6" on the screen that
   // finishes, and never overruns it either.
   it('lands the final step exactly on the total', () => {
     expect(stepperPosition('route')).toMatchObject({
-      currentStep: 5,
-      totalSteps: 5,
+      currentStep: 6,
+      totalSteps: 6,
     })
   })
 })
@@ -97,6 +104,13 @@ describe('previousStage', () => {
 
   it('returns from draw to the who step', () => {
     expect(previousStage('draw')).toBe('who')
+  })
+
+  // The talking-points step sits between the name and the paid press, so Back
+  // from the route step lands on the card rather than on the name field.
+  it('returns from route to the talking points, and from those to the name', () => {
+    expect(previousStage('route')).toBe('points')
+    expect(previousStage('points')).toBe('confirm')
   })
 
   it('walks the path back to the start in exactly totalSteps - 1 moves', () => {

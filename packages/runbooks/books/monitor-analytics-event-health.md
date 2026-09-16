@@ -119,7 +119,10 @@ This flag's propose-and-confirm flow (never auto-decide):
 
 Note: `call_site_count = 0` with the event **still firing normally** (active, no anomaly)
 never reaches rank 2 — it surfaces as rank 0 instead (below). Rank 2 requires a firing
-flatline (dormant, or an anomaly drop on still-active code).
+flatline (dormant, an anomaly drop on still-active code), **or** a 30-day window that
+straddles the call site's removal: firing that all predates `call_site_retired_date` is a
+fresh retirement draining, not a live event, so it takes the retirement path rather than
+the canary (DATA-2427).
 
 ### Rank 0 — counter blind spot (DATA-2106)
 
@@ -131,7 +134,11 @@ blind to how the reference is written — not the event dead. Fix the counter, n
    e.g. `MediaRequested`, not the full key-path — the full path is exactly what the counter
    failed to see).
 2. Identify the shape. Aliased (`const x = EVENTS.<prefix>`) and Prettier-wrapped key-paths
-   are handled since DATA-2106; a rank-0 flag today means a NEW shape.
+   are counted since DATA-2106, so a rank-0 flag usually means a NEW shape. One exception,
+   and check it first: `call_site_retired_date` is resolved by a single-line `git log -S`,
+   so a Prettier-wrapped key-path gets a true `0` count with NO removal date, and the
+   straddle gate cannot suppress it. An event whose siblings carry a removal date is almost
+   certainly this, not a new shape (DATA-2427).
 3. Extend `count_call_sites` in `scripts/python/amplitude_event_provenance_backfill.py`
    (tests first), re-run the walk, and confirm the count is non-zero.
 4. Never route a rank-0 event into the rank-2 retirement propose-and-confirm flow.

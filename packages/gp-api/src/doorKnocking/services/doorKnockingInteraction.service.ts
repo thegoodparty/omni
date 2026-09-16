@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import {
+  DoorKnockStatus,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionResponse,
   SetDoNotKnock,
@@ -21,6 +22,7 @@ import {
 } from '../../generated/prisma'
 import { assertVolunteerAssignedToOutreach } from '../utils/doorKnockingAccess.util'
 import { deriveKnockStatus } from '../utils/knockStatus.util'
+import { DoorKnockingStatusService } from './doorKnockingStatus.service'
 
 @Injectable()
 export class DoorKnockingInteractionService extends createPrismaBase(
@@ -29,6 +31,7 @@ export class DoorKnockingInteractionService extends createPrismaBase(
   constructor(
     private readonly doorKnockInteractions: ContactInteractionDoorKnockService,
     private readonly contactStatus: ContactStatusService,
+    private readonly knockStatuses: DoorKnockingStatusService,
     private readonly moduleRef: ModuleRef,
   ) {
     super()
@@ -71,9 +74,34 @@ export class DoorKnockingInteractionService extends createPrismaBase(
       actorUserId,
     })
 
+    // The status of the PERSON, not of the row just written. The walk view
+    // recolors the dot from this without re-fetching the route, so deriving it
+    // from the new row alone made this the one surface that still answered by
+    // recency: logging an `unsure` on a known supporter greyed the dot on the
+    // phone, and only a refresh — reading the same history through
+    // `firmestAnswerPerPerson` — turned it green again. That flicker is the
+    // reported bug, and this endpoint is where a canvasser would see it first.
+    // Reading back through the status service also picks up a manual override,
+    // which deriving from the row could never see.
+    //
+    // The knock is already committed by this point, and this read exists only
+    // to colour a dot the client re-fetches with the route anyway — so a
+    // failure here degrades to the row's own status rather than 500ing a write
+    // that succeeded. A 500 would send the phone into an idempotent replay of
+    // a knock that was never in doubt.
+    const statuses = await this.knockStatuses
+      .latestKnockStatuses(organization.slug, [personId])
+      .catch((err: unknown) => {
+        this.logger.error(
+          { err, organizationSlug: organization.slug, personId },
+          'knock recorded, status read-back failed; falling back to the new row',
+        )
+        return new Map<string, DoorKnockStatus>()
+      })
+
     return {
       personId: interaction.personId,
-      knockStatus: deriveKnockStatus(interaction),
+      knockStatus: statuses.get(personId) ?? deriveKnockStatus(interaction),
     }
   }
 

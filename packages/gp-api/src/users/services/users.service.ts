@@ -253,12 +253,17 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     firstName: string
     lastName: string
     avatarUrl?: string
+    phone?: string
   }): Promise<User | null> {
     const existingByClerkId = await this.findUser({
       clerkId: data.clerkId,
     })
     if (existingByClerkId) {
-      return this.maybeIngestAvatar(existingByClerkId, data.avatarUrl)
+      const backfilled = await this.maybeBackfillPhone(
+        existingByClerkId,
+        data.phone,
+      )
+      return this.maybeIngestAvatar(backfilled, data.avatarUrl)
     }
 
     const existingByEmail = await this.findUserByEmail(data.email)
@@ -266,7 +271,11 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       // A concurrent provision of the same Clerk user may have created the
       // row between our two lookups — same clerkId is a match, not a rebind.
       if (existingByEmail.clerkId === data.clerkId) {
-        return this.maybeIngestAvatar(existingByEmail, data.avatarUrl)
+        const backfilled = await this.maybeBackfillPhone(
+          existingByEmail,
+          data.phone,
+        )
+        return this.maybeIngestAvatar(backfilled, data.avatarUrl)
       }
       if (existingByEmail.clerkId) {
         this.logger.warn(
@@ -281,7 +290,8 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       }
       const bound = await this.tryBindClerkId(existingByEmail.id, data.clerkId)
       if (!bound) return bound
-      return this.maybeIngestAvatar(bound, data.avatarUrl)
+      const backfilled = await this.maybeBackfillPhone(bound, data.phone)
+      return this.maybeIngestAvatar(backfilled, data.avatarUrl)
     }
 
     try {
@@ -292,6 +302,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
           firstName: data.firstName,
           lastName: data.lastName,
           name: `${data.firstName} ${data.lastName}`.trim(),
+          ...(data.phone ? { phone: data.phone } : {}),
         },
       })
       // Ingest after the insert, because the S3 key is scoped by user id.
@@ -307,6 +318,28 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       }
       throw err
     }
+  }
+
+  // The sign-up form's phone reaches us through Clerk, so it only lands on
+  // the row the first authenticated request provisions. Every other path
+  // here resolves a row that already existed (an email/magic-link account
+  // that later signed up, a re-provision after a failed first call), and
+  // those would otherwise never get the number. Blank-only: a phone the
+  // user edited in their profile outranks whatever sign-up captured.
+  private async maybeBackfillPhone(
+    user: User,
+    phone: string | undefined,
+  ): Promise<User> {
+    if (!phone || user.phone) return user
+
+    // Both flavours of blank, matching maybeIngestAvatar below: the guard
+    // above treats '' as empty, so a null-only predicate would match no rows
+    // for a legacy '' row and drop the number without saying so.
+    const updated = await this.model.updateMany({
+      where: { id: user.id, OR: [{ phone: null }, { phone: '' }] },
+      data: { phone },
+    })
+    return updated.count > 0 ? { ...user, phone } : user
   }
 
   // Every provisioning path funnels through here because they share one
@@ -374,6 +407,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     clerkId: string
     email: string
     avatarUrl?: string
+    phone?: string
   }): Promise<User | null> {
     this.logger.debug(
       { clerkId: data.clerkId },
@@ -382,7 +416,10 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     const byClerkId = await this.findUser({
       clerkId: data.clerkId,
     })
-    if (byClerkId) return this.maybeIngestAvatar(byClerkId, data.avatarUrl)
+    if (byClerkId) {
+      const backfilled = await this.maybeBackfillPhone(byClerkId, data.phone)
+      return this.maybeIngestAvatar(backfilled, data.avatarUrl)
+    }
 
     const byEmail = await this.findUserByEmail(data.email)
     if (!byEmail) {
@@ -406,9 +443,11 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     if (!byEmail.clerkId) {
       const bound = await this.tryBindClerkId(byEmail.id, data.clerkId)
       if (!bound) return bound
-      return this.maybeIngestAvatar(bound, data.avatarUrl)
+      const backfilled = await this.maybeBackfillPhone(bound, data.phone)
+      return this.maybeIngestAvatar(backfilled, data.avatarUrl)
     }
-    return this.maybeIngestAvatar(byEmail, data.avatarUrl)
+    const backfilled = await this.maybeBackfillPhone(byEmail, data.phone)
+    return this.maybeIngestAvatar(backfilled, data.avatarUrl)
   }
 
   async updateUser(where: Prisma.UserWhereUniqueInput, data: Partial<User>) {

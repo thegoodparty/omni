@@ -124,6 +124,13 @@ export class GeoapifyRoutePlannerService {
     mode: 'walk' | 'drive'
     agent: RoutePlannerAgent
     jobs: RoutePlannerJob[]
+    // Whether to buy the road-following path as well. Off for a caller whose
+    // jobs are not the things it will draw — door knocking orders block faces
+    // and then walks the doors inside them, so a polyline threading the faces'
+    // representatives would trace a route nobody takes. Skipping it is a whole
+    // billed call saved, and it reports as `routingWaypoints: 0` exactly as a
+    // failed one does, because in both cases nothing was charged.
+    fetchGeometry?: boolean
   }): Promise<RoutePlannerPlan> {
     const sdk = await loadSdk()
     const planner = new sdk.RoutePlanner({ apiKey: this.apiKey() })
@@ -229,7 +236,10 @@ export class GeoapifyRoutePlannerService {
       )
     }
 
-    const path = await this.fetchPathGeometry(agentPlan, args.mode)
+    const path =
+      args.fetchGeometry === false
+        ? { geometry: null, billedWaypoints: 0 }
+        : await this.fetchPathGeometry(agentPlan, args.mode)
 
     return {
       orderedJobIds,

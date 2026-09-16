@@ -457,6 +457,41 @@ def test_parse_judge_response_raises_named_error_on_truncation():
         ig.parse_judge_response(resp, candidate_ids=["/a"])
 
 
+def test_parse_judge_response_rejects_malformed_verdict_with_valid_id():
+    """A verdict can carry a real, non-hallucinated id and still be garbage: missing
+    is_gap/rubric_rule/dashboard_question/rank/reason. That must raise, not silently hand a
+    half-empty dict to merge_judged_state as a confirmed gap."""
+    payload = {"results": [{"id": "/a"}]}
+    resp = _FakeResp([_FakeBlock(payload)])
+    with pytest.raises(Exception):
+        ig.parse_judge_response(resp, candidate_ids=["/a"])
+
+
+def test_judge_candidates_rejects_malformed_verdict_with_valid_id():
+    client = _FakeClient(payload={"results": [{"id": "/a"}]})
+    cands = [{"id": "/a", "surface_type": "route", "location": "a.tsx", "snippet": ""}]
+    with pytest.raises(Exception):
+        ig.judge_candidates(cands, "RUBRIC", client=client, model="m")
+
+
+def test_parse_judge_response_fails_whole_batch_on_malformed_hallucinated_verdict():
+    """A malformed verdict can ride in on an id that was never sent — a plausible forced-
+    tool-use failure mode. Validation must run before the allowed-id filter (matching the
+    pre-extraction original's JudgeBatch.model_validate(block.input) ordering), so this
+    fails the whole batch instead of silently dropping /c and returning only /a as if the
+    batch were clean."""
+    payload = {
+        "results": [
+            {"id": "/a", "is_gap": True, "rubric_rule": "flow", "dashboard_question": "q",
+             "rank": 0, "reason": "r"},
+            {"id": "/c"},
+        ]
+    }
+    resp = _FakeResp([_FakeBlock(payload)])
+    with pytest.raises(Exception):
+        ig.parse_judge_response(resp, candidate_ids=["/a", "/b"])
+
+
 def test_judge_max_tokens_scales_with_batch_size():
     """The budget is derived from the batch, never a constant: 25 verdicts measured at
     4.1k-4.8k output tokens, so the cap must clear the larger observation with headroom
@@ -590,6 +625,22 @@ def test_run_judgment_ok_path(tmp_path):
     )
     assert status == "ok"
     assert out["/a"]["rubric_rule"] == "flow"
+
+
+def test_run_judgment_fails_closed_on_malformed_verdict(tmp_path):
+    """A well-formed id with missing required fields must degrade to a failed status, not
+    reach merge_judged_state as a silently-confirmed gap (regression: the shared llm_judge
+    plumbing has no notion of a gap-shaped verdict, so this gate must live here)."""
+    rubric = tmp_path / "r.md"
+    rubric.write_text("RUBRIC")
+    cands = [{"id": "/a", "surface_type": "route", "location": "a.tsx", "snippet": ""}]
+    client = _FakeClient(payload={"results": [{"id": "/a"}]})
+    out, status = ig.run_judgment(
+        cands, api_key="sk-ant-x", model="m", rubric_path=rubric,
+        client_factory=lambda _k: client,
+    )
+    assert out == {}
+    assert status.startswith("failed:")
 
 
 def test_scan_repo_enriches_snippet(tmp_path):
