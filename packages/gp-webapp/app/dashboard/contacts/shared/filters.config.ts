@@ -81,6 +81,10 @@ const filterSections = [
           { key: 'languageEnglish', label: 'English' },
           { key: 'languageSpanish', label: 'Spanish' },
           { key: 'languageOther', label: 'Other' },
+          // People whose language was never recorded. 'Other' used to return
+          // them too, so it reported most of a district; they are their own
+          // bucket now, as they already are under Ethnicity.
+          { key: 'languageUnknown', label: 'Unknown' },
         ],
       },
     ],

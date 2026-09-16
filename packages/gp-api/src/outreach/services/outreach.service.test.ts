@@ -3,6 +3,7 @@ import { PinoLogger } from 'nestjs-pino'
 import {
   BadGatewayException,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
@@ -674,18 +675,18 @@ describe('OutreachService', () => {
       expect(mockOutreachCreate).not.toHaveBeenCalled()
     })
 
-    it('throws BadRequest when filterAccessCheck rejects a non-pro campaign', async () => {
+    it('throws Forbidden when filterAccessCheck rejects a non-pro campaign', async () => {
       const dto: CreateOutreachSchema = {
         ...baseCreateDto,
         voterFileFilterId: 42,
       }
       mockFilterAccessCheck.mockRejectedValue(
-        new BadRequestException('Campaign is not pro'),
+        new ForbiddenException('Campaign is not pro'),
       )
 
       await expect(
         service.create(mockUser, mockCampaign, dto, undefined, undefined),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toThrow(ForbiddenException)
       await expect(
         service.create(mockUser, mockCampaign, dto, undefined, undefined),
       ).rejects.toThrow(/Campaign is not pro/)

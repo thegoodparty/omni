@@ -52,6 +52,10 @@ model Outreach {
   // deriving the day from it at finalize time shifts evening sends onto
   // the next day for US timezones — Peerly needs the local day.
   scheduledLocalDate                String?                            @map("scheduled_local_date")
+  // The candidate's chosen wall-clock send time ("HH:mm"), applied in each
+  // contact's LOCAL timezone at approve (Peerly window start). Null on rows
+  // created before the field existed — approve falls back to 09:00.
+  scheduledLocalTime                String?                            @map("scheduled_local_time")
   imageUrl                          String?                            @map("image_url")
   voterFileFilter                   VoterFileFilter?                   @relation(fields: [voterFileFilterId], references: [id])
   voterFileFilterId                 Int?                               @map("voter_file_filter_id")

@@ -42,6 +42,7 @@ import { useWalkArchive, useWalkCompletion } from './walkCompletion'
 import { packBounds, type PolygonRing } from './VoterMapCanvas'
 import { geoapifyStaticUrl } from './createFlow/geoapifyStaticUrl'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
+import { usePrecinctOptions } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { useOrganization } from '@shared/organization-picker'
 
 // One loading vocabulary for both waits that show behind the walk drawer:
@@ -196,6 +197,13 @@ export default function NativeDoorKnockingPage({
     enabled: !isUnresolvable,
   })
   const [flowStep, setFlowStep] = useState<CreateFlowStep | null>(null)
+  // The district's precinct vocabulary, for the who step's precinct group.
+  // Gated on the flow being open so a door-knocking page view that never
+  // reaches the audience step buys nothing, and on a resolvable district for
+  // the same reason every other read on this page is.
+  const precinctOptions = usePrecinctOptions(
+    flowStep !== null && !isUnresolvable,
+  )
   // Which carried list has already been handed to the create flow. Kept here
   // because the flow itself is unmounted between opens while `?listId=` stays
   // in the address bar, so this is the only place that can remember. Compared
@@ -206,6 +214,12 @@ export default function NativeDoorKnockingPage({
   const carriedListId =
     preselectedListId === spentPreselectId ? undefined : preselectedListId
   const [filters, setFilters] = useState<VoterFileFilters>({})
+  // The hand-cut precinct selection, beside `filters` because precinct values
+  // are enumerated per district and the boolean draft has no key for them —
+  // it carries only the `precincts` mark, which is what
+  // `unpreviewableFilterKeys` below reads to disclose that the map cannot
+  // shade by them.
+  const [precincts, setPrecincts] = useState<string[]>([])
   const [ring, setRing] = useState<PolygonRing | null>(null)
   // The create-list surface's half of the canvas: draw tokens, the point count
   // and the coach mark. Called here because the canvas outlives the flow.
@@ -558,7 +572,16 @@ export default function NativeDoorKnockingPage({
   ])
 
   const changeFlowStep = (next: CreateFlowStep) => {
-    if (next === 'draw' && flowStep === 'filters') draw.startDrawing()
+    // Arriving at the draw step from the filters. The transition alone cannot
+    // say which of two things just happened — a first arrival, or a Back to
+    // re-read the audience followed by Continue — and they want opposite
+    // treatment: the first needs a blank session, the second must keep the
+    // boundary already drawn. A ring is what tells them apart, and treating
+    // the round trip as a first arrival is what used to throw the shape away.
+    if (next === 'draw' && flowStep === 'filters') {
+      if (ring) draw.resumeDrawing()
+      else draw.startDrawing()
+    }
     setFlowStep(next)
   }
   // Backing out with nothing saved. There is no map behind this worth landing
@@ -567,6 +590,7 @@ export default function NativeDoorKnockingPage({
   const closeFlow = () => {
     setFlowStep(null)
     setFilters({})
+    setPrecincts([])
     draw.clearDrawing()
     setLeaving(true)
     // Pressed the tile, changed their mind. `back()` rather than a path,
@@ -595,6 +619,7 @@ export default function NativeDoorKnockingPage({
     tileOpened.current = false
     setFlowStep(null)
     setFilters({})
+    setPrecincts([])
     draw.clearDrawing()
     walkOrigin.current = { kind: 'hub' }
     walk.start({ id: turf.id, name: turf.name }, 'newRoute')
@@ -776,6 +801,7 @@ export default function NativeDoorKnockingPage({
                   // Only the opening view — panning and turf focus own it after.
                   initialZoom={16}
                   startDrawToken={draw.startDrawToken}
+                  resumeDrawToken={draw.resumeDrawToken}
                   clearDrawToken={draw.clearDrawToken}
                   undoDrawToken={draw.undoDrawToken}
                   // The colour a new list is drawn in, on the boundary being cut
@@ -857,6 +883,9 @@ export default function NativeDoorKnockingPage({
                 step={flowStep}
                 filters={filters}
                 onFiltersChange={setFilters}
+                precincts={precincts}
+                onPrecinctsChange={setPrecincts}
+                precinctOptions={precinctOptions}
                 onStepChange={changeFlowStep}
                 onClose={closeFlow}
                 districtBounds={districtBounds}

@@ -771,8 +771,14 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     // Cancel is available up to the scheduled send, not through it: once the
     // send time arrives canvassers may be texting, and deleting the vendor
     // job mid-send is not a cancel, it is a mess (product decision
-    // 2026-09-02).
-    if (outreach.date && !isBefore(new Date(), outreach.date)) {
+    // 2026-09-02). That mess is only possible for a BOOKED send — nothing
+    // sends without the approve gate's canvasser booking — so an unbooked
+    // row past its date is dead, not mid-send, and must stay cancelable:
+    // the guard otherwise strands it in Awaiting Review with the payment
+    // unrefundable (QA 2026-09-10, prod outreach 81412).
+    const bookedToSend =
+      outreach.approvedAt !== null || outreach.canvassRequestedAt !== null
+    if (bookedToSend && outreach.date && !isBefore(new Date(), outreach.date)) {
       throw new BadRequestException(
         'This campaign has reached its send time and can no longer be canceled',
       )

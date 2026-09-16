@@ -17,6 +17,10 @@ import { buildPackSql, PACK_CSV_COLUMNS } from './databricksVoterSql.util'
 import { DatabricksVoterService } from './databricksVoter.service'
 import { readCsvChunkBody } from './csvChunkBody.util'
 import {
+  VOTER_DATA_UNREACHABLE_ERROR_CODE,
+  VOTER_QUERY_TIMEOUT_ERROR_CODE,
+} from '@/shared/constants/voterData.consts'
+import {
   PeopleDbxStatementClient,
   PeopleDbxTimeoutError,
   PeopleDbxUnavailableError,
@@ -126,11 +130,17 @@ export class DatabricksVoterPackService {
     } catch (err) {
       if (err instanceof PeopleDbxTimeoutError) {
         this.logger.error({ err }, 'databricks pack scan exceeded its ceiling')
-        throw new GatewayTimeoutException(SCAN_TIMEOUT_MESSAGE)
+        throw new GatewayTimeoutException({
+          message: SCAN_TIMEOUT_MESSAGE,
+          errorCode: VOTER_QUERY_TIMEOUT_ERROR_CODE,
+        })
       }
       if (err instanceof PeopleDbxUnavailableError) {
         this.logger.error({ err }, 'databricks voter data is unreachable')
-        throw new BadGatewayException(UNAVAILABLE_MESSAGE)
+        throw new BadGatewayException({
+          message: UNAVAILABLE_MESSAGE,
+          errorCode: VOTER_DATA_UNREACHABLE_ERROR_CODE,
+        })
       }
       throw err
     }

@@ -7,7 +7,6 @@ Short, append-only records of non-obvious decisions in this repo. One file per d
 Write an ADR when a decision is **load-bearing** and **non-obvious** — i.e., a future contributor (or agent) would reasonably want to change it without realizing why it was done that way. Examples worth recording:
 
 - Why two entry routes (`app/page.tsx` + `app/[vanityPath]/page.tsx`) instead of a route group.
-- Why MUI 7 **and** Tailwind 3 instead of one or the other.
 - Why `helpers/fetchHelper.ts` returns `T | null` instead of throwing.
 - Why `X-Robots-Tag: noindex` is global in `next.config.ts`.
 

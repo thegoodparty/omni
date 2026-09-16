@@ -333,15 +333,28 @@ const buildLanguageFilter = (bag: Bag, op?: FilterOperator): string | null => {
   const hasEnglish = values.includes('English')
   const hasSpanish = values.includes('Spanish')
   const hasOther = values.includes('Other')
-  if (hasEnglish && hasSpanish && hasOther) return null
+  const hasUnknown = values.includes('Unknown')
+  // Every value selected is no filter at all. This has to count FOUR now —
+  // left at three, selecting all four would match the short-circuit and
+  // silently drop the filter, which is the widest possible way to get a
+  // filter wrong.
+  if (hasEnglish && hasSpanish && hasOther && hasUnknown) return null
 
   const conditions: string[] = []
   if (hasEnglish) conditions.push(`${target} = ${bag.bind('English')}`)
   if (hasSpanish) conditions.push(`${target} = ${bag.bind('Spanish')}`)
   if (hasOther) {
+    // 'Other' is now strictly "a language we have, that is not one of the two
+    // we name". It used to carry `OR ... IS NULL` as well, so it also
+    // returned everyone whose language was never recorded — most of a
+    // district, reported by QA as roughly 60%. `Language_Code` is nullable
+    // with no sentinel, so the missing case is a true NULL and belongs to
+    // 'Unknown' below. The door-knocking resident path (voterDoorKnocking)
+    // already drew this line; this brings the filter into agreement with it.
     const known = [bag.bind('English'), bag.bind('Spanish')].join(', ')
-    conditions.push(`(${target} NOT IN (${known}) OR ${target} IS NULL)`)
+    conditions.push(`(${target} NOT IN (${known}) AND ${target} IS NOT NULL)`)
   }
+  if (hasUnknown) conditions.push(`${target} IS NULL`)
   return `(${conditions.join(' OR ')})`
 }
 
@@ -797,8 +810,10 @@ export const buildPersonSql = (
 // Ordered by voter count so a truncated response keeps the precincts that
 // matter, then by name for a stable tie-break. The cap is a safety valve
 // rather than a working limit: the largest ICP district in the country is
-// Kings County CA at 579 precincts, and p75 is 13-15.
-export const MAX_PRECINCT_OPTIONS = 1_000
+// Kings County CA at 579 precincts, and p75 is 13-15. Sized to match the
+// filter payload cap (MAX_PRECINCT_FILTER_VALUES = 5,000) so the picker
+// cannot offer more options than a saved filter will accept.
+export const MAX_PRECINCT_OPTIONS = 5_000
 
 export const buildPrecinctsSql = (args: {
   district: DbxDistrict

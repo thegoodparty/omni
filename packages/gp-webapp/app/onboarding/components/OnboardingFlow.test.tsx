@@ -187,8 +187,20 @@ const continueThroughStorySteps = async (): Promise<void> => {
   // background -> issues
   await clickEnabledContinue()
   await screen.findByRole('button', { name: /add a policy priority/i })
-  // issues -> pledge (persists the draft)
+  // issues -> signup-goal (persists the draft)
   await clickEnabledContinue()
+}
+
+// The story block hands off to signup-goal, which sits between it and the
+// pledge — so a story test's landing assertion is this step, not the pledge.
+const findSignupGoalStep = (): Promise<HTMLElement> =>
+  screen.findByRole('heading', { level: 1, name: /most want help with/i })
+
+// Skips signup-goal, landing on the pledge. For tests that need the pledge
+// screen itself rather than the end of the story.
+const skipSignupGoalStep = async (): Promise<void> => {
+  await findSignupGoalStep()
+  fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
 }
 
 // Skip is now per-question: it advances one story step at a time (why ->
@@ -202,7 +214,7 @@ const skipThroughStorySteps = async (): Promise<void> => {
   // background -> issues
   fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
   await screen.findByRole('button', { name: /add a policy priority/i })
-  // issues -> pledge
+  // issues -> signup-goal
   fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
 }
 
@@ -231,7 +243,11 @@ describe('new onboarding flow shell', () => {
     expect(
       screen.getByRole('heading', { level: 1, name: /winning campaign plan/i }),
     ).toBeInTheDocument()
-    expect(screen.getByText(/Step 1 of/)).toBeInTheDocument()
+    const stepper = screen.getByRole('progressbar', { name: 'Progress' })
+    expect(stepper).toHaveAttribute('aria-valuenow', '1')
+    // Pinned: valuemin=0 is the a11y percentage math fix — reverting it
+    // to 1 would make screen readers announce step 1 as 0%.
+    expect(stepper).toHaveAttribute('aria-valuemin', '0')
   })
 
   it('routes structured office users through structured calculation steps', () => {
@@ -242,7 +258,7 @@ describe('new onboarding flow shell', () => {
     ).toBe('path-to-victory')
   })
 
-  it('routes through the three story steps and on to the pledge', () => {
+  it('routes through the three story steps, then signup-goal, then the pledge', () => {
     const structured = { officePath: 'structured' as const }
     expect(
       getNextOnboardingStep(ONBOARDING_STEPS, 'campaign-story-why', structured)
@@ -261,6 +277,9 @@ describe('new onboarding flow shell', () => {
         'campaign-story-issues',
         structured,
       )?.id,
+    ).toBe('signup-goal')
+    expect(
+      getNextOnboardingStep(ONBOARDING_STEPS, 'signup-goal', structured)?.id,
     ).toBe('pledge')
   })
 
@@ -375,7 +394,9 @@ describe('new onboarding flow shell', () => {
         { timeout: 300 },
       ),
     ).rejects.toThrow()
-    expect(screen.getByText(/Step 1 of/)).toBeInTheDocument()
+    expect(
+      screen.getByRole('progressbar', { name: 'Progress' }),
+    ).toHaveAttribute('aria-valuenow', '1')
   })
 
   it('supports back and continue navigation across skipped manual-office steps', () => {
@@ -386,10 +407,14 @@ describe('new onboarding flow shell', () => {
     }
 
     // path-to-victory is skipped for manual users, but the story steps are
-    // not, so the last story step sits directly before the pledge, and the
-    // first story step directly after manual-office-entry.
+    // not, so the last story step sits directly before signup-goal (itself the
+    // pledge's predecessor), and the first story step directly after
+    // manual-office-entry.
     expect(
       getPreviousOnboardingStep(ONBOARDING_STEPS, 'pledge', answers)?.id,
+    ).toBe('signup-goal')
+    expect(
+      getPreviousOnboardingStep(ONBOARDING_STEPS, 'signup-goal', answers)?.id,
     ).toBe('campaign-story-issues')
     expect(
       getNextOnboardingStep(ONBOARDING_STEPS, 'manual-office-entry', answers)
@@ -458,9 +483,7 @@ describe('new onboarding flow shell', () => {
 
     await continueThroughStorySteps()
 
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
+    expect(await findSignupGoalStep()).toBeInTheDocument()
     // Deferred save fired on the final step: background via the story endpoint,
     // bio + issues via saveAboutFields.
     expect(storyBody).toEqual({
@@ -642,9 +665,7 @@ describe('new onboarding flow shell', () => {
     await advancePastManualOfficeEntry()
     await skipThroughStorySteps()
 
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
+    expect(await findSignupGoalStep()).toBeInTheDocument()
     expect(prewarm).not.toHaveBeenCalled()
     // Nothing was answered, so persist writes nothing.
     expect(mockSaveAboutFields).not.toHaveBeenCalled()
@@ -684,9 +705,7 @@ describe('new onboarding flow shell', () => {
 
     await continueThroughStorySteps()
 
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
+    expect(await findSignupGoalStep()).toBeInTheDocument()
     expect(prewarm).toHaveBeenCalledTimes(1)
     expect(mockTrackEvent).toHaveBeenCalledWith(
       EVENTS.OnboardingV2.IssuesCompleted,
@@ -704,9 +723,7 @@ describe('new onboarding flow shell', () => {
     })
     fireEvent.click(skipButton)
 
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
+    expect(await findSignupGoalStep()).toBeInTheDocument()
     expect(prewarm).toHaveBeenCalledTimes(1)
     expect(mockTrackEvent).not.toHaveBeenCalledWith(
       EVENTS.OnboardingV2.IssuesCompleted,
@@ -732,9 +749,9 @@ describe('new onboarding flow shell', () => {
     await advancePastManualOfficeEntry()
     await skipThroughStorySteps()
 
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
+    // Asserted at signup-goal, before it is itself skipped, so the list below
+    // stays the three story steps.
+    expect(await findSignupGoalStep()).toBeInTheDocument()
 
     const skippedSteps = mockTrackEvent.mock.calls
       .filter(([event]) => event === EVENTS.OnboardingV2.OnboardingSkipped)
@@ -746,7 +763,7 @@ describe('new onboarding flow shell', () => {
     ])
   })
 
-  it('returns from the pledge to the first unanswered story step, not the last one', async () => {
+  it('returns from signup-goal to the first unanswered story step, not the last one', async () => {
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
@@ -765,10 +782,11 @@ describe('new onboarding flow shell', () => {
     })
 
     await skipThroughStorySteps()
-    await screen.findByText('Take our pledge to get your campaign plan')
+    await findSignupGoalStep()
 
     // Back lands straight on the why step (first unanswered), not the issues
     // step (the literal previous step), and without stepping through each one.
+    // signup-goal now carries this rule: it is the story block's successor.
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(
       await screen.findByRole('heading', {
@@ -794,8 +812,9 @@ describe('new onboarding flow shell', () => {
 
     await advancePastManualOfficeEntry()
 
-    // Skip through the (incomplete) story to the pledge.
+    // Skip through the (incomplete) story and past signup-goal to the pledge.
     await skipThroughStorySteps()
+    await skipSignupGoalStep()
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),
@@ -846,9 +865,7 @@ describe('new onboarding flow shell', () => {
     await clickEnabledContinue()
     fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
 
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
+    expect(await findSignupGoalStep()).toBeInTheDocument()
     expect(mockTrackEvent).toHaveBeenCalledWith(
       EVENTS.OnboardingV2.OnboardingSkipped,
       expect.objectContaining({ step: 'What Issues Do You Want To Solve' }),
@@ -863,9 +880,7 @@ describe('new onboarding flow shell', () => {
     )
     await clickEnabledContinue()
 
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
+    expect(await findSignupGoalStep()).toBeInTheDocument()
     expect(prewarm).toHaveBeenCalledTimes(1)
 
     const issuesCompletedCalls = mockTrackEvent.mock.calls.filter(
@@ -910,9 +925,7 @@ describe('new onboarding flow shell', () => {
 
     await skipThroughStorySteps()
 
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
+    expect(await findSignupGoalStep()).toBeInTheDocument()
     expect(prewarm).not.toHaveBeenCalled()
     expect(mockTrackEvent).toHaveBeenCalledWith(
       EVENTS.OnboardingV2.OnboardingSkipped,

@@ -184,6 +184,33 @@ describe('DatabricksVoterService', () => {
       ).rejects.toThrow(BadGatewayException)
     })
 
+    // The status says "5xx, wait a bit"; only the code says "this particular
+    // 5xx explains itself". Clients drop 5xx messages by default because most
+    // of them are written for a log — Geoapify answers 502 with "Route
+    // optimization returned an unidentifiable stop" — so without the code the
+    // two sentences above reach nobody.
+    it('codes both read failures so a client can show their message', async () => {
+      query.mockRejectedValueOnce(new PeopleDbxTimeoutError(60_000))
+      const timeout = await service
+        .getAggregates(aggregatesSchema.parse({ districtId: DISTRICT_ID }))
+        .catch((err: GatewayTimeoutException) => err.getResponse())
+      expect(timeout).toMatchObject({
+        errorCode: 'VOTER_QUERY_TIMEOUT',
+        message: expect.stringContaining('Narrow the audience'),
+      })
+
+      query.mockRejectedValueOnce(
+        new PeopleDbxUnavailableError('GET /statements returned 401: expired'),
+      )
+      const unreachable = await service
+        .getAggregates(aggregatesSchema.parse({ districtId: DISTRICT_ID }))
+        .catch((err: BadGatewayException) => err.getResponse())
+      expect(unreachable).toMatchObject({
+        errorCode: 'VOTER_DATA_UNREACHABLE',
+        message: expect.stringContaining('not an empty district'),
+      })
+    })
+
     it('translates an oversized selection into a 400', async () => {
       query.mockRejectedValueOnce(new PeopleDbxStatementTooLargeError(20e6))
 

@@ -291,6 +291,7 @@ describe('VoterMapCanvas drawing', () => {
     routeGeometry: null,
     focusTurf: null,
     startDrawToken: 1,
+    resumeDrawToken: 0,
     clearDrawToken: 0,
     undoDrawToken: 0,
     drawColor: '#2563eb',
@@ -640,6 +641,43 @@ describe('VoterMapCanvas drawing', () => {
 
     clickMap(POINTS[0] as [number, number])
     expect(onDrawPointCount).toHaveBeenLastCalledWith(1)
+  })
+
+  // The other token, and the whole of the difference between them: resuming
+  // re-arms drawing mode and leaves the shape where it is. Bumping
+  // `startDrawToken` for this — which is what the create flow used to do on
+  // every trip back into the draw step — is what QA reported as the shapefile
+  // not persisting.
+  it('re-enters drawing mode on resume without touching the shape', () => {
+    const onPolygonChange = vi.fn()
+    const onDrawPointCount = vi.fn()
+    const { rerender } = render(
+      <VoterMapCanvas
+        {...baseProps}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={onDrawPointCount}
+      />,
+    )
+    POINTS.forEach(clickMap)
+    const drawn = layerData('draw-vertices')
+
+    rerender(
+      <VoterMapCanvas
+        {...baseProps}
+        resumeDrawToken={1}
+        onPolygonChange={onPolygonChange}
+        onDrawPointCount={onDrawPointCount}
+      />,
+    )
+
+    expect(layerData('draw-vertices')).toEqual(drawn)
+    expect(onPolygonChange).not.toHaveBeenLastCalledWith(null)
+    expect(onDrawPointCount).not.toHaveBeenLastCalledWith(0)
+
+    // And still taking points, which is the part that makes it a resume
+    // rather than merely a no-op.
+    clickMap([-87.66, 41.87])
+    expect(onDrawPointCount).toHaveBeenLastCalledWith(POINTS.length + 1)
   })
 
   // Ending a walk used to invalidate the pack so the landing dots weren't
@@ -1553,6 +1591,7 @@ describe('VoterMapCanvas label ordering', () => {
     routeGeometry: null,
     focusTurf: null,
     startDrawToken: 0,
+    resumeDrawToken: 0,
     clearDrawToken: 0,
     undoDrawToken: 0,
     drawColor: '#2563eb',

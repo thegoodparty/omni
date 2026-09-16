@@ -137,7 +137,15 @@ describe('PackEncoder', () => {
     ])
     expect(dim('age')).toEqual(['26_34', '65_plus', 'Unknown', 'Unknown'])
     expect(dim('voterStatus')[0]).toBe('Super')
-    expect(dim('language')).toEqual(['Other', 'Other', 'Spanish', 'Other'])
+    // Three of these rows have no Language_Code at all. They used to shade as
+    // 'Other' — a claim about their language made from its absence, and the
+    // reason the map agreed with the filter's `OR ... IS NULL`.
+    expect(dim('language')).toEqual([
+      'Unknown',
+      'Unknown',
+      'Spanish',
+      'Unknown',
+    ])
     expect(dim('income')[3]).toBe('$50k - $75k')
     expect(dim('registered')).toEqual(['Yes', 'No', 'No', 'No'])
     expect(dim('hasCellPhone')[1]).toBe('Yes')
@@ -147,6 +155,29 @@ describe('PackEncoder', () => {
       'unknown',
       'unknown',
     ])
+  })
+
+  // Byte 0 carried 'Other' AND "no data" at once, so no fixture here ever
+  // held a real non-English/Spanish code — the two cases were the same byte
+  // and there was nothing to tell apart. All four now.
+  it('gives a missing language its own byte, apart from a language we have', () => {
+    const encoder = new PackEncoder(new Map())
+    for (const code of [null, 'English', 'Spanish', 'Vietnamese']) {
+      encoder.add(row({ Language_Code: code }))
+    }
+
+    const { manifest, u8 } = decode(encoder.toBuffer('2026-07-21T12:00:00Z'))
+    const values = manifest.dims.find((d) => d.key === 'language')!.values
+
+    expect(u8('dim:language').map((byte) => values[byte])).toEqual([
+      'Unknown',
+      'English',
+      'Spanish',
+      'Other',
+    ])
+    // Index 0 is "no data" in every other dim here; language was the one that
+    // put a real value there.
+    expect(values[0]).toBe('Unknown')
   })
 
   it('keeps f32/u32 arrays 4-byte aligned regardless of manifest length', () => {

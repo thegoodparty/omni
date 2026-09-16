@@ -86,7 +86,14 @@ test.describe('CRM Contacts Page (Serve)', () => {
     await expect(
       wizard.getByText('Build a constituent list', { exact: true }),
     ).toBeVisible({ timeout: 10_000 })
-    await expect(wizard.getByText('Step 1 of 2')).toBeVisible()
+    await expect(wizard.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuenow',
+      '1',
+    )
+    await expect(wizard.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuemax',
+      '2',
+    )
     await expect(
       wizard.getByText('How do you want to build this list?'),
     ).toHaveCount(0)
@@ -113,7 +120,10 @@ test.describe('CRM Contacts Page (Serve)', () => {
     await expect(wizard.getByText('Name your list')).toBeVisible({
       timeout: 10_000,
     })
-    await expect(wizard.getByText('Step 2 of 2')).toBeVisible()
+    await expect(wizard.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuenow',
+      '2',
+    )
     await expect(
       wizard.getByText(/constituents match\. Give this list a name/),
     ).toBeVisible({ timeout: 30_000 })

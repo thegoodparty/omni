@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
@@ -95,7 +96,12 @@ const ALL_CONTACTS_SEGMENT = 'all'
 
 // The pro gate message shared by every filter-resolution path. Exported so
 // the assistant's count_contacts tool can recognize the rejection and suggest
-// the Pro upgrade without restating the string.
+// the Pro upgrade without restating the string. Every pro gate throws
+// ForbiddenException (403), not BadRequestException: the request is well
+// formed and the org simply isn't entitled. That started as an alerting fix —
+// the route error-count rules counted 400 and excluded 403, so one free-tier
+// user hitting the gate paged the on-call — and the rules now exclude 400 too,
+// so the reason to keep it is the plain one: 403 is what "not entitled" means.
 export const PRO_FILTERING_REQUIRED_MESSAGE =
   'Filtering voter data is only available for pro campaigns'
 
@@ -566,7 +572,7 @@ export class ContactsService {
   // off an individual person but, unlike findPerson, never call people-api.
   async assertProAccess(organization: Organization): Promise<void> {
     if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException(
+      throw new ForbiddenException(
         'This feature is only available for pro campaigns',
       )
     }
@@ -656,7 +662,7 @@ export class ContactsService {
       !!search || (segment !== undefined && segment !== ALL_CONTACTS_SEGMENT)
     const isPro = proAccess ?? (await this.isProAccess(organization))
     if (wantsProOnlyView && !isPro) {
-      throw new BadRequestException(
+      throw new ForbiddenException(
         'Search and segments are only available for pro campaigns',
       )
     }
@@ -756,19 +762,14 @@ export class ContactsService {
   // saved segment would and reads only the people-api total — resultsPerPage: 1
   // so no real rows are loaded. Pro-gated like search/named segments: a non-pro
   // requester only ever sees the base-list preview, never an arbitrary count.
-  // Win-only, like political party and contacts-made: precinct is an
-  // electoral subdivision of a race, and an elected official serves the whole
-  // district regardless of which precinct someone votes in. Rejected before
-  // the pro gate so a non-pro Serve org gets the "not available" reason
-  // rather than the upsell one, matching updateContactStatus.
+  // Available to Win and Serve alike. Precinct is an administrative
+  // subdivision of the same district an official already serves, not a
+  // campaign-only construct: a councilmember organizing a constituent
+  // mailing by precinct is doing ordinary district work, and every other
+  // list-building surface offers it.
   async getPrecincts(
     organization: Organization,
   ): Promise<PeoplePrecinctsResponse> {
-    if (this.hasElectedOfficeAccess(organization)) {
-      throw new BadRequestException(
-        'Precinct filtering is not available for this organization',
-      )
-    }
     await this.assertProAccess(organization)
 
     return this.withOrgDistrictResolution(organization, ({ districtId }) =>
@@ -781,7 +782,7 @@ export class ContactsService {
     organization: Organization,
   ): Promise<{ count: number }> {
     if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
 
     const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
@@ -833,7 +834,7 @@ export class ContactsService {
     organization: Organization,
   ): Promise<{ count: number }> {
     if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
 
     const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
@@ -1004,7 +1005,7 @@ export class ContactsService {
     excludePersonIds?: Set<string>,
   ): Promise<PeopleListResponse> {
     if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
 
     const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
@@ -1061,7 +1062,7 @@ export class ContactsService {
     organization: Organization,
   ): Promise<ListDetailContactsResponse> {
     if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
 
     // No segment = the universe row's detail (ENG-10778): the whole
@@ -1212,7 +1213,7 @@ export class ContactsService {
     // search/segments so a direct call can't read real person detail without
     // pro.
     if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException(
+      throw new ForbiddenException(
         'Viewing contact details is only available for pro campaigns',
       )
     }
@@ -1378,7 +1379,7 @@ export class ContactsService {
     organization: Organization,
   ) {
     if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException('Campaign is not pro')
+      throw new ForbiddenException('Campaign is not pro')
     }
 
     const { filters, empty, idOverrides, contactsMadeIdOverrides } =

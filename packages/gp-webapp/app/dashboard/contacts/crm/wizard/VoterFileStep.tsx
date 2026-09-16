@@ -243,17 +243,18 @@ export default function VoterFileStep({
       </div>
 
       {/* First group on the step, per the locked prototype: Precinct sits
-          above Prior contacts made. */}
-      {!isElectedOfficial && (
-        <PrecinctFilter
-          options={precinctOptions.options}
-          selected={precincts}
-          onChange={onPrecinctsChange}
-          isLoading={precinctOptions.isLoading}
-          isError={precinctOptions.isError}
-          onRetry={precinctOptions.refetch}
-        />
-      )}
+          above Prior contacts made. Offered to Win and Serve alike — a
+          precinct is a subdivision of the district an official already
+          serves, so unlike party or voter likelihood it has a plain Serve
+          meaning. */}
+      <PrecinctFilter
+        options={precinctOptions.options}
+        selected={precincts}
+        onChange={onPrecinctsChange}
+        isLoading={precinctOptions.isLoading}
+        isError={precinctOptions.isError}
+        onRetry={precinctOptions.refetch}
+      />
 
       {!isElectedOfficial &&
         contactsMadeField &&

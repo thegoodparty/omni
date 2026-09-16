@@ -34,6 +34,15 @@ const turfStats = (stops: number, households: number) => ({
 const baseProps = {
   filters: {},
   onFiltersChange: vi.fn(),
+  precincts: [],
+  onPrecinctsChange: vi.fn(),
+  precinctOptions: {
+    options: [],
+    truncated: false,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  },
   onStepChange: vi.fn(),
   onClose: vi.fn(),
   districtBounds: null as [[number, number], [number, number]] | null,
@@ -41,6 +50,7 @@ const baseProps = {
   districtHouseholdsPending: false,
   districtHouseholdsFailed: false,
   districtUnavailable: false,
+  audienceEmpty: false,
   savedLists: [],
   allContactsHouseholds: 12000,
   ring: OPEN_RING,
@@ -133,7 +143,7 @@ const renderAtWho = async (
 }
 
 // The control the who step opens on: one row naming the audience and its door
-// count, labelled by the eyebrow above it.
+// count, labelled by the overline above it.
 const audiencePicker = () => screen.getByRole('combobox', { name: 'All lists' })
 
 // Choosing a list is open-then-pick. The rows only exist in the document while
@@ -172,12 +182,11 @@ const dismissDrawInstructions = () =>
 const heading = (name: string) =>
   screen.getByRole('heading', { level: 3, name })
 
-// The bar stepper's own visible "Step X of Y" text is suppressed on this
-// shell (OutreachFlowShell passes `showLabel={false}` — the DrawerTitle
-// carries the flow's identity, the bars carry position). But the stepper
-// still exposes its position on the progressbar role's aria attributes,
-// which is what these assertions actually mean: "the flow claims it is
-// on step N of a Y-step run".
+// The bar stepper no longer renders "Step X of Y" text at all — that
+// prop was retired in favor of the ChannelBadge overline the header
+// already carries. The stepper still exposes its position on the
+// progressbar role's aria attributes, which is what these assertions
+// actually mean: "the flow claims it is on step N of a Y-step run".
 const expectStep = (currentStep: number, totalSteps: number) => {
   const stepper = screen.getByRole('progressbar', { name: 'Progress' })
   expect(stepper).toHaveAttribute('aria-valuenow', String(currentStep))
@@ -204,6 +213,41 @@ describe('CreateListFlow', () => {
   // step before Build route is client state: the filter POST that precedes it
   // is the reusable audience, and the turf POST is turf, route, stops and the
   // outreach envelope in one transaction on the far side.
+  // Precinct values cannot live in the boolean pill draft, so a hand-cut
+  // selection reaches the created list only if the create body spends the
+  // separate prop. Without this the candidate picks precincts, the map and
+  // the preview narrow by them, and the saved list targets the whole
+  // district.
+  it('creates the list with the hand-cut precinct selection', async () => {
+    const bodies: unknown[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      bodies.push(body)
+      return { status: 200, data: { id: 78 } }
+    })
+    api.mock('POST /v1/door-knocking/turfs', () => ({
+      status: 200,
+      data: { ...savedTurf, id: 6, voterFileFilterId: 78 },
+    }))
+    const onListCreated = vi.fn()
+    const props = {
+      filters: { precincts: true },
+      precincts: ['Laramie|14', 'Laramie|15'],
+      onListCreated,
+    }
+
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="confirm" />,
+    )
+    advanceToRoute(rerender, props, 'Ward 1 evening')
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toMatchObject({
+      name: 'Ward 1 evening',
+      precincts: ['Laramie|14', 'Laramie|15'],
+    })
+  })
+
   it('creates the voter list from the filter draft, then buys the route', async () => {
     const calls: Array<{ kind: string; body: unknown }> = []
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
@@ -316,6 +360,104 @@ describe('CreateListFlow', () => {
     // One list total across both attempts — no orphan per retry.
     expect(filterPosts).toBe(1)
     expect(turfPosts).toBe(2)
+  })
+
+  // A people-db read that ran out of its 60-second ceiling. This is a 5xx, so
+  // it used to be flattened into "Building the route failed — try again in a
+  // moment" — and trying again in a moment is exactly what does not work: the
+  // district is too big and the advice is to narrow it. Big districts are also
+  // the ones with the most doors, so this lands on the candidates least able
+  // to guess why.
+  it('passes a voter-query timeout through instead of the generic failure', async () => {
+    api.mock('POST /v1/voters/voter-file/filter', () => ({
+      status: 200,
+      data: { id: 91 },
+    }))
+    api.mock('POST /v1/door-knocking/turfs', () => ({
+      status: 504,
+      data: {
+        message:
+          'The voter query took too long to run. Narrow the audience and try again.',
+        errorCode: 'VOTER_QUERY_TIMEOUT',
+      },
+    }))
+
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} step="confirm" />,
+    )
+    advanceToRoute(rerender, {}, 'Slow turf')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /Narrow the audience and try again/,
+      ),
+    )
+    expect(screen.getByRole('alert')).not.toHaveTextContent(
+      /Building the route failed/,
+    )
+  })
+
+  // The companion failure, and the one whose message exists precisely to deny
+  // the reading the candidate would otherwise take.
+  it('says an unreachable warehouse is not an empty district', async () => {
+    api.mock('POST /v1/voters/voter-file/filter', () => ({
+      status: 200,
+      data: { id: 92 },
+    }))
+    api.mock('POST /v1/door-knocking/turfs', () => ({
+      status: 502,
+      data: {
+        message:
+          'Voter data is temporarily unavailable. This is a connection problem, not an empty district — try again shortly.',
+        errorCode: 'VOTER_DATA_UNREACHABLE',
+      },
+    }))
+
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} step="confirm" />,
+    )
+    advanceToRoute(rerender, {}, 'Unreachable turf')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /not an empty district/,
+      ),
+    )
+  })
+
+  // The other side of the rule, and the reason it keys on a code rather than
+  // on the status: Geoapify also answers 502, and its messages are written for
+  // a log. A candidate shown "Route optimization returned an unidentifiable
+  // stop" learns nothing and cannot act.
+  it('still hides a vendor 5xx behind the generic failure', async () => {
+    api.mock('POST /v1/voters/voter-file/filter', () => ({
+      status: 200,
+      data: { id: 93 },
+    }))
+    api.mock('POST /v1/door-knocking/turfs', () => ({
+      status: 502,
+      data: { message: 'Route optimization returned an unidentifiable stop' },
+    }))
+
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} step="confirm" />,
+    )
+    advanceToRoute(rerender, {}, 'Vendor turf')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /Building the route failed/,
+      ),
+    )
+    expect(screen.getByRole('alert')).not.toHaveTextContent(
+      /unidentifiable stop/,
+    )
   })
 
   // The rollback is a database rollback, not a loss of the candidate's work.
@@ -1195,6 +1337,98 @@ describe('CreateListFlow steps', () => {
     const disclosure = screen.getByText(/The map can’t yet shade by/)
     expect(disclosure).toHaveTextContent('Your list still applies it when you')
     expect(disclosure).not.toHaveTextContent('saved list')
+  })
+
+  // Derek's dead end, as reported: a list cut by support status shades as the
+  // whole district, so every count on the way to the boundary looked healthy
+  // and the create refused at the end — with a message about widening the
+  // AREA, which was the one thing that could not have helped. The audience is
+  // empty for every polygon, and the server can say so before any drawing.
+  //
+  // The count stays on the button on purpose. It is the district figure and it
+  // is still true about the district; contradicting it is the sentence's job,
+  // and blanking it would leave the step with nothing to explain.
+  it('refuses to leave the who step for an audience proven empty', async () => {
+    const { rerender } = await renderAtWho({ savedLists })
+    // The count only joins the button once an audience is actually picked, so
+    // the pick is what makes this the reported situation rather than a fresh
+    // step that happens to be disabled.
+    await pickList(/Precinct 2 homeowners/)
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="filters"
+        savedLists={savedLists}
+        districtHouseholds={12_000}
+        filters={{ supportStatus: true }}
+        unpreviewableKeys={['supportStatus']}
+        audienceEmpty
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'Continue (12,000)' }),
+    ).toBeDisabled()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'No contacts match this list’s support status filters',
+    )
+  })
+
+  // Two sentences about the same gap, one hedging the count and one saying the
+  // count is moot, read as the step arguing with itself. The stronger claim
+  // wins: there is no point explaining that a number is too big once it is
+  // established that the right number is zero.
+  it('drops the shading disclosure once the audience is proven empty', async () => {
+    await renderAtWho({
+      savedLists,
+      districtHouseholds: 12_000,
+      filters: { supportStatus: true },
+      unpreviewableKeys: ['supportStatus'],
+      audienceEmpty: true,
+    })
+
+    expect(screen.queryByText(/The map can’t yet shade by/)).toBeNull()
+  })
+
+  // The same sentence from the pill-builder face, which has no list to cite.
+  it('does not cite a list for a hand-built draft that resolves to nobody', async () => {
+    await renderAtWho({
+      districtHouseholds: 12_000,
+      filters: { contactsMade0: true },
+      audienceEmpty: true,
+    })
+
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent(
+      'No contacts match your contacts made filters. Adjust them to continue.',
+    )
+    expect(alert).not.toHaveTextContent('list')
+  })
+
+  // The check is advisory and fails open, both while pending and on error —
+  // `audienceEmpty` is false in both. A candidate must not be held out of
+  // their own flow by a check that did not answer: the create's own refusal is
+  // still behind this, so a missed empty audience is the status quo while a
+  // false block is a list that cannot be cut at all.
+  it('lets a candidate continue while the audience check has not answered', async () => {
+    const { rerender } = await renderAtWho({ savedLists })
+    await pickList(/Precinct 2 homeowners/)
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="filters"
+        savedLists={savedLists}
+        districtHouseholds={12_000}
+        filters={{ supportStatus: true }}
+        unpreviewableKeys={['supportStatus']}
+        audienceEmpty={false}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'Continue (12,000)' }),
+    ).toBeEnabled()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   // Picking a list is two writes that have to happen together, and the second

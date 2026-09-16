@@ -36,6 +36,7 @@ export const LANGUAGE_KEY_TO_CODE: Record<string, string> = {
   languageEnglish: 'en',
   languageSpanish: 'es',
   languageOther: 'other',
+  languageUnknown: 'unknown',
 }
 
 const LANGUAGE_KEYS = new Set(Object.keys(LANGUAGE_KEY_TO_CODE))

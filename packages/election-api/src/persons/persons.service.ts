@@ -53,6 +53,28 @@ type OfficeHolderPositionContext = {
 // resolutions fine enough to undo the k-anonymity the cells were built with.
 const DEFAULT_RESOLUTION = 8
 
+// PII + internal linkage stripped from every person response. Named so the
+// three reads that serve the full spine can't drift apart on what they hide.
+const PERSON_RESPONSE_OMIT = {
+  email: true,
+  phone: true,
+  gpApiUserId: true,
+} as const
+
+// The full civics spine for one person: every office term and candidacy.
+const PERSON_SPINE_INCLUDE = {
+  OfficeHolders: OFFICE_HOLDER_INCLUDE,
+  Candidacies: CANDIDACY_INCLUDE,
+} as const
+
+// How far to follow a chain of merges (A retired into B, B later retired into
+// C). The ETL contract is that PersonMerge.survivingId is already the TERMINAL
+// survivor, so a healthy row resolves in zero hops. This is a bounded defense
+// so an uncompressed chain costs an extra query instead of 404-ing, and so a
+// cycle — which path compression makes impossible, but which no constraint
+// forbids — cannot spin.
+const MAX_MERGE_HOPS = 4
+
 /** A single precomputed heat-map cell: an H3 centroid and its voter count. */
 export interface VoterDensityCell {
   lat: number
@@ -107,14 +129,18 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
 
   // Powers the public profile page: the full spine for one person, including
   // every office term and candidacy, with PII omitted.
+  //
+  // Deliberately does NOT follow PersonMerge. An id lookup answers "what is
+  // this id", and silently returning a different person would be a surprising
+  // contract for gp-api, which keys its own rows on the id it asked about.
+  // Merge following is confined to by-slug, where resolving a URL to whoever
+  // owns it now is the whole job. Callers holding a possibly-retired id ask
+  // GET /v1/person-merges/:retiredId and decide for themselves.
   async getPersonById(personId: string) {
     const person = await this.model.findUnique({
       where: { id: personId },
-      omit: { email: true, phone: true, gpApiUserId: true },
-      include: {
-        OfficeHolders: OFFICE_HOLDER_INCLUDE,
-        Candidacies: CANDIDACY_INCLUDE,
-      },
+      omit: PERSON_RESPONSE_OMIT,
+      include: PERSON_SPINE_INCLUDE,
     })
     if (!person) {
       throw new NotFoundException(`Person not found for id=${personId}`)
@@ -354,6 +380,23 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
   // the whole slug breaks that rare tie. The name part is optional: a name that
   // slugifies to nothing (non-Latin scripts strip to empty) leaves the id suffix
   // as the entire slug.
+  //
+  // A URL can also name a person the data team has since PURGED as a duplicate.
+  // Because the id8 that makes the slug unique is the deleted row's primary
+  // key, there is nothing left in Person to match — so the miss path consults
+  // PersonMerge, which holds the purged id's forwarding address, and returns
+  // the survivor. gp-marketing then sees a person whose canonical slug differs
+  // from the requested one and 308s to it, using the redirect it already runs
+  // for renames. See PERSON_ID_RETIREMENT_HANDOFF.md.
+  //
+  // Precedence, most specific first, so that neither a rename nor a purge can
+  // make one person's URL serve a different person:
+  //   1. live person, exact slug match      — unambiguous
+  //   2. retired id, exact slug match       — unambiguous; redirect
+  //   3. exactly one live person on the prefix    — the rename case
+  //   4. exactly one retired id on the prefix     — rename + purge
+  //   5. otherwise 404 — an ambiguous prefix is never guessed at
+  // Rungs 2 and 4 cost one extra indexed query, and only when rung 1 misses.
   async getPersonBySlug(slug: string) {
     const idPrefix = /^(?:.*-)?([0-9a-f]{8})$/.exec(slug)?.[1]
 
@@ -364,27 +407,82 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
 
     const candidates = await this.model.findMany({
       where: { id: this.idPrefixRange(idPrefix) },
-      omit: { email: true, phone: true, gpApiUserId: true },
-      include: {
-        OfficeHolders: OFFICE_HOLDER_INCLUDE,
-        Candidacies: CANDIDACY_INCLUDE,
-      },
+      omit: PERSON_RESPONSE_OMIT,
+      include: PERSON_SPINE_INCLUDE,
     })
 
-    // Almost always 0-1 rows. Only when two ids share the same 8-hex prefix do
-    // we fall back to the slug to pick the intended person. The stored slug
-    // carries the id suffix, so it is compared whole against the requested URL;
-    // a stale base on a shared prefix is unresolvable and 404s rather than
-    // guessing between two real people.
-    const person =
-      candidates.length === 1
-        ? candidates[0]
-        : (candidates.find((p) => p.slug === slug) ?? null)
+    // (1) The stored slug carries the id suffix, so it is compared whole.
+    const exactLive = candidates.find((p) => p.slug === slug)
+    if (exactLive) return this.attachOfficeContext(exactLive)
 
-    if (!person) {
+    // Almost always empty. Fetched once and used for both merge rungs.
+    const merges = await this.client.personMerge.findMany({
+      where: { retiredId: this.idPrefixRange(idPrefix) },
+      select: { survivingId: true, retiredSlug: true },
+    })
+
+    // (2) An exact retired-slug match outranks an inexact live one: this URL
+    // demonstrably belonged to the purged person, and resolving it to a
+    // different real person who merely shares the 8-hex prefix would conflate
+    // the two — in the index as much as on the page.
+    const exactMerge = merges.find((m) => m.retiredSlug === slug)
+    if (exactMerge) {
+      const survivor = await this.loadMergeSurvivor(exactMerge.survivingId)
+      if (survivor) return this.attachOfficeContext(survivor)
+      // The match was definitive: this URL is that purged person's, and their
+      // forwarding address is broken. Falling through to the prefix rungs would
+      // hand their URL to whichever live person happens to share the 8 hex —
+      // the exact conflation this rung exists to prevent. The URL is
+      // unresolvable, not ambiguous, so stop here.
       throw new NotFoundException(`Person not found for slug=${slug}`)
     }
-    return this.attachOfficeContext(person)
+
+    // (3) One live person owns the prefix and the URL carries a stale name.
+    if (candidates.length === 1) {
+      return this.attachOfficeContext(candidates[0]!)
+    }
+
+    // (4) Same, for a purged person: one retired id owns the prefix. Covers
+    // backfilled rows that carry no retiredSlug to match on at rung 2.
+    if (merges.length === 1) {
+      const survivor = await this.loadMergeSurvivor(merges[0]!.survivingId)
+      if (survivor) return this.attachOfficeContext(survivor)
+    }
+
+    // (5) Zero or ambiguous.
+    throw new NotFoundException(`Person not found for slug=${slug}`)
+  }
+
+  // Loads the person a purged duplicate forwards to, following any residual
+  // chain to its end. Returns null when the survivor is itself missing — a
+  // broken forwarding address is a 404, not an error: the caller's URL is
+  // still unresolvable and there is nothing truthful to serve.
+  private async loadMergeSurvivor(survivingId: string) {
+    const terminalId = await this.resolveTerminalSurvivor(survivingId)
+    return this.model.findUnique({
+      where: { id: terminalId },
+      omit: PERSON_RESPONSE_OMIT,
+      include: PERSON_SPINE_INCLUDE,
+    })
+  }
+
+  // Walks PersonMerge until an id is not itself retired. Normally exits on the
+  // first probe, because the ETL publishes terminal survivors; the loop and the
+  // `seen` set bound the damage if it ever publishes a chain or a cycle.
+  private async resolveTerminalSurvivor(survivingId: string): Promise<string> {
+    let current = survivingId
+    const seen = new Set([current])
+
+    for (let hop = 0; hop < MAX_MERGE_HOPS; hop++) {
+      const next = await this.client.personMerge.findUnique({
+        where: { retiredId: current },
+        select: { survivingId: true },
+      })
+      if (!next || seen.has(next.survivingId)) return current
+      seen.add(next.survivingId)
+      current = next.survivingId
+    }
+    return current
   }
 
   // Half-open UUID range [<prefix>-0…, <next>-0…) covering every id whose text

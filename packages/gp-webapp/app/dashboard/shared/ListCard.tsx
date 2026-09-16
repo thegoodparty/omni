@@ -16,9 +16,9 @@ export interface ListCardProps {
   // The list's own colour, drawn as a bar down the leading edge. Optional
   // because not every surface that reuses this card colours its rows.
   accentColor?: string
-  // The eyebrow above the title: a lifecycle badge, a progress line, whatever
+  // The overline above the title: a lifecycle badge, a progress line, whatever
   // the surface's vocabulary is. This card never invents one.
-  eyebrow?: ReactNode
+  overline?: ReactNode
   title: string
   // Selecting is a real button on the title rather than a click handler on the
   // card, because the card carries other controls: a clickable container around
@@ -40,7 +40,7 @@ export interface ListCardProps {
 
 export function ListCard({
   accentColor,
-  eyebrow,
+  overline,
   title,
   onSelect,
   selected = false,
@@ -81,7 +81,7 @@ export function ListCard({
       )}
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          {eyebrow}
+          {overline}
           {onSelect ? (
             <button
               type="button"
@@ -99,7 +99,7 @@ export function ListCard({
           // Pulled back into the card's own padding so the cluster sits in the
           // corner rather than a full pad-width inside it. Negative margin
           // rather than absolute positioning: these stay in flow, so they still
-          // reserve their width and can never end up on top of a long eyebrow.
+          // reserve their width and can never end up on top of a long overline.
           <div className="-mr-2.5 -mt-2.5 flex shrink-0 items-center gap-0.5">
             {controls}
           </div>

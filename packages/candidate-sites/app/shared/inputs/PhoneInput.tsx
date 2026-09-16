@@ -1,10 +1,8 @@
 'use client'
 
-import React, { useState } from 'react'
+import { useState, ChangeEvent } from 'react'
 import { AsYouType } from 'libphonenumber-js'
-import InputAdornment from '@mui/material/InputAdornment'
-import IconButton from '@mui/material/IconButton'
-import PhoneIcon from '@mui/icons-material/Phone'
+import { Phone } from 'lucide-react'
 import TextField from './TextField'
 
 export const isValidPhone = (phone: string): boolean => {
@@ -23,14 +21,12 @@ interface PhoneInputProps {
   onChangeCallback: (phone: string) => void
   onBlurCallback?: () => void
   hideIcon?: boolean
-  shrink?: boolean
   required?: boolean
   className?: string
   placeholder?: string
   useLabel?: boolean
   disabled?: boolean
-  sx?: any
-  InputLabelProps?: any
+  accentColor?: string
 }
 
 function PhoneInput({
@@ -38,20 +34,19 @@ function PhoneInput({
   onChangeCallback,
   onBlurCallback = () => {},
   hideIcon,
-  shrink,
   required = false,
   className,
   placeholder,
   useLabel = true,
   disabled,
-  sx,
-  InputLabelProps,
-  ...restProps
+  accentColor,
 }: PhoneInputProps) {
   const [validPhone, setValidPhone] = useState(true)
   const displayValue = value || ''
 
-  const onChangeValue = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const onChangeValue = (
+    event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+  ) => {
     const inputValue = event.target.value
     const asYouType = new AsYouType('US')
     const formatted = asYouType.input(inputValue)
@@ -65,44 +60,33 @@ function PhoneInput({
     onBlurCallback()
   }
 
+  const hasError = !validPhone && displayValue !== ''
+
   return (
     <TextField
+      type="tel"
       className={className}
       value={displayValue}
-      label={useLabel ? 'Phone' : ''}
-      size="medium"
-      fullWidth
+      label={useLabel ? 'Phone' : undefined}
       name="phone"
       onChange={onChangeValue}
       onBlur={onBlurChange}
-      variant="outlined"
-      error={!validPhone && displayValue !== ''}
+      error={hasError}
       required={required}
       placeholder={placeholder || ''}
       disabled={disabled}
-      sx={sx}
-      InputProps={
-        !hideIcon
-          ? {
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton>
-                    <PhoneIcon />
-                  </IconButton>
-                </InputAdornment>
-              ),
-            }
-          : {}
+      accentColor={accentColor}
+      endAdornments={
+        hideIcon
+          ? undefined
+          : [
+              <Phone
+                key="phone"
+                className="h-4 w-4 text-gray-500"
+                aria-hidden="true"
+              />,
+            ]
       }
-      InputLabelProps={
-        shrink || InputLabelProps
-          ? {
-              shrink: true,
-              ...InputLabelProps,
-            }
-          : {}
-      }
-      {...restProps}
     />
   )
 }

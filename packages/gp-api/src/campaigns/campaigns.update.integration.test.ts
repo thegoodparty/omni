@@ -142,6 +142,63 @@ describe('PUT /v1/campaigns/mine — ballotStatus column', () => {
   })
 })
 
+describe('PUT /v1/campaigns/mine — signupGoal column', () => {
+  it('persists the top-level signupGoal to the column', async () => {
+    const { org, campaign } = await seedCampaign()
+    const crm = service.app.get(CrmCampaignsService)
+    vi.spyOn(crm, 'trackCampaign').mockResolvedValue(undefined)
+
+    const result = await service.client.put(
+      '/v1/campaigns/mine',
+      { signupGoal: 'voter-outreach' },
+      { headers: { 'x-organization-slug': org.slug } },
+    )
+
+    expect(result.status).toBe(200)
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.signupGoal).toBe('voter-outreach')
+  })
+
+  it('rejects an unknown signupGoal rather than dropping it', async () => {
+    const { org } = await seedCampaign()
+
+    const result = await service.client.put(
+      '/v1/campaigns/mine',
+      { signupGoal: 'something-else' },
+      { headers: { 'x-organization-slug': org.slug } },
+    )
+
+    expect(result.status).toBe(400)
+  })
+
+  // Unlike ballotStatus there is no legacy details copy to forward: this
+  // answer has only ever been a column, and the allowlist does not name it.
+  it('leaves the column unset when the goal is sent in details', async () => {
+    const { org, campaign } = await seedCampaign()
+    const crm = service.app.get(CrmCampaignsService)
+    vi.spyOn(crm, 'trackCampaign').mockResolvedValue(undefined)
+
+    const details: PrismaJson.CampaignDetails = { state: 'CA' }
+    Reflect.set(details, 'signupGoal', 'voter-data')
+
+    await service.client.put(
+      '/v1/campaigns/mine',
+      { details },
+      {
+        headers: { 'x-organization-slug': org.slug },
+      },
+    )
+
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.signupGoal).toBeNull()
+    expect(row.details).not.toHaveProperty('signupGoal')
+  })
+})
+
 describe('PUT /v1/campaigns/mine — stale election-result reset (ENG-10954)', () => {
   // A re-running candidate reuses their campaign: didWin / primaryResult /
   // details.wonGeneral recorded for the prior race permanently fail

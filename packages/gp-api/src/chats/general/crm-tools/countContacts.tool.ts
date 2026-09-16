@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
 import {
@@ -21,8 +21,11 @@ const countContactsInputSchema = voterFilterBaseSchema
 // Business-rule rejections (pro gate, Serve party rejection, unresolvable
 // district) come back as structured tool errors the model can relay; anything
 // else (people-api outages -> BadGatewayException) propagates to the LLM
-// layer's tool-failure handling like every other tool.
-const toToolError = (error: BadRequestException): { error: string } =>
+// layer's tool-failure handling like every other tool. Both classes are
+// needed: the pro gate is a 403 ForbiddenException, the rest are 400s.
+const toToolError = (
+  error: BadRequestException | ForbiddenException,
+): { error: string } =>
   error.message === PRO_FILTERING_REQUIRED_MESSAGE
     ? {
         error:
@@ -55,7 +58,10 @@ export const buildCountContactsTool = (deps: {
     try {
       return await deps.contacts.countContacts(input, deps.organization)
     } catch (error) {
-      if (error instanceof BadRequestException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException
+      ) {
         return toToolError(error)
       }
       throw error

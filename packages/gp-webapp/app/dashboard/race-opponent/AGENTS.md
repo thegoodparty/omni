@@ -168,7 +168,7 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   `RaceOpponentStandoutActionSchema` in contracts; the contract defaults the
   array to `[]`, the mirror keeps it optional for older payloads). A client
   component (`'use client'` — the CTA uses `useRouter`). Each card: SendIcon +
-  "Voter outreach" eyebrow, title, body (rendered verbatim — no truncation),
+  "Voter outreach" overline, title, body (rendered verbatim — no truncation),
   and a full-width primary "Send SMS to voters" `Button` that pushes
   `/dashboard/outreach?compose=text&message=<encodeURIComponent(smsMessage)>`
   — the outreach text composer opens with the message preset behind the same

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  mapLanguage,
   mapPoliticalParty,
   mapVoterStatus,
 } from './transformToPersonOutput.util'
@@ -91,6 +92,26 @@ describe('politicalParty.rules table', () => {
         'Declined to State',
       ],
     })
+  })
+})
+
+describe('mapLanguage', () => {
+  it('maps the two named languages, case-insensitively', () => {
+    expect(mapLanguage('English')).toBe('English')
+    expect(mapLanguage('spanish')).toBe('Spanish')
+  })
+
+  it('maps a language we have but do not name to Other', () => {
+    expect(mapLanguage('Vietnamese')).toBe('Other')
+  })
+
+  // The display half of the split: 'Other' is a claim about what someone
+  // speaks, and an empty column does not make it. This returned 'Other', so a
+  // person the filter calls Unknown read as an Other-language speaker.
+  it('maps null / undefined / blank to null rather than Other', () => {
+    expect(mapLanguage(null)).toBeNull()
+    expect(mapLanguage(undefined)).toBeNull()
+    expect(mapLanguage('')).toBeNull()
   })
 })
 

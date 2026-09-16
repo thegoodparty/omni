@@ -50,7 +50,7 @@ This is deliberately **not** a new `DoorKnockStatus` member, for two reasons. A 
 
 ### Its own endpoint, not the CRM's status PATCH
 
-The obvious move is to reuse `PATCH /v1/contacts/:personId/status`, which already writes this exact table. It is the wrong one: that handler calls `assertProAccess`, and the door-knocking pilot deliberately has no Pro gate. A candidate in the pilot would be able to knock a door and then get a 400 trying to honor what they were just told.
+The obvious move is to reuse `PATCH /v1/contacts/:personId/status`, which already writes this exact table. It is the wrong one: that handler calls `assertProAccess`, and the door-knocking pilot deliberately has no Pro gate. A candidate in the pilot would be able to knock a door and then get a 403 trying to honor what they were just told.
 
 So do-not-knock gets `POST /v1/door-knocking/do-not-knock`, taking a `stopTargetId` rather than a bare `personId`. That authorizes the same way `recordInteraction` does — the target must sit on a route belonging to a turf in the caller's org — which is strictly tighter than a person-id path param, and it keeps the door-knocking surface's access rules in one place. Both endpoints converge on `ContactStatusService.changeStatus`, so the storage, the audit trail, and the activity feed stay shared.
 

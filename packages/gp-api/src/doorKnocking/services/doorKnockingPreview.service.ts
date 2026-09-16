@@ -15,6 +15,7 @@ import {
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { MAX_STOPS } from './doorKnockingCreate.service'
 import { pointInPolygon, polygonBbox } from '../utils/geo.util'
+import { coordinateKey } from '../utils/blockFace.util'
 import { renderDoorAddress, streetLineOfStop } from '../utils/unitAddress.util'
 
 // One door of a stop: how many of the drawn shape's people live behind it, and
@@ -38,6 +39,7 @@ const EMPTY_COUNTS = {
   doors: 0,
   people: 0,
   locations: [],
+  audienceEmpty: false,
 }
 
 // The draw step's answer to "which houses are these?", asked before anything
@@ -101,8 +103,16 @@ export class DoorKnockingPreviewService {
     // here because a list is being committed; a shape still being drawn is
     // allowed to enclose nobody, and the draw step already says "No doors in
     // this area" for it. Erroring would turn ordinary drawing into a failure.
+    //
+    // But it is not the same nobody, and returning the bare zeros said it
+    // was. "This shape encloses none of your audience" is a boundary to move;
+    // "your audience is empty" is a create that will be rejected no matter
+    // where the boundary goes, and the criteria that cause it are precisely
+    // the ones the map cannot shade — so the map shows a district full of
+    // matching voters while this returns zero. Flagged rather than thrown:
+    // the caller decides whether a draft is far enough along to be told.
     if (resolved.empty) {
-      return EMPTY_COUNTS
+      return { ...EMPTY_COUNTS, audienceEmpty: true }
     }
 
     const { people } = await this.peopleApi.evaluate({
@@ -119,8 +129,8 @@ export class DoorKnockingPreviewService {
 
   // Mirrors DoorKnockingCreateService.buildStops: the bbox is a prefilter, so
   // the ray-cast is what decides membership; ordering is deterministic on
-  // (addressKey, id); a stop is a unique coordinate and a door is a unique
-  // unit key within it. Written out rather than shared with the create path,
+  // (addressKey, id); a stop is a unique snapped coordinate and a door is a
+  // unique unit key within it. Written out rather than shared with the create path,
   // which additionally throws on an empty or oversized turf — behaviour a
   // shape being drawn must not have.
   private summarize(
@@ -142,7 +152,12 @@ export class DoorKnockingPreviewService {
     // ways across those two screens reads as two houses.
     const byCoordinate = new Map<string, Map<string, DoorTally>>()
     for (const person of inside) {
-      const key = `${person.lat}|${person.lng}`
+      // Snapped on the same ~1m grid the create path dedupes with. Compared
+      // exactly here, one building whose voter rows differ in the last decimal
+      // would be counted as two stops by the panel and one by the list it is
+      // previewing — and the draw step gates Build on this number, so the
+      // over-count could refuse a turf that create would have accepted.
+      const key = coordinateKey(person.lat, person.lng)
       let doors = byCoordinate.get(key)
       if (!doors) {
         doors = new Map<string, DoorTally>()
@@ -184,6 +199,14 @@ export class DoorKnockingPreviewService {
       })
     }
 
-    return { stops, doors, people: inside.length, locations }
+    // The audience resolved to somebody or this would not have run; whether
+    // the ring caught any of them is what `stops` reports.
+    return {
+      stops,
+      doors,
+      people: inside.length,
+      locations,
+      audienceEmpty: false,
+    }
   }
 }

@@ -529,6 +529,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       overrideDistrictId,
       primaryResult,
       ballotStatus,
+      signupGoal,
     } = body
 
     const runUpdate = async (tx: Prisma.TransactionClient) => {
@@ -592,6 +593,10 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         campaignUpdateData.ballotStatus = ballotStatus
       } else if (legacyBallotStatus !== undefined) {
         campaignUpdateData.ballotStatus = legacyBallotStatus
+      }
+      // No legacy details fallback: signupGoal has only ever been a column.
+      if (signupGoal !== undefined) {
+        campaignUpdateData.signupGoal = signupGoal
       }
       if (details) {
         const mergedDetails = deepMerge(

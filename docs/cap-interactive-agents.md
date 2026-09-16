@@ -219,6 +219,23 @@ Two prompt sources:
   (`buildChiefOfStaffSystemPrompt` — "You are the user's Chief of Staff. The user is
   the elected official you serve, NOT you." plus injected `<office_context>`,
   `<priorities>`, optional `<anchored_issue>`).
+  Block order is load-bearing there: every tool rule block pulls toward more
+  detail, so `VOICE AND LENGTH` (with `PROACTIVITY` / `WRITING MECHANICS`) is
+  assembled last, as the final instruction read before the model writes.
+  `OFFICE STRUCTURE` and the first-conversation-only
+  `FIRST-RUN RESEARCH` block each have a no-`web_search` variant, because the
+  prompt must never advertise a tool that did not register.
+  `FIRST-RUN RESEARCH` is gated on `ctx.isFirstConversation`, a real count of
+  the holder's chief-of-staff conversations. The conversational home opens a new
+  conversation per session, so a model left to judge "is this a first message"
+  would redo the research on every visit. That same fresh-transcript-per-session
+  behavior is why the `INTRODUCTION` block has a returning variant that forbids
+  reintroducing: a returning holder arrives with nothing in context showing they
+  have met. Priorities are gated separately on `ctx.priorities` being empty, so
+  a returning holder who never set any is still asked. Those two blocks split
+  the work rather than compete: `PRIORITIES NOT ON FILE` states the outcome,
+  and on a first conversation `FIRST-RUN RESEARCH` states the method (propose
+  informed candidates instead of an open question).
 - **Campaign chat/content: prompts come from Contentful**, synced into the
   Postgres `Content` table (`ContentType.aiChatPrompt` etc.). `content.service.ts`
   selects the entry, then `src/ai/services/promptReplace.service.ts` substitutes

@@ -1,7 +1,11 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
 import { BallotReadyPositionLevel } from '@goodparty_org/contracts'
-import { BadRequestException, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { Campaign, Organization, VoterFileFilter } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -213,7 +217,7 @@ describe('ContactsService', () => {
             { resultsPerPage: 10, page: 1, search: 'smith', segment: 'all' },
             org,
           ),
-        ).rejects.toThrow(BadRequestException)
+        ).rejects.toThrow(ForbiddenException)
         await expect(
           service.findContacts(
             { resultsPerPage: 10, page: 1, search: 'smith', segment: 'all' },
@@ -234,7 +238,7 @@ describe('ContactsService', () => {
             { resultsPerPage: 10, page: 1, segment: 'texting' },
             org,
           ),
-        ).rejects.toThrow(BadRequestException)
+        ).rejects.toThrow(ForbiddenException)
         await expect(
           service.findContacts(
             { resultsPerPage: 10, page: 1, segment: 'texting' },
@@ -347,7 +351,7 @@ describe('ContactsService', () => {
 
         await expect(
           service.downloadContacts({ segment: 'all' }, res, org),
-        ).rejects.toThrow(BadRequestException)
+        ).rejects.toThrow(ForbiddenException)
         await expect(
           service.downloadContacts({ segment: 'all' }, res, org),
         ).rejects.toThrow('Campaign is not pro')
@@ -655,7 +659,7 @@ describe('ContactsService', () => {
         mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
 
         await expect(service.findPerson('person-1', org)).rejects.toThrow(
-          BadRequestException,
+          ForbiddenException,
         )
         expect(mockVoterQueryService.findPerson).not.toHaveBeenCalled()
       })
@@ -1363,7 +1367,7 @@ describe('ContactsService', () => {
 
         await expect(
           service.countContacts({ partyDemocrat: true }, org),
-        ).rejects.toThrow(BadRequestException)
+        ).rejects.toThrow(ForbiddenException)
         expect(mockVoterQueryService.findPeople).not.toHaveBeenCalled()
       })
 
@@ -1421,7 +1425,7 @@ describe('ContactsService', () => {
             { resultsPerPage: 1000, page: 1 },
             org,
           ),
-        ).rejects.toThrow(BadRequestException)
+        ).rejects.toThrow(ForbiddenException)
         expect(mockVoterQueryService.findPeople).not.toHaveBeenCalled()
       })
 
@@ -1563,7 +1567,7 @@ describe('ContactsService', () => {
 
         await expect(
           service.getListDetail({ segment: 42 }, org),
-        ).rejects.toThrow(BadRequestException)
+        ).rejects.toThrow(ForbiddenException)
         expect(
           mockVoterFileFilterService.findByIdAndOrganizationSlug,
         ).not.toHaveBeenCalled()
@@ -1745,7 +1749,7 @@ describe('ContactsService', () => {
           mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
 
           await expect(service.getListDetail({}, org)).rejects.toThrow(
-            BadRequestException,
+            ForbiddenException,
           )
           expect(
             mockVoterFileFilterService.findByIdAndOrganizationSlug,

@@ -1,4 +1,8 @@
-import { BadRequestException, ConflictException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common'
 import { z } from 'zod'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
@@ -51,8 +55,12 @@ const LOCKED_FILTER_ERROR =
 // Business-rule rejections (pro gate, incomplete-outreach activity condition,
 // Serve party rejection) come back as structured tool errors the model can
 // relay; anything else (people-api outages -> BadGatewayException) propagates
-// to the LLM layer's tool-failure handling like every other tool.
-const toToolError = (error: BadRequestException): { error: string } =>
+// to the LLM layer's tool-failure handling like every other tool. Both classes
+// are needed: both pro gates reached from here (filterAccessCheck and
+// countContacts) are 403 ForbiddenExceptions, the rest are 400s.
+const toToolError = (
+  error: BadRequestException | ForbiddenException,
+): { error: string } =>
   error.message === PRO_FILTERING_REQUIRED_MESSAGE ||
   error.message === FILTER_PRO_REQUIRED_MESSAGE
     ? {
@@ -153,7 +161,10 @@ export const buildCrudSavedFiltersTool = (deps: {
       if (error instanceof ConflictException) {
         return { error: LOCKED_FILTER_ERROR }
       }
-      if (error instanceof BadRequestException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException
+      ) {
         return toToolError(error)
       }
       throw error

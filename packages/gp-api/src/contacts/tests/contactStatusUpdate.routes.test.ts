@@ -175,7 +175,7 @@ describe('PATCH /v1/contacts/:personId/status', () => {
       expect(result.status).toBe(400)
     })
 
-    it('400s for a non-pro Win campaign', async () => {
+    it('403s for a non-pro Win campaign', async () => {
       const slug = `win-nonpro-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: false })
       stubPeopleApi(mockPersonFetch())
@@ -184,7 +184,7 @@ describe('PATCH /v1/contacts/:personId/status', () => {
         field: 'voter_likelihood',
         value: 'super',
       })
-      expect(result.status).toBe(400)
+      expect(result.status).toBe(403)
     })
 
     it('400s on a value outside the field vocabulary', async () => {
