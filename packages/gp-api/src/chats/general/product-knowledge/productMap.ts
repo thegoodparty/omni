@@ -82,7 +82,9 @@ const SHARED_AREAS: ProductArea[] = [
   {
     navId: 'nav-dash-support',
     name: 'Get help',
-    path: 'the account menu at the bottom of the left rail',
+    // Not a section: it ends the main nav on desktop and sits in the account
+    // group on mobile. See SUPPORT_ROUTE in productKnowledgePrompt.ts.
+    path: 'the bottom of the left-hand menu',
     modes: ['win', 'serve'],
     does: 'Opens the support chat, where a person answers billing, account, and anything that needs changing on their behalf.',
     inside: [

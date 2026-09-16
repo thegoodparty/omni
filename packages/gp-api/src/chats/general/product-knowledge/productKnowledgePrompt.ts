@@ -18,13 +18,18 @@ import {
 // two email addresses, a help URL, a help center, live chat, a chat widget, a
 // chat bubble, and a contact form. Everything a user could be sent to must
 // come from this constant.
-// The chat no longer hovers over every page: it opens from "Get help" in the
-// dashboard's account menu (gp-webapp DashboardMenu + @shared/utils/
-// supportWidget). This string is what a user is told to click, so it has to
-// track that item.
+// The chat no longer hovers over every page: it opens from "Get help"
+// (gp-webapp DashboardMenu + @shared/utils/supportWidget). This string is what
+// a user is told to click, so it has to track that item.
+//
+// It deliberately does not name a section of the menu. The item is at the end
+// of the main nav on desktop and in the account group on mobile, so anything
+// more specific than "the bottom of the left-hand menu" is wrong on one of the
+// two, and sending someone to hunt in the wrong place is the exact failure the
+// map exists to prevent.
 export const SUPPORT_ROUTE =
-  'the support chat, which opens from "Get help" in the account menu at the ' +
-  'bottom of the left rail'
+  'the support chat, which opens from "Get help" at the bottom of the ' +
+  'left-hand menu'
 
 // The product shows the same address, from
 // gp-webapp/app/shared/utils/supportContact.ts. Not a cross-service contract,

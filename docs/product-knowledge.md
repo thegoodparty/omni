@@ -129,10 +129,14 @@ needs rewriting against the current navigation.
 
 ## Support routing
 
-**One route, both assistants:** the support chat, opened from **Get help** in
-the dashboard's account menu, with `support@goodparty.org` as the email
+**One route, both assistants:** the support chat, opened from **Get help** at
+the bottom of the left-hand menu, with `support@goodparty.org` as the email
 fallback. Both are constants (`SUPPORT_ROUTE`, `SUPPORT_EMAIL`) and nothing
 else may be named.
+
+`SUPPORT_ROUTE` names no section of that menu on purpose: Get help ends the
+main nav on desktop and sits in the account group on mobile, so any wording
+more specific is wrong on one of the two.
 
 The product shows two addresses, and which one depends on who works the queue.
 Both live in `gp-webapp/app/shared/utils/supportContact.ts`; import one rather
