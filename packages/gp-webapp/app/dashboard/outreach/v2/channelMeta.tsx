@@ -138,6 +138,9 @@ const STATUS_DISPLAY: Record<
   // (door-knocking/native/turfLifecycle.ts) is the only producer.
   'Not started': { icon: <CircleIcon />, tone: 'muted' },
   'In progress': { icon: <CircleDotIcon />, tone: 'primary' },
+  // A p2p send inside its vendor window today — the sending-channel twin of
+  // 'In progress', same axis position, same mark.
+  Sending: { icon: <CircleDotIcon />, tone: 'primary' },
   Done: { icon: <CheckCircleIcon />, tone: 'primary' },
   'Pending payment': { icon: <ClockIcon />, tone: 'warning' },
   Canceled: { icon: <XCircleIcon />, tone: 'muted' },

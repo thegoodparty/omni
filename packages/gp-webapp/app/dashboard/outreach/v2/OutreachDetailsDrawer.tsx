@@ -131,7 +131,7 @@ const lifecycleOf = (
 ): ListDetailsLifecycle | null =>
   statusLabel === 'Done'
     ? 'done'
-    : statusLabel === 'In progress'
+    : statusLabel === 'In progress' || statusLabel === 'Sending'
       ? 'in_progress'
       : statusLabel === 'Scheduled'
         ? 'scheduled'
