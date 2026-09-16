@@ -69,6 +69,13 @@ import {
 } from '@shared/organization-picker'
 import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
 
+// Adding, renaming or removing an item here also means updating the AI
+// assistants' product map, in
+// packages/gp-api/src/chats/general/product-knowledge/productMap.ts — the
+// Campaign Manager and Chief of Staff answer "where do I find X" from it, and
+// a tab missing from it is one they guess about or punt to support. `id` is
+// what the coverage check matches on, so keep it stable when you rename a
+// label. See docs/product-knowledge.md.
 interface MenuItem {
   id: string
   label: string

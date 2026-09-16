@@ -53,6 +53,7 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Interactive AI chat (the `ai` SDK)     | `docs/cap-interactive-agents.md`              |
 | The Python AI services + their infra   | `packages/gp-ai/AGENTS.md`                    |
 | **Writing any user-facing copy**       | **`docs/product-copy.md`**                    |
+| **Shipping a user-facing feature**     | **`docs/product-knowledge.md`** (add it to the assistants' product map) |
 | Setting up / running locally           | `docs/development.md`                         |
 | Writing or fixing a test               | `docs/testing.md`                             |
 | Adding a scheduled / cron job          | `docs/scheduled-jobs.md`                      |
@@ -80,6 +81,14 @@ Docs here are living context, not archive. **When a change alters behavior,
 architecture, or a convention, update the nearest relevant `AGENTS.md` and/or
 `docs/` file in the same change.** A PR that changes how something works and leaves
 its doc stale is incomplete. Update _or delete_ in place; never leave them to rot.
+
+**When a change adds or renames something a user can see, add it to the
+assistants' product map** (`packages/gp-api/src/chats/general/product-knowledge/`)
+in the same change. The Campaign Manager and Chief of Staff answer product
+questions from that map, and a feature missing from it is a feature they will
+guess about or send to support. CI fails a PR that adds a dashboard tab without
+it; everything reached from inside a page is on you. See
+`docs/product-knowledge.md`.
 
 **When a change removes something, delete its docs — don't rewrite them into a
 tombstone.** No "X is retired" or "X no longer exists" sections. A reader who never

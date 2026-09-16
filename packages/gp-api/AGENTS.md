@@ -156,6 +156,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | Campaign websites / domains                              | `src/websites/AGENTS.md`                             |
 | Opposition research (Know Your Opponent)                 | `src/raceOpponent/AGENTS.md`                         |
 | Ordinances / drafting / quality loop                     | `src/ordinances/AGENTS.md`                           |
+| What the chat assistants know about the product          | `src/chats/general/product-knowledge/AGENTS.md`      |
 | SQS producer/consumer / async                            | `src/queue/AGENTS.md`                                |
 | Auth, JWT, Clerk M2M, roles                              | `src/authentication/AGENTS.md`                       |
 | Agent experiments                                        | `src/agentExperiments/AGENTS.md`                     |

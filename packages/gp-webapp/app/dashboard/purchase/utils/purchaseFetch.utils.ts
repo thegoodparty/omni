@@ -1,4 +1,5 @@
 import { FetchError } from 'ofetch'
+import { PRO_COMPLIANCE_SUPPORT_EMAIL as SUPPORT_EMAIL } from '@shared/utils/supportContact'
 import { apiRoutes } from 'gpApi/routes'
 import { clientFetch, ApiResponse } from 'gpApi/clientFetch'
 import { clientRequest } from 'gpApi/typed-request'
@@ -47,7 +48,7 @@ const PRO_CHECKOUT_ERROR_MESSAGES: Record<string, string> = {
   NO_ACTIVE_CAMPAIGN:
     'Your campaign is not currently active, so we could not start a Pro ' +
     'subscription. This usually means the election date has passed or an ' +
-    'election result was recorded. Contact us at campaignsuccess@goodparty.org ' +
+    `election result was recorded. Contact us at ${SUPPORT_EMAIL} ` +
     'and we will get your campaign updated.',
   ALREADY_PRO: 'You already have an active Pro subscription.',
   CHECKOUT_ALREADY_COMPLETED:
