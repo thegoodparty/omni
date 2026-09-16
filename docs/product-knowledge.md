@@ -141,8 +141,12 @@ more specific is wrong on one of the two.
 ### Where the support chat lives
 
 It is HubSpot Conversations, loaded from the root `<head>` in
-`gp-webapp/app/layout.tsx` in production and on PR previews, and locally behind
-`NEXT_PUBLIC_SUPPORT_CHAT=1`. Both script tags belong in `<head>`: a
+`gp-webapp/app/layout.tsx` in production, and anywhere else only behind
+`NEXT_PUBLIC_SUPPORT_CHAT=1` — in `.env.local` for local, or in Vercel's
+Preview environment to exercise it on a PR preview. Do not reach for
+`IS_PREVIEW` instead: it reads `NEXT_PUBLIC_VERCEL_TARGET_ENV`, which this app
+does not reliably get, and on a real PR preview it was not `preview`, so the
+script did not load at all. Both script tags belong in `<head>`: a
 `beforeInteractive` script has to be there, and a `<script>` anywhere else
 under `<html>` is invalid HTML that React reports as three hydration errors.
 
