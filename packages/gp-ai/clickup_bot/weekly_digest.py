@@ -95,6 +95,18 @@ STALE_HOURS = 48
 # list is a query away.
 MAX_NAMED_MISSES = 8
 
+# The run labels that appear in GPBOT_METRIC, named rather than spelled inline.
+#
+# WHY THIS MATTERS NOW AND DID NOT BEFORE: the verdict counts below were written
+# when `analyze` was the only kind of run that emitted a verdict, so they could
+# count every verdict they saw. `dev-test` runs emit the same verdict line from
+# the same shared contract, and left unscoped they would land in the Verdicts
+# line — which is about the bugs humans filed and reads as a measure of the
+# tagging inbox. A week where the release train broke five times would show as a
+# week where five more bugs were diagnosed.
+ANALYZE_LABEL = "analyze"
+DEV_TEST_LABEL = "dev-test"
+
 # Verdicts, in the order the analyze prompt offers them. Kept as a tuple rather
 # than derived from the data so a week with no `needs-human` still prints
 # `0 needs-human`: a verdict that silently stops appearing is a parser drifting
@@ -402,14 +414,19 @@ def verdicts(runs: Any) -> dict:
     no_verdict = 0
     analyzed_ids = set()
     for record in records:
-        if record.get("label") == "analyze":
-            task_id = record.get("task_id")
-            if isinstance(task_id, str) and task_id:
-                analyzed_ids.add(task_id)
+        # Scoped to analyze, which the verdict tally was NOT before dev-test
+        # runs existed. This line sits under Coverage and is read as "what came
+        # of the bugs that were tagged"; a dev-only test failure was filed by a
+        # workflow and belongs to its own line further down.
+        if record.get("label") != ANALYZE_LABEL:
+            continue
+        task_id = record.get("task_id")
+        if isinstance(task_id, str) and task_id:
+            analyzed_ids.add(task_id)
         verdict = record.get("verdict")
         if verdict in counts:
             counts[verdict] += 1
-        elif record.get("label") == "analyze" and record.get("status") == "success":
+        elif record.get("status") == "success":
             # Only a run that finished counts as a missing verdict. An errored or
             # deadline-killed run has an obvious reason for having none, and
             # lumping the two together would bury the case that needs looking at.
@@ -443,6 +460,13 @@ def cost(runs: Any) -> dict:
     `unpriced` is reported because `cost_usd` is null when a run did not record
     one, and a total silently summed around those understates the week with
     nothing to say so.
+
+    THE TOTAL IS EVERY LABEL, dev-test runs included, and that is the one number
+    here that must stay unscoped: it is what the bot cost, which is the question
+    asked of it. The dev-test line reports the same dollars again as its own
+    slice — named there as part of this figure, not as a second budget — because
+    the alternative is a headline total that quietly omits a category of spend,
+    which is the same lie as summing around the unpriced runs.
     """
     if not isinstance(runs, list):
         return {"available": False, "reason": RUNS_UNREACHABLE}
@@ -455,7 +479,7 @@ def cost(runs: Any) -> dict:
             unpriced += 1
             continue
         total += float(value)
-        if record.get("label") == "analyze":
+        if record.get("label") == ANALYZE_LABEL:
             analysis_costs.append(float(value))
 
     return {
@@ -464,6 +488,71 @@ def cost(runs: Any) -> dict:
         "total_usd": round(total, 2),
         "median_analysis_usd": round(statistics.median(analysis_costs), 2) if analysis_costs else None,
         "unpriced": unpriced,
+    }
+
+
+def dev_tests(runs: Any) -> dict:
+    """What the `@dev-only` E2E triage did this week, and what it cost.
+
+    ITS OWN LINE rather than folded into Verdicts and Cost, because it answers a
+    different question and moves for different reasons. Coverage and Verdicts
+    describe an inbox humans fill; this describes the release train, and the
+    interesting reading is the opposite one — a week with zero runs here is a
+    week the post-merge suite stayed green, which is good news rather than a
+    quiet inbox.
+
+    `distinct_specs` is reported beside the run count because they come apart in
+    exactly the case worth seeing: one spec that breaks and stays broken buys one
+    investigation (the workflow comments on the open ticket instead of filing a
+    second), so several runs against one spec means the bot was re-triaging a
+    failure it had already been asked about, and the ticket is not being closed.
+
+    No availability handling of its own: it reads the same CloudWatch query as
+    verdicts() and cost(), and `summarize` demotes all three together when that
+    source cannot be believed. Answering "0 dev-test runs" from a query that
+    returned nothing would be the same lie the rest of this module exists to
+    avoid.
+    """
+    if not isinstance(runs, list):
+        return {"available": False, "reason": RUNS_UNREACHABLE}
+
+    counts = dict.fromkeys(VERDICTS, 0)
+    total, runs_seen, identified_runs, no_verdict, specs = 0.0, 0, 0, 0, set()
+    for record in _metric_records(runs):
+        if record.get("label") != DEV_TEST_LABEL:
+            continue
+        runs_seen += 1
+        task_id = record.get("task_id")
+        if isinstance(task_id, str) and task_id:
+            identified_runs += 1
+            specs.add(task_id)
+        verdict = record.get("verdict")
+        if verdict in counts:
+            counts[verdict] += 1
+        elif record.get("status") == "success":
+            # Same alarm as verdicts(), for the same reason and on the same
+            # terms: a run that FINISHED and said nothing means the prompt and
+            # the parser have drifted, and every escalation from here is dead.
+            # An errored or deadline-killed run has an obvious reason for having
+            # no verdict and is not that.
+            no_verdict += 1
+        value = record.get("cost_usd")
+        if not isinstance(value, bool) and isinstance(value, (int, float)):
+            total += float(value)
+
+    return {
+        "available": True,
+        "runs": runs_seen,
+        # Only the runs that named a ticket can be compared against the count of
+        # distinct ones. A record with no `task_id` is not evidence of a repeat;
+        # it is evidence of nothing, and counting it as a run while it cannot
+        # count as a spec is what turns missing instrumentation into an alarm
+        # about a ticket nobody is closing.
+        "identified_runs": identified_runs,
+        "distinct_specs": len(specs),
+        "counts": counts,
+        "no_verdict": no_verdict,
+        "total_usd": round(total, 2),
     }
 
 
@@ -743,6 +832,7 @@ def summarize(payload: Any, now: float | None = None) -> dict:
     coverage_facts = coverage(payload.get("tickets"))
     verdict_facts = verdicts(payload.get("runs"))
     cost_facts = cost(payload.get("runs"))
+    dev_test_facts = dev_tests(payload.get("runs"))
 
     # Both lines are demoted together, because they are one source and it is one
     # question: if the runs are not there, neither the verdicts nor the money is
@@ -752,6 +842,10 @@ def summarize(payload: Any, now: float | None = None) -> dict:
     if unbelievable:
         verdict_facts = {"available": False, "reason": unbelievable}
         cost_facts = {"available": False, "reason": unbelievable, "analyzed": coverage_facts.get("analyzed")}
+        # Demoted with the other two: one source, one question. A dev-test line
+        # reading "no spec failed this week" off a query that returned nothing
+        # would be the most reassuring of the three false claims.
+        dev_test_facts = {"available": False, "reason": unbelievable}
     else:
         # Marked rather than withheld. Unlike the all-or-nothing case there are
         # real verdicts and real dollars here, and they are worth reading once a
@@ -769,6 +863,7 @@ def summarize(payload: Any, now: float | None = None) -> dict:
         "coverage": coverage_facts,
         "verdicts": verdict_facts,
         "cost": cost_facts,
+        "dev_tests": dev_test_facts,
         "prs": pull_requests(payload.get("prs"), start, end, now),
         # Read from its own key, not from `runs`. The alert filter is a separate
         # Lambda in a separate log group, and folding the two into one query
@@ -892,6 +987,38 @@ def _cost_line(facts: dict) -> str:
     return line
 
 
+def _dev_test_line(facts: dict) -> str:
+    """The dev-only E2E line, which reads inverted from every other line here.
+
+    Zero is the good outcome and is stated as such, because "0 runs" next to
+    four lines where zero means trouble would be read as the feature being
+    broken. It has been off more often than the release train has been red.
+    """
+    if not facts.get("available"):
+        return f"Dev-only E2E: *unavailable* — {_unavailable(facts)}."
+    if facts["runs"] == 0:
+        return "Dev-only E2E: no `@dev-only` spec failed the release train this week."
+
+    line = f"Dev-only E2E: {_plural(facts['runs'], 'run')} on {_plural(facts['distinct_specs'], 'spec')}"
+    listed = " · ".join(f"{facts['counts'][verdict]} {verdict}" for verdict in VERDICTS)
+    line += f" — {listed}"
+    if facts["identified_runs"] > facts["distinct_specs"]:
+        # The re-triage case, called out because it is the one that means a
+        # ticket is open and nothing is happening to it.
+        line += " · ⚠️ a spec was triaged more than once, so an open ticket is not being closed"
+    if facts["no_verdict"]:
+        # The same drift alarm _verdict_line raises, repeated here because the
+        # two lines are scoped to different labels: a dev-test run that finished
+        # without a verdict is invisible to that one.
+        line += f" · ⚠️ {_plural(facts['no_verdict'], 'run')} produced no verdict"
+    if facts["total_usd"]:
+        # Named as a slice of the Cost line rather than printed bare. These
+        # dollars are inside that total — `cost()` sums every label on purpose —
+        # and two unqualified figures in one message read as two budgets.
+        line += f" · ${facts['total_usd']:.2f} of the week's spend"
+    return line
+
+
 def _alert_line(facts: dict) -> str | None:
     """What the filter did to #dev-alerts, and what it hid.
 
@@ -980,7 +1107,12 @@ def render(facts: dict) -> str:
     latency = _latency_line(facts["coverage"])
     if latency:
         lines.append(latency)
-    lines += [_verdict_line(facts["verdicts"]), _pr_line(facts["prs"]), _cost_line(facts["cost"])]
+    lines += [
+        _verdict_line(facts["verdicts"]),
+        _pr_line(facts["prs"]),
+        _dev_test_line(facts["dev_tests"]),
+        _cost_line(facts["cost"]),
+    ]
     # Last, below the bot's own numbers, because it is about a different system.
     # Present on every digest rather than only when the filter did something:
     # the whole reason this section exists is that a filter which has silently
