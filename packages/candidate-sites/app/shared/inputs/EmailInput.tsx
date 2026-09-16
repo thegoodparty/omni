@@ -1,26 +1,23 @@
 'use client'
 
-import { useState, ChangeEvent } from 'react'
+import { useState, ChangeEvent, FocusEvent } from 'react'
 import TextField from './TextField'
 import { isValidEmail } from '../../../helpers/validations'
-import { TextFieldProps } from '@mui/material'
 
 // NOTE: leaving export here for now to not break existing imports
 export { isValidEmail }
 
-interface EmailInputProps extends Omit<
-  TextFieldProps,
-  'onChange' | 'onChangeCallback'
-> {
+interface EmailInputProps {
   value: string
   onChangeCallback: (e: ChangeEvent<HTMLInputElement>) => void
-  onBlurCallback?: (e: any) => void
-  shrink?: boolean
+  onBlurCallback?: (
+    e: FocusEvent<HTMLInputElement | HTMLTextAreaElement>,
+  ) => void
   className?: string
   placeholder?: string
   useLabel?: boolean
   required?: boolean
-  newCallbackSignature?: boolean
+  accentColor?: string
   'data-testid'?: string
 }
 
@@ -28,55 +25,41 @@ export default function EmailInput({
   value,
   onChangeCallback,
   onBlurCallback,
-  shrink,
   className,
   placeholder,
   useLabel = true,
   required,
-  newCallbackSignature = false,
-  ...restProps
+  accentColor,
+  'data-testid': dataTestId,
 }: EmailInputProps) {
   const [isValid, setIsValid] = useState(true)
 
-  function handleChange(e: ChangeEvent<HTMLInputElement>) {
+  function handleChange(
+    e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+  ) {
     const newValue = e.target.value
-    const emailValid = isValidEmail(newValue)
-
-    setIsValid(emailValid)
-
-    if (newCallbackSignature) {
-      // For new callback signature, we'd need to modify the callback type
-      // For now, keeping it simple
-      onChangeCallback(e)
-    } else {
-      onChangeCallback(e)
-    }
+    setIsValid(isValidEmail(newValue))
+    // Cast is safe: an EmailInput never renders a textarea.
+    onChangeCallback(e as ChangeEvent<HTMLInputElement>)
   }
+
+  const hasError = value !== '' && !isValid
 
   return (
     <TextField
+      type="email"
       value={value}
-      label={useLabel ? 'Email' : ''}
+      label={useLabel ? 'Email' : undefined}
       required={required}
-      size="medium"
-      fullWidth
       name="email"
-      error={value !== '' && !isValid}
+      error={hasError}
+      endAdornments={hasError ? ['error'] : undefined}
       onChange={handleChange}
       onBlur={onBlurCallback}
       className={className}
       placeholder={placeholder || ''}
-      InputLabelProps={
-        shrink
-          ? {
-              shrink: true,
-            }
-          : {}
-      }
-      inputProps={{
-        'data-testid': restProps['data-testid'],
-      }}
-      {...restProps}
+      accentColor={accentColor}
+      data-testid={dataTestId}
     />
   )
 }
