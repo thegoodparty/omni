@@ -17,6 +17,21 @@ export interface ChatMessageSegment {
   payload?: unknown
 }
 
+// A rating the CALLER left on one assistant turn, and the kinds it can take.
+// Both come straight from the contract rather than being mirrored here: the
+// enum is generated from the Prisma one, so a new variant widens this
+// automatically. A hand-written union would not, and the
+// `Record<ChatFeedbackKind, string>` prompt map in MessageActionBar would
+// start returning undefined for it with nothing failing at compile time.
+export type {
+  ChatFeedbackKind,
+  ChatMessageFeedbackState,
+} from '@goodparty_org/contracts'
+import type {
+  ChatFeedbackKind,
+  ChatMessageFeedbackState,
+} from '@goodparty_org/contracts'
+
 export interface ChatMessageDto {
   id: string
   conversationId: string
@@ -24,6 +39,7 @@ export interface ChatMessageDto {
   content: string
   createdAt: string
   segments?: ChatMessageSegment[]
+  feedback?: ChatMessageFeedbackState | null
 }
 
 export type ChatErrorCode =
@@ -72,4 +88,18 @@ export interface ChatClient {
     signal?: AbortSignal
   }): AsyncIterable<ChatStreamEvent>
   softDelete(conversationId: string): Promise<void>
+  // Per-message ratings. Only the scope-generic /v1/chats client implements
+  // these, so a surface on another client renders no action bar rather than
+  // calling a route that doesn't exist. `comment` omitted keeps the stored
+  // note; null clears it.
+  setMessageFeedback?(args: {
+    conversationId: string
+    messageId: string
+    feedback: ChatFeedbackKind
+    comment?: string | null
+  }): Promise<void>
+  clearMessageFeedback?(args: {
+    conversationId: string
+    messageId: string
+  }): Promise<void>
 }

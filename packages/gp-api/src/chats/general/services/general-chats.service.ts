@@ -1,5 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
+import {
+  ChatFeedbackKind,
+  ChatMessageFeedback,
+  ChatMessageRole,
+  ChatScope,
+} from '../../../generated/prisma'
+import type { ChatMessageFeedback as ChatMessageFeedbackDTO } from '@goodparty_org/contracts'
+import { ChatMessageFeedbackService } from '@/chats/services/chatMessageFeedback.prisma'
 import {
   ChatMessageWithSegments,
   ChatStoreService,
@@ -30,6 +37,16 @@ export interface LoadedConversation {
   scope: ChatScope
   title: string | null
   messages: ChatMessageWithSegments[]
+  // The caller's own ratings on this thread, keyed by message id.
+  feedbackByMessageId: Map<string, ChatMessageFeedback>
+}
+
+export interface MessageFeedbackScope {
+  conversationId: string
+  messageId: string
+  scope: ChatScope
+  userId: number
+  organizationSlug: string | null
 }
 
 export interface SendMessageArgs {
@@ -56,6 +73,7 @@ export class GeneralChatsService {
     private readonly store: GeneralChatStoreService,
     private readonly chatStore: ChatStoreService,
     private readonly chatStream: ChatStreamService,
+    private readonly feedback: ChatMessageFeedbackService,
   ) {}
 
   private requireHandler(scope: ChatScope): ChatScopeHandler {
@@ -108,14 +126,54 @@ export class GeneralChatsService {
     if (!conversation) {
       throw new NotFoundException('Conversation not found')
     }
-    const messages =
-      await this.chatStore.listMessagesByConversation(conversationId)
+    const [messages, feedbackByMessageId] = await Promise.all([
+      this.chatStore.listMessagesByConversation(conversationId),
+      this.feedback.mapMineByConversation(conversationId, userId),
+    ])
     return {
       conversationId,
       scope,
       title: conversation.title,
       messages,
+      feedbackByMessageId,
     }
+  }
+
+  async setMessageFeedback(
+    args: MessageFeedbackScope & {
+      feedback: ChatFeedbackKind
+      comment?: string | null
+    },
+  ): Promise<ChatMessageFeedbackDTO> {
+    const { conversationId, messageId, scope, userId, organizationSlug } = args
+    await this.assertConversationAccessible(
+      conversationId,
+      scope,
+      userId,
+      organizationSlug,
+    )
+    return this.feedback.setForMessage({
+      conversationId,
+      messageId,
+      userId,
+      feedback: args.feedback,
+      comment: args.comment,
+    })
+  }
+
+  async clearMessageFeedback(args: MessageFeedbackScope): Promise<void> {
+    const { conversationId, messageId, scope, userId, organizationSlug } = args
+    await this.assertConversationAccessible(
+      conversationId,
+      scope,
+      userId,
+      organizationSlug,
+    )
+    await this.feedback.clearForMessage({
+      conversationId,
+      messageId,
+      userId,
+    })
   }
 
   async deleteConversation(

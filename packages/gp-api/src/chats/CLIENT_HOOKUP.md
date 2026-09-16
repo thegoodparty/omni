@@ -22,6 +22,9 @@ GET    /v1/chats?scope=chief_of_staff             # history list (conversations 
 POST   /v1/chats/:conversationId/messages?scope=… # SSE, sends a user message
 GET    /v1/chats/:conversationId?scope=…          # conversation + history (replay)
 DELETE /v1/chats/:conversationId?scope=…          # 204 soft-delete
+
+PUT    /v1/chats/:conversationId/messages/:messageId/feedback?scope=…  # rate a reply
+DELETE /v1/chats/:conversationId/messages/:messageId/feedback?scope=…  # 204 retract
 ```
 
 Scope-generic surface. v1 registers one scope: `chief_of_staff`. All routes
@@ -123,6 +126,27 @@ There's also a **90-second server-side timeout** per stream. If the LLM hangs, t
 ```
 
 Messages are ordered by `createdAt` ascending. Returns 404 if the conversation has been soft-deleted. Returns 404 (not 403) for cross-user access — no existence leak.
+
+An assistant message the caller has rated also carries `feedback: { feedback, comment }`. The field is absent when they haven't rated it, and only ever reflects the caller's own rating — one user never sees another's.
+
+## Message feedback — `PUT`/`DELETE` `:conversationId/messages/:messageId/feedback`
+
+Thumbs up / thumbs down on one assistant reply, plus the optional note explaining it. Rows key on `(user, message)` and also store the conversation id, so the rating can be read back per message or per thread.
+
+`PUT` body:
+
+```json
+{ "feedback": "negative", "comment": "Missed the budget item." }
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `feedback` | yes | `positive` \| `negative` |
+| `comment` | optional | Max 2,000 chars. **Omit** it to keep whatever note is stored (a re-vote without retyping); pass `null` to clear it |
+
+`PUT` is an upsert, so repeating it replaces the rating rather than stacking rows, and it returns the stored row. `DELETE` retracts the rating and its note (204, and idempotent — retracting nothing still succeeds).
+
+Both 404 on a `messageId` that isn't an **assistant** turn of that conversation, so a user turn and a message borrowed from another thread are both rejected rather than writing an orphan row. `scope` is required on both, same as the other routes.
 
 ## DELETE `:annotationId` — soft-delete
 

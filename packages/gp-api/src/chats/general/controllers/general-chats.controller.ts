@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -18,6 +19,7 @@ import { ZodValidationPipe } from 'nestjs-zod'
 import type {
   ChatConversation as ChatConversationResponse,
   ChatHistoryResponse,
+  ChatMessageFeedback as ChatMessageFeedbackResponse,
   CreateChatResponse,
 } from '@goodparty_org/contracts'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
@@ -31,9 +33,11 @@ import {
   ChatConversationSchema,
   ChatHistoryQueryDto,
   ChatHistoryResponseSchema,
+  ChatMessageFeedbackSchema,
   CreateChatDto,
   CreateChatResponseSchema,
   SendChatMessageDto,
+  SetChatMessageFeedbackDto,
 } from '../schemas/GeneralChat.schema'
 
 const SSE_HEADERS: Record<string, string> = {
@@ -209,31 +213,80 @@ export class GeneralChatsController {
     @Param('conversationId') conversationId: string,
     @Query(ZodValidationPipe) query: ChatHistoryQueryDto,
   ): Promise<ChatConversationResponse> {
-    const { scope, title, messages } = await this.chats.loadConversation(
-      conversationId,
-      query.scope,
-      user.id,
-      organizationSlug,
-    )
+    const { scope, title, messages, feedbackByMessageId } =
+      await this.chats.loadConversation(
+        conversationId,
+        query.scope,
+        user.id,
+        organizationSlug,
+      )
     return {
       conversationId,
       scope,
       title,
-      messages: messages.map((m) => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        createdAt: m.createdAt,
-        ...(m.segments.length > 0 && {
-          segments: m.segments.map((s) => ({
-            kind: s.kind,
-            text: s.text,
-            toolName: s.toolName,
-            ...(s.payload != null && { payload: s.payload }),
-          })),
-        }),
-      })),
+      messages: messages.map((m) => {
+        const rating = feedbackByMessageId.get(m.id)
+        return {
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          createdAt: m.createdAt,
+          ...(m.segments.length > 0 && {
+            segments: m.segments.map((s) => ({
+              kind: s.kind,
+              text: s.text,
+              toolName: s.toolName,
+              ...(s.payload != null && { payload: s.payload }),
+            })),
+          }),
+          ...(rating && {
+            feedback: {
+              feedback: rating.feedback,
+              comment: rating.comment,
+            },
+          }),
+        }
+      }),
     }
+  }
+
+  @Put(':conversationId/messages/:messageId/feedback')
+  @ResponseSchema(ChatMessageFeedbackSchema)
+  async setMessageFeedback(
+    @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
+    @Param('conversationId') conversationId: string,
+    @Param('messageId') messageId: string,
+    @Query(ZodValidationPipe) query: ChatHistoryQueryDto,
+    @Body(ZodValidationPipe) body: SetChatMessageFeedbackDto,
+  ): Promise<ChatMessageFeedbackResponse> {
+    return this.chats.setMessageFeedback({
+      conversationId,
+      messageId,
+      scope: query.scope,
+      userId: user.id,
+      organizationSlug,
+      feedback: body.feedback,
+      comment: body.comment,
+    })
+  }
+
+  @Delete(':conversationId/messages/:messageId/feedback')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async clearMessageFeedback(
+    @ReqUser() user: User,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
+    @Param('conversationId') conversationId: string,
+    @Param('messageId') messageId: string,
+    @Query(ZodValidationPipe) query: ChatHistoryQueryDto,
+  ): Promise<void> {
+    await this.chats.clearMessageFeedback({
+      conversationId,
+      messageId,
+      scope: query.scope,
+      userId: user.id,
+      organizationSlug,
+    })
   }
 
   @Delete(':conversationId')
