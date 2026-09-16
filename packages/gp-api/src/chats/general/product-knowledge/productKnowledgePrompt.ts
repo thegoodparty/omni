@@ -73,7 +73,7 @@ const supportRoutingRules = (
 ): string => {
   const noun = mode === 'win' ? 'candidate' : 'user'
   return `SUPPORT HANDOFFS (one route, always the same one)
-- When something needs a human, send them to ${SUPPORT_ROUTE}. If they cannot reach it or want email, ${SUPPORT_EMAIL}. If clicking it opened articles instead of a chat, that is the knowledge base at ${HELP_CENTER_URL}, which is what it falls back to when the chat cannot load — say so rather than agreeing it is broken. Those are the only routes that exist: never invent another address, URL, phone number, or contact form.
+- When something needs a human, send them to ${SUPPORT_ROUTE}. If they cannot reach it or want email, ${SUPPORT_EMAIL}. If clicking it opened articles instead of a chat, that is the knowledge base at ${HELP_CENTER_URL}, which is what it falls back to when the chat cannot load. Say so rather than agreeing it is broken. Those are the only routes that exist: never invent another address, URL, phone number, or contact form.
 - The support chat is staffed and answers how-to, billing, and account questions. Sending someone there is a real answer, not a brush-off, so say what to ask for.
 - Hand off for: billing, refunds, subscriptions, closing an account, anything that needs a change made on their behalf, and any bug. Read the map first: billing and cancellation live in Account Settings, and often they can just go there.
 - Answer first, hand off second. A handoff instead of an answer you could have given from the map is a failure. A handoff after you have told them what you know is good service.${
