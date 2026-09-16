@@ -305,6 +305,77 @@ describe('SmsFlow — recommended lists', () => {
     expect(vi.mocked(createP2pPhoneList).mock.calls[1]?.[1]).toBe(88)
   })
 
+  // The drawer path must reset the phone-list token the way onSelect does.
+  // Otherwise a token from a list picked earlier survives the failed upload,
+  // and "Try again" short-circuits to schedule with that list's audience.
+  it("does not reuse an earlier list's phone list when the drawer upload fails", async () => {
+    const LIST_A = { id: 501, name: 'Undecided persuadables' }
+    const created: { id: number; name: string }[] = []
+    api.mock('GET /v1/voters/voter-file/filters', () => ({
+      status: 200,
+      data: [LIST_A, ...created],
+    }))
+    api.mock('GET /v1/campaigns/mine/recommended-lists', {
+      status: 200,
+      data: [RECOMMENDATION],
+    })
+    api.mock('POST /v1/contacts/count', { status: 200, data: { count: 19000 } })
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        demographics: { people: 19000, avgAge: null, avgIncome: null },
+        reachability: {
+          sms: 15000,
+          robocall: null,
+          phoneBanking: null,
+          doorKnocking: null,
+          polls: null,
+        },
+        outreachHistory: [],
+      },
+    })
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      const row = { id: 88, name: body.name as string }
+      created.push(row)
+      return { status: 200, data: row }
+    })
+    vi.mocked(createP2pPhoneList)
+      .mockResolvedValueOnce({ ok: true, token: 'tok-list-a' })
+      .mockResolvedValueOnce({ ok: false, status: 400 })
+    await openToAudience()
+
+    // Pick list A and advance, so a phone-list token exists for it.
+    await userEvent.click(await screen.findByText('View your lists here'))
+    await userEvent.click(await screen.findByText('Undecided persuadables'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: /Continue/ }),
+    )
+    await screen.findByText('When do you want to send it?')
+    expect(vi.mocked(createP2pPhoneList).mock.calls[0]?.[1]).toBe(501)
+
+    // Back to the audience, accept the recommendation, upload fails.
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    await userEvent.click(await screen.findByTestId('recommended-list-card'))
+    const input = await screen.findByLabelText('List name')
+    await userEvent.clear(input)
+    await userEvent.type(input, 'Intro texts, week one')
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Continue' }),
+    )
+    expect(
+      await screen.findByText("We couldn't prepare this audience. Try again."),
+    ).toBeInTheDocument()
+
+    // Retry must build list B's phone list, not ride list A's token.
+    const retry = (await screen.findByText('Try again')).closest('button')
+    await waitFor(() => expect(retry).toBeEnabled())
+    await userEvent.click(retry as HTMLButtonElement)
+    await screen.findByText('When do you want to send it?')
+    expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(3)
+    expect(vi.mocked(createP2pPhoneList).mock.calls[2]?.[1]).toBe(88)
+    expect(created).toHaveLength(1)
+  })
+
   it('renders the picker unchanged when there are no recommendations', async () => {
     api.mock('GET /v1/campaigns/mine/recommended-lists', {
       status: 200,

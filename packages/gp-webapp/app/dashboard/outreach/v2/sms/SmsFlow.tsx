@@ -526,6 +526,7 @@ export const SmsFlow = ({
     setPhoneListError(false)
     try {
       const created = await audience.createList()
+      setPhoneListToken(null)
       setPhoneList(null)
       setStopPolling(false)
       setPhoneListCreating(true)
@@ -839,6 +840,10 @@ export const SmsFlow = ({
                 recommendation,
                 name,
               )
+              // Same reset as onSelect: a token left over from a previously
+              // picked list would let a retry skip straight to schedule with
+              // the wrong audience.
+              setPhoneListToken(null)
               setPhoneList(null)
               setStopPolling(false)
               setPhoneListError(false)
