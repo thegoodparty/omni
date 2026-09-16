@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { createP2pPhoneList } from 'helpers/createP2pPhoneList'
 import { SmsFlow } from './SmsFlow'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -206,6 +207,87 @@ describe('SmsFlow — recommended lists', () => {
       modified: false,
       reusedExistingList: true,
     })
+  })
+
+  // QA (Sep 9): internal accounts have no Peerly identity on their TCR
+  // record, so the phone-list upload that follows the create 400s. The
+  // create itself had already succeeded under the typed name, but the
+  // failure was thrown into the naming drawer, which read it as "We
+  // couldn't save this list" — and every retry POSTed a fresh duplicate.
+  it('keeps the renamed list and reports the phone-list failure outside the drawer', async () => {
+    api.mock('GET /v1/campaigns/mine/recommended-lists', {
+      status: 200,
+      data: [RECOMMENDATION],
+    })
+    api.mock('POST /v1/contacts/count', { status: 200, data: { count: 19000 } })
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        demographics: { people: 19000, avgAge: null, avgIncome: null },
+        reachability: {
+          sms: 15000,
+          robocall: null,
+          phoneBanking: null,
+          doorKnocking: null,
+          polls: null,
+        },
+        outreachHistory: [],
+      },
+    })
+    const created: { id: number; name: string }[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      const row = { id: 88 + created.length, name: body.name as string }
+      created.push(row)
+      return { status: 200, data: row }
+    })
+    api.mock('GET /v1/voters/voter-file/filters', () => ({
+      status: 200,
+      data: created,
+    }))
+    vi.mocked(createP2pPhoneList).mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+    })
+    await openToAudience()
+
+    await userEvent.click(await screen.findByTestId('recommended-list-card'))
+    const input = await screen.findByLabelText('List name')
+    await userEvent.clear(input)
+    await userEvent.type(input, 'Intro texts, week one')
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Continue' }),
+    )
+
+    // The list exists under the typed name and is the selected audience.
+    expect(created).toEqual([{ id: 88, name: 'Intro texts, week one' }])
+    // vaul keeps a closed drawer mounted in jsdom, so read its state.
+    await waitFor(() =>
+      expect(
+        screen
+          .getByText('Name this list')
+          .closest('[data-vaul-drawer]')
+          ?.getAttribute('data-state'),
+      ).toBe('closed'),
+    )
+    expect(await screen.findByText('Intro texts, week one')).toBeInTheDocument()
+
+    // The failure is the audience step's phone-list error, not a save error.
+    expect(
+      await screen.findByText("We couldn't prepare this audience. Try again."),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText("We couldn't save this list. Try again."),
+    ).not.toBeInTheDocument()
+
+    // Retrying re-derives the phone list from the saved row — no duplicate.
+    // The closed nested drawer stays mounted in jsdom, so the shell's CTA is
+    // still aria-hidden to role queries; find it by text.
+    const retry = await screen.findByText('Try again')
+    await userEvent.click(retry)
+    await screen.findByText('When do you want to send it?')
+    expect(created).toHaveLength(1)
+    expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(createP2pPhoneList).mock.calls[1]?.[1]).toBe(88)
   })
 
   it('renders the picker unchanged when there are no recommendations', async () => {
