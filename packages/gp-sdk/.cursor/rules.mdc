@@ -335,7 +335,7 @@ Common frontend library types:
 
 - `next/dist/server/request/search-params` → `SearchParams`
 - `react` → `React.JSX.Element`, `React.ReactNode`
-- `@mui/material` → `ButtonProps`, `TextFieldProps`
+- `@styleguide` → `ButtonProps`, `TextFieldProps` (the app's design-system exports)
 - `react-hook-form` → `UseFormReturn`, `FieldValues`
 
 **[BACKEND]** Use Prisma types for database models:
@@ -527,14 +527,14 @@ Buttons inside `<form>` default to `type="submit"`:
 Libraries treat `null` and `undefined` differently:
 
 ```typescript
-// MUI Autocomplete
-// value={null} = controlled with no selection
-// value={undefined} = potentially uncontrolled
+// Radix Select (and most controlled inputs)
+// value={''} = controlled with no selection
+// value={undefined} = uncontrolled — component treats itself as owning state
 
-// CORRECT - Use generic type parameters to allow null
-<Autocomplete<OptionType, false, false, false>
-  value={value}
-/>
+// CORRECT — always pass a defined value to keep the component controlled
+<Select value={selected ?? ''} onValueChange={setSelected}>
+  …
+</Select>
 ```
 
 ### Never Extract Methods to Variables
