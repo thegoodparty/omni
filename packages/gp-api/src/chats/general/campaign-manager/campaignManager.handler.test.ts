@@ -12,6 +12,7 @@ import type { ConstituentTableConfig } from '../chief-of-staff/services/constitu
 import { WIN_CONSTITUENT_TABLES } from './services/constituentDataScope'
 import type { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import type { GeneralChatStoreService } from '../services/generalChatStore.prisma'
+import type { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import {
   buildCampaignManagerGreeting,
   buildStoryGreeting,
@@ -70,6 +71,7 @@ const ctxWith = (
   savedFilterToolsEnabled: false,
   raceId: null,
   webSearchEnabled: true,
+  helpCenterToolEnabled: false,
   story: null,
   plan: null,
   ...over,
@@ -237,6 +239,126 @@ describe('CampaignManagerHandler.buildTools — campaign story tool', () => {
       ctxWith({ campaignId: 42 }),
     )
     expect(Object.keys(tools)).not.toContain('campaign_story')
+  })
+})
+
+// The handler guards this tool on TWO things — the injected service AND the
+// ctx flag — and the tool's own unit tests cannot reach either. Without these,
+// hardcoding helpCenterToolEnabled to false or mis-wiring the provider would
+// leave every other test green.
+// The flag buildTools reads is derived in loadContext, so a buildTools test
+// that hands in its own context cannot see it go wrong. This is the half that
+// catches the flag being stuck, or the service never being injected.
+describe('CampaignManagerHandler.loadContext — help center gating', () => {
+  const buildHelpCenterContextHandler = (
+    helpCenter?: HelpCenterSearchService,
+  ): CampaignManagerHandler => {
+    const store = {
+      findFirst: vi.fn(() =>
+        Promise.resolve({ id: 'c1', organizationSlug: 'win-campaign' }),
+      ),
+    } as unknown as GeneralChatStoreService
+    const campaigns = {
+      client: {
+        campaign: {
+          findFirst: vi.fn(() =>
+            Promise.resolve({ id: 5, details: {}, data: {}, user: null }),
+          ),
+        },
+        campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
+        organization: { findFirst: vi.fn(() => Promise.resolve(null)) },
+      },
+    } as unknown as CampaignsService
+    return new CampaignManagerHandler(
+      store,
+      campaigns,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      helpCenter,
+    )
+  }
+
+  it('enables the help center whenever the service is injected', async () => {
+    const handler = buildHelpCenterContextHandler({} as HelpCenterSearchService)
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.helpCenterToolEnabled).toBe(true)
+  })
+
+  it('disables the help center when no service is injected', async () => {
+    const handler = buildHelpCenterContextHandler(undefined)
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.helpCenterToolEnabled).toBe(false)
+  })
+
+  // Help-center search needs no campaign and no credential, so it must
+  // survive a context that could not resolve one.
+  it('keeps the help center enabled when the campaign does not resolve', async () => {
+    const store = {
+      findFirst: vi.fn(() =>
+        Promise.resolve({ id: 'c1', organizationSlug: null }),
+      ),
+    } as unknown as GeneralChatStoreService
+    const handler = new CampaignManagerHandler(
+      store,
+      {} as CampaignsService,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {} as HelpCenterSearchService,
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.helpCenterToolEnabled).toBe(true)
+  })
+})
+
+describe('CampaignManagerHandler.buildTools — help center tool', () => {
+  const buildHelpCenterHandler = (
+    helpCenter?: HelpCenterSearchService,
+  ): CampaignManagerHandler =>
+    new CampaignManagerHandler(
+      {} as GeneralChatStoreService,
+      {} as CampaignsService,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      helpCenter,
+    )
+
+  it('registers search_help_center when the service is wired and enabled', () => {
+    const tools = buildHelpCenterHandler(
+      {} as HelpCenterSearchService,
+    ).buildTools(ctxWith({ helpCenterToolEnabled: true }))
+    expect(Object.keys(tools)).toContain('search_help_center')
+  })
+
+  it('omits search_help_center when the context has it disabled', () => {
+    const tools = buildHelpCenterHandler(
+      {} as HelpCenterSearchService,
+    ).buildTools(ctxWith({ helpCenterToolEnabled: false }))
+    expect(Object.keys(tools)).not.toContain('search_help_center')
+  })
+
+  it('omits search_help_center when no service is wired', () => {
+    const tools = buildHelpCenterHandler(undefined).buildTools(
+      ctxWith({ helpCenterToolEnabled: true }),
+    )
+    expect(Object.keys(tools)).not.toContain('search_help_center')
   })
 })
 

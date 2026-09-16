@@ -237,12 +237,19 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     )
   })
 
-  it('routes platform questions to support instead of the decline line', () => {
+  // Platform questions still never get the decline line. What changed is that
+  // the answer is now split: navigating the product it answers itself from
+  // <product_map>, and only changes it cannot make go to support.
+  it('answers platform navigation itself and routes account changes to support', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
       toolNames: TOOLS,
     })
-    expect(prompt).toContain('reaching out to the support team')
+    expect(prompt).toContain(
+      'If the user asks about the platform itself, never use the decline line',
+    )
+    expect(prompt).toContain('<product_map>')
+    expect(prompt).toContain('SUPPORT HANDOFFS')
   })
 
   it('routes to the most specific response and keeps the decline terminal', () => {

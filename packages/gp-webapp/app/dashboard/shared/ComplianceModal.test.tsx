@@ -110,7 +110,7 @@ describe('ComplianceModal', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'Contact Support' }),
-    ).toHaveAttribute('href', 'mailto:support@goodparty.org')
+    ).toHaveAttribute('href', 'mailto:campaignsuccess@goodparty.org')
   })
 
   it('shows the error prompt for an errored registration', () => {

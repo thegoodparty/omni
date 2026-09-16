@@ -1,6 +1,7 @@
 'use client'
 
 import Modal from '@shared/utils/Modal'
+import { PRO_COMPLIANCE_SUPPORT_EMAIL } from '@shared/utils/supportContact'
 import H1 from '@shared/typography/H1'
 import Body2 from '@shared/typography/Body2'
 import { Button } from '@styleguide'
@@ -46,8 +47,8 @@ export function ComplianceModal({
         our help center
       </a>{' '}
       for more information or send us an email at{' '}
-      <a href="mailto:campaignsuccess@goodparty.org" className="underline">
-        campaignsuccess@goodparty.org
+      <a href={`mailto:${PRO_COMPLIANCE_SUPPORT_EMAIL}`} className="underline">
+        {PRO_COMPLIANCE_SUPPORT_EMAIL}
       </a>
     </>
   )
@@ -112,14 +113,14 @@ export function ComplianceModal({
       description =
         'Your 10DLC registration was rejected. Please contact our support team to resolve the issues and complete your registration.'
       cta = 'Contact Support'
-      ctaHref = 'mailto:support@goodparty.org'
+      ctaHref = `mailto:${PRO_COMPLIANCE_SUPPORT_EMAIL}`
       break
     case TCR_COMPLIANCE_STATUS.ERROR:
       title = 'Registration error'
       description =
         'There was an error with your 10DLC registration. Please contact our support team for assistance.'
       cta = 'Contact Support'
-      ctaHref = 'mailto:support@goodparty.org'
+      ctaHref = `mailto:${PRO_COMPLIANCE_SUPPORT_EMAIL}`
       break
     default:
       title = 'Action required: register for texting compliance'

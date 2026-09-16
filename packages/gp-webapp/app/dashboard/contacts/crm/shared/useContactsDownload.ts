@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { SUPPORT_EMAIL } from '@shared/utils/supportContact'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { dateUsHelper } from 'helpers/dateHelper'
 import { deleteCookie, getCookie } from 'helpers/cookieHelper'
@@ -98,7 +99,7 @@ export function useContactsDownload({
     // Gated here rather than at the two call sites so both are covered.
     if (isUnresolvable) {
       errorSnackbar(
-        'Voter data is not available for this office yet. Contact support at help@goodparty.org.',
+        `Voter data is not available for this office yet. Contact support at ${SUPPORT_EMAIL}.`,
         { autoHideDuration: 6000 },
       )
       return

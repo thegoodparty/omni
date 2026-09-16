@@ -37,6 +37,7 @@ const ctx = (
   savedFilterToolsEnabled: false,
   raceId: null,
   webSearchEnabled: true,
+  helpCenterToolEnabled: false,
   story: null,
   plan: null,
   ...over,

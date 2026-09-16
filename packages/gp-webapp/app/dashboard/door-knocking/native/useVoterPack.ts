@@ -1,4 +1,5 @@
 import { queryOptions, type QueryClient } from '@tanstack/react-query'
+import { SUPPORT_EMAIL } from '@shared/utils/supportContact'
 import { decodePack, DecodedPack, type LoggedKnock } from './packDecoder'
 
 // The gateway in front of gp-api kills a request that has produced no bytes
@@ -45,11 +46,11 @@ export const packErrorMessage = (isServe: boolean): string =>
 // sentence on both surfaces rather than borrowing either of the two above.
 export const DISTRICT_UNAVAILABLE_MESSAGE =
   'Voter data is not available for this office yet, so there is no map to ' +
-  'draw turfs on. Contact support at help@goodparty.org and our team can ' +
+  `draw turfs on. Contact support at ${SUPPORT_EMAIL} and our team can ` +
   'set this up for you.'
 export const SERVE_DISTRICT_UNAVAILABLE_MESSAGE =
   'Constituent data is not available for this office yet, so there is no map ' +
-  'to draw turfs on. Contact support at help@goodparty.org and our team can ' +
+  `to draw turfs on. Contact support at ${SUPPORT_EMAIL} and our team can ` +
   'set this up for you.'
 
 export const districtUnavailableMessage = (isServe: boolean): string =>

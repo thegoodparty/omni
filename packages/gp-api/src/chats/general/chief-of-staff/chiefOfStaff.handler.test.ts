@@ -15,6 +15,7 @@ import { InMemoryDatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import type { CommunityIssueReadPort } from './services/communityIssueRead.port'
 import type { Organization } from '../../../generated/prisma'
 import type { ContactsService } from '@/contacts/services/contacts.service'
+import type { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 
 // Native web search has no description; every other registered tool does.
@@ -413,6 +414,41 @@ describe('ChiefOfStaffHandler', () => {
       const ctx = await handler.loadContext('c1', USER_ID)
       expect(Object.keys(handler.buildTools(ctx))).not.toContain(
         'read_community_issues',
+      )
+    })
+  })
+
+  // Guarded on the injected service alone, and the tool's own unit tests
+  // cannot see the wiring — a mis-wired provider would leave them all green.
+  describe('help center tool', () => {
+    const buildHelpCenterHandler = (helpCenter?: HelpCenterSearchService) =>
+      new ChiefOfStaffHandler(
+        store,
+        context,
+        buildBriefings(),
+        port,
+        [],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        helpCenter,
+      )
+
+    it('registers search_help_center when the service is wired', async () => {
+      const handler = buildHelpCenterHandler({} as HelpCenterSearchService)
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(Object.keys(handler.buildTools(ctx))).toContain(
+        'search_help_center',
+      )
+    })
+
+    it('omits search_help_center when no service is wired', async () => {
+      const handler = buildHelpCenterHandler(undefined)
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+        'search_help_center',
       )
     })
   })

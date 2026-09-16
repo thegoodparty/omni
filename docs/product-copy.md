@@ -92,7 +92,7 @@ Copy that is shared lives in constants, not inline: see
 ### 8. Errors and empty states: what happened, then what to do
 
 Two clauses, in that order, no apology paragraph. "Voter data is not
-available for your office. Email help@goodparty.org so we can update your
+available for your office. Email support@goodparty.org so we can update your
 district." Never blame the user, never bury the action, never make them
 guess whether to wait or act.
 

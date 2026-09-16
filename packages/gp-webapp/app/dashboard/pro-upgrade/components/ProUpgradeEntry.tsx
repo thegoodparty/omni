@@ -23,6 +23,7 @@ import {
 } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import { isCandidateProfileComplete } from 'app/dashboard/profile/texting-compliance/candidate-profile/candidateProfile.utils'
 import { checkEinSanity } from '@shared/inputs/EinSanityCheck'
+import { PRO_COMPLIANCE_SUPPORT_EMAIL as SUPPORT_EMAIL } from '@shared/utils/supportContact'
 import { ELIGIBILITY_QUERY_KEY } from '@shared/organization-picker'
 import { clientRequest } from 'gpApi/typed-request'
 import type { Eligibility } from 'gpApi/api-endpoints'
@@ -31,8 +32,6 @@ import {
   filingStatusFromDetails,
   proUpgradeStepPath,
 } from '../proUpgradeStep'
-
-const SUPPORT_EMAIL = 'campaignsuccess@goodparty.org'
 
 // Wizard index: derives the resume step from canonical state and redirects to
 // it. There is no server-side wizard session (tech doc v2), so every entry
