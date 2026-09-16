@@ -335,7 +335,7 @@ Common frontend library types:
 
 - `next/dist/server/request/search-params` → `SearchParams`
 - `react` → `React.JSX.Element`, `React.ReactNode`
-- `@styleguide` → `ButtonProps`, `TextFieldProps` (the app's design-system exports)
+- `@styleguide` → `ButtonProps`, `InputProps` (the app's design-system exports)
 - `react-hook-form` → `UseFormReturn`, `FieldValues`
 
 **[BACKEND]** Use Prisma types for database models:
