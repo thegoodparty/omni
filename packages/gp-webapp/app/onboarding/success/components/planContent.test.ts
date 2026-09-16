@@ -134,6 +134,40 @@ describe('buildPlanData absentee-request deadline omission', () => {
     ).toBe(false)
   })
 
+  it('also omits the absentee request-opens row for universal-VBM states (CA)', () => {
+    // The Bassett USD report: with no BR request_ballot milestone the
+    // "request opens" row fell back to E-45 (Sept 19 for a Nov 3 general)
+    // even though CA voters never request a ballot. Suppression has to
+    // cover both ends of the request window, not just the deadline.
+    const plan = buildPlanData(makeInput({ state: 'CA' }))
+
+    expect(
+      plan.timeline.some(
+        (row) => row.milestone === 'Absentee ballot request opens',
+      ),
+    ).toBe(false)
+    expect(
+      plan.keyDates.some((d) =>
+        d.description.startsWith('Absentee / mail ballot requests open'),
+      ),
+    ).toBe(false)
+  })
+
+  it('keeps the absentee request-opens row for a state that is not universal-VBM (AK)', () => {
+    const plan = buildPlanData(makeInput({ state: 'AK' }))
+
+    expect(
+      plan.timeline.some(
+        (row) => row.milestone === 'Absentee ballot request opens',
+      ),
+    ).toBe(true)
+    expect(
+      plan.keyDates.some((d) =>
+        d.description.startsWith('Absentee / mail ballot requests open'),
+      ),
+    ).toBe(true)
+  })
+
   it('uses the curated CA voter registration date (Oct 19) and ignores a conflicting BR milestone (Nov 2)', () => {
     // The real-world regression this guards: BR returned Nov 2 for CA
     // registration; the curated table has the correct Oct 19. Passing

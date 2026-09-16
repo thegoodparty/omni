@@ -397,9 +397,11 @@ const buildTimeline = (
       ? `${NO_DEADLINE_COPY} Local pre-registration: ${voterRegTierNote}.`
       : NO_DEADLINE_COPY
 
-  // Universal VBM states (CA, CO, etc.) have no real request deadline —
-  // ballots auto-mail to all active voters. Drop the milestone entirely
-  // for those rather than render a misleading row.
+  // Universal VBM states (CA, CO, etc.) have no request window at all —
+  // ballots auto-mail to all active voters. Drop both the request-opens
+  // and request-deadline milestones for those rather than render a
+  // misleading row (the opens row otherwise falls back to E-45, which put
+  // a Sept 19 "absentee" date on a CA November plan).
   const absenteeOmitted = curated?.absentee.isUniversalVbm === true
   const requestBallotEnd =
     parseDateIso(curated?.absentee.date ?? null) ??
@@ -456,14 +458,18 @@ const buildTimeline = (
           'Last day for in-person early voting in most jurisdictions.',
         ),
       },
-      {
-        date: requestBallotStart,
-        milestone: 'Absentee ballot request opens',
-        notes: sourceNote(
-          requestBallotStartIsReal,
-          'Plan introduction text and robocall campaigns to land before this date.',
-        ),
-      },
+      ...(absenteeOmitted
+        ? []
+        : [
+            {
+              date: requestBallotStart,
+              milestone: 'Absentee ballot request opens',
+              notes: sourceNote(
+                requestBallotStartIsReal,
+                'Plan introduction text and robocall campaigns to land before this date.',
+              ),
+            },
+          ]),
       // REGISTRATION.OPEN is the only row with no good E-offset fallback —
       // registration is year-round in most states. Show only when BR has a
       // real date so we don't render an invented one.
@@ -525,11 +531,15 @@ const buildTimeline = (
       date: filing,
       description: 'Nomination papers filed with Town Clerk.',
     },
-    {
-      date: requestBallotStart,
-      description:
-        'Absentee / mail ballot requests open. First voter contact must land by this date.',
-    },
+    ...(absenteeOmitted
+      ? []
+      : [
+          {
+            date: requestBallotStart,
+            description:
+              'Absentee / mail ballot requests open. First voter contact must land by this date.',
+          },
+        ]),
     {
       date: addDays(electionDate, -20),
       description:
