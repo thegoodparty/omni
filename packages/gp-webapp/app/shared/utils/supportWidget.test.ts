@@ -49,14 +49,28 @@ const renderWidgetContainer = (height = 92) => {
   }
 }
 
-// jsdom refuses to navigate, so the email fallback is asserted against a
-// stubbed location. It counts writes rather than just holding the last value:
-// several timers all setting the same href is invisible otherwise.
+// jsdom refuses to navigate, so the fallback is asserted against a stubbed
+// location. It counts writes rather than just holding the last value: several
+// timers all setting the same href is invisible otherwise.
 let navigations: string[] = []
+
+// New tabs the module asked for, and whether the browser granted them. The
+// grant is modelled because the whole point of the fallback is that it lands:
+// asserting only that `window.open` was called would pass against a popup
+// blocker that refused, which is how the previous `mailto:` fallback shipped
+// broken — the test asserted an href a real browser then ignored.
+let openedTabs: string[] = []
+let popupsBlocked = false
 
 beforeEach(() => {
   vi.useFakeTimers()
   navigations = []
+  openedTabs = []
+  popupsBlocked = false
+  vi.stubGlobal('open', (url: string) => {
+    openedTabs.push(url)
+    return popupsBlocked ? null : ({} as Window)
+  })
   vi.stubGlobal('location', {
     get href() {
       return navigations[navigations.length - 1] ?? 'http://localhost:3000/'
@@ -136,7 +150,7 @@ describe('openSupportChat', () => {
   // The failure that used to be invisible: the SDK is present, load() is
   // called, and nothing appears — which is what a chatflow whose targeting
   // excludes this host actually does. Trusting load() left this a dead click.
-  it('falls back to email when the SDK loads but no widget appears', async () => {
+  it('falls back to the help center when the SDK loads but no widget appears', async () => {
     const { api, state } = sdk()
     window.HubSpotConversations = api
     const openSupportChat = await loadWidget()
@@ -147,7 +161,7 @@ describe('openSupportChat', () => {
 
     await vi.advanceTimersByTimeAsync(11_000)
 
-    expect(window.location.href).toBe('mailto:support@goodparty.org')
+    expect(openedTabs).toEqual(['https://support.goodparty.org'])
   })
 
   it('does not fall back when the widget did come up', async () => {
@@ -160,7 +174,7 @@ describe('openSupportChat', () => {
     state.loaded = true
     await vi.advanceTimersByTimeAsync(11_000)
 
-    expect(window.location.href).not.toContain('mailto:')
+    expect(openedTabs).toEqual([])
   })
 
   // The regression that prompted the watch: a widget that takes longer than a
@@ -174,12 +188,12 @@ describe('openSupportChat', () => {
 
     // Well past the old 2.5s deadline, still loading.
     await vi.advanceTimersByTimeAsync(4_000)
-    expect(window.location.href).not.toContain('mailto:')
+    expect(openedTabs).toEqual([])
 
     renderWidgetContainer()
     state.loaded = true
     await vi.advanceTimersByTimeAsync(7_000)
-    expect(window.location.href).not.toContain('mailto:')
+    expect(openedTabs).toEqual([])
   })
 
   it('queues on HubSpot’s ready hook when the SDK has not arrived', async () => {
@@ -204,7 +218,7 @@ describe('openSupportChat', () => {
 
     openSupportChat()
     await vi.advanceTimersByTimeAsync(11_000)
-    expect(navigations).toEqual(['mailto:support@goodparty.org'])
+    expect(openedTabs).toEqual(['https://support.goodparty.org'])
 
     const { api, state } = sdk()
     window.HubSpotConversations = api
@@ -234,7 +248,7 @@ describe('openSupportChat', () => {
     await vi.advanceTimersByTimeAsync(11_000)
 
     expect(window.hsConversationsOnReady).toHaveLength(1)
-    expect(navigations).toHaveLength(2)
+    expect(openedTabs).toHaveLength(2)
 
     const { api, state } = sdk()
     window.HubSpotConversations = api
@@ -280,7 +294,7 @@ describe('openSupportChat', () => {
       expect(window.hsConversationsOnReady).toHaveLength(1)
     })
 
-    it('runs one watch, so email is offered once rather than per click', async () => {
+    it('runs one watch, so the help center opens once rather than per click', async () => {
       const openSupportChat = await loadWidget()
 
       openSupportChat()
@@ -288,7 +302,7 @@ describe('openSupportChat', () => {
       openSupportChat()
       await vi.advanceTimersByTimeAsync(11_000)
 
-      expect(navigations).toEqual(['mailto:support@goodparty.org'])
+      expect(openedTabs).toEqual(['https://support.goodparty.org'])
     })
 
     it('starts a fresh watch for a click after an attempt has settled', async () => {
@@ -296,11 +310,11 @@ describe('openSupportChat', () => {
 
       openSupportChat()
       await vi.advanceTimersByTimeAsync(11_000)
-      expect(navigations).toHaveLength(1)
+      expect(openedTabs).toHaveLength(1)
 
       openSupportChat()
       await vi.advanceTimersByTimeAsync(11_000)
-      expect(navigations).toHaveLength(2)
+      expect(openedTabs).toHaveLength(2)
     })
   })
 
@@ -416,7 +430,7 @@ describe('openSupportChat', () => {
 
     // With no widget left after a close, a click that brings nothing back has
     // to reach a person rather than reopening something that is not there.
-    it('offers email when a click after a close brings nothing back', async () => {
+    it('offers the help center when a click after a close brings nothing back', async () => {
       const { api, state } = sdk()
       window.HubSpotConversations = api
       const openSupportChat = await loadWidget()
@@ -428,7 +442,7 @@ describe('openSupportChat', () => {
       openSupportChat()
       await vi.advanceTimersByTimeAsync(11_000)
 
-      expect(navigations).toEqual(['mailto:support@goodparty.org'])
+      expect(openedTabs).toEqual(['https://support.goodparty.org'])
       expect(api.widget.open).toHaveBeenCalledTimes(1)
     })
 
@@ -447,16 +461,31 @@ describe('openSupportChat', () => {
     })
   })
 
+  // A refused tab is the same dead click the mailto: fallback was. When the
+  // browser will not grant one, the help center has to load in place instead.
+  it('navigates in place when a new tab is refused', async () => {
+    const openSupportChat = await loadWidget()
+
+    popupsBlocked = true
+    openSupportChat()
+    await vi.advanceTimersByTimeAsync(11_000)
+
+    expect(openedTabs).toEqual(['https://support.goodparty.org'])
+    expect(navigations).toEqual(['https://support.goodparty.org'])
+  })
+
   // The nav item renders in every environment, so a click where the chat was
   // never loaded has to go somewhere immediately. Waiting out the full
-  // deadline for a widget that cannot arrive is just a dead ten seconds.
+  // deadline for a widget that cannot arrive is just a dead ten seconds, and
+  // the destination has to be a URL: a mailto: shows nothing at all on a
+  // machine with no mail client, which is what made this a dead click on dev.
   describe('where the support chat is not loaded at all', () => {
-    it('goes to email on the click, without waiting', async () => {
+    it('goes to the help center on the click, without waiting', async () => {
       const openSupportChat = await loadWidget(false)
 
       openSupportChat()
 
-      expect(navigations).toEqual(['mailto:support@goodparty.org'])
+      expect(openedTabs).toEqual(['https://support.goodparty.org'])
     })
 
     it('does not touch the SDK even if one happens to be present', async () => {
@@ -471,12 +500,12 @@ describe('openSupportChat', () => {
     })
   })
 
-  it('falls back to email when the SDK never arrives at all', async () => {
+  it('falls back to the help center when the SDK never arrives at all', async () => {
     const openSupportChat = await loadWidget()
 
     openSupportChat()
     await vi.advanceTimersByTimeAsync(11_000)
 
-    expect(window.location.href).toBe('mailto:support@goodparty.org')
+    expect(openedTabs).toEqual(['https://support.goodparty.org'])
   })
 })

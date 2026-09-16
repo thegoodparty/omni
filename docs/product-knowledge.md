@@ -146,8 +146,19 @@ gating it hid the item everywhere but production — including on dev — while
 `SUPPORT_ROUTE` went on telling both assistants that support opens from it.
 An assistant pointing at a menu item that is not there is the failure this
 whole map exists to prevent, so the item stays and the click degrades instead:
-where the chat was never loaded, `openSupportChat` goes straight to
-`SUPPORT_EMAIL` rather than waiting out a widget that cannot arrive.
+where the chat cannot be reached, `openSupportChat` opens `HELP_CENTER_URL`
+(`support.goodparty.org`) rather than waiting out a widget that cannot arrive.
+
+That fallback is a URL, not an address, and the reason is worth keeping. It
+was `mailto:${SUPPORT_EMAIL}` first, which is a dead click on any machine with
+no mail client registered: Chrome ignores the navigation and nothing happens
+at all. That is every environment where the chat is not loaded, and any
+ad-blocked session in production, where the widget never arrives and the watch
+ends up on the same fallback. No unit test could see it — the old one asserted
+`location.href`, which is exactly what a real browser then declined to act on.
+It took a click in a real browser on dev to find. A new tab is preferred so
+the candidate keeps their place, with same-tab navigation when a popup blocker
+refuses one, since a refused tab is the same dead click again.
 
 The chat itself is HubSpot Conversations, loaded from the root `<head>` in
 `gp-webapp/app/layout.tsx` in production, and anywhere else only behind
