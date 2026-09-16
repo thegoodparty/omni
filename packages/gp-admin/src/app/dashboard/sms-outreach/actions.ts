@@ -80,6 +80,26 @@ export const cancelSms = async (id: number): Promise<SmsApprovalQueueItem> => {
   return item
 }
 
+// Rescheduling moves the vendor send window (and rebooks canvassers on a
+// booked send), so it carries the same org:admin gate as deciding.
+export const editSmsDate = async (
+  id: number,
+  sendAt: string,
+  scheduledLocalDate: string
+): Promise<SmsApprovalQueueItem> => {
+  const { email } = await requireApprover()
+  const item = await gpAction(async (client) =>
+    client.smsOutreachAdmin.editDate(id, {
+      sendAt: new Date(sendAt),
+      scheduledLocalDate,
+      editedBy: email,
+    })
+  )
+  revalidatePath('/dashboard/sms-outreach')
+  revalidatePath(`/dashboard/sms-outreach/${id}`)
+  return item
+}
+
 // A test send fires a real text (the campaign's live template) to the
 // typed phone, so it carries the same org:admin gate as deciding. It
 // changes nothing server-side, so no revalidation.

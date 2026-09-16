@@ -472,6 +472,89 @@ describe('PeerlyP2pJobService', () => {
     })
   })
 
+  describe('updateJobSchedule', () => {
+    const activeJob = {
+      id: 'job-1',
+      status: 'active',
+      leads_remaining: 5,
+      can_use_mms: true,
+      start_date: '2026-09-10',
+      end_date: '2026-09-10',
+      templates: [
+        {
+          id: 't1',
+          title: 'Default Template',
+          text: 'Hello {first_name}',
+          is_default: true,
+          media: { media_id: 'm1', media_type: 'IMAGE', title: 'img' },
+        },
+      ],
+    }
+
+    it('mints a schedule and PUTs the new window echoing job state', async () => {
+      mockHttpService.get.mockResolvedValueOnce({ data: activeJob })
+
+      await service.updateJobSchedule({
+        jobId: 'job-1',
+        campaignId: 42,
+        date: '2026-10-01',
+      })
+
+      expect(mockScheduleService.createSchedule).toHaveBeenCalledWith(
+        expect.stringContaining('GP P2P - Campaign 42 - 2026-10-01'),
+      )
+      expect(mockHttpService.put).toHaveBeenCalledWith(
+        '/1to1/jobs/job-1',
+        expect.objectContaining({
+          status: 'active',
+          can_use_mms: true,
+          schedule_id: 99999,
+          start_date: '2026-10-01',
+          end_date: '2026-10-01',
+          templates: [
+            {
+              is_default: true,
+              title: 'Default Template',
+              text: 'Hello {first_name}',
+              media: { media_type: 'IMAGE', media_id: 'm1', title: 'img' },
+            },
+          ],
+        }),
+      )
+    })
+
+    it('routes a createSchedule failure through the shared error handler', async () => {
+      mockHttpService.get.mockResolvedValueOnce({ data: activeJob })
+      mockScheduleService.createSchedule.mockRejectedValueOnce(
+        new Error('schedule create failed'),
+      )
+
+      await expect(
+        service.updateJobSchedule({
+          jobId: 'job-1',
+          campaignId: 42,
+          date: '2026-10-01',
+        }),
+      ).rejects.toThrow(BadGatewayException)
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalled()
+      expect(mockHttpService.put).not.toHaveBeenCalled()
+    })
+
+    it('routes a reschedule PUT failure through the shared error handler', async () => {
+      mockHttpService.get.mockResolvedValueOnce({ data: activeJob })
+      mockHttpService.put.mockRejectedValueOnce(new Error('vendor down'))
+
+      await expect(
+        service.updateJobSchedule({
+          jobId: 'job-1',
+          campaignId: 42,
+          date: '2026-10-01',
+        }),
+      ).rejects.toThrow(BadGatewayException)
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalled()
+    })
+  })
+
   describe('activateJob', () => {
     const pausedJob = {
       id: 'job-1',
