@@ -129,14 +129,14 @@ needs rewriting against the current navigation.
 
 ## Support routing
 
-**One route, both assistants:** the support chat, opened from **Get help** at
-the bottom of the left-hand menu, with `support@goodparty.org` as the email
-fallback. Both are constants (`SUPPORT_ROUTE`, `SUPPORT_EMAIL`) and nothing
-else may be named.
+**One route, both assistants:** the support chat in the bottom-right corner of
+any page (HubSpot Conversations, loaded site-wide in
+`gp-webapp/app/layout.tsx` for production), with `support@goodparty.org` as
+the email fallback. Both are constants (`SUPPORT_ROUTE`, `SUPPORT_EMAIL`) and
+nothing else may be named.
 
-`SUPPORT_ROUTE` names no section of that menu on purpose: Get help ends the
-main nav on desktop and sits in the account group on mobile, so any wording
-more specific is wrong on one of the two.
+Moving that launcher behind a **Get help** nav item is a separate change, on
+the `support-link-move` branch. `SUPPORT_ROUTE` moves with it when it lands.
 
 The product shows two addresses, and which one depends on who works the queue.
 Both live in `gp-webapp/app/shared/utils/supportContact.ts`; import one rather
@@ -154,21 +154,6 @@ The assistants name only the general route. A candidate mid-compliance reaches
 campaign success through the Pro and texting flows themselves, where the
 product already knows that is the context; giving the assistant a second
 address to choose between is how eight of them appeared in the first place.
-
-### Where the support chat lives
-
-It is HubSpot Conversations, loaded in production from
-`gp-webapp/app/layout.tsx`. It used to render its own launcher hovering over
-every page. Now the layout sets `hsConversationsSettings.loadImmediately =
-false` to suppress that, and `@shared/utils/supportWidget.ts` opens it from the
-**Get help** item in the nav (`widget.load({ widgetOpen: true })` the first
-time, `widget.open()` after). If the SDK never arrives — the script is
-production-only, and an ad blocker can stop it in production — the click falls
-back to email rather than doing nothing.
-
-There is no API to invoke HubSpot's Breeze Customer Agent directly, so the
-widget is still how a user reaches it. That is why this is a relocation rather
-than a replacement.
 
 ### Answer first, hand off second
 

@@ -81,18 +81,6 @@ const SHARED_AREAS: ProductArea[] = [
     does: 'Billing, subscription, and closing an account. This is where every payment and cancellation question goes.',
   },
   {
-    navId: 'nav-dash-support',
-    name: 'Get help',
-    // Not a section: it ends the main nav on desktop and sits in the account
-    // group on mobile. See SUPPORT_ROUTE in productKnowledgePrompt.ts.
-    path: 'the bottom of the left-hand menu',
-    modes: ['win', 'serve'],
-    does: 'Opens the support chat, where a person answers billing, account, and anything that needs changing on their behalf.',
-    inside: [
-      'It opens the chat in place; there is no separate page to navigate to',
-    ],
-  },
-  {
     // Same story as Profile: the rendered label is "Community Forum", in the
     // account menu. The 'community-dashboard' entry's "Community" label is
     // filtered out of the nav and never reaches a screen.

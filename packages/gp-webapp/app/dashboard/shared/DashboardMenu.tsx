@@ -37,7 +37,7 @@ import { CONTACTS_DATA_TITLE } from './contactsLabels'
 // Labels and icons shared with each tab's page title bar (DashboardNavHeader),
 // so the left rail and the top of the page can never read differently.
 import { NAV_HEADER_ICONS, NAV_LABELS } from './navLabels'
-import { CIRCLE_COMMUNITY_BASE, SUPPORT_CHAT_ENABLED } from 'appEnv'
+import { CIRCLE_COMMUNITY_BASE } from 'appEnv'
 import {
   Avatar,
   DropdownMenu,
@@ -59,7 +59,6 @@ import {
 } from '@styleguide'
 import {
   FlagIcon,
-  LifeBuoyIcon,
   MegaphoneIcon,
   ScrollTextIcon,
 } from '@styleguide/components/ui/icons'
@@ -69,7 +68,6 @@ import {
   useOrganizationRole,
 } from '@shared/organization-picker'
 import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
-import { openSupportChat } from '@shared/utils/supportWidget'
 
 // Adding, renaming or removing an item here also means updating the AI
 // assistants' product map, in
@@ -404,24 +402,6 @@ export default function DashboardMenu({
   )
 }
 
-// The support chat has no URL to link to, so it is an action rather than an
-// AccountManagementItem. On desktop it sits at the end of the main nav, below
-// Public Profile, where it is visible without opening the account menu first.
-// On mobile the rail already carries the account items, so it stays with
-// Community Forum there rather than adding a row above the feature tabs.
-//
-// Both render sites are gated on SUPPORT_CHAT_ENABLED. Where the HubSpot
-// script is not injected at all, the click has nothing to open and can only
-// wait and then hand off to email, so the honest thing is not to offer it.
-const SUPPORT_MENU_ITEM = {
-  label: 'Get help',
-  icon: LifeBuoyIcon,
-  id: 'nav-dash-support',
-  onSelect: openSupportChat,
-}
-
-type AccountActionItem = typeof SUPPORT_MENU_ITEM
-
 type AccountManagementItem = {
   label: string
   icon: LucideIcon
@@ -524,22 +504,6 @@ const NewNavMenu = ({
     </SidebarMenuItemComponent>
   )
 
-  const sidebarActionItem = (item: AccountActionItem) => (
-    <SidebarMenuItemComponent key={item.id}>
-      <SidebarMenuButton
-        id={item.id}
-        onClick={() => {
-          item.onSelect()
-          setOpenMobile(false)
-        }}
-        className="px-4 py-2.5 h-10 text-sm gap-2 rounded-md font-opensans"
-      >
-        <item.icon size={16} />
-        <span>{item.label}</span>
-      </SidebarMenuButton>
-    </SidebarMenuItemComponent>
-  )
-
   const dropDownItem = (item: AccountManagementItem) => (
     <DropdownMenuItemComponent asChild className="h-10">
       <Link
@@ -605,13 +569,9 @@ const NewNavMenu = ({
                     </SidebarMenuItemComponent>
                   )
                 })}
-              {!isMobile &&
-                SUPPORT_CHAT_ENABLED &&
-                sidebarActionItem(SUPPORT_MENU_ITEM)}
               {isMobile && (
                 <>
                   <SidebarSeparator />
-                  {SUPPORT_CHAT_ENABLED && sidebarActionItem(SUPPORT_MENU_ITEM)}
                   {sidebarItem(accountManagementMenuItems.community)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.profile)}
