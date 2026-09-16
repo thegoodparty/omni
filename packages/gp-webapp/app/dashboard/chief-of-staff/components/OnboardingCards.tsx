@@ -1,6 +1,5 @@
 'use client'
 
-import { SparklesIcon } from '@styleguide/components/ui/icons'
 import TaskCard from './TaskCard'
 import {
   useOnboardingCards,
@@ -43,8 +42,7 @@ export default function OnboardingCards({
         return (
           <TaskCard
             key={key}
-            eyebrowLabel={config.eyebrowLabel}
-            EyebrowIcon={SparklesIcon}
+            overlineLabel={config.overlineLabel}
             title={config.title}
             summary={config.summary}
             ctaLabel={config.ctaLabel}

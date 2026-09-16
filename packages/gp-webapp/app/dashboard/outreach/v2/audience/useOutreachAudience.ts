@@ -187,7 +187,7 @@ export const useOutreachAudience = ({
   // shows saved lists only — the precinct control cannot render until the
   // builder is open on its filters step.
   const precinctOptions = usePrecinctOptions(
-    open && active && mode !== 'picker' && !isElectedOfficial,
+    open && active && mode !== 'picker',
   )
 
   // Scope the saved-lists cache by org: with staleTime 0 the cached entry is

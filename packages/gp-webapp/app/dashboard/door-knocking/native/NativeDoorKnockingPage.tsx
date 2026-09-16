@@ -42,6 +42,7 @@ import { useWalkArchive, useWalkCompletion } from './walkCompletion'
 import { packBounds, type PolygonRing } from './VoterMapCanvas'
 import { geoapifyStaticUrl } from './createFlow/geoapifyStaticUrl'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
+import { usePrecinctOptions } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { useOrganization } from '@shared/organization-picker'
 
 // One loading vocabulary for both waits that show behind the walk drawer:
@@ -196,6 +197,13 @@ export default function NativeDoorKnockingPage({
     enabled: !isUnresolvable,
   })
   const [flowStep, setFlowStep] = useState<CreateFlowStep | null>(null)
+  // The district's precinct vocabulary, for the who step's precinct group.
+  // Gated on the flow being open so a door-knocking page view that never
+  // reaches the audience step buys nothing, and on a resolvable district for
+  // the same reason every other read on this page is.
+  const precinctOptions = usePrecinctOptions(
+    flowStep !== null && !isUnresolvable,
+  )
   // Which carried list has already been handed to the create flow. Kept here
   // because the flow itself is unmounted between opens while `?listId=` stays
   // in the address bar, so this is the only place that can remember. Compared
@@ -206,6 +214,12 @@ export default function NativeDoorKnockingPage({
   const carriedListId =
     preselectedListId === spentPreselectId ? undefined : preselectedListId
   const [filters, setFilters] = useState<VoterFileFilters>({})
+  // The hand-cut precinct selection, beside `filters` because precinct values
+  // are enumerated per district and the boolean draft has no key for them —
+  // it carries only the `precincts` mark, which is what
+  // `unpreviewableFilterKeys` below reads to disclose that the map cannot
+  // shade by them.
+  const [precincts, setPrecincts] = useState<string[]>([])
   const [ring, setRing] = useState<PolygonRing | null>(null)
   // The create-list surface's half of the canvas: draw tokens, the point count
   // and the coach mark. Called here because the canvas outlives the flow.
@@ -576,6 +590,7 @@ export default function NativeDoorKnockingPage({
   const closeFlow = () => {
     setFlowStep(null)
     setFilters({})
+    setPrecincts([])
     draw.clearDrawing()
     setLeaving(true)
     // Pressed the tile, changed their mind. `back()` rather than a path,
@@ -604,6 +619,7 @@ export default function NativeDoorKnockingPage({
     tileOpened.current = false
     setFlowStep(null)
     setFilters({})
+    setPrecincts([])
     draw.clearDrawing()
     walkOrigin.current = { kind: 'hub' }
     walk.start({ id: turf.id, name: turf.name }, 'newRoute')
@@ -867,6 +883,9 @@ export default function NativeDoorKnockingPage({
                 step={flowStep}
                 filters={filters}
                 onFiltersChange={setFilters}
+                precincts={precincts}
+                onPrecinctsChange={setPrecincts}
+                precinctOptions={precinctOptions}
                 onStepChange={changeFlowStep}
                 onClose={closeFlow}
                 districtBounds={districtBounds}

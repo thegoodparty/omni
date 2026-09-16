@@ -1,41 +1,82 @@
 'use client'
 
-import FormControlLabel from '@mui/material/FormControlLabel'
-import MuiCheckbox, {
-  CheckboxProps as MuiCheckboxProps,
-} from '@mui/material/Checkbox'
+import * as RadixCheckbox from '@radix-ui/react-checkbox'
+import { Check } from 'lucide-react'
+import { CSSProperties } from 'react'
 
-interface CheckboxProps extends MuiCheckboxProps {
-  label?: string
+interface CheckboxProps {
+  id?: string
   name?: string
+  label?: string
+  checked?: boolean
+  defaultChecked?: boolean
+  onChange?: (event: {
+    target: { checked: boolean; name?: string; value?: string }
+  }) => void
+  disabled?: boolean
+  required?: boolean
+  className?: string
+  // Site-theme accent color, applied to the checked-state fill and the
+  // focus ring. Key name kept for caller compatibility.
   theme?: {
     muiColor?: string
   }
 }
 
-const Checkbox = ({ label, name, theme, ...restProps }: CheckboxProps) => {
-  const sx = theme?.muiColor
-    ? {
-        color: theme.muiColor,
-        '&.Mui-checked': {
-          color: theme.muiColor,
-        },
-        '& .MuiSvgIcon-root': {
-          fill: theme.muiColor,
-        },
-        '&.Mui-checked .MuiSvgIcon-root': {
-          fill: theme.muiColor,
-        },
-      }
+const Checkbox = ({
+  id,
+  name,
+  label,
+  checked,
+  defaultChecked,
+  onChange,
+  disabled,
+  required,
+  className,
+  theme,
+}: CheckboxProps) => {
+  const color = theme?.muiColor
+  const style: CSSProperties | undefined = color
+    ? { backgroundColor: 'transparent', borderColor: color }
+    : undefined
+  const checkedStyle: CSSProperties | undefined = color
+    ? { backgroundColor: color, borderColor: color }
     : undefined
 
-  return label ? (
-    <FormControlLabel
-      label={label}
-      control={<MuiCheckbox name={name} sx={sx} {...restProps} />}
-    />
-  ) : (
-    <MuiCheckbox name={name} sx={sx} {...restProps} />
+  const control = (
+    <RadixCheckbox.Root
+      id={id}
+      name={name}
+      checked={checked}
+      defaultChecked={defaultChecked}
+      disabled={disabled}
+      required={required}
+      className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-gray-500 bg-white transition-colors data-[state=checked]:bg-primary data-[state=checked]:border-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-50 ${className || ''}`}
+      style={checked ? checkedStyle : style}
+      onCheckedChange={(state) => {
+        // Preserves the shape callers pass — `onChange({ target: { checked } })`
+        // mirrors a native input event so consumers don't need a per-control adapter.
+        onChange?.({
+          target: { checked: state === true, name },
+        })
+      }}
+    >
+      <RadixCheckbox.Indicator className="text-white">
+        <Check className="h-4 w-4" strokeWidth={3} />
+      </RadixCheckbox.Indicator>
+    </RadixCheckbox.Root>
+  )
+
+  if (!label) return control
+
+  return (
+    <label
+      htmlFor={id}
+      className="inline-flex cursor-pointer items-center gap-2"
+    >
+      {control}
+      <span>{label}</span>
+    </label>
   )
 }
 

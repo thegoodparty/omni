@@ -542,7 +542,7 @@ describe('WalkView', () => {
   // too, and it is the one place this product says "reached" — the predicate
   // behind it counts not-home, inaccessible and refused, so this surface said
   // "logged" until the design review put the design's wording back. The
-  // eyebrow beside it is what the figure is a count of.
+  // overline beside it is what the figure is a count of.
   it('states the count in the design’s words and the design’s colour', async () => {
     render(<WalkHarness turfId={3} />)
 

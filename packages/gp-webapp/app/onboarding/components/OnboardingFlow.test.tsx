@@ -243,7 +243,11 @@ describe('new onboarding flow shell', () => {
     expect(
       screen.getByRole('heading', { level: 1, name: /winning campaign plan/i }),
     ).toBeInTheDocument()
-    expect(screen.getByText(/Step 1 of/)).toBeInTheDocument()
+    const stepper = screen.getByRole('progressbar', { name: 'Progress' })
+    expect(stepper).toHaveAttribute('aria-valuenow', '1')
+    // Pinned: valuemin=0 is the a11y percentage math fix — reverting it
+    // to 1 would make screen readers announce step 1 as 0%.
+    expect(stepper).toHaveAttribute('aria-valuemin', '0')
   })
 
   it('routes structured office users through structured calculation steps', () => {
@@ -390,7 +394,9 @@ describe('new onboarding flow shell', () => {
         { timeout: 300 },
       ),
     ).rejects.toThrow()
-    expect(screen.getByText(/Step 1 of/)).toBeInTheDocument()
+    expect(
+      screen.getByRole('progressbar', { name: 'Progress' }),
+    ).toHaveAttribute('aria-valuenow', '1')
   })
 
   it('supports back and continue navigation across skipped manual-office steps', () => {

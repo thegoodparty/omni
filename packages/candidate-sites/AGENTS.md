@@ -4,7 +4,7 @@ Guidance for Claude Code and other AI agents working in `candidate-sites`. Keep 
 
 ## Project
 
-Next.js 15 (App Router) + React 19 + MUI 7 + Tailwind 3 app that renders **public candidate websites** authored in `gp-api`. Each request fetches the site's content from `gp-api` server-side and renders. Two entry points: vanity path (`/[vanityPath]`) and custom domain (`Host` header). Deployed on Vercel. There is **no auth** in this repo and **no database** — `gp-api` is the only data source. When a custom-domain request can't resolve to a published site, the route renders a minimal placeholder (just an `<h1>`); when a vanity-path request can't, it 404s. See `README.md` for the user-facing overview.
+Next.js 15 (App Router) + React 19 + Radix UI + Tailwind 3 app that renders **public candidate websites** authored in `gp-api`. Each request fetches the site's content from `gp-api` server-side and renders. Two entry points: vanity path (`/[vanityPath]`) and custom domain (`Host` header). Deployed on Vercel. There is **no auth** in this repo and **no database** — `gp-api` is the only data source. When a custom-domain request can't resolve to a published site, the route renders a minimal placeholder (just an `<h1>`); when a vanity-path request can't, it 404s. See `README.md` for the user-facing overview.
 
 ## Commands (most-used first)
 
@@ -50,7 +50,7 @@ npm run build -w packages/candidate-sites    # next build (build smoke + typeche
 - `@typescript-eslint/no-explicit-any` is **off** — but prefer typed code; `any` is a last resort.
 - TypeScript: `strict: true`, `target: ES2017`, `module: esnext`, `moduleResolution: bundler`. Path alias `@/*` → repo root (so `@/helpers/fetchHelper` resolves to `./helpers/fetchHelper`).
 - Default exports for page components and route handlers (the App Router convention). Named exports for everything else.
-- Functional React components only. `'use client'` directive at the top of files that need browser-only hooks (`useState`, `useEffect`, MUI styled components).
+- Functional React components only. `'use client'` directive at the top of files that need browser-only hooks (`useState`, `useEffect`).
 
 ## App layout
 

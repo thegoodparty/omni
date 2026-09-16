@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import {
   Button,
   Card,
-  Eyebrow,
+  Overline,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -19,6 +19,8 @@ import {
 import type { RecommendedList } from '@goodparty_org/contracts'
 import filterSections from 'app/dashboard/contacts/shared/filters.config'
 import { PILL_TOGGLE_ITEM_CLASSNAME } from 'app/dashboard/contacts/crm/shared/constants'
+import PrecinctFilter from 'app/dashboard/contacts/crm/wizard/PrecinctFilter'
+import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import { RecommendedListCard } from 'app/dashboard/outreach/v2/audience/RecommendedListCard'
 import type { SavedListOption } from './savedListOptions'
@@ -40,6 +42,15 @@ export const ALL_CONTACTS_VALUE = 'all-contacts'
 interface WhoStepProps {
   filters: VoterFileFilters
   onFiltersChange: (filters: VoterFileFilters) => void
+  // Precinct is the one filter group the pill draft cannot hold: its values
+  // are enumerated per district rather than declared in filters.config, so it
+  // travels as its own string[] beside the booleans, the way the CRM wizard
+  // and every other channel's audience step already carry it.
+  precincts: string[]
+  onPrecinctsChange: (value: string[]) => void
+  // Fetched by the orchestrator, which owns the district: this step stays
+  // presentational for the same reason `isServeOrg` and `orgSlug` are props.
+  precinctOptions: PrecinctOptionsResult
   savedLists: SavedListOption[]
   allContactsHouseholds: number | null
   // Null is "the whole contact universe". Picking a list is the alternative
@@ -119,6 +130,9 @@ const ROW_CLASSNAME =
 export const WhoStep = ({
   filters,
   onFiltersChange,
+  precincts,
+  onPrecinctsChange,
+  precinctOptions,
   savedLists,
   allContactsHouseholds,
   selectedListId,
@@ -172,7 +186,7 @@ export const WhoStep = ({
     return (
       <div className="flex flex-col gap-6">
         <div className="flex items-center justify-between">
-          <Eyebrow>Filters</Eyebrow>
+          <Overline>Filters</Overline>
           <Button
             variant="ghost"
             size="small"
@@ -182,6 +196,19 @@ export const WhoStep = ({
             Back to lists
           </Button>
         </div>
+
+        {/* Precinct leads the groups, as it does on the CRM wizard's own
+            filter step. Offered to Win and Serve alike — a precinct is a
+            subdivision of the district an official already serves. */}
+        <PrecinctFilter
+          options={precinctOptions.options}
+          selected={precincts}
+          onChange={onPrecinctsChange}
+          isLoading={precinctOptions.isLoading}
+          isError={precinctOptions.isError}
+          onRetry={precinctOptions.refetch}
+          labelClassName={GROUP_LABEL_CLASSNAME}
+        />
 
         {/* Every group, in the config's own order, with no "Add condition"
             button in front of them: the pills ARE the conditions, and a button
@@ -274,7 +301,7 @@ export const WhoStep = ({
     <>
       {(recommendationsError || recommendations.length > 0) && (
         <div className="flex flex-col gap-2">
-          <Eyebrow>Recommended for you</Eyebrow>
+          <Overline>Recommended for you</Overline>
           {recommendationsError ? (
             <p
               data-testid="recommended-lists-error"
@@ -298,7 +325,7 @@ export const WhoStep = ({
       )}
 
       <div ref={pickerRootRef} className="flex flex-col gap-2">
-        <Eyebrow id="create-list-audience-label">All lists</Eyebrow>
+        <Overline id="create-list-audience-label">All lists</Overline>
 
         <Popover open={open} onOpenChange={onOpenChange}>
           <PopoverTrigger asChild>

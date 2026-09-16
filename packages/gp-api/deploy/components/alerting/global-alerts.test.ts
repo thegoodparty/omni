@@ -200,3 +200,177 @@ describe('geoapify daily budget tiers', () => {
     for (const alert of tiers) expect(alert.notify).toBe('win-bugs')
   })
 })
+
+// The registry is the only place in this repo where a code change makes an
+// alert stop reaching a human. Every rule below is about keeping that power
+// narrow enough that misuse is a visible mistake rather than a quiet one.
+describe('known causes', () => {
+  const withCauses = GLOBAL_ALERTS.filter((a) => a.knownCauses?.length)
+
+  const allCauses = withCauses.flatMap((alert) =>
+    alert.knownCauses!.map((cause) => [alert, cause] as const),
+  )
+
+  it('is declared by at least one alert', () => {
+    expect(withCauses.length).toBeGreaterThan(0)
+  })
+
+  // `id` is reported as a metric dimension, so the weekly digest groups
+  // firings by it. Two causes sharing one id inside an alert merge into a
+  // single row, and the row that reads "suppressed 40 times" would be hiding
+  // two different decisions.
+  it('gives each cause an id unique within its alert', () => {
+    for (const alert of withCauses) {
+      const ids = alert.knownCauses!.map((c) => c.id)
+      expect(new Set(ids).size, `duplicate id in ${alert.slug}`).toBe(
+        ids.length,
+      )
+    }
+  })
+
+  // Suppressing means nobody is told. Deciding that from the notification
+  // alone is deciding it from text the rule wrote before the incident
+  // happened, which cannot distinguish the benign case from the regression —
+  // that indistinguishability is the reason the registry exists. So a
+  // suppressing cause has to be confirmable against logs.
+  it('makes every suppressing cause prove itself from logs', () => {
+    for (const [alert, cause] of allCauses) {
+      if (cause.action !== 'suppress') continue
+      expect(cause.evidence, `${alert.slug}/${cause.id}`).toBeTruthy()
+    }
+  })
+
+  // An evidence query without a line filter reads the whole stream for the
+  // window, on every firing, and Loki bills decompressed bytes. The label
+  // selector alone is not a query, it is a bill.
+  it('narrows every evidence query past its label selector', () => {
+    for (const [alert, cause] of allCauses) {
+      if (!cause.evidence) continue
+      expect(cause.evidence, `${alert.slug}/${cause.id}`).toMatch(
+        /\|=|\|~|\|\s*json|\|\s*logfmt/,
+      )
+    }
+  })
+
+  // Evidence is substituted at provision time exactly like `expr`, so a query
+  // that pins an environment literally would have the dev rule reading prod
+  // logs to decide what to hide from a dev channel.
+  it('leaves the environment for provisioning to fill in', () => {
+    for (const [alert, cause] of allCauses) {
+      if (!cause.evidence) continue
+      const pinned = /deployment_environment_name="(?!\$ENV)/.test(
+        cause.evidence,
+      )
+      expect(pinned, `${alert.slug}/${cause.id} pins an environment`).toBe(
+        false,
+      )
+    }
+  })
+
+  // `confirmedBy` is what the classifier checks the logs against. Phrased as
+  // a hint it is unfalsifiable, and an unfalsifiable condition is one that
+  // confirms for any output it is shown — which for a suppressing cause means
+  // suppressing everything the alert ever does.
+  it('states each confirmation as a checkable condition', () => {
+    for (const [alert, cause] of allCauses) {
+      expect(cause.confirmedBy, `${alert.slug}/${cause.id}`).not.toMatch(
+        /^\s*(look for|check for|see if|probably|maybe|might be)\b/i,
+      )
+      expect(
+        cause.confirmedBy.length,
+        `${alert.slug}/${cause.id} is too terse to check`,
+      ).toBeGreaterThan(20)
+    }
+  })
+
+  // The failure the rule above does not catch, and it shipped once: a condition
+  // that is phrased as a condition and still confirms for anything, because it
+  // asks only whether the query returned something. "Matched lines exist and
+  // name a schema path" is true of every output a query filtered to that shape
+  // can produce, so the cause is confirmed by its own evidence gather.
+  //
+  // What separates the two is whether the entry says what would DISCONFIRM it.
+  // A prose check is a blunt instrument, but the alternative is no check on the
+  // one property that decides whether the classifier can ever answer no — and
+  // the sibling entries were already written this way, so the shape being
+  // asserted is the house style rather than a new requirement.
+  it('says what would rule each cause out', () => {
+    for (const [alert, cause] of allCauses) {
+      expect(
+        cause.confirmedBy,
+        `${alert.slug}/${cause.id} states no disconfirming condition: say what a matched line, or the absence of one, would look like if this were NOT the cause`,
+      ).toMatch(/\bis not\b|\bis NOT\b|\binstead\b|\bmissing\b|\bno matched\b/)
+    }
+  })
+
+  // A suppressing cause with no ticket is how a known issue becomes a
+  // permanently invisible one: the alert stops arriving and nothing is left
+  // pointing at the work. This is not an error — shipping the mechanism
+  // before the tickets exist is reasonable — but the digest has to be able to
+  // name them, so the set is asserted explicitly and changing it is a
+  // deliberate edit rather than a side effect.
+  it('accounts for suppressing causes that track no ticket', () => {
+    const untracked = allCauses
+      .filter(([, cause]) => cause.action === 'suppress' && !cause.ticket)
+      .map(([alert, cause]) => `${alert.slug}/${cause.id}`)
+
+    expect(untracked).toEqual([
+      'door-knocking-pack-build-failed/people-db-statement-timeout',
+    ])
+  })
+})
+
+// The alert about the alerting, and the only rule in this file whose premise is
+// that the other rules cannot be delivered. Everything asserted here is a
+// property that makes it survive the outage it describes.
+describe('alert-notification-delivery-failing', () => {
+  const alert = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'alert-notification-delivery-failing',
+  )!
+
+  it('exists, because routing alerts through a Lambda makes that Lambda a single point of failure', () => {
+    expect(alert).toBeDefined()
+  })
+
+  // gp-api's own metrics are useless here: the process can be perfectly healthy
+  // while nothing it reports reaches a human. Only Grafana's view of its own
+  // delivery attempts can see this.
+  it('measures Grafana own delivery attempts rather than anything gp-api emits', () => {
+    expect(alert.expr).toContain('alerting_notification_send_failures_total')
+    expect(alert.expr).not.toContain('service_name="gp-api"')
+  })
+
+  // A subteam mention is added to the message BODY, and this rule's premise is
+  // that the path carrying message bodies is broken — so a mention would travel
+  // exactly as far as the thing it exists to escape. What makes this alert work
+  // is its route, which lives in the notification policy tree and not here.
+  it('pages nobody, because the mention would ride the broken path', () => {
+    expect(alert.notify).toBeUndefined()
+  })
+
+  // The message has to carry the escape hatch, because whoever reads it is
+  // reading it at the moment alerting is down and should not have to find a
+  // runbook first.
+  it('tells the reader how to restore alerting immediately', () => {
+    expect(alert.message).toContain('repoint')
+    expect(alert.message.toLowerCase()).toContain('slack contact point')
+  })
+
+  it('names the log group to look in', () => {
+    expect(alert.message).toContain('alert-filter-prod')
+  })
+
+  // A delivery failure that cleared on its own is not worth interrupting
+  // anyone for, but five minutes of them is the channel being down.
+  it('waits long enough to exclude a single transient failure', () => {
+    expect(alert.for).toBe('5m')
+    expect(alert.threshold).toBe(0)
+  })
+
+  // It must not be routed through the filter, which is a policy-tree property
+  // this repo cannot express — so the rule declares no known causes, because a
+  // known cause would imply the filter gets to see it.
+  it('declares no known causes, since the filter must never classify it', () => {
+    expect(alert.knownCauses).toBeUndefined()
+  })
+})

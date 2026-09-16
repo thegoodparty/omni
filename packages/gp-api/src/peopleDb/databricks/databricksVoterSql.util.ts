@@ -810,8 +810,10 @@ export const buildPersonSql = (
 // Ordered by voter count so a truncated response keeps the precincts that
 // matter, then by name for a stable tie-break. The cap is a safety valve
 // rather than a working limit: the largest ICP district in the country is
-// Kings County CA at 579 precincts, and p75 is 13-15.
-export const MAX_PRECINCT_OPTIONS = 1_000
+// Kings County CA at 579 precincts, and p75 is 13-15. Sized to match the
+// filter payload cap (MAX_PRECINCT_FILTER_VALUES = 5,000) so the picker
+// cannot offer more options than a saved filter will accept.
+export const MAX_PRECINCT_OPTIONS = 5_000
 
 export const buildPrecinctsSql = (args: {
   district: DbxDistrict

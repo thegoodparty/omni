@@ -164,10 +164,9 @@ export const buildFilterSummary = (
   // otherwise the sentence describes a narrower audience than the list
   // actually holds. Enumerated per district, so there is no label map to look
   // values up in: the encoded pair is decoded for display.
-  const precincts =
-    !isElectedOfficial && Array.isArray(segment.precincts)
-      ? (segment.precincts as string[])
-      : []
+  const precincts = Array.isArray(segment.precincts)
+    ? (segment.precincts as string[])
+    : []
   if (precincts.length > 0) {
     const labels = precincts.map((encoded) => {
       const { county, precinct } = decodePrecinctPair(encoded)

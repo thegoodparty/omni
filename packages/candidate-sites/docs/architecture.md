@@ -5,7 +5,7 @@ A pointer-heavy doc. Detailed conventions live in `CLAUDE.md` and `ai-rules/`.
 ## Stack
 
 - **Next.js 15** App Router on **React 19**, dev server uses Turbopack on port `4001`.
-- **MUI 7** (`@mui/material`, `@mui/icons-material`) + **Emotion** for component styling; **Tailwind 3** for layout / utility classes; **`@tailwindcss/typography`** for prose.
+- **Radix UI** (`@radix-ui/react-dialog`, `@radix-ui/react-checkbox`) for interactive primitives; **lucide-react** for icons; **Tailwind 3** for all styling and layout; **`@tailwindcss/typography`** for prose.
 - **TypeScript 5** strict, `target: ES2017`, `module: esnext`, `moduleResolution: bundler`, path alias `@/*` → repo root.
 - **ESLint 9** with `next/core-web-vitals + next/typescript`, `unused-imports`, `@stylistic` (forbids semicolons). **Prettier 2** for formatting.
 - **Build:** `next build` (Webpack production build). **Dev:** Turbopack via `next dev --turbopack`. Restart `npm run dev` after editing `next.config.ts` or `tsconfig.json` — neither is hot-reloaded.
@@ -39,7 +39,7 @@ app/
 │   ├── contact-form/[vanityPath]/route.ts
 │   └── websites/[vanityPath]/track-view/route.ts
 ├── shared/                                 # reused across entries
-│   ├── buttons/   inputs/   typography/    # MUI / Tailwind wrappers
+│   ├── buttons/   inputs/   typography/    # Radix UI / Tailwind wrappers
 │   └── utils/                              # candidateMetaData, getImageDimensions, getUserFullName, etc.
 └── [vanityPath]/
     ├── page.tsx                            # vanity-path entry
@@ -156,4 +156,4 @@ Every path on every domain is blocked from search engines. This is intentional �
 
 ## ADRs
 
-`docs/adr/` exists but is empty. Add one when a non-obvious decision lands (e.g., why two entries instead of route groups, why MUI + Tailwind both, why `fetchHelper` returns `null` instead of throwing, why `noindex` everywhere). Use `ai-rules/adr-template.md` as the starting point and number sequentially (`0001-...md`, `0002-...md`).
+`docs/adr/` exists but is empty. Add one when a non-obvious decision lands (e.g., why two entries instead of route groups, why `fetchHelper` returns `null` instead of throwing, why `noindex` everywhere). Use `ai-rules/adr-template.md` as the starting point and number sequentially (`0001-...md`, `0002-...md`).

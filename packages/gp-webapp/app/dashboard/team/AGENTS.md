@@ -135,5 +135,7 @@ surface is inert, which is what lets all of this merge to `main` dark.
   point.
 - E2E: `e2e-tests/tests/app/dashboard/team/` (`team-page.spec.ts`,
   `team-invite-ticket.spec.ts`). The invite drawer's accessible name is its
-  step-1 title ("Who do you want to invite?"); org-picker specs scope
+  sr-only `DrawerTitle` ("Invite someone") — constant across both steps,
+  since the visible step body h3 now changes per step and the drawer's
+  visible header is the Stepper's own bars + slot; org-picker specs scope
   name-matching to `data-testid="org-picker-item-name"`.

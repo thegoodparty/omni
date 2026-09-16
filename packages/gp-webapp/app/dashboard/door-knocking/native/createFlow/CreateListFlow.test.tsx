@@ -34,6 +34,15 @@ const turfStats = (stops: number, households: number) => ({
 const baseProps = {
   filters: {},
   onFiltersChange: vi.fn(),
+  precincts: [],
+  onPrecinctsChange: vi.fn(),
+  precinctOptions: {
+    options: [],
+    truncated: false,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  },
   onStepChange: vi.fn(),
   onClose: vi.fn(),
   districtBounds: null as [[number, number], [number, number]] | null,
@@ -134,7 +143,7 @@ const renderAtWho = async (
 }
 
 // The control the who step opens on: one row naming the audience and its door
-// count, labelled by the eyebrow above it.
+// count, labelled by the overline above it.
 const audiencePicker = () => screen.getByRole('combobox', { name: 'All lists' })
 
 // Choosing a list is open-then-pick. The rows only exist in the document while
@@ -173,12 +182,11 @@ const dismissDrawInstructions = () =>
 const heading = (name: string) =>
   screen.getByRole('heading', { level: 3, name })
 
-// The bar stepper's own visible "Step X of Y" text is suppressed on this
-// shell (OutreachFlowShell passes `showLabel={false}` — the DrawerTitle
-// carries the flow's identity, the bars carry position). But the stepper
-// still exposes its position on the progressbar role's aria attributes,
-// which is what these assertions actually mean: "the flow claims it is
-// on step N of a Y-step run".
+// The bar stepper no longer renders "Step X of Y" text at all — that
+// prop was retired in favor of the ChannelBadge overline the header
+// already carries. The stepper still exposes its position on the
+// progressbar role's aria attributes, which is what these assertions
+// actually mean: "the flow claims it is on step N of a Y-step run".
 const expectStep = (currentStep: number, totalSteps: number) => {
   const stepper = screen.getByRole('progressbar', { name: 'Progress' })
   expect(stepper).toHaveAttribute('aria-valuenow', String(currentStep))
@@ -205,6 +213,41 @@ describe('CreateListFlow', () => {
   // step before Build route is client state: the filter POST that precedes it
   // is the reusable audience, and the turf POST is turf, route, stops and the
   // outreach envelope in one transaction on the far side.
+  // Precinct values cannot live in the boolean pill draft, so a hand-cut
+  // selection reaches the created list only if the create body spends the
+  // separate prop. Without this the candidate picks precincts, the map and
+  // the preview narrow by them, and the saved list targets the whole
+  // district.
+  it('creates the list with the hand-cut precinct selection', async () => {
+    const bodies: unknown[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      bodies.push(body)
+      return { status: 200, data: { id: 78 } }
+    })
+    api.mock('POST /v1/door-knocking/turfs', () => ({
+      status: 200,
+      data: { ...savedTurf, id: 6, voterFileFilterId: 78 },
+    }))
+    const onListCreated = vi.fn()
+    const props = {
+      filters: { precincts: true },
+      precincts: ['Laramie|14', 'Laramie|15'],
+      onListCreated,
+    }
+
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} {...props} step="confirm" />,
+    )
+    advanceToRoute(rerender, props, 'Ward 1 evening')
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toMatchObject({
+      name: 'Ward 1 evening',
+      precincts: ['Laramie|14', 'Laramie|15'],
+    })
+  })
+
   it('creates the voter list from the filter draft, then buys the route', async () => {
     const calls: Array<{ kind: string; body: unknown }> = []
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {

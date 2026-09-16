@@ -27,6 +27,7 @@ import {
 } from './voterFilterPreview'
 import { audienceEmptyMessage } from './emptiableCriteria'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
+import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { districtUnavailableMessage, packErrorMessage } from '../useVoterPack'
 import { suggestTravelMode } from '../travelMode'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -117,6 +118,14 @@ interface CreateListFlowProps {
   step: CreateFlowStep
   filters: VoterFileFilters
   onFiltersChange: (filters: VoterFileFilters) => void
+  // The hand-cut precinct selection. Beside `filters` rather than inside it
+  // because precinct values are enumerated per district, so the boolean pill
+  // draft has no key to hold them — the draft carries only the `precincts`
+  // MARK, for the map's unshadeable disclosure. Owned by the page for the
+  // same reason `filters` is: the address preview is assembled up there.
+  precincts: string[]
+  onPrecinctsChange: (value: string[]) => void
+  precinctOptions: PrecinctOptionsResult
   onStepChange: (step: CreateFlowStep) => void
   onClose: () => void
   // The pack's bounding box, framed by the draw step's static-map preview
@@ -316,6 +325,9 @@ export default function CreateListFlow({
   step,
   filters,
   onFiltersChange,
+  precincts,
+  onPrecinctsChange,
+  precinctOptions,
   onStepChange,
   onClose,
   districtBounds,
@@ -464,13 +476,17 @@ export default function CreateListFlow({
       setHasPickedAudience(true)
       setSavedListId(listId)
       clearRecommendedDraft()
+      // A picked list brings its own precinct clause through
+      // `savedListUnshadeableCriteria`, so a hand-cut selection left standing
+      // would narrow the preview by precincts the list never names.
+      onPrecinctsChange([])
       onFiltersChange(
         listId === null
           ? {}
           : (savedLists.find((list) => list.id === listId)?.filters ?? {}),
       )
     },
-    [onFiltersChange, savedLists, clearRecommendedDraft],
+    [onFiltersChange, onPrecinctsChange, savedLists, clearRecommendedDraft],
   )
 
   // A recommendation that already exists as a saved list selects that list
@@ -516,6 +532,9 @@ export default function CreateListFlow({
       const supportStatus = recommendation.filter.supportStatus ?? []
       setHasPickedAudience(true)
       setSavedListId(null)
+      // Its own precinct clause rides in `recommendedPrecincts` below, so
+      // the hand-cut one goes with the draft it belonged to.
+      onPrecinctsChange([])
       // The boolean MARKS beside the pill draft, exactly as
       // `savedListFilterKeys` leaves them for a picked list: they narrow
       // nothing (`transformVoterFileFiltersForBackend` only emits option
@@ -540,7 +559,13 @@ export default function CreateListFlow({
         voteGoalShare: recommendation.voteGoalShare,
       })
     },
-    [onFiltersChange, selectList, savedLists, recommendedListIntent],
+    [
+      onFiltersChange,
+      onPrecinctsChange,
+      selectList,
+      savedLists,
+      recommendedListIntent,
+    ],
   )
 
   // A list carried in from the outreach hub's door-knocking tile, so "start a
@@ -912,6 +937,11 @@ export default function CreateListFlow({
             // recommendation (docs/features/recommended-lists.md) — empty
             // for a hand-cut audience or one picked from the saved-lists
             // rail, since those never populate this state.
+            // The hand-cut precinct selection, and below it the carry from
+            // an accepted recommendation. Mutually exclusive by
+            // construction — picking either clears the other — so the
+            // second spread can never overwrite a live selection.
+            ...(precincts.length ? { precincts } : {}),
             ...(recommendedPrecincts.length
               ? { precincts: recommendedPrecincts }
               : {}),
@@ -1243,8 +1273,28 @@ export default function CreateListFlow({
                 // that list will never apply.
                 setSavedListId(null)
                 clearRecommendedDraft()
-                onFiltersChange(withoutUnshadeableCriteria(next))
+                // The hand-cut precinct selection is this draft's own, not
+                // the departing list's, so its mark is re-applied after the
+                // strip — dropping it would hide a filter that IS still
+                // being applied, which is the disclosure lying the other way.
+                onFiltersChange({
+                  ...withoutUnshadeableCriteria(next),
+                  ...(precincts.length ? { precincts: true } : {}),
+                })
               }}
+              precincts={precincts}
+              onPrecinctsChange={(next) => {
+                // Same departure as editing a pill: narrowing by precinct is
+                // cutting a new audience, not the named list.
+                setSavedListId(null)
+                clearRecommendedDraft()
+                onPrecinctsChange(next)
+                onFiltersChange({
+                  ...withoutUnshadeableCriteria(filters),
+                  ...(next.length ? { precincts: true } : {}),
+                })
+              }}
+              precinctOptions={precinctOptions}
               savedLists={savedLists}
               allContactsHouseholds={allContactsHouseholds}
               selectedListId={savedListId}

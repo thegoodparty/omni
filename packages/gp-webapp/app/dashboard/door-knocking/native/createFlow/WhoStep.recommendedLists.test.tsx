@@ -21,6 +21,15 @@ const RECOMMENDATION = {
 const baseProps = {
   filters: {},
   onFiltersChange: vi.fn(),
+  precincts: [],
+  onPrecinctsChange: vi.fn(),
+  precinctOptions: {
+    options: [],
+    truncated: false,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  },
   savedLists: [],
   allContactsHouseholds: 1000,
   selectedListId: null,

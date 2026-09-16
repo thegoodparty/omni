@@ -1,4 +1,5 @@
 import { PAGE_STYLE, PageHeader, STORY_PARAMS } from './_storyShell'
+import { Overline } from '../components/ui/overline'
 
 const meta = {
   title: 'Foundations/Typography',
@@ -568,3 +569,33 @@ export const BodyText = () => (
 )
 
 BodyText.parameters = STORY_PARAMS
+
+// =============================================================================
+// Utility Styles
+// =============================================================================
+export const UtilityStyles = () => (
+  <div style={PAGE_STYLE} className="space-y-10">
+    <PageHeader
+      title="Utility Styles"
+      description="Reusable text patterns that don't fit the type scale. Each one is a named piece of the system — use them by import (a component like Overline) or by class (the .text-* utilities) rather than restating their styles inline."
+    />
+    <div className="space-y-8">
+      <div>
+        <code className="text-xs text-muted">
+          &lt;Overline&gt; · 12px · Bold · UPPERCASE · Primary
+        </code>
+        <div className="mt-2">
+          <Overline>Section label</Overline>
+        </div>
+        <p className="mt-2 max-w-prose text-sm text-muted-foreground">
+          Small uppercase micro-label that names the block it sits above. Short
+          text only (a section name, a category, a flow identity) — never a full
+          sentence, never an icon. Import from{' '}
+          <code className="font-mono">@styleguide</code>.
+        </p>
+      </div>
+    </div>
+  </div>
+)
+
+UtilityStyles.parameters = STORY_PARAMS

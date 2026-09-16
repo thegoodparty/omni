@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { FilterPill, FilterPillGroup, IconButton } from '@styleguide'
-import { ArrowLeftIcon, SparklesIcon } from '@styleguide/components/ui/icons'
+import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { chiefOfStaffHref } from '../../routes'
 import { useDashboardCards, useOnboardingCards } from '../../data/use-dashboard'
 import DashboardTaskCard from '../../components/DashboardTaskCard'
@@ -70,8 +70,7 @@ function ArchiveList({ bucket }: { bucket: ArchiveBucket }): React.JSX.Element {
         return (
           <TaskCard
             key={key}
-            eyebrowLabel={config.eyebrowLabel}
-            EyebrowIcon={SparklesIcon}
+            overlineLabel={config.overlineLabel}
             title={config.title}
             summary={config.summary}
           />
