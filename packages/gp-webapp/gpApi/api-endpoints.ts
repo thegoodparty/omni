@@ -918,8 +918,10 @@ export type APIEndpoints = {
     Response: void
   }
 
+  // `scope` rides in the query string, not this body — see the override in
+  // agent-chat/chatClient.ts.
   'PUT /v1/chats/:id/messages/:messageId/feedback': {
-    Request: { scope: ChatScope } & SetChatMessageFeedbackRequest
+    Request: SetChatMessageFeedbackRequest
     Response: ChatMessageFeedback
   }
 

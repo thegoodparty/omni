@@ -199,13 +199,20 @@ export function createAgentChatClient(
     },
 
     async setMessageFeedback({ conversationId, messageId, feedback, comment }) {
-      await clientRequest('PUT /v1/chats/:id/messages/:messageId/feedback', {
-        id: conversationId,
-        messageId,
-        scope,
-        feedback,
-        ...(comment !== undefined && { comment }),
-      })
+      await clientRequest(
+        'PUT /v1/chats/:id/messages/:messageId/feedback',
+        {
+          id: conversationId,
+          messageId,
+          feedback,
+          ...(comment !== undefined && { comment }),
+        },
+        // `scope` is a query param on every chat route, but clientRequest puts
+        // a non-GET/DELETE payload in the BODY — so passing it with the rating
+        // left @Query() empty and 400'd every rating write. The sibling DELETE
+        // needs no override: its payload already becomes the query.
+        { query: { scope } },
+      )
     },
 
     async clearMessageFeedback({ conversationId, messageId }) {

@@ -61,6 +61,11 @@ export default function MessageActionBar({
   const [draft, setDraft] = useState('')
   const [copied, setCopied] = useState(false)
 
+  // The in-flight rating write. A note saved before it settles must land
+  // AFTER it: both calls upsert the same row, so the rating's `comment: null`
+  // would otherwise win the race and silently drop the note.
+  const ratingWrite = useRef<Promise<void> | null>(null)
+
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(
     () => () => {
@@ -90,7 +95,11 @@ export default function MessageActionBar({
         setStoredNote(null)
         setNoteFor(null)
         try {
-          await chatApi.clearMessageFeedback?.({ conversationId, messageId })
+          const write = Promise.resolve(
+            chatApi.clearMessageFeedback?.({ conversationId, messageId }),
+          ).then(() => undefined)
+          ratingWrite.current = write
+          await write
         } catch (err) {
           setRating(previous.rating)
           setStoredNote(previous.storedNote)
@@ -102,21 +111,30 @@ export default function MessageActionBar({
         }
         return
       }
-      // Land the rating before the note so it sticks even if the bubble is
-      // dismissed without saving. Flipping the thumb drops the old note — it
-      // explained the rating that no longer applies.
+      // The rating stands on its own: it is written here and now, and nothing
+      // the note panel does afterwards — saved, dismissed, or ignored — can
+      // take it back. The panel is only an invitation to say more. Flipping
+      // the thumb drops the old note, which explained a rating that no longer
+      // applies.
       setRating(target)
       setStoredNote(null)
       setDraft('')
       setNoteFor(target)
       try {
-        await chatApi.setMessageFeedback?.({
-          conversationId,
-          messageId,
-          feedback: target,
-          comment: null,
-        })
+        const write = Promise.resolve(
+          chatApi.setMessageFeedback?.({
+            conversationId,
+            messageId,
+            feedback: target,
+            comment: null,
+          }),
+        ).then(() => undefined)
+        ratingWrite.current = write
+        await write
       } catch (err) {
+        // The rating never landed, so don't leave a lit thumb claiming it did
+        // — and close the panel, since there is no stored rating to attach a
+        // note to.
         setRating(previous.rating)
         setStoredNote(previous.storedNote)
         setNoteFor(null)
@@ -138,6 +156,8 @@ export default function MessageActionBar({
     setStoredNote(comment)
     setNoteFor(null)
     try {
+      // Queue behind the rating write so this note isn't overwritten by it.
+      await ratingWrite.current
       await chatApi.setMessageFeedback?.({
         conversationId,
         messageId,
@@ -145,6 +165,8 @@ export default function MessageActionBar({
         comment,
       })
     } catch (err) {
+      // Only the note is rolled back — the rating was already recorded and
+      // stays put.
       setStoredNote(previousNote)
       reportErrorToSentry(err, {
         surface: 'agent-chat-feedback',
