@@ -62,14 +62,14 @@ function Stepper(props: StepperProps) {
               aria-label={isCompleted ? `${label} - completed` : undefined}
               className={cn(
                 'flex items-center gap-3 rounded-full px-4 py-3',
-                isActive && 'bg-slate-200',
+                isActive && 'bg-muted',
               )}
             >
               <span
                 className={cn(
                   'flex size-10 shrink-0 items-center justify-center rounded-full',
                   isActive
-                    ? 'bg-slate-600 text-base-foreground-dark'
+                    ? 'bg-foreground text-background'
                     : 'bg-tertiary-light text-tertiary-dark',
                 )}
               >

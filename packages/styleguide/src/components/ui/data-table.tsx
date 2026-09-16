@@ -271,7 +271,7 @@ function DataTable<TData, TValue>({
                   }
                   className={cn(
                     'h-12',
-                    onRowClick ? 'cursor-pointer hover:bg-slate-200/50' : '',
+                    onRowClick ? 'cursor-pointer hover:bg-muted/50' : '',
                   )}
                 >
                   {row.getVisibleCells().map((cell) => (
