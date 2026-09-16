@@ -28,4 +28,6 @@ export const PRO_COMPLIANCE_SUPPORT_EMAIL = 'campaignsuccess@goodparty.org'
 // click on any machine with no mail client registered — which is every
 // environment where the chat is not loaded, and any ad-blocked session in
 // production.
-export const HELP_CENTER_URL = 'https://support.goodparty.org'
+// The path matters: the bare host redirects to the marketing homepage, which
+// is no help to someone already signed in and asking for it.
+export const HELP_CENTER_URL = 'https://support.goodparty.org/knowledge-base'

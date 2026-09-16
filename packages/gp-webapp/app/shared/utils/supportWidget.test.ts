@@ -161,7 +161,7 @@ describe('openSupportChat', () => {
 
     await vi.advanceTimersByTimeAsync(11_000)
 
-    expect(openedTabs).toEqual(['https://support.goodparty.org'])
+    expect(openedTabs).toEqual(['https://support.goodparty.org/knowledge-base'])
   })
 
   it('does not fall back when the widget did come up', async () => {
@@ -218,7 +218,7 @@ describe('openSupportChat', () => {
 
     openSupportChat()
     await vi.advanceTimersByTimeAsync(11_000)
-    expect(openedTabs).toEqual(['https://support.goodparty.org'])
+    expect(openedTabs).toEqual(['https://support.goodparty.org/knowledge-base'])
 
     const { api, state } = sdk()
     window.HubSpotConversations = api
@@ -302,7 +302,9 @@ describe('openSupportChat', () => {
       openSupportChat()
       await vi.advanceTimersByTimeAsync(11_000)
 
-      expect(openedTabs).toEqual(['https://support.goodparty.org'])
+      expect(openedTabs).toEqual([
+        'https://support.goodparty.org/knowledge-base',
+      ])
     })
 
     it('starts a fresh watch for a click after an attempt has settled', async () => {
@@ -442,7 +444,9 @@ describe('openSupportChat', () => {
       openSupportChat()
       await vi.advanceTimersByTimeAsync(11_000)
 
-      expect(openedTabs).toEqual(['https://support.goodparty.org'])
+      expect(openedTabs).toEqual([
+        'https://support.goodparty.org/knowledge-base',
+      ])
       expect(api.widget.open).toHaveBeenCalledTimes(1)
     })
 
@@ -470,8 +474,10 @@ describe('openSupportChat', () => {
     openSupportChat()
     await vi.advanceTimersByTimeAsync(11_000)
 
-    expect(openedTabs).toEqual(['https://support.goodparty.org'])
-    expect(navigations).toEqual(['https://support.goodparty.org'])
+    expect(openedTabs).toEqual(['https://support.goodparty.org/knowledge-base'])
+    expect(navigations).toEqual([
+      'https://support.goodparty.org/knowledge-base',
+    ])
   })
 
   // The nav item renders in every environment, so a click where the chat was
@@ -485,7 +491,9 @@ describe('openSupportChat', () => {
 
       openSupportChat()
 
-      expect(openedTabs).toEqual(['https://support.goodparty.org'])
+      expect(openedTabs).toEqual([
+        'https://support.goodparty.org/knowledge-base',
+      ])
     })
 
     it('does not touch the SDK even if one happens to be present', async () => {
@@ -506,6 +514,6 @@ describe('openSupportChat', () => {
     openSupportChat()
     await vi.advanceTimersByTimeAsync(11_000)
 
-    expect(openedTabs).toEqual(['https://support.goodparty.org'])
+    expect(openedTabs).toEqual(['https://support.goodparty.org/knowledge-base'])
   })
 })

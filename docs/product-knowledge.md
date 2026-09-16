@@ -147,7 +147,9 @@ gating it hid the item everywhere but production — including on dev — while
 An assistant pointing at a menu item that is not there is the failure this
 whole map exists to prevent, so the item stays and the click degrades instead:
 where the chat cannot be reached, `openSupportChat` opens `HELP_CENTER_URL`
-(`support.goodparty.org`) rather than waiting out a widget that cannot arrive.
+(`support.goodparty.org/knowledge-base`) rather than waiting out a widget that
+cannot arrive. Keep the path on that constant — the bare host redirects to the
+marketing homepage, which is no use to someone already signed in.
 
 That fallback is a URL, not an address, and the reason is worth keeping. It
 was `mailto:${SUPPORT_EMAIL}` first, which is a dead click on any machine with
