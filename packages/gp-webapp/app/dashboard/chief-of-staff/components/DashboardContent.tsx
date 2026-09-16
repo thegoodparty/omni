@@ -88,6 +88,7 @@ export default function DashboardContent(): React.JSX.Element {
         initialConversationId={initialConversationId}
         opener={openerKey ? ONBOARDING_CARDS[openerKey].opener : undefined}
         openerKey={openerKey}
+        showMessageActions
       />
     </div>
   )

@@ -16,6 +16,8 @@ const listMessagesMock = vi.fn()
 const listConversationsMock = vi.fn()
 const streamMessageMock = vi.fn()
 const softDeleteMock = vi.fn()
+const setFeedbackMock = vi.fn()
+const clearFeedbackMock = vi.fn()
 
 vi.mock('../../data/chat-api', () => ({
   chiefOfStaffChatApi: {
@@ -24,6 +26,8 @@ vi.mock('../../data/chat-api', () => ({
     listConversations: (...args: unknown[]) => listConversationsMock(...args),
     streamMessage: (...args: unknown[]) => streamMessageMock(...args),
     softDelete: (...args: unknown[]) => softDeleteMock(...args),
+    setMessageFeedback: (...args: unknown[]) => setFeedbackMock(...args),
+    clearMessageFeedback: (...args: unknown[]) => clearFeedbackMock(...args),
   },
 }))
 
@@ -61,6 +65,8 @@ beforeEach(() => {
   listConversationsMock.mockReset()
   streamMessageMock.mockReset()
   softDeleteMock.mockReset()
+  setFeedbackMock.mockReset().mockResolvedValue(undefined)
+  clearFeedbackMock.mockReset().mockResolvedValue(undefined)
   // Default so the engine's post-turn reconcile never throws on an unmocked
   // client; tests that assert the committed transcript override this.
   listMessagesMock.mockResolvedValue([])
@@ -69,6 +75,63 @@ beforeEach(() => {
 })
 
 describe('<ChiefOfStaffChatBody>', () => {
+  describe('message action bar', () => {
+    const replayOneTurn = () => {
+      listConversationsMock.mockResolvedValue([])
+      listMessagesMock.mockResolvedValue([
+        msg('user', 'What is on my agenda?'),
+        msg('assistant', 'Three items.', { id: 'asst_1' }),
+      ])
+    }
+
+    it('renders under a persisted assistant turn when enabled', async () => {
+      replayOneTurn()
+      render(
+        <ChiefOfStaffChatBody
+          active
+          conversationIdOverride="c1"
+          showMessageActions
+        />,
+      )
+
+      await waitFor(() =>
+        expect(screen.getByText('Three items.')).toBeInTheDocument(),
+      )
+      expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: 'Good response' }),
+      ).toBeInTheDocument()
+    })
+
+    it('renders no action bar by default', async () => {
+      replayOneTurn()
+      render(<ChiefOfStaffChatBody active conversationIdOverride="c1" />)
+
+      await waitFor(() =>
+        expect(screen.getByText('Three items.')).toBeInTheDocument(),
+      )
+      expect(
+        screen.queryByRole('button', { name: 'Copy' }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('never rates a user turn', async () => {
+      replayOneTurn()
+      render(
+        <ChiefOfStaffChatBody
+          active
+          conversationIdOverride="c1"
+          showMessageActions
+        />,
+      )
+
+      await waitFor(() =>
+        expect(screen.getByText('Three items.')).toBeInTheDocument(),
+      )
+      expect(screen.getAllByRole('button', { name: 'Copy' })).toHaveLength(1)
+    })
+  })
+
   it('streams the intro on the first chat', async () => {
     listConversationsMock.mockResolvedValue([])
     render(<ChiefOfStaffChatBody active />)

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { zCoerceDate } from '../shared/Date.schema'
 import { OrdinanceFlowStepSchema } from '../ordinances/Ordinance.schema'
 import {
+  ChatFeedbackKindSchema,
   ChatMessageRoleSchema,
   ChatMessageSegmentKindSchema,
   ChatScopeSchema,
@@ -99,6 +100,45 @@ export const ChatMessageSegmentSchema = z.object({
 })
 export type ChatMessageSegment = z.infer<typeof ChatMessageSegmentSchema>
 
+// --- Message feedback --------------------------------------------------------
+
+// Free text the user attaches to a rating — usually why a reply was wrong.
+// Mirrors the `chat_message_feedback.comment VARCHAR(2000)` column.
+const ChatFeedbackCommentSchema = z.string().max(2000).nullable()
+
+// A rating as it rides along on a replayed message.
+export const ChatMessageFeedbackStateSchema = z.object({
+  feedback: ChatFeedbackKindSchema,
+  comment: ChatFeedbackCommentSchema,
+})
+export type ChatMessageFeedbackState = z.infer<
+  typeof ChatMessageFeedbackStateSchema
+>
+
+// Omitting `comment` preserves whatever note is already stored; an explicit
+// `null` clears it (a thumbs-up supersedes the note left on a thumbs-down).
+export const SetChatMessageFeedbackRequestSchema = z.object({
+  feedback: ChatFeedbackKindSchema,
+  comment: ChatFeedbackCommentSchema.optional(),
+})
+export type SetChatMessageFeedbackRequest = z.infer<
+  typeof SetChatMessageFeedbackRequestSchema
+>
+
+// The stored row. Carries both keys the rating hangs off — the message and the
+// thread — so a consumer reading these rows can reconstruct which exchange was
+// rated without a second lookup.
+export const ChatMessageFeedbackSchema = z.object({
+  id: z.string(),
+  conversationId: z.string(),
+  messageId: z.string(),
+  feedback: ChatFeedbackKindSchema,
+  comment: ChatFeedbackCommentSchema,
+  createdAt: zCoerceDate(),
+  updatedAt: zCoerceDate(),
+})
+export type ChatMessageFeedback = z.infer<typeof ChatMessageFeedbackSchema>
+
 export const ChatMessageSchema = z.object({
   id: z.string(),
   role: ChatMessageRoleSchema,
@@ -108,6 +148,10 @@ export const ChatMessageSchema = z.object({
   // structure). Absent on older messages and pure-text turns — render
   // `content` flat in that case.
   segments: z.array(ChatMessageSegmentSchema).optional(),
+  // The CALLER's own rating of this turn, so the action bar restores its
+  // pressed state on reload. Null/absent when they haven't rated it. Other
+  // users' ratings are never returned.
+  feedback: ChatMessageFeedbackStateSchema.nullable().optional(),
 })
 export type ChatMessage = z.infer<typeof ChatMessageSchema>
 

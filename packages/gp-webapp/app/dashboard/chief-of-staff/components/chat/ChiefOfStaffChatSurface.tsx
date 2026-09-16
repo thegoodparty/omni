@@ -51,6 +51,8 @@ interface Props {
   disclaimer?: string
   /** Message contents to hide from a reloaded transcript (e.g. sentinels). */
   hiddenMessageContents?: string[]
+  /** Show the per-message copy + thumbs bar under each assistant turn. */
+  showMessageActions?: boolean
 }
 
 /**
@@ -78,6 +80,7 @@ export default function ChiefOfStaffChatSurface({
   composerRef,
   disclaimer = `${title} can make mistakes. Check important details.`,
   hiddenMessageContents,
+  showMessageActions,
 }: Props): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(
     initialConversationId ?? null,
@@ -126,6 +129,7 @@ export default function ChiefOfStaffChatSurface({
           composerRef={composerRef}
           disclaimer={disclaimer}
           hiddenMessageContents={hiddenMessageContents}
+          showMessageActions={showMessageActions}
           bodyClassName="mx-auto flex min-h-0 w-full max-w-[608px] flex-1 flex-col gap-3 overflow-y-auto px-4 py-3"
         />
       </DrawerContent>

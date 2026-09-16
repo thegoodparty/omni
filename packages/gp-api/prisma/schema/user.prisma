@@ -38,6 +38,7 @@ model User {
   annotations                 Annotation[]
   chatConversations           ChatConversation[]
   artifactFeedbacks           ArtifactFeedback[]
+  chatMessageFeedbacks        ChatMessageFeedback[]
   userAgendaUploads           UserAgendaUpload[]
   personProfile               PersonProfile?
   contactStatusEvents         ContactStatusEvent[]

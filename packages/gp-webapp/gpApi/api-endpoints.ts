@@ -100,8 +100,10 @@ import {
 import type {
   CampaignStory,
   CampaignStoryRewrite,
+  ChatMessageFeedback,
   RaceOpponentThreatTier,
   OrganizationRole,
+  SetChatMessageFeedbackRequest,
 } from '@goodparty_org/contracts'
 import type { ContactsStats } from 'app/dashboard/polls/shared/queries'
 import type { GetPollIssuesResponse } from 'app/dashboard/polls/shared/serverApiCalls'
@@ -912,6 +914,16 @@ export type APIEndpoints = {
   }
 
   'DELETE /v1/chats/:id': {
+    Request: { scope: ChatScope }
+    Response: void
+  }
+
+  'PUT /v1/chats/:id/messages/:messageId/feedback': {
+    Request: { scope: ChatScope } & SetChatMessageFeedbackRequest
+    Response: ChatMessageFeedback
+  }
+
+  'DELETE /v1/chats/:id/messages/:messageId/feedback': {
     Request: { scope: ChatScope }
     Response: void
   }

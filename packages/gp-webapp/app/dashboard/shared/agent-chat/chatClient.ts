@@ -39,6 +39,8 @@ export type {
   ChatMessageDto,
   ChatConversationDto,
   ChatErrorCode,
+  ChatFeedbackKind,
+  ChatMessageFeedbackState,
   ChatStreamEvent,
   ChatClient,
 } from './chatTypes'
@@ -192,6 +194,24 @@ export function createAgentChatClient(
     async softDelete(conversationId) {
       await clientRequest('DELETE /v1/chats/:id', {
         id: conversationId,
+        scope,
+      })
+    },
+
+    async setMessageFeedback({ conversationId, messageId, feedback, comment }) {
+      await clientRequest('PUT /v1/chats/:id/messages/:messageId/feedback', {
+        id: conversationId,
+        messageId,
+        scope,
+        feedback,
+        ...(comment !== undefined && { comment }),
+      })
+    },
+
+    async clearMessageFeedback({ conversationId, messageId }) {
+      await clientRequest('DELETE /v1/chats/:id/messages/:messageId/feedback', {
+        id: conversationId,
+        messageId,
         scope,
       })
     },

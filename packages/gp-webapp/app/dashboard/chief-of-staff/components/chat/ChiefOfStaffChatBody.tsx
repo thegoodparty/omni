@@ -19,6 +19,7 @@ import {
   ThinkingRow,
   UserBubble,
 } from '../../../shared/agent-chat/chatUI'
+import MessageActionBar from '../../../shared/agent-chat/MessageActionBar'
 import { segmentsToLive } from '../../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
 import { usePinnedAutoScroll } from '../../../shared/agent-chat/usePinnedAutoScroll'
@@ -101,6 +102,12 @@ interface Props {
    * Default empty: no filtering.
    */
   hiddenMessageContents?: string[]
+  /**
+   * Render the per-message action bar (copy + thumbs up/down) under each
+   * persisted assistant turn. Opt-in: Chief of Staff and Campaign Manager pass
+   * it; the issue and ordinance docks don't.
+   */
+  showMessageActions?: boolean
 }
 
 /**
@@ -155,6 +162,7 @@ export default function ChiefOfStaffChatBody({
   composerRef,
   disclaimer,
   hiddenMessageContents = NO_HIDDEN_CONTENTS,
+  showMessageActions = false,
 }: Props): React.JSX.Element {
   const queryClient = useQueryClient()
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -547,6 +555,7 @@ export default function ChiefOfStaffChatBody({
         id: m.id,
         role: m.role,
         content: m.content,
+        feedback: m.feedback ?? null,
         live:
           m.role === 'user'
             ? null
@@ -643,6 +652,15 @@ export default function ChiefOfStaffChatBody({
           ) : (
             <AssistantRow key={m.id}>
               <InlineSegments segments={m.live} toolLabel={toolLabel} />
+              {showMessageActions && conversationId && m.content ? (
+                <MessageActionBar
+                  conversationId={conversationId}
+                  messageId={m.id}
+                  content={m.content}
+                  chatApi={chatApi}
+                  initialFeedback={m.feedback}
+                />
+              ) : null}
             </AssistantRow>
           ),
         )}

@@ -17,6 +17,15 @@ export interface ChatMessageSegment {
   payload?: unknown
 }
 
+export type ChatFeedbackKind = 'positive' | 'negative'
+
+// A rating the CALLER left on one assistant turn. Other users' ratings never
+// reach the client.
+export interface ChatMessageFeedbackState {
+  feedback: ChatFeedbackKind
+  comment: string | null
+}
+
 export interface ChatMessageDto {
   id: string
   conversationId: string
@@ -24,6 +33,7 @@ export interface ChatMessageDto {
   content: string
   createdAt: string
   segments?: ChatMessageSegment[]
+  feedback?: ChatMessageFeedbackState | null
 }
 
 export type ChatErrorCode =
@@ -72,4 +82,18 @@ export interface ChatClient {
     signal?: AbortSignal
   }): AsyncIterable<ChatStreamEvent>
   softDelete(conversationId: string): Promise<void>
+  // Per-message ratings. Only the scope-generic /v1/chats client implements
+  // these, so a surface on another client renders no action bar rather than
+  // calling a route that doesn't exist. `comment` omitted keeps the stored
+  // note; null clears it.
+  setMessageFeedback?(args: {
+    conversationId: string
+    messageId: string
+    feedback: ChatFeedbackKind
+    comment?: string | null
+  }): Promise<void>
+  clearMessageFeedback?(args: {
+    conversationId: string
+    messageId: string
+  }): Promise<void>
 }

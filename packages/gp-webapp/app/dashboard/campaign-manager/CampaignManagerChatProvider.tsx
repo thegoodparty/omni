@@ -355,6 +355,7 @@ export function CampaignManagerChatProvider({
         // the agent's name reads as a proper noun in prose.
         disclaimer="Campaign Manager can make mistakes. Check important details."
         hiddenMessageContents={hiddenMessageContents}
+        showMessageActions
       />
     </CampaignManagerChatContext.Provider>
   )

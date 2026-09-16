@@ -1,0 +1,35 @@
+enum ChatFeedbackKind {
+  positive
+  negative
+}
+
+/// One user's thumbs-up / thumbs-down on a single assistant turn, plus the
+/// optional note they typed to explain it. Keyed to the message AND the
+/// conversation so a rating reads back either way: per-message to restore the
+/// action bar on reload, per-thread to see the exchange that earned the rating.
+model ChatMessageFeedback {
+  id String @id @default(cuid())
+
+  conversationId String           @map("conversation_id")
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  chatMessageId String      @map("chat_message_id")
+  chatMessage   ChatMessage @relation(fields: [chatMessageId], references: [id], onDelete: Cascade)
+
+  submitterUserId Int  @map("submitter_user_id")
+  submitter       User @relation(fields: [submitterUserId], references: [id], onDelete: Cascade)
+
+  feedback ChatFeedbackKind
+
+  /// Free text the user adds in the feedback bubble — usually why a reply was
+  /// wrong. Capped at 2000 chars at the DB layer to keep pathological inputs
+  /// out of the table.
+  comment String? @db.VarChar(2000)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([submitterUserId, chatMessageId], map: "chat_message_feedback_user_message_unique")
+  @@index([conversationId])
+  @@map("chat_message_feedback")
+}

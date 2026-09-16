@@ -109,6 +109,10 @@ const WIN_AREAS: ProductArea[] = [
     path: '/dashboard',
     modes: ['win'],
     does: 'The home tab, and where this chat lives, alongside the week’s highest-impact tasks.',
+    inside: [
+      'Each reply carries a copy button and a thumbs up / thumbs down',
+      'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',
+    ],
   },
   {
     navId: 'campaign-story-dashboard',
@@ -213,6 +217,10 @@ const SERVE_AREAS: ProductArea[] = [
     path: '/dashboard/chief-of-staff',
     modes: ['serve'],
     does: 'The home tab, and where this chat lives.',
+    inside: [
+      'Each reply carries a copy button and a thumbs up / thumbs down',
+      'Rating a reply opens a bubble for an optional note; tapping the same thumb again takes the rating back',
+    ],
   },
   {
     navId: 'briefings-dashboard',
