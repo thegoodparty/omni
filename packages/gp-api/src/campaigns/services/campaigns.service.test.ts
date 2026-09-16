@@ -29,6 +29,7 @@ import { CampaignPlanVersionsService } from './campaignPlanVersions.service'
 import { CampaignsService } from './campaigns.service'
 import { CrmCampaignsService } from './crmCampaigns.service'
 import { CampaignTasksService } from '../tasks/services/campaignTasks.service'
+import { CampaignTrackerTasksService } from '../campaignTracker/services/campaignTrackerTasks.service'
 
 const GP_POSITION_ID = 'gp-position-uuid-123'
 const BR_POSITION_ID = 'br-position-456'
@@ -112,6 +113,7 @@ const buildOrgSyncModule = async (overrides?: {
 
   const mockTrackCampaign = vi.fn()
   const mockIdentify = vi.fn()
+  const mockReconcileBallotAccess = vi.fn().mockResolvedValue(0)
 
   const mockPrismaService = {
     $transaction: mockTransaction,
@@ -151,6 +153,10 @@ const buildOrgSyncModule = async (overrides?: {
         provide: CampaignTasksService,
         useValue: { notifySlackOnProUpgrade: vi.fn() },
       },
+      {
+        provide: CampaignTrackerTasksService,
+        useValue: { reconcileBallotAccessTasks: mockReconcileBallotAccess },
+      },
       { provide: PinoLogger, useValue: createMockLogger() },
       CampaignsService,
     ],
@@ -179,6 +185,7 @@ const buildOrgSyncModule = async (overrides?: {
     mockCampaignUpdate,
     mockTrackCampaign,
     mockIdentify,
+    mockReconcileBallotAccess,
   }
 }
 
@@ -407,6 +414,70 @@ describe('CampaignsService - Organization positionId sync', () => {
 
       expect(mockOrgUpdate).not.toHaveBeenCalled()
     })
+
+    // The tracker's ballot-access rows are otherwise only reconciled by the
+    // weekly generation, so a candidate who reports filing kept seeing the
+    // signature tasks until the next Thursday.
+    it('reconciles ballot-access tracker tasks when ballotStatus changes', async () => {
+      const {
+        service,
+        mockCampaignFindFirst,
+        mockCampaignUpdate,
+        mockReconcileBallotAccess,
+      } = await buildOrgSyncModule()
+      mockCampaignFindFirst.mockResolvedValue({
+        ...baseCampaign,
+        ballotStatus: 'qualified-not-filed',
+      })
+      const updated = { ...baseCampaign, ballotStatus: 'on-ballot' }
+      mockCampaignUpdate.mockResolvedValue(updated)
+
+      await service.updateJsonFields(10, { ballotStatus: 'on-ballot' })
+
+      expect(mockReconcileBallotAccess).toHaveBeenCalledWith(updated)
+    })
+
+    it('still resolves with the updated campaign when the reconcile rejects', async () => {
+      const {
+        service,
+        mockCampaignFindFirst,
+        mockCampaignUpdate,
+        mockReconcileBallotAccess,
+      } = await buildOrgSyncModule()
+      mockCampaignFindFirst.mockResolvedValue({
+        ...baseCampaign,
+        ballotStatus: 'qualified-not-filed',
+      })
+      const updated = { ...baseCampaign, ballotStatus: 'on-ballot' }
+      mockCampaignUpdate.mockResolvedValue(updated)
+      mockReconcileBallotAccess.mockRejectedValue(new Error('tracker down'))
+
+      await expect(
+        service.updateJsonFields(10, { ballotStatus: 'on-ballot' }),
+      ).resolves.toEqual(updated)
+    })
+
+    it('does not reconcile when ballotStatus is unchanged', async () => {
+      const {
+        service,
+        mockCampaignFindFirst,
+        mockCampaignUpdate,
+        mockReconcileBallotAccess,
+      } = await buildOrgSyncModule()
+      mockCampaignFindFirst.mockResolvedValue({
+        ...baseCampaign,
+        ballotStatus: 'on-ballot',
+      })
+      mockCampaignUpdate.mockResolvedValue({
+        ...baseCampaign,
+        ballotStatus: 'on-ballot',
+      })
+
+      await service.updateJsonFields(10, { ballotStatus: 'on-ballot' })
+      await service.updateJsonFields(10, { data: { someField: 'value' } })
+
+      expect(mockReconcileBallotAccess).not.toHaveBeenCalled()
+    })
   })
 })
 
@@ -535,6 +606,10 @@ describe('CampaignsService - redeemFreeTexts', () => {
         {
           provide: CampaignTasksService,
           useValue: { notifySlackOnProUpgrade: vi.fn() },
+        },
+        {
+          provide: CampaignTrackerTasksService,
+          useValue: { reconcileBallotAccessTasks: vi.fn() },
         },
         // Provide CampaignsService LAST - all dependencies are now available
         { provide: PinoLogger, useValue: createMockLogger() },
@@ -921,6 +996,9 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
       mockBallotReady as BallotReadyService,
       mockOrganizations as OrganizationsService,
       { notifySlackOnProUpgrade: vi.fn() } as unknown as CampaignTasksService,
+      {
+        reconcileBallotAccessTasks: vi.fn(),
+      } as unknown as CampaignTrackerTasksService,
     )
   })
 
@@ -1640,6 +1718,10 @@ const buildSetIsProModule = async () => {
       {
         provide: CampaignTasksService,
         useValue: { notifySlackOnProUpgrade: vi.fn() },
+      },
+      {
+        provide: CampaignTrackerTasksService,
+        useValue: { reconcileBallotAccessTasks: vi.fn() },
       },
       { provide: PinoLogger, useValue: createMockLogger() },
       CampaignsService,
