@@ -100,7 +100,6 @@ import {
 import type {
   CampaignStory,
   CampaignStoryRewrite,
-  ChatMessageFeedback,
   RaceOpponentThreatTier,
   OrganizationRole,
   SetChatMessageFeedbackRequest,
@@ -919,10 +918,22 @@ export type APIEndpoints = {
   }
 
   // `scope` rides in the query string, not this body — see the override in
-  // agent-chat/chatClient.ts.
+  // agent-chat/chatClient.ts. The response is spelled out structurally rather
+  // than importing the contract's `ChatMessageFeedback`: that type is a
+  // zCoerceDate-bearing z.infer, and adding it here pushed APIEndpoints past a
+  // TS inference ceiling, silently degrading narrowing in every api.mock()
+  // handler in the app. Dates are strings on the wire regardless.
   'PUT /v1/chats/:id/messages/:messageId/feedback': {
     Request: SetChatMessageFeedbackRequest
-    Response: ChatMessageFeedback
+    Response: {
+      id: string
+      conversationId: string
+      messageId: string
+      feedback: 'positive' | 'negative'
+      comment: string | null
+      createdAt: string
+      updatedAt: string
+    }
   }
 
   'DELETE /v1/chats/:id/messages/:messageId/feedback': {
