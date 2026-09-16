@@ -1494,6 +1494,15 @@ export type APIEndpoints = {
     Response: CommunityIssueDetail
   }
 
+  // Ranked, contactable residents most materially affected by this one issue,
+  // from an L2 scoring run in the serve-lists runbook. Scoped server-side to
+  // the caller's own elected-office org; `list` is null both for an issue with
+  // no run and for an issue belonging to another office.
+  'GET /v1/community-issues/:id/affected-residents': {
+    Request: { id: string }
+    Response: { list: AffectedResidentsList | null }
+  }
+
   'POST /v1/community-issues/:id/prioritize': {
     Request: { id: string }
     Response: Priority
@@ -2048,6 +2057,67 @@ export type CommunityIssueDetail = CommunityIssueCard & {
     meetingDate: string
   }>
   priorityId: string | null
+}
+
+// Affected-residents list. Mirrors gp-api's AffectedResidentsListSchema in
+// packages/gp-api/src/communityIssues/schemas/affectedResidents.schema.ts.
+//
+// Factors are per-issue, so they are declared by the list and each resident's
+// scores are keyed by those declarations rather than by fixed column names. A
+// null factor score means that input was missing, so the factor dropped out of
+// both sides of the weighted average instead of scoring zero. It is not a low
+// score and the UI must not render it as one.
+export type AffectedResidentFactorScores = Record<string, number | null>
+
+export type AffectedResident = {
+  rank: number
+  name: string
+  address: string
+  city: string
+  zip: string
+  phone: string
+  phoneType: 'cell' | 'landline'
+  lat: number
+  lon: number
+  // The affectedness read on its own.
+  affectednessScore: number
+  // What froze the saved order, which is not always the same number. When they
+  // differ, `issue.rankingNote` says how.
+  rankingScore: number
+  factorScores: AffectedResidentFactorScores
+  // Epistemic, not a property of the person: how sure we are they belong in the
+  // segment at all. Never folded into the affectedness score.
+  confidence: { score: number; note: string } | null
+  // L2 uses a year-only placeholder on many records, so an age filter that
+  // looks exact is not. Render the basis alongside the number.
+  age: { years: number; basis: 'exact' | 'year-only' } | null
+  attributes: Array<{ label: string; value: string }>
+  why: string
+}
+
+export type AffectedResidentsList = {
+  issue: {
+    communityIssueId: string
+    organizationSlug: string
+    title: string
+    jurisdiction: string
+    runDate: string
+    sourceList: string
+    summary: string
+    affectednessRead: string
+    gates: Array<{ label: string; detail: string }>
+    useCase: string
+    scoringRule: string
+    factors: Array<{
+      key: string
+      label: string
+      weight: number
+      rule: string
+    }>
+    rankingNote: string
+    caveats: string[]
+  }
+  residents: AffectedResident[]
 }
 
 // Backend (snake_case) annotation types. Mirrors @goodparty_org/contracts

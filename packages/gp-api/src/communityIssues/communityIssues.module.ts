@@ -6,6 +6,7 @@ import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { CommunityIssuesController } from './controllers/communityIssues.controller'
+import { AffectedResidentsService } from './services/affectedResidents.service'
 import { CommunityIssueService } from './services/communityIssue.service'
 import { CommunityIssueDispatchService } from './services/communityIssueDispatch.service'
 import { CommunityIssuePrioritizeService } from './services/communityIssuePrioritize.service'
@@ -24,6 +25,7 @@ import { CommunityIssueUpsertService } from './services/communityIssueUpsert.ser
   ],
   controllers: [CommunityIssuesController],
   providers: [
+    AffectedResidentsService,
     CommunityIssueService,
     CommunityIssueDispatchService,
     CommunityIssuePrioritizeService,
