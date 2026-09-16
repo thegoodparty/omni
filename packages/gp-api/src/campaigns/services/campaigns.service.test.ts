@@ -437,6 +437,26 @@ describe('CampaignsService - Organization positionId sync', () => {
       expect(mockReconcileBallotAccess).toHaveBeenCalledWith(updated)
     })
 
+    it('still resolves with the updated campaign when the reconcile rejects', async () => {
+      const {
+        service,
+        mockCampaignFindFirst,
+        mockCampaignUpdate,
+        mockReconcileBallotAccess,
+      } = await buildOrgSyncModule()
+      mockCampaignFindFirst.mockResolvedValue({
+        ...baseCampaign,
+        ballotStatus: 'qualified-not-filed',
+      })
+      const updated = { ...baseCampaign, ballotStatus: 'on-ballot' }
+      mockCampaignUpdate.mockResolvedValue(updated)
+      mockReconcileBallotAccess.mockRejectedValue(new Error('tracker down'))
+
+      await expect(
+        service.updateJsonFields(10, { ballotStatus: 'on-ballot' }),
+      ).resolves.toEqual(updated)
+    })
+
     it('does not reconcile when ballotStatus is unchanged', async () => {
       const {
         service,
