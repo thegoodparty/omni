@@ -6,8 +6,10 @@ import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 // prototype's history table) rather than "Sent" — a product call, not drift.
 
 export interface HistoryRow extends Outreach {
-  p2pJob?: { status?: string }
+  p2pJob?: { status?: string; start_date?: string; end_date?: string }
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000
 
 type StatusKey =
   | 'pending'
@@ -68,12 +70,30 @@ const getP2pStatusLabel = (row: HistoryRow): string | null => {
   if (!p2pJob?.status) {
     return null
   }
-  // An active Peerly job displays as sent regardless of the spine status
-  // (canceled rows returned above — their vendor job is gone). A pending
-  // row WITH a vendor job is a scheduled send awaiting its start day, not
-  // an unfinished draft — draft-first finalize leaves the spine at
-  // `pending` until the completion sweep advances it, so 'Draft' would be
-  // a lie the moment verification cleared.
+  // An ACTIVE job used to display as sent unconditionally, which held when
+  // activation only ever happened around the send. It no longer does: CAS
+  // activates scheduled jobs weeks early (auto-activation at approve,
+  // 2026-09-09), and an active job with a future window has sent nothing —
+  // candidates saw "Done" on queued sends (2026-09-16). So an active job's
+  // label follows its own send window, the same UTC-day semantics the
+  // backend completion sweep uses: not started until the start_date day
+  // begins, done only once the end_date day has fully passed, and
+  // "Sending" in between. A pending row WITH a vendor job is a scheduled
+  // send awaiting its start day, not an unfinished draft — draft-first
+  // finalize leaves the spine at `pending` until the completion sweep
+  // advances it, so 'Draft' would be a lie the moment verification
+  // cleared.
+  if (p2pJob.status === 'active' && p2pJob.start_date && p2pJob.end_date) {
+    const now = Date.now()
+    const windowStart = Date.parse(`${p2pJob.start_date}T00:00:00Z`)
+    const windowClose = Date.parse(`${p2pJob.end_date}T00:00:00Z`) + DAY_MS
+    if (!Number.isNaN(windowStart) && !Number.isNaN(windowClose)) {
+      if (now < windowStart) {
+        return p2pStatusLabels.paid
+      }
+      return now >= windowClose ? p2pStatusLabels.completed : 'Sending'
+    }
+  }
   const displayStatus: StatusKey =
     p2pJob.status === 'active'
       ? 'completed'

@@ -28,6 +28,7 @@ import { DoorKnockingStatsService } from './doorKnockingStats.service'
 import { DoorKnockingTurfService } from './doorKnockingTurf.service'
 import { pointInPolygon, polygonBbox } from '../utils/geo.util'
 import {
+  type BlockFace,
   coordinateKey,
   groupIntoBlockFaces,
   representativeOf,
@@ -54,6 +55,23 @@ const CREATE_TX_TIMEOUT_MS = 120_000
 // way and totalled for everything else. The two rates have nothing in common,
 // so a single number here would be a number nobody could take apart again.
 type RouteCredits = Record<GeoapifyApi, number>
+
+// The answer a one-face turf's vendor call would have had, had the vendor been
+// able to give one — see planStops. The single face is job 0 and there is no
+// face before it to arrive from, so its incoming leg is zero exactly as the
+// vendor reports a free-start first job. Both counts are zero because no call
+// was made, which is the whole point: `locations` and `routingWaypoints` are
+// what the ledger prices, and a request never sent is not owed for.
+const SINGLE_FACE_PLAN: RoutePlannerPlan = {
+  orderedJobIds: ['0'],
+  legSeconds: [0],
+  legMeters: [0],
+  totalSeconds: 0,
+  totalMeters: 0,
+  locations: 0,
+  routingWaypoints: 0,
+  pathGeometry: null,
+}
 
 type EvaluatedPerson = {
   id: string
@@ -441,6 +459,57 @@ export class DoorKnockingCreateService extends createPrismaBase(
     request: RouteRequest,
   ): Promise<RoutePlannerPlan> {
     const faces = groupIntoBlockFaces(stops)
+
+    // One face is not a routing problem, and asking anyway is a request the
+    // vendor cannot answer. Every anchor below is placed ON a face
+    // representative, so with a single face the lone job and both anchors are
+    // the same point: the request collapses to one unique coordinate, and
+    // Geoapify answers it with no plan at all and
+    // `issues: {unassigned_agents: [0], unassigned_jobs: [0]}` — which
+    // planRoute raises as a 502. Reproduced against the live API on known-good
+    // walkable coordinates, where the identical one-job request plans fine as
+    // soon as an anchor moves off the job, so what it refuses is the collapse
+    // and not the geography.
+    //
+    // Not asking loses nothing. The vendor's only contribution is the face
+    // ORDER, which is `[0]` when there is one face, and its legs and totals
+    // are discarded and re-derived below in either case. `locations: 0` is
+    // what keeps the ledger honest: no call was made, so nothing was billed.
+    const plan =
+      faces.length < 2
+        ? SINGLE_FACE_PLAN
+        : await this.orderFaces(faces, stops, request)
+
+    const sequenced = sequenceBlockFaces({
+      stops,
+      faces,
+      faceOrder: plan.orderedJobIds.map(Number),
+      faceLegSeconds: plan.legSeconds,
+      faceLegMeters: plan.legMeters,
+      mode: request.mode,
+      loop: request.loop,
+    })
+
+    // Totals are re-derived rather than passed through: the vendor's are for
+    // its own tour of representatives, and the per-leg numbers on the walk
+    // sheet should add up to the total printed above them.
+    return {
+      ...plan,
+      orderedJobIds: sequenced.stopIndexes.map(String),
+      legSeconds: sequenced.legSeconds,
+      legMeters: sequenced.legMeters,
+      totalSeconds: sequenced.totalSeconds,
+      totalMeters: sequenced.totalMeters,
+      pathGeometry: null,
+    }
+  }
+
+  // The billed call: which face to walk next, asked of the road network.
+  private async orderFaces(
+    faces: BlockFace[],
+    stops: PlannedStop[],
+    request: RouteRequest,
+  ): Promise<RoutePlannerPlan> {
     const representatives = faces.map((face) => representativeOf(face, stops))
     const jobs = representatives.map((stopIndex, faceIndex) => ({
       id: String(faceIndex),
@@ -480,7 +549,7 @@ export class DoorKnockingCreateService extends createPrismaBase(
       agent = { end_location: jobs[anchorIndex]!.location }
     }
 
-    const plan = await this.geoapify.planRoute({
+    return this.geoapify.planRoute({
       mode: request.mode,
       agent,
       jobs,
@@ -491,28 +560,5 @@ export class DoorKnockingCreateService extends createPrismaBase(
       // IS the sidewalk.
       fetchGeometry: false,
     })
-
-    const sequenced = sequenceBlockFaces({
-      stops,
-      faces,
-      faceOrder: plan.orderedJobIds.map(Number),
-      faceLegSeconds: plan.legSeconds,
-      faceLegMeters: plan.legMeters,
-      mode: request.mode,
-      loop: request.loop,
-    })
-
-    // Totals are re-derived rather than passed through: the vendor's are for
-    // its own tour of representatives, and the per-leg numbers on the walk
-    // sheet should add up to the total printed above them.
-    return {
-      ...plan,
-      orderedJobIds: sequenced.stopIndexes.map(String),
-      legSeconds: sequenced.legSeconds,
-      legMeters: sequenced.legMeters,
-      totalSeconds: sequenced.totalSeconds,
-      totalMeters: sequenced.totalMeters,
-      pathGeometry: null,
-    }
   }
 }

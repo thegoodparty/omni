@@ -224,21 +224,16 @@ def get_dedup_window_seconds() -> float:
 # TARGET_REPO override this module sets). These instructions carry only the
 # per-task contract, which is why they name no repo and no branch — the same
 # text is used for an omni ticket and a gp-marketing one.
-ANALYZE_INSTRUCTION = """## YOUR TASK: Analyze and Report
-
-**Approach this ticket with healthy skepticism.** It may be out of date - the issue
-could have been fixed, the data may have changed, the description may be incomplete,
-or the reporter may have been incorrect.
-
-## VERIFICATION (required)
-
-- Verify every claim against the live code and cite `file:line`.
-- Attempt to reproduce the issue before concluding anything about it.
-- State explicitly when something could not be verified.
-
-Post your analysis to ClickUp when done. Be concise.
-
-## VERDICT (required, last line of your final response)
+# THE VERDICT CONTRACT, shared verbatim by every read-only prompt.
+#
+# Single-sourced rather than copied because it is machine-read on the other
+# side: engineer_agent/agent/escalation.py parses this exact token out of the
+# final response, and a second prompt with a reworded copy would not fail
+# anything — its analyses would simply stop escalating, which is
+# indistinguishable from the feature being switched off. Two tests in
+# clickup_bot/tests/test_handler.py hold the prompt and the parser together,
+# and they now check every prompt that carries this block.
+VERDICT_CONTRACT = """## VERDICT (required, last line of your final response)
 
 End your final response with exactly one of these lines, and nothing after it:
 
@@ -287,6 +282,26 @@ Leave it out when the cause is in the repo you were routed to. Saying so again
 changes nothing, and the line exists to correct the guess, not to confirm it.
 """
 
+ANALYZE_INSTRUCTION = (
+    """## YOUR TASK: Analyze and Report
+
+**Approach this ticket with healthy skepticism.** It may be out of date - the issue
+could have been fixed, the data may have changed, the description may be incomplete,
+or the reporter may have been incorrect.
+
+## VERIFICATION (required)
+
+- Verify every claim against the live code and cite `file:line`.
+- Attempt to reproduce the issue before concluding anything about it.
+- State explicitly when something could not be verified.
+
+Post your analysis to ClickUp when done. Be concise.
+
+"""
+    + VERDICT_CONTRACT
+)
+
+
 IMPLEMENT_INSTRUCTION = """## YOUR TASK: Implement and Create PR
 
 **Approach this ticket with healthy skepticism.** It may be out of date - the issue
@@ -333,6 +348,102 @@ Open the PR against the branch named in your repo briefing above.
 
 Post the PR link to ClickUp when done.
 """
+
+# DEV-ONLY E2E: what a run launched from a ticket that
+# .github/workflows/gpbot-dev-test-triage.yml filed is told.
+#
+# A SEPARATE PROMPT rather than reusing ANALYZE_INSTRUCTION, because the
+# question is genuinely different. An ordinary bug ticket asks "is this real and
+# where is it"; this one arrives already knowing something is broken and has to
+# answer "broken where" across four candidates that produce identical symptoms —
+# dev being unhealthy looks exactly like a product regression from inside a
+# Playwright trace. A generic analyze prompt reliably picks the app, because the
+# app is the only thing it was pointed at.
+#
+# NO FAILURE TEXT IS INTERPOLATED HERE. The error, the spec name and the run
+# links all live in the ClickUp ticket body, which the agent reads through the
+# same channel it reads every other ticket. That is the same boundary
+# CI_FIX_INSTRUCTION keeps: CI output is attacker-shaped, and a prompt built by
+# string-formatting a stack trace into a system prompt is a prompt-injection
+# surface for anyone who can name a test.
+DEV_TEST_INSTRUCTION = (
+    """## YOUR TASK: Diagnose a failing `@dev-only` end-to-end test
+
+A Playwright spec tagged `@dev-only` failed on the post-merge run against
+`https://dev.goodparty.org`. The ticket body carries the spec's full title, the
+error from its final attempt, how many attempts it failed, links to the release
+run and the HTML report, and the exact command that reproduces it.
+
+**These specs never run on pull requests.** CI greps them out with
+`--grep-invert @dev-only`, so this failure was invisible to whoever wrote the
+change that may have caused it, and it is blocking every prod promotion job on
+the release train right now.
+
+## ESTABLISH WHICH OF FOUR THINGS THIS IS, IN THIS ORDER
+
+They produce nearly identical Playwright output and have completely different
+fixes, so do not start editing anything until you can say which one you are
+looking at:
+
+1. **dev itself is unhealthy.** A half-finished deploy, a migration in flight, a
+   third-party sandbox that is down. No test change and no app change is correct
+   here — the suite is reporting the truth.
+2. **The app moved and the spec did not.** A `data-testid`, route, copy string
+   or fixture changed under a spec nobody could re-run, because PRs do not run
+   it. **This is the most common cause** and the one to rule out before any
+   other: `d961dc105` was exactly this, a person-overlay spec left behind when
+   the page moved to CRM contacts.
+3. **A real product regression** that only this spec covers.
+4. **The spec is flaky** — a race, a fixed `waitForTimeout`, an assertion on
+   something asynchronous.
+
+## HOW TO TELL THEM APART
+
+- Run the repro command from the ticket. A spec that passes now, alone, against
+  the same dev, points at (1) or (4), not at (2) or (3).
+- `git log` both the spec file and the pages it drives, over the window since
+  the last green release run. A change to the page and none to the spec is (2).
+- Look at whether the OTHER specs in the same run failed. Broad failure is (1);
+  one spec failing alone is not.
+- Check the attempt count in the ticket. CI runs `retries: 3`, so a spec that
+  failed all four attempts is deterministic and is not (4).
+- Read the trace in the HTML report rather than reasoning from the error string.
+  The screenshot at the point of failure usually settles (1) against (3) in
+  seconds.
+
+## ABSOLUTE PROHIBITIONS
+
+These convert a visible failure into a silent one, which is strictly worse than
+the red release train you were called in to clear:
+
+1. **NEVER weaken the test to make it pass.** No deleting it, no
+   `skip`/`only`/`fixme`, no loosening an assertion, no adding a
+   `waitForTimeout` to paper over a race, no narrowing its inputs so it stops
+   exercising the broken path.
+2. **NEVER propose tagging something `@dev-only` to deal with flakiness.**
+   `packages/gp-webapp/e2e-tests/AGENTS.md` is explicit that a flaky test is to
+   be stabilized and never hidden, and the tag exists for specs that need
+   seeded dev data — not for specs we would rather not look at. You are here
+   because a `@dev-only` tag already deferred a problem once.
+3. **NEVER conclude "dev is just broken" without evidence.** Name what you
+   checked and what it said. That verdict stops the investigation, so it has to
+   be earned rather than reached for.
+
+## WHICH VERDICT MAPS TO WHICH CAUSE
+
+- (2) and (3) are `fix` **only if** you found the root cause and the change is
+  small and bounded — a moved selector, a restored prop. A regression whose fix
+  spans several files is `needs-human`.
+- (1) is `no-code-change`. Say what was unhealthy and whether it has recovered.
+- (4) is `needs-human` unless the race is obvious and the stabilisation is a
+  one-line `expect` with a proper condition. Prohibition 1 still applies.
+
+Post your findings to ClickUp when done, and say plainly which of the four you
+concluded and what evidence settled it. Be concise.
+
+"""
+    + VERDICT_CONTRACT
+)
 
 # CI DRIVE: what a run launched by .github/workflows/gpbot-ci-drive.yml is told
 # once a failing check on a [GP-Bot] PR has already survived a re-run (see
@@ -581,6 +692,13 @@ each one. If you stopped, say what collided and why you did not judge it.
 
 ANALYZE_LABEL = "analyze"
 IMPLEMENT_LABEL = "implement"
+# A read-only run like analyze, and separated from it for one reason: these
+# tickets are filed by a workflow rather than by a person, so they are the only
+# class whose volume the bot controls itself. Keeping the label distinct is what
+# lets weekly_digest.py answer "what did the dev-test bot cost and was it right"
+# without that spend disappearing into the analyze figure a human's bug tickets
+# produce. engineer_agent/agent/config.py carries a copy — see the note there.
+DEV_TEST_LABEL = "dev-test"
 # Not in TAG_CONFIG, deliberately: a CI fix run has no ClickUp tag and must not
 # be reachable from the webhook or the sweep. Its only entry point is the
 # gpbot_ci_fix dispatch below, which GitHub Actions invokes directly.
@@ -605,10 +723,19 @@ CI_FIX_MODES = {
 
 ANALYZE_TAG = "gpbot-analyze"
 IMPLEMENT_TAG = "gpbot-work"
+# Applied by .github/workflows/gpbot-dev-test-triage.yml, never by a human and
+# never by a ClickUp Automation. It is a real tag rather than a direct dispatch
+# (the route ci-fix takes) because the whole point is to land in the pipeline
+# that already exists: the ticket is the dedup key across release runs, the
+# analysis lands as a ClickUp comment where the next failure's triage can see
+# it, and a `fix` verdict escalates to an implement run through the same path a
+# human-filed bug does. A dispatch would have needed all three rebuilt.
+DEV_TEST_TAG = "gpbot-dev-test"
 
 TAG_CONFIG = {
     ANALYZE_TAG: {"instruction": ANALYZE_INSTRUCTION, "label": ANALYZE_LABEL, "model": "opus"},
     IMPLEMENT_TAG: {"instruction": IMPLEMENT_INSTRUCTION, "label": IMPLEMENT_LABEL, "model": "opus"},
+    DEV_TEST_TAG: {"instruction": DEV_TEST_INSTRUCTION, "label": DEV_TEST_LABEL, "model": "opus"},
 }
 
 # Precedence for reading a tag off a task SNAPSHOT (see find_task_tag), where
@@ -620,7 +747,15 @@ TAG_CONFIG = {
 # the tag a human just added is the instruction, and preferring analyze would
 # silently downgrade someone deliberately applying gpbot-work to a ticket that
 # already carries gpbot-analyze.
-TAG_PRECEDENCE = (ANALYZE_TAG, IMPLEMENT_TAG)
+#
+# gpbot-dev-test is FIRST, and this is the path its tickets actually arrive on
+# rather than an edge case: the triage workflow creates the task with the tag
+# already on it, so ClickUp emits only taskCreated and the tag is read from the
+# snapshot. Ordering it above analyze keeps the specific prompt winning if a
+# human later adds gpbot-analyze to the same ticket — the dev-test prompt is
+# strictly better informed about that ticket, and both are read-only, so the
+# "prefer the cheap reversible action" rule does not distinguish them.
+TAG_PRECEDENCE = (DEV_TEST_TAG, ANALYZE_TAG, IMPLEMENT_TAG)
 
 # Events worth waking up for. taskCreated is here because of a race that cost
 # us real bugs: the tag is applied by the HubSpot integration, and whether it

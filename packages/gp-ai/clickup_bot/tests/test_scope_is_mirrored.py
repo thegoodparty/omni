@@ -22,12 +22,53 @@ This file is cheap insurance for the first one. It runs both copies over the sam
 cases in one pytest session; TEST_PATHS in the Makefile covers both packages.
 """
 
+import re
+from pathlib import Path
+
 import handler
 import pytest
+import weekly_digest
 
+from engineer_agent.agent import config as agent_config
 from engineer_agent.agent import escalation
 from engineer_agent.agent.repos import resolve_repo
 from shared.clickup_client import ClickUpTask
+
+# Every prompt that ends in the shared verdict contract, and therefore every
+# prompt the echo hazards below apply to. Listed rather than derived, because
+# deriving it from "which constants contain GPBOT-VERDICT" would pass happily on
+# the day someone writes a fourth prompt with a hand-copied contract — which is
+# the exact drift these tests exist to catch.
+VERDICT_PROMPTS = [
+    pytest.param(handler.ANALYZE_INSTRUCTION, id="analyze"),
+    pytest.param(handler.DEV_TEST_INSTRUCTION, id="dev-test"),
+]
+
+
+def test_the_list_holds_every_prompt_that_asks_for_a_verdict():
+    """What stops the hand-written list going stale.
+
+    test_handler.py keeps its own copy for the parser-alignment tests, and the
+    two cannot be shared: this package ships two `test_handler.py`, which is why
+    pytest runs in importlib mode with no tests directory on `sys.path`, so
+    neither test module can import the other. Pinning both to the prompts
+    handler.py actually ships holds them together without that import, and holds
+    each of them to something truer than the other file.
+
+    The list stays hand-written, which is the point of the note above it: this
+    asserts only that it is COMPLETE. Deriving membership from "which constants
+    mention the token" would accept a prompt that hand-copied the contract,
+    which is the drift the tests below exist to catch.
+    """
+    asking = {
+        name: value
+        for name, value in vars(handler).items()
+        if name.endswith("_INSTRUCTION") and isinstance(value, str) and "GPBOT-VERDICT" in value
+    }
+    listed = {param.values[0] for param in VERDICT_PROMPTS}
+    missing = sorted(name for name, value in asking.items() if value not in listed)
+
+    assert not missing, f"{missing} ask the agent for a verdict and are not in VERDICT_PROMPTS"
 
 
 def task_dump(**overrides) -> dict:
@@ -196,7 +237,8 @@ def test_the_instruction_cannot_redirect_a_ticket_by_being_quoted():
     the Lambda, the parser is in the agent. Run them against each other here or
     the pairing is only an intention.
     """
-    assert escalation.parse_repo(handler.ANALYZE_INSTRUCTION) is None
+    for prompt in VERDICT_PROMPTS:
+        assert escalation.parse_repo(prompt.values[0]) is None, f"{prompt.id} prompt can redirect by being quoted"
 
 
 def test_quoting_the_verdict_menu_cannot_order_a_pr():
@@ -213,7 +255,69 @@ def test_quoting_the_verdict_menu_cannot_order_a_pr():
     the property rather than the order, so any reshuffle that keeps it safe
     passes and the one that does not fails.
     """
-    assert escalation.parse_verdict(handler.ANALYZE_INSTRUCTION) != escalation.VERDICT_FIX
+    for prompt in VERDICT_PROMPTS:
+        assert escalation.parse_verdict(prompt.values[0]) != escalation.VERDICT_FIX, (
+            f"{prompt.id} prompt can order a PR by being quoted"
+        )
+
+
+def test_the_dev_test_label_agrees_across_the_package_boundary():
+    """The fourth mirrored pair. The Lambda sets AGENT_LABEL; the agent reads it
+    to decide whether a verdict may queue an implementation run.
+
+    Drift here is silent and one-directional: the Lambda would launch dev-test
+    runs that do their whole investigation, reach a `fix` verdict, and then
+    decline to escalate because the value they were handed is not in the set the
+    agent recognises. Nothing errors. The tickets just stop turning into PRs,
+    which is indistinguishable from the tests having got healthier.
+
+    The digest holds a third copy, and its drift is quieter still: `dev_tests()`
+    filters run records on it, so a value that no longer matches reports zero
+    dev-test runs every week — which this message states as the good outcome,
+    the release train having stayed green.
+    """
+    assert handler.DEV_TEST_LABEL == agent_config.DEV_TEST_LABEL
+    assert handler.DEV_TEST_LABEL == weekly_digest.DEV_TEST_LABEL
+
+
+def test_the_dev_test_tag_agrees_between_the_workflow_and_the_lambda():
+    """The fifth mirrored pair, and the only one that leaves Python.
+
+    gpbot-dev-test-triage.yml holds the tag as a bare YAML string and uses it
+    twice: to list the tickets it has already filed, and to tag the ones it
+    files. handler.py keys TAG_CONFIG on the same string, and that key is what
+    starts an agent run.
+
+    A rename is what makes this dangerous, because it looks safe. Every mirror
+    above follows a renamed constant automatically and stays green while the
+    workflow keeps using the old value — filing tickets that dedup against
+    nothing, so one per release run, and trigger nothing, so no investigation
+    ever starts. The tag IS the launch mechanism; nothing errors when it quietly
+    stops being one.
+    """
+    workflow = Path(__file__).resolve().parents[4] / ".github/workflows/gpbot-dev-test-triage.yml"
+    # Matched out of the text rather than parsed as YAML: what is being pinned
+    # is the literal a reader sees on that line, and this package ships no YAML
+    # parser of its own to hang a test off.
+    declared = re.search(r"^\s+DEV_TEST_TAG:\s*(\S+)$", workflow.read_text(), re.MULTILINE)
+
+    assert declared is not None, f"no DEV_TEST_TAG declared in {workflow}"
+    assert declared.group(1) == handler.DEV_TEST_TAG
+
+
+def test_every_escalating_label_is_a_label_the_lambda_actually_sets():
+    """The other direction: a label the agent would escalate on but nothing
+    produces is dead config that reads like a live path.
+
+    Scoped to TAG_CONFIG deliberately. The ci-fix family (ci-fix, findings-fix,
+    conflicts-fix) is reachable only by direct dispatch and must never escalate,
+    so a label leaking from there into ESCALATING_LABELS is exactly the loop
+    test_an_implement_run_can_never_escalate guards at the other end.
+    """
+    tag_labels = {config["label"] for config in handler.TAG_CONFIG.values()}
+
+    assert agent_config.ESCALATING_LABELS <= tag_labels
+    assert handler.IMPLEMENT_LABEL not in agent_config.ESCALATING_LABELS
 
 
 def test_the_repo_marker_writer_and_reader_agree():

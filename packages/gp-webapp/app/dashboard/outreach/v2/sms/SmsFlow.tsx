@@ -526,6 +526,7 @@ export const SmsFlow = ({
     setPhoneListError(false)
     try {
       const created = await audience.createList()
+      setPhoneListToken(null)
       setPhoneList(null)
       setStopPolling(false)
       setPhoneListCreating(true)
@@ -721,7 +722,12 @@ export const SmsFlow = ({
                 audience.reachableLoading ||
                 reachableCount === null ||
                 reachableCount === 0,
-              loading: phoneListCreating,
+              // A list the naming drawer just created lands here with its
+              // reachability fetch still in flight, so "Try again" would sit
+              // disabled with no explanation until the count resolves.
+              loading:
+                phoneListCreating ||
+                (phoneListError && audience.reachableLoading),
             }
           : stepId === 'schedule'
             ? {
@@ -824,19 +830,29 @@ export const SmsFlow = ({
             onCreateRecommendedList={async (recommendation, name) => {
               // Recommendation flow (naming drawer): create the saved
               // filter, derive its phone list, and advance to schedule in
-              // one atomic gesture. Throws propagate to the drawer as
-              // the inline error the candidate can retry from.
+              // one atomic gesture. Only the create may throw into the
+              // drawer. Past it the list exists under the typed name and
+              // is selected, so a phone-list failure is the audience
+              // step's error (same as handleAudienceContinue) — thrown
+              // into the drawer it read as "couldn't save this list" and
+              // every retry POSTed a duplicate.
               const created = await audience.createRecommendedList(
                 recommendation,
                 name,
               )
+              // Same reset as onSelect: a token left over from a previously
+              // picked list would let a retry skip straight to schedule with
+              // the wrong audience.
+              setPhoneListToken(null)
               setPhoneList(null)
               setStopPolling(false)
+              setPhoneListError(false)
               setPhoneListCreating(true)
               const result = await createP2pPhoneList(created, created.id)
               setPhoneListCreating(false)
               if (!result.ok || !result.token) {
-                throw new Error("Couldn't create phone list")
+                setPhoneListError(true)
+                return
               }
               setPhoneListToken(result.token)
               setStepId('schedule')

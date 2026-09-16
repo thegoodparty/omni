@@ -29,9 +29,10 @@ describe('routePlannerCredits', () => {
     expect(routePlannerCredits(locations)).toBe(credits)
   })
 
-  // A create that reaches the vendor always has at least one job, so these
-  // are guards against a caller that has miscounted rather than real routes;
-  // they must not turn into a credit or a refund.
+  // Zero is a real route, not a miscount: a one-block-face turf skips the
+  // vendor call entirely (doorKnockingCreate's SINGLE_FACE_PLAN) and reports
+  // no locations, so this is the rate that keeps it off the ledger. The
+  // negative stays a guard, and neither may become a credit or a refund.
   it('charges nothing for no locations', () => {
     expect(routePlannerCredits(0)).toBe(0)
     expect(routePlannerCredits(-3)).toBe(0)

@@ -27,7 +27,7 @@ from typing import Any
 
 from shared.logger import get_logger
 
-from .config import ANALYZE_LABEL
+from .config import ESCALATING_LABELS
 from .repos import UnknownRepoError, resolve_repo
 
 logger = get_logger(__name__)
@@ -243,8 +243,8 @@ def maybe_escalate(result: dict, label: str, client_factory: Any = None, target_
     its analysis; failing the container here would turn a successful, useful run
     into a task-failed alarm and lose nothing but the escalation.
     """
-    if label != ANALYZE_LABEL:
-        return "not an analyze run"
+    if label not in ESCALATING_LABELS:
+        return f"not a verdict-emitting run (label={label!r})"
     if result.get("status") != "success":
         # An errored, budget-capped or deadline-killed run may have posted a
         # confident-looking partial analysis. Its verdict is not trustworthy

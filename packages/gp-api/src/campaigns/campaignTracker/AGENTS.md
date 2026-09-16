@@ -54,8 +54,10 @@ overview: `docs/features/campaign-tracker-v3.md`.
   `campaign.ballotStatus` column via `parseBallotStatus`, so an unrecognised
   value also reads as unanswered. Because static rows
   materialize once, `reconcileBallotAccessTasks` re-reads the _current_ answer on
-  every generation (bootstrap, weekly cron, manual) and adds or deletes those
-  rows to match, under the same advisory lock as `materializeStaticTasks`. These
+  every generation (bootstrap, weekly cron, manual) and immediately after a
+  campaign update changes `ballotStatus` (`CampaignsService.updateJsonFields`,
+  best-effort), and adds or deletes those rows to match, under the same
+  advisory lock as `materializeStaticTasks`. These
   tasks are `type: 'static'`, so they are absent from the dynamic CAP menu and
   the agent can never re-surface them.
 - **The model only selects/ranks/voices/finds-events.** Gates, caps, and the

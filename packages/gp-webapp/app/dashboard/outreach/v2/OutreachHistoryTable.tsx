@@ -277,6 +277,7 @@ const STATUS_FILTERS = [
   'In review',
   'Denied',
   'Scheduled',
+  'Sending',
   'In progress',
   'Done',
   'Pending payment',

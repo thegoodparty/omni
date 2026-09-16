@@ -22,10 +22,51 @@ ClickUp comment OR GitHub PR
 |-----|-------|-------|--------|
 | `gpbot-analyze` | analyze | opus | Posts bug analysis as [GP-Bot] comment, and may queue an implementation run — see "Analyze before implement" |
 | `gpbot-work` | implement | opus | Creates PR and posts link to ClickUp |
+| `gpbot-dev-test` | dev-test | opus | Diagnoses a failing `@dev-only` E2E spec. Read-only and escalates exactly like analyze — see "Dev-only test failures" |
 
 `gpbot-analyze` is the front door. `gpbot-work` is normally applied by an
 analysis that concluded there is a fix worth making, though applying it by hand
 still works and skips straight to the PR.
+
+`gpbot-dev-test` is applied by a workflow and never by a person. The tag has to
+exist in the Engineering space before the first ticket can be filed — ClickUp
+only accepts tag names it already knows, and a task created without it is a
+ticket that looks filed and silently never starts a run.
+
+## Dev-only test failures
+
+Two Playwright specs in `packages/gp-webapp/e2e-tests` carry `@dev-only`. CI
+greps them **out** on pull requests (`--grep-invert @dev-only` in
+`gp-webapp.yml`) and **in** on the post-merge run against dev (`release.yml`).
+They are therefore the only tests whose first and only verdict arrives after the
+code has merged, on a run nobody authored — and a failure blocks every prod
+promotion job until somebody happens to look. `d961dc105` is one of those,
+diagnosed and fixed by hand.
+
+`.github/workflows/gpbot-dev-test-triage.yml` listens for a failed release run,
+pulls the merged Playwright report out of its artifacts, and hands it to
+`dev_test_triage.py`, which decides three things: which specs failed, which of
+those were `@dev-only`, and whether the suite ran at all.
+
+That third one is not a formality. A failed `Dev <service>` job **skips** the
+E2E shards while the run's red gate job is still named `E2E` — during the Sep
+2026 incident (ENG-11106/11107) that got a deploy-role IAM failure triaged as an
+e2e problem. A skipped shard produces an empty report rather than a failing one,
+so "no dev-only failures" and "the suite never ran" are the same shape unless
+something separates them.
+
+One ticket per distinct failing spec, in Platform > Bugs by default
+(`vars.CLICKUP_DEV_TEST_LIST_ID` overrides it). A spec that fails again while
+its ticket is still open gets a comment rather than a second ticket, and
+deliberately does **not** get re-tagged: the tag is what launches an agent run,
+and a spec failing on every release run for a day would otherwise buy an
+investigation per run into a question already being investigated.
+
+The disposition is posted to `#bot-urgent`, threaded under
+`release-failure-alert.yml`'s message for the same run where the Slack app can
+read channel history, so one place shows both what broke and what the bot did
+about it. It posts even when nothing was filed — a workflow that is silent on
+its quiet path cannot demonstrate that it is working.
 
 ## Flow
 
