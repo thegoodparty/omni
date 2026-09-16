@@ -131,8 +131,17 @@ export class PrismaExceptionFilter implements ExceptionFilter {
       statusCode = HttpStatus.INTERNAL_SERVER_ERROR
       message = 'A Prisma internal error occured. Please try again later.'
     } else if (exception instanceof Prisma.PrismaClientValidationError) {
-      statusCode = HttpStatus.BAD_REQUEST
-      message = 'Invalid request data'
+      // Also a 400 until now, and also wrong. Prisma raises this when it
+      // rejects the query we BUILT — an unknown field, a type that does not
+      // match the column, a name a migration changed without the query being
+      // updated. None of that is the caller's doing, and the route is broken
+      // for everyone until someone ships a fix, which is the worst case to have
+      // hidden behind a status code the alerting drops.
+      //
+      // It has not fired once in the 30 days to 2026-09-16, so this costs no
+      // alert volume today; it stops the first occurrence being silent.
+      statusCode = HttpStatus.INTERNAL_SERVER_ERROR
+      message = 'A database error occurred. Please try again later.'
     } else if (exception instanceof Prisma.PrismaClientUnknownRequestError) {
       // Was a 400, on the same mistaken reasoning as the default above: an
       // error Prisma itself cannot identify is not evidence that the caller

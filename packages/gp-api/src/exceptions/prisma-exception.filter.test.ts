@@ -152,8 +152,12 @@ describe('PrismaExceptionFilter', () => {
     const { host, sent } = makeHost()
     filter.catch(exc, host)
 
-    expect(sent.code).toBe(400)
-    expect(sent.body?.error).toBe('Invalid request data')
+    // 500, not the 400 this used to answer: Prisma rejected the query we built,
+    // which breaks the route for every caller until it is fixed.
+    expect(sent.code).toBe(500)
+    expect(sent.body?.error).toBe(
+      'A database error occurred. Please try again later.',
+    )
     expect(JSON.stringify(sent.body)).not.toContain('secret_field')
   })
 
