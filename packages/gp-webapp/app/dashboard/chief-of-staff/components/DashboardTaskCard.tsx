@@ -25,12 +25,11 @@ export default function DashboardTaskCard({
   onSkip,
   skipDisabled,
 }: Props): React.JSX.Element {
-  const { label, Icon } = cardCategory(card.type)
+  const { label } = cardCategory(card.type)
   const dueLine = formatDueDate(card.dueDate)
   return (
     <TaskCard
       overlineLabel={label}
-      OverlineIcon={Icon}
       title={card.title}
       meta={dueLine ? [dueLine] : undefined}
       summary={card.summary}

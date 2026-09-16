@@ -3,15 +3,6 @@
 import { useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import ManagerPromptCard from './ManagerPromptCard'
-import {
-  CalendarDaysIcon,
-  CalendarIcon,
-  MapPinIcon,
-  MessageSquareIcon,
-  PhoneIcon,
-  SparklesIcon,
-} from '@styleguide/components/ui/icons'
-import type { LucideIcon } from 'lucide-react'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import {
   isVoterContactFlowType,
@@ -66,21 +57,18 @@ const taskHref = (task: {
     : TRACKER_HREF
 }
 
-// Overline label + icon per tracker flowType (same set buildTrackerStrategy maps
-// to channels). Unknown/static rows fall back to a generic priority label.
-const FLOW_TYPE_META: Record<string, { label: string; Icon: LucideIcon }> = {
-  text: { label: 'Messaging', Icon: MessageSquareIcon },
-  robocall: { label: 'Robocall', Icon: PhoneIcon },
-  phoneBanking: { label: 'Phone banking', Icon: PhoneIcon },
-  doorKnocking: { label: 'Door knocking', Icon: MapPinIcon },
-  events: { label: 'Event', Icon: CalendarIcon },
-  awareness: { label: 'Awareness', Icon: CalendarDaysIcon },
+// Overline label per tracker flowType (same set buildTrackerStrategy maps to
+// channels). Unknown/static rows fall back to a generic priority label.
+const FLOW_TYPE_LABELS: Record<string, string> = {
+  text: 'Messaging',
+  robocall: 'Robocall',
+  phoneBanking: 'Phone banking',
+  doorKnocking: 'Door knocking',
+  events: 'Event',
+  awareness: 'Awareness',
 }
-const DEFAULT_META = { label: 'Priority', Icon: SparklesIcon }
-const taskMeta = (
-  flowType: string | null,
-): { label: string; Icon: LucideIcon } =>
-  (flowType && FLOW_TYPE_META[flowType]) || DEFAULT_META
+const taskLabel = (flowType: string | null): string =>
+  (flowType && FLOW_TYPE_LABELS[flowType]) || 'Priority'
 
 // Tracker dates arrive as UTC-midnight ISO; slice to the date portion so the
 // local render does not land on the previous day in US timezones.
@@ -176,13 +164,11 @@ export default function CampaignManagerTasks({
         ) : (
           <div className="flex flex-col gap-4">
             {top.map((task, index) => {
-              const { label, Icon } = taskMeta(task.flowType)
               const composeType = composeFlowType(task)
               return (
                 <TaskCard
                   key={task.id}
-                  overlineLabel={label}
-                  OverlineIcon={Icon}
+                  overlineLabel={taskLabel(task.flowType)}
                   title={task.title}
                   meta={[formatDue(task.date)]}
                   summary={task.description || undefined}
