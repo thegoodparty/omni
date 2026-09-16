@@ -6,6 +6,8 @@ interface HubSpotConversations {
   widget: {
     load: (options?: { widgetOpen?: boolean }) => void
     open: () => void
+    // Unmounts the widget entirely, launcher included. `load` mounts it again.
+    remove: () => void
     // `loaded` means the widget is on screen. `pending` means it is on its
     // way: both false together is the SDK saying it has nothing to show.
     status: () => { loaded: boolean; pending?: boolean }
@@ -26,7 +28,63 @@ declare global {
 const POLL_MS = 500
 const GIVE_UP_MS = 10_000
 
+const WIDGET_CONTAINER_ID = 'hubspot-messages-iframe-container'
+
+// HubSpot sizes its container inline, and the two states are far apart:
+// measured 92x92 collapsed to the launcher, 448x804 with the panel open.
+const OPEN_MIN_HEIGHT = 200
+
+const widgetContainer = () => document.getElementById(WIDGET_CONTAINER_ID)
+
 const widgetStatus = () => window.HubSpotConversations?.widget.status()
+
+// `status()` lags reality: on a cold load it reported
+// `{loaded: false, pending: false}` for six seconds after the container was
+// already in the DOM. So a widget that is visibly on screen is never treated
+// as a failure, whatever the SDK says about it.
+const widgetOnScreen = () => widgetContainer() !== null
+
+// Closing the chat has to take the launcher with it. HubSpot's launcher is a
+// fixed button in the bottom-right corner, which is where this product keeps
+// the assistant's message box — it sat on top of it, and getting it out from
+// over the other tools is the whole point of moving support into the nav. So
+// the widget is unmounted on close rather than collapsed back to a button, and
+// the next Get help click mounts it again.
+//
+// The SDK's own `on('widgetClosed')` was tried first and delivered nothing:
+// with the listener registered before `load()`, closing the panel raised no
+// event, and neither did opening it raise `widgetOpened`. The container's
+// inline size is the signal that is actually there.
+let closeObserver: MutationObserver | null = null
+
+const removeWhenClosed = (): void => {
+  const container = widgetContainer()
+  if (!container || closeObserver) return
+
+  let hasOpened = false
+  closeObserver = new MutationObserver(() => {
+    if (container.getBoundingClientRect().height >= OPEN_MIN_HEIGHT) {
+      hasOpened = true
+      return
+    }
+    // The container is mounted at launcher size and grows only once `open()`
+    // lands, so a small container means the user closed the panel only after
+    // it has been seen open.
+    if (!hasOpened) return
+    closeObserver?.disconnect()
+    closeObserver = null
+    window.HubSpotConversations?.widget.remove()
+  })
+  closeObserver.observe(container, {
+    attributes: true,
+    attributeFilter: ['style'],
+  })
+}
+
+const openWidget = (): void => {
+  window.HubSpotConversations?.widget.open()
+  removeWhenClosed()
+}
 
 // One ready-hook callback is enough for the life of the page, and one watch is
 // enough at a time. Without these, an impatient user clicking Get help while
@@ -42,8 +100,14 @@ let queuedOnReady = false
 let watching = false
 
 // The root layout configures the widget with `loadImmediately: false`, so
-// nothing is on screen until someone asks for help. `load` renders it the
-// first time; `open` re-opens it once it is up.
+// nothing is on screen until someone asks for help. `load` mounts it the first
+// time, and again after a close unmounted it.
+//
+// `load({widgetOpen: true})` asks for it open and is not enough on its own:
+// measured, it renders the launcher and the greeting bubble and leaves the
+// panel shut. The option stays because it costs nothing and opens instantly
+// where the SDK honours it, but `open()` is what actually opens the panel, so
+// the watch below calls it as soon as the widget exists.
 //
 // Whether it worked is asked of the SDK rather than assumed. An earlier
 // version set a local flag the instant it called `load()` and treated that as
@@ -57,7 +121,7 @@ export const openSupportChat = (): void => {
 
   if (conversations) {
     if (widgetStatus()?.loaded) {
-      conversations.widget.open()
+      openWidget()
       return
     }
     conversations.widget.load({ widgetOpen: true })
@@ -84,12 +148,21 @@ export const openSupportChat = (): void => {
   watching = true
   const deadline = Date.now() + GIVE_UP_MS
   const check = () => {
-    if (widgetStatus()?.loaded) {
+    // Both, because the two arrive in either order: the container has been
+    // seen in the DOM six seconds before `status()` admitted the widget was
+    // loaded, and `status()` has also flipped first. Waiting for the later of
+    // the two is what guarantees `openWidget` has a container to watch.
+    if (widgetStatus()?.loaded && widgetOnScreen()) {
       watching = false
+      openWidget()
       return
     }
     if (Date.now() >= deadline) {
       watching = false
+      if (widgetOnScreen()) {
+        openWidget()
+        return
+      }
       window.location.href = `mailto:${SUPPORT_EMAIL}`
       return
     }

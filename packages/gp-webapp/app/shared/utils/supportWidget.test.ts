@@ -11,16 +11,36 @@ const loadWidget = async () => {
 // widget is actually on screen.
 const sdk = (loaded = false) => {
   const state = { loaded }
+  const api = {
+    widget: {
+      load: vi.fn(() => {
+        // A cooperating chatflow renders the widget; an inert one does not.
+      }),
+      open: vi.fn(),
+      // The real `remove` unmounts the widget, so `loaded` goes false with it.
+      remove: vi.fn(() => {
+        state.loaded = false
+      }),
+      status: vi.fn(() => ({ loaded: state.loaded })),
+    },
+  }
+  return { state, api }
+}
+
+// The container HubSpot mounts. jsdom has no layout, so its height is stubbed
+// and driven by hand — and the style attribute is written alongside it, since
+// that is what the real widget changes and what the module observes.
+const renderWidgetContainer = (height = 92) => {
+  const container = document.createElement('div')
+  container.id = 'hubspot-messages-iframe-container'
+  container.getBoundingClientRect = () => ({ height }) as DOMRect
+  document.body.append(container)
   return {
-    state,
-    api: {
-      widget: {
-        load: vi.fn(() => {
-          // A cooperating chatflow renders the widget; an inert one does not.
-        }),
-        open: vi.fn(),
-        status: vi.fn(() => ({ loaded: state.loaded })),
-      },
+    resizeTo: async (next: number) => {
+      height = next
+      container.setAttribute('style', `height: ${next}px`)
+      // MutationObserver delivers on a microtask.
+      await vi.advanceTimersByTimeAsync(1)
     },
   }
 }
@@ -43,6 +63,7 @@ beforeEach(() => {
   })
   delete window.HubSpotConversations
   delete window.hsConversationsOnReady
+  document.body.innerHTML = ''
 })
 
 afterEach(() => {
@@ -51,16 +72,21 @@ afterEach(() => {
 })
 
 describe('openSupportChat', () => {
-  it('renders the widget open on the first click', async () => {
+  // `widgetOpen: true` was measured to render the launcher and leave the panel
+  // shut, so the first click is only done when `open()` has been called too.
+  it('opens the panel on the first click, not just the launcher', async () => {
     const { api, state } = sdk()
     window.HubSpotConversations = api
     const openSupportChat = await loadWidget()
 
     openSupportChat()
-    state.loaded = true
-
     expect(api.widget.load).toHaveBeenCalledWith({ widgetOpen: true })
-    expect(api.widget.open).not.toHaveBeenCalled()
+
+    renderWidgetContainer()
+    state.loaded = true
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(api.widget.open).toHaveBeenCalledTimes(1)
   })
 
   it('re-opens rather than re-loading once the widget is up', async () => {
@@ -97,6 +123,7 @@ describe('openSupportChat', () => {
     const openSupportChat = await loadWidget()
 
     openSupportChat()
+    renderWidgetContainer()
     state.loaded = true
     await vi.advanceTimersByTimeAsync(11_000)
 
@@ -116,6 +143,7 @@ describe('openSupportChat', () => {
     await vi.advanceTimersByTimeAsync(4_000)
     expect(window.location.href).not.toContain('mailto:')
 
+    renderWidgetContainer()
     state.loaded = true
     await vi.advanceTimersByTimeAsync(7_000)
     expect(window.location.href).not.toContain('mailto:')
@@ -170,6 +198,111 @@ describe('openSupportChat', () => {
       openSupportChat()
       await vi.advanceTimersByTimeAsync(11_000)
       expect(navigations).toHaveLength(2)
+    })
+  })
+
+  // The container is created asynchronously after `load()`, so `status()` can
+  // admit the widget is loaded before there is anything in the DOM. Acting
+  // then leaves nothing to watch for the close.
+  it('waits for the container, not just the status, before opening', async () => {
+    const { api, state } = sdk()
+    window.HubSpotConversations = api
+    const openSupportChat = await loadWidget()
+
+    openSupportChat()
+    state.loaded = true
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(api.widget.open).not.toHaveBeenCalled()
+
+    renderWidgetContainer()
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(api.widget.open).toHaveBeenCalledTimes(1)
+  })
+
+  // The lag is real: `status()` reported nothing loaded for six seconds after
+  // the container was already in the DOM. Believing it at the deadline would
+  // send a mail client over the top of a widget the user can see.
+  it('opens a widget it can see even while status() still denies it', async () => {
+    const { api } = sdk()
+    window.HubSpotConversations = api
+    const openSupportChat = await loadWidget()
+
+    openSupportChat()
+    renderWidgetContainer()
+    await vi.advanceTimersByTimeAsync(11_000)
+
+    expect(navigations).toEqual([])
+    expect(api.widget.open).toHaveBeenCalledTimes(1)
+  })
+
+  // HubSpot's launcher is a fixed button in the corner this product already
+  // uses for the assistant's message box. Collapsing back to it would put the
+  // hovering button this change exists to remove straight back on screen.
+  describe('closing the chat', () => {
+    const openThePanel = async (state: { loaded: boolean }) => {
+      const widget = renderWidgetContainer()
+      state.loaded = true
+      await vi.advanceTimersByTimeAsync(1_000)
+      await widget.resizeTo(804)
+      return widget
+    }
+
+    it('unmounts the widget rather than leaving the launcher behind', async () => {
+      const { api, state } = sdk()
+      window.HubSpotConversations = api
+      const openSupportChat = await loadWidget()
+
+      openSupportChat()
+      const widget = await openThePanel(state)
+      await widget.resizeTo(92)
+
+      expect(api.widget.remove).toHaveBeenCalledTimes(1)
+    })
+
+    // The container is mounted at launcher size, so a small container on its
+    // own is not a close — treating it as one would unmount the widget in the
+    // moment between mounting it and opening it.
+    it('leaves a widget that has not opened yet alone', async () => {
+      const { api, state } = sdk()
+      window.HubSpotConversations = api
+      const openSupportChat = await loadWidget()
+
+      openSupportChat()
+      const widget = renderWidgetContainer()
+      state.loaded = true
+      await vi.advanceTimersByTimeAsync(1_000)
+      await widget.resizeTo(92)
+
+      expect(api.widget.remove).not.toHaveBeenCalled()
+    })
+
+    it('mounts it again on the next click instead of only re-opening', async () => {
+      const { api, state } = sdk()
+      window.HubSpotConversations = api
+      const openSupportChat = await loadWidget()
+
+      openSupportChat()
+      const widget = await openThePanel(state)
+      await widget.resizeTo(92)
+
+      openSupportChat()
+
+      expect(api.widget.load).toHaveBeenCalledTimes(2)
+    })
+
+    it('unmounts once per close, not once per size change', async () => {
+      const { api, state } = sdk()
+      window.HubSpotConversations = api
+      const openSupportChat = await loadWidget()
+
+      openSupportChat()
+      const widget = await openThePanel(state)
+      await widget.resizeTo(92)
+      await widget.resizeTo(90)
+      await widget.resizeTo(92)
+
+      expect(api.widget.remove).toHaveBeenCalledTimes(1)
     })
   })
 

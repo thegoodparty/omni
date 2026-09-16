@@ -140,11 +140,19 @@ more specific is wrong on one of the two.
 
 ### Where the support chat lives
 
-It is HubSpot Conversations, loaded from `gp-webapp/app/layout.tsx` in
-production and on PR previews, and locally behind `NEXT_PUBLIC_SUPPORT_CHAT=1`.
+It is HubSpot Conversations, loaded from the root `<head>` in
+`gp-webapp/app/layout.tsx` in production and on PR previews, and locally behind
+`NEXT_PUBLIC_SUPPORT_CHAT=1`. Both script tags belong in `<head>`: a
+`beforeInteractive` script has to be there, and a `<script>` anywhere else
+under `<html>` is invalid HTML that React reports as three hydration errors.
+
 It used to render its own launcher hovering over every page; the layout now
 sets `hsConversationsSettings.loadImmediately = false` to suppress that, and
-`@shared/utils/supportWidget.ts` opens it from the nav.
+`@shared/utils/supportWidget.ts` opens it from the nav. Closing the chat
+unmounts it with `widget.remove()`, because HubSpot otherwise collapses back to
+that launcher — a fixed button in the corner this product uses for the
+assistant's message box, which is the thing moving support into the nav was
+meant to get rid of. The next Get help click mounts it again.
 
 Whether it opened is asked of the SDK (`widget.status().loaded`), never
 assumed, and watched rather than checked once: a single check cannot tell
@@ -153,13 +161,32 @@ client over the top of a widget mid-animation. Only a widget still absent at
 the deadline counts as failure, and then the click goes to email rather than
 nowhere.
 
-**HubSpot's chatflow targeting decides whether the widget may open at all**,
-and it is host-based. Measured: on `localhost` the SDK loads and
-`widget.load({widgetOpen: true})` does nothing, `status()` stuck at
-`{loaded: false, pending: false}` with no container, even called from the
-console; on `app.goodparty.org` the same call brings it up in under a second.
-So a host that is not in those rules cannot exercise this, however correct the
-code is.
+Two things about the SDK are worth knowing before changing that helper, both
+measured rather than read off the docs:
+
+- **`load({widgetOpen: true})` does not open the panel.** It renders the
+  launcher and the greeting bubble and leaves the panel shut. `open()` is what
+  opens it, so the watch calls `open()` as soon as the widget exists.
+- **`status()` lags reality, in both directions.** On a cold local load it
+  reported `{loaded: false, pending: false}` for around ten seconds after the
+  container was already in the DOM and the iframe was fetching; on another load
+  it flipped to `loaded` before the container existed. So the watch waits for
+  both, and the deadline branch checks the DOM before giving up — believing
+  `status()` there would send a mail client over the top of a widget the user
+  can see.
+- **The `on()` event API delivered nothing.** With `widgetClosed` and
+  `widgetOpened` listeners registered before `load()`, opening and closing the
+  panel raised neither. The close is detected from the container's inline size
+  instead, which HubSpot writes itself: 92x92 collapsed, 448x804 open.
+
+**HubSpot's chatflow targeting decides whether the widget may load at all**,
+and it is host-based: website-URL rules on the chatflow, edited in the HubSpot
+UI under Service > Chatflows > Edit > Target, with no API. The rules cover
+production, Vercel previews (`good-party.vercel.app`) and `localhost`. A host
+outside them loads the SDK and then does nothing at all — `status()` stuck at
+`{loaded: false, pending: false}`, no container, even calling `load()` from the
+console — which is what `localhost` did before those rules existed. If the
+widget stops appearing on some new host, look there before looking here.
 
 There is no API to invoke HubSpot's Breeze Customer Agent directly, so the
 widget remains how a user reaches it. That is why this is a relocation rather
