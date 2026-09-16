@@ -8,6 +8,15 @@ import {
   ChatScopeSchema,
 } from '../generated/enums'
 
+// The rating enum reaches consumers through the chat contract rather than the
+// generated-enum module directly, so a client has one import site for the
+// whole surface.
+export {
+  CHAT_FEEDBACK_KIND_VALUES,
+  ChatFeedbackKindSchema,
+  type ChatFeedbackKind,
+} from '../generated/enums'
+
 // Scope-generic chat surface (Chief of Staff is the first consumer). Shared by
 // gp-api and gp-webapp. The SSE event shapes are lifted from the briefing
 // chat's ChatStreamChunk so a single client renderer handles both kinds.
