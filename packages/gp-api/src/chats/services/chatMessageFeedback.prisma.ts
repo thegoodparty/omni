@@ -79,6 +79,10 @@ export class ChatMessageFeedbackService extends createPrismaBase(
     userId: number
   }): Promise<void> {
     const { conversationId, messageId, userId } = args
+    // Same gate as setForMessage: retracting a rating on a message that isn't
+    // a ratable turn of this conversation is a client bug, and a silent 204
+    // hides it. Deleting nothing is still a 204 — only the id is validated.
+    await this.assertRatableMessage(conversationId, messageId)
     await this.model.deleteMany({
       where: {
         conversationId,

@@ -51,6 +51,69 @@ const stubClipboard = (): void => {
 }
 
 describe('<MessageActionBar>', () => {
+  // Both writes upsert the same row, so delivery order is the rating. These
+  // cover the two ways rapid clicking used to lose one.
+  describe('overlapping votes', () => {
+    it('delivers two quick opposite votes in click order', async () => {
+      const user = userEvent.setup()
+      const landed: string[] = []
+      const releases: Array<() => void> = []
+      setMessageFeedback.mockImplementation((args: { feedback: string }) => {
+        return new Promise<void>((resolve) => {
+          releases.push(() => {
+            landed.push(args.feedback)
+            resolve()
+          })
+        })
+      })
+      renderBar()
+
+      await user.click(screen.getByRole('button', { name: 'Bad response' }))
+      await user.click(screen.getByRole('button', { name: 'Good response' }))
+
+      // Only the first is in flight; the second is queued behind it.
+      await waitFor(() => expect(releases).toHaveLength(1))
+
+      // Settle the first request LAST-in-line to prove the queue, not luck,
+      // decides the order the server sees.
+      releases[0]!()
+      await waitFor(() => expect(releases).toHaveLength(2))
+      releases[1]!()
+
+      await waitFor(() => expect(landed).toHaveLength(2))
+      expect(landed).toEqual(['negative', 'positive'])
+    })
+
+    it('a stale vote failure does not un-press the newer thumb', async () => {
+      const user = userEvent.setup()
+      let failFirst = (): void => {
+        throw new Error('first write never started')
+      }
+      setMessageFeedback.mockImplementationOnce(
+        () =>
+          new Promise<void>((_, reject) => {
+            failFirst = () => reject(new Error('offline'))
+          }),
+      )
+      setMessageFeedback.mockImplementationOnce(() => Promise.resolve())
+      renderBar()
+
+      await user.click(screen.getByRole('button', { name: 'Bad response' }))
+      await user.click(screen.getByRole('button', { name: 'Good response' }))
+
+      // The first vote loses, after the second has already taken the thumb.
+      failFirst()
+
+      await waitFor(() => expect(setMessageFeedback).toHaveBeenCalledTimes(2))
+      expect(
+        screen.getByRole('button', { name: 'Good response' }),
+      ).toHaveAttribute('aria-pressed', 'true')
+      expect(
+        screen.getByRole('button', { name: 'Bad response' }),
+      ).toHaveAttribute('aria-pressed', 'false')
+    })
+  })
+
   describe('the rating stands on its own', () => {
     it('keeps the note panel open after the rating is recorded', async () => {
       const user = userEvent.setup()

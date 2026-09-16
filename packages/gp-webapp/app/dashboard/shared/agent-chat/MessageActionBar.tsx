@@ -61,10 +61,25 @@ export default function MessageActionBar({
   const [draft, setDraft] = useState('')
   const [copied, setCopied] = useState(false)
 
-  // The in-flight rating write. A note saved before it settles must land
-  // AFTER it: both calls upsert the same row, so the rating's `comment: null`
-  // would otherwise win the race and silently drop the note.
-  const ratingWrite = useRef<Promise<void> | null>(null)
+  // Every write for this message goes through one chain, so the server sees
+  // them in the order they were clicked. They all upsert the same row, so
+  // out-of-order delivery is a lost rating: two quick opposite votes could
+  // leave the slower request landing last and persisting the thumb the user
+  // had already changed, and a note saved mid-flight could be overwritten by
+  // the rating's own `comment: null`. `.then(run, run)` keeps the chain moving
+  // past a rejection instead of stalling every later write behind it.
+  const writeQueue = useRef<Promise<unknown>>(Promise.resolve())
+  const enqueue = useCallback(<T,>(run: () => Promise<T>): Promise<T> => {
+    const next = writeQueue.current.then(run, run)
+    writeQueue.current = next.catch(() => undefined)
+    return next
+  }, [])
+
+  // Which vote owns the UI. Only the newest one may roll the thumb back on
+  // failure: without this, a slow first vote's rejection would un-press a
+  // thumb whose own write had already succeeded, and revert to a `previous`
+  // snapshot that may itself never have persisted.
+  const latestVote = useRef(0)
 
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(
@@ -89,20 +104,21 @@ export default function MessageActionBar({
   const vote = useCallback(
     async (target: ChatFeedbackKind): Promise<void> => {
       const previous = { rating, storedNote }
+      const seq = ++latestVote.current
       // A repeat tap on the active thumb retracts the rating and its note.
       if (rating === target) {
         setRating(null)
         setStoredNote(null)
         setNoteFor(null)
         try {
-          const write = Promise.resolve(
-            chatApi.clearMessageFeedback?.({ conversationId, messageId }),
-          ).then(() => undefined)
-          ratingWrite.current = write
-          await write
+          await enqueue(async () => {
+            await chatApi.clearMessageFeedback?.({ conversationId, messageId })
+          })
         } catch (err) {
-          setRating(previous.rating)
-          setStoredNote(previous.storedNote)
+          if (seq === latestVote.current) {
+            setRating(previous.rating)
+            setStoredNote(previous.storedNote)
+          }
           reportErrorToSentry(err, {
             surface: 'agent-chat-feedback',
             phase: 'clear',
@@ -121,23 +137,24 @@ export default function MessageActionBar({
       setDraft('')
       setNoteFor(target)
       try {
-        const write = Promise.resolve(
-          chatApi.setMessageFeedback?.({
+        await enqueue(async () => {
+          await chatApi.setMessageFeedback?.({
             conversationId,
             messageId,
             feedback: target,
             comment: null,
-          }),
-        ).then(() => undefined)
-        ratingWrite.current = write
-        await write
+          })
+        })
       } catch (err) {
-        // The rating never landed, so don't leave a lit thumb claiming it did
-        // — and close the panel, since there is no stored rating to attach a
-        // note to.
-        setRating(previous.rating)
-        setStoredNote(previous.storedNote)
-        setNoteFor(null)
+        // This rating never landed, so don't leave a lit thumb claiming it
+        // did, and close the panel since there is no stored rating to attach a
+        // note to. Skipped when a newer vote has taken over: that one owns the
+        // thumb now, and its own write may well have succeeded.
+        if (seq === latestVote.current) {
+          setRating(previous.rating)
+          setStoredNote(previous.storedNote)
+          setNoteFor(null)
+        }
         reportErrorToSentry(err, {
           surface: 'agent-chat-feedback',
           phase: 'set',
@@ -145,7 +162,7 @@ export default function MessageActionBar({
         })
       }
     },
-    [rating, storedNote, chatApi, conversationId, messageId],
+    [rating, storedNote, chatApi, conversationId, messageId, enqueue],
   )
 
   const saveNote = useCallback(async (): Promise<void> => {
@@ -156,13 +173,13 @@ export default function MessageActionBar({
     setStoredNote(comment)
     setNoteFor(null)
     try {
-      // Queue behind the rating write so this note isn't overwritten by it.
-      await ratingWrite.current
-      await chatApi.setMessageFeedback?.({
-        conversationId,
-        messageId,
-        feedback: noteFor,
-        comment,
+      await enqueue(async () => {
+        await chatApi.setMessageFeedback?.({
+          conversationId,
+          messageId,
+          feedback: noteFor,
+          comment,
+        })
       })
     } catch (err) {
       // Only the note is rolled back — the rating was already recorded and
@@ -174,7 +191,7 @@ export default function MessageActionBar({
         messageId,
       })
     }
-  }, [noteFor, draft, storedNote, chatApi, conversationId, messageId])
+  }, [noteFor, draft, storedNote, chatApi, conversationId, messageId, enqueue])
 
   // A client without the feedback routes still gets Copy, but no thumbs.
   const canRate = Boolean(

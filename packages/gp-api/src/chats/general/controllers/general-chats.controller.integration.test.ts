@@ -351,6 +351,50 @@ describe('GeneralChatsController (integration)', () => {
       expect(res.status).toBe(HttpStatus.NOT_FOUND)
     })
 
+    it('404s a retraction on a message outside the conversation', async () => {
+      const first = await startThread()
+      const second = await startThread()
+
+      // The documented contract is that BOTH verbs reject an unratable id, so
+      // a client bug surfaces instead of returning a silent 204.
+      const res = await service.client.delete(
+        `/v1/chats/${second.conversationId}/messages/${first.assistantMessageId}/feedback?scope=${COS_SCOPE}`,
+        headers,
+      )
+      expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    })
+
+    it('404s a retraction on a user turn', async () => {
+      const created = await service.client.post(
+        '/v1/chats',
+        { scope: COS_SCOPE },
+        headers,
+      )
+      const conversationId = created.data.conversationId as string
+      const userTurn = await chatStore.appendMessage({
+        conversationId,
+        role: ChatMessageRole.user,
+        content: 'Anything urgent?',
+      })
+
+      const res = await service.client.delete(
+        `/v1/chats/${conversationId}/messages/${userTurn.id}/feedback?scope=${COS_SCOPE}`,
+        headers,
+      )
+      expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    })
+
+    it('retracting a rating that was never left still succeeds', async () => {
+      const { conversationId, assistantMessageId } = await startThread()
+
+      // Idempotent on the ROW, strict on the id: deleting nothing is fine.
+      const res = await service.client.delete(
+        `/v1/chats/${conversationId}/messages/${assistantMessageId}/feedback?scope=${COS_SCOPE}`,
+        headers,
+      )
+      expect(res.status).toBe(HttpStatus.NO_CONTENT)
+    })
+
     it('404s on a user turn — only assistant replies are ratable', async () => {
       const created = await service.client.post(
         '/v1/chats',
