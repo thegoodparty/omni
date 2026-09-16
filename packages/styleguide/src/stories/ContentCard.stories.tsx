@@ -1,11 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import { ContentCard } from '../components/ui/content-card'
-import {
-  UsersRoundIcon,
-  InfoIcon,
-  MegaphoneIcon,
-  ChevronRightIcon,
-} from '../components/ui/icons'
+import { InfoIcon, ChevronRightIcon } from '../components/ui/icons'
 import { Badge } from '../components/ui/badge'
 
 const meta: Meta<typeof ContentCard> = {
@@ -21,9 +16,8 @@ type Story = StoryObj<typeof ContentCard>
 type BadgeVariant = 'default' | 'secondary' | 'soft' | 'destructive' | 'outline'
 
 type PlaygroundArgs = {
-  eyebrow: string
-  eyebrowEmphasis: boolean
-  showEyebrowIcon: boolean
+  overline: string
+  overlineEmphasis: boolean
   title: string
   description: string
   helper: 'none' | 'info' | 'badge'
@@ -46,9 +40,8 @@ const helperNode = (
 
 export const Playground: StoryObj<PlaygroundArgs> = {
   args: {
-    eyebrow: 'Top Issues',
-    eyebrowEmphasis: true,
-    showEyebrowIcon: true,
+    overline: 'Top Issues',
+    overlineEmphasis: true,
     title: 'Affordable Housing',
     description:
       'A short description that explains the card in one or two lines.',
@@ -59,12 +52,14 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     actions: 'multiple',
   },
   argTypes: {
-    eyebrow: { control: 'text', description: 'Eyebrow label. Empty hides it.' },
-    eyebrowEmphasis: {
-      control: 'boolean',
-      description: 'Render the eyebrow in primary blue (Figma "Primary").',
+    overline: {
+      control: 'text',
+      description: 'Overline label. Empty hides it.',
     },
-    showEyebrowIcon: { control: 'boolean' },
+    overlineEmphasis: {
+      control: 'boolean',
+      description: 'Render the overline in primary blue (Figma "Primary").',
+    },
     title: { control: 'text' },
     description: { control: 'text' },
     helper: {
@@ -95,9 +90,8 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     },
   },
   render: ({
-    eyebrow,
-    eyebrowEmphasis,
-    showEyebrowIcon,
+    overline,
+    overlineEmphasis,
     title,
     description,
     helper,
@@ -108,9 +102,8 @@ export const Playground: StoryObj<PlaygroundArgs> = {
   }) => (
     <ContentCard
       className="w-[560px] max-w-full"
-      eyebrow={eyebrow || undefined}
-      eyebrowEmphasis={eyebrowEmphasis}
-      eyebrowIcon={showEyebrowIcon ? <UsersRoundIcon /> : undefined}
+      overline={overline || undefined}
+      overlineEmphasis={overlineEmphasis}
       title={title}
       description={description}
       helper={helperNode(helper, helperBadgeText, helperBadgeVariant)}
@@ -131,8 +124,7 @@ export const Variants: Story = {
   render: () => (
     <div className="flex max-w-[560px] flex-col gap-4">
       <ContentCard
-        eyebrow="Top Issues"
-        eyebrowIcon={<UsersRoundIcon />}
+        overline="Top Issues"
         title="Affordable Housing"
         description="A short description that explains the card in one or two lines."
         helper={<InfoIcon />}
@@ -140,9 +132,8 @@ export const Variants: Story = {
         primaryAction={{ label: 'See details' }}
       />
       <ContentCard
-        eyebrow="Messaging"
-        eyebrowEmphasis={false}
-        eyebrowIcon={<MegaphoneIcon />}
+        overline="Messaging"
+        overlineEmphasis={false}
         helper={<Badge variant="soft">895 constituents</Badge>}
         title="Post a photo from the Farmers Market"
         description="A short description that explains the card in one or two lines."
@@ -162,18 +153,18 @@ export const Actions: Story = {
   render: () => (
     <div className="flex max-w-[560px] flex-col gap-4">
       <ContentCard
-        eyebrow="No actions"
+        overline="No actions"
         title="Affordable Housing"
         description="A short description that explains the card in one or two lines."
       />
       <ContentCard
-        eyebrow="Single action"
+        overline="Single action"
         title="Affordable Housing"
         description="A short description that explains the card in one or two lines."
         primaryAction={{ label: 'See details' }}
       />
       <ContentCard
-        eyebrow="Multiple actions"
+        overline="Multiple actions"
         title="Affordable Housing"
         description="A short description that explains the card in one or two lines."
         secondaryAction={{ label: 'Skip' }}
@@ -188,8 +179,7 @@ export const WithContent: Story = {
   render: () => (
     <ContentCard
       className="w-[560px] max-w-full"
-      eyebrow="Top Issues"
-      eyebrowIcon={<UsersRoundIcon />}
+      overline="Top Issues"
       title="Affordable Housing"
       description="A short description that explains the card in one or two lines."
       secondaryAction={{ label: 'Skip' }}
@@ -214,8 +204,7 @@ export const ResponsiveFooter: Story = {
         toolbar (or narrow the window) to see it.
       </p>
       <ContentCard
-        eyebrow="Top Issues"
-        eyebrowIcon={<UsersRoundIcon />}
+        overline="Top Issues"
         title="Affordable Housing"
         description="A short description that explains the card in one or two lines."
         secondaryAction={{ label: 'Skip' }}

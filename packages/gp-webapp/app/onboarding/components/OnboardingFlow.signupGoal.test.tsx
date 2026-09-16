@@ -243,7 +243,11 @@ describe('signup-goal step', () => {
     await advanceToSignupGoal()
 
     // Both paths run 10 visible steps: the structured one skips
-    // manual-office-entry, the manual one skips path-to-victory.
-    expect(screen.getByText('Step 9 of 10')).toBeInTheDocument()
+    // manual-office-entry, the manual one skips path-to-victory. The
+    // "Step X of Y" label was retired from the top bar; position is read
+    // off the accessible progressbar attributes now.
+    const stepper = screen.getByRole('progressbar', { name: 'Progress' })
+    expect(stepper).toHaveAttribute('aria-valuenow', '9')
+    expect(stepper).toHaveAttribute('aria-valuemax', '10')
   })
 })

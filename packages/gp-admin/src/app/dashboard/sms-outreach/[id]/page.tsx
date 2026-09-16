@@ -24,6 +24,7 @@ import { STANDARDS_RULE_LABELS, STATUS_COLORS, STATUS_LABELS } from '../types'
 import { ApproveDenyActions } from '../components/ApproveDenyActions'
 import { CancelAction } from '../components/CancelAction'
 import { EditMessageAction } from '../components/EditMessageAction'
+import { SendTestAction } from '../components/SendTestAction'
 
 export const metadata: Metadata = {
   title: 'SMS Campaign Review | GP Admin',
@@ -98,6 +99,11 @@ export default async function Page({ params }: PageProps) {
             {canDecide && item.script && item.approvalStatus !== 'canceled' && (
               <Box mt="3">
                 <EditMessageAction id={item.id} script={item.script} />
+              </Box>
+            )}
+            {canDecide && item.approvalStatus !== 'canceled' && (
+              <Box mt="3">
+                <SendTestAction id={item.id} />
               </Box>
             )}
             {item.adminEditedAt && (

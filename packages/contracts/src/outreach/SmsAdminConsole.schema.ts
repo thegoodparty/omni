@@ -216,3 +216,10 @@ export const SmsTestMessageRequestSchema = z.object({
     .regex(/^\+?\d{10,15}$/, 'Use digits only, e.g. +15551234567'),
 })
 export type SmsTestMessageRequest = z.infer<typeof SmsTestMessageRequestSchema>
+
+export const SmsTestMessageResponseSchema = z.object({
+  sent: z.boolean(),
+})
+export type SmsTestMessageResponse = z.infer<
+  typeof SmsTestMessageResponseSchema
+>

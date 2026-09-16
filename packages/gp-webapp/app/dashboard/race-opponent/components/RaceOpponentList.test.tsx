@@ -1019,13 +1019,13 @@ describe('<RaceOpponentList>', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('renders the field-header heading with the opponent count and no eyebrow label', () => {
+  it('renders the field-header heading with the opponent count and no overline label', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 
     expect(
       screen.getByRole('heading', { name: '1 candidate filed for this seat' }),
     ).toBeInTheDocument()
-    // The old "The field" eyebrow and "Focus on the candidate..." copy are gone
+    // The old "The field" overline and "Focus on the candidate..." copy are gone
     // with the redesign.
     expect(screen.queryByText('The field')).not.toBeInTheDocument()
     expect(

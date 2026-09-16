@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import {
   Button,
   Card,
-  Eyebrow,
+  Overline,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -186,7 +186,7 @@ export const WhoStep = ({
     return (
       <div className="flex flex-col gap-6">
         <div className="flex items-center justify-between">
-          <Eyebrow>Filters</Eyebrow>
+          <Overline>Filters</Overline>
           <Button
             variant="ghost"
             size="small"
@@ -301,7 +301,7 @@ export const WhoStep = ({
     <>
       {(recommendationsError || recommendations.length > 0) && (
         <div className="flex flex-col gap-2">
-          <Eyebrow>Recommended for you</Eyebrow>
+          <Overline>Recommended for you</Overline>
           {recommendationsError ? (
             <p
               data-testid="recommended-lists-error"
@@ -325,7 +325,7 @@ export const WhoStep = ({
       )}
 
       <div ref={pickerRootRef} className="flex flex-col gap-2">
-        <Eyebrow id="create-list-audience-label">All lists</Eyebrow>
+        <Overline id="create-list-audience-label">All lists</Overline>
 
         <Popover open={open} onOpenChange={onOpenChange}>
           <PopoverTrigger asChild>
