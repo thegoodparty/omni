@@ -405,8 +405,10 @@ export default function DashboardMenu({
 }
 
 // The support chat has no URL to link to, so it is an action rather than an
-// AccountManagementItem. It sits with Community Forum, the other thing in this
-// menu that takes you outside the dashboard's own pages.
+// AccountManagementItem. On desktop it sits at the end of the main nav, below
+// Public Profile, where it is visible without opening the account menu first.
+// On mobile the rail already carries the account items, so it stays with
+// Community Forum there rather than adding a row above the feature tabs.
 const SUPPORT_MENU_ITEM = {
   label: 'Get help',
   icon: LifeBuoyIcon,
@@ -534,17 +536,6 @@ const NewNavMenu = ({
     </SidebarMenuItemComponent>
   )
 
-  const dropDownActionItem = (item: AccountActionItem) => (
-    <DropdownMenuItemComponent
-      id={item.id}
-      className="h-10"
-      onSelect={item.onSelect}
-    >
-      <item.icon size={16} className="text-foreground" />
-      <span>{item.label}</span>
-    </DropdownMenuItemComponent>
-  )
-
   const dropDownItem = (item: AccountManagementItem) => (
     <DropdownMenuItemComponent asChild className="h-10">
       <Link
@@ -610,6 +601,7 @@ const NewNavMenu = ({
                     </SidebarMenuItemComponent>
                   )
                 })}
+              {!isMobile && sidebarActionItem(SUPPORT_MENU_ITEM)}
               {isMobile && (
                 <>
                   <SidebarSeparator />
@@ -666,7 +658,6 @@ const NewNavMenu = ({
                   {!isManager &&
                     dropDownItem(accountManagementMenuItems.account)}
                   <DropdownMenuSeparator />
-                  {dropDownActionItem(SUPPORT_MENU_ITEM)}
                   {dropDownItem(accountManagementMenuItems.community)}
                   <DropdownMenuSeparator />
                   {dropDownItem(accountManagementMenuItems.logout)}
