@@ -29,7 +29,7 @@ Most product code now lives in a single npm-workspaces monorepo: **omni** (`theg
 | Package             | Stack                                   | Local Port | Prod URL                                                            | Deploy                              |
 | ------------------- | --------------------------------------- | ---------- | ------------------------------------------------------------------- | ----------------------------------- |
 | **gp-api**          | NestJS 11/Fastify, Prisma, PG           | 3000       | `api.goodparty.org`                                                 | Docker → ECR → Pulumi → ECS Fargate |
-| **gp-webapp**       | Next.js 15, React 19, Tailwind, MUI     | 4000       | `goodparty.org` (product app)                                       | Vercel (CLI)                        |
+| **gp-webapp**       | Next.js 16, React 19, Tailwind          | 4000       | `goodparty.org` (product app)                                       | Vercel (CLI)                        |
 | **election-api**    | NestJS/Fastify, Prisma, PG              | 3001       | `election-api.goodparty.org`                                        | Docker → ECR → Pulumi → ECS Fargate |
 | **gp-admin**        | Next.js 16, React 19                    | 3500       | Vercel (single deploy fronts dev/prod)                              | Vercel (CLI)                        |
 | **candidate-sites** | Next.js, React, Tailwind                | 4001       | Vercel                                                              | Vercel (CLI)                        |
