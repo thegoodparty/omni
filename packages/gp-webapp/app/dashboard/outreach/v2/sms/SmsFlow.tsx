@@ -721,7 +721,12 @@ export const SmsFlow = ({
                 audience.reachableLoading ||
                 reachableCount === null ||
                 reachableCount === 0,
-              loading: phoneListCreating,
+              // A list the naming drawer just created lands here with its
+              // reachability fetch still in flight, so "Try again" would sit
+              // disabled with no explanation until the count resolves.
+              loading:
+                phoneListCreating ||
+                (phoneListError && audience.reachableLoading),
             }
           : stepId === 'schedule'
             ? {

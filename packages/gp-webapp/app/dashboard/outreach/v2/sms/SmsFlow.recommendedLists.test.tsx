@@ -220,8 +220,12 @@ describe('SmsFlow — recommended lists', () => {
       data: [RECOMMENDATION],
     })
     api.mock('POST /v1/contacts/count', { status: 200, data: { count: 19000 } })
-    api.mock('GET /v1/contacts/list-detail', {
-      status: 200,
+    // Held open on purpose: in production the created list's reachability
+    // fetch is still in flight when the phone-list failure lands, so the
+    // CTA must read as loading rather than silently disabled until then.
+    let releaseListDetail: (() => void) | undefined
+    const listDetail = {
+      status: 200 as const,
       data: {
         demographics: { people: 19000, avgAge: null, avgIncome: null },
         reachability: {
@@ -233,7 +237,14 @@ describe('SmsFlow — recommended lists', () => {
         },
         outreachHistory: [],
       },
-    })
+    }
+    api.mock(
+      'GET /v1/contacts/list-detail',
+      () =>
+        new Promise<typeof listDetail>((resolve) => {
+          releaseListDetail = () => resolve(listDetail)
+        }),
+    )
     const created: { id: number; name: string }[] = []
     api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
       const row = { id: 88 + created.length, name: body.name as string }
@@ -282,8 +293,12 @@ describe('SmsFlow — recommended lists', () => {
     // Retrying re-derives the phone list from the saved row — no duplicate.
     // The closed nested drawer stays mounted in jsdom, so the shell's CTA is
     // still aria-hidden to role queries; find it by text.
-    const retry = await screen.findByText('Try again')
-    await userEvent.click(retry)
+    const retry = (await screen.findByText('Try again')).closest('button')
+    expect(retry).toBeDisabled()
+    expect(retry).toHaveAttribute('data-loading', 'true')
+    releaseListDetail?.()
+    await waitFor(() => expect(retry).toBeEnabled())
+    await userEvent.click(retry as HTMLButtonElement)
     await screen.findByText('When do you want to send it?')
     expect(created).toHaveLength(1)
     expect(vi.mocked(createP2pPhoneList)).toHaveBeenCalledTimes(2)
