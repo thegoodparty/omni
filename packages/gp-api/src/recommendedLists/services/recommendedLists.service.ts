@@ -182,24 +182,23 @@ export class RecommendedListsService {
       (variant) => RECOMMENDED_LISTS_REGISTRY[variant].requiresIdeologyBucket,
     )
 
-    const [districtId, ideologyBucket, savedFilters, race] =
-      await Promise.all([
-        this.contacts.resolveEligibleDistrictId(organization),
-        // Never throws: a classification failure returns null, which hides
-        // the ideology variants. That is the common case, not the edge one.
-        needsIdeology ? this.ideology.bucketForCampaign(campaign.id) : null,
-        // Loaded with `activityConditions` included, which the dedupe
-        // comparison reads straight off the row. Rows without the relation
-        // all look condition-free, so two lists differing only in their
-        // conditions would compare equal and the candidate would be handed
-        // someone else's audience.
-        this.voterFileFilters.findByOrganizationSlug(organization.slug),
-        // Once per request, and inside this fan-out rather than ahead of it:
-        // it gates the size floor and the propensity band so it has to land
-        // before the counts, but it is an election-api round-trip and
-        // nothing else here waits on it.
-        this.raceSizingContext(campaign),
-      ])
+    const [districtId, ideologyBucket, savedFilters, race] = await Promise.all([
+      this.contacts.resolveEligibleDistrictId(organization),
+      // Never throws: a classification failure returns null, which hides
+      // the ideology variants. That is the common case, not the edge one.
+      needsIdeology ? this.ideology.bucketForCampaign(campaign.id) : null,
+      // Loaded with `activityConditions` included, which the dedupe
+      // comparison reads straight off the row. Rows without the relation
+      // all look condition-free, so two lists differing only in their
+      // conditions would compare equal and the candidate would be handed
+      // someone else's audience.
+      this.voterFileFilters.findByOrganizationSlug(organization.slug),
+      // Once per request, and inside this fan-out rather than ahead of it:
+      // it gates the size floor and the propensity band so it has to land
+      // before the counts, but it is an election-api round-trip and
+      // nothing else here waits on it.
+      this.raceSizingContext(campaign),
+    ])
 
     const { votesNeededToWin, electionCode } = race
 

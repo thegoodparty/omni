@@ -73,12 +73,8 @@ describe('buildVariantFilter', () => {
       supportStatus: ['supporter'],
     })
     expect(
-      buildVariantFilter(
-        'eventSupporters',
-        'sms',
-        null,
-        ElectionCode.General,
-      )?.voterStatus,
+      buildVariantFilter('eventSupporters', 'sms', null, ElectionCode.General)
+        ?.voterStatus,
     ).toBeUndefined()
   })
 
