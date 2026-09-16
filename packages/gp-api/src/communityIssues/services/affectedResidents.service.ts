@@ -6,8 +6,6 @@ import {
   AffectedResidentsListSchema,
 } from '../schemas/affectedResidents.schema'
 
-const BUCKET = process.env.AFFECTED_RESIDENTS_BUCKET
-
 const KEY_PREFIX = 'affected-residents'
 
 // These lists are individual-level L2 records, so they are deliberately NOT a
@@ -72,7 +70,11 @@ export class AffectedResidentsService extends createPrismaBase(
     communityIssueId: string,
     organizationSlug: string,
   ): Promise<AffectedResidentsList | null> {
-    if (!BUCKET) {
+    // Read at call time rather than at module load: an unset bucket is a
+    // deployment state, not a build-time fact, and reading it here is also what
+    // lets a test exercise the path where one is configured.
+    const bucket = process.env.AFFECTED_RESIDENTS_BUCKET
+    if (!bucket) {
       this.logger.warn(
         'AFFECTED_RESIDENTS_BUCKET is unset; no affected-residents list can be served',
       )
@@ -83,7 +85,7 @@ export class AffectedResidentsService extends createPrismaBase(
 
     let raw: string | undefined
     try {
-      raw = await this.s3.getFile(BUCKET, key)
+      raw = await this.s3.getFile(bucket, key)
     } catch (err) {
       // A bucket failure must not take down the issue detail page it hangs off.
       this.logger.error(

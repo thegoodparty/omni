@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AffectedResidentsService } from './services/affectedResidents.service'
 import { AffectedResidentsListSchema } from './schemas/affectedResidents.schema'
 
@@ -156,6 +156,21 @@ describe('AffectedResidentsListSchema', () => {
 })
 
 describe('AffectedResidentsService', () => {
+  // CI has no bucket configured, and an unset bucket short-circuits before S3
+  // is ever touched. Set one for the tests that exercise the read path, and
+  // restore whatever was there so no other suite inherits it.
+  const previousBucket = process.env.AFFECTED_RESIDENTS_BUCKET
+
+  beforeEach(() => {
+    process.env.AFFECTED_RESIDENTS_BUCKET = 'affected-residents-test'
+  })
+
+  afterEach(() => {
+    if (previousBucket === undefined)
+      delete process.env.AFFECTED_RESIDENTS_BUCKET
+    else process.env.AFFECTED_RESIDENTS_BUCKET = previousBucket
+  })
+
   const build = (
     s3Body: string | undefined,
     issueRow: { id: string } | null = { id: ISSUE_ID },
@@ -180,6 +195,13 @@ describe('AffectedResidentsService', () => {
 
   it('returns null for an issue that is not this office’s, without reading S3', async () => {
     const { service, s3 } = build(JSON.stringify(makeList()), null)
+    await expect(service.getForIssue(ISSUE_ID, ORG)).resolves.toBeNull()
+    expect(s3.getFile).not.toHaveBeenCalled()
+  })
+
+  it('serves nothing, without touching S3, when no bucket is configured', async () => {
+    delete process.env.AFFECTED_RESIDENTS_BUCKET
+    const { service, s3 } = build(JSON.stringify(makeList()))
     await expect(service.getForIssue(ISSUE_ID, ORG)).resolves.toBeNull()
     expect(s3.getFile).not.toHaveBeenCalled()
   })
