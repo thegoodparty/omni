@@ -73,7 +73,7 @@ describe('openSupportChat', () => {
     openSupportChat()
     vi.advanceTimersByTime(3_000)
 
-    expect(window.location.href).toBe('mailto:help@goodparty.org')
+    expect(window.location.href).toBe('mailto:support@goodparty.org')
   })
 
   it('does not fall back once the widget has opened', async () => {

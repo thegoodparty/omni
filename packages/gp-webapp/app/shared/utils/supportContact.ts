@@ -1,20 +1,21 @@
 // The support addresses the product shows a user. There are two, and which
 // one depends on who works the queue, not on which file you are in.
 //
-// There used to be three, one of them an accident: help@ in the voter-data and
-// door-knocking error states, campaignsuccess@ in the Pro upgrade and
-// texting-compliance flows, and support@ in the compliance modal and the
-// re-election flow. An audit of real Campaign Manager sessions found the
-// assistant naming eight different contact routes across fifteen handoffs,
-// and the product's own inconsistency was part of why. support@ is gone;
-// the other two are deliberate. Import one rather than writing an address.
+// There used to be three, spread by which file you happened to be in: support@
+// in the compliance modal and the re-election flow, campaignsuccess@ in the
+// Pro upgrade and texting-compliance flows, and help@ in the voter-data and
+// door-knocking error states. An audit of real Campaign Manager sessions found
+// the assistant naming eight different contact routes across fifteen handoffs,
+// and the product's own inconsistency was part of why. help@ is gone; the two
+// below are deliberate. Import one rather than writing an address.
 //
 // The AI assistants read their own copy of this, in gp-api
 // (src/chats/general/product-knowledge/productKnowledgePrompt.ts). It is not
 // a cross-service contract, just a string both sides show, so it is duplicated
 // rather than routed through @goodparty_org/contracts. Change both.
+
 // General support: anything that is not Pro or texting compliance.
-export const SUPPORT_EMAIL = 'help@goodparty.org'
+export const SUPPORT_EMAIL = 'support@goodparty.org'
 
 // Pro upgrades and 10DLC texting compliance, which the campaign success team
 // works directly. Keep these flows pointed here: a candidate mid-compliance

@@ -16,7 +16,6 @@ import {
   CircleUserRound,
   ClipboardList,
   ExternalLink,
-  LifeBuoy,
   LogOut,
   Send,
   Settings,
@@ -60,6 +59,7 @@ import {
 } from '@styleguide'
 import {
   FlagIcon,
+  LifeBuoyIcon,
   MegaphoneIcon,
   ScrollTextIcon,
 } from '@styleguide/components/ui/icons'
@@ -409,7 +409,7 @@ export default function DashboardMenu({
 // menu that takes you outside the dashboard's own pages.
 const SUPPORT_MENU_ITEM = {
   label: 'Get help',
-  icon: LifeBuoy,
+  icon: LifeBuoyIcon,
   id: 'nav-dash-support',
   onSelect: openSupportChat,
 }

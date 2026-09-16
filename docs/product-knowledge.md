@@ -130,15 +130,26 @@ needs rewriting against the current navigation.
 ## Support routing
 
 **One route, both assistants:** the support chat, opened from **Get help** in
-the dashboard's account menu, with `help@goodparty.org` as the email fallback. Both are constants (`SUPPORT_ROUTE`, `SUPPORT_EMAIL`) and
-nothing else may be named.
+the dashboard's account menu, with `support@goodparty.org` as the email
+fallback. Both are constants (`SUPPORT_ROUTE`, `SUPPORT_EMAIL`) and nothing
+else may be named.
 
-The product shows the same address. It used to show three (`help@` in the
-voter-data and door-knocking error states, `campaignsuccess@` in the Pro
-upgrade and texting-compliance flows, `support@` in the compliance modal and
-the re-election flow); they are now one constant,
-`gp-webapp/app/shared/utils/supportContact.ts`. Import it rather than writing
-an address, in either package.
+The product shows two addresses, and which one depends on who works the queue.
+Both live in `gp-webapp/app/shared/utils/supportContact.ts`; import one rather
+than writing an address.
+
+| Constant                       | Address                         | Used by                                                                          |
+| ------------------------------ | ------------------------------- | -------------------------------------------------------------------------------- |
+| `SUPPORT_EMAIL`                | `support@goodparty.org`         | General support: voter data, door knocking, re-election, the widget fallback     |
+| `PRO_COMPLIANCE_SUPPORT_EMAIL` | `campaignsuccess@goodparty.org` | Pro upgrades and 10DLC texting compliance, which campaign success works directly |
+
+There used to be a third, `help@`, in the voter-data and door-knocking error
+states. That one is gone.
+
+The assistants name only the general route. A candidate mid-compliance reaches
+campaign success through the Pro and texting flows themselves, where the
+product already knows that is the context; giving the assistant a second
+address to choose between is how eight of them appeared in the first place.
 
 ### Where the support chat lives
 

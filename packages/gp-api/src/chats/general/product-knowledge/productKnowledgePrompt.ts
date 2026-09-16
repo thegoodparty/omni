@@ -30,7 +30,7 @@ export const SUPPORT_ROUTE =
 // gp-webapp/app/shared/utils/supportContact.ts. Not a cross-service contract,
 // just a string both sides display, so it is duplicated rather than routed
 // through @goodparty_org/contracts. Change both.
-export const SUPPORT_EMAIL = 'help@goodparty.org'
+export const SUPPORT_EMAIL = 'support@goodparty.org'
 
 // The rules that turn the map into behavior. Deliberately short: the map
 // itself carries the facts, and a rule that restates a fact goes stale twice.
