@@ -113,7 +113,7 @@ export default function TextField({
       {label ? (
         <label
           htmlFor={fieldId}
-          className={`mb-1.5 block text-sm font-medium ${error ? 'text-error' : 'text-gray-700'}`}
+          className={`mb-1.5 block text-left text-sm font-medium ${error ? 'text-error' : 'text-gray-700'}`}
           style={labelStyle}
         >
           {label}
