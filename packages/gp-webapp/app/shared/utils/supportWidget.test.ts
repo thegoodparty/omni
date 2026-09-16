@@ -60,14 +60,17 @@ let navigations: string[] = []
 // blocker that refused, which is how the previous `mailto:` fallback shipped
 // broken — the test asserted an href a real browser then ignored.
 let openedTabs: string[] = []
+let openCalls: { url: string; target?: string; features?: string }[] = []
 let popupsBlocked = false
 
 beforeEach(() => {
   vi.useFakeTimers()
   navigations = []
   openedTabs = []
+  openCalls = []
   popupsBlocked = false
-  vi.stubGlobal('open', (url: string) => {
+  vi.stubGlobal('open', (url: string, target?: string, features?: string) => {
+    openCalls.push({ url, target, features })
     openedTabs.push(url)
     return popupsBlocked ? null : ({} as Window)
   })
@@ -463,6 +466,21 @@ describe('openSupportChat', () => {
 
       expect(api.widget.remove).toHaveBeenCalledTimes(1)
     })
+  })
+
+  // jsdom cannot reproduce this, so it is asserted on the call instead: a real
+  // `window.open` given `noopener` returns null even when the tab opened, so
+  // the `!opened` check below would fire on every click and navigate the
+  // candidate off their dashboard as well as opening the tab. The return value
+  // is the only signal that the tab arrived, and `noopener` destroys it.
+  it('does not pass noopener, which would make success indistinguishable', async () => {
+    const openSupportChat = await loadWidget(false)
+
+    openSupportChat()
+
+    expect(openCalls).toHaveLength(1)
+    expect(openCalls[0]?.features ?? '').not.toContain('noopener')
+    expect(navigations).toEqual([])
   })
 
   // A refused tab is the same dead click the mailto: fallback was. When the

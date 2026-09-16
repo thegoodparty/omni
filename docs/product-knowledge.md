@@ -151,6 +151,20 @@ where the chat cannot be reached, `openSupportChat` opens `HELP_CENTER_URL`
 cannot arrive. Keep the path on that constant — the bare host redirects to the
 marketing homepage, which is no use to someone already signed in.
 
+The assistants are told about that fallback too (`HELP_CENTER_URL` in
+`productKnowledgePrompt.ts`, duplicated from the webapp the same way the email
+is). Without it, a user saying "I clicked Get help and got articles" would be
+told the click was broken and pointed at email, when the product did exactly
+what it should.
+
+A new tab is opened **without** `noopener`, which looks wrong and is not.
+`window.open` given `noopener` returns `null` even when the tab opened, so the
+return value can no longer tell a granted tab from a refused one: every click
+then took the same-tab fallback as well, opening the help center _and_
+navigating the candidate off their dashboard. The destination is our own
+knowledge base, so what `noopener` guards against is not a live concern here;
+losing the only signal that the tab arrived is.
+
 That fallback is a URL, not an address, and the reason is worth keeping. It
 was `mailto:${SUPPORT_EMAIL}` first, which is a dead click on any machine with
 no mail client registered: Chrome ignores the navigation and nothing happens

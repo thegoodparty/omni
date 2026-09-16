@@ -86,8 +86,15 @@ const removeWhenClosed = (): void => {
 // candidate's work where it is, but ten seconds after the click there is no
 // user gesture left, so a popup blocker can refuse one — and a refused tab is
 // the same dead click this replaced. Same-tab navigation always lands.
+//
+// `noopener` is deliberately NOT passed. With it, `window.open` returns null
+// even when the tab opened, so the return value cannot tell a granted tab from
+// a refused one: every click took the fallback as well, opening the help
+// center AND navigating the candidate off their dashboard. The destination is
+// our own knowledge base, so the reverse-tabnabbing `noopener` guards against
+// is not a live concern; losing the only signal that the tab arrived is.
 const openHelpCenter = (): void => {
-  const opened = window.open(HELP_CENTER_URL, '_blank', 'noopener')
+  const opened = window.open(HELP_CENTER_URL, '_blank')
   if (!opened) window.location.href = HELP_CENTER_URL
 }
 

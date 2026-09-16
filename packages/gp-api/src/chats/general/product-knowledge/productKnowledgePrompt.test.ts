@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildProductKnowledgeBlocks,
+  HELP_CENTER_URL,
   SUPPORT_EMAIL,
   SUPPORT_ROUTE,
 } from './productKnowledgePrompt'
@@ -29,6 +30,26 @@ describe('product knowledge blocks', () => {
       expect(prompt).toContain(SUPPORT_ROUTE)
       const emails = new Set(prompt.match(/[\w.+-]+@[\w.-]+\.\w+/g) ?? [])
       expect([...emails], mode).toEqual([SUPPORT_EMAIL])
+    }
+  })
+
+  // Get help opens the knowledge base when the chat cannot load, so an
+  // assistant told only about email will confirm a working click as broken and
+  // send the user somewhere slower. The webapp changed this route; the rule
+  // describing it has to change with it.
+  it('names the help center fallback, not only the email', () => {
+    for (const mode of ['win', 'serve'] as const) {
+      const prompt = render(mode)
+      expect(prompt, mode).toContain(HELP_CENTER_URL)
+    }
+  })
+
+  // The route has to survive the search tool being absent: it describes what
+  // the product does, not something the assistant can do.
+  it('names the fallback even when the search tool did not register', () => {
+    for (const mode of ['win', 'serve'] as const) {
+      const prompt = buildProductKnowledgeBlocks(mode, false).join('\n\n')
+      expect(prompt, mode).toContain(HELP_CENTER_URL)
     }
   })
 
