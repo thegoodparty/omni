@@ -140,7 +140,16 @@ more specific is wrong on one of the two.
 
 ### Where the support chat lives
 
-It is HubSpot Conversations, loaded from the root `<head>` in
+**Get help renders in every environment.** What changes per environment is
+only what answers the click. The nav item is not gated on the chat, because
+gating it hid the item everywhere but production — including on dev — while
+`SUPPORT_ROUTE` went on telling both assistants that support opens from it.
+An assistant pointing at a menu item that is not there is the failure this
+whole map exists to prevent, so the item stays and the click degrades instead:
+where the chat was never loaded, `openSupportChat` goes straight to
+`SUPPORT_EMAIL` rather than waiting out a widget that cannot arrive.
+
+The chat itself is HubSpot Conversations, loaded from the root `<head>` in
 `gp-webapp/app/layout.tsx` in production, and anywhere else only behind
 `NEXT_PUBLIC_SUPPORT_CHAT=1` — in `.env.local` for local, or in Vercel's
 Preview environment to exercise it on a PR preview. Do not reach for

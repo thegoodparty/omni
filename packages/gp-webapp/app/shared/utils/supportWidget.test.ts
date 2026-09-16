@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// The module is stateless now, but each test still gets a fresh copy so an
-// import-time change can never leak between cases.
-const loadWidget = async () => {
+// Each test gets a fresh copy so module state can never leak between cases,
+// and so the environment gate can be set per test.
+const loadWidget = async (supportChatEnabled = true) => {
   vi.resetModules()
+  vi.doMock('appEnv', () => ({ SUPPORT_CHAT_ENABLED: supportChatEnabled }))
   return (await import('./supportWidget')).openSupportChat
 }
 
@@ -164,6 +165,76 @@ describe('openSupportChat', () => {
     window.hsConversationsOnReady?.[0]?.()
 
     expect(api.widget.load).toHaveBeenCalledWith({ widgetOpen: true })
+  })
+
+  // An SDK that turns up after the watch gave up still has to end with an open
+  // panel and a widget that leaves on close. Calling `load` and stopping there
+  // parks the launcher in the corner, which is the bug this change is about.
+  it('still opens and watches when the SDK arrives after the deadline', async () => {
+    const openSupportChat = await loadWidget()
+
+    openSupportChat()
+    await vi.advanceTimersByTimeAsync(11_000)
+    expect(navigations).toEqual(['mailto:support@goodparty.org'])
+
+    const { api, state } = sdk()
+    window.HubSpotConversations = api
+    window.hsConversationsOnReady?.[0]?.()
+
+    const widget = renderWidgetContainer()
+    state.loaded = true
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(api.widget.open).toHaveBeenCalledTimes(1)
+
+    await widget.resizeTo(804)
+    await widget.resizeTo(92)
+    expect(api.widget.remove).toHaveBeenCalledTimes(1)
+  })
+
+  // queuedOnReady stays set after a watch expires, so a later click queues no
+  // second callback. That is deliberate and harmless: the one callback already
+  // queued re-enters openSupportChat, so whenever the SDK does arrive it still
+  // loads, opens and watches for the close. Resetting the flag instead would
+  // let clicks accumulate callbacks again, which is what it exists to stop.
+  it('recovers through the first callback after a second click also timed out', async () => {
+    const openSupportChat = await loadWidget()
+
+    openSupportChat()
+    await vi.advanceTimersByTimeAsync(11_000)
+    openSupportChat()
+    await vi.advanceTimersByTimeAsync(11_000)
+
+    expect(window.hsConversationsOnReady).toHaveLength(1)
+    expect(navigations).toHaveLength(2)
+
+    const { api, state } = sdk()
+    window.HubSpotConversations = api
+    window.hsConversationsOnReady?.[0]?.()
+
+    const widget = renderWidgetContainer()
+    state.loaded = true
+    await vi.advanceTimersByTimeAsync(1_000)
+    await widget.resizeTo(804)
+    await widget.resizeTo(92)
+
+    expect(api.widget.open).toHaveBeenCalledTimes(1)
+    expect(api.widget.remove).toHaveBeenCalledTimes(1)
+  })
+
+  // Re-entering must not queue a second callback, or the accumulation the
+  // queuedOnReady flag exists to stop comes back through the hook itself.
+  it('queues no further callbacks when the hook re-enters', async () => {
+    const openSupportChat = await loadWidget()
+
+    openSupportChat()
+    expect(window.hsConversationsOnReady).toHaveLength(1)
+
+    const { api } = sdk()
+    window.HubSpotConversations = api
+    window.hsConversationsOnReady?.[0]?.()
+
+    expect(window.hsConversationsOnReady).toHaveLength(1)
+    expect(api.widget.load).toHaveBeenCalledTimes(1)
   })
 
   // An impatient user clicking several times must not queue a callback and a
@@ -344,6 +415,30 @@ describe('openSupportChat', () => {
       await widget.resizeTo(92)
 
       expect(api.widget.remove).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  // The nav item renders in every environment, so a click where the chat was
+  // never loaded has to go somewhere immediately. Waiting out the full
+  // deadline for a widget that cannot arrive is just a dead ten seconds.
+  describe('where the support chat is not loaded at all', () => {
+    it('goes to email on the click, without waiting', async () => {
+      const openSupportChat = await loadWidget(false)
+
+      openSupportChat()
+
+      expect(navigations).toEqual(['mailto:support@goodparty.org'])
+    })
+
+    it('does not touch the SDK even if one happens to be present', async () => {
+      const { api } = sdk(true)
+      window.HubSpotConversations = api
+      const openSupportChat = await loadWidget(false)
+
+      openSupportChat()
+
+      expect(api.widget.load).not.toHaveBeenCalled()
+      expect(api.widget.open).not.toHaveBeenCalled()
     })
   })
 

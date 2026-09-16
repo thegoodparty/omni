@@ -1,3 +1,4 @@
+import { SUPPORT_CHAT_ENABLED } from 'appEnv'
 import { SUPPORT_EMAIL } from './supportContact'
 
 // HubSpot's Conversations SDK, attached to window by the support script in the
@@ -117,6 +118,15 @@ let watching = false
 // `{loaded: false, pending: false}` and no container is ever created, even
 // when `load()` is called straight from the console.
 export const openSupportChat = (): void => {
+  // Nav item renders everywhere; the chat script only loads in production or
+  // behind NEXT_PUBLIC_SUPPORT_CHAT. Where it was never injected there is
+  // nothing to wait for, so email answers the click immediately rather than
+  // after ten seconds of a widget that is not coming.
+  if (!SUPPORT_CHAT_ENABLED) {
+    window.location.href = `mailto:${SUPPORT_EMAIL}`
+    return
+  }
+
   const conversations = window.HubSpotConversations
 
   if (conversations) {
@@ -132,9 +142,14 @@ export const openSupportChat = (): void => {
     queuedOnReady = true
     window.hsConversationsOnReady = [
       ...(window.hsConversationsOnReady ?? []),
-      () => {
-        window.HubSpotConversations?.widget.load({ widgetOpen: true })
-      },
+      // Re-enters here rather than calling `load` directly. An SDK that shows
+      // up after the watch already gave up would otherwise mount the widget
+      // with nothing left to open it or to unmount it on close, leaving the
+      // launcher parked in the corner — the exact thing this change removes.
+      // Re-entering cannot recurse: `window.HubSpotConversations` is set by
+      // the time the hook runs, so this takes the branch above instead of
+      // queueing another callback.
+      () => openSupportChat(),
     ]
   }
 

@@ -37,7 +37,7 @@ import { CONTACTS_DATA_TITLE } from './contactsLabels'
 // Labels and icons shared with each tab's page title bar (DashboardNavHeader),
 // so the left rail and the top of the page can never read differently.
 import { NAV_HEADER_ICONS, NAV_LABELS } from './navLabels'
-import { CIRCLE_COMMUNITY_BASE, SUPPORT_CHAT_ENABLED } from 'appEnv'
+import { CIRCLE_COMMUNITY_BASE } from 'appEnv'
 import {
   Avatar,
   DropdownMenu,
@@ -410,9 +410,12 @@ export default function DashboardMenu({
 // On mobile the rail already carries the account items, so it stays with
 // Community Forum there rather than adding a row above the feature tabs.
 //
-// Both render sites are gated on SUPPORT_CHAT_ENABLED. Where the HubSpot
-// script is not injected at all, the click has nothing to open and can only
-// wait and then hand off to email, so the honest thing is not to offer it.
+// It renders in every environment, deliberately. Gating it on whether the
+// HubSpot script loads would hide it everywhere but production, including on
+// dev, while the assistants' product map goes on telling people support opens
+// from "Get help" at the bottom of this menu — pointing at an item that is not
+// there is the failure that map exists to prevent. Where the chat is not
+// loaded the click goes straight to email instead.
 const SUPPORT_MENU_ITEM = {
   label: 'Get help',
   icon: LifeBuoyIcon,
@@ -605,13 +608,11 @@ const NewNavMenu = ({
                     </SidebarMenuItemComponent>
                   )
                 })}
-              {!isMobile &&
-                SUPPORT_CHAT_ENABLED &&
-                sidebarActionItem(SUPPORT_MENU_ITEM)}
+              {!isMobile && sidebarActionItem(SUPPORT_MENU_ITEM)}
               {isMobile && (
                 <>
                   <SidebarSeparator />
-                  {SUPPORT_CHAT_ENABLED && sidebarActionItem(SUPPORT_MENU_ITEM)}
+                  {sidebarActionItem(SUPPORT_MENU_ITEM)}
                   {sidebarItem(accountManagementMenuItems.community)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.profile)}
