@@ -24,6 +24,7 @@ export const NOT_YET_FILED_FIXTURE: CampaignManagerContext = {
   savedFilterToolsEnabled: false,
   raceId: 'br-hash-springfield-ward-3',
   webSearchEnabled: true,
+  helpCenterToolEnabled: true,
   story: null,
   plan: null,
 }

@@ -177,6 +177,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     'count the constituents matching a contact filter (aggregate only)',
   crud_saved_filters:
     'manage saved contact lists (list/create/update/delete); returns ids, names, and counts only',
+  search_help_center:
+    "search GoodParty.org's support articles for how-to, compliance, and billing answers",
 }
 
 const anchoredIssueBlock = (anchor: ChatAnchor): string => {
@@ -331,7 +333,10 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     // found the same gap here that September's found in Win: no description
     // of the platform, so product questions ended in a guess or a handoff.
     // See ../../product-knowledge/AGENTS.md.
-    ...buildProductKnowledgeBlocks('serve'),
+    ...buildProductKnowledgeBlocks(
+      'serve',
+      toolNames.includes('search_help_center'),
+    ),
     INSTRUCTIONS_BLOCK,
     // Last on purpose: every tool rule block above pulls toward more detail,
     // and this is the thing that holds a reply short.

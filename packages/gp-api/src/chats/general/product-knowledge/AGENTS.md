@@ -21,6 +21,20 @@ feature in your head.
 Rendered into `../campaign-manager/campaignManagerPrompt.ts` (`'win'`) and
 `../chief-of-staff/services/chiefOfStaffPrompt.ts` (`'serve'`).
 
+The map has a companion: `../help-center/` holds `search_help_center`, which
+searches our published support articles. The two split cleanly.
+
+| Question                                    | Source                       |
+| ------------------------------------------- | ---------------------------- |
+| Where does X live? What is this tab called? | the map, always              |
+| How do I do X? What are the texting rules?  | `search_help_center`         |
+
+**The map outranks the articles on naming and location, and that ordering is
+load-bearing.** The articles are hand-written and some are behind the product:
+one still sends candidates to a "Content Builder" tab that does not exist, and
+they say "segments" where the product says "lists". The map is gated against
+the real nav; the articles are not gated against anything.
+
 ## Adding a feature to the map
 
 A `ProductArea` is four decisions:

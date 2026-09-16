@@ -60,6 +60,10 @@ export interface CampaignManagerContext {
   // get_ballot_requirements. Null when the campaign has no resolved race, in
   // which case the tool stays dark and ballot answers fall back to web search.
   raceId: string | null
+  // Whether search_help_center is registered (the service is injected). The
+  // help-center block reads this so the prompt can never advertise it when it
+  // did not register.
+  helpCenterToolEnabled: boolean
   // Whether the native web-search tool is actually registered (it needs the
   // Anthropic key). The ballot guidance below reads this so it never tells the
   // manager to search when it has no search tool.
@@ -439,7 +443,7 @@ export const buildCampaignManagerSystemPrompt = (
     // back to GoodParty users, and named a different support route each time.
     // Shared with the Chief of Staff, rendered for Win. See
     // ../product-knowledge/AGENTS.md.
-    ...buildProductKnowledgeBlocks('win'),
+    ...buildProductKnowledgeBlocks('win', ctx.helpCenterToolEnabled),
     GUARDRAILS,
   ]
     .filter((b): b is string => b !== null)

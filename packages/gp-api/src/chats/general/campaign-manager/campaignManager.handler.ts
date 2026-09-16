@@ -46,6 +46,8 @@ import { VoterFileFilterService } from '@/voters/services/voterFileFilter.servic
 import { ElectionsService } from '@/elections/services/elections.service'
 import { parseBallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
 import { buildGetBallotRequirementsTool } from './getBallotRequirements.tool'
+import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
+import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
 
 // Sensitive scope: the agent is grounded in the candidate's own campaign data,
 // so it runs Anthropic-only. The registry fails closed on any non-claude model.
@@ -180,6 +182,7 @@ const EMPTY_CONTEXT: CampaignManagerContext = {
   organization: null,
   crmToolsEnabled: false,
   savedFilterToolsEnabled: false,
+  helpCenterToolEnabled: false,
   raceId: null,
   // Overridden by the early-return sites below: web search does not depend on
   // the campaign resolving, so a campaign we could not load must not silently
@@ -214,6 +217,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     private readonly voterFileFilters?: VoterFileFilterService,
     @Optional()
     private readonly elections?: ElectionsService,
+    @Optional()
+    private readonly helpCenter?: HelpCenterSearchService,
   ) {}
 
   // The manager is a single ongoing conversation, not one per open: resume the
@@ -279,7 +284,13 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
   }
 
   private emptyContext(): CampaignManagerContext {
-    return { ...EMPTY_CONTEXT, webSearchEnabled: webSearchAvailable() }
+    return {
+      ...EMPTY_CONTEXT,
+      webSearchEnabled: webSearchAvailable(),
+      // Help-center search needs neither a campaign nor a credential, so it
+      // survives a context we could not resolve.
+      helpCenterToolEnabled: !!this.helpCenter,
+    }
   }
 
   async loadContext(
@@ -375,6 +386,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       savedFilterToolsEnabled,
       raceId: details.raceId ?? null,
       webSearchEnabled: webSearchAvailable(),
+      helpCenterToolEnabled: !!this.helpCenter,
       story,
       plan,
     }
@@ -393,6 +405,14 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     // advertise a search tool that was not registered.
     if (ctx.webSearchEnabled) {
       tools.web_search = { kind: 'native_web_search', maxUses: 5 }
+    }
+
+    // Our own published support articles. Needs no credential and no
+    // campaign context, so it registers whenever the service is provided.
+    if (this.helpCenter && ctx.helpCenterToolEnabled) {
+      tools.search_help_center = buildSearchHelpCenterTool({
+        helpCenter: this.helpCenter,
+      })
     }
 
     // Aggregate-only constituent data against the dedicated Win mart

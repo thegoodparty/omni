@@ -16,6 +16,7 @@ import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import { WIN_CONSTITUENT_TABLES } from './services/constituentDataScope'
+import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import { CampaignStoryIntakeService } from './campaignStoryIntake.service'
 import {
@@ -66,6 +67,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     GeneralChatStoreService,
     DistrictResolverService,
     CampaignStoryIntakeService,
+    HelpCenterSearchService,
     {
       provide: CM_CONSTITUENT_DATA_PROVIDER,
       useFactory: constituentDataProviderFactory,

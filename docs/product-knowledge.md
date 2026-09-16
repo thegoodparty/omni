@@ -102,6 +102,31 @@ page exists, that a description has gone stale, or that a sentence is simply
 wrong. Layers 1 and 2 are what cover those, which is why the map is a
 same-PR habit rather than a chore someone does when CI complains.
 
+## The help center, and why the map still outranks it
+
+Both assistants also have `search_help_center`
+(`packages/gp-api/src/chats/general/help-center/`), which searches our own
+support articles for how-to steps, compliance rules, billing, and anything
+procedural the map does not carry.
+
+It reads HubSpot's public site-search endpoint. That endpoint needs **no
+credential, no scope, and no Service Hub tier** — the portal id is already
+public, being the support widget's own script src — so the tool works in every
+environment with no configuration. It returns titles, links, summaries, and
+categories, never article bodies: enough to answer and to link the right page.
+
+**The map wins on anything about naming or location.** A spike over all 65
+public articles found real drift: one still sends candidates to a "Content
+Builder" tab that does not exist, and the articles say "segments" where the
+product says "lists". The map is gated against the real nav on every PR; the
+articles are gated against nothing. So the prompt orders them explicitly, and
+tells the assistant to trust the map and describe the current screen when an
+article names something it cannot find.
+
+Two things for whoever owns the help center: an article titled
+"TEMPLATE (clone)" is publicly live and indexed, and the door-knocking article
+needs rewriting against the current navigation.
+
 ## Support routing
 
 **One route, both assistants:** the support chat (HubSpot Conversations,

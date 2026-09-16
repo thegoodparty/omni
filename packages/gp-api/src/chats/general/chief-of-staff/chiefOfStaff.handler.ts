@@ -40,6 +40,8 @@ import { buildDescribeFilterDimensionsTool } from '../crm-tools/describeFilterDi
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
+import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
 
 // Sensitive scope: tool outputs (briefings, priorities, search results) flow
 // back into the model context, so this scope runs Anthropic-only. The registry
@@ -84,6 +86,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly contacts?: ContactsService,
     @Optional()
     private readonly voterFileFilters?: VoterFileFilterService,
+    @Optional()
+    private readonly helpCenter?: HelpCenterSearchService,
   ) {}
 
   async resolveConversation(
@@ -195,6 +199,14 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           scope,
         })
       }
+    }
+
+    // Our own published support articles. Needs no credential and no org
+    // context, so it registers whenever the service is provided.
+    if (this.helpCenter) {
+      tools.search_help_center = buildSearchHelpCenterTool({
+        helpCenter: this.helpCenter,
+      })
     }
 
     if (this.communityIssueRead) {
