@@ -47,11 +47,20 @@ case "$file_path" in
   *"$NAV_REGISTRY")
     output="$(cd "$REPO_ROOT" && npx tsx scripts/product-map-coverage.ts 2>&1)"
     status=$?
-    # A missing tsx or a broken toolchain must not fail the agent's edit. Only
-    # the check's own verdict (exit 1) is worth interrupting for.
-    if [ "$status" -eq 1 ]; then
+    # Exit 2 is the check's verdict that the map is stale, and the only case
+    # worth interrupting an edit for. Anything else non-zero is the check
+    # failing to run at all (the nav registry moved, the scrape fell below its
+    # floor, tsx did not start) — say that instead, because telling an agent
+    # the map is out of date when the checker crashed sends it to edit the
+    # wrong file.
+    if [ "$status" -eq 2 ]; then
       printf 'You changed the dashboard nav, and the product map no longer matches it.\n\n%s\n\nThe Campaign Manager and Chief of Staff read that map to answer product questions. Update it now, in this change, before moving on.\n' "$output" >&2
       exit 2
+    fi
+    if [ "$status" -ne 0 ]; then
+      # Non-blocking: a broken local toolchain should not fail the edit, and
+      # CI still enforces the map either way.
+      emit_context "The product-map coverage check could not run, so nothing was verified about the assistants' product map. This is the checker failing, not the map being wrong — fix the checker (or the nav registry it reads) rather than editing productMap.ts. Output: $output"
     fi
     exit 0
     ;;
