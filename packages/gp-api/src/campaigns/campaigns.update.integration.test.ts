@@ -2,7 +2,7 @@ import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { CrmCampaignsService } from '@/campaigns/services/crmCampaigns.service'
 import { isActiveCampaign } from '@/campaigns/util/eligibility.util'
 import { useTestService } from '@/test-service'
-import { InternalServerErrorException } from '@nestjs/common'
+import { InternalServerErrorException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -382,5 +382,57 @@ describe('CampaignsService.updateJsonFields — update did not resolve', () => {
     ).rejects.toBeInstanceOf(InternalServerErrorException)
 
     expect(trackSpy).not.toHaveBeenCalled()
+  })
+})
+
+// The unit tests prove the shape of the call; this one runs the statement.
+// Nothing else executes the `details || $1::jsonb` SQL, so a wrong table name,
+// a wrong column, or a merge operator that does not do what we think it does
+// would otherwise reach production unexercised.
+describe('CampaignsService.patchCampaignDetails — atomic jsonb merge', () => {
+  it('keeps both keys when two patches race, and still writes an explicit null', async () => {
+    const { campaign } = await seedCampaign()
+    const campaigns = service.app.get(CampaignsService)
+
+    // The prod shape: two Stripe deliveries for one subscription, milliseconds
+    // apart, patching different keys of the same blob.
+    await Promise.all([
+      campaigns.patchCampaignDetails(campaign.id, {
+        subscriptionId: 'sub_1TAcBr1taBPnTqn4UgzocpUD',
+      }),
+      campaigns.patchCampaignDetails(campaign.id, {
+        isProUpdatedAt: '2026-09-15T07:42:51Z',
+      }),
+    ])
+
+    const merged = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(merged.details).toEqual({
+      state: 'CA',
+      subscriptionId: 'sub_1TAcBr1taBPnTqn4UgzocpUD',
+      isProUpdatedAt: '2026-09-15T07:42:51Z',
+    })
+
+    // persistCampaignProCancellation nulls the key rather than dropping it, so
+    // the merge has to write JSON null — not skip the key, not strip it.
+    await campaigns.patchCampaignDetails(campaign.id, { subscriptionId: null })
+
+    const cancelled = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(cancelled.details).toEqual({
+      state: 'CA',
+      subscriptionId: null,
+      isProUpdatedAt: '2026-09-15T07:42:51Z',
+    })
+  })
+
+  it('404s on a campaign id that does not resolve', async () => {
+    const campaigns = service.app.get(CampaignsService)
+
+    await expect(
+      campaigns.patchCampaignDetails(999_999, { subscriptionId: 'sub_A' }),
+    ).rejects.toBeInstanceOf(NotFoundException)
   })
 })

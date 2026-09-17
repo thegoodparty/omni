@@ -11,7 +11,11 @@ import { SegmentService } from '@/vendors/segment/segment.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
-import { BadRequestException } from '@nestjs/common'
+import {
+  BadRequestException,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { Campaign, Prisma, PrismaClient, User } from '../../generated/prisma'
 import { deepmerge as deepMerge } from 'deepmerge-ts'
@@ -183,6 +187,7 @@ const buildOrgSyncModule = async (overrides?: {
     mockCampaignFindFirst,
     mockCampaignFindUnique,
     mockCampaignUpdate,
+    mockTransaction,
     mockTrackCampaign,
     mockIdentify,
     mockReconcileBallotAccess,
@@ -1663,6 +1668,31 @@ describe('CampaignsService - findActiveByUserId', () => {
   })
 })
 
+// The single jsonb-merge parameter the details UPDATE binds. Bound values
+// arrive after the template strings, and the patch is the first of the two
+// ($1 = the JSON patch, $2 = the campaign id).
+const patchFromExecuteRawCall = (
+  call: unknown[],
+): PrismaJson.CampaignDetails => {
+  const [, patchJson] = call
+  if (typeof patchJson !== 'string') {
+    throw new Error(
+      `the details merge bound a non-string jsonb patch: ${String(patchJson)}`,
+    )
+  }
+
+  return JSON.parse(patchJson) as PrismaJson.CampaignDetails
+}
+
+// What Prisma raises when Postgres aborts a Serializable transaction, as the
+// Pro-upgrade webhooks saw it in prod.
+const writeConflictError = () =>
+  new Prisma.PrismaClientKnownRequestError(
+    'Transaction failed due to a write conflict or a deadlock. ' +
+      'Please retry your transaction',
+    { code: 'P2034', clientVersion: 'test' },
+  )
+
 const buildSetIsProModule = async () => {
   const mockCampaignUpdate = vi.fn(
     async ({ data }: { data: Record<string, unknown> }) => ({
@@ -1674,9 +1704,18 @@ const buildSetIsProModule = async () => {
   )
   const mockTxCampaignFindUnique = vi.fn()
   const mockCampaignFindFirst = vi.fn()
+  // Rowcount, as $executeRaw returns. 1 = the campaign row was patched.
+  // Separate mocks for the transaction-scoped client and the bare one, so a
+  // test can tell an in-transaction details merge from a standalone write.
+  const mockTxExecuteRaw = vi.fn().mockResolvedValue(1)
+  const mockExecuteRaw = vi.fn().mockResolvedValue(1)
+  const mockCampaignFindUniqueOrThrow = vi
+    .fn()
+    .mockResolvedValue({ id: 1, userId: 7, isPro: true, details: {} })
   const mockTransaction = vi.fn(
     async (callback: Parameters<PrismaClient['$transaction']>[0]) => {
       const tx = {
+        $executeRaw: mockTxExecuteRaw,
         campaign: {
           findUnique: mockTxCampaignFindUnique,
           update: mockCampaignUpdate,
@@ -1692,9 +1731,11 @@ const buildSetIsProModule = async () => {
 
   const mockPrismaService = {
     $transaction: mockTransaction,
+    $executeRaw: mockExecuteRaw,
     campaign: {
       findFirst: mockCampaignFindFirst,
       findUnique: vi.fn(),
+      findUniqueOrThrow: mockCampaignFindUniqueOrThrow,
     },
   }
 
@@ -1739,20 +1780,18 @@ const buildSetIsProModule = async () => {
     configurable: true,
   })
 
-  // Every `campaign.update` that carries a `details` payload — i.e. the writes
-  // routed through patchCampaignDetails, not the isPro scalar flip.
+  // Every details patch setIsPro issued. These go out as the jsonb-merge
+  // parameter of a raw UPDATE inside the flip's own transaction, not as a
+  // `campaign.update` payload; the isPro scalar flip still runs through
+  // `campaign.update` and is deliberately not counted here.
   const detailsWrites = () =>
-    mockCampaignUpdate.mock.calls
-      .map(([args]) => args.data)
-      .filter(
-        (data): data is { details: PrismaJson.CampaignDetails } =>
-          'details' in data,
-      )
+    mockTxExecuteRaw.mock.calls.map(patchFromExecuteRawCall)
 
   return {
     service,
     mockTxCampaignFindUnique,
-    mockCampaignFindFirst,
+    mockTransaction,
+    mockExecuteRaw,
     detailsWrites,
   }
 }
@@ -1761,41 +1800,28 @@ describe('CampaignsService - setIsPro / isProUpdatedAt', () => {
   const PRIOR_UPGRADE_DATE = '2026-01-15T00:00:00Z'
 
   it('stamps isProUpdatedAt when a campaign transitions to Pro', async () => {
-    const {
-      service,
-      mockTxCampaignFindUnique,
-      mockCampaignFindFirst,
-      detailsWrites,
-    } = await buildSetIsProModule()
+    const { service, mockTxCampaignFindUnique, detailsWrites } =
+      await buildSetIsProModule()
     mockTxCampaignFindUnique.mockResolvedValue({
       isPro: false,
       hasFreeTextsOffer: false,
       freeTextsOfferRedeemedAt: null,
     })
-    mockCampaignFindFirst.mockResolvedValue({ id: 1, details: {} })
 
     await service.setIsPro(1, true, false)
 
     const writes = detailsWrites()
     expect(writes).toHaveLength(1)
-    expect(firstOrThrow(writes).details.isProUpdatedAt).toBeDefined()
+    expect(firstOrThrow(writes).isProUpdatedAt).toBeDefined()
   })
 
   it('leaves isProUpdatedAt untouched when a Pro campaign is downgraded', async () => {
-    const {
-      service,
-      mockTxCampaignFindUnique,
-      mockCampaignFindFirst,
-      detailsWrites,
-    } = await buildSetIsProModule()
+    const { service, mockTxCampaignFindUnique, detailsWrites } =
+      await buildSetIsProModule()
     mockTxCampaignFindUnique.mockResolvedValue({
       isPro: true,
       hasFreeTextsOffer: false,
       freeTextsOfferRedeemedAt: null,
-    })
-    mockCampaignFindFirst.mockResolvedValue({
-      id: 1,
-      details: { isProUpdatedAt: PRIOR_UPGRADE_DATE },
     })
 
     await service.setIsPro(1, false, false)
@@ -1804,20 +1830,12 @@ describe('CampaignsService - setIsPro / isProUpdatedAt', () => {
   })
 
   it('leaves isProUpdatedAt untouched when an already-Pro campaign is re-written', async () => {
-    const {
-      service,
-      mockTxCampaignFindUnique,
-      mockCampaignFindFirst,
-      detailsWrites,
-    } = await buildSetIsProModule()
+    const { service, mockTxCampaignFindUnique, detailsWrites } =
+      await buildSetIsProModule()
     mockTxCampaignFindUnique.mockResolvedValue({
       isPro: true,
       hasFreeTextsOffer: true,
       freeTextsOfferRedeemedAt: null,
-    })
-    mockCampaignFindFirst.mockResolvedValue({
-      id: 1,
-      details: { isProUpdatedAt: PRIOR_UPGRADE_DATE },
     })
 
     await service.setIsPro(1, true, false)
@@ -1826,28 +1844,272 @@ describe('CampaignsService - setIsPro / isProUpdatedAt', () => {
   })
 
   it('re-stamps isProUpdatedAt when a cancelled campaign upgrades again', async () => {
-    const {
-      service,
-      mockTxCampaignFindUnique,
-      mockCampaignFindFirst,
-      detailsWrites,
-    } = await buildSetIsProModule()
+    const { service, mockTxCampaignFindUnique, detailsWrites } =
+      await buildSetIsProModule()
     mockTxCampaignFindUnique.mockResolvedValue({
       isPro: false,
       hasFreeTextsOffer: true,
       freeTextsOfferRedeemedAt: new Date(),
-    })
-    mockCampaignFindFirst.mockResolvedValue({
-      id: 1,
-      details: { isProUpdatedAt: PRIOR_UPGRADE_DATE },
     })
 
     await service.setIsPro(1, true, false)
 
     const writes = detailsWrites()
     expect(writes).toHaveLength(1)
-    expect(firstOrThrow(writes).details.isProUpdatedAt).not.toBe(
-      PRIOR_UPGRADE_DATE,
+    expect(firstOrThrow(writes).isProUpdatedAt).not.toBe(PRIOR_UPGRADE_DATE)
+  })
+})
+
+describe('CampaignsService - setIsPro write contention', () => {
+  // The stamp used to be a second, separate write issued after the flip's
+  // transaction had already committed, so a failure between the two left a Pro
+  // campaign the CRM sync would publish with no pro_upgrade_date. One
+  // transaction, one commit.
+  it('stamps isProUpdatedAt inside the flip transaction, not after it', async () => {
+    const {
+      service,
+      mockTxCampaignFindUnique,
+      mockTransaction,
+      mockExecuteRaw,
+      detailsWrites,
+    } = await buildSetIsProModule()
+    mockTxCampaignFindUnique.mockResolvedValue({
+      isPro: false,
+      hasFreeTextsOffer: false,
+      freeTextsOfferRedeemedAt: null,
+    })
+
+    await service.setIsPro(1, true, false)
+
+    expect(mockTransaction).toHaveBeenCalledTimes(1)
+    expect(mockExecuteRaw).not.toHaveBeenCalled()
+    expect(detailsWrites()).toHaveLength(1)
+  })
+
+  // Prod, 30 days to 2026-09-17: P2034 out of setIsPro <-
+  // handleSubscriptionCheckoutCompleted on 2026-09-14 and 2026-09-16. The
+  // transition read and the flip genuinely have to serialize, so the conflict
+  // is real and the answer is to re-run it — the campaign is left non-Pro
+  // otherwise, and Stripe gets a 5xx for a payment it already took. Only that
+  // conflict: a retry loop wide enough to swallow a connection failure would
+  // turn one real error into four.
+  it('retries a write conflict, and only a write conflict', async () => {
+    const { service, mockTxCampaignFindUnique, mockTransaction } =
+      await buildSetIsProModule()
+    mockTxCampaignFindUnique.mockResolvedValue({
+      isPro: false,
+      hasFreeTextsOffer: false,
+      freeTextsOfferRedeemedAt: null,
+    })
+    mockTransaction.mockRejectedValueOnce(writeConflictError())
+
+    await expect(service.setIsPro(1, true, false)).resolves.toEqual({
+      becamePro: true,
+    })
+    expect(mockTransaction).toHaveBeenCalledTimes(2)
+
+    mockTransaction.mockClear()
+    mockTransaction.mockRejectedValue(new Error('connection reset'))
+
+    await expect(service.setIsPro(1, true, false)).rejects.toThrow(
+      'connection reset',
     )
+    expect(mockTransaction).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('CampaignsService - updateJsonFields write contention', () => {
+  // Unlike patchCampaignDetails this one reads inside its transaction, so
+  // Serializable does its job and the loser aborts rather than losing an
+  // update. deepMerge plus the stale-result key deletions have no single-
+  // statement jsonb equivalent, so the fix is to re-run the whole read-merge-
+  // write against the now-committed row.
+  it('retries the update when Postgres aborts it with a write conflict', async () => {
+    const {
+      service,
+      mockCampaignFindFirst,
+      mockCampaignUpdate,
+      mockTransaction,
+    } = await buildOrgSyncModule()
+    mockCampaignFindFirst.mockResolvedValue({
+      id: 10,
+      userId: 1,
+      data: {},
+      details: {},
+      aiContent: {},
+    })
+    const updated = { id: 10, userId: 1, details: { city: 'Oakland' } }
+    mockCampaignUpdate.mockResolvedValue(updated)
+    mockTransaction.mockRejectedValueOnce(writeConflictError())
+
+    await expect(
+      service.updateJsonFields(10, { details: { city: 'Oakland' } }),
+    ).resolves.toEqual(updated)
+    expect(mockTransaction).toHaveBeenCalledTimes(2)
+  })
+})
+
+// A stand-in for the one `campaign` row these writes contend over. The
+// $executeRaw handler applies `details || patch` the way Postgres does under
+// the statement's own row lock — merge onto whatever is committed at the
+// moment the statement runs — while `campaign.update` overwrites the column
+// with whatever blob the caller computed. Both defer past a macrotask so two
+// concurrent patchCampaignDetails calls really do interleave: with
+// `Promise.all` both reach their first await before either resolves.
+const buildDetailsRowModule = async (
+  initialDetails: PrismaJson.CampaignDetails | null = {},
+  { rowExists = true }: { rowExists?: boolean } = {},
+) => {
+  const row: { details: PrismaJson.CampaignDetails | null } = {
+    details: initialDetails,
+  }
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  const mockExecuteRaw = vi.fn(async (...call: unknown[]) => {
+    await tick()
+    if (!rowExists) return 0
+    if (row.details === null || typeof row.details !== 'object') return 0
+    row.details = { ...row.details, ...patchFromExecuteRawCall(call) }
+    return 1
+  })
+  const readRow = async () => {
+    await tick()
+    return rowExists ? { id: 1, userId: 7, details: row.details } : null
+  }
+  const mockCampaignFindFirst = vi.fn(readRow)
+  const mockCampaignFindUnique = vi.fn(readRow)
+  const mockCampaignUpdate = vi.fn(
+    async ({ data }: { data: { details?: PrismaJson.CampaignDetails } }) => {
+      await tick()
+      if (data.details !== undefined) row.details = data.details
+      return { id: 1, userId: 7, details: row.details }
+    },
+  )
+  const mockTransaction = vi.fn(
+    async (callback: Parameters<PrismaClient['$transaction']>[0]) =>
+      callback({
+        campaign: { update: mockCampaignUpdate, findUnique: vi.fn() },
+      } as unknown as Parameters<
+        Parameters<PrismaClient['$transaction']>[0]
+      >[0]),
+  ) as MockedFunction<PrismaClient['$transaction']>
+
+  const mockPrismaService = {
+    $transaction: mockTransaction,
+    $executeRaw: mockExecuteRaw,
+    campaign: {
+      findFirst: mockCampaignFindFirst,
+      findUnique: mockCampaignFindUnique,
+      findUniqueOrThrow: vi.fn(async () => ({
+        id: 1,
+        userId: 7,
+        details: row.details,
+      })),
+    },
+  }
+
+  const module: TestingModule = await Test.createTestingModule({
+    providers: [
+      { provide: PrismaService, useValue: mockPrismaService },
+      { provide: UsersService, useValue: {} },
+      { provide: CrmCampaignsService, useValue: { trackCampaign: vi.fn() } },
+      { provide: SegmentService, useValue: {} },
+      {
+        provide: AnalyticsService,
+        useValue: { track: vi.fn(), identify: vi.fn() },
+      },
+      { provide: CampaignPlanVersionsService, useValue: {} },
+      { provide: StripeService, useValue: {} },
+      { provide: GooglePlacesService, useValue: {} },
+      { provide: ElectionsService, useValue: {} },
+      { provide: BallotReadyService, useValue: {} },
+      { provide: OrganizationsService, useValue: {} },
+      { provide: SlackService, useValue: {} },
+      { provide: CampaignTasksService, useValue: {} },
+      { provide: CampaignTrackerTasksService, useValue: {} },
+      { provide: PinoLogger, useValue: createMockLogger() },
+      CampaignsService,
+    ],
+  }).compile()
+
+  const service = module.get<CampaignsService>(CampaignsService)
+  Object.defineProperty(service, '_prisma', {
+    get: () => mockPrismaService,
+    configurable: true,
+  })
+  Object.defineProperty(service, 'logger', {
+    get: () => createMockLogger(),
+    configurable: true,
+  })
+
+  return { service, row, mockExecuteRaw, mockTransaction }
+}
+
+describe('CampaignsService - patchCampaignDetails write contention', () => {
+  // The bug, reduced to its two requests. Prod, 30 days to 2026-09-17: P2034
+  // out of patchCampaignDetails <- customerSubscriptionUpdatedHandler
+  // (2026-09-14) and <- notifySlackOnProUpgrade (2026-08-24, 2026-08-29).
+  // Reading the blob before the write means the loser overwrites the winner's
+  // key from a snapshot taken before it existed — P2034 when Postgres catches
+  // the overlap, and a silent lost update with a 200 when it does not. Since
+  // details.subscriptionId is the only mapping from a live Stripe subscription
+  // back to an account, the dropped key can be a paying customer.
+  //
+  // Asserted against the row, not either call's return value: each returns the
+  // row as it read it back, so the one that finishes first legitimately has not
+  // seen the other's key yet. What must hold is that the row keeps both.
+  it('keeps both keys when two patches of the same campaign interleave', async () => {
+    const { service, row } = await buildDetailsRowModule({})
+
+    await Promise.all([
+      service.patchCampaignDetails(1, { subscriptionId: 'sub_A' }),
+      service.patchCampaignDetails(1, {
+        isProUpdatedAt: '2026-09-15T07:42:51Z',
+      }),
+    ])
+
+    expect(row.details).toEqual({
+      subscriptionId: 'sub_A',
+      isProUpdatedAt: '2026-09-15T07:42:51Z',
+    })
+  })
+
+  // The merge has to be the database's, in the statement, or the interleaving
+  // above is only accidentally safe: no pre-read of the row, no blob written
+  // back, and no transaction — there is nothing left in here that needs one,
+  // and so nothing left to abort with a P2034.
+  it('sends only the patch keys, with no pre-read and no transaction', async () => {
+    const { service, mockExecuteRaw, mockTransaction } =
+      await buildDetailsRowModule({
+        subscriptionId: 'sub_existing',
+      })
+
+    await service.patchCampaignDetails(1, { isProUpdatedAt: 'T' })
+
+    expect(mockTransaction).not.toHaveBeenCalled()
+    expect(mockExecuteRaw).toHaveBeenCalledTimes(1)
+    expect(patchFromExecuteRawCall(firstOrThrow(mockExecuteRaw.mock.calls))) //
+      .toEqual({ isProUpdatedAt: 'T' })
+  })
+
+  // Zero rows has two causes the old pre-read collapsed into one 500. `details`
+  // is NOT NULL with a `{}` default, so the case that actually happens is a
+  // campaign id that does not resolve — a 404. The non-object column keeps its
+  // 500 because it means the row is malformed, not the request.
+  it('separates a missing campaign from a details column that is not an object', async () => {
+    const { service: noRow } = await buildDetailsRowModule(
+      {},
+      {
+        rowExists: false,
+      },
+    )
+    await expect(
+      noRow.patchCampaignDetails(404, { subscriptionId: 'sub_A' }),
+    ).rejects.toBeInstanceOf(NotFoundException)
+
+    const { service: badColumn } = await buildDetailsRowModule(null)
+    await expect(
+      badColumn.patchCampaignDetails(1, { subscriptionId: 'sub_A' }),
+    ).rejects.toBeInstanceOf(InternalServerErrorException)
   })
 })

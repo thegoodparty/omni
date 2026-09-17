@@ -47,7 +47,16 @@ Where Pro state lives (all of it — there is no subscription table):
 
 - `campaign.details.subscriptionId` / `subscriptionCanceledAt` — set by the
   `checkout.session.completed` / `customer.subscription.*` webhooks in
-  `paymentEventsService.ts`. `isPro` flips here too.
+  `paymentEventsService.ts`. `isPro` flips here too. All of these go through
+  `CampaignsService.patchCampaignDetails`, which merges the key server-side in
+  one `UPDATE ... details || $1::jsonb`. That is not a style preference: these
+  handlers patch DIFFERENT keys of the SAME blob milliseconds apart (Stripe
+  delivers `customer.subscription.created` and `checkout.session.completed`
+  together), and the read-modify-write this replaced dropped whichever key lost
+  the race. `details.subscriptionId` is the only mapping from a live
+  subscription back to an account, so a dropped key is a customer who keeps
+  being billed while every renewal webhook 502s. See `src/campaigns/AGENTS.md`
+  § Patterns before touching that write path.
 - `user.metaData.customerId` — Stripe customer id (backfilled on boot, or
   on first Manage Subscription click via
   `PurchaseController.recoverCustomerIdFromSubscription` when the boot-time

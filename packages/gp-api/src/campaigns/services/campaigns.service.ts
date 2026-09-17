@@ -29,6 +29,8 @@ import {
 import { formatL2DistrictName } from 'src/campaigns/ai/chat/util/formatDistrictName.util'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { isSerializationError } from 'src/prisma/util/prismaErrors.util'
+import { retryIf } from 'src/shared/util/retry-if'
 import {
   DEFAULT_PAGINATION_LIMIT,
   DEFAULT_PAGINATION_OFFSET,
@@ -663,11 +665,27 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       })
     }
 
+    // This one reads INSIDE its transaction, so Serializable does what it is
+    // there for: a concurrent writer aborts rather than losing an update. It
+    // cannot become a single atomic statement the way `patchCampaignDetails`
+    // did — `deepMerge` plus the stale-result key deletions have no jsonb
+    // equivalent — so the correct-but-aborting write is retried on the
+    // conflict. Only when we own the transaction: an `outerTx` belongs to the
+    // caller and is already aborted by the time we would see the error.
     const updatedCampaign = outerTx
       ? await runUpdate(outerTx)
-      : await this.client.$transaction(runUpdate, {
-          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-        })
+      : await retryIf(
+          () =>
+            this.client.$transaction(runUpdate, {
+              isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            }),
+          {
+            shouldRetry: isSerializationError,
+            retries: 3,
+            factor: 1.5,
+            minTimeout: 50,
+          },
+        )
 
     if (!updatedCampaign) {
       throw new InternalServerErrorException(`Failed to update campaign ${id}`)
@@ -701,36 +719,75 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     return updatedCampaign
   }
 
+  // The previous shape read `details`, spread the patch over it in application
+  // memory, and wrote the whole blob back — with the read OUTSIDE the
+  // Serializable transaction that wrapped only the UPDATE, so nothing
+  // serialized the read the merge was computed from. Two concurrent patches of
+  // one campaign both merged onto the same pre-read snapshot: the second either
+  // aborted (P2034) or, a moment later, silently overwrote every key the first
+  // had set and answered 200. `campaign.details.subscriptionId` is the only
+  // mapping from a live Stripe subscription back to an account, so the key that
+  // got dropped was sometimes a paying customer's subscription.
+  //
+  // The merge is now the database's, inside one statement: `details || patch`
+  // re-reads under that UPDATE's own row lock, so a concurrent writer blocks
+  // and then merges onto the committed result. The write is order-independent
+  // across the disjoint key sets callers use and idempotent on re-application,
+  // which is what Stripe's at-least-once redelivery does.
+  //
+  // The returned row is read back separately, so it can already carry a
+  // concurrent patch's keys. Callers use it for the campaign's own fields, not
+  // to confirm what this call wrote.
   async patchCampaignDetails(
     campaignId: number,
     details: Partial<PrismaJson.CampaignDetails>,
   ) {
-    const currentCampaign = await this.model.findFirst({
+    await this.mergeDetails(this.client, campaignId, details)
+
+    return this.model.findUniqueOrThrow({ where: { id: campaignId } })
+  }
+
+  // Raw SQL because merging into an existing jsonb column has no Prisma
+  // equivalent — same reason as `compareAndSwapCheckoutSessionId` in
+  // users.service.ts. The patch is bound as a single jsonb parameter; never
+  // interpolate it.
+  //
+  // Takes its client so the merge can join a caller's transaction, which is
+  // how `setIsPro` commits the flip and the details it implies together.
+  //
+  // `||` is a top-level merge, the same shallow semantics the spread had, so a
+  // nested object in `patch` replaces rather than merges. An explicitly
+  // `undefined` value now leaves the existing key alone where the spread plus
+  // JSON serialization deleted it; a `null` still writes JSON null, which is
+  // what `persistCampaignProCancellation` relies on. `updated_at` is assigned
+  // by hand because raw SQL does not fire Prisma's `@updatedAt`.
+  private async mergeDetails(
+    db: Prisma.TransactionClient,
+    campaignId: number,
+    details: Partial<PrismaJson.CampaignDetails>,
+  ): Promise<void> {
+    const updatedCount = await db.$executeRaw`
+      UPDATE campaign
+      SET details = details || ${JSON.stringify(details)}::jsonb,
+          updated_at = NOW()
+      WHERE id = ${campaignId}
+        AND jsonb_typeof(details) = 'object'
+    `
+    if (updatedCount > 0) return
+
+    // The old pre-read collapsed two causes into one 500. `details` is NOT NULL
+    // with a `{}` default, so in practice zero rows means no such campaign —
+    // a 404, not a server error. The non-object case keeps the 500 it had.
+    const campaign = await db.campaign.findUnique({
       where: { id: campaignId },
+      select: { id: true },
     })
-    if (!currentCampaign?.details) {
-      throw new InternalServerErrorException(
-        `Campaign ${campaignId} has no details JSON`,
-      )
+    if (!campaign) {
+      throw new NotFoundException(`Campaign ${campaignId} not found`)
     }
-    const { details: currentDetails } = currentCampaign
-
-    const updatedDetails = {
-      ...currentDetails,
-      ...details,
-    }
-    const updatedCampaign = await this.client.$transaction(
-      async (tx) =>
-        tx.campaign.update({
-          where: { id: campaignId },
-          data: { details: updatedDetails },
-        }),
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
+    throw new InternalServerErrorException(
+      `Campaign ${campaignId} has no details JSON`,
     )
-
-    return updatedCampaign
   }
 
   async persistCampaignProCancellation(campaign: Campaign) {
@@ -762,45 +819,68 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     // becamePro=true, and both fire the one-time Pro-upgrade side effects.
     // Serializable makes the second writer block on the first and observe
     // isPro=true, so it computes becamePro=false.
-    const { campaign, isBecomingProFirstTime } = await this.client.$transaction(
-      async (tx) => {
-        const existingCampaign = await tx.campaign.findUnique({
-          where: { id: campaignId },
-          select: {
-            isPro: true,
-            hasFreeTextsOffer: true,
-            freeTextsOfferRedeemedAt: true,
+    //
+    // That read-then-write is a genuine serialization conflict, not a lost
+    // update, so unlike `patchCampaignDetails` it cannot be collapsed into one
+    // statement — it is retried instead, the same way
+    // `ContrastRoutingService.routeToStory` retries its append. A retry
+    // re-reads the committed `isPro` and recomputes the transition, so the
+    // one-time side effects still fire exactly once. Without it a losing
+    // concurrent Pro upgrade threw P2034 out of the Stripe webhook.
+    const { campaign, isBecomingProFirstTime } = await retryIf(
+      () =>
+        this.client.$transaction(
+          async (tx) => {
+            const existingCampaign = await tx.campaign.findUnique({
+              where: { id: campaignId },
+              select: {
+                isPro: true,
+                hasFreeTextsOffer: true,
+                freeTextsOfferRedeemedAt: true,
+              },
+            })
+
+            const isBecomingProFirstTime = !existingCampaign?.isPro && isPro
+            const shouldGrantOffer =
+              isBecomingProFirstTime &&
+              !existingCampaign?.freeTextsOfferRedeemedAt
+
+            const campaign = await tx.campaign.update({
+              where: { id: campaignId },
+              data: {
+                isPro,
+                ...(shouldGrantOffer && { hasFreeTextsOffer: true }),
+              },
+            })
+
+            // `isProUpdatedAt` is what the CRM sync publishes as HubSpot's
+            // `pro_upgrade_date`, so only a genuine non-Pro -> Pro transition
+            // may stamp it. Stamping unconditionally overwrote the real upgrade
+            // date with the cancellation date on every downgrade, and
+            // re-stamped it on no-op rewrites from at-least-once Stripe webhook
+            // deliveries.
+            //
+            // Merged inside this transaction so the flip and the stamp it
+            // implies commit together — the stamp used to be a separate write
+            // that could fail on its own and leave a Pro campaign the CRM sync
+            // would publish with no upgrade date.
+            if (isBecomingProFirstTime) {
+              await this.mergeDetails(tx, campaignId, {
+                isProUpdatedAt: formatISO(new Date()),
+              })
+            }
+
+            return { campaign, isBecomingProFirstTime }
           },
-        })
-
-        const isBecomingProFirstTime = !existingCampaign?.isPro && isPro
-        const shouldGrantOffer =
-          isBecomingProFirstTime && !existingCampaign?.freeTextsOfferRedeemedAt
-
-        const campaign = await tx.campaign.update({
-          where: { id: campaignId },
-          data: {
-            isPro,
-            ...(shouldGrantOffer && { hasFreeTextsOffer: true }),
-          },
-        })
-
-        return { campaign, isBecomingProFirstTime }
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        ),
+      {
+        shouldRetry: isSerializationError,
+        retries: 3,
+        factor: 1.5,
+        minTimeout: 50,
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     )
-
-    // `isProUpdatedAt` is what the CRM sync publishes as HubSpot's
-    // `pro_upgrade_date`, so only a genuine non-Pro -> Pro transition may stamp
-    // it. Stamping unconditionally overwrote the real upgrade date with the
-    // cancellation date on every downgrade, and re-stamped it on no-op rewrites
-    // from at-least-once Stripe webhook deliveries.
-    if (isBecomingProFirstTime) {
-      // Must be in serial so as to not overwrite campaign details w/ concurrent queries
-      await this.patchCampaignDetails(campaignId, {
-        isProUpdatedAt: formatISO(new Date()),
-      })
-    }
 
     if (isBecomingProFirstTime) {
       void this.campaignTasks.notifySlackOnProUpgrade(campaignId)

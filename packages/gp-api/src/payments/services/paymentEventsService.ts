@@ -226,7 +226,10 @@ export class PaymentEventsService {
     }
     const { id: campaignId } = campaign
 
-    // These have to happen in serial since setIsPro also mutates the JSONP details column
+    // subscriptionId first, and not for ordering against setIsPro's own details
+    // write (that merges atomically now): it is how findBySubscriptionId
+    // resolves this campaign for every later subscription event, so it must not
+    // be contingent on the Pro flip succeeding.
     await this.campaignsService.patchCampaignDetails(campaignId, {
       subscriptionId: subscriptionId as string,
     })
@@ -395,7 +398,10 @@ export class PaymentEventsService {
       )
     }
 
-    // These have to happen in serial since setIsPro also mutates the JSONP details column
+    // subscriptionId first, and not for ordering against setIsPro's own details
+    // write (that merges atomically now): it is how findBySubscriptionId
+    // resolves this campaign for every later subscription event, so it must not
+    // be contingent on the Pro flip succeeding.
     await this.campaignsService.patchCampaignDetails(campaignId, {
       subscriptionId: incomingSubscriptionId,
     })
