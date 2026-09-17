@@ -24,6 +24,31 @@ const LEGACY_KEY_BOUNDS = [
   { key: 'age50Plus', filter: { age50Plus: true }, bounds: { gte: 50 } },
 ]
 
+// Nobody may subset constituents or voters by ethnicity. The six columns are
+// still on rows saved before that rule, and the whole point of not reading
+// them here is that such a list keeps working: it recounts to the rest of its
+// filter instead of erroring in the middle of someone's outreach.
+describe('convertVoterFileFilterToFilters ethnicity', () => {
+  const allSix = {
+    ethnicityAfricanAmerican: true,
+    ethnicityAsian: true,
+    ethnicityEuropean: true,
+    ethnicityHispanic: true,
+    ethnicityOther: true,
+    ethnicityUnknown: true,
+  }
+
+  it('ignores the ethnicity columns a pre-rule row still carries', () => {
+    expect(convertVoterFileFilterToFilters(allSix)).toEqual({})
+  })
+
+  it('keeps the rest of such a row applied', () => {
+    expect(
+      convertVoterFileFilterToFilters({ ...allSix, hasCellPhone: true }),
+    ).toEqual({ hasCellPhone: true })
+  })
+})
+
 describe('convertVoterFileFilterToFilters age ranges', () => {
   it.each(NEW_KEY_BOUNDS)(
     'converts new key $key to inclusive bounds $bounds',

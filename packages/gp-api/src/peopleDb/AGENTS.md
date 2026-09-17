@@ -269,11 +269,10 @@ chunk at a time into the encoder.
 
 ### The resident projection is wide, and that is deliberate
 
-`residents()` returns eleven demographic columns (`Voter_Status`,
+`residents()` returns ten demographic columns (`Voter_Status`,
 `Marital_Status`, `Presence_Of_Children`, `Veteran_Status`,
 `Homeowner_Probability_Model`, `Business_Owner`, `Education_Of_Person`,
-`Estimated_Income_Amount_Int`, `Language_Code`,
-`EthnicGroups_EthnicGroup1Desc`, plus a computed
+`Estimated_Income_Amount_Int`, `Language_Code`, plus a computed
 `("StateVoterID" IS NOT NULL) AS "registered"`) on top of name/age/party/phones,
 so the door can show a canvasser who they are talking to.
 

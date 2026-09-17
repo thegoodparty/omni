@@ -4,24 +4,6 @@
 // what the same selection would have filtered on. `null` means the selection
 // is "no value stored" rather than a value to match.
 export const VALUE_MAPPERS = {
-  ethnicity: (value: string): string | null => {
-    switch (value) {
-      case 'Asian':
-        return 'East and South Asian'
-      case 'European':
-        return 'European'
-      case 'Hispanic':
-        return 'Hispanic and Portuguese'
-      case 'African American':
-        return 'Likely African-American'
-      case 'Other':
-        return 'Other'
-      case 'Unknown':
-        return null
-      default:
-        return value
-    }
-  },
   presenceOfChildren: (value: string): string | null => {
     switch (value) {
       case 'Yes':

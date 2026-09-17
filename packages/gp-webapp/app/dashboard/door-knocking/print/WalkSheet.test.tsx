@@ -49,7 +49,6 @@ const stop = (overrides: Partial<RoutePayloadStop> = {}): RoutePayloadStop => ({
           levelOfEducation: 'Graduate Degree',
           estimatedIncomeAmount: 82000,
           language: 'Spanish',
-          ethnicityGroup: 'Hispanic',
           // ADR 0011, carried for the same reason and with more force again:
           // saved contact notes are free text a named person typed about a
           // named voter, which is the largest disclosure on this payload.

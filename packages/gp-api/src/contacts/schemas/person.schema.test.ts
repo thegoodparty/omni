@@ -36,7 +36,6 @@ const validPerson = {
   homeowner: 'Homeowner',
   businessOwner: null,
   levelOfEducation: 'College Degree',
-  ethnicityGroup: 'European',
   language: 'English',
 }
 

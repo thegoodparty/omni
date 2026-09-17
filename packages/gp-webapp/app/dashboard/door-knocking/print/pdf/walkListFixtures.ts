@@ -59,7 +59,6 @@ export const target = (
   levelOfEducation: 'Graduate Degree',
   estimatedIncomeAmount: 82000,
   language: 'Spanish',
-  ethnicityGroup: 'Hispanic',
   knockStatus: 'unknown',
   mayHaveMoved: false,
   doNotKnock: false,

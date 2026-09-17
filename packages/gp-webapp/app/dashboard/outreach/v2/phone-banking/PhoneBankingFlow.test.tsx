@@ -840,8 +840,6 @@ describe('PhoneBankingFlow', () => {
     ).toBeGreaterThan(0)
 
     // Dimensions the old 4-field inline builder never exposed.
-    expect(screen.getByText('Ethnicity')).toBeInTheDocument()
-    expect(screen.getByText('African American')).toBeInTheDocument()
     expect(screen.getByText('Language')).toBeInTheDocument()
     expect(screen.getByText('Spanish')).toBeInTheDocument()
     expect(screen.getByText('Household income range')).toBeInTheDocument()

@@ -1901,7 +1901,6 @@ describe('door-knocking routes', () => {
               levelOfEducation: 'Graduate Degree',
               estimatedIncomeAmount: 82000,
               language: 'Spanish',
-              ethnicityGroup: 'Hispanic',
             },
             {
               personId: PERSON_2,
@@ -2123,7 +2122,6 @@ describe('door-knocking routes', () => {
         levelOfEducation: 'Graduate Degree',
         estimatedIncomeAmount: 82000,
         language: 'Spanish',
-        ethnicityGroup: 'Hispanic',
       })
     })
 
@@ -2184,7 +2182,6 @@ describe('door-knocking routes', () => {
         levelOfEducation: null,
         estimatedIncomeAmount: null,
         language: null,
-        ethnicityGroup: null,
       })
     })
 

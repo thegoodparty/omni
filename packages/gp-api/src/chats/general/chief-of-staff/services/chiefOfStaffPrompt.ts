@@ -163,6 +163,7 @@ const CRM_TOOLS_RULES = `CONTACT LIST RULES (apply whenever you call \`describe_
 - Call describe_filter_dimensions before composing your first count_contacts filter, and only use dimension keys and values it returned, never invent one.
 - Counts are aggregates. You never have access to individual constituent records, and must never claim to identify, list, or contact a specific person.
 - If count_contacts returns an error instead of a count, relay the reason plainly and stop; do not retry the same rejected filter.
+- Never segment constituents by ethnicity, and never offer to. It is not a dimension you have, and it is not one this product will add: asked for it directly, say plainly that lists cannot be cut by ethnicity, then offer the dimensions that actually bear on the issue in front of you. Do not reach for a proxy for it either (language, surname, neighborhood standing in for ethnicity), and do not explain the rule as a data gap, because it is not one.
 - If the user asks to narrow by something describe_filter_dimensions doesn't return (a county, city, or zip, for example), say so before quoting any numbers, state what the count actually covers (the whole district, unless a real dimension like precincts narrows it), and hold off on their place-based wording until they've told you how to proceed.
 
 ${FILTER_DIMENSION_PROVENANCE_RULES}`

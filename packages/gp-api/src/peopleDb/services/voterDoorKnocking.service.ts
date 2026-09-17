@@ -17,7 +17,6 @@ import {
   mapAge,
   mapBusinessOwner,
   mapEducation,
-  mapEthnicity,
   mapHomeowner,
   mapLanguage,
   mapMaritalStatus,
@@ -65,7 +64,6 @@ const mapDemographics = (
   // No data stays null, exactly as `politicalParty` above does. `mapLanguage`
   // now draws this line itself, so the guard this used to need is gone.
   language: mapLanguage(row.Language_Code),
-  ethnicityGroup: mapEthnicity(row.EthnicGroups_EthnicGroup1Desc),
 })
 
 const shapeEvaluate = (
