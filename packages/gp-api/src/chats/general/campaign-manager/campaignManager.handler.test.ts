@@ -28,6 +28,7 @@ import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.s
 import type { ElectionsService } from '@/elections/services/elections.service'
 import type { LlmTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
+import { PROFESSIONAL_ADVICE_DISCLAIMER } from '../services/professionalAdviceCheck'
 
 const fakeProvider = { query: vi.fn() } as unknown as DatabricksProvider
 
@@ -862,5 +863,26 @@ describe('CampaignManagerHandler.maybeCannedReply', () => {
       ctxWith({ story: completeStory }),
     )
     expect(reply).toContain(PRODUCT_OVERVIEW_OPENER)
+  })
+})
+
+describe('CampaignManagerHandler.finalizeAssistantText (backstop)', () => {
+  it('appends the disclaimer to a statute citation with no caution', () => {
+    const answer =
+      'Under RCW 42.17A.405 that contribution is over the limit, and a ' +
+      'resident can file a complaint with the state commission.'
+    expect(buildHandler().finalizeAssistantText(answer)).toBe(
+      `\n\n${PROFESSIONAL_ADVICE_DISCLAIMER}`,
+    )
+  })
+
+  it('does not double the closing line the prompt asks for', () => {
+    expect(
+      buildHandler().finalizeAssistantText(
+        'Under RCW 42.17A.405 that contribution is over the limit. This is ' +
+          'not a substitute for legal advice. Confirm it with the relevant ' +
+          'election or regulatory authority, or an election attorney.',
+      ),
+    ).toBeNull()
   })
 })

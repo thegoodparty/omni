@@ -454,6 +454,36 @@ describe('buildCampaignManagerSystemPrompt', () => {
     }
   })
 
+  it('always carries the legal and compliance rules, tools on or off', () => {
+    const allOff = ctx({
+      webSearchEnabled: false,
+      helpCenterToolEnabled: false,
+    })
+    for (const prompt of [
+      buildCampaignManagerSystemPrompt(ctx()),
+      buildCampaignManagerSystemPrompt(allOff),
+    ]) {
+      expect(prompt).toContain('never state a legal conclusion as settled')
+      expect(prompt).toContain('A web search result is a lead')
+      expect(prompt).toContain('not the same as the law being satisfied')
+    }
+  })
+
+  it('fixes the closing line so the finish-time check recognizes it', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      'This is not a substitute for legal advice. Confirm it with the ' +
+        'relevant election or regulatory authority, or an election attorney.',
+    )
+    expect(prompt).toContain('point them to GoodParty support')
+  })
+
+  it('leaves the closing line off declines and product how-tos', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain('declines or redirects')
+    expect(prompt).toContain('raise no legal question')
+  })
+
   it('never invents facts (candidate-in-control guardrail)', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx()).toLowerCase()
     expect(prompt).toContain('never invent')
