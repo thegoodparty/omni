@@ -154,6 +154,7 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           supporters: 30,
           unsure: 10,
           nonSupporters: 20,
+          byFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -207,6 +208,7 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           supporters: 0,
           unsure: 0,
           nonSupporters: 0,
+          byFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -283,6 +285,7 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           supporters: 8,
           unsure: 4,
           nonSupporters: 4,
+          byFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -307,6 +310,66 @@ describe('OutreachDetailsDrawer — phone banking', () => {
     expect(
       screen.queryByRole('link', { name: 'Continue calling' }),
     ).not.toBeInTheDocument()
+  })
+
+  // Serve callers are never asked for a stance, so its support tallies stay
+  // zero forever — three rows reading "Support: Yes 0 (0%)" is what a
+  // completed Serve list used to show an elected official. The table states
+  // the question its callers were actually asked instead.
+  it('a completed serve list reports follow-up, never support', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: {
+        ...baseDetail,
+        status: 'completed',
+        phoneBankingListId: 5,
+        phoneBanking: {
+          listId: 5,
+          entriesTotal: 10,
+          entriesCalled: 10,
+          peopleTotal: 10,
+          peopleCalled: 10,
+          byOutcome: {
+            answered: 10,
+            no_answer: 0,
+            voicemail: 0,
+            wrong_number: 0,
+            refused: 0,
+            disconnected: 0,
+            hung_up: 0,
+          },
+          // A Serve list cannot carry these (the write schema refuses the
+          // mix), so leaving them zero is the realistic fixture.
+          supporters: 0,
+          unsure: 0,
+          nonSupporters: 0,
+          byFollowUp: { yes: 4, no: 6 },
+        },
+      },
+    })
+
+    render(
+      <OutreachDetailsDrawer
+        row={completedRow}
+        onOpenChange={vi.fn()}
+        isServe
+      />,
+    )
+
+    expect(
+      await screen.findByText('Based on 10 phone banking contacts'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Needs follow-up: Yes')).toBeInTheDocument()
+    expect(screen.getByText('Needs follow-up: No')).toBeInTheDocument()
+    // 4 and 6 of 10 people called.
+    expect(screen.getByText('40%')).toBeInTheDocument()
+    expect(screen.getByText('60%')).toBeInTheDocument()
+
+    for (const label of ['Support: Yes', 'Support: Unsure', 'Support: No']) {
+      expect(screen.queryByText(label)).not.toBeInTheDocument()
+    }
+    // Never an "Unsure" row either — the question is binary on this surface.
+    expect(screen.queryByText(/Unsure/)).not.toBeInTheDocument()
   })
 
   it('shows Restore from archive for an already-archived completed row and fires the archive endpoint with archived: false', async () => {
@@ -335,6 +398,7 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           supporters: 16,
           unsure: 0,
           nonSupporters: 0,
+          byFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -388,6 +452,7 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           supporters: 16,
           unsure: 0,
           nonSupporters: 0,
+          byFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -466,6 +531,7 @@ describe('OutreachDetailsDrawer — phone banking', () => {
           supporters: 16,
           unsure: 0,
           nonSupporters: 0,
+          byFollowUp: { yes: 0, no: 0 },
         },
       },
     })
@@ -526,6 +592,7 @@ describe('OutreachDetailsDrawer — assignees (ENG-11056 / ENG-11059)', () => {
           supporters: 30,
           unsure: 10,
           nonSupporters: 20,
+          byFollowUp: { yes: 0, no: 0 },
         },
       },
     })

@@ -90,6 +90,13 @@ generation services, the spine scoping — are in
   contact-name token is `[constituent name]` rather than `[voter name]`. A list
   frozen before any of this still carries the Win token, so every reader
   accepts either (`CONTACT_NAME_TOKENS`).
+- **A completed list reports follow-up, not support.** The drawer's Results
+  table reads `OutreachDetail.phoneBanking.byFollowUp` on this surface, where
+  Win reads `supporters`/`unsure`/`nonSupporters`. It picks by the `isServe`
+  prop and not by which tally is non-zero, so a completed list nobody answered
+  still reads in Serve's words. Both keys are reported even at zero: "nobody
+  needs following up" is an answer, and a row that vanished when it emptied
+  would make the table's shape a fact about the list.
 - **Team accounts are Win-only here.** `OutreachDetailsDrawer` takes `isServe`
   and renders no assignees section for it: the roles the assign modal offers
   are campaign roles, so an elected official gets no assignment rather than
