@@ -26,6 +26,7 @@ import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interc
 import { McpTool } from '@/mcp/decorators/McpTool.decorator'
 import { ElectedOffice, Priority, User } from '../../generated/prisma'
 import { toDateOnlyString } from 'src/shared/util/date.util'
+import { AffectedResidentsResponseSchema } from '../schemas/affectedResidents.schema'
 import {
   CommunityIssueDetailSchema,
   CommunityIssueListQueryDto,
@@ -37,6 +38,7 @@ import {
   SeedResponseSchema,
   SelfDispatchRequestDto,
 } from '../schemas/communityIssues.schema'
+import { AffectedResidentsService } from '../services/affectedResidents.service'
 import { CommunityIssueDispatchService } from '../services/communityIssueDispatch.service'
 import { CommunityIssuePrioritizeService } from '../services/communityIssuePrioritize.service'
 import { CommunityIssueReadService } from '../services/communityIssueRead.service'
@@ -63,6 +65,7 @@ export class CommunityIssuesController {
     private readonly prioritize: CommunityIssuePrioritizeService,
     private readonly dispatch: CommunityIssueDispatchService,
     private readonly seedService: CommunityIssueSeedService,
+    private readonly affected: AffectedResidentsService,
   ) {}
 
   // Preview/dev-only deterministic seeding for e2e tests; the service rejects
@@ -153,6 +156,25 @@ export class CommunityIssuesController {
       electedOffice.organizationSlug,
       electedOffice.id,
     )
+  }
+
+  // The ranked, contactable residents most materially affected by this one
+  // issue. Two segments, so `@Get(':id')` above cannot swallow it — but keep it
+  // beside that route rather than above the param, because Nest matches in
+  // declaration order and a future one-segment sibling would.
+  //
+  // `list` is null both for an issue with no list and for an issue belonging to
+  // another office, so the route cannot be used to probe another org's feed.
+  @Get(':id/affected-residents')
+  @UseElectedOffice()
+  @ResponseSchema(AffectedResidentsResponseSchema)
+  async affectedResidents(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { id }: IssueIdParamDto,
+  ) {
+    return {
+      list: await this.affected.getForIssue(id, electedOffice.organizationSlug),
+    }
   }
 
   @Post(':id/prioritize')

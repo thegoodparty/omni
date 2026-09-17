@@ -13,6 +13,7 @@ import type {
   CommunityIssueSource,
 } from 'gpApi/api-endpoints'
 import { SectionSourcePills, SourcesCollapsible } from '@shared/citations'
+import { useAffectedResidentsFlag } from '@shared/experiments/affectedResidentsFlag'
 import type { SourceInput } from '@shared/briefings/displaySource'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { priorityVariant } from './IssueCard'
@@ -22,6 +23,10 @@ import CommunityIssuesChatDock from './CommunityIssuesChatDock'
 
 type Props = {
   issue: CommunityIssueDetail
+  // null when gp-api has no affected-residents list for this issue. Resolved
+  // server-side so the browser never receives the residents themselves just to
+  // decide whether to draw a link.
+  affectedResidentCount?: number | null
   devPreview?: boolean
 }
 
@@ -72,9 +77,18 @@ const NextStepCard = ({
   </Link>
 )
 
-const IssueDetail = ({ issue, devPreview }: Props): React.JSX.Element => {
+const IssueDetail = ({
+  issue,
+  affectedResidentCount = null,
+  devPreview,
+}: Props): React.JSX.Element => {
   const contentRef = useRef<HTMLDivElement>(null)
   const [prioritized, setPrioritized] = useState(issue.prioritized)
+  // The list page is the flag's treatment surface, so this read does not track
+  // exposure — it only decides whether to draw the entry point.
+  const affectedFlag = useAffectedResidentsFlag(false)
+  const showAffected =
+    affectedFlag.ready && affectedFlag.enabled && affectedResidentCount !== null
 
   useEffect(() => {
     if (devPreview) return
@@ -250,6 +264,13 @@ const IssueDetail = ({ issue, devPreview }: Props): React.JSX.Element => {
         <Card>
           <CardContent className="flex flex-col gap-3">
             <SectionHeading>Next steps</SectionHeading>
+            {showAffected ? (
+              <NextStepCard
+                href={`/dashboard/community-issues/${issue.id}/affected-residents`}
+                title="See who this affects"
+                description={`${affectedResidentCount.toLocaleString()} constituents you can contact, ranked by how much this issue affects them, with a map.`}
+              />
+            ) : null}
             {issue.relatedBriefings.map((rb) => (
               <NextStepCard
                 key={rb.briefingItemId}

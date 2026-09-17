@@ -33,13 +33,25 @@ export default async function Page({
     notFound()
   }
 
+  // Resolved server-side so only the count crosses into the client, never the
+  // residents. This does pull the whole list from gp-api to read one number;
+  // gp-api caches it per issue, so the subsequent navigation to the list page
+  // is free. Add a count-only route if this ever gets expensive.
+  const affected = await serverRequest(
+    'GET /v1/community-issues/:id/affected-residents',
+    { id: issueId },
+  ).catch(() => null)
+
   return (
     <DashboardLayout
       pathname="/dashboard/community-issues"
       showAlert={false}
       wrapperClassName="!p-0"
     >
-      <IssueDetail issue={result.data} />
+      <IssueDetail
+        issue={result.data}
+        affectedResidentCount={affected?.data.list?.residents.length ?? null}
+      />
     </DashboardLayout>
   )
 }

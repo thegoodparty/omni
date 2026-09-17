@@ -24,6 +24,8 @@ renamed onto this clean name once the dead module was removed.
 | `services/communityIssueSeed.service.ts`       | Preview/dev-only deterministic seeding for e2e tests           |
 | `communityIssueBucketing.ts`                   | FNV-1a bucket assignment (deterministic slug → list)           |
 | `communityIssueArtifact.validation.ts`         | Zod validation for S3 artifact JSON                            |
+| `services/affectedResidents.service.ts`        | Reads one issue's affected-residents list from S3              |
+| `schemas/affectedResidents.schema.ts`          | Zod schema for an affected-residents list                      |
 
 ## Prisma model
 
@@ -62,6 +64,75 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
   the cron) never re-triggers on landing, and a returning user whose issues
   went stale while they were away regenerates immediately. Distinct from
   `self-dispatch`, which is staff-only and single-type.
+- `GET /:id/affected-residents` — `@UseElectedOffice()`; the ranked,
+  contactable residents most materially affected by that one issue. Returns
+  `{ list: null }` both for an issue with no list and for an issue belonging to
+  another office, so it cannot be used to probe another org's feed.
+
+## Affected-residents lists
+
+Individual-level L2 records, so this is restricted data on a different footing
+from the rest of the module: the issue feed is agent-generated per org, these
+lists come from the serve-lists runbook one at a time (an L2 scoring run, a
+representation gate, a contact gate).
+
+**They are not a committed asset, and must not become one.** A list in the repo
+puts real names, street addresses and phone numbers into git history
+permanently, and history is not practically reversible. They live in S3 at
+`affected-residents/<communityIssueId>.json` in `AFFECTED_RESIDENTS_BUCKET`,
+read through the same `S3Service.getFile` this module already uses for
+experiment artifacts. The repo carries the schema, the route and a synthetic
+fixture. An unset bucket serves no list rather than failing.
+
+- **The issue lookup is the authorization.** `getForIssue` resolves the issue
+  with `where { id, organizationSlug }` before it touches the bucket, so the
+  S3 key is always built from an id already proven to belong to the caller and
+  a caller-supplied string never reaches S3 on its own.
+- **The payload is checked against the key it was found under.** A list whose
+  `communityIssueId` or `organizationSlug` disagrees with the request is
+  refused, because that means the wrong object is in the bucket and serving it
+  would hand one officeholder another's constituents.
+- **Factors are per-issue, and so are their keys.** The list declares its own
+  factors; each resident's `factorScores` is keyed by those declarations and
+  the schema rejects a resident scored on an undeclared factor or missing a
+  declared one. A missing key is a build error; `null` is a measured absence.
+  Do not reintroduce fixed columns — the first version hardcoded
+  proximity/tenure/income and could not carry the second list at all.
+- **A `null` factor score left both sides of the weighted average** rather than
+  scoring zero. It is not a low score and must not render as one.
+- **`confidence` is epistemic, not affectedness**, and stays out of the score.
+  Some saved lists nevertheless folded it into their frozen ranking, which is
+  why `rankingScore` exists alongside `affectednessScore` and why a list whose
+  two differ has to explain itself in `rankingNote`.
+- **Each entry carries its own `caveats` and the schema requires at least one.**
+  A score never ships without the coverage caveats that qualify it. Most of one
+  of these lists is scored with a factor dropped out, and a reader who does not
+  know that will misread the ranking.
+- **The cache is bounded on purpose.** Unbounded, a process that served every
+  issue would hold every office's constituents in memory. Entries are immutable
+  per run, so eviction only costs a re-fetch.
+
+### Getting a list into the bucket
+
+`scripts/load-affected-residents.ts`, dry-run by default:
+
+```bash
+npx tsx scripts/load-affected-residents.ts \
+  --file <path to the built list, outside this repo> \
+  --issue <communityIssueId> \
+  --execute
+```
+
+It validates against the same schema the service uses, checks `--issue` against
+the payload's own `communityIssueId`, and recomputes every resident's
+affectedness score from the declared factor weights before it will upload. That
+last check is not redundant: the schema does not know the arithmetic, and a
+list whose printed score disagrees with its own factors is not one to hand an
+officeholder.
+
+Fail here rather than at read time. The service refuses an invalid list and
+logs an error, which on the page is indistinguishable from "this office has no
+list" — a silent nothing rather than a build error.
 
 ## Activity gate
 
