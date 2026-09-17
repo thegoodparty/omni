@@ -18,7 +18,7 @@ import sys
 ENV_FILE = os.path.abspath(os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env"))
 HERE = os.path.dirname(os.path.abspath(__file__))
-LOCAL = os.path.join(LOCAL, "local")
+LOCAL = os.path.join(HERE, "local")
 os.makedirs(LOCAL, exist_ok=True)
 
 USABLE_ACCURACY = ("'GeoMatchRooftop','RangeInterpolation','ParcelCenter',"

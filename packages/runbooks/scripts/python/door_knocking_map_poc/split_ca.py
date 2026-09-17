@@ -13,7 +13,7 @@ import struct
 from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-LOCAL = os.path.join(LOCAL, "local")
+LOCAL = os.path.join(HERE, "local")
 os.makedirs(LOCAL, exist_ok=True)
 CELL = 0.2  # degrees
 OUT = os.path.join(LOCAL, "cells", "ca")

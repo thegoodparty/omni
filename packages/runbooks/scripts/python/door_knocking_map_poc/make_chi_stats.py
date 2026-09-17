@@ -12,7 +12,7 @@ Usage: python3 make_chi_stats.py   (open /chi_stats.html)
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-LOCAL = os.path.join(LOCAL, "local")
+LOCAL = os.path.join(HERE, "local")
 os.makedirs(LOCAL, exist_ok=True)
 
 
