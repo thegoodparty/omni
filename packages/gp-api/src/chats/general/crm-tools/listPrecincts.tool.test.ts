@@ -1,10 +1,7 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { Organization } from '../../../generated/prisma'
-import {
-  PRO_FILTERING_REQUIRED_MESSAGE,
-  type ContactsService,
-} from '@/contacts/services/contacts.service'
+import type { ContactsService } from '@/contacts/services/contacts.service'
 import { buildListPrecinctsTool, NO_PRECINCT_LABEL } from './listPrecincts.tool'
 
 const ORGANIZATION = { slug: 'eo-1' } as Organization
@@ -85,12 +82,32 @@ describe('buildListPrecinctsTool', () => {
     expect(result).toMatchObject({ truncated: true })
   })
 
+  // The exact wording `assertProAccess` throws, which is NOT
+  // PRO_FILTERING_REQUIRED_MESSAGE. Pinned as a literal on purpose: the
+  // earlier version of this test mocked the constant instead, which made a
+  // branch production could never reach look covered.
+  const PRO_GATE_MESSAGE = 'This feature is only available for pro campaigns'
+
   it('relays the pro gate as a structured error, not a throw', async () => {
     const getPrecincts = vi.fn(() =>
-      Promise.reject(new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)),
+      Promise.reject(new ForbiddenException(PRO_GATE_MESSAGE)),
     )
     const result = await buildTool(getPrecincts).execute({})
-    expect(result).toMatchObject({ error: expect.stringContaining('Pro') })
+    expect(result).toEqual({
+      error: `${PRO_GATE_MESSAGE}. Suggest upgrading to Pro.`,
+    })
+  })
+
+  // Guards the regression directly: discriminating on the message rather
+  // than the type sends the model the bare rejection with no upgrade hint.
+  it('adds the upgrade hint whatever wording the gate throws', async () => {
+    const getPrecincts = vi.fn(() =>
+      Promise.reject(new ForbiddenException('some other refusal')),
+    )
+    const result = await buildTool(getPrecincts).execute({})
+    expect(result).toEqual({
+      error: 'some other refusal. Suggest upgrading to Pro.',
+    })
   })
 
   it('relays a business-rule rejection as a structured error', async () => {

@@ -2,10 +2,7 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { z } from 'zod'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
-import {
-  PRO_FILTERING_REQUIRED_MESSAGE,
-  type ContactsService,
-} from '@/contacts/services/contacts.service'
+import type { ContactsService } from '@/contacts/services/contacts.service'
 import { encodePrecinctPair } from '@goodparty_org/contracts'
 
 // Strict so "takes no input" in the description stays true in code: any
@@ -41,15 +38,20 @@ export type ListPrecinctsOutput =
   | { precincts: PrecinctListing[]; truncated: boolean }
   | { error: string }
 
+// Discriminated on the exception TYPE, not its message. The sibling CRM tools
+// compare against PRO_FILTERING_REQUIRED_MESSAGE because the methods they call
+// throw exactly that; `getPrecincts` does not. It gates through
+// `assertProAccess`, which throws its own wording, so a string comparison here
+// never matches and the upgrade hint never reaches the model.
+//
+// Type is a safe discriminator on this path specifically: `assertProAccess` is
+// the only ForbiddenException in the chain, and the district resolution around
+// it throws BadRequestException.
 const toToolError = (
   error: BadRequestException | ForbiddenException,
 ): { error: string } =>
-  error.message === PRO_FILTERING_REQUIRED_MESSAGE
-    ? {
-        error:
-          `${PRO_FILTERING_REQUIRED_MESSAGE}. Suggest upgrading to Pro ` +
-          'to unlock voter data filtering.',
-      }
+  error instanceof ForbiddenException
+    ? { error: `${error.message}. Suggest upgrading to Pro.` }
     : { error: error.message }
 
 // The one dimension describe_filter_dimensions cannot carry. Every other
