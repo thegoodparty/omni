@@ -42,31 +42,33 @@ name: release-failure-alert
 # `::warning::` downgrade, so an undeliverable alert stayed green — the half of
 # the bug that made the original silence last three days.
 #
-# THE SELF-JOIN ABOVE CANNOT CURRENTLY SUCCEED, and it is worth knowing why
-# before reading it as dead code. Dispatching the sibling triage against a real
-# failed run on 2026-09-17 answered:
+# THE SELF-JOIN ABOVE STILL CANNOT SUCCEED, and it is worth knowing why before
+# reading it as dead code to delete. Dispatching the sibling triage against a
+# real failed run on 2026-09-17 answered:
 #
 #   Could not join C0C1JSUPPEX (missing_scope)
 #   Slack rejected the disposition: not_in_channel
 #
 # #bot-urgent is a public channel, so `conversations.join` is the right call —
-# but the gp_ai_bot app was never granted `channels:join`, so it may neither be
-# in the channel nor let itself in. At the time of writing the channel held
-# eight members and every one was a human; no bot has ever been in it. That is
-# also what retires the earlier claim here that gp_ai_bot is "the one the
-# humans' channels actually contain": it posts fine to GPBOT_PR_CHANNEL_ID with
-# this same token (gpbot-stale-pr-alert.yml has been green for days), and that
-# is the whole of the evidence the claim ever rested on.
+# but the gp_ai_bot app has not been granted `channels:join`, so it could
+# neither be in the channel nor let itself in. The channel held eight members
+# and every one was a human; no bot had ever been in it.
 #
-# Two fixes, and the second is the one that lasts:
-#   - `/invite @gp_ai_bot` in #bot-urgent, which needs no scope and no admin;
-#   - grant the app `channels:join` at api.slack.com and reinstall, after which
-#     the branch above heals this for the next channel too.
+# Delivery was then fixed from the Slack side, by invite, and the identical
+# dispatch twelve minutes later posted and went green. So the token, the
+# channel id and this posting code are all proven end to end — what remains
+# unproven is only the message this file assembles, which needs a real failed
+# release to exercise.
 #
-# Until one of them happens this workflow is red on every failed release rather
-# than silent on one, which is the trade it was written to make: the release
-# failure is still discoverable from the train itself, and a red alert run is
-# the only thing that makes the undelivered alert discoverable at all.
+# The join is kept because the scope is still ungranted: the next channel these
+# alerts are pointed at will land in exactly the state #bot-urgent was in, and
+# this branch is what fixes it without waiting to be noticed. Granting
+# `channels:join` at api.slack.com is what makes it work.
+#
+# That episode also retires the earlier claim here that gp_ai_bot is "the one
+# the humans' channels actually contain". It posts fine to GPBOT_PR_CHANNEL_ID
+# with this same token (gpbot-stale-pr-alert.yml has been green for days), and
+# that was the whole of the evidence the claim rested on.
 
 on:
   workflow_run:
