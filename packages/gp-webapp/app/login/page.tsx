@@ -47,22 +47,22 @@ export default async function LoginPage({
   // /dashboard). Route through `/post-auth-redirect` and forward the requested
   // path as `next` so it can land the user there once setup is done. Set both
   // sign-in and sign-up redirect props since the embedded "create account" flow
-  // on this page uses the sign-up props; the sign-up variant also carries the
-  // `source=signup` hint so registration tracking still fires. This matters even
-  // without a deep link: a first-time "Sign in with Google" click on this page
-  // silently completes as a Clerk sign-up, so signUpForceRedirectUrl must always
-  // carry the marker or Onboarding - Registration Completed never fires for it.
+  // on this page uses the sign-up props. A first-time "Sign in with Google"
+  // click here silently completes as a Clerk sign-up, and OAuth carries no
+  // phone, so the sign-up variant goes through /sign-up/phone first; that step
+  // forwards `next` and adds the `source=signup` marker registration tracking
+  // needs.
   const nextQuery = redirectUrl
     ? `next=${encodeURIComponent(redirectUrl)}`
     : null
   const redirectProps = nextQuery
     ? {
         forceRedirectUrl: `/post-auth-redirect?${nextQuery}`,
-        signUpForceRedirectUrl: `/post-auth-redirect?${nextQuery}&source=signup`,
+        signUpForceRedirectUrl: `/sign-up/phone?${nextQuery}`,
       }
     : {
         fallbackRedirectUrl: '/post-auth-redirect',
-        signUpForceRedirectUrl: '/post-auth-redirect?source=signup',
+        signUpForceRedirectUrl: '/sign-up/phone',
       }
 
   return (
