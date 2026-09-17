@@ -101,6 +101,14 @@ env:
   # clickup_bot/ci_triage.py does it — see _coerce_asks there. The ask IS a
   # comment, so the comments are the ledger and an ask that failed to post is
   # an ask that does not count.
+  #
+  # PER HEAD, NOT PER PR, which is where this parts company with the drive. The
+  # drive's PRs live for an afternoon; these can be open for weeks and take a
+  # push a day, and each push is a new question — two asks for the whole life of
+  # such a PR would run out in the first hour and report an active author as a
+  # delegate fault forever after. #1890 is the live case: asked once, delegate
+  # answered "the PR tip moved during review (a884375b -> b11ce98c)", which is
+  # not a refusal and must not cost the new head its asks.
   ASK_CAP: '2'
   # The whole body of an ask, and the string the count above matches on. Both
   # ends have to agree or the cap silently resets, and delegate's own trigger
@@ -180,7 +188,7 @@ jobs:
             | select(.isDraft | not)
             | select([.reviews[]? | select(.state == "APPROVED")] | length == 0)
             | select((.title | startswith("[GP-Bot]")) or (.headRefName | contains("/gp-bot_")) | not)
-            | "\(.number)\t\(.headRefOid)\t\(.createdAt)\t\(.author.login // "unknown")\t\(.url)\t\(.title)"
+            | "\(.number)\t\(.headRefOid)\t\(.createdAt)\t\(.author.login // "unknown")\t\(.author.is_bot // false)\t\(.url)\t\(.title)"
           ' prs.json > candidates.tsv
 
           echo "checking $(wc -l < candidates.tsv) unapproved, non-draft PR(s)"
@@ -196,7 +204,7 @@ jobs:
           : > blocked.txt
           : > unanswered.txt
           asked=0
-          while IFS=$'\t' read -r num head created author url title; do
+          while IFS=$'\t' read -r num head created author is_bot url title; do
             [ -n "${num:-}" ] || continue
 
             # THE GRACE IS MEASURED FROM THE HEAD, NOT FROM `updatedAt`.
@@ -267,9 +275,10 @@ jobs:
             #
             # `isOutdated` counts as cleared: a thread against a line the branch
             # no longer has is not something the author can resolve.
-            # shellcheck disable=SC2016  # $owner/$name/$num are GraphQL
-            # variables bound by the -F flags below, not shell expansions, so
-            # the single quotes are the point.
+            # The owner/name/num in the query are GraphQL variables, bound by
+            # the -F flags below rather than by the shell, so the single quotes
+            # are the point and SC2016 is wrong here.
+            # shellcheck disable=SC2016
             blockers="$(gh api graphql \
               -f query='query($owner:String!,$name:String!,$num:Int!){
                 repository(owner:$owner,name:$name){
@@ -295,8 +304,20 @@ jobs:
               # count, because "delegate is holding 3 blockers open" is a
               # different sentence from "nobody asked", and the old message
               # said the second to authors in the first situation.
-              echo "  blocked: #$num has $blockers open delegate thread(s); leaving it to $author"
-              printf '• <%s|#%s> %s — @%s (%s open)\n' "$url" "$num" "$title" "$author" "$blockers" >> blocked.txt
+              #
+              # EXCEPT WHEN NOBODY IS BEHIND IT. Naming @app/dependabot implies
+              # dependabot will go and fix the blocker, and it will not — #1137
+              # has sat since 4 August and picked up a blocker on the very pass
+              # that proved this mechanism works. A bot-authored PR with a
+              # blocker open needs a person to adopt it or close it, so the line
+              # says that instead of @-ing something that cannot read.
+              echo "  blocked: #$num has $blockers open delegate thread(s) (author=$author is_bot=$is_bot)"
+              if [ "$is_bot" = "true" ]; then
+                printf '• <%s|#%s> %s — %s open, and %s cannot address them; needs a human to adopt or close it\n' \
+                  "$url" "$num" "$title" "$blockers" "$author" >> blocked.txt
+              else
+                printf '• <%s|#%s> %s — @%s (%s open)\n' "$url" "$num" "$title" "$author" "$blockers" >> blocked.txt
+              fi
               continue
             fi
 
@@ -309,18 +330,29 @@ jobs:
               echo "::warning::could not read the comments of #$num; skipped this run"
               continue
             fi
+            # `$since` is the cap's scope: only asks newer than this head count
+            # against it. ISO-8601 in Z compares correctly as a string, which is
+            # what the `>` here relies on and what the grace comparison above
+            # already relies on.
+            #
+            # One known skew, in the safe direction: `$since` is the head's
+            # COMMITTER date, so after a rebase an ask sent before it can look
+            # newer than the head it preceded and be counted against the new
+            # one. That spends an ask early rather than asking too often, and
+            # the unanswered bucket catches the PR either way.
             asks="$(printf '%s' "$raw_comments" \
-              | jq -s --arg body "$ASK_BODY" \
+              | jq -s --arg body "$ASK_BODY" --arg since "$since" \
                 '(add // []) | [.[]
                   | select(.user.login == "github-actions[bot]")
+                  | select(((.created_at) // "") > $since)
                   | select((((.body) // "") | gsub("^\\s+|\\s+$"; "")) == $body)] | length')"
 
             if [ "$asks" -ge "$ASK_CAP" ]; then
-              # Asked twice against a still head and still nothing. That is not
-              # the author's problem to solve, so the line says so rather than
+              # Asked twice about this head and still nothing. That is not the
+              # author's problem to solve, so the line says so rather than
               # telling them to send a third.
-              echo "  unanswered: #$num asked $asks time(s) already"
-              printf '• <%s|#%s> %s — asked %s time(s), still no review\n' "$url" "$num" "$title" "$asks" >> unanswered.txt
+              echo "  unanswered: #$num asked $asks time(s) about ${head:0:9}"
+              printf '• <%s|#%s> %s — asked %s time(s) about this head, still no review\n' "$url" "$num" "$title" "$asks" >> unanswered.txt
               continue
             fi
 
@@ -375,7 +407,7 @@ jobs:
           # empty rather than printed as a zero.
           text=''
           if [ "$BLOCKED_COUNT" != "0" ]; then
-            text="*${BLOCKED_COUNT} PR(s) are waiting on their author.* \`${REVIEWER}\` has blockers still open against the current head, so nobody can merge them. The bot does not send \`delegate review\` on these: that reply asserts the blockers were addressed, and only you know whether they were. Push the fix and it is asked for you automatically."
+            text="*${BLOCKED_COUNT} PR(s) have \`${REVIEWER}\` blockers still open against the current head*, so nobody can merge them. The bot does not send \`delegate review\` on these — that reply asserts the blockers were addressed, and only the author knows whether they were. Push the fix and the ask happens automatically."
             text="${text}"$'\n'"${BLOCKED}"
           fi
           if [ "$UNANSWERED_COUNT" != "0" ]; then
