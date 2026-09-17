@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable } from '@nestjs/common'
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common'
 import { ElectedOffice, ExperimentRunStatus } from '../../generated/prisma'
 import { MeetingBriefingFull } from '@/generated/agent-job-contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -60,6 +64,34 @@ export class BriefingSeedService extends createPrismaBase(
           select: { runId: true },
         })
       : null
+
+    // An existing row whose run is not one of ours belongs to a real agent
+    // briefing, and the recycling guard above only keeps the seed off that
+    // run's own row — it does nothing about the briefing row, which the update
+    // branch below would repoint wholesale (experimentRunId, both pointer
+    // columns, the JSONB cache). That strands the agent's artifact in S3, since
+    // nothing cascades from MeetingBriefing back to ExperimentRun and the real
+    // run survives only as a row nothing references, and serves dummy data for
+    // that (office, date) from then on.
+    //
+    // Refusing outright rather than quietly leaving the row alone, which is the
+    // shape CommunityIssueSeedService uses for its `update: {}`: there the
+    // briefing row is incidental (it needs only `briefing.id` to anchor a
+    // MeetingBriefingItemLink), whereas here the briefing is the entire product
+    // of the call. A no-op would still answer 201 with a briefingId and
+    // seed-item-N ids that appear nowhere in the artifact readers get back, so
+    // the caller — always an e2e test — would fail on a missing-content
+    // timeout several steps later instead of on the actual reason.
+    //
+    // The pre-fix bucket/key = "seed" signature is deliberately not
+    // special-cased here. Only CommunityIssueSeedService ever wrote that pair,
+    // and it repairs rows carrying it against this same unique constraint, so
+    // a broken row heals there regardless of which seed endpoint is called.
+    if (existing && !priorSeedRun) {
+      throw new ConflictException(
+        'A briefing already exists for this meeting date and was not created by this endpoint',
+      )
+    }
 
     const artifact = buildArtifact(body)
     const serialized = JSON.stringify(artifact)

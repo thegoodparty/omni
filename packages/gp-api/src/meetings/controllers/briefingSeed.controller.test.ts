@@ -168,8 +168,8 @@ describe('POST /v1/meetings/briefings/seed', () => {
     expect(runs).toHaveLength(1)
   })
 
-  it('leaves a real agent run intact when seeding over its briefing', async () => {
-    stubS3()
+  it('refuses to seed over a briefing that belongs to a real agent run', async () => {
+    const objects = stubS3()
 
     const realRun = await service.prisma.experimentRun.create({
       data: {
@@ -193,15 +193,42 @@ describe('POST /v1/meetings/briefings/seed', () => {
       },
     })
 
-    await service.client.post(`${BASE}/briefings/seed`, seedBody(), eoHeaders())
+    const res = await service.client.post(
+      `${BASE}/briefings/seed`,
+      seedBody(),
+      eoHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.CONFLICT)
 
-    // The seed must never repoint a real run at its own artifact — doing so
-    // orphans the real object in S3 and serves dummy data thereafter.
+    // Every pointer on the briefing row survives, not just the ones on the run.
+    // Repointing the row is what does the damage: nothing cascades from
+    // MeetingBriefing back to ExperimentRun, so the agent's run and its object
+    // in S3 are left referenced by nothing and the briefing serves seed data
+    // for that (office, date) from then on.
+    const briefing = await service.prisma.meetingBriefing.findFirstOrThrow({
+      where: { electedOfficeId: eoId },
+    })
+    expect(briefing.experimentRunId).toBe(realRun.runId)
+    expect(briefing.artifactBucket).toBe('real-bucket')
+    expect(briefing.artifactKey).toBe('real/agent/artifact.json')
+    expect(briefing.artifact).toEqual({})
+
     const preserved = await service.prisma.experimentRun.findUnique({
       where: { runId: realRun.runId },
     })
     expect(preserved?.artifactBucket).toBe('real-bucket')
     expect(preserved?.artifactKey).toBe('real/agent/artifact.json')
+
+    // The refusal lands before any write, so there is no run to strand and no
+    // object to leave behind. Uploading first and discovering the conflict
+    // afterwards would put a seed artifact in the bucket that nothing will ever
+    // reference or overwrite, because no later seed for this pair gets past
+    // this check either.
+    expect(objects.size).toBe(0)
+    const runs = await service.prisma.experimentRun.findMany({
+      where: { organizationSlug: eoOrgSlug },
+    })
+    expect(runs.map((r) => r.runId)).toEqual([realRun.runId])
   })
 
   it('commits neither pointer row when the artifact upload fails', async () => {
@@ -234,27 +261,11 @@ describe('POST /v1/meetings/briefings/seed', () => {
     expect(runs).toEqual([])
   })
 
-  it('mints no run when a seed over a real agent briefing fails to upload', async () => {
-    const realRun = await service.prisma.experimentRun.create({
-      data: {
-        organizationSlug: eoOrgSlug,
-        experimentType: 'meeting_briefing',
-        status: ExperimentRunStatus.COMPLETED,
-        artifactBucket: 'real-bucket',
-        artifactKey: 'real/agent/artifact.json',
-      },
-    })
-    await service.prisma.meetingBriefing.create({
-      data: {
-        electedOfficeId: eoId,
-        meetingDate: parseIsoDateAsUTC(MEETING_DATE),
-        meetingTime: '18:00',
-        meetingTimezone: 'America/New_York',
-        experimentRunId: realRun.runId,
-        artifactBucket: 'real-bucket',
-        artifactKey: 'real/agent/artifact.json',
-        artifact: {},
-      },
+  it('leaves the previous seed intact when a re-seed fails to upload', async () => {
+    stubS3()
+    await service.client.post(`${BASE}/briefings/seed`, seedBody(), eoHeaders())
+    const before = await service.prisma.meetingBriefing.findFirstOrThrow({
+      where: { electedOfficeId: eoId },
     })
 
     const s3 = service.app.get(S3Service)
@@ -263,27 +274,38 @@ describe('POST /v1/meetings/briefings/seed', () => {
     )
     const res = await service.client.post(
       `${BASE}/briefings/seed`,
-      seedBody(),
+      { ...seedBody(), meetingName: 'Renamed Council' },
       eoHeaders(),
     )
     expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
 
-    // Seeding over a briefing the agent produced deliberately refuses to
-    // recycle that run, so this path takes the create branch. Committing the
-    // run before the upload left a COMPLETED meeting_briefing run advertising
-    // artifact pointers nothing had written and nothing referenced: the
-    // briefing row still points at the agent's run, so no later seed can find
-    // or reuse the stranded one.
+    // A re-seed recycles the run it created last time, so this is the one path
+    // that mutates rows which already have a live object behind them. The
+    // transaction has to take the whole update or none of it: a committed row
+    // whose re-upload failed would advertise pointers to an object matching
+    // neither the old nor the new artifact, and the old seed — which was
+    // serving fine — is what gets destroyed.
+    const after = await service.prisma.meetingBriefing.findFirstOrThrow({
+      where: { electedOfficeId: eoId },
+    })
+    expect(after.experimentRunId).toBe(before.experimentRunId)
+    expect(after.artifactBucket).toBe(before.artifactBucket)
+    expect(after.artifactKey).toBe(before.artifactKey)
+    expect(after.artifact).toEqual(before.artifact)
+
     const runs = await service.prisma.experimentRun.findMany({
       where: { organizationSlug: eoOrgSlug },
     })
-    expect(runs.map((r) => r.runId)).toEqual([realRun.runId])
+    expect(runs.map((r) => r.runId)).toEqual([before.experimentRunId])
 
-    const briefing = await service.prisma.meetingBriefing.findFirstOrThrow({
-      where: { electedOfficeId: eoId },
-    })
-    expect(briefing.artifactBucket).toBe('real-bucket')
-    expect(briefing.artifactKey).toBe('real/agent/artifact.json')
+    // The read path still serves the first seed rather than 502ing, which is
+    // the whole point of refusing to commit the half-applied update.
+    const read = await service.client.get<{ meeting_name: string }>(
+      `${BASE}/${MEETING_DATE}/briefing`,
+      eoHeaders(),
+    )
+    expect(read.status).toBe(HttpStatus.OK)
+    expect(read.data.meeting_name).toBe('Cheyenne City Council')
   })
 
   it('returns 403 when OTEL_SERVICE_ENVIRONMENT is a customer env (prod)', async () => {
