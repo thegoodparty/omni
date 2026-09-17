@@ -1111,6 +1111,12 @@ jobs:
       - name: apply prod/agent-run-inputs
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/agent-run-inputs
+      # prod/shared-infra reads this root's outputs via terraform_remote_state,
+      # so its state must exist before shared-infra can even plan. The state was
+      # bootstrapped by hand on 2026-09-17; from here this step keeps it applied.
+      - name: apply prod/alert-filter
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/alert-filter
       - name: apply prod/autopilot-agent-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/autopilot-agent-fargate autopilot-agent-${{ needs.await-checks.outputs.sha }} autopilot-agent-playwright-${{ needs.await-checks.outputs.sha }}
@@ -1153,6 +1159,9 @@ jobs:
       - name: reverify prod/agent-run-inputs
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/agent-run-inputs
+      - name: reverify prod/alert-filter
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/alert-filter
       - name: reverify prod/autopilot-agent-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/autopilot-agent-fargate autopilot-agent-${{ needs.await-checks.outputs.sha }} autopilot-agent-playwright-${{ needs.await-checks.outputs.sha }}
