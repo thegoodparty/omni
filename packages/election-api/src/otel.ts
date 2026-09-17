@@ -14,6 +14,8 @@ import type { Context } from '@opentelemetry/api'
 import { PrismaInstrumentation } from '@prisma/instrumentation'
 import { PinoInstrumentation } from '@opentelemetry/instrumentation-pino'
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http'
+import { NestInstrumentation } from '@opentelemetry/instrumentation-nestjs-core'
+import { RuntimeNodeInstrumentation } from '@opentelemetry/instrumentation-runtime-node'
 import { HostMetrics } from '@opentelemetry/host-metrics'
 import { FastifyOtelInstrumentation } from '@fastify/otel'
 
@@ -110,6 +112,14 @@ if (!headers) {
     ),
     instrumentations: [
       new HttpInstrumentation(),
+      // Both were registered in gp-api but not here, which left two blind
+      // spots: no controller/provider spans, so a slow election-api request
+      // could not be attributed below the Fastify span; and no event-loop
+      // delay, GC or heap-by-space metrics, which are exactly the series
+      // needed to tell connection-pool saturation apart from event-loop
+      // contention on a single-threaded 1 vCPU task.
+      new NestInstrumentation(),
+      new RuntimeNodeInstrumentation(),
       new PrismaInstrumentation(),
       new PinoInstrumentation(),
       fastifyOtelInstrumentation,
