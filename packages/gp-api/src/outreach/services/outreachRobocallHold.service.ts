@@ -512,6 +512,19 @@ export class OutreachRobocallHoldService extends createPrismaBase(
   ): Promise<void> {
     const scheduled = await this.markSpineScheduled(outreachId)
     if (!scheduled) return
+    // Fire-and-forget: the CAS notice reads the audience + a HubSpot owner and
+    // POSTs to Slack, and authorizeHold is a user-facing pay request. Only the
+    // spine transition above is awaited (the client refetches history right
+    // after); the notice must not add its latency to the response. Internally
+    // catch-isolated, so the floating promise never rejects.
+    void this.sendScheduledNotice(outreachId, user, campaign)
+  }
+
+  private async sendScheduledNotice(
+    outreachId: number,
+    user: User,
+    campaign: Campaign,
+  ): Promise<void> {
     try {
       const outreach = await this.client.outreach.findUnique({
         where: { id: outreachId },
