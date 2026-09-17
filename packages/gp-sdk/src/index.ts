@@ -136,3 +136,5 @@ export type {
   ListOrganizationsOptions,
   PatchOrganizationInput,
 } from './types/organization'
+
+export type { DomainAuthCode, GetDomainAuthCodeOptions } from './types/domain'

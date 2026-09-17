@@ -38,8 +38,15 @@ import { DomainAvailability } from '@aws-sdk/client-route-53-domains'
 import { DomainCannotBeTransferedOutUntil } from '@vercel/sdk/models/domaincannotbetransferedoutuntil'
 import { GetOrderStatus } from '@vercel/sdk/models/getorderop'
 import { VercelError } from '@vercel/sdk/models/vercelerror'
+import { AuthCodeRequester } from '../domains.types'
 
 const mockUser = createMockUser()
+
+const mockRequester: AuthCodeRequester = {
+  authSource: 'user',
+  userId: mockUser.id,
+  email: mockUser.email,
+}
 
 const mockDomain: Domain = {
   id: 1,
@@ -331,7 +338,7 @@ describe('DomainsService', () => {
     it('returns the auth code from Vercel', async () => {
       const result = await service.getDomainTransferAuthCode(
         'test-domain.com',
-        mockUser,
+        mockRequester,
       )
 
       expect(mockVercel.getDomainAuthCode).toHaveBeenCalledWith(
@@ -344,7 +351,7 @@ describe('DomainsService', () => {
       // The code is a bearer credential for moving the domain off our account.
       // Storing it would turn any read of the domain table into the ability to
       // transfer away every campaign's domain.
-      await service.getDomainTransferAuthCode('test-domain.com', mockUser)
+      await service.getDomainTransferAuthCode('test-domain.com', mockRequester)
 
       expect(mockPrisma.domain.update).not.toHaveBeenCalled()
       expect(mockPrisma.domain.updateMany).not.toHaveBeenCalled()
@@ -357,7 +364,7 @@ describe('DomainsService', () => {
       mockPrisma.domain.findUnique.mockResolvedValue(null)
 
       await expect(
-        service.getDomainTransferAuthCode('goodparty.org', mockUser),
+        service.getDomainTransferAuthCode('goodparty.org', mockRequester),
       ).rejects.toBeInstanceOf(NotFoundException)
       expect(mockVercel.getDomainAuthCode).not.toHaveBeenCalled()
     })
@@ -369,12 +376,12 @@ describe('DomainsService', () => {
       mockPrisma.domain.findUnique.mockResolvedValue(null)
 
       await expect(
-        service.getDomainTransferAuthCode('orphaned.com', mockUser),
+        service.getDomainTransferAuthCode('orphaned.com', mockRequester),
       ).rejects.toThrow(/escalate to engineering/)
     })
 
     it('looks the domain up by name alone, so a stalled purchase is still transferable', async () => {
-      await service.getDomainTransferAuthCode('test-domain.com', mockUser)
+      await service.getDomainTransferAuthCode('test-domain.com', mockRequester)
 
       expect(mockPrisma.domain.findUnique).toHaveBeenCalledWith(
         expect.objectContaining({ where: { name: 'test-domain.com' } }),
@@ -382,13 +389,34 @@ describe('DomainsService', () => {
     })
 
     it('records the issuance, attributed to the requesting admin', async () => {
-      await service.getDomainTransferAuthCode('test-domain.com', mockUser)
+      await service.getDomainTransferAuthCode('test-domain.com', mockRequester)
 
       expect(mockLogger.info).toHaveBeenCalledWith(
         expect.objectContaining({
           domain: 'test-domain.com',
           campaignId: 42,
           requestedByUserId: mockUser.id,
+          requestedByEmail: mockUser.email,
+          authSource: 'user',
+        }),
+        'Domain transfer auth code issued',
+      )
+    })
+
+    it('records an m2m issuance by email, and marks the identity unverified', async () => {
+      // gp-admin runs on a separate Clerk instance, so this email is whoever
+      // gp-admin said was signed in rather than an identity we checked. An
+      // auditor has to be able to tell that apart from a verified session.
+      await service.getDomainTransferAuthCode('test-domain.com', {
+        authSource: 'm2m',
+        email: 'dee@goodparty.org',
+      })
+
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestedByEmail: 'dee@goodparty.org',
+          requestedByUserId: undefined,
+          authSource: 'm2m',
         }),
         'Domain transfer auth code issued',
       )
@@ -406,7 +434,7 @@ describe('DomainsService', () => {
       )
 
       await expect(
-        service.getDomainTransferAuthCode('brand-new.run', mockUser),
+        service.getDomainTransferAuthCode('brand-new.run', mockRequester),
       ).rejects.toBeInstanceOf(ConflictException)
       expect(mockLogger.info).not.toHaveBeenCalledWith(
         expect.anything(),
@@ -419,7 +447,7 @@ describe('DomainsService', () => {
       mockVercel.getDomainAuthCode.mockRejectedValueOnce(new Error('404'))
 
       await expect(
-        service.getDomainTransferAuthCode('not-ours.com', mockUser),
+        service.getDomainTransferAuthCode('not-ours.com', mockRequester),
       ).rejects.toBeInstanceOf(NotFoundException)
     })
 
@@ -436,10 +464,10 @@ describe('DomainsService', () => {
       )
 
       await expect(
-        service.getDomainTransferAuthCode('brand-new.run', mockUser),
+        service.getDomainTransferAuthCode('brand-new.run', mockRequester),
       ).rejects.toBeInstanceOf(ConflictException)
       await expect(
-        service.getDomainTransferAuthCode('brand-new.run', mockUser),
+        service.getDomainTransferAuthCode('brand-new.run', mockRequester),
       ).rejects.toThrow(/2026-05-02/)
     })
 
@@ -451,7 +479,7 @@ describe('DomainsService', () => {
       )
 
       await expect(
-        service.getDomainTransferAuthCode('test-domain.com', mockUser),
+        service.getDomainTransferAuthCode('test-domain.com', mockRequester),
       ).rejects.toThrow(/VERCEL_TOKEN likely lacks Owner scope/)
     })
 
@@ -459,7 +487,7 @@ describe('DomainsService', () => {
       mockVercel.getDomainAuthCode.mockRejectedValue(new Error('Vercel is 500'))
 
       await expect(
-        service.getDomainTransferAuthCode('test-domain.com', mockUser),
+        service.getDomainTransferAuthCode('test-domain.com', mockRequester),
       ).rejects.toThrow('Vercel is 500')
     })
   })
