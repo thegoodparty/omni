@@ -172,6 +172,44 @@ export const EXPECTED_PROD_RECEIVERS = [
   'gpbot-alert-filter',
 ] as const
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/**
+ * The same tree with object keys in a fixed order.
+ *
+ * ARRAYS ARE LEFT ALONE, deliberately. Key order in a JSON object carries no
+ * meaning, but order in `routes` carries all of it — first match wins — so
+ * sorting that would make two genuinely different trees compare equal and turn
+ * the drift check into a no-op.
+ */
+const canonical = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(canonical)
+  if (!isRecord(value)) return value
+
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, canonical(value[key])]),
+  )
+}
+
+/**
+ * Whether two policy trees say the same thing.
+ *
+ * Compares meaning, not bytes, and the distinction matters because the naive
+ * version is a self-inflicted version of the bug this file exists to fix. The
+ * committed snapshot is parsed from a file, the live tree from Grafana's
+ * provisioning API, and `JSON.stringify` preserves insertion order — so the
+ * moment the Go backend emits the same policy with its keys in a different
+ * order (a version upgrade is enough, as is anyone reformatting the snapshot),
+ * a plain string comparison reports drift on every deploy forever. A warning
+ * that always fires is one nobody reads, which is how a stale route survived in
+ * production for six months.
+ */
+export const samePolicyTree = (a: unknown, b: unknown): boolean =>
+  JSON.stringify(canonical(a)) === JSON.stringify(canonical(b))
+
 export interface Misrouting {
   slug: string
   receiver: string

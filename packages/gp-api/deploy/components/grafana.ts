@@ -16,6 +16,7 @@ import {
   EXPECTED_PROD_RECEIVERS,
   misroutedAlerts,
   PolicyTree,
+  samePolicyTree,
 } from './alerting/alert-routing'
 import { provisionedAlertSlugs } from './alerting/provisioned-alerts'
 import { personProfilesDashboardConfigJson } from './personProfilesDashboard'
@@ -123,7 +124,7 @@ const checkAlertRouting = async ({
     return
   }
 
-  if (JSON.stringify(live) !== JSON.stringify(COMMITTED_POLICY)) {
+  if (!samePolicyTree(live, COMMITTED_POLICY)) {
     pulumi.log.warn(
       `The live notification policy tree no longer matches ` +
         `deploy/components/alerting/alert-routing.policy.json. Routing is ` +

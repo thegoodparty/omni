@@ -6,6 +6,7 @@ import {
   misroutedAlerts,
   PolicyTree,
   receiverFor,
+  samePolicyTree,
 } from './alert-routing'
 import { provisionedAlertSlugs } from './provisioned-alerts'
 
@@ -115,6 +116,76 @@ describe('the stale dev-warnings route', () => {
         environment: 'prod',
       }),
     ).toBe('dev-warnings')
+  })
+})
+
+describe('comparing the live tree to the snapshot', () => {
+  it('ignores key order, which JSON does not give meaning to', () => {
+    expect(
+      samePolicyTree(
+        { receiver: 'dev-alerts', group_by: ['alert_slug'] },
+        { group_by: ['alert_slug'], receiver: 'dev-alerts' },
+      ),
+    ).toBe(true)
+  })
+
+  it('ignores key order inside a nested route too', () => {
+    expect(
+      samePolicyTree(
+        {
+          receiver: 'dev-alerts',
+          routes: [
+            {
+              receiver: 'nowhere',
+              object_matchers: [['environment', '!=', 'prod']],
+            },
+          ],
+        },
+        {
+          routes: [
+            {
+              object_matchers: [['environment', '!=', 'prod']],
+              receiver: 'nowhere',
+            },
+          ],
+          receiver: 'dev-alerts',
+        },
+      ),
+    ).toBe(true)
+  })
+
+  // The half that must survive normalising: route order decides which match
+  // wins, so a reordered `routes` array is a real change and sorting it would
+  // quietly turn this whole check into a no-op.
+  it('still reports drift when routes are reordered', () => {
+    const a: PolicyTree = {
+      receiver: 'dev-alerts',
+      routes: [
+        { receiver: 'nowhere', object_matchers: [['k', '=', 'v']] },
+        { receiver: 'dev-warnings', object_matchers: [['k', '=', 'v']] },
+      ],
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    } as PolicyTree
+
+    expect(samePolicyTree(a, { ...a, routes: [...a.routes!].reverse() })).toBe(
+      false,
+    )
+  })
+
+  it('still reports drift when a receiver changes', () => {
+    expect(
+      samePolicyTree({ receiver: 'dev-alerts' }, { receiver: 'dev-warnings' }),
+    ).toBe(false)
+  })
+
+  it('still reports drift when a route is added', () => {
+    expect(samePolicyTree({ receiver: 'dev-alerts' }, POLICY)).toBe(false)
+  })
+
+  it('matches the committed snapshot against a re-parse of itself', () => {
+    expect(samePolicyTree(POLICY, JSON.parse(JSON.stringify(POLICY)))).toBe(
+      true,
+    )
   })
 })
 
