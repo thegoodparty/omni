@@ -738,6 +738,9 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
   // The returned row is read back separately, so it can already carry a
   // concurrent patch's keys. Callers use it for the campaign's own fields, not
   // to confirm what this call wrote.
+  //
+  // Throws `NotFoundException` when the campaign id does not resolve, where the
+  // pre-read threw a 500.
   async patchCampaignDetails(
     campaignId: number,
     details: Partial<PrismaJson.CampaignDetails>,
@@ -761,6 +764,15 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
   // JSON serialization deleted it; a `null` still writes JSON null, which is
   // what `persistCampaignProCancellation` relies on. `updated_at` is assigned
   // by hand because raw SQL does not fire Prisma's `@updatedAt`.
+  //
+  // A `details` that is not an object is coerced to `{}` rather than refused,
+  // which is how `compareAndSwapCheckoutSessionId` treats a missing
+  // `meta_data`. The old pre-read threw a 500 for that shape, but it cannot
+  // happen (`Json @default("{}")`, NOT NULL) and refusing the write here would
+  // be worse than pointless: this merge runs inside `setIsPro`'s transaction,
+  // so a throw would roll back the Pro flip itself and every Stripe redelivery
+  // would hit it again. A row that malformed has no details to preserve.
+  // Zero rows now means one thing only — no such campaign.
   private async mergeDetails(
     db: Prisma.TransactionClient,
     campaignId: number,
@@ -768,26 +780,16 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
   ): Promise<void> {
     const updatedCount = await db.$executeRaw`
       UPDATE campaign
-      SET details = details || ${JSON.stringify(details)}::jsonb,
+      SET details = CASE jsonb_typeof(details)
+            WHEN 'object' THEN details
+            ELSE '{}'::jsonb
+          END || ${JSON.stringify(details)}::jsonb,
           updated_at = NOW()
       WHERE id = ${campaignId}
-        AND jsonb_typeof(details) = 'object'
     `
-    if (updatedCount > 0) return
-
-    // The old pre-read collapsed two causes into one 500. `details` is NOT NULL
-    // with a `{}` default, so in practice zero rows means no such campaign —
-    // a 404, not a server error. The non-object case keeps the 500 it had.
-    const campaign = await db.campaign.findUnique({
-      where: { id: campaignId },
-      select: { id: true },
-    })
-    if (!campaign) {
+    if (updatedCount === 0) {
       throw new NotFoundException(`Campaign ${campaignId} not found`)
     }
-    throw new InternalServerErrorException(
-      `Campaign ${campaignId} has no details JSON`,
-    )
   }
 
   async persistCampaignProCancellation(campaign: Campaign) {

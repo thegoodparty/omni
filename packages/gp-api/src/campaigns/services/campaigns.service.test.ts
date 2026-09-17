@@ -11,11 +11,7 @@ import { SegmentService } from '@/vendors/segment/segment.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
-import {
-  BadRequestException,
-  InternalServerErrorException,
-  NotFoundException,
-} from '@nestjs/common'
+import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { Campaign, Prisma, PrismaClient, User } from '../../generated/prisma'
 import { deepmerge as deepMerge } from 'deepmerge-ts'
@@ -1968,8 +1964,11 @@ const buildDetailsRowModule = async (
   const mockExecuteRaw = vi.fn(async (...call: unknown[]) => {
     await tick()
     if (!rowExists) return 0
-    if (row.details === null || typeof row.details !== 'object') return 0
-    row.details = { ...row.details, ...patchFromExecuteRawCall(call) }
+    // The statement's CASE: anything that is not a jsonb object merges onto
+    // `{}` rather than refusing the write.
+    const base =
+      row.details !== null && typeof row.details === 'object' ? row.details : {}
+    row.details = { ...base, ...patchFromExecuteRawCall(call) }
     return 1
   })
   const readRow = async () => {
@@ -2092,24 +2091,27 @@ describe('CampaignsService - patchCampaignDetails write contention', () => {
       .toEqual({ isProUpdatedAt: 'T' })
   })
 
-  // Zero rows has two causes the old pre-read collapsed into one 500. `details`
-  // is NOT NULL with a `{}` default, so the case that actually happens is a
-  // campaign id that does not resolve — a 404. The non-object column keeps its
-  // 500 because it means the row is malformed, not the request.
-  it('separates a missing campaign from a details column that is not an object', async () => {
-    const { service: noRow } = await buildDetailsRowModule(
-      {},
-      {
-        rowExists: false,
-      },
-    )
-    await expect(
-      noRow.patchCampaignDetails(404, { subscriptionId: 'sub_A' }),
-    ).rejects.toBeInstanceOf(NotFoundException)
+  // Zero rows now means one thing, where the old pre-read collapsed a missing
+  // campaign and a malformed `details` column into the same 500.
+  it('404s when the campaign id does not resolve', async () => {
+    const { service } = await buildDetailsRowModule({}, { rowExists: false })
 
-    const { service: badColumn } = await buildDetailsRowModule(null)
     await expect(
-      badColumn.patchCampaignDetails(1, { subscriptionId: 'sub_A' }),
-    ).rejects.toBeInstanceOf(InternalServerErrorException)
+      service.patchCampaignDetails(404, { subscriptionId: 'sub_A' }),
+    ).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  // A `details` that is not an object cannot happen (`Json @default("{}")`,
+  // NOT NULL) and the old code threw a 500 on it. Refusing the write would be
+  // actively harmful now: this merge runs inside setIsPro's transaction, so a
+  // throw rolls back the Pro flip and every Stripe redelivery hits it again,
+  // stranding a payment permanently. It initializes instead.
+  it('initializes a details column that is not an object rather than refusing the write', async () => {
+    const { service, row } = await buildDetailsRowModule(null)
+
+    await expect(
+      service.patchCampaignDetails(1, { subscriptionId: 'sub_A' }),
+    ).resolves.toBeDefined()
+    expect(row.details).toEqual({ subscriptionId: 'sub_A' })
   })
 })

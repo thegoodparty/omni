@@ -435,4 +435,24 @@ describe('CampaignsService.patchCampaignDetails — atomic jsonb merge', () => {
       campaigns.patchCampaignDetails(999_999, { subscriptionId: 'sub_A' }),
     ).rejects.toBeInstanceOf(NotFoundException)
   })
+
+  // The statement's CASE branch, which no other test reaches. A throw here
+  // would roll back setIsPro's Pro flip and strand the payment on every
+  // redelivery, so a legacy row whose details is a jsonb `null` has to merge
+  // onto `{}` instead.
+  it('initializes a details column holding jsonb null', async () => {
+    const { campaign } = await seedCampaign()
+    const campaigns = service.app.get(CampaignsService)
+    await service.prisma
+      .$executeRaw`UPDATE campaign SET details = 'null'::jsonb WHERE id = ${campaign.id}`
+
+    await campaigns.patchCampaignDetails(campaign.id, {
+      subscriptionId: 'sub_A',
+    })
+
+    const patched = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(patched.details).toEqual({ subscriptionId: 'sub_A' })
+  })
 })
