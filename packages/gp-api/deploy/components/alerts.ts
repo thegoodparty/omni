@@ -15,6 +15,112 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
 }
 
 /**
+ * Controllers whose generated route alert is provisioned `disabled`, because
+ * nothing in ALERT_OWNERSHIP claims them.
+ *
+ * This list does not change what is alerted on. It exists so that the silence
+ * is written down: `controllerAlerts` sets `disabled: !slackGroupName`, so
+ * until now a controller was opted out of alerting by nobody ever mentioning
+ * it, and nothing anywhere recorded that this had happened or to how many.
+ * It is 71 of 77.
+ *
+ * The cost of that default is measurable. GET /v1/public-person-profiles
+ * /voter-density served 1,498,324 consecutive 500s between 2026-08-24 and
+ * 2026-08-28 — every request it received, for four days — and paged nobody,
+ * because `public-person-profiles` is on this list. It was noticed a fortnight
+ * later while reading unrelated logs.
+ *
+ * So the point of the list is the test that reads it: a NEW controller has to
+ * appear here or in ALERT_OWNERSHIP, and a reviewer sees which one the author
+ * chose. Being on it is a statement that no route alert is wanted, not that
+ * none was considered.
+ *
+ * Two entries are alerted on by other means, and should stay here because the
+ * statement is about the generated rule specifically: `public-campaigns` and
+ * `public-person-profiles` both carry hand-written rate-aware rules in
+ * GLOBAL_ALERTS below. Both were written after that kind of outage rather than
+ * before, and the generated all-or-nothing rule is the wrong tool for a
+ * high-traffic public route either way — it fires on a single error in the
+ * window, so on a route serving ~2 req/s it fires forever and gets muted.
+ *
+ * Shortening this list is the work. Anything user-facing on it is an endpoint
+ * that can fail completely without telling anyone.
+ */
+export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
+  'authentication',
+  'campaigns',
+  'campaign-plan-shares',
+  'campaigns/mine/story',
+  'campaignStrategy',
+  'content',
+  'crm',
+  'dashboard/cards',
+  'dashboard/onboarding-cards',
+  'elections',
+  'error-logger',
+  'experiment',
+  'health',
+  'version',
+  'mcp',
+  'onboarding/contacts',
+  'onboarding/local-news',
+  'onboarding/voter-issues',
+  'organizations/:slug/ordinance-code',
+  'organizations/team',
+  'outreach',
+  'outreach/serve',
+  'outreach/admin/sms',
+  'payments',
+  'payments/purchase',
+  'phone-banking',
+  'priorities',
+  'campaigns/mine/race-opponent',
+  'campaigns/mine/recommended-lists',
+  'subscribe',
+  'test-fixtures',
+  'top-issues',
+  'users',
+  'admin/agent-runs',
+  'admin/briefings',
+  'admin/campaign',
+  'admin/campaigns',
+  'admin/elected-office',
+  'admin/users',
+  'annotations',
+  'meetings/:date/briefing/annotations',
+  'ordinances/:slug/annotations',
+  'meetings/:date/briefing/feedback',
+  'meetings/:date/briefing/items/:itemId/feedback',
+  'meetings/:date/briefing/review-verdict',
+  'campaigns/tracker-tasks',
+  'eligibility',
+  'public-campaigns',
+  'campaigns/:id/positions',
+  'campaigns/tasks',
+  'campaigns/tcr-compliance',
+  'campaigns/mine/update-history',
+  'community-issues',
+  'briefings',
+  'meetings',
+  'ordinances',
+  'person-profiles',
+  'public-person-profiles',
+  'queue',
+  'speech/transcribe',
+  'speech',
+  'positions',
+  'ecanvasser',
+  'p2p',
+  'voters/voter-file',
+  'domains',
+  'websites',
+  'campaigns/ai/chat',
+  'campaigns/ai',
+  'briefing-chats',
+  'chats',
+]
+
+/**
  * Controllers whose generated route alerts fire on 5xx only.
  *
  * The default filter calls every status >= 400 outside the excluded list a
@@ -441,6 +547,17 @@ export const GLOBAL_ALERTS: Alert[] = [
     // the query returns no data, which grafana.ts maps to OK (noDataState),
     // not Alerting. The cost is that a large drop in traffic (e.g. if
     // gp-marketing starts caching this call) silences the alert.
+    //
+    // KNOWN GAP, written down rather than left to be rediscovered: unlike the
+    // generated rules and unlike public-person-profiles-error-ratio below,
+    // this one does not admit `response_statusCode = ""`, so a request the
+    // gateway kills mid-flight is invisible to it — see noStatusFilter in
+    // controller-alerts.ts for why that is the one failure a status range
+    // cannot see. A pure timeout wave on this route would score 0% and page
+    // nobody. Closing it is a one-line change on each half, but it moves the
+    // firing profile of a live rule, and the numbers quoted above were
+    // measured against the narrow expression; it wants its own replay over
+    // real traffic rather than being changed in passing here.
     expr: [
       '( sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
@@ -641,5 +758,122 @@ export const GLOBAL_ALERTS: Alert[] = [
     // deliberate no-mention rule, and if it fires unrouted it still appears in
     // Grafana's own alert list, which is the last channel left when every other
     // one depends on the thing that broke.
+  },
+  {
+    slug: 'public-person-profiles-error-ratio',
+    name: '[People] Public person profile requests failing',
+    type: 'log',
+    // The rule that was missing on 2026-08-24, when GET /v1/public-person
+    // -profiles/voter-density began answering every single request with a 500
+    // and continued for four days. 1,498,324 of them. Nothing fired, because
+    // `public-person-profiles` is in CONTROLLERS_WITHOUT_ROUTE_ALERTS, so its
+    // generated rule is provisioned disabled. It ended when the table it reads
+    // was created, not when anyone responded.
+    //
+    // Same shape as public-campaigns-lookup-error-ratio above, and for the same
+    // reason: opting the controller into ALERT_OWNERSHIP instead would give it
+    // the generated rule, which fires on one error in the window. These routes
+    // serve ~4 req/s, so that rule fires more or less permanently and ends up
+    // muted — which is indistinguishable from what we have now.
+    //
+    // `sum by (request_endpoint)` rather than one ratio for the controller:
+    // Grafana turns each returned series into its own alert instance, so a
+    // route that is entirely broken is judged on its own numbers instead of
+    // being averaged out by a busier sibling that is fine. In August the base
+    // route was healthy and served more traffic than the one that was down.
+    //
+    // Prefix regex rather than the exact alternation the generated rules build,
+    // so a route added to this controller is covered the day it ships. That is
+    // the whole complaint this alert answers, and an alternation would have to
+    // be remembered.
+    //
+    // Denominator excludes 404s for the reason it does on public-campaigns:
+    // most requests here legitimately miss (1.8M of them in the last 7 days).
+    // gp-marketing asks about every candidate, and a person who maps to no L2
+    // district gets no heat map — both are the feature working, and counting
+    // them buries a total outage in a rounding error. Against non-404s the
+    // August failure reads 100%, and normal weeks read under 0.01%.
+    //
+    // The volume floor is the same 20-in-the-window guard, per route: under it
+    // the series drops out, which grafana.ts maps to OK via noDataState, so a
+    // single 500 on a quiet route does not page. It also means a route that
+    // stops being called cannot alert — acceptable, since a route with no
+    // traffic has no users to fail.
+    //
+    // WHAT THIS WILL PAGE FOR, measured rather than guessed. Replayed over the
+    // 30 days to 2026-09-16 it produces two firings, both real: the August
+    // outage, and a connection-pool exhaustion burst on the base route on
+    // 09-14 that held 99% for twenty minutes. The second only counts because
+    // P2024 now answers 503 instead of 400 (see prisma-exception.filter.ts) —
+    // it was invisible to every 5xx rule at the time. Over the quiet week of
+    // 09-09 the expression returns a single datapoint, 0.036%, which is 274x
+    // under the threshold. So: roughly two pages a month, and nothing to mute.
+    //
+    // Both halves admit `response_statusCode = ""` for the reason
+    // controller-alerts.ts spells out at `noStatusFilter`: a request the
+    // gateway kills mid-flight completes with a null status, Loki's json
+    // parser drops a null field, and every status-RANGE filter therefore
+    // misses it. The generated rules were widened after two door-knocking
+    // pack timeouts went unseen that way in August; written the narrow way
+    // here, a wave of gateway timeouts on voter-density would be scored 0%
+    // and page nobody — the same endpoint, the same silence, one release
+    // after this rule was added to end it.
+    //
+    // It has to be added to the denominator too, not just the numerator. A
+    // rule that counted no-status requests as failures but not as traffic
+    // would read over 100% during a pure timeout wave, and the volume floor
+    // would be measuring a smaller population than the ratio it guards.
+    expr: [
+      '( sum by (request_endpoint) (count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Request completed" | json',
+      '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
+      '| ( response_statusCode >= 500 ) or ( response_statusCode = "" )',
+      '[10m]))',
+      '/',
+      'sum by (request_endpoint) (count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Request completed" | json',
+      '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
+      '| ( response_statusCode != 404 ) or ( response_statusCode = "" )',
+      '[10m])) )',
+      'and',
+      '( sum by (request_endpoint) (count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Request completed" | json',
+      '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
+      '| ( response_statusCode != 404 ) or ( response_statusCode = "" )',
+      '[10m])) > 20 )',
+    ].join(' '),
+    threshold: 0.1,
+    for: '10m',
+    summaryDetail: '`{{ $labels.request_endpoint }}`',
+    message: [
+      'More than 10% of the requests to `{{ $labels.request_endpoint }}` that did not legitimately miss returned a server error, or no status at all, in the last 10 minutes (status ≥ 500 or null).',
+      'These routes back the public candidate profiles on the marketing site. 404s are excluded because most requests here are meant to miss: the caller asks about every candidate, and a person who maps to no L2 district has no heat map to return.',
+      'Click *View in Grafana* to find the failing requests. Check which Prisma client raised the error before assuming the main database: the voter-density route reads people-db through a second client (see peopleDb/AGENTS.md), and its tables are populated by the data team rather than by a migration in this repo — so a table this repo has a migration for can still be absent in the database.',
+      'A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Check `responseTimeMs` on those lines — a cluster at ~120,000ms is the timeout rather than the handler, and points at how long the query takes rather than at what it returned.',
+    ].join('\n\n'),
+    knownCauses: [
+      {
+        id: 'people-db-table-missing',
+        summary:
+          'The people-db table the voter-density route reads does not exist. gp-api has a migration for it, but the data team creates and populates it (dbt/Databricks), so shipping the reader before that lands breaks the route completely until it does.',
+        // Not scoped to a status code or endpoint: the P2021 is what confirms
+        // the cause, and it is raised before any response is written. Matching
+        // only the failing route's completions would hide the case where the
+        // same missing table is breaking something else too, which is the
+        // evidence that this is a data-side outage rather than one route's bug.
+        evidence: [
+          '{service_name="gp-api", deployment_environment_name="$ENV"}',
+          '|= "does not exist in the current database"',
+          '| json',
+          '| exception_type = "P2021"',
+        ].join(' '),
+        confirmedBy:
+          "Matched lines name the missing table in `exception.message`, and their `exception.stacktrace` runs through generated/people-prisma. No matched lines means the failures are something else and this is NOT the cause. This does not lower the urgency: while it holds, the route returns nothing to anyone, and the fix is on the data team's side rather than in a deploy of this repo.",
+        action: 'annotate',
+      },
+    ],
   },
 ]
