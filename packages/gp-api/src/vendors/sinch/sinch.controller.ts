@@ -15,6 +15,7 @@ import { SinchConfig } from './config/sinchConfig'
 import { SmsOptOutService } from './services/smsOptOut.service'
 import {
   classifyInboundMessage,
+  parseSinchTimestamp,
   SINCH_NONCE_HEADER,
   SINCH_SIGNATURE_HEADER,
   SINCH_TIMESTAMP_HEADER,
@@ -85,6 +86,18 @@ export class SinchController {
       )
     }
 
+    // Rejected before the digest is computed, because a timestamp we cannot
+    // read is not a callback we can order, and ordering is what protects the
+    // opt-out state from replays and out-of-order delivery further down. A
+    // genuine Sinch callback always carries plain Unix seconds.
+    const eventAt = parseSinchTimestamp(headers[SINCH_TIMESTAMP_HEADER])
+    if (!eventAt) {
+      this.logger.warn(
+        'Rejected inbound SMS callback with a missing or unusable signature timestamp',
+      )
+      throw new UnauthorizedException('Invalid signature')
+    }
+
     // Verify over the raw bytes: parsing and re-serializing changes the digest.
     const rawBody = req.rawBody?.toString('utf8') ?? ''
     const verified = verifySinchSignature({
@@ -125,6 +138,7 @@ export class SinchController {
     await this.optOut.setOptedOut(
       channel_identity.identity,
       intent === 'opt_out',
+      eventAt,
     )
     return { ok: true }
   }

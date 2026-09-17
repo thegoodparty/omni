@@ -38,6 +38,7 @@ const mockUser: User = {
   smsConsentAt: null,
   smsConsentSource: null,
   smsOptedOutAt: null,
+  smsOptEventAt: null,
   personId: null,
 }
 

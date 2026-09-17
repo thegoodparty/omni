@@ -73,7 +73,13 @@ describe('SinchController.handleInbound', () => {
     })
 
     // The sender lives in channel_identity.identity, not a top-level `from`.
-    expect(optOut.setOptedOut).toHaveBeenCalledWith(LEAD_PHONE, true)
+    // The third argument is the signature's own timestamp, which is what orders
+    // this against other callbacks for the same number.
+    expect(optOut.setOptedOut).toHaveBeenCalledWith(
+      LEAD_PHONE,
+      true,
+      new Date(Number(TIMESTAMP) * 1000),
+    )
   })
 
   it('clears an opt-out on START', async () => {
@@ -82,7 +88,44 @@ describe('SinchController.handleInbound', () => {
 
     await controller.handleInbound(req, headers)
 
-    expect(optOut.setOptedOut).toHaveBeenCalledWith(LEAD_PHONE, false)
+    expect(optOut.setOptedOut).toHaveBeenCalledWith(
+      LEAD_PHONE,
+      false,
+      new Date(Number(TIMESTAMP) * 1000),
+    )
+  })
+
+  // The signed timestamp is the only ordering key this endpoint has, so a
+  // callback that does not carry a usable one cannot be applied safely.
+  it('rejects a callback whose timestamp is not plain Unix seconds', async () => {
+    const { controller, optOut } = makeController()
+    const { req, headers } = signedRequest(inboundPayload('STOP'))
+
+    await expect(
+      controller.handleInbound(req, {
+        ...headers,
+        [SINCH_TIMESTAMP_HEADER]: '2026-08-10T20:08:30Z',
+      }),
+    ).rejects.toThrow('Invalid signature')
+    expect(optOut.setOptedOut).not.toHaveBeenCalled()
+  })
+
+  // A timestamp far in our future would pin sms_opt_event_at beyond every real
+  // callback that follows, so no later STOP could ever apply. Only a Sinch
+  // clock fault can produce one — an attacker cannot sign — but the cost of
+  // accepting it is an opt-out that silently stops working.
+  it('rejects a callback timestamped implausibly far ahead of us', async () => {
+    const { controller, optOut } = makeController()
+    const far = String(Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60)
+    const { req, headers } = signedRequest(inboundPayload('STOP'))
+
+    await expect(
+      controller.handleInbound(req, {
+        ...headers,
+        [SINCH_TIMESTAMP_HEADER]: far,
+      }),
+    ).rejects.toThrow('Invalid signature')
+    expect(optOut.setOptedOut).not.toHaveBeenCalled()
   })
 
   it('ignores a message with no opt-out keyword', async () => {

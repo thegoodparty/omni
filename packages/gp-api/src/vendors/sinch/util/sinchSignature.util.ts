@@ -12,6 +12,53 @@ export const SINCH_SIGNATURE_HEADER = 'x-sinch-webhook-signature'
 export const SINCH_NONCE_HEADER = 'x-sinch-webhook-signature-nonce'
 export const SINCH_TIMESTAMP_HEADER = 'x-sinch-webhook-signature-timestamp'
 
+/**
+ * How far ahead of our clock a callback's signature time may be.
+ *
+ * There is no matching bound on the past, and that is the point. Sinch retries
+ * with exponential backoff "until the maximum retry period is reached", does
+ * not document what that period is, and — per their own guidance — does not
+ * re-sign a retry: it arrives with the timestamp and signature of the original.
+ * So any staleness cutoff is a guess about their backoff, and guessing short
+ * means rejecting a real STOP that took too long to get through. That failure
+ * is worse than the replay it would prevent, because it leaves us texting
+ * someone who asked us to stop.
+ *
+ * Freshness is therefore not what defends this endpoint — `smsOptEventAt` in
+ * SmsOptOutService is, by refusing to apply a callback older than the state it
+ * would overwrite. Replaying a captured STOP after a real START, or a captured
+ * START after a real STOP, is exactly the case that guard rejects, and it does
+ * it without caring how old the replay is.
+ *
+ * The future bound is still worth having, and it protects that guard rather
+ * than the signature: a timestamp years ahead would pin `smsOptEventAt` past
+ * every real event that follows, so no genuine STOP could ever apply again. It
+ * takes a Sinch clock fault to produce one (an attacker cannot sign), which is
+ * why the allowance is generous — it only has to exclude the absurd.
+ */
+const MAX_FUTURE_SKEW_SECONDS = 15 * 60
+
+/**
+ * The signature's timestamp as a Date, or null if it is not a plain Unix-second
+ * integer or sits implausibly far in our future.
+ *
+ * Callers use this as the callback's event time. It is safe to trust that far
+ * because it is inside the HMAC preimage — altering it invalidates the
+ * signature — so it is authenticated in a way the request body's own clock
+ * fields are not.
+ */
+export function parseSinchTimestamp(
+  timestamp: string | undefined,
+  now: Date = new Date(),
+): Date | null {
+  if (!timestamp || !/^\d{1,12}$/.test(timestamp)) return null
+  const seconds = Number(timestamp)
+  if (!Number.isSafeInteger(seconds)) return null
+  const at = new Date(seconds * 1000)
+  if (at.getTime() - now.getTime() > MAX_FUTURE_SKEW_SECONDS * 1000) return null
+  return at
+}
+
 export function verifySinchSignature(args: {
   rawBody: string
   signature?: string

@@ -38,6 +38,16 @@ model User {
   // Set from Sinch's inbound STOP callback. Checked before every send, so an
   // opt-out is enforced by us and not only by the carrier.
   smsOptedOutAt               DateTime?                        @map("sms_opted_out_at")
+  // Signature time of the newest inbound opt-in/opt-out callback we have
+  // applied, which is what orders them. Sinch states plainly that callback
+  // order is not guaranteed and recommends the receiver keep this state, so
+  // without it a STOP delivered after a later START wins on arrival order and
+  // leaves the person in the state they did not choose. It doubles as replay
+  // protection: a captured callback replayed later carries its original
+  // timestamp, so it is refused for being older than what it would overwrite.
+  // Distinct from smsOptedOutAt, which is null while opted in and so cannot
+  // order an opt-in against anything.
+  smsOptEventAt               DateTime?                        @map("sms_opt_event_at")
   /// [UserMetaData]
   metaData                    Json?                            @map("meta_data") @db.JsonB
   campaignUpdateHistory       CampaignUpdateHistory[]

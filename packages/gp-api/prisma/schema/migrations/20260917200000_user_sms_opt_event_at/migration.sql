@@ -1,0 +1,12 @@
+-- Orders inbound opt-in/opt-out callbacks by the signature time they carry,
+-- rather than by when we happened to process them. Sinch does not guarantee
+-- callback order and does not re-sign a retry, so arrival order is both
+-- unreliable and replayable; `sms_opted_out_at` cannot serve as the marker
+-- because it is NULL while opted in and so has nothing to compare an opt-in
+-- against.
+--
+-- Nullable with no backfill on purpose. NULL reads as "no callback applied
+-- yet", which the guard in SmsOptOutService admits, so the first real callback
+-- for an existing user applies normally. Backfilling a value would instead
+-- discard every callback older than the backfill.
+ALTER TABLE "user" ADD COLUMN "sms_opt_event_at" TIMESTAMP(3);

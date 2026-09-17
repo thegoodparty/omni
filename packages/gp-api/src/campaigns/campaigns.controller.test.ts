@@ -87,6 +87,7 @@ const userDefaults = {
   smsConsentAt: null,
   smsConsentSource: null,
   smsOptedOutAt: null,
+  smsOptEventAt: null,
   personId: null,
 }
 
