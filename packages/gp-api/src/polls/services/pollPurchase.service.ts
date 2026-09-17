@@ -130,10 +130,22 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
     // mutating it. pollId comes from checkout metadata; without this check a
     // user could expand (and schedule texts on) another office's poll (IDOR),
     // matching the ensurePollAccess check the standard poll routes enforce.
-    const electedOffice = await this.electedOfficeService.findFirst({
+    //
+    // Checked against every office the userId holds rather than one row from an
+    // unordered findFirst({ where: { userId } }). A holder can own several
+    // elected_office rows — @@unique([userId]) is gone (hence the advisory lock
+    // in ElectedOfficeService.create) and create refuses only *overlapping*
+    // terms, so consecutive terms coexist. Comparing against a single arbitrary
+    // pick would refuse to expand the holder's own poll whenever the pick was
+    // their other term, and ForbiddenException is not the BadRequestException
+    // paymentEventsService acknowledges as permanent, so Stripe would redeliver
+    // for days into a check that keeps failing the same way. The office
+    // granularity is not a trust boundary within one user: processNewPoll files
+    // new polls under whichever of their offices it draws.
+    const electedOffices = await this.electedOfficeService.findMany({
       where: { userId },
     })
-    if (!electedOffice) {
+    if (electedOffices.length === 0) {
       throw new BadRequestException(
         `Elected office not found for userId ${userId} poll ${metadata.pollId}`,
       )
@@ -145,7 +157,10 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
     if (!poll) {
       throw new NotFoundException(`Poll not found: ${metadata.pollId}`)
     }
-    if (poll.electedOfficeId !== electedOffice.id) {
+    if (
+      !poll.electedOfficeId ||
+      !electedOffices.some((office) => office.id === poll.electedOfficeId)
+    ) {
       throw new ForbiddenException(
         'You do not have permission to expand this poll',
       )

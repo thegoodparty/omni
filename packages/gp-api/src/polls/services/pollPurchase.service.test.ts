@@ -22,7 +22,10 @@ describe('PollPurchaseHandlerService', () => {
     findUnique: ReturnType<typeof vi.fn>
     create: ReturnType<typeof vi.fn>
   }
-  let electedOfficeService: { findFirst: ReturnType<typeof vi.fn> }
+  let electedOfficeService: {
+    findFirst: ReturnType<typeof vi.fn>
+    findMany: ReturnType<typeof vi.fn>
+  }
   let usersService: { findUser: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
@@ -31,7 +34,7 @@ describe('PollPurchaseHandlerService', () => {
       findUnique: vi.fn(),
       create: vi.fn(),
     }
-    electedOfficeService = { findFirst: vi.fn() }
+    electedOfficeService = { findFirst: vi.fn(), findMany: vi.fn() }
     usersService = { findUser: vi.fn() }
 
     const module: TestingModule = await Test.createTestingModule({
@@ -58,7 +61,7 @@ describe('PollPurchaseHandlerService', () => {
 
     beforeEach(() => {
       usersService.findUser.mockResolvedValue({ id: 1 })
-      electedOfficeService.findFirst.mockResolvedValue({ id: 'eo-1' })
+      electedOfficeService.findMany.mockResolvedValue([{ id: 'eo-1' }])
     })
 
     it("expands the poll when it belongs to the buyer's elected office", async () => {
@@ -99,11 +102,43 @@ describe('PollPurchaseHandlerService', () => {
     })
 
     it('throws BadRequestException when the buyer has no elected office', async () => {
-      electedOfficeService.findFirst.mockResolvedValue(null)
+      electedOfficeService.findMany.mockResolvedValue([])
 
       await expect(
         service.handlePollPostPurchase('sess_1', rawMetadata),
       ).rejects.toThrow(BadRequestException)
+      expect(pollsService.expandPoll).not.toHaveBeenCalled()
+    })
+
+    it("expands a poll held under the buyer's other term", async () => {
+      // Two terms for one holder is a supported state, and nothing orders them.
+      // Refusing here would throw Forbidden, which paymentEventsService
+      // rethrows, so Stripe would redeliver for days into the same refusal.
+      electedOfficeService.findMany.mockResolvedValue([
+        { id: 'eo-second-term' },
+        { id: 'eo-first-term' },
+      ])
+      pollsService.findUnique.mockResolvedValue({
+        id: POLL_ID,
+        electedOfficeId: 'eo-first-term',
+      })
+
+      await service.handlePollPostPurchase('sess_1', rawMetadata)
+
+      expect(pollsService.expandPoll).toHaveBeenCalledWith(
+        expect.objectContaining({ pollId: POLL_ID }),
+      )
+    })
+
+    it('throws ForbiddenException when the poll has no elected office', async () => {
+      pollsService.findUnique.mockResolvedValue({
+        id: POLL_ID,
+        electedOfficeId: null,
+      })
+
+      await expect(
+        service.handlePollPostPurchase('sess_1', rawMetadata),
+      ).rejects.toThrow(ForbiddenException)
       expect(pollsService.expandPoll).not.toHaveBeenCalled()
     })
   })
