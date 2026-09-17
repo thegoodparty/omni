@@ -564,9 +564,9 @@ export const reconcile = async (
   // that hold one subscription each. No same-customer check can see that, ours
   // or Stripe's own, which is why the confirmed case ran 14 months.
   //
-  // This is why every customer with a live subscription gets an email lookup
-  // rather than only the ones that end up in a finding — the lookup IS the
-  // detection. The cost is one cached GET per paying customer.
+  // This is why every customer above gets an email lookup rather than only the
+  // ones that end up in a finding — the lookup IS the detection. The cost is
+  // one cached GET per customer holding a non-canceled Pro subscription.
   const customerIdsByEmail = new Map<string, string[]>()
   for (const customerId of byCustomer.keys()) {
     const email = normalizeEmail(await emailOf(customerId))
