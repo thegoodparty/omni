@@ -1,5 +1,9 @@
-'use client'
-
+// Deliberately no `'use client'` directive. This module is imported only by
+// AffectedResidentsView, which is itself a client component, so it is already
+// in the client bundle — the directive marks a boundary, and a second one here
+// would add nothing except a tick on the `check:use-client` ratchet. It does
+// use hooks and the Google Maps imperative API, so it can only ever run on the
+// client; that comes from its importer, not from a directive.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Script from 'next/script'
 import type { AffectedResident } from 'gpApi/api-endpoints'

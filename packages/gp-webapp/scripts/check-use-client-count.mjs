@@ -385,7 +385,12 @@ import { dirname, join, relative } from 'node:path'
 // the handshake — it reads the Clerk session through `useUser`, holds the
 // field's state, and redirects on success, none of which a server component
 // can do. Its page shell stays a server component.
-const BASELINE = 567
+// 2026-09-17: 567 -> 568 for AffectedResidentsView, the per-issue
+// affected-residents list. It holds the "show 100 more" state over a table
+// that can run to hundreds of residents, so the page does not ship every row
+// at once. Its sibling AffectedResidentsMap needs no directive of its own: the
+// View is its only importer, so it is already inside this boundary.
+const BASELINE = 568
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
