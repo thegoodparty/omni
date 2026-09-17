@@ -13,22 +13,6 @@ export const IS_LOCAL =
     typeof window !== 'undefined' && window.location.href.includes('localhost'),
   )
 
-// The support chat loads in production, which is how it has always been
-// gated, and anywhere else only on request. One flag covers both PR previews
-// and local, because there is one HubSpot portal and no sandbox: every
-// conversation started anywhere lands in the real support inbox. Set
-// NEXT_PUBLIC_SUPPORT_CHAT=1 in .env.local for local, or in Vercel's Preview
-// environment to exercise it on PR previews, and expect whatever you send to
-// reach a person.
-//
-// It deliberately does not key off IS_PREVIEW. That reads
-// NEXT_PUBLIC_VERCEL_TARGET_ENV, which is not reliably populated in this app —
-// see the note in app/shared/experiments/flagOverrides.ts — and measured on
-// the preview for this very change it was not 'preview', so the widget never
-// loaded there at all.
-export const SUPPORT_CHAT_ENABLED =
-  IS_PROD || process.env.NEXT_PUBLIC_SUPPORT_CHAT === '1'
-
 export const API_ROOT =
   process.env.NEXT_PUBLIC_API_BASE || 'https://gp-api-dev.goodparty.org'
 

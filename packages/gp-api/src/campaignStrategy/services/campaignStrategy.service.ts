@@ -582,7 +582,7 @@ export class CampaignStrategyService extends createPrismaBase(
           { error, campaignId: campaign.id, raceId: brHashId },
           'election-api unavailable while building strategy params; reporting failed',
         )
-        return { status: 'failed' }
+        return { status: 'failed', reason: 'race_lookup_failed' }
       }
       throw error
     }
@@ -725,12 +725,15 @@ export class CampaignStrategyService extends createPrismaBase(
     opportunities: SectionState,
   ): StrategicLandscapeResponse {
     if (opposition === 'dead' || opportunities === 'dead') {
-      return { status: 'failed' }
+      return { status: 'failed', reason: 'attempts_exhausted' }
     }
     if (opposition === 'inflight' || opportunities === 'inflight') {
       return { status: 'generating' }
     }
-    return { status: 'failed' }
+    // Neither dead nor inflight and not both persisted (the caller already
+    // returns 'ready' for that): the only state left is 'stalled', so this is
+    // always an SQS-dispatch failure, never a generic catch-all.
+    return { status: 'failed', reason: 'queue_failed' }
   }
 
   // A dispatch failure (no queue, or an SQS send error -> BadGateway) yields no

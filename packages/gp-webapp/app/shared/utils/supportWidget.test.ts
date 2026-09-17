@@ -1,10 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+// Imported rather than repeated: a literal here keeps passing against the old
+// URL after the constant moves, certifying a destination the product no longer
+// uses. It is a plain string with no side effects, so the top-level import is
+// unaffected by the per-test resetModules/doMock below.
+import { HELP_CENTER_URL, SUPPORT_CHAT_SCRIPT_ID } from './supportContact'
 
-// Each test gets a fresh copy so module state can never leak between cases,
-// and so the environment gate can be set per test.
-const loadWidget = async (supportChatEnabled = true) => {
+// Each test gets a fresh copy so module state can never leak between cases.
+//
+// Whether the chat is available is a DOM fact rather than a mocked module: the
+// root layout injects its settings script only where the chat is enabled, and
+// that script's presence is what the helper reads. Mirroring it here keeps the
+// test honest about how the real decision is made.
+const loadWidget = async (chatInjected = true) => {
   vi.resetModules()
-  vi.doMock('appEnv', () => ({ SUPPORT_CHAT_ENABLED: supportChatEnabled }))
+  if (chatInjected) {
+    const marker = document.createElement('script')
+    marker.id = SUPPORT_CHAT_SCRIPT_ID
+    document.head.append(marker)
+  }
   return (await import('./supportWidget')).openSupportChat
 }
 
@@ -49,14 +62,31 @@ const renderWidgetContainer = (height = 92) => {
   }
 }
 
-// jsdom refuses to navigate, so the email fallback is asserted against a
-// stubbed location. It counts writes rather than just holding the last value:
-// several timers all setting the same href is invisible otherwise.
+// jsdom refuses to navigate, so the fallback is asserted against a stubbed
+// location. It counts writes rather than just holding the last value: several
+// timers all setting the same href is invisible otherwise.
 let navigations: string[] = []
+
+// New tabs the module asked for, and whether the browser granted them. The
+// grant is modelled because the whole point of the fallback is that it lands:
+// asserting only that `window.open` was called would pass against a popup
+// blocker that refused, which is how the previous `mailto:` fallback shipped
+// broken — the test asserted an href a real browser then ignored.
+let openedTabs: string[] = []
+let openCalls: { url: string; target?: string; features?: string }[] = []
+let popupsBlocked = false
 
 beforeEach(() => {
   vi.useFakeTimers()
   navigations = []
+  openedTabs = []
+  openCalls = []
+  popupsBlocked = false
+  vi.stubGlobal('open', (url: string, target?: string, features?: string) => {
+    openCalls.push({ url, target, features })
+    openedTabs.push(url)
+    return popupsBlocked ? null : ({} as Window)
+  })
   vi.stubGlobal('location', {
     get href() {
       return navigations[navigations.length - 1] ?? 'http://localhost:3000/'
@@ -68,6 +98,7 @@ beforeEach(() => {
   delete window.HubSpotConversations
   delete window.hsConversationsOnReady
   document.body.innerHTML = ''
+  document.head.innerHTML = ''
 })
 
 afterEach(() => {
@@ -136,7 +167,7 @@ describe('openSupportChat', () => {
   // The failure that used to be invisible: the SDK is present, load() is
   // called, and nothing appears — which is what a chatflow whose targeting
   // excludes this host actually does. Trusting load() left this a dead click.
-  it('falls back to email when the SDK loads but no widget appears', async () => {
+  it('falls back to the help center when the SDK loads but no widget appears', async () => {
     const { api, state } = sdk()
     window.HubSpotConversations = api
     const openSupportChat = await loadWidget()
@@ -147,7 +178,7 @@ describe('openSupportChat', () => {
 
     await vi.advanceTimersByTimeAsync(11_000)
 
-    expect(window.location.href).toBe('mailto:support@goodparty.org')
+    expect(openedTabs).toEqual([HELP_CENTER_URL])
   })
 
   it('does not fall back when the widget did come up', async () => {
@@ -160,7 +191,7 @@ describe('openSupportChat', () => {
     state.loaded = true
     await vi.advanceTimersByTimeAsync(11_000)
 
-    expect(window.location.href).not.toContain('mailto:')
+    expect(openedTabs).toEqual([])
   })
 
   // The regression that prompted the watch: a widget that takes longer than a
@@ -174,12 +205,12 @@ describe('openSupportChat', () => {
 
     // Well past the old 2.5s deadline, still loading.
     await vi.advanceTimersByTimeAsync(4_000)
-    expect(window.location.href).not.toContain('mailto:')
+    expect(openedTabs).toEqual([])
 
     renderWidgetContainer()
     state.loaded = true
     await vi.advanceTimersByTimeAsync(7_000)
-    expect(window.location.href).not.toContain('mailto:')
+    expect(openedTabs).toEqual([])
   })
 
   it('queues on HubSpot’s ready hook when the SDK has not arrived', async () => {
@@ -204,7 +235,7 @@ describe('openSupportChat', () => {
 
     openSupportChat()
     await vi.advanceTimersByTimeAsync(11_000)
-    expect(navigations).toEqual(['mailto:support@goodparty.org'])
+    expect(openedTabs).toEqual([HELP_CENTER_URL])
 
     const { api, state } = sdk()
     window.HubSpotConversations = api
@@ -234,7 +265,7 @@ describe('openSupportChat', () => {
     await vi.advanceTimersByTimeAsync(11_000)
 
     expect(window.hsConversationsOnReady).toHaveLength(1)
-    expect(navigations).toHaveLength(2)
+    expect(openedTabs).toHaveLength(2)
 
     const { api, state } = sdk()
     window.HubSpotConversations = api
@@ -280,7 +311,7 @@ describe('openSupportChat', () => {
       expect(window.hsConversationsOnReady).toHaveLength(1)
     })
 
-    it('runs one watch, so email is offered once rather than per click', async () => {
+    it('runs one watch, so the help center opens once rather than per click', async () => {
       const openSupportChat = await loadWidget()
 
       openSupportChat()
@@ -288,7 +319,7 @@ describe('openSupportChat', () => {
       openSupportChat()
       await vi.advanceTimersByTimeAsync(11_000)
 
-      expect(navigations).toEqual(['mailto:support@goodparty.org'])
+      expect(openedTabs).toEqual([HELP_CENTER_URL])
     })
 
     it('starts a fresh watch for a click after an attempt has settled', async () => {
@@ -296,11 +327,11 @@ describe('openSupportChat', () => {
 
       openSupportChat()
       await vi.advanceTimersByTimeAsync(11_000)
-      expect(navigations).toHaveLength(1)
+      expect(openedTabs).toHaveLength(1)
 
       openSupportChat()
       await vi.advanceTimersByTimeAsync(11_000)
-      expect(navigations).toHaveLength(2)
+      expect(openedTabs).toHaveLength(2)
     })
   })
 
@@ -416,7 +447,7 @@ describe('openSupportChat', () => {
 
     // With no widget left after a close, a click that brings nothing back has
     // to reach a person rather than reopening something that is not there.
-    it('offers email when a click after a close brings nothing back', async () => {
+    it('offers the help center when a click after a close brings nothing back', async () => {
       const { api, state } = sdk()
       window.HubSpotConversations = api
       const openSupportChat = await loadWidget()
@@ -428,7 +459,7 @@ describe('openSupportChat', () => {
       openSupportChat()
       await vi.advanceTimersByTimeAsync(11_000)
 
-      expect(navigations).toEqual(['mailto:support@goodparty.org'])
+      expect(openedTabs).toEqual([HELP_CENTER_URL])
       expect(api.widget.open).toHaveBeenCalledTimes(1)
     })
 
@@ -447,16 +478,46 @@ describe('openSupportChat', () => {
     })
   })
 
+  // jsdom cannot reproduce this, so it is asserted on the call instead: a real
+  // `window.open` given `noopener` returns null even when the tab opened, so
+  // the `!opened` check below would fire on every click and navigate the
+  // candidate off their dashboard as well as opening the tab. The return value
+  // is the only signal that the tab arrived, and `noopener` destroys it.
+  it('does not pass noopener, which would make success indistinguishable', async () => {
+    const openSupportChat = await loadWidget(false)
+
+    openSupportChat()
+
+    expect(openCalls).toHaveLength(1)
+    expect(openCalls[0]?.features ?? '').not.toContain('noopener')
+    expect(navigations).toEqual([])
+  })
+
+  // A refused tab is the same dead click the mailto: fallback was. When the
+  // browser will not grant one, the help center has to load in place instead.
+  it('navigates in place when a new tab is refused', async () => {
+    const openSupportChat = await loadWidget()
+
+    popupsBlocked = true
+    openSupportChat()
+    await vi.advanceTimersByTimeAsync(11_000)
+
+    expect(openedTabs).toEqual([HELP_CENTER_URL])
+    expect(navigations).toEqual([HELP_CENTER_URL])
+  })
+
   // The nav item renders in every environment, so a click where the chat was
   // never loaded has to go somewhere immediately. Waiting out the full
-  // deadline for a widget that cannot arrive is just a dead ten seconds.
-  describe('where the support chat is not loaded at all', () => {
-    it('goes to email on the click, without waiting', async () => {
+  // deadline for a widget that cannot arrive is just a dead ten seconds, and
+  // the destination has to be a URL: a mailto: shows nothing at all on a
+  // machine with no mail client, which is what made this a dead click on dev.
+  describe('where the support chat was never injected', () => {
+    it('goes to the help center on the click, without waiting', async () => {
       const openSupportChat = await loadWidget(false)
 
       openSupportChat()
 
-      expect(navigations).toEqual(['mailto:support@goodparty.org'])
+      expect(openedTabs).toEqual([HELP_CENTER_URL])
     })
 
     it('does not touch the SDK even if one happens to be present', async () => {
@@ -471,12 +532,12 @@ describe('openSupportChat', () => {
     })
   })
 
-  it('falls back to email when the SDK never arrives at all', async () => {
+  it('falls back to the help center when the SDK never arrives at all', async () => {
     const openSupportChat = await loadWidget()
 
     openSupportChat()
     await vi.advanceTimersByTimeAsync(11_000)
 
-    expect(window.location.href).toBe('mailto:support@goodparty.org')
+    expect(openedTabs).toEqual([HELP_CENTER_URL])
   })
 })

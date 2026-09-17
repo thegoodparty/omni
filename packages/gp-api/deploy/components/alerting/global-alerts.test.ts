@@ -80,6 +80,121 @@ describe('public-campaigns-lookup-error-ratio', () => {
   })
 })
 
+// The rule that was missing when GET /v1/public-person-profiles/voter-density
+// answered 1,498,324 consecutive requests with a 500 over four days. It is the
+// same shape as the public-campaigns rule above and is asserted separately
+// rather than shared with it, because "modelled on" is not "identical to": it
+// groups where the sibling totals, and a property that holds for a single
+// ratio has to be re-established once the expression returns many.
+describe('public-person-profiles-error-ratio', () => {
+  const alert = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'public-person-profiles-error-ratio',
+  )
+
+  it('is registered', () => {
+    expect(alert).toBeDefined()
+  })
+
+  // A range vector wider than the window the engine fetches is never fully
+  // populated, so the rule silently judges on part of the data it claims.
+  it('keeps every range vector inside the window the engine fetches', () => {
+    const fetched = alert!.timeRangeSeconds ?? DEFAULT_FETCH_SECONDS
+    expect(widestRangeSeconds(alert!.expr)).toBeLessThanOrEqual(fetched)
+  })
+
+  it('promises the reader the window it actually queried', () => {
+    expect(promisedSeconds(alert!.message)).toEqual(
+      widestRangeSeconds(alert!.expr),
+    )
+  })
+
+  // Same reasoning as the sibling, and the reason this controller is not
+  // simply added to ALERT_OWNERSHIP: the generated rule fires on one error in
+  // the window, and these routes serve ~4 req/s, so it would sit permanently
+  // lit and be muted — which is indistinguishable from the silence it replaced.
+  it('is a ratio, not an any-error count', () => {
+    expect(alert!.threshold).toBeGreaterThan(0)
+    expect(alert!.threshold).toBeLessThan(1)
+    expect(alert!.expr).toContain('/')
+  })
+
+  // Most requests here are meant to miss: gp-marketing asks about every
+  // candidate, and a person who maps to no L2 district has no heat map to
+  // return. 1.8M such misses in a week would bury a total outage in a rounding
+  // error. Against non-404s the August failure reads 100%.
+  it('counts only server errors, against lookups that were meant to resolve', () => {
+    expect(alert!.expr).toContain('response_statusCode >= 500')
+    expect(alert!.expr).not.toContain('response_statusCode >= 400')
+    expect(alert!.expr).toContain('response_statusCode != 404')
+  })
+
+  // Per route, so a quiet route cannot page on a single 500. The series drops
+  // out below the floor, which grafana.ts maps to OK via noDataState.
+  it('holds fire below a minimum volume of resolvable lookups', () => {
+    expect(alert!.expr).toMatch(/and .*> \d+/s)
+  })
+
+  // What this rule has and the sibling does not. Grafana turns each returned
+  // series into its own alert instance, so a route that is entirely broken is
+  // judged on its own numbers instead of being averaged out by a busier
+  // sibling that is fine. In August the base route was healthy and served more
+  // traffic than the one that was down, so a single controller-wide ratio
+  // would have stayed well under any threshold worth setting.
+  it('splits by route, so a dead route is not averaged out by a healthy one', () => {
+    expect(alert!.expr).toContain('sum by (request_endpoint)')
+  })
+
+  // The grouping only reaches the responder if the notification says which
+  // route fired. Grouping without naming the label produces several identical
+  // messages and no way to tell them apart.
+  it('names the route it fired for', () => {
+    expect(alert!.summaryDetail).toContain('{{ $labels.request_endpoint }}')
+    expect(alert!.message).toContain('{{ $labels.request_endpoint }}')
+  })
+
+  // The complaint this alert answers is that a route can ship with nobody
+  // watching it. An exact alternation of today's routes would reproduce that
+  // by needing to be remembered; the prefix regex covers a new route on the
+  // controller the day it ships.
+  it('covers routes added to the controller later', () => {
+    expect(alert!.expr).toContain('/v1/public-person-profiles(/.*)?$')
+  })
+
+  // The worst answer a route can give is none, and it is the one a status
+  // range cannot see: a request the gateway kills mid-flight completes with a
+  // null status, which Loki's json parser drops, so `>= 500` misses it. The
+  // generated rules learned this from two door-knocking timeouts that went
+  // unseen in August (see noStatusFilter in controller-alerts.ts), and a
+  // hand-written rule gets no benefit from that unless it says so itself.
+  it('counts a request that was killed before it could answer', () => {
+    expect(alert!.expr).toContain(
+      '( response_statusCode >= 500 ) or ( response_statusCode = "" )',
+    )
+  })
+
+  // And in the denominator too. Failures that are not also traffic push the
+  // ratio above 100% during a pure timeout wave, and leave the volume floor
+  // guarding a smaller population than the ratio it is supposed to qualify.
+  // Three occurrences: once as a failure, and once in each of the two places
+  // the non-404 population is counted — the ratio, and the floor.
+  it('counts that request as traffic as well as as a failure', () => {
+    expect(alert!.expr).toContain(
+      '( response_statusCode != 404 ) or ( response_statusCode = "" )',
+    )
+
+    const occurrences = alert!.expr.match(/response_statusCode = ""/g) ?? []
+    expect(occurrences.length).toBe(3)
+  })
+
+  // The prose is what the responder reads at 3am, and a rule that pages on a
+  // null status while describing itself as a server-error rule sends them
+  // looking for an exception that was never raised.
+  it('tells the reader that a null status is one of the things it counts', () => {
+    expect(alert!.message).toContain('null')
+    expect(alert!.message).toContain('responseTimeMs')
+  })
+})
+
 /**
  * How many times a day a rule re-reads the same logs. Loki bills the bytes an
  * evaluation decompresses, and an evaluation decompresses its whole fetch

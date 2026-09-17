@@ -7,8 +7,16 @@ import { Button, GoodPartyOrgLogo, Input, Label, Spinner } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { isValidPhone } from '@shared/inputs/PhoneInput'
 import { nextPhoneDigits } from '../phoneUtils'
+import { isSafeInternalPath } from 'helpers/isSafeInternalPath'
 
-const NEXT_PATH = '/post-auth-redirect?source=signup'
+// /login forwards a preserved deep link as `next`; keep it on the way out so a
+// first-time Google sign-in still lands where the link pointed.
+const nextPath = () => {
+  const next = new URLSearchParams(window.location.search).get('next')
+  return isSafeInternalPath(next)
+    ? `/post-auth-redirect?next=${encodeURIComponent(next)}&source=signup`
+    : '/post-auth-redirect?source=signup'
+}
 
 export default function SignUpPhoneForm() {
   const { isLoaded, isSignedIn, user } = useUser()
@@ -55,7 +63,7 @@ export default function SignUpPhoneForm() {
       // asking isValidPhone here would re-collect over a real number.
       if (onRecord.trim()) {
         leavingRef.current = true
-        window.location.replace(NEXT_PATH)
+        window.location.replace(nextPath())
         return
       }
       // Fails open: a lookup that errored shows the form rather than
@@ -104,7 +112,7 @@ export default function SignUpPhoneForm() {
     }
 
     leavingRef.current = true
-    window.location.replace(NEXT_PATH)
+    window.location.replace(nextPath())
   }
 
   if (!isLoaded || checking) {

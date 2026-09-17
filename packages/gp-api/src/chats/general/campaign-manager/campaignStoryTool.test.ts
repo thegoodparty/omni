@@ -141,4 +141,16 @@ describe('buildCampaignStoryTool', () => {
     expect(result).toEqual({ generation: { status: 'generating' } })
     expect(intake.generate).toHaveBeenCalledWith(CAMPAIGN_ID)
   })
+
+  it('generate forwards a failure reason from the intake service', async () => {
+    const intake = buildIntake({
+      generate: vi.fn(() =>
+        Promise.resolve({ status: 'failed', reason: 'queue_failed' as const }),
+      ),
+    })
+    const result = await build(intake).execute({ action: 'generate' })
+    expect(result).toEqual({
+      generation: { status: 'failed', reason: 'queue_failed' },
+    })
+  })
 })

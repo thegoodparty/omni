@@ -146,16 +146,54 @@ gating it hid the item everywhere but production — including on dev — while
 `SUPPORT_ROUTE` went on telling both assistants that support opens from it.
 An assistant pointing at a menu item that is not there is the failure this
 whole map exists to prevent, so the item stays and the click degrades instead:
-where the chat was never loaded, `openSupportChat` goes straight to
-`SUPPORT_EMAIL` rather than waiting out a widget that cannot arrive.
+where the chat cannot be reached, `openSupportChat` opens `HELP_CENTER_URL`
+(`support.goodparty.org/knowledge-base`) rather than waiting out a widget that
+cannot arrive. Keep the path on that constant — the bare host redirects to the
+marketing homepage, which is no use to someone already signed in.
+
+The assistants are told about that fallback too (`HELP_CENTER_URL` in
+`productKnowledgePrompt.ts`, duplicated from the webapp the same way the email
+is). Without it, a user saying "I clicked Get help and got articles" would be
+told the click was broken and pointed at email, when the product did exactly
+what it should.
+
+A new tab is opened **without** `noopener`, which looks wrong and is not.
+`window.open` given `noopener` returns `null` even when the tab opened, so the
+return value can no longer tell a granted tab from a refused one: every click
+then took the same-tab fallback as well, opening the help center _and_
+navigating the candidate off their dashboard. The destination is our own
+knowledge base, so what `noopener` guards against is not a live concern here;
+losing the only signal that the tab arrived is.
+
+That fallback is a URL, not an address, and the reason is worth keeping. It
+was `mailto:${SUPPORT_EMAIL}` first, which is a dead click on any machine with
+no mail client registered: Chrome ignores the navigation and nothing happens
+at all. That is every environment where the chat is not loaded, and any
+ad-blocked session in production, where the widget never arrives and the watch
+ends up on the same fallback. No unit test could see it — the old one asserted
+`location.href`, which is exactly what a real browser then declined to act on.
+It took a click in a real browser on dev to find. A new tab is preferred so
+the candidate keeps their place, with same-tab navigation when a popup blocker
+refuses one, since a refused tab is the same dead click again.
 
 The chat itself is HubSpot Conversations, loaded from the root `<head>` in
-`gp-webapp/app/layout.tsx` in production, and anywhere else only behind
-`NEXT_PUBLIC_SUPPORT_CHAT=1` — in `.env.local` for local, or in Vercel's
-Preview environment to exercise it on a PR preview. Do not reach for
-`IS_PREVIEW` instead: it reads `NEXT_PUBLIC_VERCEL_TARGET_ENV`, which this app
-does not reliably get, and on a real PR preview it was not `preview`, so the
-script did not load at all. Both script tags belong in `<head>`: a
+`gp-webapp/app/layout.tsx` wherever `VERCEL_ENV` is `production` or `preview`,
+which covers prod, dev and PR previews in one expression: per
+`docs/deployment.md` the dev deploy and PR previews both hit Vercel's preview
+target. Locally `VERCEL_ENV` is unset, so local is opt-in behind
+`NEXT_PUBLIC_SUPPORT_CHAT=1` in `.env.local`.
+
+**Do not reach for `IS_PROD`/`IS_PREVIEW` here.** They read
+`NEXT_PUBLIC_VERCEL_TARGET_ENV`, which this app does not reliably get (see
+`app/shared/experiments/flagOverrides.ts`); keying the chat off `IS_PREVIEW`
+meant previews never loaded it at all, which is not visible from any unit test.
+`VERCEL_ENV` is Vercel's reserved runtime var and is always present
+server-side — but it never reaches the browser, which is why the decision is
+read in the layout only and client code learns it from the DOM instead
+(`SUPPORT_CHAT_SCRIPT_ID`, on the layout's `beforeInteractive` script, so it is
+in the served HTML with no race against hydration).
+
+Both script tags belong in `<head>`: a
 `beforeInteractive` script has to be there, and a `<script>` anywhere else
 under `<html>` is invalid HTML that React reports as three hydration errors.
 
@@ -173,6 +211,14 @@ assumed, and watched rather than checked once: a single check cannot tell
 client over the top of a widget mid-animation. Only a widget still absent at
 the deadline counts as failure, and then the click goes to email rather than
 nowhere.
+
+`openSupportChat` asks one question — `reachability()`, which answers `ready`,
+`loading` or `absent` — and the click and the watch both read it. They used to
+carry their own copies of the check and drifted apart: the watch waited for the
+status and the container, the click trusted the status alone, and on the
+ordering where `loaded` lands first it opened a widget with no container for
+the close watcher to attach to. Add a condition to the decision, not to a
+caller.
 
 Two things about the SDK are worth knowing before changing that helper, both
 measured rather than read off the docs:

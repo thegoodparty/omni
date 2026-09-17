@@ -422,11 +422,18 @@ describe('PersonsService', () => {
       slug: 'jane-doe-99999999',
       OfficeHolders: [],
     }
+    // The purged duplicate's own id; its first 8 hex are the slug suffix.
+    const RETIRED_ID = 'a1b2c3d4-0000-0000-0000-000000000000'
+    const OTHER_RETIRED_ID = 'a1b2c3d4-1111-1111-1111-111111111111'
 
     it('resolves a purged slug to the surviving person', async () => {
       findMany.mockResolvedValueOnce([])
       mergeFindMany.mockResolvedValueOnce([
-        { survivingId: SURVIVOR.id, retiredSlug: 'jane-doe-a1b2c3d4' },
+        {
+          retiredId: RETIRED_ID,
+          survivingId: SURVIVOR.id,
+          retiredSlug: 'jane-doe-a1b2c3d4',
+        },
       ])
       // Not itself retired, then loaded.
       mergeFindUnique.mockResolvedValueOnce(null)
@@ -451,7 +458,11 @@ describe('PersonsService', () => {
       for (const retired of ['a1b2c3d4', 'b2c3d4e5']) {
         findMany.mockResolvedValueOnce([])
         mergeFindMany.mockResolvedValueOnce([
-          { survivingId: SURVIVOR.id, retiredSlug: `jane-doe-${retired}` },
+          {
+            retiredId: `${retired}-0000-0000-0000-000000000000`,
+            survivingId: SURVIVOR.id,
+            retiredSlug: `jane-doe-${retired}`,
+          },
         ])
         mergeFindUnique.mockResolvedValueOnce(null)
         findUnique.mockResolvedValueOnce(SURVIVOR)
@@ -474,7 +485,11 @@ describe('PersonsService', () => {
         },
       ])
       mergeFindMany.mockResolvedValueOnce([
-        { survivingId: SURVIVOR.id, retiredSlug: 'jane-doe-a1b2c3d4' },
+        {
+          retiredId: RETIRED_ID,
+          survivingId: SURVIVOR.id,
+          retiredSlug: 'jane-doe-a1b2c3d4',
+        },
       ])
       mergeFindUnique.mockResolvedValueOnce(null)
       findUnique.mockResolvedValueOnce(SURVIVOR)
@@ -482,6 +497,113 @@ describe('PersonsService', () => {
       const result = await service.getPersonBySlug('jane-doe-a1b2c3d4')
 
       expect(result).toEqual(SURVIVOR)
+    })
+
+    it('forwards a purged duplicate whose slug was never published, reconstructing it from the survivor', async () => {
+      // The data team does not publish retiredSlug. A duplicate and its
+      // survivor are the same human, so the survivor's slug base is what the
+      // duplicate's slug was minted from: `jane-doe` + the purged id's suffix.
+      // Without this the URL would fall through to the live `jim-poe`, who is
+      // a different person entirely.
+      findMany.mockResolvedValueOnce([
+        { id: 'a1b2c3d4-live', slug: 'jim-poe-a1b2c3d4', OfficeHolders: [] },
+      ])
+      mergeFindMany.mockResolvedValueOnce([
+        { retiredId: RETIRED_ID, survivingId: SURVIVOR.id, retiredSlug: null },
+      ])
+      mergeFindUnique.mockResolvedValueOnce(null)
+      findUnique.mockResolvedValueOnce(SURVIVOR)
+
+      await expect(
+        service.getPersonBySlug('jane-doe-a1b2c3d4'),
+      ).resolves.toEqual(SURVIVOR)
+    })
+
+    it('404s rather than serving a live neighbour when an unpublished slug cannot be reconstructed', async () => {
+      // The duplicate carried a name variant its survivor does not ('bob-smith'
+      // vs the survivor's 'jane-doe'), so reconstruction cannot confirm the URL
+      // is theirs. It cannot rule it out either, and a live person shares the
+      // prefix — serving them would hand a purged person's URL to an unrelated
+      // human, which gp-marketing would make permanent with a 308.
+      findMany.mockResolvedValueOnce([
+        { id: 'a1b2c3d4-live', slug: 'jim-poe-a1b2c3d4', OfficeHolders: [] },
+      ])
+      mergeFindMany.mockResolvedValueOnce([
+        { retiredId: RETIRED_ID, survivingId: SURVIVOR.id, retiredSlug: null },
+      ])
+      mergeFindUnique.mockResolvedValueOnce(null)
+      findUnique.mockResolvedValueOnce(SURVIVOR)
+
+      await expect(
+        service.getPersonBySlug('bob-smith-a1b2c3d4'),
+      ).rejects.toBeInstanceOf(NotFoundException)
+    })
+
+    it("404s rather than serving a live neighbour when the purged id's forwarding address is broken", async () => {
+      // The row still proves a purged person held this prefix, even though it
+      // can serve nobody. If the URL was theirs, 404 is the right answer
+      // regardless; if we read the broken survivor as "no claim" we would hand
+      // their URL to the live neighbour instead, which is the one outcome worth
+      // avoiding.
+      findMany.mockResolvedValueOnce([
+        { id: 'a1b2c3d4-live', slug: 'jim-poe-a1b2c3d4', OfficeHolders: [] },
+      ])
+      mergeFindMany.mockResolvedValueOnce([
+        { retiredId: RETIRED_ID, survivingId: 'ghost-id', retiredSlug: null },
+      ])
+      mergeFindUnique.mockResolvedValueOnce(null)
+      findUnique.mockResolvedValueOnce(null)
+
+      await expect(
+        service.getPersonBySlug('jim-poe-stale-a1b2c3d4'),
+      ).rejects.toBeInstanceOf(NotFoundException)
+    })
+
+    it('forwards a lone uncontested purged id whose published slug is an older name', async () => {
+      // Renamed before being purged: the row carries only the final slug, so
+      // the older URL cannot match it. With no live person on the prefix there
+      // is nobody to conflate with, and those older links are exactly the ones
+      // worth forwarding.
+      findMany.mockResolvedValueOnce([])
+      mergeFindMany.mockResolvedValueOnce([
+        {
+          retiredId: RETIRED_ID,
+          survivingId: SURVIVOR.id,
+          retiredSlug: 'jane-married-a1b2c3d4',
+        },
+      ])
+      mergeFindUnique.mockResolvedValueOnce(null)
+      findUnique.mockResolvedValueOnce(SURVIVOR)
+
+      await expect(
+        service.getPersonBySlug('jane-maiden-a1b2c3d4'),
+      ).resolves.toEqual(SURVIVOR)
+    })
+
+    it('still serves a renamed live person when the purged id on the prefix published a slug', async () => {
+      // A published slug that does not match is a real answer: this URL is not
+      // the purged person's, so the live person's rename forwarding is safe.
+      // The guard must not withhold it here.
+      findMany.mockResolvedValueOnce([
+        {
+          id: 'a1b2c3d4-live',
+          slug: 'jane-married-a1b2c3d4',
+          OfficeHolders: [],
+        },
+      ])
+      mergeFindMany.mockResolvedValueOnce([
+        {
+          retiredId: RETIRED_ID,
+          survivingId: SURVIVOR.id,
+          retiredSlug: 'someone-else-a1b2c3d4',
+        },
+      ])
+      mergeFindUnique.mockResolvedValueOnce(null)
+      findUnique.mockResolvedValueOnce(SURVIVOR)
+
+      const result = await service.getPersonBySlug('jane-maiden-a1b2c3d4')
+
+      expect(result).toMatchObject({ id: 'a1b2c3d4-live' })
     })
 
     it('still prefers a lone live person when no retired slug matches (rename)', async () => {
@@ -507,7 +629,7 @@ describe('PersonsService', () => {
       // enough to forward them.
       findMany.mockResolvedValueOnce([])
       mergeFindMany.mockResolvedValueOnce([
-        { survivingId: SURVIVOR.id, retiredSlug: null },
+        { retiredId: RETIRED_ID, survivingId: SURVIVOR.id, retiredSlug: null },
       ])
       mergeFindUnique.mockResolvedValueOnce(null)
       findUnique.mockResolvedValueOnce(SURVIVOR)
@@ -520,8 +642,16 @@ describe('PersonsService', () => {
     it('404s an ambiguous prefix rather than guessing between two purged people', async () => {
       findMany.mockResolvedValueOnce([])
       mergeFindMany.mockResolvedValueOnce([
-        { survivingId: 'survivor-1', retiredSlug: 'john-smith-a1b2c3d4' },
-        { survivingId: 'survivor-2', retiredSlug: 'jane-doe-a1b2c3d4' },
+        {
+          retiredId: RETIRED_ID,
+          survivingId: 'survivor-1',
+          retiredSlug: 'john-smith-a1b2c3d4',
+        },
+        {
+          retiredId: OTHER_RETIRED_ID,
+          survivingId: 'survivor-2',
+          retiredSlug: 'jane-doe-a1b2c3d4',
+        },
       ])
 
       await expect(
@@ -534,7 +664,11 @@ describe('PersonsService', () => {
       // when it does, an extra hop beats a 404.
       findMany.mockResolvedValueOnce([])
       mergeFindMany.mockResolvedValueOnce([
-        { survivingId: 'middle-id', retiredSlug: 'jane-doe-a1b2c3d4' },
+        {
+          retiredId: RETIRED_ID,
+          survivingId: 'middle-id',
+          retiredSlug: 'jane-doe-a1b2c3d4',
+        },
       ])
       mergeFindUnique
         .mockResolvedValueOnce({ survivingId: SURVIVOR.id })
@@ -550,7 +684,11 @@ describe('PersonsService', () => {
     it('does not spin on a merge cycle', async () => {
       findMany.mockResolvedValueOnce([])
       mergeFindMany.mockResolvedValueOnce([
-        { survivingId: 'a-id', retiredSlug: 'jane-doe-a1b2c3d4' },
+        {
+          retiredId: RETIRED_ID,
+          survivingId: 'a-id',
+          retiredSlug: 'jane-doe-a1b2c3d4',
+        },
       ])
       // a -> b -> a, forever if unguarded.
       mergeFindUnique.mockImplementation(({ where }) =>
@@ -570,7 +708,11 @@ describe('PersonsService', () => {
     it('404s when the forwarding address points at a person that is gone too', async () => {
       findMany.mockResolvedValueOnce([])
       mergeFindMany.mockResolvedValueOnce([
-        { survivingId: SURVIVOR.id, retiredSlug: 'jane-doe-a1b2c3d4' },
+        {
+          retiredId: RETIRED_ID,
+          survivingId: SURVIVOR.id,
+          retiredSlug: 'jane-doe-a1b2c3d4',
+        },
       ])
       mergeFindUnique.mockResolvedValueOnce(null)
       findUnique.mockResolvedValueOnce(null)
@@ -594,7 +736,11 @@ describe('PersonsService', () => {
         },
       ])
       mergeFindMany.mockResolvedValueOnce([
-        { survivingId: 'ghost-id', retiredSlug: 'jane-doe-a1b2c3d4' },
+        {
+          retiredId: RETIRED_ID,
+          survivingId: 'ghost-id',
+          retiredSlug: 'jane-doe-a1b2c3d4',
+        },
       ])
       mergeFindUnique.mockResolvedValueOnce(null)
       findUnique.mockResolvedValueOnce(null)

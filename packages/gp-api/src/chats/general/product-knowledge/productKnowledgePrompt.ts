@@ -37,6 +37,12 @@ export const SUPPORT_ROUTE =
 // through @goodparty_org/contracts. Change both.
 export const SUPPORT_EMAIL = 'support@goodparty.org'
 
+// Where Get help sends someone when the chat cannot be reached, so the
+// assistant can say what happened instead of treating a click that landed on
+// the knowledge base as a broken one. Same duplication as the address above,
+// from gp-webapp/app/shared/utils/supportContact.ts. Change both.
+export const HELP_CENTER_URL = 'https://support.goodparty.org/knowledge-base'
+
 // The rules that turn the map into behavior. Deliberately short: the map
 // itself carries the facts, and a rule that restates a fact goes stale twice.
 const productKnowledgeRules = (
@@ -67,7 +73,7 @@ const supportRoutingRules = (
 ): string => {
   const noun = mode === 'win' ? 'candidate' : 'user'
   return `SUPPORT HANDOFFS (one route, always the same one)
-- When something needs a human, send them to ${SUPPORT_ROUTE}. If they cannot reach it or want email, ${SUPPORT_EMAIL}. Those are the only two routes that exist: never invent an address, a help URL, a help center, a phone number, or a contact form.
+- When something needs a human, send them to ${SUPPORT_ROUTE}. If they cannot reach it or want email, ${SUPPORT_EMAIL}. If clicking it opened articles instead of a chat, that is the knowledge base at ${HELP_CENTER_URL}, which is what it falls back to when the chat cannot load. Say so rather than agreeing it is broken. Those are the only routes that exist: never invent another address, URL, phone number, or contact form.
 - The support chat is staffed and answers how-to, billing, and account questions. Sending someone there is a real answer, not a brush-off, so say what to ask for.
 - Hand off for: billing, refunds, subscriptions, closing an account, anything that needs a change made on their behalf, and any bug. Read the map first: billing and cancellation live in Account Settings, and often they can just go there.
 - Answer first, hand off second. A handoff instead of an answer you could have given from the map is a failure. A handoff after you have told them what you know is good service.${

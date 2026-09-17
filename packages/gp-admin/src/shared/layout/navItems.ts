@@ -7,6 +7,7 @@ import {
   HiClipboardList,
   HiChatAlt2,
   HiEyeOff,
+  HiKey,
 } from 'react-icons/hi'
 import { PERMISSIONS, Permission } from '@/lib/permissions'
 import { IconType } from 'react-icons'
@@ -60,6 +61,12 @@ export const navItems: NavItem[] = [
     href: '/dashboard/person-removals',
     icon: HiEyeOff,
     permission: PERMISSIONS.MANAGE_PERSON_REMOVALS,
+  },
+  {
+    title: 'Domain Transfers',
+    href: '/dashboard/domains',
+    icon: HiKey,
+    permission: PERMISSIONS.WRITE_CAMPAIGNS,
   },
   {
     title: 'Settings',

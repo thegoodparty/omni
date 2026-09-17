@@ -1,0 +1,21 @@
+{
+    "receiver": "dev-alerts",
+    "group_by": [
+        "alert_slug"
+    ],
+    "routes": [
+        {
+            "receiver": "nowhere",
+            "object_matchers": [
+                [
+                    "environment",
+                    "!=",
+                    "prod"
+                ]
+            ]
+        }
+    ],
+    "group_wait": "30s",
+    "group_interval": "5m",
+    "repeat_interval": "2d"
+}

@@ -28,10 +28,24 @@ name: gpbot CI drive
 # and a write token, and is the only one of the two that is actually delivered.
 #
 # THIS WORKFLOW MUST NEVER MERGE ANYTHING — same contract as gpbot-pr-triage.yml.
-# delegate-reviewer approves every PR, which satisfies the ruleset's one-approval
-# requirement, so the only thing keeping a human in the loop is that nothing calls
-# merge. Do not add `gh pr merge` and do not add `--auto`. Getting CI green is the
+# Do not add `gh pr merge` and do not add `--auto`. Making the PR mergeable is the
 # end of this workflow's job; a human still decides what lands.
+#
+# THE THIRD THING DRIVEN is the approval, and the earlier version of this note
+# was wrong about why it could be ignored. It said delegate-reviewer "approves
+# every PR", so the only thing keeping a human in the loop was that nothing calls
+# merge. Delegate approves a PR when it OPENS, and after that only when asked —
+# never on a push. So every fix run above destroys the approval it needed and
+# nothing replaced it. #1905 sat green, in budget and unmergeable on exactly
+# that. The drive now asks, in the one case where asking is honest; see
+# _decide_review in ci_triage.py.
+#
+# ONLY ON ITS OWN PRs, and nothing covers the same gap on anybody else's.
+# gpbot-review-gap-alert.yml used to report it repo-wide and was deleted:
+# reporting a gap on a human's PR means naming a person in Slack for a PR the
+# bot has no business driving, and most of those names had nothing to do —
+# their PR was waiting on two fixed words, not on them. Asking on their behalf
+# instead is a different overreach. Other people's PRs are other people's.
 
 on:
   workflow_run:
@@ -56,6 +70,33 @@ on:
       - styleguide
       - Publish PMF experiments
     types: [completed]
+    # A commit on the default branch belongs to no OPEN pull request, so every
+    # run this filter drops is one whose only possible outcome was to resolve no
+    # candidate and exit — the case the "Resolve candidate PRs" step below calls
+    # the common one. Dropping them is not a saving, it is a correctness fix.
+    #
+    # Those no-op runs enter the concurrency group like any other, and the group
+    # keeps only the newest queued run. A busy afternoon on main therefore
+    # EVICTS THE PENDING SCHEDULED RUN below — and for a PR whose checks have all
+    # settled, that scheduled run is the only trigger left, because no watched
+    # workflow will ever complete on its head commit again.
+    #
+    # Measured on 2026-09-17: PR #1905 had one flaky check and a review that
+    # needed re-requesting, its 60-minute fix-run grace expired at 16:00:55, and
+    # the 16:08 cron that would have acted was cancelled seven seconds in by a
+    # burst of main-push runs. Three of the previous thirty crons went the same
+    # way. The PR sat green-but-blocked with budget unspent, which reads exactly
+    # like a bot that stopped caring.
+    #
+    # This filter reads the branch the TRIGGERING workflow ran on, which for the
+    # `pull_request` runs above is the PR's head branch. actions/runner#1628 —
+    # where the branch is not propagated and the filter matches the default
+    # branch instead — is about CHAINED workflow_run events, two or more levels
+    # deep. Every workflow watched above is triggered by a push or a pull
+    # request, and the gpbot-* workflows are excluded from that list, so nothing
+    # here is more than one level down.
+    branches-ignore:
+      - main
   schedule:
     # BACKSTOP, and load-bearing rather than decorative — the same lesson the
     # reconciliation sweep learned (see clickup_bot/README.md, "The sweep"):
@@ -67,6 +108,11 @@ on:
     # keeps only one queued run per group and cancels the rest. And a workflow
     # added later that is not in the list above contributes a check nobody is
     # watching for.
+    #
+    # It is also the ONLY trigger for a PR that has gone quiet — one waiting out
+    # a fix-run grace window, or one green but not yet approved. Nothing else
+    # fires without a new check completing, which is why branches-ignore above
+    # exists to stop no-op runs cancelling it.
     - cron: '*/30 * * * *'
   workflow_dispatch:
     inputs:
@@ -239,7 +285,7 @@ jobs:
           for pr in $PR_NUMBERS; do
             echo "::group::PR #$pr"
 
-            pr_fields=number,title,state,url,headRefName,statusCheckRollup,mergeable,mergeStateStatus
+            pr_fields=number,title,state,url,headRefName,headRefOid,statusCheckRollup,mergeable,mergeStateStatus
             pr_json="$(gh pr view "$pr" --repo "$REPO" --json "$pr_fields")" || { echo "::endgroup::"; continue; }
 
             # Same two-signal bot gate as gpbot-pr-triage.yml. The schedule path
@@ -342,6 +388,22 @@ jobs:
                       }]' 2>/dev/null || echo '[]')"
             echo "review threads: $(jq 'length' <<<"${threads:-[]}")"
 
+            # Whether the reviewer the ruleset counts has approved THIS commit.
+            # Handed over raw, with the head sha, because "does an approval from
+            # an earlier commit still count" is a judgement and it is made in
+            # is_approved where a test pins it.
+            #
+            # FAILS TOWARD "NOT APPROVED" on an API error, which is the safe
+            # direction here and the opposite of the mergeability read above. A
+            # wrong "approved" ends the drive permanently on a PR that cannot
+            # merge; a wrong "not approved" costs one comment, capped at
+            # MAX_REVIEW_REQUESTS.
+            head_sha="$(jq -r '.headRefOid // ""' <<<"$pr_json")"
+            reviews="$(gh api "repos/$REPO/pulls/$pr/reviews" --paginate \
+              --jq '[.[] | {author: .user.login, state: .state, commit: .commit_id}]' 2>/dev/null || echo '[]')"
+            echo "approving reviews at head: $(jq --arg h "$head_sha" \
+              '[.[] | select(.state == "APPROVED" and .commit == $h)] | length' <<<"${reviews:-[]}")"
+
             # Enrich each failure with the two things the classifier judges on:
             # whether main is red for the same check, and the tail of the job log.
             enriched='[]'
@@ -396,18 +458,69 @@ jobs:
             # through would read as "no state yet" and hand the PR a fresh
             # budget on every pass — an unbounded spend that looks identical to
             # a first visit. Skipping the PR costs one 30-minute pass.
-            marker="$(gh api "repos/$REPO/issues/$pr/comments" --paginate \
-              --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- gpbot-ci-drive -->")))] | last')" || {
+            # ONE FETCH, TWO READINGS. The state comment and the count of asks
+            # both come out of the PR's comments, and both readings below fail
+            # closed: an empty `marker` reads as "no state yet" and hands the PR
+            # a fresh budget, so a jq that failed must not reach the triage as
+            # one. `.body` is `// ""` because a comment posted empty comes back
+            # null, and `contains` on null raises.
+            comments="$(gh api "repos/$REPO/issues/$pr/comments" --paginate)" || {
+              echo "::error::could not read the state comment for #$pr; not driving it this pass"
+              action_failed=1
+              echo "::endgroup::"; continue
+            }
+            marker="$(jq '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains("<!-- gpbot-ci-drive -->")))] | last' <<<"$comments")" || {
               echo "::error::could not read the state comment for #$pr; not driving it this pass"
               action_failed=1
               echo "::endgroup::"; continue
             }
             comment_id="$(jq -r 'if . == null then "" else .id end' <<<"${marker:-null}")"
 
+            # THE ASKS ARE COUNTED, NOT TALLIED. `delegate review` is the whole
+            # body of an ask and this workflow is the only thing that posts it
+            # as github-actions[bot], so the comments ARE the ledger — see
+            # _coerce_asks. A human's ask is somebody else's login and does not
+            # spend the bot's budget. An unreadable count is passed through as
+            # null rather than guessed at, which _coerce_asks treats as spent.
+            #
+            # AND COUNTED AGAINST THIS HEAD, NOT THE WHOLE PR, which is the
+            # difference between a cap and a trap. An approval names a commit,
+            # so every push makes a new question — and on these PRs the pushes
+            # are the drive's own fix runs. Two asks for the life of a PR that
+            # spends two fix runs leaves the last commit unable to ask at all,
+            # and the PR escalates as "the reviewer will not approve" when the
+            # reviewer was never asked about the code in question.
+            #
+            # Delegate also answers a mid-review push with "the PR tip moved
+            # during review (a884375b -> b11ce98c) ... reply `delegate review`
+            # to re-check", which is an instruction, not a refusal. Counted
+            # per-PR it would spend an ask and produce no review.
+            #
+            # The anchor is the head commit's committer date. One skew, in the
+            # safe direction: after a rebase that date can be newer than an ask
+            # that preceded it, so the ask counts against the new head. That
+            # spends an ask early rather than asking too often.
+            head_date="$(gh api "repos/$REPO/commits/$head_sha" --jq '.commit.committer.date')" || head_date=''
+            if [ -z "$head_date" ]; then
+              # Fails closed to `null`, which _coerce_asks reads as spent, so an
+              # unreadable head means this PR goes to a human rather than being
+              # asked an unbounded number of times.
+              echo "::warning::could not read the head commit date of #$pr; not asking this pass"
+              asks_made=null
+            else
+              asks_made="$(jq --arg since "$head_date" \
+                '[.[] | select(.user.login == "github-actions[bot]")
+                      | select(((.created_at) // "") > $since)
+                      | select(((.body // "") | gsub("^\\s+|\\s+$"; "")) == "delegate review")] | length' \
+                <<<"$comments")" || asks_made=null
+            fi
+
             decision="$(jq -n --argjson checks "$enriched" --argjson findings "${threads:-[]}" \
-              --argjson mergeability "$mergeability" \
+              --argjson mergeability "$mergeability" --argjson reviews "${reviews:-[]}" \
+              --arg head_sha "$head_sha" --argjson asks_made "${asks_made:-null}" \
               --arg body "$(jq -r 'if . == null then "" else .body end' <<<"${marker:-null}")" \
               '{checks: $checks, findings: $findings, mergeability: $mergeability,
+                reviews: $reviews, head_sha: $head_sha, asks_made: $asks_made,
                 state_comment: (if $body == "" then null else $body end)}' \
               | python3 "$triage")" || { echo "::error::triage failed for #$pr"; echo "::endgroup::"; continue; }
 
@@ -493,6 +606,31 @@ jobs:
                   gh run rerun "$run_id" --repo "$REPO" --failed || \
                     echo "::warning::could not re-run $run_id"
                 done <<<"$run_ids"
+                ;;
+
+              request-review)
+                # The same two words a human sends, and the same ones delegate's
+                # own review asks for. See .claude/skills/ship-pr/SKILL.md
+                # Phase 2. Sent only on the bot's own PRs — see the note at the
+                # top on why nothing does this for anybody else.
+                #
+                # NOT A RE-REVIEW REQUEST VIA THE API, which does not work for
+                # an App: the REST call accepts `delegate-reviewer[bot]` and
+                # silently returns an empty requested_reviewers. #1898 burned
+                # two hours on that, plus a close/reopen and a force-push.
+                echo "asking for a review on #$pr"
+                # THE EXACT BODY IS THE LEDGER ENTRY, so it is `delegate review`
+                # and nothing else: asks_made above counts comments equal to
+                # this string. Adding a word here would reset the budget.
+                gh api -X POST "repos/$REPO/issues/$pr/comments" \
+                  -f body="delegate review" >/dev/null || {
+                  # Nothing was spent — no comment, nothing to count — so the
+                  # next pass asks again. Still red: two words that cannot be
+                  # posted to GitHub is the API being down, which the other
+                  # actions cannot survive either.
+                  echo "::error::could not ask for a review on #$pr"
+                  action_failed=1
+                }
                 ;;
 
               fix|fix-findings|fix-conflicts)

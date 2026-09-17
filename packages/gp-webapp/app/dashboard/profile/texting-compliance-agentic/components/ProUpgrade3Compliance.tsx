@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { Button, Card } from '@styleguide'
 import { MessageSquareIcon } from '@styleguide/components/ui/icons'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import {
   TCR_COMPLIANCE_QUERY_KEY,
   TCR_COMPLIANCE_STATUS,
@@ -18,6 +19,15 @@ import ProUpgrade3PinEntry from './ProUpgrade3PinEntry'
 import TextingComplianceApproved from './TextingComplianceApproved'
 import TextingComplianceDenied from './TextingComplianceDenied'
 import TextingComplianceInReview from './TextingComplianceInReview'
+
+// The dashboard approved-state card advertises "up to 5,000 free texts", but
+// the free-texts discount at checkout is gated separately on the campaign's
+// `hasFreeTextsOffer` column (see `checkFreeTextsEligibility` in
+// `campaigns.service.ts`). A candidate without the offer used to see the
+// promise on the dashboard and then get charged full price — gate the copy on
+// the same column so the two surfaces can never disagree (ENG-10440).
+const FREE_TEXTS_APPROVED_DESCRIPTION =
+  'Claim up to 5,000 free texts in your first campaign. Schedule your introduction text message today.'
 
 // Post-payment compliance surface for the Pro-upgrade flow. The agent
 // provisions the domain/site and submits TCR to Peerly after payment; this
@@ -39,6 +49,8 @@ export default function ProUpgrade3Compliance(): React.JSX.Element {
     queryKey: TCR_COMPLIANCE_QUERY_KEY,
     queryFn: getTcrCompliance,
   })
+  const [campaign] = useCampaign()
+  const hasFreeTextsOffer = Boolean(campaign?.hasFreeTextsOffer)
 
   const pinGate = useCvPinGate(tcrCompliance, { isTcrPending: isPending })
 
@@ -77,7 +89,12 @@ export default function ProUpgrade3Compliance(): React.JSX.Element {
         )
       case TCR_COMPLIANCE_STATUS.APPROVED:
         return (
-          <TextingComplianceApproved title="Your profile has been approved!" />
+          <TextingComplianceApproved
+            title="Your profile has been approved!"
+            description={
+              hasFreeTextsOffer ? FREE_TEXTS_APPROVED_DESCRIPTION : undefined
+            }
+          />
         )
       case TCR_COMPLIANCE_STATUS.REJECTED:
         return <TextingComplianceDenied />

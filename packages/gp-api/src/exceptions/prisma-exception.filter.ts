@@ -5,15 +5,51 @@ import {
   HttpStatus,
 } from '@nestjs/common'
 import { Prisma } from '../generated/prisma'
+import { Prisma as PeoplePrisma } from '../generated/people-prisma'
 import { PinoLogger } from 'nestjs-pino'
 
+// BOTH GENERATED CLIENTS, because gp-api has two and they are different
+// identities. The main client covers everything; the people-db client is the
+// read-only one behind VoterDensityService (see peopleDb/AGENTS.md). Each
+// generated client bundles its own copy of the Prisma runtime, so the people-db
+// `PrismaClientKnownRequestError` is not the main client's class — same shape,
+// same codes, different constructor.
+//
+// Listing only the first set is why every people-db failure used to fall past
+// this filter to Nest's default handler. That is not hypothetical: between
+// 2026-08-24 and 2026-08-28 it dropped 1,498,324 of them on
+// GET /v1/public-person-profiles/voter-density, unclassified.
 const prismaErrorClasses = [
   Prisma.PrismaClientKnownRequestError,
   Prisma.PrismaClientUnknownRequestError,
   Prisma.PrismaClientRustPanicError,
   Prisma.PrismaClientInitializationError,
   Prisma.PrismaClientValidationError,
+  PeoplePrisma.PrismaClientKnownRequestError,
+  PeoplePrisma.PrismaClientUnknownRequestError,
+  PeoplePrisma.PrismaClientRustPanicError,
+  PeoplePrisma.PrismaClientInitializationError,
+  PeoplePrisma.PrismaClientValidationError,
 ]
+
+/**
+ * Which kind of Prisma error this is, by NAME rather than by `instanceof`.
+ *
+ * Same reason the class list above has ten entries and not five: an error from
+ * the people-db client fails `instanceof` against the main client's class, so
+ * branching on `instanceof` would let this filter catch a people-db error and
+ * then classify none of it — falling through to the `throw` at the bottom and
+ * straight back to Nest's default handler, which is the bug this is fixing.
+ *
+ * `prismaErrors.util.ts` documents the same hazard for a different cause (dual
+ * ESM/CJS resolution loading the runtime twice), and resolves it the same way.
+ * Every Prisma error class sets `name` to its own constructor name, and the two
+ * clients agree on both the names and the `code` vocabulary.
+ */
+const isPrismaError = <T>(exception: unknown, name: string): exception is T =>
+  typeof exception === 'object' &&
+  exception !== null &&
+  (exception as { name?: unknown }).name === name
 
 // Prisma reports "the caller asked for something impossible" and "the database
 // could not serve this right now" as the same class of error, and only the
@@ -101,7 +137,12 @@ export class PrismaExceptionFilter implements ExceptionFilter {
     let statusCode: HttpStatus | null = null
     let message: string | null = null
 
-    if (exception instanceof Prisma.PrismaClientKnownRequestError) {
+    if (
+      isPrismaError<Prisma.PrismaClientKnownRequestError>(
+        exception,
+        'PrismaClientKnownRequestError',
+      )
+    ) {
       this.logger.error(
         {
           err: exception,
@@ -127,10 +168,10 @@ export class PrismaExceptionFilter implements ExceptionFilter {
         statusCode = HttpStatus.INTERNAL_SERVER_ERROR
         message = 'A database error occurred. Please try again later.'
       }
-    } else if (exception instanceof Prisma.PrismaClientRustPanicError) {
+    } else if (isPrismaError(exception, 'PrismaClientRustPanicError')) {
       statusCode = HttpStatus.INTERNAL_SERVER_ERROR
       message = 'A Prisma internal error occured. Please try again later.'
-    } else if (exception instanceof Prisma.PrismaClientValidationError) {
+    } else if (isPrismaError(exception, 'PrismaClientValidationError')) {
       // Also a 400 until now, and also wrong. Prisma raises this when it
       // rejects the query we BUILT — an unknown field, a type that does not
       // match the column, a name a migration changed without the query being
@@ -142,14 +183,14 @@ export class PrismaExceptionFilter implements ExceptionFilter {
       // alert volume today; it stops the first occurrence being silent.
       statusCode = HttpStatus.INTERNAL_SERVER_ERROR
       message = 'A database error occurred. Please try again later.'
-    } else if (exception instanceof Prisma.PrismaClientUnknownRequestError) {
+    } else if (isPrismaError(exception, 'PrismaClientUnknownRequestError')) {
       // Was a 400, on the same mistaken reasoning as the default above: an
       // error Prisma itself cannot identify is not evidence that the caller
       // sent something wrong. "Unknown" is the definition of a case we have not
       // established a cause for, so it belongs on our side of the line.
       statusCode = HttpStatus.INTERNAL_SERVER_ERROR
       message = 'An unknown error occured while processing the request.'
-    } else if (exception instanceof Prisma.PrismaClientInitializationError) {
+    } else if (isPrismaError(exception, 'PrismaClientInitializationError')) {
       statusCode = HttpStatus.INTERNAL_SERVER_ERROR
       message = 'A database error occurred. Please try again later.'
     }

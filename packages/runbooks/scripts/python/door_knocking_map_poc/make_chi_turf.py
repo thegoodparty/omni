@@ -12,7 +12,7 @@ Usage: python3 make_chi_turf.py   (serve.py running; open /chi_turf.html)
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-LOCAL = os.path.join(LOCAL, "local")
+LOCAL = os.path.join(HERE, "local")
 os.makedirs(LOCAL, exist_ok=True)
 
 

@@ -311,6 +311,9 @@ describe('CreateListWizard — edit mode save', () => {
     await vi.waitFor(() => expect(refreshCustomSegments).toHaveBeenCalled())
     await vi.waitFor(() => expect(selectList).toHaveBeenCalledWith(42))
     expect(onOpenChange).toHaveBeenCalledWith(false)
+    // Re-cutting a list changes WHO is in it, so the map's members have to
+    // be dropped alongside its summary. Keyed to this list, not the family.
+    expect(invalidatedKeys).toContainEqual(['list-people', 'test-org', '42'])
   })
 
   // The persisted shape carries an explicit boolean per key — sending only the

@@ -41,6 +41,9 @@ type SlackBlocksParams = {
   campaignPlanDueDate?: string
   textCount?: number
   billableTextCount?: number
+  // Robocall: the number of calls the run will place. When set, the block shows
+  // a "# of Calls" line in place of the text-count lines (which are p2p-only).
+  callCount?: number
   // Overrides the request header — the approval notice reuses the whole
   // block set under its own label.
   headerText?: string
@@ -66,6 +69,7 @@ export function buildSlackBlocks({
   campaignPlanDueDate,
   textCount,
   billableTextCount,
+  callCount,
   headerText,
 }: SlackBlocksParams) {
   const blocks = [
@@ -226,44 +230,65 @@ export function buildSlackBlocks({
                 },
               ],
             },
-            {
-              type: SlackMessageType.RICH_TEXT_SECTION,
-              elements: [
-                {
-                  type: SlackMessageType.TEXT,
-                  text: '# of Texts: ',
-                  style: {
-                    bold: true,
+            ...(callCount === undefined
+              ? [
+                  {
+                    type: SlackMessageType.RICH_TEXT_SECTION,
+                    elements: [
+                      {
+                        type: SlackMessageType.TEXT,
+                        text: '# of Texts: ',
+                        style: {
+                          bold: true,
+                        },
+                      },
+                      {
+                        type: SlackMessageType.TEXT,
+                        text:
+                          textCount === undefined
+                            ? 'N/A'
+                            : textCount.toLocaleString('en-US'),
+                      },
+                    ],
                   },
-                },
-                {
-                  type: SlackMessageType.TEXT,
-                  text:
-                    textCount === undefined
-                      ? 'N/A'
-                      : textCount.toLocaleString('en-US'),
-                },
-              ],
-            },
-            {
-              type: SlackMessageType.RICH_TEXT_SECTION,
-              elements: [
-                {
-                  type: SlackMessageType.TEXT,
-                  text: '# of Billable Texts: ',
-                  style: {
-                    bold: true,
+                  {
+                    type: SlackMessageType.RICH_TEXT_SECTION,
+                    elements: [
+                      {
+                        type: SlackMessageType.TEXT,
+                        text: '# of Billable Texts: ',
+                        style: {
+                          bold: true,
+                        },
+                      },
+                      {
+                        type: SlackMessageType.TEXT,
+                        text:
+                          billableTextCount === undefined
+                            ? 'N/A'
+                            : billableTextCount.toLocaleString('en-US'),
+                      },
+                    ],
                   },
-                },
-                {
-                  type: SlackMessageType.TEXT,
-                  text:
-                    billableTextCount === undefined
-                      ? 'N/A'
-                      : billableTextCount.toLocaleString('en-US'),
-                },
-              ],
-            },
+                ]
+              : [
+                  {
+                    type: SlackMessageType.RICH_TEXT_SECTION,
+                    elements: [
+                      {
+                        type: SlackMessageType.TEXT,
+                        text: '# of Calls: ',
+                        style: {
+                          bold: true,
+                        },
+                      },
+                      {
+                        type: SlackMessageType.TEXT,
+                        text: callCount.toLocaleString('en-US'),
+                      },
+                    ],
+                  },
+                ]),
             {
               type: SlackMessageType.RICH_TEXT_SECTION,
               elements: [

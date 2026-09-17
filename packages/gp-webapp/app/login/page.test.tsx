@@ -60,26 +60,25 @@ describe('LoginPage', () => {
     mockAuth.mockResolvedValue({ userId: null })
   })
 
-  it('signed out, no deep link: SignIn still carries source=signup for embedded sign-up', async () => {
+  it('signed out, no deep link: a first-time Google sign-in lands on the phone step', async () => {
     await renderLoginPage()
 
     expect(mockRedirect).not.toHaveBeenCalled()
     expect(mockSignIn).toHaveBeenCalledWith(
       expect.objectContaining({
         fallbackRedirectUrl: '/post-auth-redirect',
-        signUpForceRedirectUrl: '/post-auth-redirect?source=signup',
+        signUpForceRedirectUrl: '/sign-up/phone',
       }),
     )
   })
 
-  it('signed out with a deep link: forwards next and still carries source=signup on the sign-up variant', async () => {
+  it('signed out with a deep link: forwards next, and the sign-up variant carries it through the phone step', async () => {
     await renderLoginPage({ redirect_url: '/dashboard/briefings' })
 
     expect(mockSignIn).toHaveBeenCalledWith(
       expect.objectContaining({
         forceRedirectUrl: '/post-auth-redirect?next=%2Fdashboard%2Fbriefings',
-        signUpForceRedirectUrl:
-          '/post-auth-redirect?next=%2Fdashboard%2Fbriefings&source=signup',
+        signUpForceRedirectUrl: '/sign-up/phone?next=%2Fdashboard%2Fbriefings',
       }),
     )
   })
@@ -90,7 +89,7 @@ describe('LoginPage', () => {
     expect(mockSignIn).toHaveBeenCalledWith(
       expect.objectContaining({
         fallbackRedirectUrl: '/post-auth-redirect',
-        signUpForceRedirectUrl: '/post-auth-redirect?source=signup',
+        signUpForceRedirectUrl: '/sign-up/phone',
       }),
     )
   })

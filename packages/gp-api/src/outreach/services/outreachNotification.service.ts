@@ -61,6 +61,7 @@ interface NotifySuccessParams {
   campaignPlanDueDate?: string
   textCount?: number
   billableTextCount?: number
+  callCount?: number
 }
 
 interface NotifyFailureParams {
@@ -161,6 +162,87 @@ export class OutreachNotificationService {
     }
   }
 
+  /**
+   * Restore the CAS "Campaign Schedule Request" block for a scheduled robocall
+   * (product 2026-09-17): VO2.0 robocall is its own flow and never went through
+   * the legacy notify path, so CAS stopped seeing robocall campaigns in the
+   * channel. Same block set as p2p, posted from the robocall schedule step.
+   * Best-effort: a Slack failure never unwinds a committed schedule.
+   */
+  async notifyRobocallScheduled(
+    user: User,
+    campaign: Campaign,
+    outreach: OutreachWithVoterFileFilter,
+    callCount?: number,
+  ): Promise<void> {
+    if (outreach.outreachType !== OutreachType.robocall) return
+    try {
+      await this.slack.message(
+        await this.buildCampaignBlocks({
+          user,
+          campaign,
+          outreach,
+          campaignPlanDueDate: outreach.campaignPlanDueDate ?? undefined,
+          callCount,
+        }),
+        TARGET_CHANNEL,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId: outreach.id, campaignId: campaign.id },
+        'CAS robocall scheduled Slack message failed',
+      )
+    }
+  }
+
+  /** Short "now dialing" line for CAS when a robocall run starts. Best-effort. */
+  async notifyRobocallDialing(
+    campaignSlug: string,
+    outreachId: number,
+    billableCount: number,
+  ): Promise<void> {
+    await this.postRobocallLine(
+      `📞 Robocall now dialing — ${campaignSlug} · ${billableCount} calls · outreach #${outreachId}`,
+      outreachId,
+    )
+  }
+
+  /** Short "completed" line for CAS when a robocall settles. Best-effort. */
+  async notifyRobocallCompleted(
+    campaignSlug: string,
+    outreachId: number,
+    billableCount: number,
+    capturedAmountInCents: number,
+  ): Promise<void> {
+    const dollars = (Math.round(capturedAmountInCents) / 100).toFixed(2)
+    await this.postRobocallLine(
+      `✅ Robocall completed — ${campaignSlug} · ${billableCount} calls · $${dollars} captured · outreach #${outreachId}`,
+      outreachId,
+    )
+  }
+
+  private async postRobocallLine(
+    text: string,
+    outreachId: number,
+  ): Promise<void> {
+    try {
+      const message: SlackMessage = {
+        blocks: [
+          {
+            type: SlackMessageType.SECTION,
+            text: { type: SlackMessageType.MRKDWN, text },
+          },
+        ],
+      }
+      await this.slack.message(message, TARGET_CHANNEL)
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'CAS robocall status Slack message failed',
+      )
+    }
+  }
+
   private async buildCampaignBlocks(
     {
       user,
@@ -170,6 +252,7 @@ export class OutreachNotificationService {
       campaignPlanDueDate,
       textCount,
       billableTextCount,
+      callCount,
     }: NotifySuccessParams,
     headerText?: string,
   ) {
@@ -239,6 +322,7 @@ export class OutreachNotificationService {
       campaignPlanDueDate,
       textCount,
       billableTextCount,
+      callCount,
       headerText,
     })
   }

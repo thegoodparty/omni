@@ -21,3 +21,21 @@ export const SUPPORT_EMAIL = 'support@goodparty.org'
 // works directly. Keep these flows pointed here: a candidate mid-compliance
 // needs the people who can look at their registration, not general triage.
 export const PRO_COMPLIANCE_SUPPORT_EMAIL = 'campaignsuccess@goodparty.org'
+
+// The public knowledge base, and where Get help goes when the support chat
+// cannot be reached. It is a URL rather than an address on purpose: a browser
+// always knows what to do with one. `mailto:` was tried first and is a dead
+// click on any machine with no mail client registered — which is every
+// environment where the chat is not loaded, and any ad-blocked session in
+// production.
+// The path matters: the bare host redirects to the marketing homepage, which
+// is no help to someone already signed in and asking for it.
+export const HELP_CENTER_URL = 'https://support.goodparty.org/knowledge-base'
+
+// The id of the root layout's chat-settings script. Its presence in the DOM is
+// how client code knows the support chat was wired up on this page at all:
+// that decision is made on the server from VERCEL_ENV, which the browser never
+// sees. The script is `beforeInteractive`, so it is in the served HTML and
+// there is no race against hydration. Shared so the id is not a string spelled
+// in two files that have to agree.
+export const SUPPORT_CHAT_SCRIPT_ID = 'hs-conversations-settings'

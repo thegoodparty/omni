@@ -6,6 +6,7 @@ import {
   variantsForIntent,
 } from './recommendedLists.registry'
 import { buildVariantFilter } from './recommendedListsUniverse.util'
+import { ElectionCode } from '@/elections/types/elections.types'
 
 describe('variantsForIntent', () => {
   it('returns one variant for introduce', () => {
@@ -70,7 +71,12 @@ describe('RECOMMENDED_LISTS_REGISTRY copy', () => {
   // floor exemption it has not earned.
   it('agrees with each variant universe about who is a supporter list', () => {
     for (const variant of RECOMMENDED_LIST_VARIANT_VALUES) {
-      const filter = buildVariantFilter(variant, 'sms', 'progressive')
+      const filter = buildVariantFilter(
+        variant,
+        'sms',
+        'progressive',
+        ElectionCode.General,
+      )
       const targetsSupportersOnly =
         filter?.supportStatus?.length === 1 &&
         filter.supportStatus[0] === 'supporter'

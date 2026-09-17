@@ -354,7 +354,7 @@ describe('CampaignStrategyService', () => {
 
     const res = await service.getOrGenerateStrategicLandscape(campaign())
 
-    expect(res).toEqual({ status: 'failed' })
+    expect(res).toEqual({ status: 'failed', reason: 'queue_failed' })
     expect(prisma.campaignStrategy.update).not.toHaveBeenCalled()
   })
 
@@ -510,7 +510,7 @@ describe('CampaignStrategyService', () => {
 
     const res = await service.getOrGenerateStrategicLandscape(campaign())
 
-    expect(res).toEqual({ status: 'failed' })
+    expect(res).toEqual({ status: 'failed', reason: 'queue_failed' })
     expect(prisma.campaignStrategy.update).not.toHaveBeenCalled()
   })
 
@@ -521,7 +521,7 @@ describe('CampaignStrategyService', () => {
 
     const res = await service.getOrGenerateStrategicLandscape(campaign())
 
-    expect(res).toEqual({ status: 'failed' })
+    expect(res).toEqual({ status: 'failed', reason: 'race_lookup_failed' })
     expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
   })
 
@@ -707,7 +707,7 @@ describe('CampaignStrategyService', () => {
 
     const res = await service.getOrGenerateStrategicLandscape(campaign())
 
-    expect(res).toEqual({ status: 'failed' })
+    expect(res).toEqual({ status: 'failed', reason: 'attempts_exhausted' })
     expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
     expect(prisma.campaignStrategy.update).not.toHaveBeenCalled()
   })
