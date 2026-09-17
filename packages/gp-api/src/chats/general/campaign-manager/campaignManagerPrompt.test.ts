@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
+  LEGAL_CLOSING_LINE,
 } from './campaignManagerPrompt'
+import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
 import type { Organization } from '../../../generated/prisma'
 
 const ctx = (
@@ -452,6 +454,44 @@ describe('buildCampaignManagerSystemPrompt', () => {
       expect(prompt).toContain('rests on an assumption')
       expect(prompt).toContain('say plainly which part is the assumption')
     }
+  })
+
+  it('always carries the legal and compliance rules, tools on or off', () => {
+    const allOff = ctx({
+      webSearchEnabled: false,
+      helpCenterToolEnabled: false,
+    })
+    for (const prompt of [
+      buildCampaignManagerSystemPrompt(ctx()),
+      buildCampaignManagerSystemPrompt(allOff),
+    ]) {
+      expect(prompt).toContain('never state a legal conclusion as settled')
+      expect(prompt).toContain('is a lead to name and confirm, not an answer')
+      expect(prompt).toContain('never fill the gap from memory')
+      expect(prompt).toContain('not the same as the law being satisfied')
+    }
+  })
+
+  it('pins the closing line to one the finish-time check recognizes', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(`end with this line: "${LEGAL_CLOSING_LINE}"`)
+    // A statute-citing reply that ends with the line gets nothing appended.
+    expect(
+      professionalAdviceDisclaimer(`RCW 42.17A applies. ${LEGAL_CLOSING_LINE}`),
+    ).toBeNull()
+  })
+
+  it('sends the product part to the product map, then support', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain('answer from the product map')
+    expect(prompt).toContain('point them to GoodParty support')
+  })
+
+  it('leaves the closing line off declines, drafts, and how-tos', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain('declines or redirects')
+    expect(prompt).toContain('is not a legal question')
+    expect(prompt).toContain('unless the candidate asks about the law')
   })
 
   it('never invents facts (candidate-in-control guardrail)', () => {
