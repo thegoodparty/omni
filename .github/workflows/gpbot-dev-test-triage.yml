@@ -145,19 +145,33 @@ jobs:
           # filed no ticket, started no agent run, and posted no disposition.
           # `--slurpfile` reads the file directly, so its size stops mattering.
           #
-          # A file holding `null` stands in for a report that never arrived, so
-          # both cases take the same route: the module has to be able to report
-          # "no readable report" separately from "the shards did not run", and
-          # a human reading the Slack thread needs to know which happened.
+          # A file holding `null` stands in for a report this step cannot use,
+          # so every such case takes the same route into the module: it has to
+          # be able to report "no readable report" separately from "the shards
+          # did not run", and a human reading the Slack thread needs to know
+          # which happened.
+          #
+          # THE SYNTAX CHECK IS NOT BELT-AND-BRACES. --slurpfile exits 2 on a
+          # file that is not valid JSON ("Bad JSON in --slurpfile"), and under
+          # `set -e` that kills this step exactly as the argv overflow did: no
+          # ticket, no disposition, nobody told. download-artifact only unzips,
+          # it does not validate, so a release job evicted or timed out
+          # mid-upload leaves a half-written results.json and hands this step a
+          # truncated file. Checking costs one parse and converts a silent death
+          # into a reported one.
           if [ ! -f "$results" ]; then
             echo "::notice::No results.json in the release run's artifacts; the E2E job likely never ran."
-            results="$RUNNER_TEMP/absent-report.json"
+            results="$RUNNER_TEMP/unusable-report.json"
+            printf 'null\n' > "$results"
+          elif ! jq -e . "$results" >/dev/null 2>&1; then
+            echo "::warning::results.json is present but is not readable JSON (a truncated upload?); triaging it as an unreadable report rather than as a clean suite."
+            results="$RUNNER_TEMP/unusable-report.json"
             printf 'null\n' > "$results"
           fi
 
-          # `$report[0]`: --slurpfile always yields an array of the file's
-          # top-level values, so an empty or truncated artifact reads as null —
-          # "no readable report" — rather than crashing the module.
+          # `$report[0]`: --slurpfile yields an array of the file's top-level
+          # values, so the `null` sentinel above arrives as null and a report
+          # arrives as itself.
           jq -n \
             --slurpfile report "$results" \
             --arg run_url "$RUN_URL" \
@@ -171,6 +185,12 @@ jobs:
             echo "count=$(jq '.failures | length' triage.json)"
             echo "shards_ran=$(jq -r '.shards_ran' triage.json)"
             echo "other_failures=$(jq -r '.other_failures' triage.json)"
+            # Delimited rather than `key=value`: this one is prose written by
+            # the module, and a future reason containing a newline would
+            # otherwise corrupt every output after it.
+            echo 'reason<<REASON_EOF'
+            jq -r '.reason // ""' triage.json
+            echo 'REASON_EOF'
           } >> "$GITHUB_OUTPUT"
 
       # One ticket per distinct failing spec, deduped against the tickets this
@@ -281,6 +301,7 @@ jobs:
           SHARDS_RAN: ${{ steps.triage.outputs.shards_ran }}
           COUNT: ${{ steps.triage.outputs.count }}
           OTHER: ${{ steps.triage.outputs.other_failures }}
+          REASON: ${{ steps.triage.outputs.reason }}
           # This step runs on `always()`, so it also runs when the ClickUp step
           # died — and a disposition that lists the failures without saying they
           # went unticketed is the silent write failure this workflow exists to
@@ -294,7 +315,16 @@ jobs:
           fi
 
           if [ "$SHARDS_RAN" != "true" ]; then
-            summary=":mag: dev-only E2E triage: the shards did not run, so there is nothing to triage. The failure is earlier in the train."
+            # THE MODULE'S OWN WORDS, because it separates two cases this used
+            # to announce as one. A report with no specs in it means the shards
+            # really were skipped and the failure is earlier in the train. A
+            # report that could not be read at all — absent, or truncated by an
+            # upload that died — means the shards may well have run and failed,
+            # and saying "the shards did not run" there points whoever is
+            # reading at the wrong half of the pipeline.
+            # A colon and not a dash: one of the two reasons carries an em dash
+            # of its own, and nesting them reads as a typo.
+            summary=":mag: dev-only E2E triage: nothing could be triaged: ${REASON:-the report could not be used, and the triage gave no reason}."
           elif [ "${COUNT:-0}" = "0" ]; then
             summary=":mag: dev-only E2E triage: no \`@dev-only\` spec failed. ${OTHER:-0} other spec(s) failed — those are visible on their authors' own PRs and are not ticketed."
           else
