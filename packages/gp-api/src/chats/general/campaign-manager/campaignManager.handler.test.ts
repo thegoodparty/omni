@@ -4,6 +4,7 @@ import {
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
 } from '@goodparty_org/contracts'
 import { ChatScope } from '../../../generated/prisma'
+import { PROFESSIONAL_ADVICE_DISCLAIMER } from '../services/professionalAdviceCheck'
 import type { CampaignsService } from '@/campaigns/services/campaigns.service'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
@@ -868,11 +869,10 @@ describe('CampaignManagerHandler.maybeCannedReply', () => {
     it('appends the disclaimer to a texting-consent answer with no caveat', () => {
       const handler = buildHandler()
       const answer =
-        'No, you do not need opt-in consent before texting your list, ' +
-        'and there is no contribution limit on a text-based ask.'
-      const appended = handler.finalizeAssistantText(answer)
-      expect(appended?.startsWith('\n\n')).toBe(true)
-      expect(appended).toContain('qualified professional')
+        'No, you do not need opt-in consent before texting your list.'
+      expect(handler.finalizeAssistantText(answer)).toBe(
+        `\n\n${PROFESSIONAL_ADVICE_DISCLAIMER}`,
+      )
     })
 
     it('leaves an ordinary campaign answer untouched', () => {

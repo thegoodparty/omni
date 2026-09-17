@@ -24,15 +24,18 @@ const ADVICE_SIGNALS: RegExp[] = [
   /\b(?:criminal|civil|legal) liability\b/i,
   /\b(?:criminally|civilly) liable\b/i,
   // Texting/robocall consent regimes and campaign-finance mechanics a
-  // candidate might ask a scope about directly.
-  /\bopt-?in\b/i,
+  // candidate might ask a scope about directly. Four of these pair the term
+  // with a claim-shaped word next to it (consent, rules, applies, skip/miss),
+  // since the bare noun alone (an opt-in rate, a filing-deadline reminder) is
+  // ordinary Campaign Manager subject matter, not advice.
+  /\bopt-?in consent\b/i,
   /\bTCPA\b/,
   /\b10DLC\b/i,
   /\brobocalls?\b/i,
-  /\bcontribution limits?\b/i,
-  /\bcampaign finance\b/i,
+  /\bcontribution limits? (?:appl(?:y|ies)|does not apply|do not apply)\b/i,
+  /\bcampaign finance (?:rules?|laws?|regulations?|requirements?)\b/i,
   /\bdisclaimer requirements?\b/i,
-  /\bfiling deadlines?\b/i,
+  /\b(?:skip|miss|waive|extend) (?:that |the |your )?filing deadlines?\b/i,
 ]
 
 // Don't double the line when the model already wrote its own disclaimer (the
@@ -43,9 +46,10 @@ const DISCLAIMER_PRESENT: RegExp[] = [
   /\b(?:not|isn'?t|is not) a substitute for\b/i,
   /\bqualified professional\b/i,
   /\bseek (?:professional|legal|medical|financial|tax) (?:advice|counsel|help)\b/i,
-  /\belection (?:office|bureau)\b/i,
-  /\belection attorney\b/i,
-  /\bstate (?:election )?board\b/i,
+  // Requires the confirm-type verb near the office/attorney/board, not just
+  // its name — naming the election office in passing (e.g. where to file
+  // paperwork) is not a caution and must not suppress a real disclaimer.
+  /\b(?:confirm|check|verify|consult|contact)\b[^.]{0,30}\b(?:election (?:office|bureau|attorney)|state (?:election )?board)\b/i,
 ]
 
 // Returns the line to append (with a leading blank line) when the response
