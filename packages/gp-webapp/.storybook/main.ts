@@ -6,7 +6,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const config: StorybookConfig = {
   stories: ['../../styleguide/src/stories/**/*.stories.@(js|jsx|mjs|ts|tsx)'],
-  staticDirs: ['../public'],
+  // No staticDirs: the vite builder leaves vite's own publicDir at its default
+  // (<root>/public), so vite already copies this exact tree into the output.
+  // Declaring it here too made storybook's fs.cp and vite's copy write the same
+  // destination concurrently — they run in one Promise.all — and fs.cp stats a
+  // directory before mkdir'ing it without `recursive`, so whichever lost the
+  // race died with EEXIST. Re-adding this means re-adding that race.
   addons: ['@chromatic-com/storybook', '@storybook/addon-docs'],
   framework: {
     name: '@storybook/nextjs-vite',

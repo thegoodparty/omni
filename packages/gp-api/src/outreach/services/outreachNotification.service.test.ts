@@ -523,6 +523,7 @@ describe('OutreachNotificationService', () => {
         mockUser,
         baseCampaign,
         robocallOutreach,
+        1500,
       )
 
       expect(mockSlackMessage).toHaveBeenCalledTimes(1)
@@ -533,6 +534,9 @@ describe('OutreachNotificationService', () => {
       expect(blob).toContain('Jane')
       expect(blob).toContain('jane@example.com')
       expect(blob).toContain('2026-10-06')
+      // Robocall shows the requested-call count in place of the p2p text lines.
+      expect(findLabeledValue(message, '# of Calls: ')).toBe('1,500')
+      expect(blob).not.toContain('# of Texts')
       expect([SlackChannel.botPolitics, SlackChannel.botDev]).toContain(channel)
       // Robocall is not a text campaign, so it must not bump textCampaignCount.
       expect(mockCampaignsUpdate).not.toHaveBeenCalled()

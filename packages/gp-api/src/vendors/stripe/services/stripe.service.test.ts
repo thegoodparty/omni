@@ -17,6 +17,8 @@ const {
   paymentIntentsSearch,
   customersCreate,
   customersDel,
+  subscriptionsRetrieve,
+  subscriptionsCancel,
   MockStripeError,
   MockStripeCardError,
 } = vi.hoisted(() => ({
@@ -28,6 +30,8 @@ const {
   paymentIntentsSearch: vi.fn(),
   customersCreate: vi.fn(),
   customersDel: vi.fn(),
+  subscriptionsRetrieve: vi.fn(),
+  subscriptionsCancel: vi.fn(),
   MockStripeError: class StripeInvalidRequestError extends Error {},
   MockStripeCardError: class StripeCardError extends Error {
     payment_intent?: { id: string }
@@ -57,6 +61,10 @@ vi.mock('stripe', () => ({
       search: paymentIntentsSearch,
     }
     customers = { create: customersCreate, del: customersDel }
+    subscriptions = {
+      retrieve: subscriptionsRetrieve,
+      cancel: subscriptionsCancel,
+    }
   },
 }))
 
@@ -493,5 +501,195 @@ describe('StripeService.createManualCaptureHold', () => {
     await expect(
       service.createManualCaptureHold(holdArgs),
     ).rejects.toBeInstanceOf(BadGatewayException)
+  })
+})
+
+describe('StripeService.cancelSubscription', () => {
+  let service: StripeService
+
+  beforeEach(() => {
+    service = new StripeService(
+      { errorMessage: vi.fn() } as unknown as SlackService,
+      {} as unknown as UsersService,
+      createMockLogger(),
+    )
+  })
+
+  it('cancels an active subscription', async () => {
+    subscriptionsRetrieve.mockResolvedValue({
+      id: 'sub_live',
+      status: 'active',
+    })
+    subscriptionsCancel.mockResolvedValue({
+      id: 'sub_live',
+      status: 'canceled',
+    })
+
+    const result = await service.cancelSubscription('sub_live')
+
+    expect(subscriptionsCancel).toHaveBeenCalledWith(
+      'sub_live',
+      {},
+      { idempotencyKey: 'cancel-subscription-sub_live' },
+    )
+    expect(result).toMatchObject({ id: 'sub_live', status: 'canceled' })
+  })
+
+  // The status read above is a check against state a concurrent request can
+  // change: two overlapping de-Pro clicks both retrieve `active`, so both reach
+  // the cancel and the already-canceled branch never fires for the second one.
+  // Only a key Stripe recognises as the same request makes that second cancel
+  // replay instead of raising StripeInvalidRequestError, so what matters is that
+  // the key is derived from the subscription rather than from the attempt.
+  it('sends the same idempotency key for overlapping cancels of one subscription', async () => {
+    subscriptionsRetrieve.mockResolvedValue({
+      id: 'sub_live',
+      status: 'active',
+    })
+    subscriptionsCancel.mockResolvedValue({
+      id: 'sub_live',
+      status: 'canceled',
+    })
+
+    await Promise.all([
+      service.cancelSubscription('sub_live'),
+      service.cancelSubscription('sub_live'),
+    ])
+
+    const keys = subscriptionsCancel.mock.calls.map(
+      ([, , options]) => options?.idempotencyKey,
+    )
+    expect(keys).toHaveLength(2)
+    expect(new Set(keys).size).toBe(1)
+    expect(keys[0]).toBe('cancel-subscription-sub_live')
+  })
+
+  it('keys each subscription separately so one cancel cannot replay for another', async () => {
+    subscriptionsRetrieve.mockImplementation((id: string) =>
+      Promise.resolve({ id, status: 'active' }),
+    )
+    subscriptionsCancel.mockImplementation((id: string) =>
+      Promise.resolve({ id, status: 'canceled' }),
+    )
+
+    await service.cancelSubscription('sub_one')
+    await service.cancelSubscription('sub_two')
+
+    const keys = subscriptionsCancel.mock.calls.map(
+      ([, , options]) => options?.idempotencyKey,
+    )
+    expect(keys).toEqual([
+      'cancel-subscription-sub_one',
+      'cancel-subscription-sub_two',
+    ])
+  })
+
+  // Race between a retried de-Pro click and the customer.subscription.deleted
+  // webhook, or an out-of-band cancel from the Stripe dashboard, leaves the
+  // sub already canceled. Cancel must NOT rethrow — otherwise the caller's DB
+  // write is skipped and the campaign stays stuck as Pro (ENG-10660).
+  it('is idempotent when the subscription is already canceled', async () => {
+    subscriptionsRetrieve.mockResolvedValue({
+      id: 'sub_gone',
+      status: 'canceled',
+    })
+
+    const result = await service.cancelSubscription('sub_gone')
+
+    expect(subscriptionsCancel).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ id: 'sub_gone', status: 'canceled' })
+  })
+
+  // The window neither of the guards above can close: the subscription reads
+  // `active`, and is then canceled from the Stripe dashboard (or by an earlier
+  // retry through another code path) before our cancel lands. That actor sends
+  // none of our idempotency keys, so Stripe rejects the cancel on its merits.
+  // Rethrowing would 502 and skip the caller's `isPro: false` write, leaving the
+  // campaign stuck as Pro — the ENG-10660 symptom, reached by a third route.
+  it('treats a cancel lost to an out-of-band cancel as success', async () => {
+    subscriptionsRetrieve
+      .mockResolvedValueOnce({ id: 'sub_live', status: 'active' })
+      .mockResolvedValueOnce({ id: 'sub_live', status: 'canceled' })
+    subscriptionsCancel.mockRejectedValue(
+      new MockStripeError('No such active subscription'),
+    )
+
+    const result = await service.cancelSubscription('sub_live')
+
+    expect(result).toMatchObject({ id: 'sub_live', status: 'canceled' })
+  })
+
+  // The status read is what makes the recovery above safe rather than hopeful.
+  // "Invalid request" is broader than "already canceled", so a cancel that
+  // failed for some other reason must not be reported as a cancel that
+  // succeeded — that would clear the campaign's Pro flag while Stripe carried
+  // on billing it, which is worse than the 502 it replaced.
+  it('does not report success when the subscription is still live', async () => {
+    subscriptionsRetrieve.mockResolvedValue({
+      id: 'sub_live',
+      status: 'active',
+    })
+    subscriptionsCancel.mockRejectedValue(new MockStripeError('nope'))
+
+    await expect(service.cancelSubscription('sub_live')).rejects.toBeInstanceOf(
+      BadGatewayException,
+    )
+  })
+
+  // A stale pointer: details.subscriptionId still set, the subscription gone
+  // from Stripe. De-Pro wants no subscription billing the campaign and there is
+  // none, so failing here would block the admin over a subscription that cannot
+  // charge anyone.
+  it('treats a subscription Stripe has never heard of as already canceled', async () => {
+    const missing = new MockStripeError('No such subscription')
+    Object.assign(missing, { code: 'resource_missing' })
+    subscriptionsRetrieve.mockRejectedValue(missing)
+
+    await expect(service.cancelSubscription('sub_gone')).resolves.toBeNull()
+    expect(subscriptionsCancel).not.toHaveBeenCalled()
+  })
+
+  // And only that code. Any other invalid-request failure is a real failure.
+  it('still fails for an invalid request that is not a missing subscription', async () => {
+    subscriptionsRetrieve.mockRejectedValue(new MockStripeError('bad request'))
+
+    await expect(service.cancelSubscription('sub_live')).rejects.toBeInstanceOf(
+      BadGatewayException,
+    )
+  })
+
+  // What the recovery keys on is the status, not the error class, so a failure
+  // of any class is recovered if the subscription did in fact stop — a
+  // connection error raised after the cancel landed is the ordinary way that
+  // happens, and 502ing over it would abandon a de-Pro that already succeeded.
+  it('recovers any cancel failure that still left the subscription canceled', async () => {
+    subscriptionsRetrieve
+      .mockResolvedValueOnce({ id: 'sub_live', status: 'active' })
+      .mockResolvedValueOnce({ id: 'sub_live', status: 'canceled' })
+    subscriptionsCancel.mockRejectedValue(new Error('connection reset'))
+
+    const result = await service.cancelSubscription('sub_live')
+
+    expect(result).toMatchObject({ id: 'sub_live', status: 'canceled' })
+  })
+
+  it('still fails when the cancel fails and the subscription is untouched', async () => {
+    subscriptionsRetrieve.mockResolvedValue({
+      id: 'sub_live',
+      status: 'active',
+    })
+    subscriptionsCancel.mockRejectedValue(new Error('stripe down'))
+
+    await expect(service.cancelSubscription('sub_live')).rejects.toBeInstanceOf(
+      BadGatewayException,
+    )
+  })
+
+  it('maps a Stripe retrieve failure to a 502', async () => {
+    subscriptionsRetrieve.mockRejectedValue(new Error('stripe down'))
+
+    await expect(service.cancelSubscription('sub_live')).rejects.toBeInstanceOf(
+      BadGatewayException,
+    )
   })
 })

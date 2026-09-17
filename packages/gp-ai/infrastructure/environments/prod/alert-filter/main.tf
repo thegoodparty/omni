@@ -95,16 +95,27 @@ variable "slack_workspace_domain" {
 
 # Grafana Cloud's Loki endpoint for this stack. Non-secret; the token that goes
 # with it comes from AI_SECRETS_PROD.
+#
+# REAL VALUES AS DEFAULTS, for the reason given above about `mode`, and because
+# empty is the worst possible default here rather than a neutral one. No Loki
+# means no evidence, and `classify` treats absent evidence as a degraded input
+# and answers `notify` — so the filter provisions, authenticates, posts, and
+# suppresses nothing, which looks exactly like a filter that is working on a
+# quiet week. Shipping `""` cost nothing visible and would have been found only
+# by noticing that nothing was ever suppressed.
+#
+# Both are readable from the `grafanacloud-logs` datasource (`url` and
+# `basicAuthUser`); verified against it on 2026-09-17.
 variable "loki_url" {
   description = "Grafana Cloud Loki base URL"
   type        = string
-  default     = ""
+  default     = "https://logs-prod-042.grafana.net"
 }
 
 variable "loki_user" {
   description = "Grafana Cloud Loki stack user (numeric)"
   type        = string
-  default     = ""
+  default     = "1489885"
 }
 
 data "terraform_remote_state" "shared_slack_notifier" {

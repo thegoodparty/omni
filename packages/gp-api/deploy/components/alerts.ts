@@ -547,40 +547,79 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join('\n\n'),
   },
   {
-    slug: 'people-completion-request-no-email-ratio',
-    name: '[People] Profile completion nudges undeliverable',
+    slug: 'people-claim-request-crm-sync-failing',
+    name: '[People] Candidate profile request counter not syncing',
     type: 'metric',
-    // `no_email` is normally a large, stable share: the person feed only carries
-    // an address where a source had one, and notify exists for the people we
-    // hold the least data on. So this does NOT alert on the level — it alerts on
-    // the level going almost total, which is the shape of a regression rather
-    // than of data coverage (election-api's contact-email route answering
-    // `{email: null}` for everyone, the M2M credential failing open to null, or
-    // the person feed dropping the column). That failure emits no `failed`
-    // samples at all, so the alert above cannot see it.
+    // person_profile.claim_request_crm_sync.count{result="failed"} — the
+    // `candidate_profile_requests` write on the subject's HubSpot contact.
     //
-    // 24h window because the volume is small; the `and` clause is a floor,
-    // since a ratio over a handful of submissions is noise. Under the floor the
-    // query returns no data, which grafana.ts maps to OK, not Alerting.
-    expr: [
-      '( sum(increase(person_profile_completion_request_event_count_total{service_name="gp-api", deployment_environment_name="$ENV", result="no_email"}[24h]))',
-      '/',
-      'sum(increase(person_profile_completion_request_event_count_total{service_name="gp-api", deployment_environment_name="$ENV"}[24h])) )',
-      'and',
-      '( sum(increase(person_profile_completion_request_event_count_total{service_name="gp-api", deployment_environment_name="$ENV"}[24h])) > 20 )',
-    ].join(' '),
-    threshold: 0.95,
-    for: '0m',
-    // The [24h] vector is only fully visible if the fetch window matches it.
-    timeRangeSeconds: 86400,
-    // A day-long window does not need minute resolution, and re-reading 24h
-    // every 60s for no added signal is the cost mistake documented on this
-    // field.
-    evaluationIntervalSeconds: 3600,
+    // THERE WAS NO RULE ON THIS METRIC AT ALL until now, which is how it sat at
+    // a 100% failure rate in prod while the only people alert that did fire
+    // fired about a downstream symptom and named the wrong cause. Both halves
+    // of the claim-request CRM side-effect are independent, and this is the
+    // half nothing was watching.
+    //
+    // `no_contact` and `unresolved` are ordinary skips (the CRM has never heard
+    // of most of the civics spine, and the warehouse is unconfigured off-prod),
+    // so only `failed` is a fault. Volume is low enough that a sustained
+    // failure is worth a look without needing a ratio.
+    expr: 'sum(rate(person_profile_claim_request_crm_sync_count_total{service_name="gp-api", deployment_environment_name="$ENV", result="failed"}[5m]))',
+    threshold: 0,
+    for: '15m',
     message: [
-      'Over 95% of profile completion requests in the last 24 hours found no email address for the subject, across at least 20 submissions.',
-      'Some share here is normal — the civics person feed only holds an address where a source had one — but near-total means the lookup itself is likely broken rather than the data being thin. This fails silently: no address means no event, which is a deliberate skip, so no error is raised anywhere.',
-      'Click *View in Grafana*, then verify GET /v1/persons/:personId/contact-email on election-api returns an address for a person you know has one, and check the log line "Person contact email lookup failed" for M2M auth failures.',
+      "gp-api has been failing to write `candidate_profile_requests` to candidates' HubSpot contacts for 15 minutes.",
+      "Visitors' asks are still being stored in `person_profile_claim_request` and the public endpoint is unaffected — this is a detached side-effect. But the counter marketing segments on is drifting, and because the same lookup establishes whether HubSpot holds a contact for the subject at all, nothing downstream can tell an absent contact from an unread one while this is failing.",
+      'Click *View in Grafana*, then check the log line "candidate_profile_requests sync failed (non-fatal)" for the underlying error. The counter is a computed total rather than an increment, so it self-heals on the next submission once the cause is fixed — no replay is needed.',
+    ].join('\n\n'),
+    knownCauses: [
+      {
+        id: 'databricks-invalid-client',
+        summary:
+          "The shared Serve Databricks service principal is being rejected, so the person-mart read that resolves the subject's HubSpot contact id never runs.",
+        evidence: [
+          '{service_name="gp-api", deployment_environment_name="$ENV"}',
+          '|= "candidate_profile_requests sync failed"',
+          '|= "invalid_client"',
+        ].join(' '),
+        confirmedBy:
+          'Every matched line carries `invalid_client (Client authentication failed)` and names `DatabricksOAuthManager.getTokenM2M` in its stack. A matched line missing either is a different sync failure and this is not the cause. What this confirms is narrow but useful: the token endpoint rejected the DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET pair from the GP_API_PROD secret, which is authentication and happens before any warehouse or table grant is consulted — so a permission change cannot be the cause and a deploy cannot be the fix. It does NOT say which of expired, replaced, mistyped, or never-valid-for-this-workspace applies; check the service principal in Databricks against the client id actually in the secret before assuming a rotation is what is needed.',
+        action: 'annotate',
+      },
+    ],
+  },
+  {
+    slug: 'people-person-contact-email-lookup-failing',
+    name: '[People] Person contact email lookup failing',
+    type: 'log',
+    // REPLACES `people-completion-request-no-email-ratio`, which was deleted
+    // rather than retuned because both halves of it were unsound:
+    //
+    //  - It alerted on a share that is ~100% in the steady state. The `sent`
+    //    counter has never once been non-zero in prod, so "over 95% of nudges
+    //    undeliverable" is this feature's normal condition, not a regression.
+    //    A rule that is always true the moment it has volume gets muted.
+    //  - Its `> 20` volume floor never was one. It summed increase() over a
+    //    counter whose series conflated both prod tasks, so 4 real submissions
+    //    read as 1,702 and the floor was cleared by arithmetic rather than by
+    //    traffic — which is how it fired in the first place. See the
+    //    service.instance.id comment in src/otel.ts.
+    //
+    // What that rule was reaching for, and could not see, is the lookup
+    // ERRORING: resolveContactEmail returns null both for "no address on file"
+    // (ordinary, and most of the spine) and for a 404, and logs this line only
+    // for a genuine fault — M2M auth, a 5xx, or election-api unreachable. That
+    // is the actionable signal. Address coverage is a data question and belongs
+    // on the dashboard, not in #dev-alerts.
+    expr: [
+      'count_over_time({service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Person contact email lookup failed" [5m])',
+    ].join(' '),
+    threshold: 0,
+    for: '15m',
+    message: [
+      "gp-api has been unable to read subjects' contact addresses from election-api for 15 minutes.",
+      "Every profile-completion nudge in this window was skipped for want of an address, which is indistinguishable from ordinary thin coverage in the metric — this log line is the only thing that separates the two. Visitors' asks are unaffected and remain stored in `person_profile_claim_request`.",
+      'Click *View in Grafana*, then read the `status` and `reason` fields on the matched lines. A 401/403 is the gp-api → election-api M2M credential; a 5xx or a connection error is election-api itself. Note the response body is deliberately not logged, because on this route the body IS the address.',
     ].join('\n\n'),
   },
   {
