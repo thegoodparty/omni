@@ -48,12 +48,18 @@ interface ContactListMapProps {
   // at all rather than pickable-but-inert, so the cursor never suggests
   // otherwise.
   onSelectPerson?: (personId: string) => void
+  // Whether `people` is only the first page of a longer list. It changes what
+  // the unmappable count can honestly claim: `unmappable` is measured over
+  // the rows actually fetched, so on a truncated list it describes the page
+  // and not the list, and the wording has to say so.
+  truncated?: boolean
 }
 
 export default function ContactListMap({
   people,
   selectedPersonId,
   onSelectPerson,
+  truncated = false,
 }: ContactListMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -210,7 +216,8 @@ export default function ContactListMap({
 
       {unmappable > 0 ? (
         <div className="absolute left-3 top-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow">
-          {unmappable} of {people.length} have no location on file
+          {unmappable} of {people.length.toLocaleString()}
+          {truncated ? ' shown' : ''} have no location on file
         </div>
       ) : null}
 

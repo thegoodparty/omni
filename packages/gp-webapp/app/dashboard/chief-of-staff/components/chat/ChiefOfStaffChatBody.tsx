@@ -580,7 +580,11 @@ export default function ChiefOfStaffChatBody({
     playback,
   ])
 
-  const working = sending && visibleSegments.length === 0
+  // `liveListMap` counts as something on screen. onEvent consumes the
+  // show_list_map call, so a turn that draws a map and says nothing pushes no
+  // segment at all — without this the thinking row would sit under a rendered
+  // map until the commit poll landed.
+  const working = sending && visibleSegments.length === 0 && !liveListMap
 
   const history = useMemo(
     () =>
@@ -704,7 +708,11 @@ export default function ChiefOfStaffChatBody({
           ),
         )}
 
-        {visibleSegments.length > 0 ? (
+        {/* The map is its own reason to render this row. A turn can consist
+            of nothing but the show_list_map call, and onEvent consumes that
+            event rather than pushing a segment, so gating the row on
+            segments alone hid the map until the transcript reloaded. */}
+        {visibleSegments.length > 0 || liveListMap ? (
           <AssistantRow>
             <InlineSegments segments={visibleSegments} toolLabel={toolLabel} />
             {liveListMap ? <ChatListMap {...liveListMap} /> : null}

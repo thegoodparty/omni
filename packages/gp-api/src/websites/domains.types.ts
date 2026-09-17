@@ -80,3 +80,17 @@ export interface DomainStatusResponse {
   paymentStatus: PaymentStatus | null
   operationDetail?: DomainOperationDetail
 }
+
+/**
+ * The human accountable for a domain transfer auth code.
+ *
+ * `authSource` distinguishes how we know who they are, because the guarantee
+ * differs: a `user` identity was verified by SessionGuard against gp-api's own
+ * Clerk instance, while an `m2m` identity is whoever gp-admin said was signed
+ * in. gp-admin runs on a separate Clerk instance, so its session token cannot
+ * be verified here and its own permission check is what gates the call. An
+ * auditor reading the log needs to be able to tell those apart.
+ */
+export type AuthCodeRequester =
+  | { authSource: 'user'; userId: number; email: string }
+  | { authSource: 'm2m'; email: string }

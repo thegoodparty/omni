@@ -37,7 +37,11 @@ export const useListPeople = (
   const segment = listId === null ? null : String(listId)
   const query = useQuery({
     queryKey: listPeopleQueryKey(orgSlug, segment),
-    enabled: segment !== null,
+    // Boolean(orgSlug) as well as the segment: before the org resolves, a
+    // fetch lands under an undefined-slug key that no later invalidation
+    // targets, so it is never evicted and can be served stale forever. Same
+    // guard, same reason, as the notes query.
+    enabled: segment !== null && Boolean(orgSlug),
     // Same suppression contactTableQueryOptions carries, for the same reason:
     // a contacts 4xx is deterministic (400 = VOTER_DATA_UNAVAILABLE, 403 =
     // not-pro), so retrying only makes an ineligible user wait out the full
@@ -65,7 +69,12 @@ export const useListPeople = (
     people,
     total,
     truncated: total > people.length,
-    isLoading: query.isPending && segment !== null,
+    // Covers the gate above as well as the request. A disabled query stays
+    // `isPending` forever, so reading isPending alone would spin while the
+    // org resolves — and reading it without the org would report an
+    // unresolved list as an empty one. Waiting on both is what "loading"
+    // honestly means here.
+    isLoading: segment !== null && (!orgSlug || query.isPending),
     isError: query.isError,
   }
 }
