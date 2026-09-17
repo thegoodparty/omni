@@ -1,0 +1,217 @@
+name: gpbot review gap alert
+
+# delegate-reviewer's approval is the only thing that satisfies the main
+# ruleset's one-approval requirement on most PRs. When it reviews and nobody
+# merges, gpbot-stale-pr-alert.yml eventually says so. When it never reviews at
+# all, nothing says anything, and the PR cannot be merged by anyone — there is
+# no approval to act on and no red check to investigate. It just stops.
+#
+# That happened twice on 2026-09-17, in two different ways:
+#
+#   - #1898 was force-pushed at 14:14:14. delegate's 14:17:42 review is stamped
+#     e6b042bda, a commit the force-push had already orphaned out of the
+#     branch — `git merge-base --is-ancestor` puts it nowhere in the history.
+#     It had reviewed a SHA that no longer existed and never re-queued: not for
+#     the next push, not for a re-review request, not for a close/reopen, not
+#     for a rebase force-push onto a brand-new head. It had to be reopened as
+#     #1918 to get looked at.
+#   - #1910 was never force-pushed and was simply skipped, sitting un-reviewed
+#     while delegate approved #1911 through #1914 either side of it.
+#
+# Both were invisible for hours. gpbot-stale-pr-alert.yml cannot catch either:
+# it only looks at [GP-Bot] PRs, it waits 48h, and it deliberately EXCLUDES
+# delegate from counting as attention — it answers "did a human look?", which
+# is a different question from "can this PR be merged by anyone at all?".
+#
+# So this asks the second question, on a timescale that matches how fast
+# delegate normally works (four to seven minutes, measured across #1903 and
+# #1906-#1914).
+#
+# Reads only. Like the other two gpbot alerts, this MUST NEVER merge, close, or
+# approve anything. Re-requesting an App's review is not possible in any case:
+# the REST call accepts `delegate-reviewer[bot]` and silently returns an empty
+# `requested_reviewers`. The fix for a gap is a human reopening the PR, which
+# is a decision, not a cleanup.
+
+on:
+  schedule:
+    # Every 30 minutes on weekdays. A gap costs the author their whole
+    # remaining day if it lands at 09:00 and is not noticed until tomorrow,
+    # which is what the daily stale alert's cadence would mean here.
+    - cron: '*/30 * * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: gpbot-review-gap-alert
+  cancel-in-progress: false
+
+env:
+  # Long enough that a slow queue is never reported as a gap. delegate's
+  # observed worst case on a healthy day is seven minutes; the two real gaps
+  # were still empty at 95 and 50 minutes, so anything from ~20 up separates
+  # them cleanly and 45 leaves room for a bad afternoon.
+  GRACE_MINUTES: '45'
+  # REST, not GraphQL, so the login carries the suffix. gpbot-stale-pr-alert.yml
+  # needs the bare form for the opposite reason — see the note on its
+  # BOT_REVIEWERS. Getting this wrong matches nothing and the job goes green
+  # reporting no gaps, which is the failure this repo keeps re-learning.
+  REVIEWER: 'delegate-reviewer[bot]'
+
+jobs:
+  alert:
+    name: Find PRs delegate never reviewed
+    runs-on: ubuntu-latest
+    env:
+      # gp_ai_bot — same app as the other two gpbot alerts, because they post
+      # to the same channel and a channel membership is per-app.
+      SLACK_TOKEN: ${{ secrets.GPBOT_SLACK_BOT_TOKEN }}
+      CHANNEL: ${{ vars.GPBOT_PR_CHANNEL_ID }}
+    steps:
+      - name: Find PRs with no review against their head
+        id: scan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          cutoff="$(date -u -d "$GRACE_MINUTES minutes ago" '+%Y-%m-%dT%H:%M:%SZ')"
+
+          # NO `commits` IN THIS QUERY. Asking for it across 200 PRs makes
+          # GraphQL refuse the whole call — "requesting up to 1,000,000 possible
+          # nodes which exceeds the maximum limit of 500,000" — so the head
+          # commit's date is fetched per candidate below, after the cheap
+          # filters have cut the list down.
+          gh pr list --repo "$REPO" --state open --limit 200 \
+            --json number,title,url,isDraft,headRefOid,createdAt,author,reviews \
+            > prs.json
+
+          # Two exclusions, both of which would otherwise be false alarms:
+          #
+          #   - drafts, which are not asking to be reviewed yet;
+          #   - anything already carrying an APPROVED review from anyone, which
+          #     satisfies the ruleset and can merge regardless of delegate.
+          #
+          # A PR delegate reviewed as COMMENTED *at the current head* is
+          # deliberately NOT a gap. That is a blocker waiting on its author, and
+          # nagging about it here would make this alert the thing people mute.
+          #
+          # `.reviews[].state` here is GraphQL's, which is why the author login
+          # in it is bare while REVIEWER below carries `[bot]` — the two halves
+          # of this job read two different APIs. See gpbot-stale-pr-alert.yml.
+          jq -r '
+            .[]
+            | select(.isDraft | not)
+            | select([.reviews[]? | select(.state == "APPROVED")] | length == 0)
+            | "\(.number)\t\(.headRefOid)\t\(.createdAt)\t\(.author.login // "unknown")\t\(.url)\t\(.title)"
+          ' prs.json > candidates.tsv
+
+          echo "checking $(wc -l < candidates.tsv) unapproved, non-draft PR(s)"
+
+          # The per-PR call is the whole point and cannot come from `gh pr list`:
+          # GraphQL's review objects do not carry the reviewed commit, and the
+          # reviewed commit is the only thing that distinguishes "reviewed this
+          # code" from "reviewed something this branch no longer contains".
+          # That distinction is exactly what #1898 turned on.
+          : > gaps.txt
+          while IFS=$'\t' read -r num head created author url title; do
+            [ -n "${num:-}" ] || continue
+
+            # THE GRACE IS MEASURED FROM THE HEAD, NOT FROM `updatedAt`.
+            # updatedAt bumps on every comment, and pr-preview-comment.yml
+            # upserts one on each push, so a PR with any CI chatter never ages
+            # past the cutoff and its gap would never be reported. #1910 is
+            # exactly that shape: 50 minutes un-reviewed, updatedAt minutes old.
+            #
+            # The later of createdAt and the head commit's committer date is
+            # what "how long has this head been waiting" actually means. The
+            # commit date alone would flag a PR opened one minute ago off a
+            # branch whose commits are a week old; createdAt alone would never
+            # re-arm after a force-push, which is the case that started all of
+            # this.
+            head_date="$(gh api "repos/$REPO/commits/$head" --jq '.commit.committer.date' 2>/dev/null)" || head_date=''
+            if [ -z "$head_date" ]; then
+              echo "::warning::could not read the head commit of #$num; skipped this run"
+              continue
+            fi
+            # A plain `if` rather than `[ ... ] && since=...`: the latter is an
+            # AND-OR list whose test failing makes the list's status non-zero,
+            # and reasoning about whether `set -e` exempts that is not worth the
+            # doubt in a job whose whole value is not crying wolf.
+            since="$created"
+            if [ "$head_date" \> "$since" ]; then
+              since="$head_date"
+            fi
+            if [ "$since" \> "$cutoff" ]; then
+              echo "  young: #$num head has only been up since $since"
+              continue
+            fi
+            # CAPTURED BEFORE PARSING, AND CHECKED FOR EMPTY, because the
+            # failure mode of not doing so is a false accusation. A PR with no
+            # reviews answers `[]`, but a call that fails answers nothing at
+            # all — and `jq -s '(add // [])' ` turns nothing into `[]` too,
+            # whose length is 0, which is this job's word for "delegate never
+            # reviewed this". A network blip would name innocent PRs in Slack.
+            # `[]` and `''` are the two cases that must not be conflated here.
+            raw="$(gh api "repos/$REPO/pulls/$num/reviews" --paginate 2>/dev/null)" || raw=''
+            if [ -z "$raw" ]; then
+              echo "::warning::could not read reviews for #$num; skipped this run"
+              continue
+            fi
+
+            # Real jq, not `gh api --jq`, which takes exactly one argument and
+            # rejects `--arg` outright ("accepts 1 arg(s), received 4"). And
+            # `jq -s` rather than gh's own `--slurp`, so this does not depend on
+            # the runner's gh being new enough to have it: `--paginate` emits one
+            # JSON array per page, slurping collects them into an array of
+            # arrays, and `add` flattens.
+            reviewed="$(printf '%s' "$raw" \
+              | jq -s --arg r "$REVIEWER" --arg h "$head" \
+                '(add // []) | [.[] | select(.user.login == $r and .commit_id == $h)] | length')"
+
+            if [ "$reviewed" = "0" ]; then
+              echo "gap: #$num ($author) head ${head:0:9}"
+              printf '• <%s|#%s> %s — @%s\n' "$url" "$num" "$title" "$author" >> gaps.txt
+            fi
+          done < candidates.tsv
+
+          count="$(grep -c '^•' gaps.txt || true)"
+          echo "found $count PR(s) with no $REVIEWER review against the current head"
+          cat gaps.txt
+
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          {
+            echo 'list<<GAPS_EOF'
+            cat gaps.txt
+            echo 'GAPS_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      # Silent when there is nothing to say, for the same reason the stale
+      # alert is: a recurring "0 gaps" every half hour is how a channel becomes
+      # background noise.
+      - name: Post to Slack
+        if: steps.scan.outputs.count != '0' && env.SLACK_TOKEN != '' && env.CHANNEL != ''
+        env:
+          GAP_LIST: ${{ steps.scan.outputs.list }}
+          COUNT: ${{ steps.scan.outputs.count }}
+        run: |
+          set -euo pipefail
+          # chat.postMessage answers HTTP 200 when it refuses the message, so
+          # the `jq -e .ok` is what actually proves delivery. Without it this
+          # step goes green while nobody is told — the precise shape of the bug
+          # that made #1918 necessary.
+          jq -n \
+            --arg channel "$CHANNEL" \
+            --arg header "*${COUNT} PR(s) have no \`${REVIEWER}\` review against their current head, past the ${GRACE_MINUTES}m grace.* Its approval is the only thing satisfying the ruleset on most PRs, so these cannot be merged by anyone until it reviews — reopening the PR is what re-triggers it." \
+            --arg list "$GAP_LIST" \
+            '{channel: $channel, text: ($header + "\n" + $list)}' \
+            | curl -sS -X POST https://slack.com/api/chat.postMessage \
+                -H "Authorization: Bearer $SLACK_TOKEN" \
+                -H 'Content-type: application/json; charset=utf-8' \
+                --data @- \
+            | tee /dev/stderr \
+            | jq -e '.ok' > /dev/null
