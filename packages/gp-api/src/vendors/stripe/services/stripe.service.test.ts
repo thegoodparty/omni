@@ -619,10 +619,61 @@ describe('StripeService.cancelSubscription', () => {
     expect(result).toMatchObject({ id: 'sub_live', status: 'canceled' })
   })
 
-  // The inner catch is narrow on purpose. A network failure or an outage is not
-  // evidence that the subscription was canceled, and reporting success for one
-  // would clear the campaign's Pro flag while it kept paying.
-  it('still fails when the cancel fails for any other reason', async () => {
+  // The status read is what makes the recovery above safe rather than hopeful.
+  // "Invalid request" is broader than "already canceled", so a cancel that
+  // failed for some other reason must not be reported as a cancel that
+  // succeeded — that would clear the campaign's Pro flag while Stripe carried
+  // on billing it, which is worse than the 502 it replaced.
+  it('does not report success when the subscription is still live', async () => {
+    subscriptionsRetrieve.mockResolvedValue({
+      id: 'sub_live',
+      status: 'active',
+    })
+    subscriptionsCancel.mockRejectedValue(new MockStripeError('nope'))
+
+    await expect(service.cancelSubscription('sub_live')).rejects.toBeInstanceOf(
+      BadGatewayException,
+    )
+  })
+
+  // A stale pointer: details.subscriptionId still set, the subscription gone
+  // from Stripe. De-Pro wants no subscription billing the campaign and there is
+  // none, so failing here would block the admin over a subscription that cannot
+  // charge anyone.
+  it('treats a subscription Stripe has never heard of as already canceled', async () => {
+    const missing = new MockStripeError('No such subscription')
+    Object.assign(missing, { code: 'resource_missing' })
+    subscriptionsRetrieve.mockRejectedValue(missing)
+
+    await expect(service.cancelSubscription('sub_gone')).resolves.toBeNull()
+    expect(subscriptionsCancel).not.toHaveBeenCalled()
+  })
+
+  // And only that code. Any other invalid-request failure is a real failure.
+  it('still fails for an invalid request that is not a missing subscription', async () => {
+    subscriptionsRetrieve.mockRejectedValue(new MockStripeError('bad request'))
+
+    await expect(service.cancelSubscription('sub_live')).rejects.toBeInstanceOf(
+      BadGatewayException,
+    )
+  })
+
+  // What the recovery keys on is the status, not the error class, so a failure
+  // of any class is recovered if the subscription did in fact stop — a
+  // connection error raised after the cancel landed is the ordinary way that
+  // happens, and 502ing over it would abandon a de-Pro that already succeeded.
+  it('recovers any cancel failure that still left the subscription canceled', async () => {
+    subscriptionsRetrieve
+      .mockResolvedValueOnce({ id: 'sub_live', status: 'active' })
+      .mockResolvedValueOnce({ id: 'sub_live', status: 'canceled' })
+    subscriptionsCancel.mockRejectedValue(new Error('connection reset'))
+
+    const result = await service.cancelSubscription('sub_live')
+
+    expect(result).toMatchObject({ id: 'sub_live', status: 'canceled' })
+  })
+
+  it('still fails when the cancel fails and the subscription is untouched', async () => {
     subscriptionsRetrieve.mockResolvedValue({
       id: 'sub_live',
       status: 'active',
