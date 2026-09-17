@@ -80,7 +80,7 @@ const PLACE_WORD_PATTERN = new RegExp(`\\b(${PLACE_WORDS.join('|')})\\b`, 'i')
 const UNFILTERED_PLACE_NAME_ERROR =
   'This name includes a place, but the filter has no precinct narrowing, ' +
   'so it actually covers the whole district: rename it without the ' +
-  'place word and tell the candidate that. If they want real geographic ' +
+  'place word and tell the user that. If they want real geographic ' +
   'narrowing, precincts are the one filter that provides it.'
 
 // True only when the name claims a geographic narrowing the filter didn't
