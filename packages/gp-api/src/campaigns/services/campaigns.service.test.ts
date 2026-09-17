@@ -11,7 +11,11 @@ import { SegmentService } from '@/vendors/segment/segment.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { SlackService } from '@/vendors/slack/services/slack.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
-import { BadRequestException } from '@nestjs/common'
+import {
+  BadRequestException,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { Campaign, Prisma, PrismaClient, User } from '../../generated/prisma'
 import { deepmerge as deepMerge } from 'deepmerge-ts'
@@ -1849,6 +1853,7 @@ describe('CampaignsService - setIsPro / isProUpdatedAt', () => {
 // `Promise.all` both reach their first await before either resolves.
 const buildDetailsRowModule = async (
   initialDetails: PrismaJson.CampaignDetails | null = {},
+  { rowExists = true }: { rowExists?: boolean } = {},
 ) => {
   const row: { details: PrismaJson.CampaignDetails | null } = {
     details: initialDetails,
@@ -1857,14 +1862,19 @@ const buildDetailsRowModule = async (
 
   const mockExecuteRaw = vi.fn(async (...call: unknown[]) => {
     await tick()
+    if (!rowExists) return 0
     if (row.details === null || typeof row.details !== 'object') return 0
     row.details = { ...row.details, ...patchFromExecuteRawCall(call) }
     return 1
   })
-  const mockCampaignFindFirst = vi.fn(async () => {
+  // Shared by findFirst and findUnique so the zero-rowcount branch of
+  // patchCampaignDetails sees the same row the UPDATE did, and can tell an
+  // absent campaign from a malformed `details` column.
+  const readRow = async () => {
     await tick()
-    return { id: 1, userId: 7, details: row.details }
-  })
+    return rowExists ? { id: 1, userId: 7, details: row.details } : null
+  }
+  const mockCampaignFindFirst = vi.fn(readRow)
   const mockCampaignUpdate = vi.fn(
     async ({ data }: { data: { details?: PrismaJson.CampaignDetails } }) => {
       await tick()
@@ -1886,7 +1896,7 @@ const buildDetailsRowModule = async (
     $executeRaw: mockExecuteRaw,
     campaign: {
       findFirst: mockCampaignFindFirst,
-      findUnique: vi.fn(),
+      findUnique: vi.fn(readRow),
       findUniqueOrThrow: vi.fn(async () => ({
         id: 1,
         userId: 7,
@@ -1977,14 +1987,23 @@ describe('CampaignsService - patchCampaignDetails write contention', () => {
       .toEqual({ isProUpdatedAt: 'T' })
   })
 
-  // Unchanged behaviour, restated against the new plumbing: the old code threw
-  // this when its pre-read found no row or a details column that was not an
-  // object. Both now surface as a zero rowcount from the guarded UPDATE.
-  it('throws when the UPDATE matches no campaign row', async () => {
-    const { service } = await buildDetailsRowModule(null)
-
+  // Zero rows has two causes the old pre-read collapsed into one 500.
+  // `details` is NOT NULL with a `{}` default, so the case that actually
+  // happens is a campaign id that does not resolve — a 404. The non-object
+  // column keeps its 500 because it means the row is malformed, not the
+  // request.
+  it('separates a missing campaign from a details column that is not an object', async () => {
+    const { service: noRow } = await buildDetailsRowModule(
+      {},
+      { rowExists: false },
+    )
     await expect(
-      service.patchCampaignDetails(404, { subscriptionId: 'sub_A' }),
-    ).rejects.toThrow('Campaign 404 has no details JSON')
+      noRow.patchCampaignDetails(404, { subscriptionId: 'sub_A' }),
+    ).rejects.toBeInstanceOf(NotFoundException)
+
+    const { service: badColumn } = await buildDetailsRowModule(null)
+    await expect(
+      badColumn.patchCampaignDetails(1, { subscriptionId: 'sub_A' }),
+    ).rejects.toBeInstanceOf(InternalServerErrorException)
   })
 })

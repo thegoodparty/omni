@@ -2,7 +2,7 @@ import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { CrmCampaignsService } from '@/campaigns/services/crmCampaigns.service'
 import { isActiveCampaign } from '@/campaigns/util/eligibility.util'
 import { useTestService } from '@/test-service'
-import { InternalServerErrorException } from '@nestjs/common'
+import { InternalServerErrorException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -450,12 +450,17 @@ describe('CampaignsService.patchCampaignDetails', () => {
     ).rejects.toThrow(InternalServerErrorException)
   })
 
-  it('throws for a campaign id that does not exist', async () => {
+  // The other cause of a zero rowcount, and the only one that happens in
+  // practice — `details` is NOT NULL with a `{}` default. The pre-read this
+  // replaced reported it as the same 500 as the malformed column above, which
+  // told whoever was paging through the logs that the row was broken when the
+  // id was simply wrong.
+  it('404s on a campaign id that does not resolve', async () => {
     const campaigns = service.app.get(CampaignsService)
 
     await expect(
       campaigns.patchCampaignDetails(999999, { subscriptionId: 'sub_A' }),
-    ).rejects.toThrow(InternalServerErrorException)
+    ).rejects.toBeInstanceOf(NotFoundException)
   })
 
   // Prod 2026-09-15T07:42:51Z, reproduced against real Postgres. Stripe
@@ -504,5 +509,144 @@ describe('CampaignsService.patchCampaignDetails', () => {
       subscriptionId: 'sub_A',
       isProUpdatedAt: '2026-09-15T07:42:51Z',
     })
+  })
+})
+
+describe('CampaignsService.updateJsonFields — concurrent campaign writer', () => {
+  // Prod 2026-08-28T06:02:51Z, reproduced against real Postgres. A
+  // GET /v1/campaigns/mine/status poll (request d0b40c51) stamped
+  // data.lastVisited 9ms after this method read the row and 4ms before it
+  // aborted, and the candidate's save was discarded with a 400. Nine of those
+  // in the 30 days to 2026-09-17, plus one more on 2026-09-16, all identical.
+  //
+  // Here the poll is an open transaction still holding the row lock, so the
+  // save is guaranteed to arrive mid-flight rather than merely likely to —
+  // Postgres enforces the interleaving, no sleep decides it.
+  //
+  // This one test kills four separate mutations, which is why it is the whole
+  // concurrency suite. Against the pre-change shape (Serializable, read taking
+  // no lock) it raises the production error verbatim: P2034, `Transaction
+  // failed due to a write conflict or a deadlock`. Keeping Serializable
+  // alongside the new lock raises the same thing from the lock statement.
+  // Dropping Serializable without taking the lock, or taking it AFTER the
+  // read, loses `lastVisited` instead — the silent variant, with no error at
+  // all.
+  it('merges onto a concurrent writer rather than failing or overwriting it', async () => {
+    const { campaign } = await seedCampaign()
+    const crm = service.app.get(CrmCampaignsService)
+    vi.spyOn(crm, 'trackCampaign').mockResolvedValue(undefined)
+    const campaigns = service.app.get(CampaignsService)
+
+    const rowLocked = deferred()
+    const lockReleased = deferred()
+
+    const concurrentPoll = service.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        UPDATE campaign
+        SET data = data || '{"lastVisited":1788968553573}'::jsonb
+        WHERE id = ${campaign.id}
+      `
+      rowLocked.resolve()
+      await lockReleased.promise
+    })
+
+    await rowLocked.promise
+    const save = campaigns.updateJsonFields(campaign.id, {
+      data: { someField: 'value' },
+    })
+    // Long enough for the save's lock statement to reach the row lock and
+    // block on it.
+    setTimeout(lockReleased.resolve, 250)
+
+    await Promise.all([concurrentPoll, save])
+
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.data).toEqual({
+      lastVisited: 1788968553573,
+      someField: 'value',
+    })
+  })
+})
+
+describe('CampaignsService.getStatus', () => {
+  // The campaign getStatus is handed is whatever UseCampaignGuard read before
+  // the handler started, so anything committed after that read is invisible to
+  // it. Staged directly rather than raced, because the outcome does not depend
+  // on timing: the previous `data: { ...data, lastVisited }` rebuilt the whole
+  // column from that stale object and dropped someField, answering 200 with no
+  // log line. In prod the window is this request's own duration, observed at
+  // 1017ms (request 47eeaa03, 2026-09-09T15:42:34Z).
+  it('stamps onto the committed row, not onto the row it was handed', async () => {
+    const { campaign } = await seedCampaign()
+    const campaigns = service.app.get(CampaignsService)
+
+    await service.prisma.$executeRaw`
+      UPDATE campaign SET data = '{"someField":"value"}'::jsonb WHERE id = ${campaign.id}
+    `
+
+    await campaigns.getStatus(campaign)
+
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.data).toMatchObject({ someField: 'value' })
+    expect(row.data.lastVisited).toEqual(expect.any(Number))
+  })
+
+  // Raw SQL does not fire Prisma's `@updatedAt`, so the column is set by hand
+  // in the statement. This passes against the pre-change source too — its
+  // evidence is the mutation, not a revert: dropping `updated_at = NOW()`
+  // leaves updatedAt unchanged and fails it.
+  it('still bumps updatedAt', async () => {
+    const { campaign } = await seedCampaign()
+    const campaigns = service.app.get(CampaignsService)
+    // JS truncates the column to milliseconds, so guarantee the clock moves
+    // rather than relying on the call taking longer than 1ms.
+    await new Promise((resolve) => setTimeout(resolve, 5))
+
+    await campaigns.getStatus(campaign)
+
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.updatedAt.getTime()).toBeGreaterThan(
+      campaign.updatedAt.getTime(),
+    )
+  })
+
+  // `{ ...null, lastVisited }` used to yield `{ lastVisited }`, so a data
+  // column holding JSON null rebuilt itself into an object. Also passes
+  // against the pre-change source; its evidence is the mutation. Dropping the
+  // jsonb_typeof CASE does not raise — `jsonb` concatenates a scalar with an
+  // object into an ARRAY — so the column silently becomes
+  // `[null, {"lastVisited":...}]` and this test reads keys `['0','1']`.
+  it('rebuilds a data column holding JSON null rather than failing on it', async () => {
+    const { campaign } = await seedCampaign()
+    await service.prisma
+      .$executeRaw`UPDATE campaign SET data = 'null'::jsonb WHERE id = ${campaign.id}`
+    const campaigns = service.app.get(CampaignsService)
+
+    await campaigns.getStatus(campaign)
+
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(Object.keys(row.data)).toEqual(['lastVisited'])
+  })
+
+  // The previous `model.update` raised Prisma's P2025 here, which the exception
+  // filter answers 404 to. A raw UPDATE matching no row would instead say
+  // nothing, so the rowcount is checked; dropping that check resolves with a
+  // status payload for a campaign that no longer exists.
+  it('throws when the campaign vanished between the guard read and the stamp', async () => {
+    const { campaign } = await seedCampaign()
+    const campaigns = service.app.get(CampaignsService)
+    await service.prisma.campaign.delete({ where: { id: campaign.id } })
+
+    await expect(campaigns.getStatus(campaign)).rejects.toThrow(
+      NotFoundException,
+    )
   })
 })
