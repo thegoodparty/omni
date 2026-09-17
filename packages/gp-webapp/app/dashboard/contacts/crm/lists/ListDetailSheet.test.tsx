@@ -542,7 +542,7 @@ describe('ListDetailSheet — DeleteListDialog (unlocked list)', () => {
       data: {},
     })
     const user = userEvent.setup()
-    const invalidate = vi.spyOn(testQueryClient, 'invalidateQueries')
+    const removeQueries = vi.spyOn(testQueryClient, 'removeQueries')
 
     render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
     await user.click(await screen.findByTestId('list-detail-delete-trigger'))
@@ -558,8 +558,9 @@ describe('ListDetailSheet — DeleteListDialog (unlocked list)', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     // A deleted list's members outlive it otherwise: the global staleTime is
     // five minutes, so re-opening /lists/42 inside that window would redraw
-    // the deleted list's constituents from cache with no request.
-    expect(invalidate).toHaveBeenCalledWith({
+    // the deleted list's constituents from cache with no request. Removed
+    // rather than invalidated — there is nothing to re-read once it is gone.
+    expect(removeQueries).toHaveBeenCalledWith({
       queryKey: ['list-people', 'test-org', '42'],
     })
   })

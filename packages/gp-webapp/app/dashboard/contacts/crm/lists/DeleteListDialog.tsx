@@ -69,9 +69,15 @@ export default function DeleteListDialog({
       // The map reads the members, and a deleted list's members outlive it:
       // the global staleTime is 5 minutes, so re-opening /lists/<id> inside
       // that window re-mounts the section and draws the deleted list's
-      // constituents from cache with no request. Scoped to this id rather
-      // than the whole key, since no other list's members changed.
-      await queryClient.invalidateQueries({
+      // constituents from cache with no request.
+      //
+      // remove rather than invalidate, and deliberately. Invalidate refetches
+      // ACTIVE queries and awaits them, so with the map still mounted it
+      // would block this handler on a refetch of the list we just deleted —
+      // a request that can only 404 — and hold up the snackbar, the
+      // navigation and the analytics event behind it. There is nothing to
+      // re-read here; the cache entry should simply stop existing.
+      queryClient.removeQueries({
         queryKey: listPeopleQueryKey(orgSlug, String(segment.id)),
       })
       // Same endpoint backs the outreach audience picker's list cache; drop the
