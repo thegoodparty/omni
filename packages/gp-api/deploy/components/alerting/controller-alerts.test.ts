@@ -4,7 +4,11 @@ import {
   ControllerName,
   ROUTE_MAP,
 } from '../../../src/generated/route-types'
-import { SERVER_ERRORS_ONLY } from '../alerts'
+import {
+  ALERT_OWNERSHIP,
+  CONTROLLERS_WITHOUT_ROUTE_ALERTS,
+  SERVER_ERRORS_ONLY,
+} from '../alerts'
 import { controllerAlerts } from './controller-alerts'
 
 /**
@@ -33,7 +37,8 @@ const onlyAlert = (controller: ControllerName) => {
 const outsideServerErrorsOnly = (): ControllerName => {
   const name = CONTROLLER_NAMES.find(
     (candidate) =>
-      !SERVER_ERRORS_ONLY.includes(candidate) && ROUTE_MAP[candidate].length > 0,
+      !SERVER_ERRORS_ONLY.includes(candidate) &&
+      ROUTE_MAP[candidate].length > 0,
   )
   if (!name) {
     // Not a skip: with every controller on the list there is no 4xx path left
@@ -271,6 +276,68 @@ describe('controllerAlerts', () => {
   it('parenthesizes the status clauses', () => {
     for (const alert of alerts) {
       expect(alert.expr).toContain('( response_statusCode >= 500 ) or (')
+    }
+  })
+})
+
+// The gap these guard is not a wrong alert but an absent one, which is the
+// failure mode no alert can report. `controllerAlerts` sets
+// `disabled: !slackGroupName`, so a controller nobody lists is silently opted
+// out — and 71 of 77 are. CONTROLLERS_WITHOUT_ROUTE_ALERTS makes that a
+// declaration rather than an oversight, and these are what make the
+// declaration mandatory.
+describe('every controller is accounted for', () => {
+  const owned = new Set(Object.values(ALERT_OWNERSHIP).flat())
+  const unmonitored = new Set(CONTROLLERS_WITHOUT_ROUTE_ALERTS)
+
+  // The one that matters: a controller added tomorrow lands in neither list and
+  // fails here, so the author picks an owner or writes down that they did not
+  // want one. Without this, a new public endpoint inherits silence by default
+  // and nothing says so — which is how public-person-profiles/voter-density
+  // served 1,498,324 consecutive 500s over four days in August 2026 without
+  // paging anyone.
+  it('requires a new controller to choose an owner or opt out', () => {
+    const unaccounted = CONTROLLER_NAMES.filter(
+      (controller) => !owned.has(controller) && !unmonitored.has(controller),
+    )
+
+    expect(
+      unaccounted,
+      'these controllers are in neither ALERT_OWNERSHIP nor CONTROLLERS_WITHOUT_ROUTE_ALERTS, so they have no route alerting and nothing records that',
+    ).toEqual([])
+  })
+
+  // Listing a controller in both reads as "owned" here and "deliberately
+  // silent" there, and the code would honour the first while a reviewer
+  // believes the second.
+  it('never claims a controller is both owned and opted out', () => {
+    const both = CONTROLLERS_WITHOUT_ROUTE_ALERTS.filter((controller) =>
+      owned.has(controller),
+    )
+
+    expect(both).toEqual([])
+  })
+
+  // Keeps the list honest in the other direction: an entry that no longer names
+  // a real controller is a claim about nothing, and would quietly absorb a
+  // future controller that reused the name. `ControllerName` catches a typo at
+  // compile time, but not an entry left behind when a controller is deleted.
+  it('names only controllers that exist', () => {
+    const stale = CONTROLLERS_WITHOUT_ROUTE_ALERTS.filter(
+      (controller) => !CONTROLLER_NAMES.includes(controller),
+    )
+
+    expect(stale).toEqual([])
+  })
+
+  // The list has to describe what the generator actually does, or it documents
+  // an intention the code does not implement.
+  it('matches which alerts are really provisioned disabled', () => {
+    for (const controller of CONTROLLER_NAMES) {
+      if (ROUTE_MAP[controller].length === 0) continue
+
+      const [alert] = controllerAlerts(controller)
+      expect(alert?.disabled, `${controller}`).toBe(unmonitored.has(controller))
     }
   })
 })
