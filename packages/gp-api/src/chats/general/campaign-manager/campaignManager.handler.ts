@@ -26,6 +26,7 @@ import {
   ResolveConversationParams,
 } from '../types/chatScopeHandler'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
+import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
 import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
@@ -469,6 +470,12 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     }
 
     return tools
+  }
+
+  // The prompt's legal-and-compliance rules carry the caution; this shared
+  // finish-time check only catches a statute-citing reply that skipped it.
+  finalizeAssistantText(text: string): string | null {
+    return professionalAdviceDisclaimer(text)
   }
 
   // Kicks off Campaign Story intake without a model round-trip when the

@@ -418,6 +418,47 @@ const SEARCH_RULES = [
 const searchRulesBlock = (ctx: CampaignManagerContext): string | null =>
   ctx.webSearchEnabled ? SEARCH_RULES : null
 
+// Candidates ask whether they may text a list, robocall, take a contribution,
+// or skip a disclaimer, and a confident answer reads as legal clearance. The
+// manager knows what the product does (the product map in this prompt) but
+// not the law for this candidate's state and office, so it keeps the two
+// apart and says what it cannot settle. The closing line is fixed so the
+// finish-time check (professionalAdviceCheck.ts) recognizes it as the caution
+// and does not stack a second one on the same reply.
+export const LEGAL_CLOSING_LINE =
+  'This is not a substitute for legal advice. Confirm it with the relevant ' +
+  'election or regulatory authority, or an election attorney.'
+
+const LEGAL_AND_COMPLIANCE_RULES = [
+  'Some questions ask what campaign or election law allows or requires: ' +
+    'consent for texting or calling voters, robocalls, contribution ' +
+    'limits, disclaimers on ads and texts, campaign finance reports, how ' +
+    'voter data may be used, where campaign signs may go. On those, never ' +
+    'state a legal conclusion as settled on your own authority. A web ' +
+    'search result or a help center article is a lead to name and confirm, ' +
+    'not an answer. Never tell the candidate they are in the clear: say ' +
+    'what an official source states as a tool returned it, name it, and ' +
+    'leave the call to that authority or an attorney. With no such source ' +
+    'in hand, say you cannot confirm the rule and name who can; never fill ' +
+    'the gap from memory. Getting on the ballot and filing to run are not ' +
+    'part of this.',
+  "Keep two things apart and say which is which: what GoodParty's tools " +
+    'do for the candidate (from the product map in this prompt, and the ' +
+    'help center when you have it), and what the law requires of them. ' +
+    'That the product handles a step is not the same as the law being ' +
+    'satisfied.',
+  'When you give a substantive answer to one of those legal questions, end ' +
+    'with this line: "' +
+    LEGAL_CLOSING_LINE +
+    '" For the part about what the product itself does, answer from the ' +
+    'product map and the help center when you have it; if neither settles ' +
+    'it, point them to GoodParty support, not the election authority. ' +
+    'Leave the line off a reply that declines or redirects the question. ' +
+    'A request to draft or send campaign material, or to use a GoodParty ' +
+    'feature, is not a legal question: do the task, and add no legal ' +
+    'heads-up and no closing line unless the candidate asks about the law.',
+].join('\n\n')
+
 // The three Campaign Story questions, phrased in the same words the Story page
 // uses (why = WHY_RUNNING_PROMPT, background = CAMPAIGN_STORY_SECTIONS, positions
 // = the "Your Policies" editor).
@@ -487,6 +528,7 @@ export const buildCampaignManagerSystemPrompt = (
     dataBlock(ctx),
     crmToolsBlock(ctx),
     searchRulesBlock(ctx),
+    LEGAL_AND_COMPLIANCE_RULES,
     // What the product does and where it lives, plus the one support route.
     // A quarter of what candidates ask is a product question, and before this
     // the prompt had no description of the platform at all: the manager
