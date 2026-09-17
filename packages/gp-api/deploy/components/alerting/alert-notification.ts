@@ -47,9 +47,16 @@ export const buildAlertDescription = (
   environment: string,
 ): string => {
   const message = alert.message.replace(/\$ENV/g, environment)
-  const mention = alert.notify
-    ? `<!subteam^${SLACK_GROUP_IDS[alert.notify]}>`
-    : ''
+  // `notify` takes one group or several. Normalising here rather than at each
+  // author site keeps the single-group spelling, which most alerts use, from
+  // having to become a one-element list.
+  const groups = alert.notify
+    ? [alert.notify].flat()
+    : ([] as readonly SlackGroup[])
+
+  const mention = groups
+    .map((group) => `<!subteam^${SLACK_GROUP_IDS[group]}>`)
+    .join(' ')
 
   return [`${tag(environment)} ${message}`, mention]
     .filter(Boolean)

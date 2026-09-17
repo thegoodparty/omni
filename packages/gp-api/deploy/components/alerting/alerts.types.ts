@@ -139,8 +139,15 @@ export type Alert = {
    */
   summaryDetail?: string
 
-  /** The Slack group to notify when the alert is triggered. */
-  notify?: SlackGroup
+  /**
+   * The Slack group, or groups, to notify when the alert is triggered.
+   *
+   * A list because plenty of routes are not one team's: shared platform
+   * surfaces — auth, users, payments, elections — are used by both products,
+   * and picking one owner for them means the other finds out second-hand.
+   * Order is preserved, so the mentions read in the order they are declared.
+   */
+  notify?: SlackGroup | SlackGroup[]
 
   /**
    * How far back (in seconds) the alerting engine fetches data from the
