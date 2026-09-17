@@ -182,6 +182,26 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain(FILTER_DIMENSION_PROVENANCE_RULES)
   })
 
+  it('gates the missing-filter disclosure sentence on count_contacts', () => {
+    const withCount = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['describe_filter_dimensions', 'count_contacts'],
+    })
+    expect(withCount).toContain('say so before quoting any numbers')
+    expect(withCount).not.toContain(
+      'report the count crud_saved_filters returned',
+    )
+  })
+
+  it('gates the count-readback sentence on crud_saved_filters', () => {
+    const withSaved = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['crud_saved_filters'],
+    })
+    expect(withSaved).toContain('report the count crud_saved_filters returned')
+    expect(withSaved).not.toContain('say so before quoting any numbers')
+  })
+
   it('omits the provenance rules when the CRM tools are not registered', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
