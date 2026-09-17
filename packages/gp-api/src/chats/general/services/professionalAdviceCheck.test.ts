@@ -36,8 +36,16 @@ describe('professionalAdviceDisclaimer', () => {
 
   it.each([
     [
-      'a texting opt-in-consent question',
+      'a texting opt-in-consent question (hyphen)',
       'No, you do not need opt-in consent before texting your list.',
+    ],
+    [
+      'a texting opt-in-consent question (space)',
+      'No, you do not need opt in consent before texting your list.',
+    ],
+    [
+      'a robocall-compliance question',
+      'Robocalls to this list are legal at that volume.',
     ],
     [
       'a robocall-compliance question',
