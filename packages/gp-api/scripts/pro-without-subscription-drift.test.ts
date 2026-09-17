@@ -88,6 +88,21 @@ describe('PRO_NO_SUBSCRIPTION_ID', () => {
     expect(finding?.reason).toContain('no details.subscriptionId')
   })
 
+  it('flags a Pro campaign whose details is an empty object', () => {
+    // details is NOT NULL DEFAULT '{}', so `{}` — not NULL — is the degenerate
+    // row that actually exists. It passes the jsonb_typeof guard and reads all
+    // three keys as NULL, and is still real drift: Pro with nothing behind it.
+    const finding = classifyRow(
+      row({
+        subscriptionId: null,
+        subscriptionCanceledAt: null,
+        isProUpdatedAt: null,
+      }),
+    )
+
+    expect(finding?.driftClass).toBe(ProDriftClass.ProNoSubscriptionId)
+  })
+
   it('stays silent for a healthy Pro campaign', () => {
     expect(
       classifyRow(

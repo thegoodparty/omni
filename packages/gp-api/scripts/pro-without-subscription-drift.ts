@@ -184,6 +184,15 @@ export function buildReport(rows: CampaignProRow[]): ProDriftFinding[] {
 // `jsonb_typeof(details) = 'object'` guards the `->` reads: a scalar or array
 // `details` would make the key reads meaningless rather than raise, and such a
 // row cannot carry the keys this report reasons about anyway.
+//
+// It does NOT need an `IS NULL` arm. `jsonb_typeof(NULL)` is NULL, so such a
+// row would be dropped by three-valued logic — but the column is
+// `"details" JSONB NOT NULL DEFAULT '{}'` (20241121223807_add_campaigns, never
+// relaxed since; `Json` not `Json?` in campaign.prisma), so no row can be NULL
+// and an `IS NULL` arm would be dead. This report is only ever run against a
+// database that has had that migration applied. What DOES exist is a Pro
+// campaign whose details is `{}` — that passes this guard, reads all three keys
+// as NULL, and is classified PRO_NO_SUBSCRIPTION_ID, which is correct.
 // ---------------------------------------------------------------------------
 export const SQL = `
   SELECT
