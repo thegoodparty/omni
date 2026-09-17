@@ -372,4 +372,41 @@ describe('every controller is accounted for', () => {
       ).toBe(true)
     }
   })
+
+  /** The paths a controller answers on, without their HTTP verbs. */
+  const routePaths = (controller: ControllerName) =>
+    ROUTE_MAP[controller]
+      .map(({ endpoint }) => endpoint.split(' ')[1])
+      .filter((path): path is string => Boolean(path))
+
+  // The inverse, and the one that keeps the pairing above from going stale:
+  // it only protects what it lists, so a third controller handed a bespoke
+  // rule and not listed here is back in the state this block exists to end —
+  // one deletion away from silence with nothing to say so.
+  //
+  // Asks the question by reading what the rules query rather than by how they
+  // are spelled. Matching a slug prefix against the controller name is the
+  // obvious shortcut and it is wrong: `health-check-probe-failure` starts with
+  // `health`, and is the ECS probe alert rather than anything to do with the
+  // `health` controller's routes. That test fails the day it is written, and
+  // the only way to green it is to record in the pairing that the health
+  // controller has bespoke route coverage, which is a lie the next reader
+  // inherits. Querying a controller's own paths is the thing actually being
+  // claimed, so it is what gets checked.
+  it('lists every opted-out controller a hand-written rule already covers', () => {
+    const declared = new Set(BESPOKE_COVERAGE.map(([controller]) => controller))
+
+    const undeclared = CONTROLLERS_WITHOUT_ROUTE_ALERTS.filter(
+      (controller) =>
+        !declared.has(controller) &&
+        GLOBAL_ALERTS.some((alert) =>
+          routePaths(controller).some((path) => alert.expr.includes(path)),
+        ),
+    )
+
+    expect(
+      undeclared,
+      "a hand-written rule in GLOBAL_ALERTS already queries these controllers' routes, but nothing pairs the two — delete that rule and the controller goes silent with every test still green",
+    ).toEqual([])
+  })
 })
