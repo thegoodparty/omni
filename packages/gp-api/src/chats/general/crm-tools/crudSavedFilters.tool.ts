@@ -65,15 +65,25 @@ const LOCKED_FILTER_ERROR =
 // assumption) being revisited in the same change.
 export const PLACE_WORDS = [
   'county',
+  'counties',
   'city',
+  'cities',
   'town',
+  'towns',
   'township',
+  'townships',
   'village',
+  'villages',
   'borough',
+  'boroughs',
   'parish',
+  'parishes',
   'zip',
+  'zips',
   'ward',
+  'wards',
   'neighborhood',
+  'neighborhoods',
 ]
 const PLACE_WORD_PATTERN = new RegExp(`\\b(${PLACE_WORDS.join('|')})\\b`, 'i')
 
@@ -179,13 +189,18 @@ export const buildCrudSavedFiltersTool = (deps: {
         }
       }
       if (action === 'update') {
-        // `??`, not `||`: an explicit `precincts: []` in this call must
-        // override a non-empty existing value (clearing the narrowing is a
-        // real edit), while an absent key falls back to what's persisted.
+        // Checked against the name/precincts pair this update leaves in
+        // place, not just the fields this call happens to touch: clearing
+        // precincts without renaming would otherwise leave an already-named
+        // list's place claim stale and unflagged. `??`, not `||`: an
+        // explicit `precincts: []` in this call must override a non-empty
+        // existing value (clearing the narrowing is a real edit), while an
+        // absent key falls back to what's persisted.
+        const effectiveName = name ?? existing.name
         if (
-          name !== undefined &&
+          effectiveName !== null &&
           isUnfilteredPlaceName(
-            name,
+            effectiveName,
             filter.precincts ?? existing.precincts ?? [],
           )
         ) {

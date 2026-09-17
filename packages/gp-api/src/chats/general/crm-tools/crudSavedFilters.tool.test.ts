@@ -132,6 +132,17 @@ describe('crud_saved_filters execute', () => {
     expect(deps.voterFileFilters.create).not.toHaveBeenCalled()
   })
 
+  it('refuses a create name using a plural place word', async () => {
+    const { deps, tool } = buildTool()
+    const result = await tool.execute(
+      tool.inputSchema.parse({ action: 'create', name: 'All Counties List' }),
+    )
+    expect(result).toEqual({
+      error: expect.stringContaining('no precinct narrowing'),
+    })
+    expect(deps.voterFileFilters.create).not.toHaveBeenCalled()
+  })
+
   it('accepts a create name with a place word when precincts narrow it', async () => {
     const countContacts = vi.fn(() => Promise.resolve({ count: 12 }))
     const create = vi.fn(() =>
@@ -200,6 +211,48 @@ describe('crud_saved_filters execute', () => {
     })
     expect(result).toEqual({
       error: expect.stringContaining('precincts are the one filter'),
+    })
+    expect(
+      deps.voterFileFilters.updateByIdAndOrganizationSlug,
+    ).not.toHaveBeenCalled()
+  })
+
+  it('refuses clearing precincts on an update that leaves an existing place-word name unbacked', async () => {
+    const { deps, tool } = buildTool({
+      voterFileFilters: {
+        findByIdAndOrganizationSlug: vi.fn(() =>
+          Promise.resolve({
+            id: 4,
+            name: 'Franklin County Voters',
+            precincts: ['Franklin|12'],
+          }),
+        ) as never,
+      },
+    })
+    const result = await tool.execute(
+      tool.inputSchema.parse({ action: 'update', id: 4, precincts: [] }),
+    )
+    expect(result).toEqual({
+      error: expect.stringContaining('no precinct narrowing'),
+    })
+    expect(
+      deps.voterFileFilters.updateByIdAndOrganizationSlug,
+    ).not.toHaveBeenCalled()
+  })
+
+  it('refuses a rename that claims an unfiltered place when the existing list has no persisted precincts field', async () => {
+    const { deps, tool } = buildTool({
+      voterFileFilters: {
+        findByIdAndOrganizationSlug: vi.fn(() =>
+          Promise.resolve({ id: 4, name: 'Existing' }),
+        ) as never,
+      },
+    })
+    const result = await tool.execute(
+      tool.inputSchema.parse({ action: 'update', id: 4, name: 'City Voters' }),
+    )
+    expect(result).toEqual({
+      error: expect.stringContaining('no precinct narrowing'),
     })
     expect(
       deps.voterFileFilters.updateByIdAndOrganizationSlug,
