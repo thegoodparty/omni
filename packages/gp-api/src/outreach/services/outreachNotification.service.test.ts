@@ -305,41 +305,7 @@ describe('OutreachNotificationService', () => {
       expect(findLabeledValue(message, PHONE_LABEL)).toBe('5551234567')
     })
 
-    it('falls back to the 10DLC filing phone, labeled, when the account has none', async () => {
-      mockTcrFindFirst.mockResolvedValueOnce({
-        peerlyIdentityId: 'identity-789',
-        phone: '8286063703',
-      })
-
-      await service.notifySuccess({
-        user: mockUser,
-        campaign: baseCampaign,
-        outreach: baseOutreach,
-      })
-
-      const [message] = firstOrThrow(mockSlackMessage.mock.calls)
-      expect(findLabeledValue(message, PHONE_LABEL)).toBe(
-        '8286063703 (10DLC filing)',
-      )
-    })
-
-    it('prefers the account phone over the 10DLC filing phone', async () => {
-      mockTcrFindFirst.mockResolvedValueOnce({
-        peerlyIdentityId: 'identity-789',
-        phone: '8286063703',
-      })
-
-      await service.notifySuccess({
-        user: { ...mockUser, phone: '5551234567' } as User,
-        campaign: baseCampaign,
-        outreach: baseOutreach,
-      })
-
-      const [message] = firstOrThrow(mockSlackMessage.mock.calls)
-      expect(findLabeledValue(message, PHONE_LABEL)).toBe('5551234567')
-    })
-
-    it('renders N/A for the phone when neither the account nor the TCR record has one', async () => {
+    it('renders N/A for the phone when the account has none', async () => {
       mockTcrFindFirst.mockResolvedValueOnce(null)
 
       await service.notifySuccess({
