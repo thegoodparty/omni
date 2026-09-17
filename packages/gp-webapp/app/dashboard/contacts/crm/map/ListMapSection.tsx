@@ -29,7 +29,12 @@ export default function ListMapSection({ listId }: { listId: number }) {
       ) : isError ? (
         <MapFrame>This list could not be mapped right now.</MapFrame>
       ) : people.length === 0 ? (
-        <MapFrame>Nobody in this list has a location on file.</MapFrame>
+        // An empty response means the list matches nobody, which is a
+        // different thing from its members lacking coordinates. People with
+        // no location still arrive here and are counted inside the map as
+        // unmappable, so claiming "no location on file" at this branch
+        // described a case that cannot reach it.
+        <MapFrame>This list has no members yet.</MapFrame>
       ) : (
         <>
           <div className="h-64 overflow-hidden rounded-md border">

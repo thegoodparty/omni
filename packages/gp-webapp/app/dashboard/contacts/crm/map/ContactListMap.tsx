@@ -69,6 +69,14 @@ export default function ContactListMap({
     [people],
   )
 
+  // Switching lists inside an open sheet re-renders this component rather
+  // than remounting it, so an open popover would survive the swap and its
+  // buttons would still carry the previous list's people. Clicking one then
+  // selects someone who is not in the list on screen.
+  useEffect(() => {
+    setOpenPoint(null)
+  }, [points])
+
   useEffect(() => {
     if (!containerRef.current || mapRef.current || !hasTilesKey) return
     const map = new maplibregl.Map({
