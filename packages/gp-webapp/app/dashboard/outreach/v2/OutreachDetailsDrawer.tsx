@@ -76,6 +76,7 @@ import {
 } from './listDetails/footerMode'
 import { ListDetailsFooter } from './listDetails/ListDetailsFooter'
 import { ListDetailsSheetShell } from './listDetails/ListDetailsSheetShell'
+import { CampaignTurfList } from './CampaignTurfList'
 import {
   DetailsSection,
   FilterGroup,
@@ -888,6 +889,24 @@ export const OutreachDetailsDrawer = ({
                 surface here (ADR 0012), and a walk is routinely ended with
                 doors left unlogged — so how much of the list was covered is
                 the answer on a done walk too, not only on a live one. */}
+            {/* A campaign of multiple turfs surfaces its siblings here — one
+                compact row per turf, plus an "Add another turf" affordance
+                that lands on the create flow scoped to this campaign. The
+                threshold is `turfCount > 1` (server-side rollup on the
+                collapsed row): a solo campaign has one row indistinguishable
+                from every legacy door-knocking envelope, and stacking a
+                one-row list above its own Progress card would double the
+                information without adding any. */}
+            {isDoorKnocking &&
+              row &&
+              (row.turfCount ?? 1) > 1 &&
+              (row.campaignOutreachId ?? row.id) !== null && (
+                <CampaignTurfList
+                  anchorOutreachId={row.campaignOutreachId ?? row.id}
+                  outreachId={row.id}
+                />
+              )}
+
             {isDoorKnocking && doorKnocking && (
               <DetailsSection title="Progress">
                 <Card className="gap-3 rounded-lg p-3">

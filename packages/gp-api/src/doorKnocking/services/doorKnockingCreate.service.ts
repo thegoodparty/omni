@@ -216,6 +216,34 @@ export class DoorKnockingCreateService extends createPrismaBase(
           throw new NotFoundException('Voter file filter not found')
         }
 
+        // A caller adding a turf to an existing campaign names the anchor
+        // Outreach on the wire; we validate it belongs to this same scope
+        // (Win same campaign, Serve same org) and is still a live
+        // door-knocking envelope, so a client can't glue a new turf onto a
+        // stranger's campaign or an archived one. Any legacy solo turf
+        // remains its own anchor by leaving campaignOutreachId null.
+        if (input.campaignOutreachId !== undefined) {
+          const anchor = await tx.outreach.findFirst({
+            where: {
+              id: input.campaignOutreachId,
+              outreachType: OutreachType.nativeDoorKnocking,
+              archivedAt: null,
+              ...(scope.campaignId !== null
+                ? { campaignId: scope.campaignId }
+                : {
+                    campaignId: null,
+                    organizationSlug: scope.organizationSlug,
+                  }),
+            },
+            select: { id: true },
+          })
+          if (!anchor) {
+            throw new BadRequestException(
+              'Campaign anchor outreach not found in this scope',
+            )
+          }
+        }
+
         // The turf is inserted before the vendor call so the spend ledger can
         // name the turf that caused it, exactly as it did when the turf
         // already existed. The ledger holds a plain int and never joins, so a
@@ -357,6 +385,9 @@ export class DoorKnockingCreateService extends createPrismaBase(
             // the same reason the route is: a canvasser who started the list
             // and a canvasser who picks it up next week read the same card.
             script: input.talkingPoints,
+            // Null on a solo turf; the anchor Outreach id when this turf
+            // joins an existing campaign (validated above).
+            campaignOutreachId: input.campaignOutreachId ?? null,
           },
         })
 

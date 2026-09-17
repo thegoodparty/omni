@@ -87,6 +87,12 @@ export const CreateDoorKnockingTurfSchema = z
       .string()
       .max(DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH)
       .optional(),
+    // The Outreach id of an existing turf whose campaign this new turf
+    // should join — the "Add another turf" flow reads it back from the
+    // sibling-list drawer and threads it through save. Omitted (or
+    // absent from a legacy client) means the new turf is its own
+    // campaign anchor, matching how a solo campaign already looks.
+    campaignOutreachId: z.number().int().positive().optional(),
   })
   .strict()
 

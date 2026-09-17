@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
-import { Input, Label } from '@styleguide'
+import { CheckCircleIcon, Input, Label } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { VOTER_READ_FAILURE_ERROR_CODES } from 'app/dashboard/contacts/crm/shared/constants'
@@ -27,6 +27,7 @@ import {
 } from './voterFilterPreview'
 import { audienceEmptyMessage } from './emptiableCriteria'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
+import { TURF_COLORS, turfColorLabel, turfColorTick } from '../turfQueries'
 import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { districtUnavailableMessage, packErrorMessage } from '../useVoterPack'
 import { suggestTravelMode } from '../travelMode'
@@ -210,11 +211,16 @@ interface CreateListFlowProps {
   // behind the draw step's shield, so a discard that merely cleared would leave
   // a map nothing can be drawn on next time the surface opens.
   onRestartDrawing: () => void
-  // Auto-assigned rather than picked. The canvas's confirm step is a single
-  // name field; the colour a list is drawn in stays editable in
-  // `EditTurfDialog`, which is where a candidate looking at the map is when
-  // they discover two rings they want to tell apart.
+  // The colour the in-progress ring is drawn in. Seeded from
+  // `assignNextColor(siblingTurfs.colors)` up in `useCreateListDraw`, so the
+  // ring lands on the palette-next slot the moment drawing starts.
   color: string
+  // The picker on the confirm step reports the candidate's own pick back so
+  // the CANVAS re-tints the ring to what they will see saved. Optional
+  // because callers that do not surface the picker (nothing in this repo
+  // today, but the flow is presentational and its tests mount it without
+  // one) still get an auto-assigned colour that never changes underfoot.
+  onColorChange?: (color: string) => void
   // The whole chain committed: turf, route and outreach envelope all exist.
   // Carries the created row because the page opens the walk on it directly.
   onListCreated: (turf: DoorKnockingTurf) => void
@@ -253,6 +259,21 @@ interface CreateListFlowProps {
     listId: number | null,
     recommendedCriteria: RecommendedCriteria,
   ) => void
+  // The turfs already in this campaign, or undefined for a solo (self-
+  // anchored) create. Two things read it: the confirm step's name default
+  // (`Turf N` where N is `siblingTurfs.length + 1`), and the color picker's
+  // recorded colours (siblings already carrying a hue mean the picker's
+  // default lands on a different slot). Empty array means "campaign known,
+  // no siblings" and reads as N=1, same as undefined; the distinction is
+  // whether we're joining a campaign vs. anchoring a fresh one, and the
+  // create body carries the id below to say so.
+  siblingTurfs?: DoorKnockingTurf[]
+  // The anchor Outreach id this new turf should join, threaded straight
+  // onto the create body. Omitted for a solo turf (the row becomes its own
+  // campaign anchor, matching how a solo campaign already looks). Arrives
+  // from `?campaignOutreachId=` on the URL — the drawer's "Add another
+  // turf" affordance is what sets it.
+  campaignOutreachId?: number
 }
 
 // The clauses an accepted recommendation carries that the who step's boolean
@@ -346,6 +367,7 @@ export default function CreateListFlow({
   drawFullScreen,
   onDrawFullScreenChange,
   color,
+  onColorChange,
   onListCreated,
   isServeOrg,
   unpreviewableKeys,
@@ -353,6 +375,8 @@ export default function CreateListFlow({
   preselectedListId,
   onPreselectApplied,
   onSelectedListChange,
+  siblingTurfs,
+  campaignOutreachId,
 }: CreateListFlowProps) {
   const queryClient = useQueryClient()
   const serveMode = useDoorKnockingServeMode()
@@ -720,11 +744,21 @@ export default function CreateListFlow({
   const appliedSuggestion = useRef<string | null>(null)
   useEffect(() => {
     if (step !== 'confirm' || nameTouched.current) return
-    const suggestion = purpose ? purposeNameSuggestion(purpose) : ''
+    // "Add another turf" wins over the purpose suggestion: the purpose was
+    // picked once when the CAMPAIGN was cut, and every subsequent turf in
+    // it is a slice of that same purpose — repeating it as this turf's name
+    // gives all N turfs the same title. The numeric default keeps them
+    // sortable at a glance and is exactly the ordering the sidebar renders.
+    const suggestion =
+      siblingTurfs !== undefined
+        ? `Turf ${siblingTurfs.length + 1}`
+        : purpose
+          ? purposeNameSuggestion(purpose)
+          : ''
     if (!suggestion || suggestion === appliedSuggestion.current) return
     appliedSuggestion.current = suggestion
     setName(suggestion)
-  }, [step, purpose, purposeNameSuggestion])
+  }, [step, purpose, purposeNameSuggestion, siblingTurfs])
 
   // Stops are what the router and its 150-stop cap are denominated in; doors
   // are what the candidate walks and what the time estimate is worth. At a
@@ -1012,6 +1046,11 @@ export default function CreateListFlow({
         // skipped the points step still creates a turf.
         ...(purpose ? { purpose } : {}),
         ...(hasPoints ? { talkingPoints: serializeTalkingPoints(points) } : {}),
+        // Solo turf → omitted → server treats this row as its own campaign
+        // anchor. Set → this row joins that anchor's campaign and the
+        // server validates the id is a door-knocking Outreach in the same
+        // Win/Serve scope before writing.
+        ...(campaignOutreachId !== undefined ? { campaignOutreachId } : {}),
       }
       const { data } = await (serveMode
         ? clientRequest('POST /v1/door-knocking/serve/turfs', body)
@@ -1385,21 +1424,56 @@ export default function CreateListFlow({
         )}
 
         {stage === 'confirm' && (
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="turf-name" className="text-sm font-medium">
-              Campaign name
-            </Label>
-            <Input
-              id="turf-name"
-              autoFocus
-              value={name}
-              maxLength={MAX_CAMPAIGN_NAME_LENGTH}
-              placeholder="Name this list"
-              onChange={(event) => {
-                nameTouched.current = true
-                setName(event.target.value)
-              }}
-            />
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="turf-name" className="text-sm font-medium">
+                Campaign name
+              </Label>
+              <Input
+                id="turf-name"
+                autoFocus
+                value={name}
+                maxLength={MAX_CAMPAIGN_NAME_LENGTH}
+                placeholder="Name this list"
+                onChange={(event) => {
+                  nameTouched.current = true
+                  setName(event.target.value)
+                }}
+              />
+            </div>
+            {onColorChange && (
+              <div className="flex flex-col gap-2">
+                <Label className="text-sm font-medium">Turf color</Label>
+                <div className="flex gap-2.5">
+                  {TURF_COLORS.map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      aria-label={turfColorLabel(option)}
+                      aria-pressed={color === option}
+                      className={`flex h-8 w-8 items-center justify-center rounded-full border-2 ${
+                        color === option
+                          ? 'border-foreground'
+                          : 'border-transparent'
+                      }`}
+                      style={{ backgroundColor: option }}
+                      onClick={() => onColorChange(option)}
+                    >
+                      {color === option && (
+                        <CheckCircleIcon
+                          size={16}
+                          aria-hidden="true"
+                          style={{ color: turfColorTick(option) }}
+                        />
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Colors tell your turfs apart on the map.
+                </p>
+              </div>
+            )}
           </div>
         )}
 

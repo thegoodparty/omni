@@ -229,6 +229,23 @@ export class DoorKnockingController {
     return this.turfService.get(id, organization.slug, user.id, role)
   }
 
+  // The dual-pane campaign drawer reads its sibling list here rather than from
+  // a fatter `/outreach/:id` — the drawer already refetches when a turf is
+  // renamed/archived/deleted, and keeping the sibling read on its own endpoint
+  // means those churn no OutreachDetail cache. Org-scoped only, like every
+  // other by-id route here: the anchorId cannot cross a tenant via
+  // `voterFileFilter.organizationSlug`, so no surface filter is needed.
+  @Get('campaigns/:anchorId')
+  @UseOrganization()
+  @ResponseSchema(z.array(DoorKnockingTurfSchema))
+  async listCampaign(
+    @Param('anchorId', ParseIntPipe) anchorId: number,
+    @ReqOrganization() organization: Organization,
+  ) {
+    await this.contacts.assertProAccess(organization)
+    return this.turfService.listCampaign(anchorId, organization.slug)
+  }
+
   @Put('turfs/:id')
   @UseOrganization()
   @ResponseSchema(DoorKnockingTurfSchema)
