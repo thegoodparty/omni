@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MagicLinkKind } from '../generated/prisma'
 import { useTestService } from '../test-service'
 import { MagicLinkController } from './magicLink.controller'
 import { MagicLinkService } from './magicLink.service'
@@ -31,7 +32,9 @@ describe('MagicLinkController.resolve', () => {
 
   it('withholds the URL once the link has been redeemed', async () => {
     const slug = await sendLink()
-    await service.app.get(MagicLinkService).markRedeemed(service.user.id)
+    await service.app
+      .get(MagicLinkService)
+      .markRedeemed(service.user.id, MagicLinkKind.SERVE)
 
     await expect(
       service.app.get(MagicLinkController).resolve({ slug }),
@@ -63,7 +66,12 @@ describe('MagicLinkController.resolve', () => {
     await controller.resolve({ slug })
 
     const row = await service.prisma.magicLink.findUnique({
-      where: { userId: service.user.id },
+      where: {
+        userId_kind: {
+          userId: service.user.id,
+          kind: MagicLinkKind.SERVE,
+        },
+      },
     })
     expect(row?.redeemedAt).toBeNull()
     expect(row?.onboardingCompletedAt).toBeNull()

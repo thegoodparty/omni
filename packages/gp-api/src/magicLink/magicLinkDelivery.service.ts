@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
+import { MagicLinkKind } from '../generated/prisma'
 import { UsersService } from '../users/services/users.service'
 import { SmsService } from '../vendors/sinch/services/sms.service'
 import { MagicLinkService } from './magicLink.service'
@@ -53,17 +54,18 @@ export class MagicLinkDeliveryService {
    */
   async textActiveLink(args: {
     userId: number
+    kind: MagicLinkKind
     phone: string
     smsConsent?: boolean
     consentSource?: string
   }): Promise<TextLinkResult> {
-    const { userId, phone } = args
+    const { userId, kind, phone } = args
 
     try {
       const consent = await this.ensureConsent(args)
       if (consent) return consent
 
-      const link = await this.magicLink.getByUserId(userId)
+      const link = await this.magicLink.getByUserId(userId, kind)
       if (!link || computeMagicLinkStatus(link) !== 'sent') {
         return { smsSent: false, smsError: SMS_NO_ACTIVE_LINK_ERROR }
       }
@@ -87,7 +89,7 @@ export class MagicLinkDeliveryService {
       // Tracing metadata only — a failure here must not report the text as
       // unsent, because it has already left our hands.
       await this.magicLink
-        .recordSmsSent({ userId, phone, messageId: result.messageId })
+        .recordSmsSent({ userId, kind, phone, messageId: result.messageId })
         .catch((err: unknown) => {
           this.logger.warn({ err, userId }, 'Failed to record SMS delivery')
         })

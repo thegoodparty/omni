@@ -34,7 +34,7 @@ import {
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
-import { Campaign, User, UserRole } from '../generated/prisma'
+import { Campaign, MagicLinkKind, User, UserRole } from '../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 import { createZodDto, ZodValidationPipe } from 'nestjs-zod'
 import { AnalyticsService } from 'src/analytics/analytics.service'
@@ -398,7 +398,7 @@ export class CampaignsController {
     if (!user) {
       throw new UnauthorizedException()
     }
-    await this.magicLink.markRedeemed(user.id)
+    await this.magicLink.markRedeemed(user.id, MagicLinkKind.WIN)
     return { ok: true }
   }
 
@@ -415,7 +415,7 @@ export class CampaignsController {
       // Idempotent + best-effort, and a no-op for organic launches with no
       // sales-initiated magic link.
       await this.magicLink
-        .markOnboardingCompleted(campaign.userId)
+        .markOnboardingCompleted(campaign.userId, MagicLinkKind.WIN)
         .catch(() => undefined)
 
       return launchResult

@@ -47,7 +47,9 @@ model User {
   passwordResetToken    String?                 @map("password_reset_token")
   aiChats               AiChat[]
   electedOffices        ElectedOffice[]
-  magicLink             MagicLink?
+  // Plural since @@unique([userId, kind]): a lead sent down both funnels holds
+  // a SERVE link and a WIN link at once.
+  magicLinks            MagicLink[]
   annotations           Annotation[]
   chatConversations     ChatConversation[]
   artifactFeedbacks     ArtifactFeedback[]

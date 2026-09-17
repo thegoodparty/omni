@@ -23,8 +23,9 @@ export class MagicLinkService extends createPrismaBase(MODELS.MagicLink) {
 
   /**
    * Records (or re-records, on resend) that a link was sent to a lead. Upserts
-   * on the unique userId so a resend overwrites the URL/expiry while preserving
-   * any redeemed/onboarding progress already captured.
+   * on (userId, kind) so a resend overwrites the URL/expiry while preserving
+   * any redeemed/onboarding progress already captured — and so a send down the
+   * OTHER funnel creates its own row instead of overwriting this one.
    *
    * The slug rotates with the URL, so a resend retires the previously texted
    * short link rather than leaving two live entry points to one ticket.
@@ -40,7 +41,7 @@ export class MagicLinkService extends createPrismaBase(MODELS.MagicLink) {
     const sentAt = new Date()
     const slug = nanoid(SLUG_LENGTH)
     const record = await this.model.upsert({
-      where: { userId: args.userId },
+      where: { userId_kind: { userId: args.userId, kind } },
       create: {
         userId: args.userId,
         email: args.email,
@@ -72,19 +73,31 @@ export class MagicLinkService extends createPrismaBase(MODELS.MagicLink) {
     return this.model.findUnique({ where: { slug } })
   }
 
-  /** The lead's single magic link (the userId column is unique). */
-  getByUserId(userId: number): Promise<MagicLink | null> {
-    return this.model.findUnique({ where: { userId } })
+  /**
+   * The lead's magic link for one funnel. `kind` is required rather than
+   * defaulted: a lead may hold both a SERVE and a WIN link, and picking one
+   * silently is how the caller ends up texting or redeeming the wrong funnel's
+   * link.
+   */
+  getByUserId(userId: number, kind: MagicLinkKind): Promise<MagicLink | null> {
+    return this.model.findUnique({ where: { userId_kind: { userId, kind } } })
   }
 
   /**
-   * Looks up a lead's magic link by email (case-insensitive). Used by the sales
-   * card to fetch the redemption URL on demand — the URL is never mirrored to
-   * HubSpot, so this is the only way to retrieve it for the "copy link" action.
+   * Looks up a lead's magic link for one funnel, by email (case-insensitive).
+   * Used by the sales card to fetch the redemption URL on demand — the URL is
+   * never mirrored to HubSpot, so this is the only way to retrieve it for the
+   * "copy link" action.
+   *
+   * `kind` is required for the same reason it is on getByUserId, and the reason
+   * is sharper here. While userId was unique there was at most one row per
+   * lead, so an unscoped `findFirst` was unambiguous. Now that a lead can hold
+   * both, the newest row wins — and the serve card would text or copy the win
+   * link whenever the rep happened to mint that one second.
    */
-  getByEmail(email: string): Promise<MagicLink | null> {
+  getByEmail(email: string, kind: MagicLinkKind): Promise<MagicLink | null> {
     return this.model.findFirst({
-      where: { email: { equals: email, mode: 'insensitive' } },
+      where: { email: { equals: email, mode: 'insensitive' }, kind },
       orderBy: { createdAt: 'desc' },
     })
   }
@@ -97,11 +110,12 @@ export class MagicLinkService extends createPrismaBase(MODELS.MagicLink) {
    */
   recordSmsSent(args: {
     userId: number
+    kind: MagicLinkKind
     phone: string
     messageId: string | null
   }): Promise<MagicLink> {
     return this.model.update({
-      where: { userId: args.userId },
+      where: { userId_kind: { userId: args.userId, kind: args.kind } },
       data: {
         phone: args.phone,
         smsSentAt: new Date(),
@@ -110,24 +124,36 @@ export class MagicLinkService extends createPrismaBase(MODELS.MagicLink) {
     })
   }
 
-  /** Marks the lead's link redeemed (once). No-op if absent or already set. */
-  async markRedeemed(userId: number): Promise<MagicLink | null> {
-    const existing = await this.model.findUnique({ where: { userId } })
+  /**
+   * Marks this funnel's link redeemed (once). No-op if absent or already set.
+   * The caller passes the funnel it is completing, so redeeming a SERVE link
+   * never clears the lead's separate WIN link.
+   */
+  async markRedeemed(
+    userId: number,
+    kind: MagicLinkKind,
+  ): Promise<MagicLink | null> {
+    const where = { userId_kind: { userId, kind } }
+    const existing = await this.model.findUnique({ where })
     if (!existing || existing.redeemedAt) return existing ?? null
     const record = await this.model.update({
-      where: { userId },
+      where,
       data: { redeemedAt: new Date() },
     })
     await this.mirror(record)
     return record
   }
 
-  /** Marks onboarding complete (once). No-op if absent or already set. */
-  async markOnboardingCompleted(userId: number): Promise<MagicLink | null> {
-    const existing = await this.model.findUnique({ where: { userId } })
+  /** Marks this funnel's onboarding complete (once). No-op if absent or set. */
+  async markOnboardingCompleted(
+    userId: number,
+    kind: MagicLinkKind,
+  ): Promise<MagicLink | null> {
+    const where = { userId_kind: { userId, kind } }
+    const existing = await this.model.findUnique({ where })
     if (!existing || existing.onboardingCompletedAt) return existing ?? null
     const record = await this.model.update({
-      where: { userId },
+      where,
       data: { onboardingCompletedAt: new Date() },
     })
     await this.mirror(record)

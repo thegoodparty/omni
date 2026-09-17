@@ -1,3 +1,4 @@
+import { MagicLinkKind } from '../../generated/prisma'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
@@ -104,7 +105,13 @@ export class AdminElectedOfficeController {
     // HubSpot contact so the sales card shows persistent state. Best-effort —
     // never fail link creation on state tracking.
     await this.magicLink
-      .recordSent({ userId: user.id, email, url, expiresAt })
+      .recordSent({
+        userId: user.id,
+        email,
+        url,
+        expiresAt,
+        kind: MagicLinkKind.SERVE,
+      })
       .catch((err: unknown) => {
         this.logger.warn({ err }, 'Failed to record magic-link sent state')
       })
@@ -115,6 +122,7 @@ export class AdminElectedOfficeController {
     const delivery = phone
       ? await this.magicLinkDelivery.textActiveLink({
           userId: user.id,
+          kind: MagicLinkKind.SERVE,
           phone,
           smsConsent,
           consentSource,
@@ -158,12 +166,16 @@ export class AdminElectedOfficeController {
   @Post('magic-link/sms')
   @HttpCode(HttpStatus.OK)
   async sendMagicLinkSms(@Body() body: SendMagicLinkSmsDto) {
-    const link = await this.magicLink.getByEmail(body.email)
+    const link = await this.magicLink.getByEmail(
+      body.email,
+      MagicLinkKind.SERVE,
+    )
     if (!link) {
       return { smsSent: false, smsError: SMS_NO_ACTIVE_LINK_ERROR }
     }
     return this.magicLinkDelivery.textActiveLink({
       userId: link.userId,
+      kind: link.kind,
       phone: body.phone,
       smsConsent: body.smsConsent,
       consentSource: body.consentSource,
@@ -181,7 +193,10 @@ export class AdminElectedOfficeController {
   @Get('magic-link')
   @HttpCode(HttpStatus.OK)
   async getMagicLink(@Query() query: GetMagicLinkDto) {
-    const link = await this.magicLink.getByEmail(query.email)
+    const link = await this.magicLink.getByEmail(
+      query.email,
+      MagicLinkKind.SERVE,
+    )
     if (!link) {
       return { url: null, status: null }
     }

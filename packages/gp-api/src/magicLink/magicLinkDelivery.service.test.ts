@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { MagicLinkKind } from '../generated/prisma'
 import {
   MagicLinkDeliveryService,
   SMS_CONSENT_REQUIRED_ERROR,
@@ -64,7 +65,12 @@ function makeService(overrides?: {
 }
 
 const send = (service: MagicLinkDeliveryService, extra = {}) =>
-  service.textActiveLink({ userId: 1, phone: '5551234567', ...extra })
+  service.textActiveLink({
+    userId: 1,
+    kind: MagicLinkKind.SERVE,
+    phone: '5551234567',
+    ...extra,
+  })
 
 describe('MagicLinkDeliveryService.textActiveLink', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -79,6 +85,7 @@ describe('MagicLinkDeliveryService.textActiveLink', () => {
     expect(body).toContain(`/s/${activeLink.slug}`)
     expect(magicLink.recordSmsSent).toHaveBeenCalledWith({
       userId: 1,
+      kind: MagicLinkKind.SERVE,
       phone: '5551234567',
       messageId: 'msg_1',
     })

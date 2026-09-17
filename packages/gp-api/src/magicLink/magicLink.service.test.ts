@@ -2,6 +2,7 @@ import { UnauthorizedException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import { ElectedOfficeController } from '../electedOffice/electedOffice.controller'
 import { useTestService } from '../test-service'
+import { MagicLinkKind } from '../generated/prisma'
 import { MagicLinkService } from './magicLink.service'
 
 const service = useTestService()
@@ -9,7 +10,7 @@ const service = useTestService()
 const inAWeek = () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
 
 describe('MagicLinkService', () => {
-  it('recordSent keeps one row per user and preserves progress on resend', async () => {
+  it('recordSent keeps one row per user and kind, preserving progress on resend', async () => {
     const svc = service.app.get(MagicLinkService)
     const userId = service.user.id
 
@@ -22,7 +23,7 @@ describe('MagicLinkService', () => {
     expect(first.url).toContain('tok1')
 
     // The lead redeems, then sales resends a fresh link.
-    await svc.markRedeemed(userId)
+    await svc.markRedeemed(userId, MagicLinkKind.SERVE)
     const second = await svc.recordSent({
       userId,
       email: service.user.email,
@@ -38,6 +39,48 @@ describe('MagicLinkService', () => {
     expect(count).toBe(1)
   })
 
+  it("a WIN send does not overwrite the same lead's SERVE link", async () => {
+    const svc = service.app.get(MagicLinkService)
+    const userId = service.user.id
+
+    // A rep mints a serve link from admin/elected-office/magic-link...
+    const serve = await svc.recordSent({
+      userId,
+      email: service.user.email,
+      url: 'https://app/serve/welcome?__clerk_ticket=serve-tok',
+      expiresAt: inAWeek(),
+      kind: MagicLinkKind.SERVE,
+    })
+    // ...and the lead redeems it.
+    await svc.markRedeemed(userId, MagicLinkKind.SERVE)
+
+    // Later the same person is sent down the win funnel. provisionMagicLinkUser
+    // resolves the same email to the same User, so this used to collide on the
+    // unique userId and overwrite everything above.
+    const win = await svc.recordSent({
+      userId,
+      email: service.user.email,
+      url: 'https://app/win/welcome?__clerk_ticket=win-tok',
+      expiresAt: inAWeek(),
+      kind: MagicLinkKind.WIN,
+    })
+
+    expect(win.id).not.toBe(serve.id)
+    expect(await service.prisma.magicLink.count({ where: { userId } })).toBe(2)
+
+    // The serve row is untouched: same url, same slug (so the short link
+    // already texted to the lead still resolves), and its redemption intact.
+    const serveAfter = await svc.getByUserId(userId, MagicLinkKind.SERVE)
+    expect(serveAfter?.url).toContain('serve-tok')
+    expect(serveAfter?.slug).toBe(serve.slug)
+    expect(serveAfter?.redeemedAt).not.toBeNull()
+
+    // And the two funnels track their lifecycles separately.
+    expect(
+      (await svc.getByUserId(userId, MagicLinkKind.WIN))?.redeemedAt,
+    ).toBeNull()
+  })
+
   it('markRedeemed sets the timestamp once (idempotent)', async () => {
     const svc = service.app.get(MagicLinkService)
     const userId = service.user.id
@@ -48,11 +91,11 @@ describe('MagicLinkService', () => {
       expiresAt: inAWeek(),
     })
 
-    const first = await svc.markRedeemed(userId)
+    const first = await svc.markRedeemed(userId, MagicLinkKind.SERVE)
     const redeemedAt = first?.redeemedAt
     expect(redeemedAt).toBeInstanceOf(Date)
 
-    const second = await svc.markRedeemed(userId)
+    const second = await svc.markRedeemed(userId, MagicLinkKind.SERVE)
     expect(second?.redeemedAt?.getTime()).toBe(redeemedAt?.getTime())
   })
 
@@ -66,11 +109,14 @@ describe('MagicLinkService', () => {
       expiresAt: inAWeek(),
     })
 
-    const first = await svc.markOnboardingCompleted(userId)
+    const first = await svc.markOnboardingCompleted(userId, MagicLinkKind.SERVE)
     const completedAt = first?.onboardingCompletedAt
     expect(completedAt).toBeInstanceOf(Date)
 
-    const second = await svc.markOnboardingCompleted(userId)
+    const second = await svc.markOnboardingCompleted(
+      userId,
+      MagicLinkKind.SERVE,
+    )
     expect(second?.onboardingCompletedAt?.getTime()).toBe(
       completedAt?.getTime(),
     )
@@ -78,8 +124,12 @@ describe('MagicLinkService', () => {
 
   it('mark* is a no-op when the lead has no magic link', async () => {
     const svc = service.app.get(MagicLinkService)
-    expect(await svc.markRedeemed(service.user.id)).toBeNull()
-    expect(await svc.markOnboardingCompleted(service.user.id)).toBeNull()
+    expect(
+      await svc.markRedeemed(service.user.id, MagicLinkKind.SERVE),
+    ).toBeNull()
+    expect(
+      await svc.markOnboardingCompleted(service.user.id, MagicLinkKind.SERVE),
+    ).toBeNull()
   })
 
   it('recordSent rotates the slug so a resend retires the texted link', async () => {
@@ -130,7 +180,12 @@ describe('ElectedOfficeController.markMagicLinkRedeemed', () => {
     ).resolves.toEqual({ ok: true })
 
     const row = await service.prisma.magicLink.findUnique({
-      where: { userId: service.user.id },
+      where: {
+        userId_kind: {
+          userId: service.user.id,
+          kind: MagicLinkKind.SERVE,
+        },
+      },
     })
     expect(row?.redeemedAt).not.toBeNull()
   })

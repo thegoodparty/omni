@@ -21,7 +21,13 @@ import {
   UseGuards,
   UsePipes,
 } from '@nestjs/common'
-import { ElectedOffice, Organization, Prisma, User } from '../generated/prisma'
+import {
+  ElectedOffice,
+  MagicLinkKind,
+  Organization,
+  Prisma,
+  User,
+} from '../generated/prisma'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.decorator'
@@ -102,7 +108,7 @@ export class ElectedOfficeController {
     if (!user) {
       throw new UnauthorizedException()
     }
-    await this.magicLinkService.markRedeemed(user.id)
+    await this.magicLinkService.markRedeemed(user.id, MagicLinkKind.SERVE)
     return { ok: true }
   }
 
@@ -205,7 +211,7 @@ export class ElectedOfficeController {
     // lifecycle so the sales card shows "onboarded". Idempotent + best-effort.
     if (eoFields.onboardingCompletedAt != null) {
       await this.magicLinkService
-        .markOnboardingCompleted(user.id)
+        .markOnboardingCompleted(user.id, MagicLinkKind.SERVE)
         .catch(() => undefined)
     }
 
@@ -362,7 +368,7 @@ export class ElectedOfficeController {
       existing.onboardingCompletedAt == null
     ) {
       await this.magicLinkService
-        .markOnboardingCompleted(existing.userId)
+        .markOnboardingCompleted(existing.userId, MagicLinkKind.SERVE)
         .catch(() => undefined)
     }
 

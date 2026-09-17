@@ -1,5 +1,12 @@
 // Sales-initiated onboarding magic links (HubSpot App Card → gp-api admin
-// endpoint). One row per lead (User), upserted on (re)send. This is the
+// endpoint). One row per (lead, funnel) — NOT one per lead. A single email can
+// legitimately be sent down both funnels: a rep mints a SERVE link from
+// admin/elected-office/magic-link and later a WIN link from
+// admin/campaign/magic-link, and `provisionMagicLinkUser` resolves both to the
+// same User. Keyed on userId alone, the second send's upsert overwrote the
+// first row's url, slug, sentAt, expiresAt and kind, silently destroying one
+// funnel's record and killing a short link that had already been texted.
+// Hence @@unique([userId, kind]). Upserted on (re)send within a funnel. This is the
 // server-side source of truth for the link's lifecycle; gp-api mirrors the
 // derived status onto HubSpot contact properties so the sales card can show
 // persistent state (link present until expired/consumed, redeemed, onboarded)
@@ -13,7 +20,7 @@ enum MagicLinkKind {
 model MagicLink {
   id     String        @id @default(uuid(7))
   user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId Int           @unique @map("user_id")
+  userId Int           @map("user_id")
   kind   MagicLinkKind @default(SERVE)
   email  String
 
@@ -50,6 +57,7 @@ model MagicLink {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  @@unique([userId, kind])
   @@index([email])
   // Every inbound Sinch STOP/START callback resolves the sender through this
   // column, and Sinch retries a callback it considers failed.

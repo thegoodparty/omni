@@ -101,6 +101,7 @@ export class AdminCampaignMagicLinkController {
     const delivery = phone
       ? await this.magicLinkDelivery.textActiveLink({
           userId: user.id,
+          kind: MagicLinkKind.WIN,
           phone,
           smsConsent,
           consentSource,
@@ -138,12 +139,13 @@ export class AdminCampaignMagicLinkController {
   @Post('magic-link/sms')
   @HttpCode(HttpStatus.OK)
   async sendMagicLinkSms(@Body() body: SendCampaignMagicLinkSmsDto) {
-    const link = await this.magicLink.getByEmail(body.email)
+    const link = await this.magicLink.getByEmail(body.email, MagicLinkKind.WIN)
     if (!link) {
       return { smsSent: false, smsError: SMS_NO_ACTIVE_LINK_ERROR }
     }
     return this.magicLinkDelivery.textActiveLink({
       userId: link.userId,
+      kind: link.kind,
       phone: body.phone,
       smsConsent: body.smsConsent,
       consentSource: body.consentSource,
@@ -161,7 +163,7 @@ export class AdminCampaignMagicLinkController {
   @Get('magic-link')
   @HttpCode(HttpStatus.OK)
   async getMagicLink(@Query() query: GetCampaignMagicLinkDto) {
-    const link = await this.magicLink.getByEmail(query.email)
+    const link = await this.magicLink.getByEmail(query.email, MagicLinkKind.WIN)
     if (!link) {
       return { url: null, status: null }
     }
