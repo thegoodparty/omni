@@ -30,6 +30,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { CampaignTcrComplianceService } from '../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { RaceOpponentService } from '../../raceOpponent/services/raceOpponent.service'
 import { OutreachRobocallWebhookService } from '../../outreach/services/outreachRobocallWebhook.service'
+import { StripeService } from '../../vendors/stripe/services/stripe.service'
 
 const { STRIPE_WEBSOCKET_SECRET } = process.env
 if (!STRIPE_WEBSOCKET_SECRET) {
@@ -66,6 +67,7 @@ export class PaymentEventsService {
     @Inject(forwardRef(() => PurchaseService))
     private readonly purchaseService: WrapperType<PurchaseService>,
     private readonly tcrComplianceService: CampaignTcrComplianceService,
+    private readonly stripeService: StripeService,
     private readonly moduleRef: ModuleRef,
     private readonly logger: PinoLogger,
   ) {
@@ -292,10 +294,11 @@ export class PaymentEventsService {
   //   served. UsersService.deleteUser cancels the subscription, so a billable
   //   subscription can never be deletion residue — this is the
   //   paying-but-not-Pro shape of ENG-10771 / ENG-11083.
-  // - Canceled, account still live. The de-Pro never ran, so the campaign may
-  //   still be Pro, or its subscriptionId was orphaned by a duplicate checkout
-  //   (ENG-11084). Money stopped and fulfillment did not follow: the one shape
-  //   this file must never swallow.
+  // - Canceled, account still live — by the stored customer id, or failing that
+  //   by the email on the billing Stripe customer. The de-Pro never ran, so the
+  //   campaign may still be Pro, or its subscriptionId was orphaned by a
+  //   duplicate checkout (ENG-11084). Money stopped and fulfillment did not
+  //   follow: the one shape this file must never swallow.
   // - Canceled, no account. deleteUser cascade-deletes the campaign and the user
   //   row in one transaction and cancels Stripe afterwards, so the cancellation
   //   lands with nothing left to un-Pro. No redelivery and no human can act.
@@ -360,21 +363,93 @@ export class PaymentEventsService {
     // The Stripe customer is the only remaining link back to an account: Pro
     // checkouts write no userId onto the subscription itself, only onto the
     // checkout session, which is long gone by the time a cancellation arrives.
-    const user = await this.usersService.findByCustomerId(customerId)
+    const accountByStoredId =
+      await this.usersService.findByCustomerId(customerId)
+    const emailFallback = accountByStoredId
+      ? null
+      : await this.resolveAccountByStripeCustomerEmail(customerId)
+    const user = accountByStoredId ?? emailFallback?.user ?? null
+
     if (!user || user.metaData?.isDeleted) {
       this.logger.warn(
-        { ...context, userId: user?.id ?? null },
-        '[WEBHOOK] Unmatched canceled Stripe subscription has no live account ' +
-          'behind it — consistent with account deletion; nothing left to un-Pro',
+        {
+          ...context,
+          userId: user?.id ?? null,
+          emailFallback: emailFallback?.outcome ?? 'not-needed',
+        },
+        '[WEBHOOK] Unmatched canceled Stripe subscription resolves to no live ' +
+          'account by stored customer id or Stripe customer email — ' +
+          'consistent with account deletion; nothing left to un-Pro',
       )
       return
     }
 
+    if (accountByStoredId) {
+      this.logger.error(
+        { ...context, userId: user.id, matchedBy: 'storedCustomerId' },
+        '[WEBHOOK] Unmatched canceled Stripe subscription belongs to a live ' +
+          'account — the Pro cancellation was never applied',
+      )
+      return
+    }
+
+    // Deliberately a separate line from the stored-id match above: the evidence
+    // is weaker and the reader has to know which they are looking at. A stored
+    // customerId that disagrees with the one actually billing is itself the
+    // ENG-11084 signature, so log both rather than only the billing one.
     this.logger.error(
-      { ...context, userId: user.id },
-      '[WEBHOOK] Unmatched canceled Stripe subscription belongs to a live ' +
-        'account — the Pro cancellation was never applied',
+      {
+        ...context,
+        userId: user.id,
+        matchedBy: 'stripeCustomerEmail',
+        storedCustomerId: user.metaData?.customerId ?? null,
+      },
+      '[WEBHOOK] Unmatched canceled Stripe subscription matches a live account ' +
+        'by the email on its Stripe customer, not by the stored customer id — ' +
+        'the Pro cancellation was never applied. Confirm the account before ' +
+        'acting: checkout emails are candidate-entered',
     )
+  }
+
+  // meta_data.customerId is the strong link, and it is mostly missing: a
+  // reconciliation of every unmatched production subscription on 2026-09-17
+  // resolved 1 of 20 through it, and 0 of the 6 canceled ones. Pre-ENG-11084
+  // email-only checkout minted a fresh Stripe customer per session, so the
+  // customer that ends up billing is routinely not the one stored on the user.
+  // Without this fallback the two confirmed lost cancellations both land on the
+  // warn — the condition this file exists to never swallow, swallowed.
+  //
+  // It stays a fallback, and nothing acts on it: candidates type arbitrary
+  // addresses at checkout (§ Debugging Pro billing issues), so an email hit is
+  // grounds for a human to go look, not for code to re-link a subscription.
+  private async resolveAccountByStripeCustomerEmail(customerId: string) {
+    let email: string | null
+    try {
+      const customer = await this.stripeService.retrieveCustomer(customerId)
+      email = customer.deleted ? null : customer.email
+    } catch (error) {
+      // This lookup can only ever raise a warn to an error. Letting it throw
+      // would turn an event we had already classified into an unhandled 5xx and
+      // restart the retry storm, so a Stripe failure degrades to the warn we
+      // would have logged without it.
+      this.logger.warn(
+        { error, customerId },
+        '[WEBHOOK] Could not read the Stripe customer to resolve an unmatched ' +
+          'subscription by email',
+      )
+      return { user: null, outcome: 'stripe-unavailable' as const }
+    }
+
+    if (!email) {
+      return { user: null, outcome: 'customer-has-no-email' as const }
+    }
+
+    // user_email_lower_unique (a unique index on LOWER(email)) is what makes a
+    // case-insensitive match resolve to at most one account.
+    const user = await this.usersService.findUserByEmail(email.toLowerCase())
+    return user
+      ? { user, outcome: 'matched' as const }
+      : { user: null, outcome: 'no-match' as const }
   }
 
   async customerSubscriptionUpdatedHandler(

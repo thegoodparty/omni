@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ServiceUnavailableException,
 } from '@nestjs/common'
@@ -19,6 +20,7 @@ describe('PaymentEventsService', () => {
   const usersService = {
     findUser: vi.fn(),
     findByCustomerId: vi.fn(),
+    findUserByEmail: vi.fn(),
     findByCampaign: vi.fn(),
     patchUserMetaData: vi.fn(),
     compareAndSwapCheckoutSessionId: vi.fn(),
@@ -31,6 +33,7 @@ describe('PaymentEventsService', () => {
     setIsPro: vi.fn(),
   }
   const emailService = { sendCancellationRequestConfirmationEmail: vi.fn() }
+  const stripeService = { retrieveCustomer: vi.fn() }
   const analytics = {
     trackProPayment: vi.fn(),
     track: vi.fn(),
@@ -117,6 +120,13 @@ describe('PaymentEventsService', () => {
     usersService.findByCustomerId.mockResolvedValue(mockUser)
     usersService.patchUserMetaData.mockResolvedValue(undefined)
     usersService.findByCampaign.mockResolvedValue(mockUser)
+    // The email fallback finds nothing unless a test says otherwise, so the
+    // classification under test is the one the stored customer id produced.
+    usersService.findUserByEmail.mockResolvedValue(null)
+    stripeService.retrieveCustomer.mockResolvedValue({
+      id: 'cus_test_unmatched',
+      email: 'someone@example.com',
+    })
     campaignsService.findActiveByUserId.mockResolvedValue(mockCampaign)
     campaignsService.findBySubscriptionId.mockResolvedValue(mockCampaign)
     campaignsService.patchCampaignDetails.mockResolvedValue(undefined)
@@ -157,6 +167,7 @@ describe('PaymentEventsService', () => {
       analytics as never,
       purchaseService as never,
       tcrComplianceService as never,
+      stripeService as never,
       moduleRef as never,
       logger,
     )
@@ -882,6 +893,128 @@ describe('PaymentEventsService', () => {
         expect.stringContaining('account deletion'),
       )
       expect(logger.error).not.toHaveBeenCalled()
+    })
+
+    // Reconciling every unmatched production subscription on 2026-09-17
+    // resolved meta_data.customerId on 1 of 20, and on none of the 6 canceled
+    // ones — pre-ENG-11084 email-only checkout minted a fresh Stripe customer
+    // per session, so the customer that bills is rarely the one stored. These
+    // carry the real Stripe ids of one of the two lost cancellations that gap
+    // hid; the address is synthetic and must stay that way.
+    describe('resolving the account when the stored customer id misses', () => {
+      const lostCancellation = () =>
+        deletedEvent({
+          id: 'sub_1TlI0T1taBPnTqn4wXcOjDJQ',
+          customer: 'cus_Ukna4d5HsEPEVJ',
+        })
+
+      beforeEach(() => {
+        campaignsService.findBySubscriptionId.mockResolvedValue(null)
+        usersService.findByCustomerId.mockResolvedValue(null)
+        stripeService.retrieveCustomer.mockResolvedValue({
+          id: 'cus_Ukna4d5HsEPEVJ',
+          // Mixed case on purpose: the match has to survive it.
+          email: 'OrphanedCancellation@example.com',
+        })
+      })
+
+      it('error-logs a cancellation whose live account is found by the Stripe customer email', async () => {
+        usersService.findUserByEmail.mockResolvedValue({
+          ...mockUser,
+          id: 341311,
+          metaData: { customerId: 'cus_UknccQ7rRAO1U5' },
+        })
+
+        await service.customerSubscriptionDeletedHandler(lostCancellation())
+
+        // Lowercased: the uniqueness guarantee is the index on LOWER(email).
+        expect(usersService.findUserByEmail).toHaveBeenCalledWith(
+          'orphanedcancellation@example.com',
+        )
+        expect(logger.error).toHaveBeenCalledWith(
+          expect.objectContaining({
+            subscriptionId: 'sub_1TlI0T1taBPnTqn4wXcOjDJQ',
+            userId: 341311,
+            matchedBy: 'stripeCustomerEmail',
+          }),
+          expect.stringContaining('by the email on its Stripe customer'),
+        )
+        expect(logger.warn).not.toHaveBeenCalled()
+      })
+
+      // The disagreement is itself the ENG-11084 signature, so the line has to
+      // carry the id that is billing and the id we stored, not just one.
+      it('names both the billing customer and the stored one when they disagree', async () => {
+        usersService.findUserByEmail.mockResolvedValue({
+          ...mockUser,
+          metaData: { customerId: 'cus_UknccQ7rRAO1U5' },
+        })
+
+        await service.customerSubscriptionDeletedHandler(lostCancellation())
+
+        expect(logger.error).toHaveBeenCalledWith(
+          expect.objectContaining({
+            customerId: 'cus_Ukna4d5HsEPEVJ',
+            storedCustomerId: 'cus_UknccQ7rRAO1U5',
+          }),
+          expect.any(String),
+        )
+      })
+
+      it('warns when the email resolves to an account that is already deleted', async () => {
+        usersService.findUserByEmail.mockResolvedValue({
+          ...mockUser,
+          metaData: { isDeleted: true },
+        })
+
+        await service.customerSubscriptionDeletedHandler(lostCancellation())
+
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.objectContaining({ emailFallback: 'matched' }),
+          expect.stringContaining('account deletion'),
+        )
+        expect(logger.error).not.toHaveBeenCalled()
+      })
+
+      it('warns without throwing when the Stripe customer itself was deleted', async () => {
+        stripeService.retrieveCustomer.mockResolvedValue({
+          id: 'cus_Ukna4d5HsEPEVJ',
+          deleted: true,
+        })
+
+        await expect(
+          service.customerSubscriptionDeletedHandler(lostCancellation()),
+        ).resolves.toBeUndefined()
+
+        expect(usersService.findUserByEmail).not.toHaveBeenCalled()
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.objectContaining({ emailFallback: 'customer-has-no-email' }),
+          expect.stringContaining('account deletion'),
+        )
+        expect(logger.error).not.toHaveBeenCalled()
+      })
+
+      // The fallback can only ever raise a warn to an error, so failing it must
+      // cost the enrichment and nothing else — never the acknowledgement.
+      it('acknowledges the event when the Stripe read fails, rather than failing it', async () => {
+        stripeService.retrieveCustomer.mockRejectedValue(
+          new BadGatewayException('Failed to retrieve customer'),
+        )
+
+        await expect(
+          service.customerSubscriptionDeletedHandler(lostCancellation()),
+        ).resolves.toBeUndefined()
+
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.objectContaining({ customerId: 'cus_Ukna4d5HsEPEVJ' }),
+          expect.stringContaining('Could not read the Stripe customer'),
+        )
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.objectContaining({ emailFallback: 'stripe-unavailable' }),
+          expect.stringContaining('account deletion'),
+        )
+        expect(logger.error).not.toHaveBeenCalled()
+      })
     })
   })
 

@@ -86,22 +86,40 @@ failure, and Stripe's 7 retries over ~68h re-run the same query against the
 same rows, raising one alert per attempt.
 
 `PaymentEventsService.reportUnmatchedSubscription` owns the classification.
-Four conditions hide behind one lookup miss; only one is harmless, and only one
+Five conditions hide behind one lookup miss; only one is harmless, and only one
 is worth retrying:
 
-| Subscription status | Account behind the customer id | Log | Why |
+| Subscription status | Account resolution | Log | Why |
 | --- | --- | --- | --- |
-| any, **created < 10 min ago** | not consulted | `warn` + **503** | The only miss redelivery can fix. `checkout.session.completed` / `customer.subscription.created` write `details.subscriptionId`, and Stripe delivers a subscription's sibling events concurrently with that write, so a fresh subscription may be unlinked rather than orphaned. The window closes on its own — a genuine orphan falls through to the rows below on a later attempt. |
-| billable — `active`, `trialing`, `past_due`, `unpaid`, `incomplete`, `paused` | not consulted | `error` — "still billable" | Someone is being charged with no campaign carrying their sub id. `UsersService.deleteUser` cancels before deleting, so this can never be deletion residue. Repair as ENG-10771. |
-| `canceled` / `incomplete_expired` | user found, not `metaData.isDeleted` | `error` — "cancellation was never applied" | The de-Pro never ran, so the campaign may still be Pro — or its sub id was orphaned by a duplicate checkout (ENG-11084). Money stopped, fulfillment did not follow. |
-| `canceled` / `incomplete_expired` | no user, or `metaData.isDeleted` | `warn` — "consistent with account deletion" | Account deletion removes campaign and user together and cancels Stripe afterwards, so the event lands with nothing left to un-Pro. No redelivery and no human can act. |
+| any, **created < 10 min ago** | not attempted | `warn` + **503** | The only miss redelivery can fix. `checkout.session.completed` / `customer.subscription.created` write `details.subscriptionId`, and Stripe delivers a subscription's sibling events concurrently with that write, so a fresh subscription may be unlinked rather than orphaned. The window closes on its own — a genuine orphan falls through to the rows below on a later attempt. |
+| billable — `active`, `trialing`, `past_due`, `unpaid`, `incomplete`, `paused` | not attempted | `error` — "still billable" | Someone is being charged with no campaign carrying their sub id. `UsersService.deleteUser` cancels before deleting, so this can never be deletion residue. Repair as ENG-10771. |
+| `canceled` / `incomplete_expired` | `meta_data.customerId` hits a live user | `error` — "cancellation was never applied" | The de-Pro never ran, so the campaign may still be Pro — or its sub id was orphaned by a duplicate checkout (ENG-11084). Money stopped, fulfillment did not follow. |
+| `canceled` / `incomplete_expired` | stored id misses, but the **email on the billing Stripe customer** hits a live user | `error` — "by the email on its Stripe customer", with `matchedBy` and the disagreeing `storedCustomerId` | Same cost as the row above, reached by weaker evidence. A stored customer id that disagrees with the one billing is itself the ENG-11084 signature. |
+| `canceled` / `incomplete_expired` | neither resolves, or the user is `metaData.isDeleted` | `warn` — "consistent with account deletion" | Account deletion removes campaign and user together and cancels Stripe afterwards, so the event lands with nothing left to un-Pro. No redelivery and no human can act. |
 
 Status is the discriminator that carries the most weight: a subscription that
-can still bill is never the residue of an account deletion. Both `error` lines
-carry `subscriptionId`, `customerId`, `status`, `cancelAt` / `canceledAt` and
-`cancellationReason`, which is enough to find the customer in Stripe without a
-DB query — search Loki for `"Unmatched"`. The `error` lines are what the alert
-pipeline keys on; the `warn` sits deliberately below it.
+can still bill is never the residue of an account deletion.
+
+**The email fallback is not optional and not redundant.** Reconciling every
+unmatched production subscription on 2026-09-17 resolved `meta_data.customerId`
+on **1 of 20**, and on **none of the 6 canceled ones** — pre-ENG-11084
+email-only checkout minted a fresh Stripe customer per session, so the customer
+that ends up billing is routinely not the one stored on the user. Without the
+fallback both confirmed lost cancellations classify as account deletions. The
+match is case-insensitive against the unique index on `LOWER(email)`.
+
+It stays a fallback, and nothing acts on it automatically: candidates enter
+arbitrary addresses at checkout (§ Debugging Pro billing issues), so an email
+hit is grounds for a human to go look, never for code to re-link a
+subscription. A deleted Stripe customer carries no email, and a failed Stripe
+read degrades to the `warn` rather than failing an event that was already
+classifiable — the fallback can only raise a `warn` to an `error`, so losing it
+must cost the enrichment and nothing else.
+
+Both `error` lines carry `subscriptionId`, `customerId`, `status`, `cancelAt` /
+`canceledAt` and `cancellationReason`, which is enough to find the customer in
+Stripe without a DB query — search Loki for `"Unmatched"`. The `error` lines are
+what the alert pipeline keys on; the `warn` sits deliberately below it.
 
 ## Debugging Pro billing issues (recipes from real incidents)
 
