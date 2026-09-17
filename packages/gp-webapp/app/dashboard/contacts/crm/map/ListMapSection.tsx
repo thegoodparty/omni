@@ -40,6 +40,7 @@ export default function ListMapSection({ listId }: { listId: number }) {
           <div className="h-64 overflow-hidden rounded-md border">
             <ContactListMap
               people={people}
+              truncated={truncated}
               selectedPersonId={currentlySelectedPersonId}
               onSelectPerson={selectPerson}
             />
