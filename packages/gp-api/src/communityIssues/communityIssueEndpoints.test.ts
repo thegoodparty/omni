@@ -704,6 +704,87 @@ describe('POST /v1/community-issues/seed', () => {
     ).toBe(true)
   })
 
+  // Both cases below start from a briefing row that already exists for the
+  // date the seed body targets, which is the branch that decides whether this
+  // endpoint may overwrite someone else's pointer.
+  const seedExistingBriefing = async (
+    artifactBucket: string,
+    artifactKey: string,
+  ) => {
+    const run = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: eoOrgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket,
+        artifactKey,
+      },
+    })
+    return service.prisma.meetingBriefing.create({
+      data: {
+        electedOfficeId: eoId,
+        meetingDate: new Date('2026-07-01'),
+        meetingTime: '18:00',
+        meetingTimezone: 'America/New_York',
+        experimentRunId: run.runId,
+        artifactBucket,
+        artifactKey,
+        artifact: { executive_summary: { items: [] } },
+      },
+    })
+  }
+
+  it('repairs a briefing still carrying the pre-fix seed pointer', async () => {
+    stubS3()
+    // The exact row shape this service used to write, and the one sitting in
+    // the dev database answering every poll with an S3 PermanentRedirect.
+    await seedExistingBriefing('seed', 'seed')
+
+    await service.client.post(`${BASE}/seed`, seedBody(), eoHeaders())
+
+    const repaired = await service.prisma.meetingBriefing.findFirstOrThrow({
+      where: { electedOfficeId: eoId },
+    })
+    expect(repaired.artifactBucket).not.toBe('seed')
+    expect(repaired.artifactKey).toBe(
+      `community-issue-seed/${eoId}/2026-07-01.json`,
+    )
+
+    // The point of the repair is the endpoint, not the columns: a post-merge
+    // e2e run on dev has to be enough to make this request start answering.
+    const briefing = await service.client.get<{
+      executive_summary: { items: { item_id: string; content: string }[] }
+    }>('/v1/meetings/2026-07-01/briefing', eoHeaders())
+    expect(briefing.status).toBe(HttpStatus.OK)
+    expect(briefing.data.executive_summary.items).toEqual([
+      { item_id: 'item-housing', content: 'Council discussed housing.' },
+    ])
+  })
+
+  it('leaves a briefing written by a real agent run untouched', async () => {
+    stubS3()
+    // A plausible agent-path pointer: the bucket the broker reports and the
+    // key shape it publishes under. Repointing this at the seed's stub would
+    // strand the real artifact and serve dummy data for the meeting, so the
+    // repair above has to be keyed on the bug's exact signature rather than on
+    // the bucket merely not being ours.
+    const before = await seedExistingBriefing(
+      'gp-agent-artifacts-dev',
+      'meeting_briefing/019826f4-0000-7000-8000-00000000000a/artifact.json',
+    )
+
+    await service.client.post(`${BASE}/seed`, seedBody(), eoHeaders())
+
+    const after = await service.prisma.meetingBriefing.findUniqueOrThrow({
+      where: { id: before.id },
+    })
+    expect(after.artifactBucket).toBe('gp-agent-artifacts-dev')
+    expect(after.artifactKey).toBe(
+      'meeting_briefing/019826f4-0000-7000-8000-00000000000a/artifact.json',
+    )
+    expect(after.artifact).toEqual({ executive_summary: { items: [] } })
+  })
+
   it('returns 403 when OTEL_SERVICE_ENVIRONMENT is a customer env (prod)', async () => {
     const prev = process.env.OTEL_SERVICE_ENVIRONMENT
     process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
