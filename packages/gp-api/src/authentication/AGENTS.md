@@ -82,8 +82,11 @@ Auth state is enforced globally via three guards registered in order. Most route
   backfill — a number the user edited in their profile always wins.
 - **Google signups take a different route to the same field.** OAuth can't
   carry a phone, so the webapp's `/sign-up/phone` step collects it after the
-  handshake and `PUT`s it to `/v1/users/me` directly — it does not rely on
-  the provisioning read above, because `SessionGuard.resolveUser` returns
+  handshake and `PUT`s it to `/v1/users/me` directly. Clerk sends a completed
+  OAuth sign-up straight to the `redirectUrlComplete` the form passed and
+  skips the SSO callback page, so the sign-up form and `/login` both name the
+  phone step there, not only on the callback's redirect props. The step does
+  not rely on the provisioning read above, because `SessionGuard.resolveUser` returns
   early on a `clerkId` hit and never re-reads the Clerk profile once the row
   exists. Both paths land the number before `POST /v1/users/me/crm-registration`
   fires, which is what puts it on the HubSpot contact.

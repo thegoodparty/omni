@@ -197,3 +197,60 @@ describe('SignUpPhoneForm', () => {
     expect(screen.getByTestId('signup-phone-submit')).toBeEnabled()
   })
 })
+
+// A first-time Google sign-in from /login arrives here carrying the deep link
+// the middleware preserved; the step has to hand it on or the link is lost.
+describe('SignUpPhoneForm with a next deep link', () => {
+  const withSearch = (search: string) =>
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, replace: replaceSpy, search },
+    })
+
+  it('forwards next after saving the number', async () => {
+    withSearch('?next=%2Fdashboard%2Fbriefings')
+    const user = userEvent.setup()
+    await renderForm()
+
+    await user.type(screen.getByPlaceholderText('Phone'), '5551234567')
+    await user.click(screen.getByTestId('signup-phone-submit'))
+
+    await waitFor(() =>
+      expect(replaceSpy).toHaveBeenCalledWith(
+        '/post-auth-redirect?next=%2Fdashboard%2Fbriefings&source=signup',
+      ),
+    )
+  })
+
+  it('forwards next when a number is already on record', async () => {
+    withSearch('?next=%2Fdashboard%2Fbriefings')
+    api.mock('GET /v1/users/me', {
+      status: 200,
+      data: { phone: '5551234567' } as never,
+    })
+
+    render(<SignUpPhoneForm />)
+
+    await waitFor(() =>
+      expect(replaceSpy).toHaveBeenCalledWith(
+        '/post-auth-redirect?next=%2Fdashboard%2Fbriefings&source=signup',
+      ),
+    )
+  })
+
+  it('drops an unsafe next instead of forwarding it', async () => {
+    withSearch('?next=https%3A%2F%2Fevil.com')
+    api.mock('GET /v1/users/me', {
+      status: 200,
+      data: { phone: '5551234567' } as never,
+    })
+
+    render(<SignUpPhoneForm />)
+
+    await waitFor(() =>
+      expect(replaceSpy).toHaveBeenCalledWith(
+        '/post-auth-redirect?source=signup',
+      ),
+    )
+  })
+})
