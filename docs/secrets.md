@@ -14,10 +14,12 @@ prod secrets is the one thing we deliberately don't hand out — malware, a conf
 agent, and a fat-fingered `update-secret` all do the same damage, and the point of
 the setup below is that none of them can.
 
-What to do instead: open the PR that does the declaring and the wiring (that is
-95% of every secret change), then hand off the one step that needs an admin. The
-[handoff](#the-one-step-that-needs-an-admin) is a single Slack message with a
-fixed shape.
+What to do instead: encrypt the value against the repo's committed public key and
+commit it. `scripts/secrets/secret-encrypt.sh` needs no credentials and makes no
+network call; CI holds the only key that can decrypt. See
+[Adding or rotating a secret](#adding-or-rotating-a-secret). If the public key
+isn't committed yet, there's a
+[slower admin handoff](#the-admin-handoff-fallback) for the interim.
 
 ## Where secrets live
 
@@ -67,39 +69,62 @@ of `docs/secrets-iac-plan.md`.
 
 ## Adding or rotating a secret
 
-Do everything except the value write, in one PR.
+One PR, no AWS access. You encrypt the value against the public key committed at
+`secrets/gp-secret-write.pub.pem`; the release train decrypts it with a role only
+CI can assume and writes it to Secrets Manager. You cannot read back what you or
+anyone else wrote.
 
-1. **Check whether it needs to be a secret at all.** A hostname, a bucket name, an
-   ARN, a feature flag, or anything already public is an environment variable, not
-   a secret. Put it in `environmentVariables` (gp-api/election-api) or a
-   Terraform variable and skip the rest of this.
-2. **Name it** in `SCREAMING_SNAKE_CASE`, matching whatever the vendor calls it
-   (`BRAINTRUST_API_KEY`, not `BT_KEY`). The same name is used in every
-   environment; the environment is the secret, not the key.
-3. **Wire it in code.**
-   - gp-api / election-api: nothing to wire. Read it via `process.env.YOUR_KEY`
-     and add it to whatever env validation the service does at boot.
-   - gp-ai: add the `valueFrom` entry to the module's `secrets` array and extend
-     the task role's `secretsmanager:GetSecretValue` statement. Both live in
-     `packages/gp-ai/infrastructure/modules/<service>/main.tf`.
-4. **Declare the key where a human can see it.** Add it to the secret's
-   description list if the secret is Terraform-managed (the `broker` module is the
-   reference — `modules/broker/main.tf` creates the container with
-   `jsonencode({})` and `ignore_changes = [secret_string]`, and names every key an
-   operator must populate). Otherwise say it in the PR body.
-5. **Handle the missing-value case gracefully.** Your PR merges and deploys before
-   the value exists, so the code must not crash-loop on a missing key — the ECS
-   circuit breaker will roll the service back and the deploy looks like an
-   unrelated failure. Fail the specific feature, not boot, unless the secret is
-   genuinely required for the service to serve traffic.
-6. **Then do the handoff, below.**
+```bash
+# Add or rotate a value. Reads stdin, so the value never reaches your shell
+# history or `ps` output. Creates the file if it doesn't exist yet.
+printf %s "$VALUE" | scripts/secrets/secret-encrypt.sh \
+  --secret-id GP_API_PROD secrets/gp-api.prod.json VENDOR_API_KEY
 
-Rotating is the same minus the code: the key already exists, so it is only the
-handoff step. Removing is the code change plus a handoff to delete the key.
+# Then commit secrets/gp-api.prod.json like any other file.
+```
 
-### The one step that needs an admin
+Values over 446 bytes (PEM keys, certs) automatically switch to an envelope
+format — that's the RSA-OAEP ceiling, not a policy — and need nothing extra from
+you. A trailing newline is stripped by default, because `echo "$KEY" |` is the
+common invocation and a stray `\n` silently breaks API auth; pass `--raw` when
+the bytes must survive verbatim.
 
-Writing the value. Post this in `#devs-only`, one message:
+The value lands in Secrets Manager on the next release train, in the stage that
+runs before the services deploy. Rotating is the same command with a new value.
+Deleting a key is a separate, explicit step — the sync never prunes, so removing
+an entry from the file leaves the live value alone and reports it.
+
+**Prerequisite: the public key must exist.** Until an admin completes the
+one-time steps in `docs/secrets-iac-plan.md` (create the KMS key, commit its
+public key, create the sync role, set `vars.AWS_SECRETS_SYNC_ROLE_ARN`),
+`secret-encrypt.sh` exits with that message and the train's sync stages skip.
+In that window, use the [admin handoff](#the-admin-handoff-fallback)
+below — but check for the public key first, because the handoff is the slow path.
+
+### What you still have to wire
+
+Encrypting the value does not wire it into a running service:
+
+1. **Check it needs to be a secret at all.** A hostname, bucket name, ARN, or
+   feature flag is an environment variable. Put it in `environmentVariables`
+   (gp-api/election-api) or a Terraform variable and skip all of this.
+2. **Name it** in `SCREAMING_SNAKE_CASE`, matching what the vendor calls it
+   (`BRAINTRUST_API_KEY`, not `BT_KEY`). Same name in every environment — the
+   environment is the secret, not the key.
+3. **gp-ai only:** add the `valueFrom` entry to the module's `secrets` array and
+   extend the task role's `secretsmanager:GetSecretValue` statement, both in
+   `packages/gp-ai/infrastructure/modules/<service>/main.tf`. gp-api and
+   election-api need nothing — they enumerate the live keys.
+4. **Handle the value being absent.** Your code may deploy before the value
+   exists. Don't crash-loop on a missing key: the ECS circuit breaker will roll
+   the service back and the deploy will look like an unrelated failure. Fail the
+   specific feature, not boot, unless the service genuinely cannot serve without
+   it.
+
+### The admin handoff (fallback)
+
+Only needed while `secrets/gp-secret-write.pub.pem` is missing. Wire everything
+as above, open the PR, then post one message in `#devs-only`:
 
 > Secret value write needed for <PR link>.
 > Secret: `GP_API_PROD`
@@ -110,10 +135,21 @@ Writing the value. Post this in `#devs-only`, one message:
 Send the value itself through 1Password, not Slack. Admins who can do this write:
 Tomer, Dan, Swain, Jeff.
 
-That handoff is a stopgap. The write-only path that removes it — an engineer
-encrypts a value against a public key committed to this repo, CI decrypts and
-writes it, nobody gains read access — is planned in
-`docs/secrets-iac-plan.md`. When it lands, this section gets replaced by it.
+## Tooling
+
+| Script                                     | What                                                            | Needs AWS?           |
+| ------------------------------------------ | --------------------------------------------------------------- | -------------------- |
+| `scripts/secrets/secret-encrypt.sh`        | Encrypt a value into a secret file                              | no                   |
+| `scripts/secrets/validate-secret-files.sh` | Structural check; runs pre-commit and on every PR                | no                   |
+| `scripts/secrets/secret-selftest.sh`       | End-to-end test against a throwaway keypair and a stubbed `aws` | no                   |
+| `scripts/secrets/ci-sync-secrets.sh`       | Decrypt and write to Secrets Manager; release train only         | yes — the sync role  |
+
+Validation never decrypts, deliberately: a PR-time job holding `kms:Decrypt`
+would be a read path into every secret, and a PR can edit the workflow that runs
+it. Checking the ciphertext's shape still catches a committed plaintext, a
+truncated paste, a malformed envelope, and a stray file in `secrets/`. A
+well-formed ciphertext encrypted to the *wrong* key can only be caught by
+decrypting, so it fails on the train instead.
 
 ## You cannot read a prod value, and you don't need to
 

@@ -198,17 +198,19 @@ The stages:
    (gp-api, election-api, gp-webapp, gp-admin, candidate-sites,
    publish-experiments, gp-ai) to go green on dev. A red check stops the train
    for that SHA; a later merge forms the next train.
-2. **Dev stage.** Deploys every service to dev at the SHA (backends build +
-   push the SHA-tagged image then Pulumi/Terraform apply; frontends deploy to
-   Vercel and alias `dev.goodparty.org`).
+2. **Dev stage.** Syncs secrets, then deploys every service to dev at the SHA
+   (backends build + push the SHA-tagged image then Pulumi/Terraform apply;
+   frontends deploy to Vercel and alias `dev.goodparty.org`). `Dev secrets` runs
+   first and gates the backend deploys — see [secrets](#secrets) below.
 3. **E2E stage.** Confirms `gp-api-dev` is serving the SHA (the serialized deploy
    just put it there and nothing else can move dev mid-run), then runs the
    Playwright suite sharded 4 ways against `dev.goodparty.org`. There is no
    `e2e-wait` poll here — the dev deploys are `needs`, so they are already done.
-4. **Prod stage.** Deploys the **same** SHA to prod via the same composite
-   actions with prod inputs (same images, prod env). Backends repoint prod at the
-   image the dev stage already built; `packages/gp-ai` applies its prod Terraform
-   roots pinned to the SHA-tagged images — nothing is rebuilt.
+4. **Prod stage.** Syncs prod secrets (`Promote secrets`), then deploys the
+   **same** SHA to prod via the same composite actions with prod inputs (same
+   images, prod env). Backends repoint prod at the image the dev stage already
+   built; `packages/gp-ai` applies its prod Terraform roots pinned to the
+   SHA-tagged images — nothing is rebuilt.
 5. **`finalize`.** Records a GitHub **Deployment** (environment `production`) at
    the promoted SHA, once every prod deploy succeeded. That deployment history is
    the source of truth for "what is in prod" and is what the daily release summary
@@ -260,6 +262,24 @@ Details worth knowing:
 - **Forward-only.** There is no manual rollback. A crash-on-boot image is reverted
   automatically by the ECS deployment circuit breaker; to move forward, land a fix
   on `main` and let the next train promote it.
+
+## Secrets
+
+Secret values are committed to the repo as ciphertext and written to Secrets
+Manager by the train, in the `Dev secrets` and `Promote secrets` stages. Adding
+one needs no AWS access — full workflow in `docs/secrets.md`.
+
+Two things matter for the deploy path:
+
+- **Ordering.** Both stages run *before* the backend deploys they gate. gp-api
+  and election-api enumerate the live secret's keys at deploy time, so a value
+  written after their deploy would sit in the secret but not reach the task
+  definition until the following train.
+- **Both stages skip until `vars.AWS_SECRETS_SYNC_ROLE_ARN` is set**, the same
+  way `dev-prototypes` no-ops without its Vercel project id. The deploy jobs
+  accept `skipped` from them but still treat `failure` as blocking, so a broken
+  secret sync stops the deploy rather than shipping a service that is missing a
+  credential.
 
 ## CI layout
 

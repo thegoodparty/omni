@@ -1,6 +1,10 @@
 # Plan: write-only secret provisioning
 
-**Status:** proposed, not built. `docs/secrets.md` describes what works today.
+**Status:** the tooling and the release-train wiring are **built and tested**
+(Phases 1–2). They are **inert** until an admin completes the
+[one-time steps](#one-time-manual-steps-need-an-admin): without the KMS key,
+`secret-encrypt.sh` refuses to run and the train's sync stages skip. Nothing
+about the current deploy path changes in the meantime.
 
 **Goal.** An engineer or agent can add, rotate, or delete any secret in any
 environment through a reviewed PR, holding no AWS credentials and gaining no
@@ -130,17 +134,20 @@ unconditional first step of each stage rather than a path-filtered one.
 
 ## Phases
 
-| Phase | What | Effort | Unblocks |
-| ----- | ---- | ------ | -------- |
-| 0 | Ship `docs/secrets.md`. Extend the `broker` pattern to the other Terraform-managed secrets so the container and key list are declared in code. No new tech. | 0.5d | Agents stop asking for access; the ask shrinks to one value write |
-| 1 | KMS key + committed public key + `scripts/secret-encrypt.sh` + PR-time structural validation + plaintext guard. Nothing consumes the files yet. | 1d | Engineers can produce ciphertext and get it reviewed |
-| 2 | `github-actions-secrets-sync` role + `ci-sync-secrets.sh` + wire into the train's **dev** stage. Migrate 2–3 real dev keys end to end. | 1–2d | Self-service dev secrets |
-| 3 | Enable the prod stage. Migrate the existing prod blobs' keys into declared files. Settle the deletion mechanism. | 1d | Self-service prod secrets — the actual goal |
-| 4 | Close the state leak: drop the `AI_SECRETS_PROD` data source from `prod/shared-infra`, **rotate every key it exposed**, and revoke `GetSecretValue` from the deploy role where it's now unused. | 1d | The policy stops being undermined by its own tooling |
-| 5 | Replace `docs/secrets.md` §"Adding or rotating a secret" with the new flow; delete this file. | 0.5d | — |
+| Phase | What | Status |
+| ----- | ---- | ------ |
+| 0 | Ship `docs/secrets.md` so the answer to "I need AWS access" is written down. | **done** |
+| 1 | `secret-encrypt.sh` (RSA direct + envelope), `validate-secret-files.sh`, the `secrets/` layout, the pre-commit and CI plaintext guards, and `secret-selftest.sh`. | **done** — waiting on the KMS key |
+| 2 | `ci-sync-secrets.sh` plus the `Dev secrets` / `Promote secrets` stages in `release.yml`, ordered before the service deploys and guarded on `vars.AWS_SECRETS_SYNC_ROLE_ARN`. | **done** — waiting on the sync role |
+| 3 | Migrate the existing prod blobs' keys into declared files, a few at a time. Settle the deletion mechanism (today the sync reports undeclared keys and never prunes). | outstanding |
+| 4 | Close the state leak: drop the `AI_SECRETS_PROD` data source from `prod/shared-infra`, **rotate every key it exposed**, and revoke `GetSecretValue` from the deploy role where it is now unused. | outstanding |
+| 5 | Fold the fallback handoff out of `docs/secrets.md` once Phase 3 is complete, and delete this file. | outstanding |
 
-Roughly a week of focused work, and Phase 0 alone removes most of the day-to-day
-friction. Phases 0 and 1 are independent and can land in either order.
+Phases 1 and 2 are code-complete and covered by `secret-selftest.sh`, which
+stubs the `aws` CLI and drives the real scripts against a throwaway RSA-4096
+keypair (31 assertions: crypto roundtrip both formats, idempotency, no implicit
+pruning, environment isolation, and every rejection path). What remains is the
+bootstrap, which cannot be self-service, plus the per-secret migration.
 
 Phase 4 needs the rotation, not just the code change: the state bucket has
 versioning enabled, so removing the data source leaves the plaintext in every
@@ -150,16 +157,82 @@ is cheaper to verify than proving an S3 version purge was complete.
 ## One-time manual steps (need an admin)
 
 The deploy role's IAM policy isn't in IaC, so the bootstrap can't be
-self-service. Each is a few minutes:
+self-service. Roughly 20 minutes, once, in the `work` profile / account
+`333022194791`.
 
-1. Create the KMS key and `alias/gp-secret-write`, with a key policy granting
-   `kms:Decrypt` only to `github-actions-secrets-sync`.
-2. Export the public key (`aws kms get-public-key`) for the PR that commits it.
-3. Create `github-actions-secrets-sync` with the OIDC trust policy and the
-   least-privilege policy above.
-4. Set `vars.AWS_SECRETS_SYNC_ROLE_ARN`.
-5. Add a `CODEOWNERS` file (there is none today) requiring admin review on
-   `secrets/**`, so prod secret PRs keep a human gate.
+**1. Create the key and alias.**
+
+```bash
+KEY_ID=$(aws kms create-key \
+  --key-spec RSA_4096 --key-usage ENCRYPT_DECRYPT \
+  --description 'Write-only secret provisioning for omni. Engineers encrypt with the public half; only github-actions-secrets-sync decrypts.' \
+  --query KeyMetadata.KeyId --output text)
+aws kms create-alias --alias-name alias/gp-secret-write --target-key-id "$KEY_ID"
+```
+
+**2. Commit the public key.** It is public by definition — this is what makes the
+engineer side credential-free.
+
+```bash
+aws kms get-public-key --key-id alias/gp-secret-write \
+  --query PublicKey --output text |
+  base64 --decode |
+  openssl pkey -pubin -inform DER -outform PEM \
+  > secrets/gp-secret-write.pub.pem
+```
+
+Open that as a PR. `secret-encrypt.sh` asserts the key is RSA-4096, because every
+length check in validation derives from that.
+
+**3. Create the sync role.** Trust policy: GitHub's OIDC provider, restricted to
+this repo (`repo:thegoodparty/omni:*`). Permissions — and nothing else:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "arn:aws:kms:us-west-2:333022194791:key/<KEY_ID>"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:PutSecretValue",
+        "secretsmanager:DescribeSecret"
+      ],
+      "Resource": [
+        "arn:aws:secretsmanager:us-west-2:333022194791:secret:GP_API_*",
+        "arn:aws:secretsmanager:us-west-2:333022194791:secret:ELECTION_API_*",
+        "arn:aws:secretsmanager:us-west-2:333022194791:secret:AI_SECRETS_*",
+        "arn:aws:secretsmanager:us-west-2:333022194791:secret:broker-*"
+      ]
+    }
+  ]
+}
+```
+
+`GetSecretValue` is needed for the read-modify-write and the idempotency
+comparison, not just the write. Do **not** grant `kms:Decrypt` to
+`github-actions-pulumi-deploy`: keeping it off the broad deploy role is what
+stops a compromised terraform apply from reading the ciphertexts.
+
+**4. Set `vars.AWS_SECRETS_SYNC_ROLE_ARN`** (Settings → Secrets and variables →
+Actions → Variables). Until this is set, both sync stages skip, which is why
+merging the pipeline ahead of the bootstrap is safe.
+
+**5. Add `CODEOWNERS`** (there is none today) requiring admin review on
+`secrets/**`, so prod secret PRs keep a human gate.
+
+**Verify**, with no secret at risk — encrypt a throwaway value into dev, let a
+train run, confirm it lands, then delete the key:
+
+```bash
+printf %s "canary-$(date +%s)" | scripts/secrets/secret-encrypt.sh \
+  --secret-id GP_API_DEV secrets/gp-api.dev.json PIPELINE_CANARY
+```
 
 ## Open questions
 

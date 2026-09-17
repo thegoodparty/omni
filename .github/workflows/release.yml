@@ -157,12 +157,48 @@ jobs:
   # (checks green); the explicit `if` drops the implicit success() of needs, so
   # the result check is spelled out.
 
-  dev-gp-api:
-    name: Dev gp-api
+  # Write the committed secret values before anything deploys. gp-api and
+  # election-api enumerate the live secret's keys at deploy time, so a key
+  # written after their deploy lands in the blob but is not in the task
+  # definition until the next train. Idempotent: a commit that changed no secret
+  # writes nothing (the script compares decrypted plaintext against the live
+  # value, because OAEP re-encryption on its own always looks like a change).
+  #
+  # Guarded on the role variable, the way dev-prototypes is guarded on its
+  # Vercel project id: until an admin creates the KMS key and the sync role this
+  # skips rather than failing every train. The deploy jobs below therefore have
+  # to accept `skipped` — and must keep treating `failure` as blocking.
+  dev-secrets:
+    name: Dev secrets
     needs: await-checks
     if: >-
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.force != 'true'
+      && vars.AWS_SECRETS_SYNC_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.await-checks.outputs.sha }}
+          persist-credentials: false
+      # A dedicated least-privilege role — kms:Decrypt on the one key plus
+      # PutSecretValue on the app secrets — NOT the broad deploy role. That is
+      # what stops a compromised terraform apply from reading the ciphertexts.
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_SECRETS_SYNC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Sync secrets to dev
+        run: bash scripts/secrets/ci-sync-secrets.sh dev
+
+  dev-gp-api:
+    name: Dev gp-api
+    needs: [await-checks, dev-secrets]
+    if: >-
+      always() && needs.await-checks.result == 'success'
+      && needs.await-checks.outputs.force != 'true'
+      && (needs.dev-secrets.result == 'success' || needs.dev-secrets.result == 'skipped')
     runs-on: ubuntu-latest
     concurrency:
       group: gp-api-deploy-dev
@@ -232,10 +268,11 @@ jobs:
 
   dev-election-api:
     name: Dev election-api
-    needs: await-checks
+    needs: [await-checks, dev-secrets]
     if: >-
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.force != 'true'
+      && (needs.dev-secrets.result == 'success' || needs.dev-secrets.result == 'skipped')
     runs-on: ubuntu-latest
     concurrency:
       group: election-api-deploy-dev
@@ -393,10 +430,11 @@ jobs:
 
   dev-gp-ai:
     name: Dev gp-ai
-    needs: await-checks
+    needs: [await-checks, dev-secrets]
     if: >-
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.force != 'true'
+      && (needs.dev-secrets.result == 'success' || needs.dev-secrets.result == 'skipped')
     runs-on: ubuntu-latest
     concurrency:
       group: gp-ai-deploy-dev
@@ -848,13 +886,39 @@ jobs:
   # dev stage already built (SHA-tagged, immutable). Not atomic across services:
   # a single failure leaves prod mixed until the next promotion or a re-run.
 
-  prod-gp-api:
-    name: Promote gp-api
+  # Same ordering rule as the dev stage: values land before the services that
+  # enumerate them deploy. A prod secret change rides the train like any other
+  # commit — it is green on dev, and its E2E has run, before it reaches prod.
+  prod-secrets:
+    name: Promote secrets
     needs: [await-checks, e2e]
     if: >-
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
+      && vars.AWS_SECRETS_SYNC_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.await-checks.outputs.sha }}
+          persist-credentials: false
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_SECRETS_SYNC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Sync secrets to prod
+        run: bash scripts/secrets/ci-sync-secrets.sh prod
+
+  prod-gp-api:
+    name: Promote gp-api
+    needs: [await-checks, e2e, prod-secrets]
+    if: >-
+      always() && needs.await-checks.result == 'success'
+      && needs.await-checks.outputs.frozen != 'true'
+      && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
+      && (needs.prod-secrets.result == 'success' || needs.prod-secrets.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -892,11 +956,12 @@ jobs:
 
   prod-election-api:
     name: Promote election-api
-    needs: [await-checks, e2e]
+    needs: [await-checks, e2e, prod-secrets]
     if: >-
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
+      && (needs.prod-secrets.result == 'success' || needs.prod-secrets.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1084,11 +1149,12 @@ jobs:
 
   prod-gp-ai:
     name: Promote gp-ai
-    needs: [await-checks, e2e, prod-gp-ai-images]
+    needs: [await-checks, e2e, prod-gp-ai-images, prod-secrets]
     if: >-
       always() && needs.await-checks.result == 'success'
       && needs.await-checks.outputs.frozen != 'true'
       && (needs.await-checks.outputs.force == 'true' || needs.e2e.result == 'success')
+      && (needs.prod-secrets.result == 'success' || needs.prod-secrets.result == 'skipped')
       && needs.prod-gp-ai-images.result == 'success'
       && needs.prod-gp-ai-images.outputs.deploy == 'true'
     runs-on: ubuntu-latest

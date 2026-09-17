@@ -15,6 +15,15 @@ coverage/
 .env.local
 *.local
 
+# Secret pipeline: ONLY the public key belongs in secrets/. A private key
+# committed here would hand read access to every secret to anyone who can clone
+# the repo, which is the one thing the pipeline exists to prevent. Ciphertext
+# files (secrets/*.json) are committed on purpose — see docs/secrets.md.
+secrets/*.pem
+!secrets/*.pub.pem
+secrets/*.key
+secrets/*.env
+
 # Local agent context (personal, not shared)
 CLAUDE.local.md
 
