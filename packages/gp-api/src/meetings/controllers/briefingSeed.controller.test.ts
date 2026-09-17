@@ -5,6 +5,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { ExperimentRunStatus } from '../../generated/prisma'
 import { parseIsoDateAsUTC } from 'src/shared/util/date.util'
+import { SEED_BUCKET } from '../util/seedBucket'
 
 const service = useTestService()
 
@@ -46,15 +47,20 @@ const seedBody = () => ({
 
 // The seed uploads the artifact to S3 and both read paths fetch it back, so
 // the test double has to behave like a bucket, not just swallow the write.
+// Keyed on bucket and key together because a wrong bucket is the whole reason
+// this endpoint was worth changing: `getBriefing` passes both columns to
+// S3Service.getFile, so a store keyed on the key alone answers a read that
+// named a bucket nothing was ever written to, and the round-trip assertions
+// below would have stayed green through the exact incident they now cover.
 const stubS3 = () => {
   const objects = new Map<string, string>()
   const s3 = service.app.get(S3Service)
   vi.spyOn(s3, 'uploadFile').mockImplementation(async (bucket, body, key) => {
-    objects.set(key, String(body))
+    objects.set(`${bucket}/${key}`, String(body))
     return `https://${bucket}.s3.amazonaws.com/${key}`
   })
-  vi.spyOn(s3, 'getFile').mockImplementation(async (_bucket, key) =>
-    objects.get(key),
+  vi.spyOn(s3, 'getFile').mockImplementation(async (bucket, key) =>
+    objects.get(`${bucket}/${key}`),
   )
   return objects
 }
@@ -90,6 +96,19 @@ describe('POST /v1/meetings/briefings/seed', () => {
     })
     expect(run.experimentType).toBe('meeting_briefing')
     expect(run.status).toBe(ExperimentRunStatus.COMPLETED)
+
+    // Pin the pointers the row advertises, not just that a read succeeds. This
+    // is what the bucket-keyed stub above buys: a row carrying the literal
+    // bucket "seed" is what made this endpoint fail 768 times in seven days,
+    // and with the old key-only store every assertion in this test passed
+    // regardless of the bucket written.
+    const row = await service.prisma.meetingBriefing.findFirstOrThrow({
+      where: { electedOfficeId: eoId },
+    })
+    expect(row.artifactBucket).toBe(SEED_BUCKET)
+    expect(row.artifactKey).toBe(`briefing-seed/${eoId}/${MEETING_DATE}.json`)
+    expect(run.artifactBucket).toBe(SEED_BUCKET)
+    expect(run.artifactKey).toBe(row.artifactKey)
 
     // The read endpoint re-parses the S3 object, so this asserts the seeded
     // artifact survives the real serve path — not just that a row exists.
