@@ -34,7 +34,7 @@ const ADVICE_SIGNALS: RegExp[] = [
   // read as a plain status report ("you'll miss it if you wait", "the
   // robocall went fine"), not a claim about whether the deadline or the
   // call itself is optional or permitted.
-  /\bopt-?in consent\b/i,
+  /\bopt[- ]?in consent\b/i,
   /\bTCPA\b[^.!?\n]{0,20}\b(?:rules?|laws?|consent|liability|violation|appl(?:y|ies)|required|exempt)\b/i,
   /\b10DLC\b[^.!?\n]{0,20}\b(?:required|optional|mandatory|rules?|laws?)\b/i,
   /\brobocalls?\b[^.!?\n]{0,20}\b(?:rules?|laws?|consent|legal|allowed)\b/i,
