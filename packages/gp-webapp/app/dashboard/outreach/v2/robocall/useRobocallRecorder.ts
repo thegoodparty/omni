@@ -1,0 +1,400 @@
+'use client'
+
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ROBOCALL_AUDIO_ALLOWED_MIME_TYPES } from '@goodparty_org/contracts'
+
+// idle -> recording -> processing (decoding/validating the clip) -> preview
+// (captured, not committed) -> saved. A discard from preview/saved returns to
+// idle. Mirrors the design's robocallRecordBar.
+export type RobocallRecorderStatus =
+  | 'idle'
+  | 'recording'
+  | 'processing'
+  | 'preview'
+  | 'saved'
+
+export interface RobocallRecording {
+  blob: Blob
+  url: string
+  durationSec: number
+}
+
+export interface RobocallRecorder {
+  status: RobocallRecorderStatus
+  // Seconds elapsed while recording (drives the live timer).
+  elapsedSec: number
+  recording: RobocallRecording | null
+  // A getUserMedia / decode failure the UI should surface, or null.
+  error: string | null
+  start: () => void
+  stop: () => void
+  discard: () => void
+  save: () => void
+  uploadFile: (file: File | null | undefined) => void
+  reset: () => void
+}
+
+const MIME_CANDIDATES = ['audio/webm', 'audio/mp4', 'audio/ogg']
+
+const pickMimeType = (): string | undefined => {
+  if (typeof MediaRecorder === 'undefined') return undefined
+  return MIME_CANDIDATES.find((t) => MediaRecorder.isTypeSupported?.(t))
+}
+
+// ~-40 dBFS. A real spoken clip peaks far higher; the failing near-silent clip
+// peaked ~0.0018, so anything under this reads as no audible audio. A quiet but
+// valid clip is unlikely for a candidate speaking into the mic, and the server's
+// empty-transcript backstop turns any false reject into a re-record prompt
+// rather than a hard failure.
+const SILENCE_PEAK_THRESHOLD = 0.01
+// Slack between the wall-clock timer and the decoded length before a clip is
+// treated as truncated (covers trailing silence and rounding).
+const DURATION_SHORTFALL_TOLERANCE_SEC = 2
+export const RECORDING_UNUSABLE_MESSAGE =
+  'Your recording came through empty or cut off. Record again and check ' +
+  'that your microphone is on.'
+
+// Decode the clip with the Web Audio API to measure its REAL length and peak
+// loudness. A browser-recorded WebM carries no container duration, so neither
+// the wall-clock timer nor <audio>.duration can catch a truncated or silent
+// recording; the decoded samples can. Returns null when there is no
+// AudioContext or decoding fails, so the caller ACCEPTS the clip rather than
+// blocking on an inability to verify.
+const decodeAudioStats = async (
+  blob: Blob,
+): Promise<{ durationSec: number; peak: number } | null> => {
+  if (typeof window === 'undefined') return null
+  const AudioCtx =
+    window.AudioContext ??
+    (window as Window & { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext
+  if (!AudioCtx) return null
+  const ctx = new AudioCtx()
+  try {
+    const audio = await ctx.decodeAudioData(await blob.arrayBuffer())
+    let peak = 0
+    for (let ch = 0; ch < audio.numberOfChannels; ch += 1) {
+      const samples = audio.getChannelData(ch)
+      for (let i = 0; i < samples.length; i += 1) {
+        const amp = Math.abs(samples[i] ?? 0)
+        if (amp > peak) peak = amp
+      }
+    }
+    return { durationSec: audio.duration, peak }
+  } catch {
+    return null
+  } finally {
+    void ctx.close()
+  }
+}
+
+// Read an audio file's duration (seconds) via a throwaway <audio> element, so
+// an uploaded clip can be length-checked the same way a recording is. Resolves
+// null when the browser can't decode the file, so the caller rejects it rather
+// than treating an undecodable file as a 0-second (length-passing) clip.
+const readAudioDuration = (url: string): Promise<number | null> =>
+  new Promise((resolve) => {
+    const el = new Audio()
+    el.preload = 'metadata'
+    el.onloadedmetadata = () =>
+      // Round UP: a 60.4s clip exceeds the 60s delivery cap, so it must fail
+      // the > maxSeconds check rather than round down to a passing 60.
+      resolve(Number.isFinite(el.duration) ? Math.ceil(el.duration) : null)
+    el.onerror = () => resolve(null)
+    el.src = url
+  })
+
+export const useRobocallRecorder = (maxSeconds: number): RobocallRecorder => {
+  const [status, setStatus] = useState<RobocallRecorderStatus>('idle')
+  const [elapsedSec, setElapsedSec] = useState(0)
+  const [recording, setRecording] = useState<RobocallRecording | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const capRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Mirror of the elapsed count that onstop can read synchronously — reading
+  // it here keeps side effects out of the setElapsedSec updater, which React
+  // (StrictMode) invokes twice and would otherwise run setCaptured twice.
+  const elapsedRef = useRef(0)
+  // The URL currently held in `recording`; revoked before replacing so
+  // discarded/re-recorded clips don't leak object URLs.
+  const urlRef = useRef<string | null>(null)
+  // False once unmounted, so a getUserMedia promise that resolves after the
+  // flow closes doesn't arm a recorder on a dead component.
+  const mountedRef = useRef(true)
+  // True while a getUserMedia call is in flight, so a second Record click
+  // before it resolves can't open (and leak) a second MediaStream — status is
+  // still 'idle' during that async window, so the UI can't block it. reset()
+  // clears it, which also signals an in-flight start to abort (the flow host
+  // stays mounted, so mountedRef alone can't catch a close/Back mid-prompt).
+  const startingRef = useRef(false)
+  // Bumped on every uploadFile call and on reset, so a superseded/again-reset
+  // duration decode drops its object URL instead of capturing on a stale flow.
+  const uploadReqRef = useRef(0)
+  // Bumped when a recording is armed and on reset, so a capture whose async
+  // decode is still pending drops instead of committing onto a stale/closed
+  // flow (mirrors uploadReqRef for the record path).
+  const captureReqRef = useRef(0)
+
+  const clearTimers = useCallback(() => {
+    if (tickRef.current) {
+      clearInterval(tickRef.current)
+      tickRef.current = null
+    }
+    if (capRef.current) {
+      clearTimeout(capRef.current)
+      capRef.current = null
+    }
+  }, [])
+
+  const stopStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop())
+    streamRef.current = null
+  }, [])
+
+  const revokeUrl = useCallback(() => {
+    if (urlRef.current) {
+      URL.revokeObjectURL(urlRef.current)
+      urlRef.current = null
+    }
+  }, [])
+
+  const setCaptured = useCallback(
+    (rec: RobocallRecording) => {
+      revokeUrl()
+      urlRef.current = rec.url
+      setRecording(rec)
+      setStatus('preview')
+    },
+    [revokeUrl],
+  )
+
+  const stop = useCallback(() => {
+    clearTimers()
+    const rec = recorderRef.current
+    if (rec && rec.state !== 'inactive') rec.stop()
+  }, [clearTimers])
+
+  const start = useCallback(() => {
+    // Synchronous in-flight guard: blocks a double-click before the async
+    // getUserMedia resolves (status is still 'idle' then, so the UI can't).
+    if (startingRef.current) return
+    startingRef.current = true
+    setError(null)
+    if (!navigator.mediaDevices?.getUserMedia) {
+      startingRef.current = false
+      setError('Recording is not supported in this browser')
+      return
+    }
+    navigator.mediaDevices
+      .getUserMedia({ audio: true })
+      .then((stream) => {
+        // Abort if the flow unmounted OR was reset/closed while the mic prompt
+        // was open (reset clears startingRef): release the just-granted stream
+        // and don't arm anything, so the mic never opens on a closed flow.
+        if (!mountedRef.current || !startingRef.current) {
+          stream.getTracks().forEach((t) => t.stop())
+          startingRef.current = false
+          return
+        }
+        streamRef.current = stream
+        chunksRef.current = []
+        const mimeType = pickMimeType()
+        const recorder = new MediaRecorder(
+          stream,
+          mimeType ? { mimeType } : undefined,
+        )
+        recorderRef.current = recorder
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) chunksRef.current.push(e.data)
+        }
+        recorder.onstop = () => {
+          stopStream()
+          if (chunksRef.current.length === 0) {
+            setError('That recording came through empty. Try again.')
+            setStatus('idle')
+            return
+          }
+          // Type the blob from the container the recorder actually negotiated
+          // (recorder.mimeType), not the requested one — Safari ignores the
+          // request and produces audio/mp4, so a hardcoded audio/webm makes
+          // <audio> reject it with "no supported sources".
+          const type = recorder.mimeType || mimeType || 'audio/webm'
+          const blob = new Blob(chunksRef.current, { type })
+          const timerSec = Math.max(1, elapsedRef.current)
+          const captureReq = captureReqRef.current
+          // The mic is closed but the decode is async; show a processing state
+          // so the UI doesn't keep showing an active recording during it.
+          setStatus('processing')
+          // Verify against the DECODED audio, not the wall-clock timer: a
+          // browser-recorded WebM can report 44s on the timer while the blob
+          // holds only its first ~1s chunk, and a silent clip transcribes to
+          // nothing and fails compliance. Reject a truncated or silent clip
+          // here rather than letting it reach the send.
+          void decodeAudioStats(blob).then((stats) => {
+            if (!mountedRef.current || captureReq !== captureReqRef.current) {
+              return
+            }
+            if (
+              stats &&
+              (stats.peak < SILENCE_PEAK_THRESHOLD ||
+                stats.durationSec + DURATION_SHORTFALL_TOLERANCE_SEC < timerSec)
+            ) {
+              setError(RECORDING_UNUSABLE_MESSAGE)
+              setStatus('idle')
+              return
+            }
+            setCaptured({
+              blob,
+              url: URL.createObjectURL(blob),
+              durationSec: stats
+                ? Math.max(1, Math.round(stats.durationSec))
+                : timerSec,
+            })
+          })
+        }
+        captureReqRef.current += 1
+        elapsedRef.current = 0
+        setElapsedSec(0)
+        setStatus('recording')
+        // Timeslice so ondataavailable fires each second instead of only once
+        // at stop — some browsers otherwise deliver nothing on a short clip.
+        recorder.start(1000)
+        tickRef.current = setInterval(() => {
+          elapsedRef.current += 1
+          setElapsedSec(elapsedRef.current)
+        }, 1000)
+        // Hard cap: a recorded clip can never exceed the delivery limit.
+        capRef.current = setTimeout(() => stop(), maxSeconds * 1000)
+        // Recording is armed; the button is now Stop, so release the guard for
+        // the next idle -> record cycle.
+        startingRef.current = false
+      })
+      .catch(() => {
+        startingRef.current = false
+        setError('Microphone permission is required to record')
+      })
+  }, [maxSeconds, setCaptured, stop, stopStream])
+
+  const uploadFile = useCallback(
+    (file: File | null | undefined) => {
+      setError(null)
+      if (!file) return
+      // Match the server's allowlist (what the presign policy will accept), not
+      // a broad audio/* wildcard — otherwise e.g. audio/flac previews fine then
+      // fails at save with a misleading "try re-recording" error.
+      const allowed: readonly string[] = ROBOCALL_AUDIO_ALLOWED_MIME_TYPES
+      if (!allowed.includes(file.type)) {
+        setError('Upload an MP3, WAV, M4A, or OGG file')
+        return
+      }
+      const requestId = uploadReqRef.current + 1
+      uploadReqRef.current = requestId
+      const url = URL.createObjectURL(file)
+      void readAudioDuration(url).then((durationSec) => {
+        // Superseded by a reset (close/Back/re-record) or a newer upload while
+        // the decode was pending: drop this URL, don't capture on a stale flow.
+        if (requestId !== uploadReqRef.current) {
+          URL.revokeObjectURL(url)
+          return
+        }
+        if (durationSec === null) {
+          URL.revokeObjectURL(url)
+          setError("We couldn't read that audio file. Try a different format.")
+          return
+        }
+        if (durationSec > maxSeconds) {
+          URL.revokeObjectURL(url)
+          setError(`Audio must be ${maxSeconds} seconds or less`)
+          return
+        }
+        // Length passed; also confirm the file has audible sound. A silent
+        // upload transcribes to nothing and fails compliance. Null stats means
+        // we couldn't check, so accept rather than block.
+        void decodeAudioStats(file).then((stats) => {
+          if (requestId !== uploadReqRef.current) {
+            URL.revokeObjectURL(url)
+            return
+          }
+          if (stats && stats.peak < SILENCE_PEAK_THRESHOLD) {
+            URL.revokeObjectURL(url)
+            setError('That file has no sound. Choose a different recording.')
+            return
+          }
+          setCaptured({
+            blob: file,
+            url,
+            durationSec: Math.max(1, durationSec),
+          })
+        })
+      })
+    },
+    [maxSeconds, setCaptured],
+  )
+
+  const discard = useCallback(() => {
+    revokeUrl()
+    elapsedRef.current = 0
+    setRecording(null)
+    setElapsedSec(0)
+    setStatus('idle')
+  }, [revokeUrl])
+
+  const save = useCallback(() => {
+    setStatus((s) => (s === 'preview' ? 'saved' : s))
+  }, [])
+
+  const reset = useCallback(() => {
+    clearTimers()
+    // Detach handlers before stopping so an in-flight recording's onstop can't
+    // fire against the just-cleared chunks (a phantom "empty recording" error
+    // or 1s clip); then stop it and release the mic.
+    const rec = recorderRef.current
+    if (rec) {
+      rec.ondataavailable = null
+      rec.onstop = null
+      if (rec.state !== 'inactive') rec.stop()
+    }
+    stopStream()
+    revokeUrl()
+    // Abort any in-flight getUserMedia (start's .then bails on this) and any
+    // pending upload decode.
+    startingRef.current = false
+    uploadReqRef.current += 1
+    captureReqRef.current += 1
+    elapsedRef.current = 0
+    recorderRef.current = null
+    chunksRef.current = []
+    setRecording(null)
+    setElapsedSec(0)
+    setError(null)
+    setStatus('idle')
+  }, [clearTimers, revokeUrl, stopStream])
+
+  // Release the mic, timers, and object URL if the component unmounts
+  // mid-recording or holding a preview.
+  useEffect(() => reset, [reset])
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  return {
+    status,
+    elapsedSec,
+    recording,
+    error,
+    start,
+    stop,
+    discard,
+    save,
+    uploadFile,
+    reset,
+  }
+}

@@ -82,7 +82,6 @@ type StatusFlagKey =
   | 'isVerified'
   | 'isPro'
   | 'isDemo'
-  | 'didWin'
   | 'canDownloadFederal'
 
 const STATUS_FLAG_KEYS: readonly StatusFlagKey[] = [
@@ -90,9 +89,22 @@ const STATUS_FLAG_KEYS: readonly StatusFlagKey[] = [
   'isVerified',
   'isPro',
   'isDemo',
-  'didWin',
   'canDownloadFederal',
 ] as const
+
+// didWin is tri-state, not a flag: null means "no result yet" and is what
+// keeps a campaign active/upgradeable (isActiveCampaign requires
+// didWin === null). Rendering it as a Switch coerced null to false on every
+// save, silently killing Pro eligibility for campaigns staff merely opened
+// and saved (ENG-10892).
+const DID_WIN_OPTIONS = [
+  { value: SELECT_NONE_VALUE, label: 'No result yet' },
+  { value: 'won', label: 'Won' },
+  { value: 'lost', label: 'Lost' },
+] as const
+
+const didWinToOption = (didWin: boolean | null | undefined): string =>
+  didWin === true ? 'won' : didWin === false ? 'lost' : SELECT_NONE_VALUE
 
 const STATUS_FLAGS: { key: StatusFlagKey; label: string }[] =
   STATUS_FLAG_KEYS.map((key) => ({ key, label: CAMPAIGN_FIELDS[key].label }))
@@ -218,7 +230,7 @@ export function CampaignForm({
       isVerified: isVerified ?? false,
       isPro: isPro ?? false,
       isDemo: isDemo ?? false,
-      didWin: didWin ?? false,
+      didWin: didWin ?? null,
       tier,
       canDownloadFederal: canDownloadFederal ?? false,
       data: {
@@ -335,6 +347,17 @@ export function CampaignForm({
     setValue(key, checked, { shouldDirty: true, shouldValidate: true })
   }
 
+  function handleDidWinChange(value: string) {
+    setValue(
+      'didWin',
+      value === 'won' ? true : value === 'lost' ? false : null,
+      {
+        shouldDirty: true,
+        shouldValidate: true,
+      }
+    )
+  }
+
   function handleTierChange(value: string) {
     if (isCampaignTier(value)) {
       setValue('tier', value, { shouldDirty: true, shouldValidate: true })
@@ -404,6 +427,24 @@ export function CampaignForm({
                 />
               </Flex>
             ))}
+            <Flex justify="between" align="center">
+              <Text as="label" size="2">
+                {CAMPAIGN_FIELDS.didWin.label}
+              </Text>
+              <Select.Root
+                value={didWinToOption(watch('didWin'))}
+                onValueChange={handleDidWinChange}
+              >
+                <Select.Trigger aria-label={CAMPAIGN_FIELDS.didWin.label} />
+                <Select.Content>
+                  {DID_WIN_OPTIONS.map(({ value, label }) => (
+                    <Select.Item key={value} value={value}>
+                      {label}
+                    </Select.Item>
+                  ))}
+                </Select.Content>
+              </Select.Root>
+            </Flex>
           </Flex>
         </InfoCard>
 

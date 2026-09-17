@@ -24,7 +24,10 @@ vi.mock('helpers/metadataHelper', () => ({ default: () => ({}) }))
 import Page from './page'
 
 const ROUTE = 'GET /v1/door-knocking/turfs/:id/route'
-const TURFS = 'GET /v1/door-knocking/turfs'
+// By id, not the rail: the rail is scoped by surface and hides an elected
+// official's own list from them, which is what left every Serve sheet titled
+// with the fallback.
+const TURF = 'GET /v1/door-knocking/turfs/:id'
 
 const routePayload = { route: { id: 5 }, pathGeometry: null, stops: [] }
 
@@ -42,9 +45,13 @@ class NotFoundError extends Error {}
 // assertions read the props it handed over.
 const sheetProps = async (
   turfId: string,
-): Promise<{ turfName: string; payload: unknown }> => {
+): Promise<{ turfId: string; turfName: string; payload: unknown }> => {
   const element = await Page({ params: Promise.resolve({ turfId }) })
-  return element.props as { turfName: string; payload: unknown }
+  return element.props as {
+    turfId: string
+    turfName: string
+    payload: unknown
+  }
 }
 
 const render = (turfId: string) => Page({ params: Promise.resolve({ turfId }) })
@@ -60,8 +67,8 @@ beforeEach(() => {
   })
   mockServerRequest.mockImplementation((route: string) => {
     if (route === ROUTE) return Promise.resolve({ data: routePayload })
-    if (route === TURFS) {
-      return Promise.resolve({ data: [{ id: 7, name: 'Elm & Cedar' }] })
+    if (route === TURF) {
+      return Promise.resolve({ data: { id: 7, name: 'Elm & Cedar' } })
     }
     return Promise.reject(new Error(`unexpected route ${route}`))
   })
@@ -70,6 +77,7 @@ beforeEach(() => {
 describe('walk list print Page', () => {
   it('renders the sheet with the turf name', async () => {
     expect(await sheetProps('7')).toEqual({
+      turfId: '7',
       turfName: 'Elm & Cedar',
       payload: routePayload,
     })
@@ -126,6 +134,7 @@ describe('walk list print Page', () => {
     )
 
     expect(await sheetProps('7')).toEqual({
+      turfId: '7',
       turfName: 'Walk list',
       payload: routePayload,
     })

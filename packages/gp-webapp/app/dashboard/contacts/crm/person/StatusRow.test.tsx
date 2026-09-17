@@ -5,15 +5,15 @@ import { useQuery } from '@tanstack/react-query'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useCrmEnabled } from '../../../shared/useCrmEnabled'
+import { useContactsTable } from '../ContactsTableProvider'
 import { useOrganization } from '@shared/organization-picker'
 import { useSnackbar } from 'helpers/useSnackbar'
 import StatusRow from './StatusRow'
 import { makePerson } from '../shared/test-fixtures'
 import type { Person, UpdateContactStatusInput } from '../shared/contacts-types'
 
-vi.mock('../../../shared/useCrmEnabled', () => ({
-  useCrmEnabled: vi.fn(),
+vi.mock('../ContactsTableProvider', () => ({
+  useContactsTable: vi.fn(),
 }))
 
 vi.mock('@shared/organization-picker', () => ({
@@ -30,7 +30,7 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
-const mockedUseCrmEnabled = vi.mocked(useCrmEnabled)
+const mockedUseContactsTable = vi.mocked(useContactsTable)
 const mockedUseOrganization = vi.mocked(useOrganization)
 const mockedUseSnackbar = vi.mocked(useSnackbar)
 
@@ -65,7 +65,7 @@ function Harness({
 
 describe('<StatusRow>', () => {
   beforeEach(() => {
-    mockedUseCrmEnabled.mockReset()
+    mockedUseContactsTable.mockReset()
     mockedUseOrganization.mockReset()
     mockedUseSnackbar.mockReset()
     vi.mocked(trackEvent).mockClear()
@@ -73,7 +73,9 @@ describe('<StatusRow>', () => {
     successSnackbar.mockClear()
     displaySnackbar.mockClear()
 
-    mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+    mockedUseContactsTable.mockReturnValue({
+      isWinContextReady: true,
+    } as ReturnType<typeof useContactsTable>)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockedUseOrganization.mockReturnValue({ slug: ORG_SLUG } as any)
     mockedUseSnackbar.mockReturnValue({
@@ -83,7 +85,7 @@ describe('<StatusRow>', () => {
     })
   })
 
-  it('renders both dropdowns and the opt-in pill for Win + CRM-on', () => {
+  it('renders both dropdowns and the opt-in pill for Win', () => {
     const person = makePerson({
       voterLikelihood: 'likely',
       supportStatus: 'supporter',
@@ -114,7 +116,7 @@ describe('<StatusRow>', () => {
     ).toHaveTextContent('Unknown')
   })
 
-  it('renders nothing for Serve (hidePoliticalParty) even when CRM is enabled', () => {
+  it('renders nothing for Serve (hidePoliticalParty)', () => {
     const person = makePerson()
 
     const { container } = render(
@@ -124,17 +126,13 @@ describe('<StatusRow>', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('renders nothing while the CRM gate is not enabled', () => {
-    mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: false })
-    const person = makePerson()
-
-    const { container } = render(<Harness initialPerson={person} />)
-
-    expect(container).toBeEmptyDOMElement()
-  })
-
-  it('renders nothing while the CRM gate is not ready', () => {
-    mockedUseCrmEnabled.mockReturnValue({ ready: false, enabled: false })
+  // hidePoliticalParty reads false while the elected-office query is still
+  // loading, so an unsettled mode must render nothing rather than flash the
+  // Win-only dropdowns onto a Serve record.
+  it('renders nothing until the Win/Serve mode has settled', () => {
+    mockedUseContactsTable.mockReturnValue({
+      isWinContextReady: false,
+    } as ReturnType<typeof useContactsTable>)
     const person = makePerson()
 
     const { container } = render(<Harness initialPerson={person} />)

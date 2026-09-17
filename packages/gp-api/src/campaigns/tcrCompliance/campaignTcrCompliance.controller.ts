@@ -36,10 +36,27 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PinoLogger } from 'nestjs-pino'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { McpTool } from '@/mcp/decorators/McpTool.decorator'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import {
   ComplianceStateOutputSchema,
   SubmitToPeerlyOutputSchema,
 } from '@goodparty_org/contracts'
+
+// Same pattern as HUBSPOT_PIN_SENT_EMAIL_ID in campaignTcrCompliance.service.ts
+// (ENG-11034): unset in every environment today, pending the Ops-created
+// asset (ENG-11035). Read live rather than cached at module load so a prod
+// cutover needs no redeploy and tests can stub it per-case.
+const getFormSubmittedSingleSendEmailId = (): number | null => {
+  const raw = process.env.HUBSPOT_FORM_SUBMITTED_EMAIL_ID
+  const emailId = raw ? Number(raw) : NaN
+  return Number.isFinite(emailId) ? emailId : null
+}
+
+const getPinSubmittedSingleSendEmailId = (): number | null => {
+  const raw = process.env.HUBSPOT_PIN_SUBMITTED_EMAIL_ID
+  const emailId = raw ? Number(raw) : NaN
+  return Number.isFinite(emailId) ? emailId : null
+}
 
 @Controller('campaigns/tcr-compliance')
 @UsePipes(ZodValidationPipe)
@@ -51,8 +68,54 @@ export class CampaignTcrComplianceController {
     private readonly campaignsService: CampaignsService,
     private readonly analytics: AnalyticsService,
     private readonly logger: PinoLogger,
+    private readonly hubspotSingleSend: HubspotSingleSendService,
   ) {
     this.logger.setContext(CampaignTcrComplianceController.name)
+  }
+
+  // Recipient is the account whose form submission this is (`user.id` is
+  // what already fires the Segment event above) — never an address read off
+  // a HubSpot contact (ENG-11035). Unset HUBSPOT_FORM_SUBMITTED_EMAIL_ID is
+  // a no-op so the existing Segment-event -> HubSpot workflow email path
+  // keeps working unchanged.
+  private async sendFormSubmittedSingleSend(
+    to: string,
+    customProperties: Record<string, string>,
+  ): Promise<void> {
+    const emailId = getFormSubmittedSingleSendEmailId()
+    if (!emailId) {
+      this.logger.debug(
+        'HUBSPOT_FORM_SUBMITTED_EMAIL_ID not set — skipping HubSpot ' +
+          'single-send; the workflow email path still covers this ' +
+          'notification',
+      )
+      return
+    }
+    await this.hubspotSingleSend.sendSingleSend({
+      emailId,
+      to,
+      customProperties,
+    })
+  }
+
+  private async sendPinSubmittedSingleSend(
+    to: string,
+    customProperties: Record<string, string>,
+  ): Promise<void> {
+    const emailId = getPinSubmittedSingleSendEmailId()
+    if (!emailId) {
+      this.logger.debug(
+        'HUBSPOT_PIN_SUBMITTED_EMAIL_ID not set — skipping HubSpot ' +
+          'single-send; the workflow email path still covers this ' +
+          'notification',
+      )
+      return
+    }
+    await this.hubspotSingleSend.sendSingleSend({
+      emailId,
+      to,
+      customProperties,
+    })
   }
 
   @Get('mine')
@@ -99,8 +162,11 @@ export class CampaignTcrComplianceController {
   async resendCampaignVerifyPinForCampaign(
     @Param('campaignId', ParseIntPipe) campaignId: number,
   ) {
+    // user is included so the HubSpot single-send notification (ENG-11034)
+    // has a recipient address without a second query.
     const campaign = await this.campaignsService.findUniqueOrThrow({
       where: { id: campaignId },
+      include: { user: true },
     })
     await this.tcrComplianceService.resendCampaignVerifyPin(campaign)
   }
@@ -137,6 +203,23 @@ export class CampaignTcrComplianceController {
     await this.tcrComplianceService.revokeInternalTestingApproval(campaignId)
   }
 
+  // Admin override for a held pre-submission validation failure (ENG-10965):
+  // lets submission proceed to Peerly despite an unresolved failed verdict.
+  // Scoped to the current filing data — createAgentic clears the override
+  // the next time filingUrl/candidateName actually changes, forcing a fresh
+  // validation on the new data rather than letting the old bypass carry over.
+  @Post('admin/:campaignId/override-cv-validation')
+  @UseGuards(AdminOrM2MGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async overrideCvValidationForCampaign(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+  ) {
+    await this.campaignsService.findUniqueOrThrow({
+      where: { id: campaignId },
+    })
+    await this.tcrComplianceService.overrideCvValidation(campaignId)
+  }
+
   @Post('submit-to-peerly')
   @UseCampaign()
   @HttpCode(HttpStatus.OK)
@@ -146,17 +229,19 @@ export class CampaignTcrComplianceController {
     description:
       "Submit the candidate's TCR/Identity registration to Peerly for " +
       '10DLC compliance. Precondition (enforced by the route): the ' +
-      'compliance stage must be `awaiting_pin` — i.e., the domain is ' +
+      'compliance stage must be `ready_to_submit` — i.e., the domain is ' +
       "registered and the candidate's website is published and " +
-      'verified live, AND the website content is genuine (a real bio ' +
+      'verified live and nothing has been submitted to Peerly yet, AND ' +
+      'the website content is genuine (a real bio ' +
       'of at least 500 characters and at least one real, non-template ' +
       'issue). Calls with any earlier stage return 422; calls with ' +
       'generic or template content return 400. ' +
       'No request body is needed: gp-api reads the EIN, committee name, ' +
-      'office level, election filing details, contact email and phone, ' +
-      "and website host from the candidate's saved compliance record — " +
-      'just call it for the current campaign. gp-api re-validates the ' +
-      'saved filing URL and returns 400 if it is a goodparty.org page, ' +
+      'candidate name, office level, election filing details, contact ' +
+      "email and phone, and website host from the candidate's saved " +
+      'compliance record — just call it for the current campaign. ' +
+      'gp-api re-validates the saved filing URL and returns 400 if it ' +
+      'is a goodparty.org page, ' +
       "the candidate's own campaign website, or (for non-federal " +
       'candidates) an FEC filing URL (CampaignVerify rejects all of ' +
       'those); the candidate must correct their saved filing details ' +
@@ -211,6 +296,18 @@ export class CampaignTcrComplianceController {
         this.logger.error(
           { e },
           `Failed to track agentic compliance form submitted event for user ${user.id}`,
+        )
+      }
+      try {
+        await this.sendFormSubmittedSingleSend(user.email, {
+          source: 'agentic_compliance_flow',
+        })
+      } catch (err) {
+        this.logger.error(
+          { err, userId: user.id },
+          'HubSpot single-send failed for 10DLC Compliance Form ' +
+            'Submitted; the workflow email path still fires from the ' +
+            'Segment event',
         )
       }
     }
@@ -274,6 +371,17 @@ export class CampaignTcrComplianceController {
       this.logger.error(
         { e },
         `Failed to track compliance form submitted event for user ${user.id}`,
+      )
+    }
+    try {
+      await this.sendFormSubmittedSingleSend(user.email, {
+        source: 'compliance_flow',
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, userId: user.id },
+        'HubSpot single-send failed for 10DLC Compliance Form Submitted; ' +
+          'the workflow email path still fires from the Segment event',
       )
     }
 
@@ -350,6 +458,17 @@ export class CampaignTcrComplianceController {
       this.logger.error(
         { e },
         `Failed to track compliance PIN submitted event for user ${user.id}`,
+      )
+    }
+    try {
+      await this.sendPinSubmittedSingleSend(user.email, {
+        source: 'compliance_flow',
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, userId: user.id },
+        'HubSpot single-send failed for 10DLC Compliance PIN Submitted; ' +
+          'the workflow email path still fires from the Segment event',
       )
     }
 

@@ -25,8 +25,8 @@ describe('zCoerceDate / zDate', () => {
     ).not.toThrow()
   })
 
-  // Guards the regression these helpers exist to fix: zod v4 + nestjs-zod v5
-  // throw on a bare ZodDate during SwaggerModule.createDocument.
+  // Guards the regression these helpers exist to fix: zod v4 throws on a bare
+  // ZodDate when a schema is rendered to JSON Schema.
   it('documents that a bare ZodDate is not representable', () => {
     expect(() => z.toJSONSchema(z.object({ d: z.date() }))).toThrow(
       /Date cannot be represented/,

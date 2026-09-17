@@ -8,6 +8,22 @@ import { deriveIsActive } from '@/electedOffice/util/electedOffice.util'
 // the org-list status decoration both import these so the two paths can never
 // diverge — duplicating the logic is the Epic's stated top correctness risk.
 
+// electionDate is a calendar date (UTC midnight); the campaign stays active
+// through the whole election day, so compare UTC calendar days rather than
+// the parsed instant — date-fns endOfDay is local-time and would flip the
+// boundary on non-UTC servers. (isDateTodayOrFuture in date.util is the
+// LOCAL-midnight variant — not interchangeable with this.) Shared with the
+// stale-result reset in CampaignsService.updateJsonFields so "counts as an
+// upcoming election" can't drift between the two.
+export const isUpcomingElectionDate = (
+  electionDate: string,
+  now: Date,
+): boolean => {
+  const parsed = parseIsoDateAsUTC(electionDate)
+  if (!isValid(parsed)) return false
+  return !isAfter(getMidnightForDate(now), parsed)
+}
+
 export const isActiveCampaign = (campaign: Campaign, now: Date): boolean => {
   if (campaign.isDemo) return false
   // A primary loss ends the race even though didWin stays null and the general
@@ -17,13 +33,7 @@ export const isActiveCampaign = (campaign: Campaign, now: Date): boolean => {
   if (campaign.primaryResult === 'lost') return false
   const electionDate = campaign.details?.electionDate
   if (!electionDate) return false
-  const parsed = parseIsoDateAsUTC(electionDate)
-  if (!isValid(parsed)) return false
-  // electionDate is a calendar date (UTC midnight); the campaign stays active
-  // through the whole election day, so compare UTC calendar days rather than
-  // the parsed instant — date-fns endOfDay is local-time and would flip the
-  // boundary on non-UTC servers.
-  return campaign.didWin === null && !isAfter(getMidnightForDate(now), parsed)
+  return campaign.didWin === null && isUpcomingElectionDate(electionDate, now)
 }
 
 // A held office is exactly an "active" office, and isActive is now derived

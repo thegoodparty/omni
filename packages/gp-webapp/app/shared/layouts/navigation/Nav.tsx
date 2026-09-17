@@ -10,12 +10,19 @@ const Nav = (): React.JSX.Element => {
   const pathname = usePathname()
   const hideGlobalNav =
     pathname?.startsWith('/dashboard') ||
+    // The volunteer shell (ENG-11052) draws its own top bar — logo, org
+    // picker, profile dropdown — same reasoning as /dashboard.
+    pathname?.startsWith('/volunteer') ||
     pathname?.startsWith('/onboarding') ||
     // The elected-official ("serve") flow is a focused, full-screen experience
     // with its own logo + stepper chrome (mirroring /onboarding), so the global
     // marketing nav is suppressed here too — pairs with isProductRoute, which
     // already hides the global footer on /serve.
     pathname?.startsWith('/serve') ||
+    // One-time sign-in link redemption: same focused chrome as /serve/welcome,
+    // and showing a marketing "Login" link to someone mid-sign-in is worse than
+    // useless.
+    pathname?.startsWith('/sign-in-link') ||
     // Dev-only surfaces (e.g. the /dev/briefings gallery) reuse dashboard
     // chrome and should not show the marketing nav.
     pathname?.startsWith('/dev')

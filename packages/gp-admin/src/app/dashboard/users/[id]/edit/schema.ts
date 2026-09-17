@@ -32,7 +32,7 @@ export const campaignSchema = z.object({
   isVerified: z.boolean().optional(),
   isPro: z.boolean().optional(),
   isDemo: z.boolean(),
-  didWin: z.boolean().optional(),
+  didWin: z.boolean().nullable().optional(),
   tier: z.nativeEnum(CampaignTier).optional().nullable(),
   canDownloadFederal: z.boolean(),
   data: z

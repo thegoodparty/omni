@@ -3,18 +3,14 @@ import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
-import {
-  acceptCookieBanner,
-  setFlagOverrides,
-} from 'src/helpers/campaignStory.helper'
+import { acceptCookieBanner } from 'src/helpers/campaignStory.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
 
-// The CRM contacts assistant bar (ENG-10737). Client-side gating (win-voter-
-// data + win-crm) is forced via the off-prod flag-override cookie, and the
-// whole chat round trip is stubbed at the network layer — the smoke covers the
-// surface (bar renders, accepts input, opens the drawer, streams a turn),
-// never a live LLM reply. Flag-off behavior stays covered by the existing
-// contacts specs, which this file does not touch.
+// The CRM contacts assistant bar (ENG-10737). Win CRM is unconditional (the
+// win-crm flag hit 100% and was removed, ENG-11009), so no override cookie is
+// needed to reach it. The whole chat round trip is stubbed at the network
+// layer — the smoke covers the surface (bar renders, accepts input, opens the
+// drawer, streams a turn), never a live LLM reply.
 const CONVERSATION_ID = 'e2e-conversation'
 const ASSISTANT_MESSAGE_ID = 'e2e-assistant-1'
 const USER_PROMPT = 'Build me a list of young supporters'
@@ -43,7 +39,6 @@ test.describe('CRM assistant bar', () => {
     test.setTimeout(2 * 60 * 1000)
     await blockSlowScripts(page)
     await acceptCookieBanner(page)
-    await setFlagOverrides(page, { 'win-crm': 'on' })
     await authenticateTestUser(page)
 
     // Stub the general-chats endpoints before any navigation. The transcript

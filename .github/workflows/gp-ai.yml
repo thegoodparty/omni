@@ -16,9 +16,13 @@ permissions:
   contents: read
   id-token: write
 
+# Cancel superseded PR runs: a new push makes the in-flight result irrelevant,
+# and while cancel was off the new run also queued behind it. Safe for the two
+# jobs that touch AWS — the image build only pushes to ECR on main, and the
+# terraform plans run -lock=false, so neither can strand state. Never on main.
 concurrency:
   group: gp-ai-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   AWS_REGION: us-west-2
@@ -49,6 +53,12 @@ jobs:
             infra:
               - 'packages/gp-ai/infrastructure/**'
               - '.github/workflows/gp-ai.yml'
+              # The release train is where these roots are actually applied, so
+              # editing its apply steps is an infra change even though the file
+              # lives elsewhere. Without this, deleting an apply step touches no
+              # path this filter matches, and the coverage check below — the one
+              # thing that would notice — never runs.
+              - '.github/workflows/release.yml'
             python:
               - 'packages/gp-ai/**/*.py'
               - 'packages/gp-ai/pyproject.toml'
@@ -80,11 +90,21 @@ jobs:
               - 'packages/gp-ai/shared/**'
               - 'packages/gp-ai/pyproject.toml'
               - 'packages/gp-ai/uv.lock'
+            autopilot-agent:
+              - 'packages/gp-ai/autopilot/**'
+              - 'packages/gp-ai/shared/**'
+              - 'packages/gp-ai/pyproject.toml'
+              - 'packages/gp-ai/uv.lock'
+            autopilot-agent-playwright:
+              - 'packages/gp-ai/autopilot/**'
+              - 'packages/gp-ai/shared/**'
+              - 'packages/gp-ai/pyproject.toml'
+              - 'packages/gp-ai/uv.lock'
 
       # Collapse the per-service booleans into a JSON array the build matrix
       # consumes, so only changed services get a build job. An empty array
       # skips the build job entirely rather than running a no-op matrix.
-      # EVERY main push builds all five images and deploys, whether or not this
+      # EVERY main push builds all seven images and deploys, whether or not this
       # commit touched packages/gp-ai. The invariant is "the deployed artifact
       # corresponds to the commit on main" — with no exceptions to reason about.
       #
@@ -104,13 +124,13 @@ jobs:
           ALL: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
         run: |
           set -euo pipefail
-          all='["broker","pmf-engine","serve-analyze","ddhq-matcher","engineer-agent"]'
+          all='["broker","pmf-engine","serve-analyze","ddhq-matcher","engineer-agent","autopilot-agent","autopilot-agent-playwright"]'
           if [ "$ALL" = "true" ]; then
             list="$all"
             echo "main push: building all services so every one has an image at this SHA"
           else
             list='[]'
-            for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent; do
+            for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent autopilot-agent autopilot-agent-playwright; do
               if [ "$(jq -r --arg s "$s" '.[$s] // "false"' <<<"$FILTERS")" = "true" ]; then
                 list=$(jq -c --arg s "$s" '. + [$s]' <<<"$list")
               fi
@@ -125,7 +145,7 @@ jobs:
     # Also unconditional on main, for the same reason the build is. Gating this
     # on the path filter while the build ignores it opens a bypass: a commit
     # touching nothing under packages/gp-ai skips lint/test but still builds and
-    # deploys all five services — carrying along any broken Python an earlier
+    # deploys all seven services — carrying along any broken Python an earlier
     # commit left in the tree. Deployed code must have been validated at the
     # commit it is deployed from.
     if: >-
@@ -205,12 +225,34 @@ jobs:
         id: df
         run: |
           case "${{ matrix.service }}" in
-            broker)         echo "file=packages/gp-ai/broker/Dockerfile" ;;
-            pmf-engine)     echo "file=packages/gp-ai/pmf_engine/Dockerfile" ;;
-            serve-analyze)  echo "file=packages/gp-ai/serve/v1_pipeline/Dockerfile" ;;
-            ddhq-matcher)   echo "file=packages/gp-ai/hubspot_ddhq_match/deployment/Dockerfile" ;;
-            engineer-agent) echo "file=packages/gp-ai/engineer_agent/Dockerfile" ;;
+            broker)                     echo "file=packages/gp-ai/broker/Dockerfile" ;;
+            pmf-engine)                 echo "file=packages/gp-ai/pmf_engine/Dockerfile" ;;
+            serve-analyze)              echo "file=packages/gp-ai/serve/v1_pipeline/Dockerfile" ;;
+            ddhq-matcher)               echo "file=packages/gp-ai/hubspot_ddhq_match/deployment/Dockerfile" ;;
+            engineer-agent)             echo "file=packages/gp-ai/engineer_agent/Dockerfile" ;;
+            autopilot-agent)            echo "file=packages/gp-ai/autopilot/Dockerfile" ;;
+            autopilot-agent-playwright) echo "file=packages/gp-ai/autopilot/Dockerfile" ;;
           esac >> "$GITHUB_OUTPUT"
+
+          # Only the autopilot Dockerfile bakes in a second, named build
+          # context (a runbooks checkout — see its header comment), and only
+          # the -playwright variant needs Chromium installed. Repo-root
+          # relative because actions/checkout puts CI's cwd at the repo root,
+          # not packages/gp-ai. Every other service gets empty values, which
+          # docker/build-push-action treats as "nothing extra".
+          case "${{ matrix.service }}" in
+            autopilot-agent|autopilot-agent-playwright)
+              echo "build-contexts=runbooks=packages/runbooks" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "build-contexts=" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+          if [ "${{ matrix.service }}" = "autopilot-agent-playwright" ]; then
+            echo "build-args=INSTALL_PLAYWRIGHT=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build-args=" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -241,6 +283,8 @@ jobs:
           # build.
           context: packages/gp-ai
           file: ${{ steps.df.outputs.file }}
+          build-contexts: ${{ steps.df.outputs.build-contexts }}
+          build-args: ${{ steps.df.outputs.build-args }}
           platforms: linux/arm64
           push: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
           # SHA-tagged and immutable — the only tag written. The mutable
@@ -279,6 +323,14 @@ jobs:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
+
+      # First, before the credentials and the terraform install, because it needs
+      # neither and it catches the one defect this job structurally cannot: it
+      # plans dev roots only, so a prod-only root gets no coverage here at all.
+      # That is how prod/alert-filter merged with no apply step and took the
+      # release train down for a day. Runs in about a second.
+      - name: Check every terraform root is deployed
+        run: bash packages/gp-ai/infrastructure/scripts/ci-check-root-coverage.sh
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v5
@@ -331,6 +383,12 @@ jobs:
       - name: plan dev/agent-run-inputs
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/agent-run-inputs
+      - name: plan dev/autopilot-agent-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/autopilot-agent-fargate autopilot-agent-${{ github.sha }} autopilot-agent-playwright-${{ github.sha }}
+      - name: plan dev/autopilot-bot
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/autopilot-bot
       - name: plan dev/broker
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/broker broker-${{ github.sha }}
@@ -469,6 +527,17 @@ jobs:
             } else if (errored.length) {
               core.setFailed(`terraform plan failed for: ${errored.map(r => r.slug).join(', ')}`)
             }
+
+      # Runs after the comment above so a PR always gets the plan comment even
+      # when this guard is about to fail the job. Simulates the SAME deploy
+      # role this job already assumed (Configure AWS Credentials, above)
+      # against every create/update/delete change the plans just produced,
+      # catching an apply-time IAM gap here instead of on the release train.
+      # No logic here on purpose (see repo convention: nothing computed in
+      # YAML) — everything (the resource -> IAM action/ARN table, batching,
+      # the fail-open bootstrap rule) lives in the two scripts.
+      - name: Simulate apply-time IAM permissions
+        run: bash packages/gp-ai/infrastructure/scripts/ci-simulate-apply-perms.sh
 
   # Stable aggregation gate. Branch protection and the release train want one name
   # whose meaning doesn't change as jobs fan in and out. `skipped` is a

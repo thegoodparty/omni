@@ -7,6 +7,7 @@ import { AwsModule } from '@/vendors/aws/aws.module'
 import { LlmModule } from '@/llm/llm.module'
 import { CronModule } from '@/cron/cron.module'
 import { DashboardCardsModule } from '@/dashboardCards/dashboardCards.module'
+import { CrmModule } from '@/crm/crmModule'
 import { BriefingsPdfController } from './controllers/briefingsPdf.controller'
 import { BriefingsPdfRateLimitGuard } from './controllers/briefingsPdfRateLimit.guard'
 import { MeetingsBriefingsController } from './controllers/meetingsBriefings.controller'
@@ -26,6 +27,7 @@ import { UserAgendaUploadService } from './services/userAgendaUpload.service'
     LlmModule,
     CronModule,
     DashboardCardsModule,
+    CrmModule,
   ],
   controllers: [MeetingsBriefingsController, BriefingsPdfController],
   providers: [

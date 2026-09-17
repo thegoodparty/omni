@@ -2,6 +2,7 @@
 
 import React, { ReactNode, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { Spinner } from '@styleguide'
 import { useFlagOn } from './FeatureFlagsProvider'
 
 interface FeatureFlagGuardProps {
@@ -26,8 +27,8 @@ export default function FeatureFlagGuard({
 
   if (!flagsReady) {
     return (
-      <div className="flex justify-center items-center h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="flex h-screen items-center justify-center">
+        <Spinner />
       </div>
     )
   }

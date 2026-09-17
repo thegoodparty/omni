@@ -45,7 +45,8 @@ export function createAssetsBucket({ environment }: AssetsBucketConfig): {
         allowedMethods: ['GET', 'POST', 'PUT'],
         allowedOrigins: select({
           dev: ['http://localhost:4000', 'https://dev.goodparty.org'],
-          prod: ['https://goodparty.org'],
+          // Prod app runs on the app. subdomain; allow apex + app. origins.
+          prod: ['https://goodparty.org', 'https://app.goodparty.org'],
         }),
       },
     ],

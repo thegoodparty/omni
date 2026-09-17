@@ -9,8 +9,7 @@ import AssistantBar from './AssistantBar'
 import AssistantDrawer, { type AssistantRequest } from './AssistantDrawer'
 
 // The contacts-page assistant: the persistent bottom bar plus the right-side
-// conversation drawer. Mounted inside CrmContactsPage, so the CRM flag gate
-// (ContactsPageGate) already keeps flag-off pages byte-identical.
+// conversation drawer. Mounted inside CrmContactsPage.
 export default function CrmAssistant(): React.JSX.Element | null {
   const { isWinContext, isWinContextReady } = useContactsTable()
   const [drawerOpen, setDrawerOpen] = useState(false)

@@ -22,7 +22,7 @@ vi.mock('../data/chat-api', () => ({
 
 // Stub dictation so the auto-start effect can be asserted without touching the
 // real getUserMedia/WebSocket stack.
-vi.mock('../../briefings/shared/useDictationAppend', () => ({
+vi.mock('../../shared/dictation/useDictationAppend', () => ({
   useDictationAppend: () => ({
     status: 'idle',
     error: null,

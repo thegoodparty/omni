@@ -1,6 +1,7 @@
 import { IncomingRequest } from '@/authentication/authentication.types'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
+import { APP_ROOT } from '@/shared/util/appEnvironment.util'
 import {
   BadRequestException,
   Body,
@@ -24,6 +25,7 @@ import { ZodValidationPipe } from 'nestjs-zod'
 import { Roles } from 'src/authentication/decorators/Roles.decorator'
 import { UsersService } from 'src/users/services/users.service'
 import { AdminCreateUserSchema } from './schemas/AdminCreateUser.schema'
+import { AdminSignInLinkSchema } from './schemas/AdminSignInLink.schema'
 import {
   AdminUserListSchema,
   DateRangeFilter,
@@ -113,6 +115,52 @@ export class AdminUsersController {
 
     const user = await this.usersService.findUniqueOrThrow({ where: { id } })
     return this.usersService.impersonateUser(user.id, actorClerkId)
+  }
+
+  @Post('sign-in-link/:id')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AdminOrM2MGuard)
+  async createSignInLink(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: IncomingRequest,
+    @Body() body: AdminSignInLinkSchema,
+  ) {
+    const user = await this.usersService.findUniqueOrThrow({ where: { id } })
+    const { token, expiresAt } = await this.usersService.createSignInLink(
+      user.id,
+    )
+
+    const actorClerkId =
+      req.actorUser?.clerkId ?? req.user?.clerkId ?? req.actorSub ?? null
+
+    // Minting a link is not permission-gated in gp-admin, so this line is the
+    // only record of who did it. actorEmail is read straight off the body
+    // rather than through resolveActorClerkId, which hard-fails an M2M caller
+    // that supplies none — and this route must stay callable without one.
+    this.logger.info(
+      {
+        targetUserId: user.id,
+        targetClerkId: user.clerkId,
+        actorEmail: body.actorEmail ?? null,
+        actorClerkId,
+        actorSource: body.actorEmail
+          ? 'actorEmail'
+          : actorClerkId
+            ? 'session'
+            : 'unknown',
+        authSource: req.user ? 'user' : 'm2m',
+        expiresAt,
+      },
+      'Created admin sign-in link',
+    )
+
+    // Return only the ticketed URL — the raw sign-in token is already embedded
+    // in `url` as __clerk_ticket, so returning it separately would only spread
+    // the credential through extra logs and proxies.
+    const url = `${APP_ROOT}/sign-in-link?__clerk_ticket=${encodeURIComponent(
+      token,
+    )}`
+    return { url, expiresAt }
   }
 
   // Resolves which Clerk ID to embed as actor.sub in the impersonation token.

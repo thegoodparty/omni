@@ -55,15 +55,11 @@ dated task cards the candidate works through and marks complete.
 - A **Monday digest** emails the candidate their top 3 uncompleted tasks for
   the week (the digest still caps at 3; only the page shows all).
 
-## Lifecycle (coexists with the legacy path, gated on campaign story)
+## Lifecycle
 
-The tracker is the **campaign-story cohort's** experience. It takes the campaign
-story (why / background / issues) as input, so it only exists once a campaign
-goes through Campaign Story. The legacy `campaign_task` path is fully preserved
-for the story-off cohort. This is deliberately **not** a hard flip, so the
-branch is safe to ship to prod while `campaign-story` is still gated there.
-
-Story cohort (`campaign-story` on):
+Every candidate goes through Campaign Story and gets the tracker — the webapp
+no longer reads a flag (ENG-11013). The tracker takes the campaign story (why /
+background / issues) as input:
 
 1. Candidate completes **Campaign Story** (why / background / issues).
 2. **Campaign Plan** generates (the `campaignStrategy` opposition + opportunity
@@ -75,29 +71,17 @@ Story cohort (`campaign-story` on):
    the upcoming Monday-Sunday week and refreshes events. The Thursday cadence
    gives the downstream ClickUp email automations ~3 days to fire before Monday.
 
-Story-off cohort (legacy, = prod today): no campaign story, so the plan still
-generates but the tracker never bootstraps. The candidate keeps the legacy
-onboarding success page, the dashboard `campaign_task` list, the
-`community_events` JSON column, and the legacy weekly digest, exactly as before
-the tracker shipped.
+The bootstrap gate is **`campaign_story` existence (data)**, not a flag — a
+pre-existing campaign with no story row still generates a plan but never
+bootstraps the tracker (see Legacy `campaign_task` remnant below).
 
-Two gate signals:
-
-- the **`campaign-story` flag** gates routing + which UI surfaces render
-  (post-pledge route, dashboard task slot, campaign-plan page layout);
-- **`campaign_story` existence (data)** gates the tracker bootstrap, so the
-  tracker can't materialize for a campaign that never wrote a story regardless
-  of flag state.
-
-Because those two signals can disagree — an account flagged on but with no (or
-an incomplete) story, e.g. one that generated a plan **before** the flag was
-turned on — the **campaign-plan router also gates the UI on story completeness**,
-not just the flag. `CampaignPlanRouter` reads `useCampaignStoryComplete` (bio +
-`background` + at least one issue) and, for the story cohort, shows the
-plan/tracker only once the story is complete; an incomplete story is routed to
-the existing "finish your Campaign Story" gate (`CampaignPlanStoryGate`) instead
-of a tracker stuck on "setting up" forever. This keeps the frontend gate aligned
-with the bootstrap's data gate.
+Because a plan can exist without a complete story (e.g. one generated before
+this rollout), the **campaign-plan router also gates the UI on story
+completeness**. `CampaignPlanRouter` reads `useCampaignStoryComplete` (bio +
+`background` + at least one issue) and shows the plan/tracker only once the
+story is complete; an incomplete story is routed to the "finish your Campaign
+Story" gate (`CampaignPlanStoryGate`) instead of a tracker stuck on "setting up"
+forever. This keeps the frontend gate aligned with the bootstrap's data gate.
 
 ## Data model
 
@@ -115,8 +99,7 @@ completion / CTA / update-history machinery is reused against it.
 | `completed` | per-task completion; `updateHistoryId` links voter-contact logging |
 
 `CampaignStrategy.trackerBootstrapped` (boolean) is the one-shot bootstrap
-claim (see Bootstrap below). The legacy `campaign_strategy.community_events`
-JSON column is dead but left in place.
+claim (see Bootstrap below).
 
 ### The append (generation) model
 
@@ -156,6 +139,12 @@ calls `CampaignTrackerTasksService.bootstrapForCampaign`:
    (`staticTrackerTasks.util.ts`), anchored to the upcoming Monday, plus the **7
    outreach sends** (`buildOutreachTrackerTaskRows`) dated against the general
    election (skipped entirely if the primary was already lost; see below).
+   A general date that has already passed is ignored in favor of an upcoming
+   primary, and with no upcoming date at all no outreach rows are written: a
+   returning candidate's campaign row keeps last cycle's `electionDate` until
+   they update their race, and one-shot rows dated off it would outlive the fix.
+   Upstream, `getOrGenerateStrategicLandscape` refuses (400) to generate a plan
+   for a past `electionDate` at all.
 3. **Dispatch** the initial CAP run (`mode = initial`, high priority).
 
 **Static rows are also materialized eagerly, at plan-generation start.**
@@ -315,77 +304,45 @@ The table below is the cross-package file index:
 - `CampaignStrategySection.tsx` renders only from persisted tracker rows
   (loading / error / a "setting up your tracker" state while bootstrap is in
   flight, then the accordion). There is **no** client-side catalog fallback.
-  The section is rendered only for the story cohort (`CampaignPlanView` branches
-  on the `campaign-story` flag), so a no-rows state means bootstrap hasn't
-  landed yet, not "legacy campaign with no tracker."
-- `CampaignPlanView.tsx` is the cohort switch on the campaign-plan page: story
-  cohort gets the tracker hero + `CampaignStrategySection` above the plan;
-  story-off gets the legacy plan content (strategic landscape, **community
-  events**, voter insights) with no tracker. It gates the legacy
-  community-events poll (`useCampaignPlanData(_, communityEventsEnabled)`) off
-  for the story cohort.
+  `CampaignPlanView` renders it unconditionally now, so a no-rows state means
+  bootstrap hasn't landed yet, not "legacy campaign with no tracker" — a
+  campaign whose bootstrap never ran (no `campaign_story` row) instead falls
+  through to the story-completeness gate, never this section.
+- `CampaignPlanView.tsx` renders the tracker hero + `CampaignStrategySection`
+  above the plan unconditionally. The legacy community-events poll
+  (`useCampaignPlanData`) was removed along with the onboarding success page
+  it served.
 
 ## Rollout and ops
 
 - **Weekly cron:** `CAMPAIGN_TRACKER_AUTOMATION_ENABLED=true` (env) turns on
   Thursday regeneration. Ships disabled.
-- **Flow gating:** the `campaign-story` flag is the master switch for the new
-  flow (routing, dashboard task slot, campaign-plan page layout); `campaign_story`
-  existence gates the bootstrap. Story-off is a fully usable legacy fallback
-  (success page, legacy dashboard tasks, legacy digest), so the flag can ramp
-  safely and the branch is safe to merge while `campaign-story` is off in prod.
-  `campaign-strategy` gates the campaign-plan page itself.
+- **Bootstrap gate:** `campaign_story` existence gates the bootstrap — a
+  pre-existing campaign with no story row never bootstraps (see Legacy
+  `campaign_task` remnant below).
 - Cost is roughly $0.94 per candidate per run (validated on dev cohorts;
   approved by Bryan).
 - Preview envs have no agent-dispatch queue, so generation no-ops there.
 
-## Teardown (when campaign-story is fully ramped)
+## Legacy `campaign_task` remnant
 
-Everything in this section exists **only** to keep the story-off (pre-tracker)
-experience working during coexistence. Once `campaign-story` is ramped to 100%
-in prod and the legacy cohort is empty, remove it. This is the checklist for
-that cleanup PR.
+The webapp no longer reads a flag (ENG-11013) and gp-api's legacy digest,
+default-task generator, and community-events backend are torn down
+(ENG-11015). What's left is data-shaped, not code-shaped: a pre-existing
+campaign with no `campaign_story` row never bootstrapped the tracker, so it
+has no `campaign_tracker_tasks` rows. Its legacy `campaign_task` rows (if any
+were generated before the teardown) are still readable and completable via
+`CampaignTasksController` (`GET/complete/uncomplete /campaigns/tasks`), and
+`notifySlackOnProUpgrade` still has a legacy branch that posts the
+plan-summary Slack message for that cohort — nothing generates new
+`campaign_task` rows or emails a digest for them anymore.
 
-**gp-api**
+Dropping the `campaign_task` table itself needs a follow-up: those completion
+routes and the Slack legacy branch still query it directly, and gp-webapp's
+call sites for the routes should be confirmed gone (they already don't appear
+in the current codebase) before the table goes.
 
-- **Digest:** delete `fetchLegacyDigestRows` and the
-  `NOT EXISTS (campaign_tracker_tasks)` guard in
-  `weeklyTasksDigestHandler.service.ts`; the handler collapses back to the
-  single tracker query (and its unit/integration tests for the legacy cohort).
-- **Legacy generator:** `campaignTasks.service.ts → generateDefaultTasks` and
-  the `@Sse('generate/stream')` controller route, once nothing calls them.
-- **Community events backend:** the `communityEvents` service / persister /
-  prompts / schema, the `POST /campaignStrategy/mine/community-events` route,
-  and the `campaign_strategy.community_events` JSON column (a migration).
-- **`campaign_task` table** itself, after confirming no remaining readers
-  (completion history, exports, analytics).
-- **Slack:** `notifySlackDefaultTasksCreated` / `notifySlackOnProUpgrade` /
-  `sendCampaignPlanSlackMessage` in `campaignTasks.service.ts`. See the known
-  gap below first.
-
-**gp-webapp**
-
-- **Routing:** collapse `resolvePostPledgeRoute` to always
-  `/dashboard/campaign-story` (drop the success-page and dashboard branches).
-- **Onboarding success page:** the `/onboarding/success` tree and its
-  community-events pieces (`useCommunityEvents`, `planContent` `civicEvents`, the
-  PlanSections Community Events subsection, the PDF Community Events table, the
-  SuccessPage events wiring), plus the `prewarmCommunityEvents` call in
-  `OnboardingFlow`.
-- **`useCampaignPlanData`:** drop the `communityEventsEnabled` param (always
-  off once there is no legacy cohort).
-- **`CampaignManager`:** drop the story-off branch and `LegacyDashboardTasks`
-  (and the then-unused `useTaskGenerationStream`, `TasksList`, `LoadingState`,
-  `FailedToGenerate`, `EmptyState` if nothing else imports them).
-- **`CampaignPlanView`:** drop the story-off (legacy plan) branch and render the
-  tracker unconditionally.
-- **Flag reads:** remove `campaign-story` gating from `CampaignPlanRouter`,
-  `CampaignPlanView`, `CampaignManager`, `DashboardMenu`, and `OnboardingFlow`.
-
-**Flags:** retire the `campaign-story` flag in Amplitude (and revisit
-`campaign-strategy`) once the UI no longer reads it.
-
-### Slack notifications (all Pro-only, all to `casClickupTasks`)
+## Slack notifications (all Pro-only, all to `casClickupTasks`)
 
 Three triggers post the relevant week's tasks to the CAS channel for **Pro**
 candidates, all mirroring the legacy campaign-plan message format:

@@ -2,7 +2,10 @@ import { Injectable } from '@nestjs/common'
 import { CampaignStoryService } from '@/campaignStory/services/campaignStory.service'
 import { CampaignStoryRewriteService } from '@/campaignStory/services/campaignStoryRewrite.service'
 import type { RewriteCampaignStoryInput } from '@/campaignStory/schemas/rewriteCampaignStory.schema'
-import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
+import type {
+  StrategicLandscapeFailedReason,
+  StrategicLandscapeResult,
+} from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { WebsitesService } from '@/websites/services/websites.service'
@@ -171,7 +174,9 @@ export class CampaignStoryIntakeService {
   // Same completion path as the story page → plan tab: kick off plan generation,
   // which materializes the tracker's static rows now and bootstraps its dynamic
   // generation once the plan's sections persist.
-  async generate(campaignId: number): Promise<{ status: string }> {
+  async generate(
+    campaignId: number,
+  ): Promise<{ status: string; reason?: StrategicLandscapeFailedReason }> {
     // Backstop the prompt: never dispatch plan generation with an unfinished
     // story (a misfiring early generate call), which would build from empty
     // content. 'incomplete' is handled in the manager prompt's status guidance.
@@ -188,8 +193,9 @@ export class CampaignStoryIntakeService {
     if (!campaign) {
       throw new Error(`Campaign ${campaignId} not found during generate`)
     }
-    const { status } =
-      await this.strategy.getOrGenerateStrategicLandscape(campaign)
-    return { status }
+    const result = await this.strategy.getOrGenerateStrategicLandscape(campaign)
+    return result.status === 'failed'
+      ? { status: result.status, reason: result.reason }
+      : { status: result.status }
   }
 }

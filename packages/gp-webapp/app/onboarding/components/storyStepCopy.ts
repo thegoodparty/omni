@@ -1,5 +1,5 @@
 // Shared copy for the Campaign Story cards so the onboarding steps and the
-// standalone "Your story" dashboard page read identically.
+// standalone "Your Story" dashboard page read identically.
 
 // The question is the step's page heading (onboarding) / card heading
 // (dashboard). In onboarding the card inside the step uses the shorter label

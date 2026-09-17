@@ -1,0 +1,14 @@
+1920	01e5c36fa56bc81cefc1ecda594ee57ba063fe79	2026-09-17T16:21:08Z	bryclevgp	https://github.com/thegoodparty/omni/pull/1920	fix(serve): stop asking constituents how they will vote
+1919	1ee05bc637154236a32ed5ebef6709d9ffcc8645	2026-09-17T16:17:57Z	oakinh	https://github.com/thegoodparty/omni/pull/1919	Report PRs that delegate-reviewer never reviewed
+1918	3073d43a28b4a1cb30a5f3070c6461c5d05cfd19	2026-09-17T16:10:31Z	oakinh	https://github.com/thegoodparty/omni/pull/1918	Unbreak the two bots that watch the release train
+1915	be55261d19f37f5c1b43055e9c94e0d242a99861	2026-09-17T15:59:01Z	oakinh	https://github.com/thegoodparty/omni/pull/1915	Stop telling callers to retry an AWS request that can never succeed
+1910	0d81ab0b6a2060446efd4e456054ef67c24acdb0	2026-09-17T15:30:45Z	stephtea	https://github.com/thegoodparty/omni/pull/1910	Post robocall campaigns to the CAS Slack channel again
+1905	67da5216503fe69fdd77dcf97b78243eede86a43	2026-09-17T14:36:42Z	app/delegate-gp	https://github.com/thegoodparty/omni/pull/1905	[GP-Bot] ENG-10660 Cancel Stripe subscription when admin de-Pros a campaign
+1896	296a38f26d599ebff5f204ba74980d91700bc7bd	2026-09-17T13:52:05Z	oakinh	https://github.com/thegoodparty/omni/pull/1896	Describe the domain flow the code actually runs
+1890	a884375b916147b770a6d6a718b8cdf7271d2d79	2026-09-17T13:14:05Z	melecia-gp	https://github.com/thegoodparty/omni/pull/1890	Add the professional-advice disclaimer check to Campaign Manager
+1877	0d5c905ce90483dc783e5d70fbf19a95a04036ff	2026-09-16T18:13:59Z	samuelgoodparty	https://github.com/thegoodparty/omni/pull/1877	Hang an affected-residents list off one issue, not off the whole feed
+1241	40e3ff310f9aaa1862d41e95dac243a357267b8e	2026-08-13T15:12:27Z	oakinh	https://github.com/thegoodparty/omni/pull/1241	feat(gp-api): text sales-sent onboarding magic links over SMS
+1137	76dd5b7dce6a38d13f2f19c03997d737bffdd7ae	2026-08-04T18:09:03Z	app/dependabot	https://github.com/thegoodparty/omni/pull/1137	chore(deps): bump the npm_and_yarn group across 2 directories with 1 update
+1047	44e6363d21bd41ef87c0207377dc9e58d6b1e79b	2026-07-28T01:57:29Z	app/dependabot	https://github.com/thegoodparty/omni/pull/1047	chore(deps): bump the npm_and_yarn group across 3 directories with 1 update
+710	caa02ae64bc73311689be17435aaed4e3b71624a	2026-07-10T16:00:22Z	stephtea	https://github.com/thegoodparty/omni/pull/710	chore(skills): add ui-clone skill for UI reverse-engineering
+314	c23079a7613ccf7f0a7009303009b20e0a5b1404	2026-06-23T17:39:44Z	stephtea	https://github.com/thegoodparty/omni/pull/314	feat(cos): footer mic opens chat and starts dictation

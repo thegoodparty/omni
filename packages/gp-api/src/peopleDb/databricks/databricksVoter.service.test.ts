@@ -1,0 +1,702 @@
+import {
+  BadGatewayException,
+  BadRequestException,
+  GatewayTimeoutException,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  aggregatesSchema,
+  listPeopleSchema,
+  overlapCountSchema,
+  samplePeopleSchema,
+} from '../schemas/people.schema'
+import { filtersSchema, type FilterData } from '../schemas/filters.schema'
+import { DatabricksVoterService } from './databricksVoter.service'
+import type { DbxDistrict } from './databricksVoterSql.util'
+import {
+  PeopleDbxStatementClient,
+  PeopleDbxStatementTooLargeError,
+  PeopleDbxTimeoutError,
+  PeopleDbxUnavailableError,
+} from './peopleDbxStatement.client'
+
+const DISTRICT_ID = '635757db-1111-4111-8111-111111111111'
+const STATE_DISTRICT_ID = 'aaaaaaaa-1111-4111-8111-111111111111'
+
+describe('DatabricksVoterService', () => {
+  let query: ReturnType<typeof vi.fn>
+  let findDistrictById: ReturnType<typeof vi.fn>
+  let logger: {
+    warn: ReturnType<typeof vi.fn>
+    error: ReturnType<typeof vi.fn>
+  }
+  let service: DatabricksVoterService
+
+  // The district comes from Postgres now, so queueing one is not a warehouse
+  // query -- which is the point: `query` call counts below no longer include it.
+  const stubDistrict = (type: string, name: string, id = DISTRICT_ID) =>
+    findDistrictById.mockResolvedValueOnce({ id, type, name, state: 'CA' })
+
+  const stubClient = (): PeopleDbxStatementClient =>
+    ({ query }) as unknown as PeopleDbxStatementClient
+
+  beforeEach(() => {
+    query = vi.fn()
+    findDistrictById = vi.fn()
+    logger = { warn: vi.fn(), error: vi.fn() }
+    service = new DatabricksVoterService(
+      {
+        setContext: vi.fn(),
+        info: vi.fn(),
+        warn: logger.warn,
+        error: logger.error,
+        debug: vi.fn(),
+      } as never,
+      stubClient(),
+      { findDistrictById } as never,
+    )
+  })
+
+  describe('resolveDistrict', () => {
+    it('scopes a normal district on its L2 column, not the junction', async () => {
+      stubDistrict('US_Congressional_District', '29')
+
+      const district = await service.resolveDistrict(DISTRICT_ID)
+
+      expect(district.districtType).toBe('US_Congressional_District')
+      expect(district.districtName).toBe('29')
+      expect(district.useVoterOnlyPath).toBe(false)
+      // Resolution costs no warehouse query at all now: the district comes from
+      // election-api and the type is validated by shape, not by a lookup.
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    it('takes the voter-only path for a State district named for its state', async () => {
+      stubDistrict('State', 'CA', STATE_DISTRICT_ID)
+
+      const district = await service.resolveDistrict(STATE_DISTRICT_ID)
+
+      expect(district.useVoterOnlyPath).toBe(true)
+      // Nothing is interpolated on this path, so there is no column to check --
+      // and the district itself no longer costs a warehouse query either.
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    it('keeps the district predicate for a State district named otherwise', async () => {
+      stubDistrict('State', 'Statewide')
+
+      const district = await service.resolveDistrict(DISTRICT_ID)
+
+      expect(district.useVoterOnlyPath).toBe(false)
+    })
+
+    it('surfaces a missing district from the Postgres lookup', async () => {
+      findDistrictById.mockRejectedValueOnce(
+        new NotFoundException(`District not found for id=${DISTRICT_ID}`),
+      )
+
+      await expect(service.resolveDistrict(DISTRICT_ID)).rejects.toThrow(
+        NotFoundException,
+      )
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    it('resolves a district once and reuses it', async () => {
+      stubDistrict('US_Congressional_District', '29')
+
+      await service.resolveDistrict(DISTRICT_ID)
+      await service.resolveDistrict(DISTRICT_ID)
+
+      expect(query).not.toHaveBeenCalled()
+      expect(findDistrictById).toHaveBeenCalledTimes(1)
+    })
+
+    // `type` is spliced in as an identifier, so anything that could change the
+    // shape of the statement is refused before it gets there.
+    it('refuses a district type that is not a bare identifier', async () => {
+      stubDistrict('Ward"; DROP TABLE voters --', '29')
+
+      await expect(service.resolveDistrict(DISTRICT_ID)).rejects.toThrow(
+        InternalServerErrorException,
+      )
+    })
+  })
+
+  describe('getAggregates', () => {
+    beforeEach(() => {
+      stubDistrict('US_Congressional_District', '29')
+    })
+
+    it('coerces the string row the API returns into numbers', async () => {
+      query.mockResolvedValueOnce({
+        columns: ['count', 'avgAge', 'avgIncome'],
+        rows: [['398619', '47.5', '82000.25']],
+      })
+
+      const result = await service.getAggregates(
+        aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+      )
+
+      expect(result).toEqual({
+        count: 398619,
+        avgAge: 47.5,
+        avgIncome: 82000.25,
+      })
+    })
+
+    it('keeps a null average null rather than folding it to zero', async () => {
+      query.mockResolvedValueOnce({
+        columns: ['count', 'avgAge', 'avgIncome'],
+        rows: [['0', null, null]],
+      })
+
+      const result = await service.getAggregates(
+        aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+      )
+
+      expect(result).toEqual({ count: 0, avgAge: null, avgIncome: null })
+    })
+
+    it('translates a statement timeout into a 504, not a 500', async () => {
+      query.mockRejectedValueOnce(new PeopleDbxTimeoutError(60_000))
+
+      await expect(
+        service.getAggregates(
+          aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+        ),
+      ).rejects.toThrow(GatewayTimeoutException)
+    })
+
+    // There is no fallback store, so an unreachable warehouse has to surface as
+    // a diagnosable 502 — and critically NOT as an empty result, which the
+    // product reads as "this office has no constituent data".
+    it('translates an unreachable warehouse into a 502, not a 500', async () => {
+      query.mockRejectedValueOnce(
+        new PeopleDbxUnavailableError('GET /statements returned 401: expired'),
+      )
+
+      await expect(
+        service.getAggregates(
+          aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+        ),
+      ).rejects.toThrow(BadGatewayException)
+    })
+
+    // The status says "5xx, wait a bit"; only the code says "this particular
+    // 5xx explains itself". Clients drop 5xx messages by default because most
+    // of them are written for a log — Geoapify answers 502 with "Route
+    // optimization returned an unidentifiable stop" — so without the code the
+    // two sentences above reach nobody.
+    it('codes both read failures so a client can show their message', async () => {
+      query.mockRejectedValueOnce(new PeopleDbxTimeoutError(60_000))
+      const timeout = await service
+        .getAggregates(aggregatesSchema.parse({ districtId: DISTRICT_ID }))
+        .catch((err: GatewayTimeoutException) => err.getResponse())
+      expect(timeout).toMatchObject({
+        errorCode: 'VOTER_QUERY_TIMEOUT',
+        message: expect.stringContaining('Narrow the audience'),
+      })
+
+      query.mockRejectedValueOnce(
+        new PeopleDbxUnavailableError('GET /statements returned 401: expired'),
+      )
+      const unreachable = await service
+        .getAggregates(aggregatesSchema.parse({ districtId: DISTRICT_ID }))
+        .catch((err: BadGatewayException) => err.getResponse())
+      expect(unreachable).toMatchObject({
+        errorCode: 'VOTER_DATA_UNREACHABLE',
+        message: expect.stringContaining('not an empty district'),
+      })
+    })
+
+    it('translates an oversized selection into a 400', async () => {
+      query.mockRejectedValueOnce(new PeopleDbxStatementTooLargeError(20e6))
+
+      await expect(
+        service.getAggregates(
+          aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+        ),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('lets any other query failure propagate', async () => {
+      query.mockRejectedValueOnce(new Error('TABLE_OR_VIEW_NOT_FOUND'))
+
+      await expect(
+        service.getAggregates(
+          aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+        ),
+      ).rejects.toThrow('TABLE_OR_VIEW_NOT_FOUND')
+    })
+  })
+
+  describe('getListDetailAggregates', () => {
+    beforeEach(() => {
+      stubDistrict('US_Congressional_District', '29')
+    })
+
+    // One statement, seven columns — the whole list-detail payload the five
+    // separate aggregates calls used to assemble.
+    it('reads every channel off the single row, in one statement', async () => {
+      query.mockResolvedValueOnce({
+        columns: [
+          'count',
+          'avgAge',
+          'avgIncome',
+          'sms',
+          'robocall',
+          'phoneBanking',
+          'doorKnocking',
+        ],
+        rows: [['999', '47.5', '82000.25', '777', '222', '555', '111']],
+      })
+
+      const result = await service.getListDetailAggregates(
+        aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+      )
+
+      expect(query).toHaveBeenCalledOnce()
+      expect(result).toEqual({
+        count: 999,
+        avgAge: 47.5,
+        avgIncome: 82000.25,
+        sms: 777,
+        robocall: 222,
+        phoneBanking: 555,
+        doorKnocking: 111,
+      })
+    })
+
+    it('keeps a null average null while the channel counts stay zero', async () => {
+      query.mockResolvedValueOnce({
+        columns: [
+          'count',
+          'avgAge',
+          'avgIncome',
+          'sms',
+          'robocall',
+          'phoneBanking',
+          'doorKnocking',
+        ],
+        rows: [['0', null, null, '0', '0', '0', '0']],
+      })
+
+      const result = await service.getListDetailAggregates(
+        aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+      )
+
+      expect(result).toEqual({
+        count: 0,
+        avgAge: null,
+        avgIncome: null,
+        sms: 0,
+        robocall: 0,
+        phoneBanking: 0,
+        doorKnocking: 0,
+      })
+    })
+
+    // All-or-nothing now: there is no per-channel settling left to degrade to,
+    // so a warehouse outage has to surface as a 502 rather than zeroed tiles,
+    // which the product would read as "this office has nobody to reach".
+    it('translates an unreachable warehouse into a 502, not zeroed tiles', async () => {
+      query.mockRejectedValueOnce(
+        new PeopleDbxUnavailableError('GET /statements returned 401: expired'),
+      )
+
+      await expect(
+        service.getListDetailAggregates(
+          aggregatesSchema.parse({ districtId: DISTRICT_ID }),
+        ),
+      ).rejects.toThrow(BadGatewayException)
+    })
+  })
+
+  describe('getOverlapCount', () => {
+    it('returns the counted overlap', async () => {
+      stubDistrict('US_Congressional_District', '29')
+      query.mockResolvedValueOnce({
+        columns: ['overlap_count'],
+        rows: [['1234']],
+      })
+
+      const result = await service.getOverlapCount(
+        overlapCountSchema.parse({
+          districtId: DISTRICT_ID,
+          savedFilterSets: [{ hasCellPhone: true }],
+        }),
+      )
+
+      expect(result).toEqual({ count: 1234 })
+    })
+  })
+
+  describe('findPeople', () => {
+    const personRow = (id: string): Array<string | null> => [
+      id,
+      'lal-1',
+      'CA',
+      'Jane',
+      null,
+      'Doe',
+      null,
+      ...Array.from({ length: 30 }, () => null),
+      '47',
+      null,
+      null,
+    ]
+
+    beforeEach(() => {
+      stubDistrict('US_Congressional_District', '29')
+    })
+
+    it('runs the count and the page as separate queries', async () => {
+      query
+        .mockResolvedValueOnce({ columns: ['voter_count'], rows: [['120']] })
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [personRow('11111111-1111-4111-8111-111111111111')],
+        })
+
+      const result = await service.findPeople(
+        listPeopleSchema.parse({ districtId: DISTRICT_ID, resultsPerPage: 50 }),
+      )
+
+      expect(result.pagination).toEqual({
+        totalResults: 120,
+        currentPage: 1,
+        pageSize: 50,
+        totalPages: 3,
+        hasNextPage: true,
+        hasPreviousPage: false,
+      })
+      expect(result.people).toHaveLength(1)
+    })
+
+    it('skips the count query when the caller does not need it', async () => {
+      query.mockResolvedValueOnce({ columns: [], rows: [] })
+
+      const result = await service.findPeople(
+        listPeopleSchema.parse({ districtId: DISTRICT_ID, skipCount: true }),
+      )
+
+      expect(result.pagination.totalResults).toBe(0)
+      // The page alone. The district is resolved off-warehouse and there is no
+      // column probe any more, so the page is the only statement.
+      expect(query).toHaveBeenCalledTimes(1)
+    })
+
+    it('reports the page it actually fetched', async () => {
+      query
+        .mockResolvedValueOnce({ columns: ['voter_count'], rows: [['10']] })
+        .mockResolvedValueOnce({ columns: [], rows: [] })
+
+      const result = await service.findPeople(
+        listPeopleSchema.parse({
+          districtId: DISTRICT_ID,
+          page: 9,
+          resultsPerPage: 50,
+        }),
+      )
+
+      expect(result.pagination.currentPage).toBe(9)
+      expect(result.pagination.totalPages).toBe(1)
+      expect(result.people).toEqual([])
+    })
+  })
+
+  describe('findStats', () => {
+    beforeEach(() => {
+      stubDistrict('US_Congressional_District', '29')
+    })
+
+    // Resolve then aggregate: unlike a keyed read this scopes the voter rows,
+    // so it is one district lookup (not a warehouse query) plus the voter scan
+    // and the census lookup, run concurrently via Promise.all.
+    it('returns null when no voters are in scope', async () => {
+      query
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [['TOTAL', 'all', '0', '0']],
+        })
+        .mockResolvedValueOnce({ columns: [], rows: [['750000']] })
+
+      expect(await service.findStats(DISTRICT_ID)).toBeNull()
+      expect(query).toHaveBeenCalledTimes(2)
+    })
+
+    it('aggregates the five dimensions from the voter rows', async () => {
+      query
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [
+            ['TOTAL', 'all', '100', '40'],
+            ['age', '18-25', '100', null],
+            ['estimatedIncomeRange', '250k+', '60', null],
+          ],
+        })
+        .mockResolvedValueOnce({ columns: [], rows: [['750000.4']] })
+
+      const stats = await service.findStats(DISTRICT_ID)
+
+      expect(stats?.totalConstituents).toBe(100)
+      expect(stats?.totalConstituentsWithCellPhone).toBe(40)
+      expect(stats?.buckets.age).toEqual([
+        { label: '18-25', count: 100, percent: 100 },
+      ])
+      expect(stats?.buckets.estimatedIncomeRange).toEqual([
+        { label: '250k+', count: 60, percent: 60 },
+      ])
+    })
+
+    // The block allocation that produces district_population conserves mass
+    // exactly rather than whole persons per block, so the mart column is
+    // fractional and has to be rounded at this boundary.
+    it('rounds a present census row into districtPopulation', async () => {
+      query
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [['TOTAL', 'all', '100', '40']],
+        })
+        .mockResolvedValueOnce({ columns: [], rows: [['123456.7']] })
+
+      const stats = await service.findStats(DISTRICT_ID)
+
+      expect(stats?.districtPopulation).toBe(123457)
+    })
+
+    // Coverage is deliberately incomplete (~75% of districts have a row), and
+    // this must stay indistinguishable from any other stats read: a missing
+    // census row is a normal state, not the VOTER_DATA_UNAVAILABLE failure
+    // mode that a district with zero voters produces.
+    it('maps a missing census row to null, not to VOTER_DATA_UNAVAILABLE', async () => {
+      query
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [['TOTAL', 'all', '100', '40']],
+        })
+        .mockResolvedValueOnce({ columns: [], rows: [] })
+
+      const stats = await service.findStats(DISTRICT_ID)
+
+      expect(stats).not.toBeNull()
+      expect(stats?.totalConstituents).toBe(100)
+      expect(stats?.districtPopulation).toBeNull()
+    })
+
+    // The mart has never shipped a NULL district_population (checked live:
+    // 0 of 109,514 rows), but the ==null check is what makes a present row
+    // with a SQL NULL value collapse into the same state as an absent row --
+    // pin that branch directly rather than only the absent-row case above.
+    it('maps a present row whose value is SQL NULL to null', async () => {
+      query
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [['TOTAL', 'all', '100', '40']],
+        })
+        .mockResolvedValueOnce({ columns: [], rows: [[null]] })
+
+      const stats = await service.findStats(DISTRICT_ID)
+
+      expect(stats?.districtPopulation).toBeNull()
+    })
+
+    // The census read is decorative next to the voter scan: a Databricks
+    // failure on it (permission blip, timeout, transient error) must not
+    // fail the whole findStats call the contacts card and polls sampling
+    // depend on. It has to fold into the same null-population state a
+    // missing row produces, with the failure still visible in the log.
+    it('isolates a census-query failure instead of rejecting the whole read', async () => {
+      query
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [['TOTAL', 'all', '100', '40']],
+        })
+        .mockRejectedValueOnce(new Error('census warehouse timeout'))
+
+      const stats = await service.findStats(DISTRICT_ID)
+
+      expect(stats).not.toBeNull()
+      expect(stats?.totalConstituents).toBe(100)
+      expect(stats?.districtPopulation).toBeNull()
+    })
+
+    // The request SUCCEEDS, so nothing about it may log at error -- an
+    // error-level line on a 200 is an alerting hazard, and Loki read volume
+    // is what we pay for. `PeopleDbxUnavailableError` specifically, because
+    // that is the class the shared `run()` wrapper logs at error and
+    // translates into a 502; the census read must not go through it.
+    it('logs a census failure at warn only, naming the census statement', async () => {
+      query
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [['TOTAL', 'all', '100', '40']],
+        })
+        .mockRejectedValueOnce(
+          new PeopleDbxUnavailableError('other side closed'),
+        )
+
+      const stats = await service.findStats(DISTRICT_ID)
+
+      expect(stats?.districtPopulation).toBeNull()
+      expect(logger.error).not.toHaveBeenCalled()
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ districtId: DISTRICT_ID }),
+        expect.stringContaining('census'),
+      )
+    })
+
+    // The voter scan is the opposite contract: it stays exactly as loud as
+    // it was. A warehouse failure there is a real 502, so it must still log
+    // at error and propagate rather than degrading to a null population.
+    it('leaves a voter-scan failure loud and propagating', async () => {
+      query
+        .mockRejectedValueOnce(
+          new PeopleDbxUnavailableError('other side closed'),
+        )
+        .mockResolvedValueOnce({ columns: [], rows: [] })
+
+      await expect(service.findStats(DISTRICT_ID)).rejects.toThrow(
+        BadGatewayException,
+      )
+      expect(logger.error).toHaveBeenCalled()
+    })
+  })
+
+  describe('samplePeople', () => {
+    const personRow = (id: string): Array<string | null> => [
+      id,
+      'lal-1',
+      'CA',
+      'Jane',
+      null,
+      'Doe',
+      null,
+      ...Array.from({ length: 30 }, () => null),
+      '47',
+      null,
+      null,
+    ]
+
+    // findStats now issues two queries (the voter scan and the census
+    // lookup) instead of one; samplePeople only ever reads
+    // totalConstituents/totalConstituentsWithCellPhone off the result, so it
+    // must keep working unchanged behind that.
+    it('still resolves through findStats with the added census query', async () => {
+      stubDistrict('US_Congressional_District', '29')
+      query
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [['TOTAL', 'all', '1000', '800']],
+        })
+        .mockResolvedValueOnce({ columns: [], rows: [['750000']] })
+        .mockResolvedValueOnce({
+          columns: [],
+          rows: [personRow('11111111-1111-4111-8111-111111111111')],
+        })
+
+      const people = await service.samplePeople(
+        samplePeopleSchema.parse({ districtId: DISTRICT_ID, size: 1 }),
+      )
+
+      expect(people).toHaveLength(1)
+      expect(query).toHaveBeenCalledTimes(3)
+    })
+  })
+
+  describe('findPerson', () => {
+    beforeEach(() => {
+      stubDistrict('US_Congressional_District', '29')
+    })
+
+    it('returns the person when the id is inside the district', async () => {
+      query.mockResolvedValueOnce({
+        columns: [],
+        rows: [['voter-1', 'CA']],
+      })
+
+      const person = await service.findPerson('voter-1', DISTRICT_ID)
+
+      expect(person.id).toBe('voter-1')
+    })
+
+    // The webapp shows different copy for these two, so the distinction has to
+    // survive the move to Databricks.
+    it('says not-in-district when the district is scoped', async () => {
+      query.mockResolvedValueOnce({ columns: [], rows: [] })
+
+      await expect(service.findPerson('voter-1', DISTRICT_ID)).rejects.toThrow(
+        'Person not found in district',
+      )
+    })
+  })
+
+  describe('findPerson on a statewide district', () => {
+    it('says no-such-person when the scope is the whole state', async () => {
+      stubDistrict('State', 'CA', STATE_DISTRICT_ID)
+      query.mockResolvedValueOnce({ columns: [], rows: [] })
+
+      await expect(
+        service.findPerson('voter-1', STATE_DISTRICT_ID),
+      ).rejects.toThrow('Person with ID voter-1 not found')
+    })
+  })
+
+  describe('recommended-lists aggregates', () => {
+    const DISTRICT: DbxDistrict = {
+      districtId: DISTRICT_ID,
+      state: 'CA',
+      districtType: 'US_Congressional_District',
+      districtName: '29',
+      useVoterOnlyPath: false,
+    }
+    const noFilters = (): FilterData => filtersSchema.parse({})
+
+    it('countForFilter takes a resolved district, no lookup', async () => {
+      query.mockResolvedValueOnce({ columns: ['voter_count'], rows: [['42']] })
+
+      const count = await service.countForFilter(DISTRICT, noFilters())
+
+      expect(count).toBe(42)
+      expect(findDistrictById).not.toHaveBeenCalled()
+    })
+
+    // The cut is the SQL's LIMIT, so this only has to sum what came back --
+    // but summing is exactly where a door list's count comes from, and the
+    // rows are strings off the wire.
+    it('sums the ranked precincts the query returns', async () => {
+      query.mockResolvedValueOnce({
+        columns: ['county', 'precinct', 'voters'],
+        rows: [
+          ['Los Angeles', '001', '9000'],
+          ['Los Angeles', '002', '4000'],
+          ['Los Angeles', '003', '3000'],
+        ],
+      })
+
+      const result = await service.rankPrecincts(DISTRICT, noFilters())
+
+      expect(result).toEqual({
+        precincts: [
+          { county: 'Los Angeles', precinct: '001', voters: 9000 },
+          { county: 'Los Angeles', precinct: '002', voters: 4000 },
+          { county: 'Los Angeles', precinct: '003', voters: 3000 },
+        ],
+        totalVoters: 16000,
+      })
+    })
+
+    it('reports an empty ranking as nobody rather than throwing', async () => {
+      query.mockResolvedValueOnce({
+        columns: ['county', 'precinct', 'voters'],
+        rows: [],
+      })
+
+      const result = await service.rankPrecincts(DISTRICT, noFilters())
+
+      expect(result).toEqual({ precincts: [], totalVoters: 0 })
+    })
+  })
+})

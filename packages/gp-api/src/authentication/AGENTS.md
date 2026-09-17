@@ -21,8 +21,7 @@ Auth state is enforced globally via three guards registered in order. Most route
 | `guards/M2MOnly.guard.ts`                | Route-level: M2M only                                                                           |
 | `interceptors/AdminAudit.interceptor.ts` | Logs admin actions for the audit trail                                                          |
 | `util/setTokenCookie.util.ts`            | Cookie writer used after login/refresh                                                          |
-| `util/effectiveUser.util.ts`             | Resolves the "acting as" user when admins impersonate                                           |
-| `providers/clerk-client.provider.ts`     | Constructs the Clerk SDK client                                                                 |
+| `util/effectiveUser.util.ts`             | Resolves the acting human (the admin, when impersonating) for global-role checks                |
 
 ## Patterns
 
@@ -30,11 +29,71 @@ Auth state is enforced globally via three guards registered in order. Most route
 - **`@PublicAccess()` is the only escape hatch.** Don't conditionally skip auth inside a guard — opt out at the route level.
 - **Absence of `@Roles()` = "any authenticated user".** `routeIsPublicAndNoRoles.util.ts` is what makes that work; don't rely on the decorator being present to imply auth.
 - Password resets issue a **short-lived JWT**, not a DB-stored token. Side effects after consumption must be done in the same request.
+- **Org-scoping guards resolve `request.user.id`, never `effectiveUser`.** Four
+  of the five guards behind `X-Organization-Slug` — `UseOrganization`,
+  `UseCampaign`, `UseEngagementContext`, `CanDownloadVoterFile` — resolve a
+  role for the org through `OrganizationMembershipService.resolveRole`:
+  owner fallback (`organization.ownerId === user.id`) first, else an
+  `OrganizationMembership` row, else 404/deny with no org-existence leak.
+  `UseOrganization` and `UseCampaign` attach any resolved role, including
+  `volunteer`, and leave the team-role decision to `OrganizationRoleGuard`;
+  `UseEngagementContext` and `CanDownloadVoterFile` still deny a `volunteer`
+  themselves, permanently (CRM and voter-file download are not part of the
+  team-role rollout). `UseElectedOffice` is untouched — it still does the
+  old ownerId-only lookup and never calls `resolveRole`, so Serve stays
+  owner-only regardless of any membership row. Switching resolution to
+  `effectiveUser` would authorize the impersonating admin instead of the
+  impersonated subject, 404ing every org-scoped route for admins
+  mid-impersonation — `RolesGuard`/`AdminOrM2MGuard` use `effectiveUser`
+  deliberately because they check the acting human's *global* roles, a
+  different question from org membership.
+- **The team-role line is `OrganizationRoleGuard`
+  (`src/organizations/guards/OrganizationRole.guard.ts`)**, appended to
+  `UseOrganization`'s and `UseCampaign`'s own `UseGuards(...)` list so it
+  always runs after the scoping guard has attached
+  `request.organizationRole`. Default (no decorator): owner or
+  `campaignAdmin`. `@OwnerOnly()` narrows to owner. `@AllowVolunteer()`
+  admits any resolved member, including volunteer — reachable end-to-end on
+  any route that carries it, now that the scoping guards above attach a
+  volunteer's role instead of failing closed on it. Deny is
+  `ForbiddenException` (403), not 404 — the caller already proved
+  membership, so org existence isn't a secret from them. When
+  `request.organizationRole` is unset (no scoping guard ran, or it ran with
+  `continueIfNotFound` and found nothing), this guard passes through.
 
 ## Gotchas
 
 - `AUTH_SECRET` must be set at boot — module throws otherwise. No fallback path.
 - ADR for the M2M flow is `docs/adr/0004-clerk-m2m-auth.md` — read before adding new M2M-callable endpoints.
-- `effectiveUser.util.ts` returns the **impersonated** user, not the admin doing the impersonation. Audit logging needs both — pull the real admin from the request, not from `effectiveUser`.
-- `AdminAudit.interceptor.ts` only fires when explicitly applied — it is **not** global. Routes that mutate user data should opt in.
+- `effectiveUser.util.ts` returns `req.actorUser ?? req.user` — **the admin**
+  when an actor claim is present, not the impersonated user. Audit logging
+  needs both — pull the real admin from `effectiveUser`, the impersonated
+  subject from `req.user`.
+- `AdminAudit.interceptor.ts` is registered **globally** as an `APP_INTERCEPTOR` in `app.module.ts` and fires on every route whose `@Roles()` includes `admin` — no opt-in needed. It logs `userId`/`userEmail` from `effectiveUser` (the accountable admin), adding `impersonatedUserId`/`impersonatedUserEmail` only while impersonating, and `unresolvedActorSub` when an `act` claim did not resolve to a local user. A couple of controllers also list it in `@UseInterceptors()`; that is redundant, not load-bearing.
 - The `services/` directory exists but is empty. Don't be surprised; the only service lives at the module root for historical reasons.
+- **The sign-up phone arrives in Clerk `unsafeMetadata`, not as a Clerk
+  phone attribute.** Enabling the real attribute would force SMS
+  verification on every signup, so the email/password form writes
+  `unsafeMetadata.phone` and `ClerkAuthService.getUser` reads it back
+  (preferring `primaryPhoneNumber` if the instance ever starts issuing
+  one). `findOrProvisionByClerk` copies it onto `User.phone` at provision
+  time and backfills it onto a row that has none; from there the existing
+  HubSpot sync (`users/services/crmUsers.service.ts`) carries it. Blank-only
+  backfill — a number the user edited in their profile always wins.
+- **Google signups take a different route to the same field.** OAuth can't
+  carry a phone, so the webapp's `/sign-up/phone` step collects it after the
+  handshake and `PUT`s it to `/v1/users/me` directly. Clerk sends a completed
+  OAuth sign-up straight to the `redirectUrlComplete` the form passed and
+  skips the SSO callback page, so the sign-up form and `/login` both name the
+  phone step there, not only on the callback's redirect props. The step does
+  not rely on the provisioning read above, because `SessionGuard.resolveUser` returns
+  early on a `clerkId` hit and never re-reads the Clerk profile once the row
+  exists. Both paths land the number before `POST /v1/users/me/crm-registration`
+  fires, which is what puts it on the HubSpot contact.
+- **`SessionGuard` calls Clerk only to verify the session token.** Identity
+  fields (email, name, avatar) come from Postgres, which is authoritative;
+  there is no per-request Clerk profile fetch. `verifyToken` and `m2m.verify`
+  are capped at `CLERK_API_TIMEOUT_MS` (default 2s, see
+  `vendors/clerk/clerk.consts.ts`) and wrapped in `clerkCall()`, which also
+  emits the span — the SDK uses undici, which our OTel setup does not
+  instrument, so a call made without that wrapper is invisible in Tempo.

@@ -1,9 +1,14 @@
 import { UnauthorizedException } from '@nestjs/common'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ClerkClient, verifyToken } from '@clerk/backend'
 import jwt from 'jsonwebtoken'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { CLERK_API_TIMEOUT_MS } from '@/vendors/clerk/clerk.consts'
 import { ClerkAuthService } from './clerk-auth.service'
+
+// Stands in for a Clerk call that never settles, so the only way the
+// caller can proceed is the timeout.
+const hangForever = <T>(): Promise<T> => new Promise(() => undefined)
 
 // ClerkClient is a type-only export, but SWC emits it as runtime decorator
 // metadata for the constructor param, so the mock must expose a placeholder.
@@ -226,10 +231,134 @@ describe('ClerkAuthService', () => {
       })
     })
 
+    it('reads the sign-up phone out of unsafeMetadata', async () => {
+      getUser.mockResolvedValue({
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
+        firstName: 'A',
+        lastName: 'B',
+        unsafeMetadata: { phone: ' 5551234567 ' },
+      })
+
+      await expect(service.getUser('user_1')).resolves.toMatchObject({
+        phone: '5551234567',
+      })
+    })
+
+    it('prefers a verified Clerk phone number over the metadata one', async () => {
+      getUser.mockResolvedValue({
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
+        primaryPhoneNumber: { phoneNumber: '+15559999999' },
+        unsafeMetadata: { phone: '5551234567' },
+      })
+
+      await expect(service.getUser('user_1')).resolves.toMatchObject({
+        phone: '+15559999999',
+      })
+    })
+
+    it('reports no phone when unsafeMetadata carries none', async () => {
+      getUser.mockResolvedValue({
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
+        unsafeMetadata: { somethingElse: true },
+      })
+
+      await expect(service.getUser('user_1')).resolves.toMatchObject({
+        phone: undefined,
+      })
+    })
+
+    it('drops a metadata phone that is not a real number', async () => {
+      // unsafeMetadata is user-writable through Clerk's client SDK, so this
+      // path must not trust it — PhoneSchema guards only the HTTP routes.
+      getUser.mockResolvedValue({
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
+        unsafeMetadata: { phone: 'ARBITRARY-INJECTED-VALUE' },
+      })
+
+      await expect(service.getUser('user_1')).resolves.toMatchObject({
+        phone: undefined,
+      })
+    })
+
     it('returns null when the Clerk lookup fails', async () => {
       getUser.mockRejectedValue(new Error('clerk down'))
 
       await expect(service.getUser('user_1')).resolves.toBeNull()
+    })
+
+    it('returns the Clerk image url when the user has one', async () => {
+      getUser.mockResolvedValue({
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
+        firstName: 'A',
+        lastName: 'B',
+        hasImage: true,
+        imageUrl: 'https://img.clerk.com/abc',
+      })
+
+      const result = await service.getUser('user_1')
+
+      expect(result?.avatarUrl).toBe('https://img.clerk.com/abc')
+    })
+
+    it('returns no image url when Clerk has no image', async () => {
+      getUser.mockResolvedValue({
+        primaryEmailAddress: { emailAddress: 'a@goodparty.org' },
+        emailAddresses: [{ emailAddress: 'a@goodparty.org' }],
+        firstName: 'A',
+        lastName: 'B',
+        hasImage: false,
+        imageUrl: 'https://img.clerk.com/default',
+      })
+
+      const result = await service.getUser('user_1')
+
+      expect(result?.avatarUrl).toBeUndefined()
+    })
+  })
+
+  describe('Clerk API timeout', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('rejects a hung M2M verification rather than hanging', async () => {
+      m2mVerify.mockReturnValue(hangForever())
+
+      const pending = service.verifyM2MToken('mt_hang')
+      const assertion = expect(pending).rejects.toThrow(UnauthorizedException)
+      await vi.advanceTimersByTimeAsync(CLERK_API_TIMEOUT_MS)
+
+      await assertion
+    })
+
+    it('rejects a hung session-token verification rather than hanging', async () => {
+      vi.mocked(verifyToken).mockReturnValue(hangForever() as never)
+
+      const pending = service.verifySessionToken(CLERK_TOKEN)
+      const assertion = expect(pending).rejects.toThrow(
+        'Session token verification failed',
+      )
+      await vi.advanceTimersByTimeAsync(CLERK_API_TIMEOUT_MS)
+
+      await assertion
+    })
+
+    it('returns null from a hung getUser rather than hanging', async () => {
+      getUser.mockReturnValue(hangForever())
+
+      const pending = service.getUser('user_hang')
+      await vi.advanceTimersByTimeAsync(CLERK_API_TIMEOUT_MS)
+
+      expect(await pending).toBe(null)
     })
   })
 })

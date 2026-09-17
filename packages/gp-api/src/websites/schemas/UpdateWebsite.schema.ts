@@ -16,7 +16,6 @@ export class UpdateWebsiteSchema extends createZodDto(
       .optional(),
     main: z
       .object({
-        title: z.string().optional(),
         tagline: z.string().optional(),
         image: z.string().optional(),
       })

@@ -37,6 +37,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
+import llm_judge
+
 class CorruptStateError(Exception):
     """The on-disk state file exists but is not a readable JSON object. Distinct from a
     missing file (legitimate first run) — a caller must treat this as 'stop, don't touch
@@ -49,6 +51,17 @@ DATA_DIR = HERE / "instrumentation_data"
 CONFIG_PATH = HERE / "instrumentation_gaps_config.yaml"
 DEFAULT_STATE = DATA_DIR / "instrumentation_gaps.json"
 DEFAULT_LOG = DATA_DIR / "instrumentation-gaps-log.md"
+# Run-level counters, deliberately a sibling of DEFAULT_STATE rather than a key inside it:
+# that file is a flat map keyed by gap id and load_state rejects anything else. Same shape of
+# small companion file as amplitude_event_provenance_state.json.
+DEFAULT_RUN_STATE = DATA_DIR / "instrumentation_gaps_run_state.json"
+
+JUDGE_OK_STATUSES = llm_judge.OK_STATUSES
+NO_JUDGE_STATUS = "skipped: --no-judge"
+# Statuses that move the judge-failure streak neither up nor down. "no-candidates" never
+# exercised the judge, and --no-judge is a deliberate opt-out — counting a local run of it
+# would commit a spurious streak into the state file and make the next digest cry wolf.
+JUDGE_STREAK_HOLD = JUDGE_OK_STATUSES + (NO_JUDGE_STATUS,)
 
 DEFAULT_RUBRIC_PATH = REPO_ROOT / ".claude/skills/instrument-analytics-event/SKILL.md"
 DEFAULT_MODEL = os.environ.get("GAP_JUDGE_MODEL", "claude-sonnet-5")
@@ -305,43 +318,47 @@ def build_judge_messages(candidates: Sequence[dict]) -> list[dict]:
     return [{"role": "user", "content": content}]
 
 
+def judge_max_tokens(candidate_count: int) -> int:
+    """The output cap for a batch of this size."""
+    return llm_judge.max_tokens_for(candidate_count)
+
+
+def _validated_judge_batch(payload: dict) -> dict:
+    """Validate the *whole* tool payload as a JudgeBatch, before llm_judge filters by id.
+    llm_judge is subject-agnostic — it only knows ids — so a hallucinated id carrying a
+    malformed verdict would otherwise be silently dropped by the id filter instead of
+    failing the batch. Matches the pre-extraction original's exact ordering:
+    JudgeBatch.model_validate(block.input) ran before the allowed-id filter. Returns the
+    validated, re-dumped payload so the verdicts llm_judge reads back are the same shape
+    the original returned (JudgeVerdict.model_dump()), not the raw tool-call dicts."""
+    return JudgeBatch.model_validate(payload).model_dump()
+
+
 def parse_judge_response(resp, candidate_ids: Sequence[str]) -> dict[str, dict]:
-    """Validate the tool_use block as a JudgeBatch and key verdicts by id, keeping only ids
-    that were in the input (a hallucinated id is dropped, never trusted into state)."""
-    block = next((b for b in resp.content if getattr(b, "type", None) == "tool_use"), None)
-    if block is None:
-        raise RuntimeError("no tool_use block in judge response")
-    batch = JudgeBatch.model_validate(block.input)
-    allowed = set(candidate_ids)
-    return {v.id: v.model_dump() for v in batch.results if v.id in allowed}
+    return llm_judge.parse_tool_response(
+        resp, candidate_ids, results_field="results", noun="candidates",
+        validate=_validated_judge_batch,
+    )
 
 
 # --- judge call + graceful wrapper (network IO layer) ------------------------
 
 
-def make_anthropic_client(api_key: str):
-    """Construct the Anthropic SDK client. Import is local so the module still imports when
-    the dependency is absent and judgment is skipped."""
-    import anthropic
-
-    return anthropic.Anthropic(api_key=api_key)
+make_anthropic_client = llm_judge.make_anthropic_client
 
 
 def judge_candidates(
-    candidates: Sequence[dict], rubric: str, *, client, model: str, max_tokens: int = 4096
+    candidates: Sequence[dict], rubric: str, *, client, model: str,
+    max_tokens: int | None = None,
 ) -> dict[str, dict]:
     """One batched judgment call over the capped candidate set. Client is injected so this
     is unit-testable without network. Forces the report_gap_verdicts tool for a validated
     result. Mirrors qa_validate.py's AnthropicJudge."""
-    resp = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=judge_system_prompt(rubric),
-        tools=[JUDGE_TOOL],
-        tool_choice={"type": "tool", "name": JUDGE_TOOL["name"]},
-        messages=build_judge_messages(candidates),
+    return llm_judge.judge_batch(
+        candidates, system=judge_system_prompt(rubric), tool=JUDGE_TOOL, client=client,
+        model=model, message_builder=build_judge_messages, max_tokens=max_tokens,
+        results_field="results", noun="candidates", validate=_validated_judge_batch,
     )
-    return parse_judge_response(resp, [c["id"] for c in candidates])
 
 
 def judge_all(
@@ -368,20 +385,14 @@ def run_judgment(
     """Graceful boundary around the judge. Never raises: returns (verdicts_by_id, status).
     A missing key, missing rubric, SDK/network error, or bad response all degrade to an
     empty result and a status string the digest reports — the run continues unaffected."""
-    if not candidates:
-        return {}, "no-candidates"
-    if not api_key:
-        return {}, "skipped: ANTHROPIC_API_KEY unset"
-    try:
-        rubric = load_rubric(rubric_path)
-    except OSError:  # missing, unreadable, or a directory — all degrade to a skip, never raise
-        return {}, "skipped: rubric unavailable"
-    try:
-        client = client_factory(api_key)
-        verdicts = judge_candidates(candidates, rubric, client=client, model=model)
-    except Exception as exc:  # noqa: BLE001 — judgment must never break the governance run
-        return {}, f"failed: {exc}"
-    return verdicts, "ok"
+    return llm_judge.run_graceful(
+        candidates, api_key=api_key, model=model, tool=JUDGE_TOOL,
+        message_builder=build_judge_messages,
+        system_factory=lambda: judge_system_prompt(load_rubric(rubric_path)),
+        unavailable_status="skipped: rubric unavailable",
+        client_factory=client_factory,
+        results_field="results", noun="candidates", validate=_validated_judge_batch,
+    )
 
 
 # --- state + dispositions -----------------------------------------------------
@@ -488,6 +499,7 @@ def build_slack_payload(
     browse_url: str | None,
     feedback_url: str | None,
     top_n: int = 10,
+    judge_consecutive_failures: int = 0,
 ) -> dict:
     """Run-data the health step reads to fold the gaps into its Slack post. The digest is
     delta-led (like the health monitor's new/escalated/resolved), so the Slack signal is
@@ -512,6 +524,7 @@ def build_slack_payload(
         "run_date": run_date,
         "new_count": len(new_gaps_this_run),
         "pending_count": pending_count,
+        "judge_consecutive_failures": judge_consecutive_failures,
         "new_gaps": new_gaps,
         "browse_url": browse_url,
         "feedback_url": feedback_url,
@@ -593,6 +606,41 @@ def load_state(path: Path | None) -> dict[str, dict]:
     return data
 
 
+def load_run_state(path: Path | None) -> dict:
+    """Read the run-level counters. Missing, unreadable, or non-dict all degrade to {}.
+
+    Deliberately the opposite contract to load_state, which raises on a bad file. Nothing here
+    is a human decision that a silent reset would destroy — the worst a lost counter costs is
+    one digest that under-reports a streak. Being able to fail the unattended cron would cost
+    far more, so this file is never allowed to raise."""
+    if not path or not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def next_run_state(prior: Mapping, judgment_status: str, today: date) -> dict:
+    """Advance the judge-failure streak for this run's status.
+
+    A failure increments and an ok resets and stamps last_ok. Everything in JUDGE_STREAK_HOLD
+    holds the current value: those runs are evidence of neither health nor failure, so they
+    must neither clear a real streak nor invent one."""
+    out = dict(prior)
+    raw = out.get("judge_consecutive_failures", 0)
+    streak = raw if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 0 else 0
+    if judgment_status == "ok":
+        out["judge_consecutive_failures"] = 0
+        out["last_ok"] = today.isoformat()
+    elif judgment_status in JUDGE_STREAK_HOLD:
+        out["judge_consecutive_failures"] = streak
+    else:
+        out["judge_consecutive_failures"] = streak + 1
+    return out
+
+
 def _atomic_write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -669,9 +717,9 @@ def run_sweep(
             rubric_path=rubric_path, client_factory=client_factory,
         )
     else:
-        verdicts, status = {}, "skipped: --no-judge"
+        verdicts, status = {}, NO_JUDGE_STATUS
     new_state = merge_judged_state(prior, verdicts, candidates_by_id, today)
-    pending = 0 if status in ("ok", "no-candidates") else len(candidates)
+    pending = 0 if status in JUDGE_OK_STATUSES else len(candidates)
     return new_state, gaps, status, pending
 
 
@@ -837,6 +885,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--repo", type=Path, default=None, help="repo root (default: $OMNI_REPO or inferred)")
     parser.add_argument("--config", type=Path, default=CONFIG_PATH)
     parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
+    parser.add_argument("--run-state", type=Path, default=DEFAULT_RUN_STATE,
+                        help="run-level counters (judge-failure streak) carried between runs")
     parser.add_argument("--log", type=Path, default=DEFAULT_LOG)
     parser.add_argument("--no-log", action="store_true")
     parser.add_argument("--json", type=Path, help="also write the full state JSON here")
@@ -997,22 +1047,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"gap-sweep: scan failed ({exc}); skipping this run, state untouched.", file=sys.stderr)
         return 0
 
+    run_state = next_run_state(load_run_state(args.run_state), judgment_status, today)
+    streak = run_state["judge_consecutive_failures"]
+
     section = render_gap_section(
         new_state, today.isoformat(),
         judgment_status=judgment_status, pending_count=pending,
     )
-    if judgment_status not in ("ok", "no-candidates"):
-        print(f"gap-sweep: {judgment_status} ({pending} candidates pending).", file=sys.stderr)
+    if judgment_status not in JUDGE_OK_STATUSES:
+        streak_note = f", {streak} consecutive runs" if streak > 1 else ""
+        print(f"gap-sweep: {judgment_status} ({pending} candidates pending{streak_note}).",
+              file=sys.stderr)
     sys.stdout.write(section)
     if not args.no_log:
         prepend_log(args.log, section)
     _atomic_write(args.state, json.dumps(new_state, indent=2, sort_keys=True) + "\n")
+    _atomic_write(args.run_state, json.dumps(run_state, indent=2, sort_keys=True) + "\n")
     if args.json:
         args.json.write_text(json.dumps(new_state, indent=2, sort_keys=True) + "\n")
     if args.slack_out:
         payload = build_slack_payload(
             new_state, today.isoformat(), judgment_status, pending,
             browse_url=gaps_browse_url(), feedback_url=gaps_feedback_url(),
+            judge_consecutive_failures=streak,
         )
         args.slack_out.parent.mkdir(parents=True, exist_ok=True)
         args.slack_out.write_text(json.dumps(payload, indent=2) + "\n")

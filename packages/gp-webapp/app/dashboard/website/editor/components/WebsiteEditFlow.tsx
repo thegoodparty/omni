@@ -151,20 +151,6 @@ export default function WebsiteEditFlow(): React.JSX.Element {
     )
   }
 
-  function handleTitleChange(value: string): void {
-    setWebsite((current) =>
-      current
-        ? {
-            ...current,
-            content: {
-              ...current.content,
-              main: { ...current.content?.main, title: value },
-            },
-          }
-        : null,
-    )
-  }
-
   function handleTaglineChange(value: string): void {
     setWebsite((current) =>
       current
@@ -345,7 +331,6 @@ export default function WebsiteEditFlow(): React.JSX.Element {
   const canSave =
     isValidEmail(website.content?.contact?.email || '') &&
     isValidPhone(website.content?.contact?.phone || '') &&
-    website.content?.main?.title != '' &&
     website.vanityPath != ''
 
   const cantSaveReason = cantSaveReasons(website)
@@ -383,7 +368,6 @@ export default function WebsiteEditFlow(): React.JSX.Element {
               website={website}
               onLogoChange={handleLogoChange}
               onThemeChange={handleThemeChange}
-              onTitleChange={handleTitleChange}
               onTaglineChange={handleTaglineChange}
               onImageChange={handleHeroChange}
               onBioChange={handleBioChange}
@@ -419,7 +403,6 @@ export default function WebsiteEditFlow(): React.JSX.Element {
           website={website}
           onLogoChange={handleLogoChange}
           onThemeChange={handleThemeChange}
-          onTitleChange={handleTitleChange}
           onTaglineChange={handleTaglineChange}
           onImageChange={handleHeroChange}
           onBioChange={handleBioChange}

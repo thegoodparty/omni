@@ -58,6 +58,10 @@ test.describe('Custom office flow', () => {
     ).toBeVisible()
 
     await page.getByLabel('Office Name').fill('City Council')
+    // Office level is required since ENG-11043 — Continue stays disabled
+    // until one is picked, and it persists to details.ballotLevel.
+    await page.getByRole('combobox', { name: /office level/i }).click()
+    await page.getByRole('option', { name: 'Local, township or city' }).click()
     await page.getByRole('combobox', { name: /state/i }).click()
     await page.getByRole('option', { name: 'NC' }).click()
     await page.getByLabel('City, Town Or County').fill('Hendersonville')
@@ -69,8 +73,28 @@ test.describe('Custom office flow', () => {
     await expect(continueButton).toBeEnabled()
     await continueButton.click()
 
-    // Manual flow skips P2V/voter-demographics; lands on the pledge step
-    // (H1 reads "Take our pledge to get your campaign plan").
+    // Manual flow skips P2V/voter-demographics, landing directly on the
+    // campaign story steps (why → background → issues), each skippable.
+    const storyStepHeadings = [
+      /why are you running/i,
+      /what's your background/i,
+      /what issues do you most want to solve/i,
+    ]
+    for (const heading of storyStepHeadings) {
+      await expect(
+        page.getByRole('heading', { level: 1, name: heading }),
+      ).toBeVisible({ timeout: 30000 })
+      await page.getByRole('button', { name: /^skip$/i }).click()
+    }
+
+    // Then the signup-goal step, also skippable.
+    await expect(
+      page.getByRole('heading', { level: 1, name: /most want help with/i }),
+    ).toBeVisible({ timeout: 30000 })
+    await page.getByRole('button', { name: /^skip$/i }).click()
+
+    // Then lands on the pledge step (H1 reads "Take our pledge to get your
+    // campaign plan").
     await expect(
       page.getByRole('heading', { level: 1, name: /take our pledge/i }),
     ).toBeVisible({ timeout: 15000 })
@@ -115,6 +139,12 @@ test.describe('Custom office flow', () => {
       // Org list now carries a derived status (ENG-10381); future election +
       // no result => active.
       status: 'active',
+      // Org list carries the viewer's role (ENG-10823); the creator is the
+      // owner.
+      role: 'owner',
+      // Org list carries the owner's display name for the picker's
+      // secondary line (ENG-11041).
+      ownerName: expect.any(String),
     })
 
     const { data: campaign } = await client.get<{
@@ -141,6 +171,9 @@ test.describe('Custom office flow', () => {
         district: '3',
         officeTermLength: '4 years',
         state: 'NC',
+        // ENG-11043: manual entry now persists the selected office level as
+        // the BallotReadyPositionLevel enum value.
+        ballotLevel: 'LOCAL',
         electionId: null,
         // ENG-10618: the office-picker ZIP entered above (82001) now persists onto
         // the campaign so HubSpot/Peerly can rent a robocall line with the right area code.

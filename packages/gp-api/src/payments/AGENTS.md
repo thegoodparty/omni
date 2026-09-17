@@ -4,6 +4,7 @@ Stripe-backed payments. Two controllers, both mounted under `/payments`:
 
 - `payments.controller.ts` — `POST /payments/events` (Stripe webhook receiver) and `PATCH /payments/fix-missing-customer-id` (admin maintenance).
 - `purchase.controller.ts` — checkout flows under `/payments/purchase/*`: create/complete Stripe Custom Checkout sessions, billing-portal redirects, and free-purchase fast paths. This is the entry point external callers (websites, outreach, polls) use.
+  One-time custom sessions pin `payment_method_types` to card / US bank / Amazon Pay — Stripe's automatic set would add BNPL options (Klarna, Affirm) that are off-brand for campaign charges (product call, Aug 2026).
 
 `PurchaseService` orchestrates a typed purchase → checkout session → fulfillment flow. `PaymentsService` is a thinner Stripe wrapper used internally; rarely the right place to start.
 
@@ -28,6 +29,17 @@ Filename note: `paymentEventsService.ts` intentionally lacks the `.service` suff
 - **`PurchaseType` is the typed extension point.** Adding a new purchase kind: add to the enum, add a metadata type, register a `PurchaseHandler<Metadata>` (`validatePurchase` / `calculateAmount` / optional `getProductName` / `getProductDescription`) in `PurchaseService`. Don't add ad-hoc payment paths outside this module.
 - **External calls are wrapped in try/catch and throw `BadGatewayException`** (`.cursor/rules/rules.mdc` Rule 3). DB writes are not wrapped — let `PrismaExceptionFilter` handle them.
 - `forwardRef(() => CampaignsModule)` because purchase fulfillment touches campaign state.
+- **The owner line (ENG-10819): subscription billing is personally scoped,
+  one-time purchases are manager-allowed.** `checkout-session` and
+  `portal-session` carry no `@UseOrganization`/`@UseCampaign` — they resolve
+  the campaign/customer off the caller's own `userId`/`metaData`, so a
+  `campaignAdmin` member can never reach another user's subscription or
+  billing portal through them, regardless of the `X-Organization-Slug`
+  header. `create-checkout-session` and `complete-free-purchase` DO carry
+  that scoping, so `OrganizationRoleGuard`'s default (owner or
+  `campaignAdmin`) applies — a manager paying for a one-time purchase
+  (texts, domains, polls) with their own card is intentional (product
+  decision, 2026-07-28), not a gap. Neither route carries `@OwnerOnly()`.
 
 ## Pro subscription lifecycle
 
@@ -36,7 +48,10 @@ Where Pro state lives (all of it — there is no subscription table):
 - `campaign.details.subscriptionId` / `subscriptionCanceledAt` — set by the
   `checkout.session.completed` / `customer.subscription.*` webhooks in
   `paymentEventsService.ts`. `isPro` flips here too.
-- `user.metaData.customerId` — Stripe customer id (backfilled on boot).
+- `user.metaData.customerId` — Stripe customer id (backfilled on boot, or
+  on first Manage Subscription click via
+  `PurchaseController.recoverCustomerIdFromSubscription` when the boot-time
+  backfill missed the user because they had no stored `checkoutSessionId`).
 - `user.metaData.checkoutSessionId` — the ONE open Pro checkout session per
   user. Written only by `createProCheckoutSession`, cleared by the completion
   and expiry webhooks.
@@ -48,9 +63,11 @@ each guard exists because a customer was double-billed without it):
    (`campaigns/util/eligibility.util.ts`). Fulfillment webhooks resolve the
    campaign via `findActiveByUserId` and skip with a 2xx when nothing
    qualifies, so selling here = charged with no Pro and no cancel path.
-2. 409 `ALREADY_PRO` — a second completed checkout mints a SECOND Stripe
-   customer (Pro sessions carry only `customer_email`, never the stored
-   `customerId`, so Stripe cannot dedupe subscriptions itself).
+2. 409 `ALREADY_PRO` — Stripe allows multiple subscriptions per customer,
+   so this guard is what refuses a second sale. Pro sessions pin the stored
+   customer via `StripeService.ensureCustomer` (ENG-11084), so any duplicate
+   that does slip through lands visibly on the SAME Stripe customer instead
+   of minting an invisible second one.
 3. 409 `CHECKOUT_ALREADY_COMPLETED` — previous stored session already paid,
    isPro flip still in flight.
 4. 409 `CHECKOUT_IN_PROGRESS` — lost the `compareAndSwapCheckoutSessionId`
@@ -70,33 +87,50 @@ to find which app user actually paid — trust it over the email on the Stripe
 customer (users enter arbitrary emails/names at checkout, which also creates
 cross-account confusion when one person has two app users).
 
-**"Charged twice" (ENG-10771 shape).** First check for TWO Stripe customers
-under one email, then list subs per customer. Known chain: duplicate checkout
-→ second customer + second sub; `checkout.session.completed` blindly
-overwrites `campaign.details.subscriptionId`, orphaning (not cancelling) the
-first sub, which keeps billing; CS cancelling the SECOND sub then fires
-`customer.subscription.deleted` and un-Pros the campaign while the FIRST sub
-still bills — paying-but-not-Pro. Repair = pick the sub to keep, fix
-`subscriptionId`/`customerId` by SQL, cancel/refund the other in Stripe.
-Refunds can be blocked on insufficient Stripe available balance — retry later.
+**"Charged twice" (ENG-10771 shape; recurred as ENG-11083).** First check
+for TWO Stripe customers under one email (pre-ENG-11084 checkouts minted one
+per completed session), then list subs per customer. Known chain: duplicate
+checkout → second sub; `checkout.session.completed` overwrites
+`campaign.details.subscriptionId` (error-logged since ENG-11084 when the
+stored id differs — search Loki for "possible duplicate Pro subscription"),
+orphaning (not cancelling) the first sub, which keeps billing; CS cancelling
+the SECOND sub then fires `customer.subscription.deleted` and un-Pros the
+campaign while the FIRST sub still bills — paying-but-not-Pro. Repair = pick
+the sub to keep, fix `subscriptionId`/`customerId` by SQL, cancel/refund the
+other in Stripe. Refunds can be blocked on insufficient Stripe available
+balance — retry later.
 
 **Purchase error 400 `NO_ACTIVE_CAMPAIGN`.** `isActiveCampaign` requires: not
 demo, `primaryResult !== 'lost'`, `didWin === null`, valid future
 `details.electionDate` — across ALL the user's campaigns. Diagnose (read
 replica): `SELECT id, slug, primary_result, did_win, is_demo,
-details->>'electionDate' FROM campaign WHERE user_id = <id>`. Two known traps:
+details->>'electionDate', details->>'wonGeneral' FROM campaign WHERE
+user_id = <id>`. Known traps:
 
-1. **Re-running candidate reuses the old campaign** — office-picker date
-   change only merges `details`; `didWin=false` from the prior loss never
-   resets, so the campaign is permanently inactive.
-2. **PrimaryResultModal trap** — a campaign created AFTER its
-   BallotReady-sourced `details.primaryElectionDate` has passed forces a
-   no-escape modal on first dashboard visit; independents with no primary
-   answer "did not win" → `primary_result='lost'` minutes after signup.
-   Repair needs BOTH writes or the modal re-traps on next dashboard load:
+1. **Re-running candidate reuses the old campaign** — `didWin=false` from
+   the prior loss survived onto the new race. Fixed in ENG-10954: a
+   user-driven update (`PUT /campaigns/mine`) that moves `electionDate` to a
+   new upcoming date now clears `didWin`/`primaryResult` and strips the stale
+   `wonGeneral`/`primaryElectionDate` details keys. Rows stranded before the
+   fix (or written through other paths) still need the manual repair:
+   `UPDATE campaign SET did_win = NULL WHERE id = <id> AND did_win = false;`
+   and strip the stale prior-race keys so the result modals can't re-trap:
+   `UPDATE campaign SET details = details - 'primaryElectionDate' -
+   'wonGeneral' WHERE id = <id>;`
+2. **PrimaryResultModal trap** — a campaign whose BallotReady-sourced
+   `details.primaryElectionDate` has passed re-opens the primary-result modal
+   each session; independents with no primary answer "did not win" →
+   `primary_result='lost'`. Repair needs BOTH writes or the modal re-traps on
+   next dashboard load:
    `UPDATE campaign SET primary_result = NULL WHERE id = <id> AND
    primary_result = 'lost';` and
    `UPDATE campaign SET details = details - 'primaryElectionDate' WHERE id = <id>;`
+3. **`did_win=false` with `details.wonGeneral` null** — nothing user-facing
+   writes the `didWin` column (the election-result page writes
+   `details.wonGeneral`); this shape means a gp-admin campaign edit set it.
+   Before ENG-10892 the admin form coerced a never-set `didWin` to `false` on
+   ANY save, so a staff member merely opening + saving a campaign killed its
+   Pro eligibility. Repair as in trap 1.
 
 **"Cancelled Pro but Stripe kept billing" (ENG-10657 shape).** The
 portal-cancel → `customer.subscription.deleted` → de-Pro path works; suspect
@@ -107,10 +141,6 @@ with `wonGeneral` null force-redirects every dashboard route to
 `/dashboard/election-result`, hiding Profile → Manage Subscription;
 `ActiveProSubscriptionAlert` on the election-result pages (PR #677) is the
 escape hatch.
-
-Open follow-ups (not ticketed): pass `customer` (stored customerId) on Pro
-checkout sessions instead of `customer_email`; alert on the webhook seeing a
-subscriptionId overwrite.
 
 ## Draft-first outreach fulfillment (TEXT)
 
@@ -124,7 +154,11 @@ submission, Slack, attribution, and free-texts redemption. On Peerly failure
 the row reverts to `pending_payment` and the handler THROWS on purpose —
 `completeCheckoutSession` only stamps its `postPurchaseCompletedAt`
 idempotency marker after handler success, so the throw makes Stripe's webhook
-retry re-attempt the finalize. Losing the claim proves nothing: the loser
+retry re-attempt the finalize. One exception: a `BadRequestException` (a
+permanent Peerly content rejection, e.g. a banned link in the script) is
+ACKED by the webhook handler instead of rethrown — redelivery can never
+succeed, and the client-facing complete call still returns the 400 with the
+vendor message. Losing the claim proves nothing: the loser
 polls for the winner's `projectId` and throws unless fulfillment is confirmed,
 so a loser's success can never stamp the marker while the winner fails.
 Sessions without `outreachId` (pre-draft-first clients) fall back to

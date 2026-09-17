@@ -9,7 +9,8 @@ import {
   Checkbox,
   Separator,
 } from '@radix-ui/themes'
-import { useForm, type Path } from 'react-hook-form'
+import { useState } from 'react'
+import { useForm, type FormState, type Path } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useNavigationGuard } from 'next-navigation-guard'
 import { userSchema, type UserFormData, USER_ROLES } from '../schema'
@@ -76,6 +77,48 @@ interface UserFormProps {
   onCancel: () => void
 }
 
+// Pasted phone numbers often carry non-breaking hyphens (U+2010..U+2015) and
+// stray whitespace, which the API's isMobilePhone validation rejects.
+const normalizePhone = (value: string) =>
+  value.trim().replace(/[\u2010-\u2015\u2212]/g, '-')
+
+const hasDirty = (flag: unknown): boolean =>
+  flag === true ||
+  (Array.isArray(flag) && flag.some(hasDirty)) ||
+  (typeof flag === 'object' &&
+    flag !== null &&
+    Object.values(flag).some(hasDirty))
+
+// The write schema rejects values legacy rows legitimately hold (empty zip,
+// 1-char names) and the email field mirrors the Clerk-enriched read, so
+// resubmitting untouched fields can 400 the save or silently rewrite the
+// email column. Only send what the admin actually changed.
+const pickChangedFields = (
+  data: UserFormData,
+  dirtyFields: FormState<UserFormData>['dirtyFields']
+): UserFormData => {
+  const changed: UserFormData = {}
+  if (hasDirty(dirtyFields.firstName)) changed.firstName = data.firstName
+  if (hasDirty(dirtyFields.lastName)) changed.lastName = data.lastName
+  if (hasDirty(dirtyFields.name)) changed.name = data.name
+  if (hasDirty(dirtyFields.email)) changed.email = data.email
+  if (hasDirty(dirtyFields.phone)) changed.phone = data.phone
+  if (hasDirty(dirtyFields.zip)) changed.zip = data.zip
+  if (hasDirty(dirtyFields.roles)) changed.roles = data.roles
+  const dirtyMetaData = dirtyFields.metaData
+  if (dirtyMetaData) {
+    const metaData: NonNullable<UserFormData['metaData']> = {}
+    if (hasDirty(dirtyMetaData.hubspotId)) {
+      metaData.hubspotId = data.metaData?.hubspotId
+    }
+    if (hasDirty(dirtyMetaData.textNotifications)) {
+      metaData.textNotifications = data.metaData?.textNotifications
+    }
+    if (Object.keys(metaData).length > 0) changed.metaData = metaData
+  }
+  return changed
+}
+
 export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
   const {
     register,
@@ -83,7 +126,7 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
     setValue,
     getValues,
     reset,
-    formState: { errors, isDirty, isValid },
+    formState: { errors, isDirty, isValid, dirtyFields },
   } = useForm<UserFormData>({
     mode: FORM_MODE.ON_CHANGE,
     resolver: zodResolver(userSchema),
@@ -102,6 +145,7 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
     },
   })
 
+  const [isSaving, setIsSaving] = useState(false)
   const currentRoles = watch('roles') ?? []
 
   useNavigationGuard({
@@ -110,7 +154,11 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
   })
 
   async function handleSubmit() {
-    const data = getValues()
+    if (isSaving) return
+    const data = { ...getValues() }
+    if (data.phone !== undefined) {
+      data.phone = normalizePhone(data.phone)
+    }
     const result = userSchema.safeParse(data)
 
     if (!result.success) {
@@ -118,11 +166,14 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
       return
     }
 
+    setIsSaving(true)
     try {
-      await onSave(data)
+      await onSave(pickChangedFields(data, dirtyFields))
       reset(data)
     } catch {
       // Save failed — keep the form dirty so the user can retry
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -216,6 +267,7 @@ export function UserForm({ initialData, onSave, onCancel }: UserFormProps) {
         onSubmit={handleSubmit}
         isValid={isValid}
         isDirty={isDirty}
+        isSaving={isSaving}
       />
     </>
   )

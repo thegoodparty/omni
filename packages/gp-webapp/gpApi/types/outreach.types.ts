@@ -2,7 +2,9 @@
 export type OutreachType =
   | 'text'
   | 'doorKnocking'
+  | 'nativeDoorKnocking'
   | 'phoneBanking'
+  | 'nativePhoneBanking'
   | 'socialMedia'
   | 'robocall'
   | 'p2p'
@@ -16,15 +18,23 @@ export type OutreachStatus =
   | 'in_progress'
   | 'completed'
   | 'pending_payment'
+  | 'canceled'
+  | 'failed'
 
 /** Payload for POST /outreach (create) */
 export interface CreateOutreachPayload {
   campaignId: number
   outreachType: OutreachType
+  name?: string
   message?: string | null
   title?: string | null
   script?: string | null
   date?: string | null
+  /**
+   * The wall-clock send time as picked ("HH:mm", 09:00–20:00). Approve
+   * opens Peerly's contact-local send window at it.
+   */
+  scheduledLocalTime?: string
   voterFileFilterId?: number
   audienceRequest?: string | null
   phoneListId?: number
@@ -125,5 +135,6 @@ export interface CreateOutreachResponse {
   didState: string | null
   didNpaSubset: string[] | null
   title: string | null
+  archivedAt?: string | null
   voterFileFilter: VoterFileFilterInOutreach | null
 }

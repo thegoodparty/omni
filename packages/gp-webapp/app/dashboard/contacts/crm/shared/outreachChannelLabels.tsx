@@ -17,6 +17,7 @@ export const OUTREACH_CHANNEL_LABELS: Record<OutreachChannel, string> = {
   doorKnocking: 'Knocked',
   nativeDoorKnocking: 'Knocked',
   phoneBanking: 'Called',
+  nativePhoneBanking: 'Called',
   robocall: 'Called',
   socialMedia: 'Digital',
 }
@@ -32,6 +33,7 @@ export const OUTREACH_CHANNEL_NOUNS: Record<OutreachChannel, string> = {
   doorKnocking: 'Door knocking',
   nativeDoorKnocking: 'Door knocking',
   phoneBanking: 'Phone banking',
+  nativePhoneBanking: 'Phone banking',
   robocall: 'Robocall',
   socialMedia: 'Social post',
 }
@@ -51,6 +53,9 @@ export const OUTREACH_CHANNEL_ICONS: Record<OutreachChannel, React.ReactNode> =
       <DoorOpenIcon size={16} className="shrink-0 text-foreground" />
     ),
     phoneBanking: <PhoneIcon size={16} className="shrink-0 text-foreground" />,
+    nativePhoneBanking: (
+      <PhoneIcon size={16} className="shrink-0 text-foreground" />
+    ),
     robocall: <PhoneIcon size={16} className="shrink-0 text-foreground" />,
     socialMedia: <Share2Icon size={16} className="shrink-0 text-foreground" />,
   }

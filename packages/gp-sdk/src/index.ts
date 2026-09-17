@@ -102,7 +102,12 @@ export type {
   RaceTargetMetrics,
 } from './types/campaign'
 
-export type { ImpersonateUserInput, ImpersonateUserOutput } from './types/admin'
+export type {
+  CreateSignInLinkInput,
+  CreateSignInLinkOutput,
+  ImpersonateUserInput,
+  ImpersonateUserOutput,
+} from './types/admin'
 
 export type {
   BriefingAdminDateRange,
@@ -111,6 +116,16 @@ export type {
   BriefingAdminListQuery,
   BriefingAdminRow,
 } from './types/briefing'
+
+export type {
+  PersonProfileRemoval,
+  ListPersonProfileRemovalsOptions,
+  SetPersonProfileRemovalInput,
+  SetPersonProfileRemovalOutput,
+  ClearPersonProfileRemovalInput,
+  ClearPersonProfileRemovalOutput,
+  PersonLookupResult,
+} from './types/personProfile'
 
 export type {
   AdminOrganization,

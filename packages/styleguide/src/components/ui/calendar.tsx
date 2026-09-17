@@ -6,7 +6,12 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
 } from 'lucide-react'
-import { DayButton, DayPicker, getDefaultClassNames } from 'react-day-picker'
+import {
+  type CustomComponents as DayPickerComponents,
+  DayButton,
+  DayPicker,
+  getDefaultClassNames,
+} from 'react-day-picker'
 
 import { cn } from '@styleguide/lib/utils'
 import {
@@ -25,6 +30,10 @@ function Calendar({
   ...props
 }: React.ComponentProps<typeof DayPicker>) {
   const defaultClassNames = getDefaultClassNames()
+  const mergedComponents = React.useMemo(
+    () => ({ ...CALENDAR_COMPONENTS, ...components }),
+    [components],
+  )
 
   return (
     <DayPicker
@@ -129,73 +138,96 @@ function Calendar({
         hidden: cn('invisible', defaultClassNames.hidden),
         ...classNames,
       }}
-      components={{
-        Root: ({ className, rootRef, ...props }) => {
-          return (
-            <div
-              data-slot="calendar"
-              ref={rootRef}
-              className={cn(className)}
-              {...props}
-            />
-          )
-        },
-        Chevron: ({ className, orientation, ...props }) => {
-          if (orientation === 'left') {
-            return (
-              <ChevronLeftIcon className={cn('size-4', className)} {...props} />
-            )
-          }
-
-          if (orientation === 'right') {
-            return (
-              <ChevronRightIcon
-                className={cn('size-4', className)}
-                {...props}
-              />
-            )
-          }
-
-          return (
-            <ChevronDownIcon className={cn('size-4', className)} {...props} />
-          )
-        },
-        DayButton: CalendarDayButton,
-        PreviousMonthButton: ({ className, ...props }) => {
-          return (
-            <Button
-              variant="ghost"
-              size="small"
-              className={cn('size-8 px-0', className)}
-              {...props}
-            />
-          )
-        },
-        NextMonthButton: ({ className, ...props }) => {
-          return (
-            <Button
-              variant="ghost"
-              size="small"
-              className={cn('size-8 px-0', className)}
-              {...props}
-            />
-          )
-        },
-        WeekNumber: ({ children, ...props }) => {
-          return (
-            <td {...props}>
-              <div className="flex size-[--cell-size] items-center justify-center text-center">
-                {children}
-              </div>
-            </td>
-          )
-        },
-        ...components,
-      }}
+      components={mergedComponents}
       {...props}
     />
   )
 }
+
+function CalendarRoot({
+  className,
+  rootRef,
+  ...props
+}: React.ComponentProps<DayPickerComponents['Root']>) {
+  return (
+    <div
+      data-slot="calendar"
+      ref={rootRef}
+      className={cn(className)}
+      {...props}
+    />
+  )
+}
+
+function CalendarChevron({
+  className,
+  orientation,
+  ...props
+}: React.ComponentProps<DayPickerComponents['Chevron']>) {
+  if (orientation === 'left') {
+    return <ChevronLeftIcon className={cn('size-4', className)} {...props} />
+  }
+
+  if (orientation === 'right') {
+    return <ChevronRightIcon className={cn('size-4', className)} {...props} />
+  }
+
+  return <ChevronDownIcon className={cn('size-4', className)} {...props} />
+}
+
+function CalendarPreviousMonthButton({
+  className,
+  ...props
+}: React.ComponentProps<DayPickerComponents['PreviousMonthButton']>) {
+  return (
+    <Button
+      variant="ghost"
+      size="small"
+      className={cn('size-8 px-0', className)}
+      {...props}
+    />
+  )
+}
+
+function CalendarNextMonthButton({
+  className,
+  ...props
+}: React.ComponentProps<DayPickerComponents['NextMonthButton']>) {
+  return (
+    <Button
+      variant="ghost"
+      size="small"
+      className={cn('size-8 px-0', className)}
+      {...props}
+    />
+  )
+}
+
+function CalendarWeekNumber({
+  children,
+  ...props
+}: React.ComponentProps<DayPickerComponents['WeekNumber']>) {
+  return (
+    <td {...props}>
+      <div className="flex size-[--cell-size] items-center justify-center text-center">
+        {children}
+      </div>
+    </td>
+  )
+}
+
+// Module-scope so every render passes DayPicker the same component
+// identities: an inline override is a new function type on each render, and
+// React responds by unmounting and rebuilding the whole day grid. Any click
+// already dispatched at a day button then lands on an orphaned node.
+const CALENDAR_COMPONENTS = {
+  Root: CalendarRoot,
+  Chevron: CalendarChevron,
+  DayButton: CalendarDayButton,
+  PreviousMonthButton: CalendarPreviousMonthButton,
+  NextMonthButton: CalendarNextMonthButton,
+  WeekNumber: CalendarWeekNumber,
+} satisfies Partial<DayPickerComponents>
 
 function CalendarDayButton({
   className,

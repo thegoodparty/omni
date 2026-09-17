@@ -1,6 +1,7 @@
 'use server'
 
 import { PERMISSIONS } from '@/lib/permissions'
+import { extractApiErrorMessage } from '@/lib/utils/sdkError'
 import { gpAction } from '@/shared/util/gpClient.util'
 import {
   GP_ENVIRONMENT,
@@ -8,7 +9,7 @@ import {
   type GpEnvironment,
 } from '@/shared/util/gpEnvironment'
 import { auth, currentUser } from '@clerk/nextjs/server'
-import type { UpdateUserInput, User } from '@goodparty_org/sdk'
+import { SdkError, type UpdateUserInput, type User } from '@goodparty_org/sdk'
 import { revalidatePath } from 'next/cache'
 import {
   DEFAULT_PER_PAGE,
@@ -83,19 +84,27 @@ export const getUsersProFlags = async (
   })
 }
 
+// Returns the failure reason instead of throwing: Next redacts messages of
+// errors thrown from server actions in production, so this is the only way
+// the browser can show the API's actual validation error.
 export const updateUser = async (
   id: number,
   input: UpdateUserInput
-): Promise<User> => {
+): Promise<{ user: User } | { error: string }> => {
   const { has } = await auth()
   if (!has({ permission: PERMISSIONS.WRITE_USERS })) {
     throw new Error('Missing write_users permission')
   }
-  return gpAction(async (client) => {
-    const user = await client.users.update(id, input)
-    revalidatePath(`/dashboard/users/${id}`, 'layout')
-    return user
-  })
+  try {
+    return await gpAction(async (client) => {
+      const user = await client.users.update(id, input)
+      revalidatePath(`/dashboard/users/${id}`, 'layout')
+      return { user }
+    })
+  } catch (error) {
+    if (!(error instanceof SdkError)) throw error
+    return { error: extractApiErrorMessage(error, 'Failed to save changes') }
+  }
 }
 
 export const createImpersonationToken = async (targetUserId: number) => {
@@ -117,4 +126,23 @@ export const createImpersonationToken = async (targetUserId: number) => {
     client.admin.impersonateUser(targetUserId, actorEmail)
   )
   return { token, webappUrl }
+}
+
+// No getWebappUrl here: gp-api builds the absolute URL from its own APP_ROOT,
+// which is already the right host for the environment the org points at.
+export const createSignInLink = async (targetUserId: number) => {
+  const { orgId } = await auth()
+  const user = await currentUser()
+
+  if (!user || !orgId) throw new Error('Not authenticated')
+
+  // The only record of who minted a transferable credential: gp-api logs a
+  // null actor on the M2M path unless this is passed.
+  const actorEmail = user.primaryEmailAddress?.emailAddress
+  if (!actorEmail) throw new Error('Could not determine actor email')
+
+  const { url, expiresAt } = await gpAction((client) =>
+    client.admin.createSignInLink(targetUserId, actorEmail)
+  )
+  return { url, expiresAt }
 }

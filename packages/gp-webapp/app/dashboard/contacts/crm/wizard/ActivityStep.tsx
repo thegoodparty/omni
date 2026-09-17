@@ -21,6 +21,7 @@ import {
   ACTIVITY_CONDITION_CHANNEL_ACTIONS,
   ACTIVITY_CONDITION_ACTION_LABELS,
   ACTIVITY_CONDITION_CHANNELS,
+  SELECTABLE_ACTIVITY_CONDITION_CHANNELS,
   CHANNELS_WITHOUT_CAMPAIGN_PICKER,
   type ActivityConditionChannel,
   type ActivityConditionInput,
@@ -58,6 +59,21 @@ export const toActivityConditionPayload = (
       outreachId: condition.outreachId,
       actions: condition.actions,
     }))
+
+// Inverse of toActivityConditionPayload, for seeding the wizard's edit mode
+// from a saved list. outreachName stays null: it exists only for the create
+// path's ENG-10709 `sourceCampaign` property, and an edit fires Segment
+// Updated instead — the campaign picker renders its own label from the
+// fetched outreaches, keyed on outreachId.
+export const toWizardActivityConditions = (
+  conditions: ActivityConditionInput[],
+): WizardActivityCondition[] =>
+  conditions.map((condition) => ({
+    ...blankActivityCondition(),
+    outreachType: condition.outreachType,
+    outreachId: condition.outreachId,
+    actions: condition.actions ?? [],
+  }))
 
 // Single source for the "no display name on the record" fallback — used both
 // by the campaign SelectItem's render and by handleCampaignChange's
@@ -118,10 +134,17 @@ export default function ActivityStep({
     [outreachesQuery.data],
   )
 
+  // Native phone-banking envelopes are written with outreachType
+  // nativePhoneBanking (phoneBankingList.service.ts), but a phoneBanking
+  // condition is the single CRM-facing channel for both — without this, the
+  // Campaign row would ship empty except "Any campaign" for every org.
   const completedOutreachesForChannel = (channel: ActivityConditionChannel) =>
     outreaches.filter(
       (outreach) =>
-        outreach.status === 'completed' && outreach.outreachType === channel,
+        outreach.status === 'completed' &&
+        (outreach.outreachType === channel ||
+          (channel === 'phoneBanking' &&
+            outreach.outreachType === 'nativePhoneBanking')),
     )
 
   const updateCondition = (
@@ -252,7 +275,7 @@ export default function ActivityStep({
                   aria-label="Previous activity"
                   className="flex flex-wrap gap-2"
                 >
-                  {ACTIVITY_CONDITION_CHANNELS.map((channel) => (
+                  {SELECTABLE_ACTIVITY_CONDITION_CHANNELS.map((channel) => (
                     <ToggleGroupItem
                       key={channel.value}
                       value={channel.value}

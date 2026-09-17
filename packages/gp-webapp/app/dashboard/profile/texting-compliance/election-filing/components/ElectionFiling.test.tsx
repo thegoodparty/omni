@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { router } from 'helpers/test-utils/router-mocking'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
@@ -182,6 +183,17 @@ describe('ElectionFiling — inline candidate profile collection (ENG-10857)', (
     expect(await screen.findByTestId('rich-editor')).toBeInTheDocument()
   })
 
+  it('still renders the form when the website read fails', async () => {
+    // getUserWebsite throws on a failed read rather than degrading to null, so
+    // `needsProfile` must settle on error too. Gating on isSuccess alone left
+    // it null forever and stranded the page on its Loading… spinner.
+    getUserWebsite.mockRejectedValue(new Error('Failed to load website: 500'))
+    render(<ElectionFiling />)
+
+    expect(await screen.findByTestId('filing-submit')).toBeInTheDocument()
+    expect(await screen.findByText(PROFILE_HEADING)).toBeInTheDocument()
+  })
+
   it('renders no profile section when the profile is already complete', async () => {
     getUserWebsite.mockResolvedValue(websiteWith('a'.repeat(MIN_BIO_LENGTH), 1))
     render(<ElectionFiling />)
@@ -200,6 +212,13 @@ describe('ElectionFiling — inline candidate profile collection (ENG-10857)', (
 
     await waitFor(() => expect(submitTcrCompliance).toHaveBeenCalledTimes(1))
     expect(saveAboutFields).not.toHaveBeenCalled()
+    // Post-submit lands on the submitted-for-verification confirmation, not
+    // account settings.
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith(
+        '/dashboard/profile/texting-compliance/verification-submitted',
+      ),
+    )
   })
 
   it('blocks the filing submit and surfaces errors when the profile is invalid', async () => {
@@ -293,5 +312,9 @@ describe('getInitialFormState — filing contact info not auto-filled (ENG-10290
     expect(state.campaignCommitteeName).toBe('')
     expect(state.email).toBe('')
     expect(state.phone).toBe('')
+  })
+
+  it('leaves candidateName blank — no source to prefill from', () => {
+    expect(getInitialFormState(campaign).candidateName).toBe('')
   })
 })

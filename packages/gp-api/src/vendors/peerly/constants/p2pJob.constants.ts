@@ -13,10 +13,17 @@ export const P2P_ERROR_MESSAGES = {
     `${P2P_SCRIPT_MAX_LENGTH} characters`,
   INVALID_IMAGE_PROPERTIES: 'Invalid image file: missing required properties',
   JOB_CREATION_FAILED: 'Failed to create P2P job',
+  JOB_UPDATE_FAILED: 'Failed to update P2P job',
   LIST_ASSIGNMENT_FAILED:
     'List assignment failed; job exists in Peerly and may require manual recovery',
   RETRIEVE_JOB_FAILED: 'Failed to fetch P2P job',
+  DELETE_JOB_FAILED: 'Failed to delete P2P job',
+  REQUEST_CANVASSERS_FAILED: 'Failed to request canvassers for P2P job',
+  ACTIVATE_JOB_FAILED: 'Failed to activate P2P job',
+  CLEAR_CANVASSERS_FAILED: 'Failed to clear canvasser request for P2P job',
+  JOB_STATS_FAILED: 'Failed to fetch P2P job stats',
   RETRIEVE_JOBS_FAILED: 'Failed to fetch P2P jobs',
+  LIST_TEST_JOBS_FAILED: 'Failed to fetch P2P test jobs',
 } as const
 
 export const P2P_PHONE_LIST_MAP = {

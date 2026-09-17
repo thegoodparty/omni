@@ -7,7 +7,6 @@ import {
   closeCrmSheet,
   selectActivityPill,
   crmSheet,
-  enableCrmFlags,
   gotoCrmContacts,
   listCard,
   saveWizardList,
@@ -113,7 +112,6 @@ test.describe('Contacts activity filters', () => {
   }) => {
     test.setTimeout(TEST_TIMEOUT)
     await blockSlowScripts(page)
-    await enableCrmFlags(page)
 
     await setupProCampaignUser(page)
 
@@ -138,7 +136,14 @@ test.describe('Contacts activity filters', () => {
       await expect(
         wizard.getByText('How do you want to build this list?'),
       ).toBeVisible({ timeout: 10_000 })
-      await expect(wizard.getByText('Step 1 of 3')).toBeVisible()
+      await expect(wizard.getByRole('progressbar')).toHaveAttribute(
+        'aria-valuenow',
+        '1',
+      )
+      await expect(wizard.getByRole('progressbar')).toHaveAttribute(
+        'aria-valuemax',
+        '3',
+      )
 
       const continueButton = wizard.getByRole('button', { name: 'Continue' })
       await expect(continueButton).toBeDisabled()
@@ -155,9 +160,14 @@ test.describe('Contacts activity filters', () => {
       ).toBeVisible({ timeout: 10_000 })
       await expect(channelGroups.first()).toBeVisible({ timeout: 10_000 })
 
-      for (const channel of ['Text', 'Door Knocking', 'Robocall']) {
+      for (const channel of ['Text', 'Door Knocking']) {
         await expect(activityPill(channelGroups.first(), channel)).toBeVisible()
       }
+      // Robocall is hidden: we no longer record per-contact robocall
+      // interactions, so the channel is omitted from the wizard (reversible).
+      await expect(activityPill(channelGroups.first(), 'Robocall')).toHaveCount(
+        0,
+      )
       // No channel chosen yet: the campaign and outcome rows don't exist, the
       // lone condition's trash is disabled, and Build is disabled (a condition
       // without a channel is invalid — ENG-10757 AC).

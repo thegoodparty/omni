@@ -69,7 +69,7 @@ export const SnackbarProvider = ({ children }: { children: ReactNode }) => {
     <SnackbarContext.Provider value={value}>
       {children}
       <Toaster
-        position="bottom-right"
+        position="bottom-center"
         offset={hasFooterChatBar ? CRM_ASSISTANT_BAR_CLEARANCE : undefined}
         mobileOffset={
           hasFooterChatBar ? CRM_ASSISTANT_BAR_CLEARANCE : undefined

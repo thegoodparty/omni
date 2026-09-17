@@ -48,6 +48,7 @@ describe('buildFollowOnPayload', () => {
       officePath: 'manual',
       manualOfficeForm: {
         office: 'Town Dogcatcher',
+        level: 'LOCAL',
         state: 'CA',
         city: 'Springfield',
         district: 'District 5',
@@ -64,6 +65,9 @@ describe('buildFollowOnPayload', () => {
       state: 'CA',
       city: 'Springfield',
       district: 'District 5',
+      // The selected office level must reach details.ballotLevel — 10DLC
+      // compliance derives the office level from it (ENG-11043).
+      ballotLevel: 'LOCAL',
       electionDate: '2026-11-03',
     })
   })

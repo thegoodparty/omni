@@ -20,6 +20,7 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { LOCKED_LIST_MESSAGE } from '../shared/constants'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { useContactsTable } from '../ContactsTableProvider'
+import { outreachAudienceListsKey } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
 
 interface DeleteListDialogProps {
   segment: SegmentResponse
@@ -27,12 +28,9 @@ interface DeleteListDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-// Modeled on the legacy DeleteSegment.tsx confirm pattern, but a standalone
-// component: this is a new CRM surface (app/dashboard/contacts/CLAUDE.md
-// convention keeps new CRM code out of [[...attr]]/components/) and it needs
-// a different post-delete action (navigate back to the lists index, not
-// reset an in-page segment picker) plus the 409-locked handling gp-api added
-// for this ticket's dependency (ENG-10703 guards DELETE the same as PUT).
+// Standalone destructive-confirm dialog: it navigates back to the lists
+// index after a delete, and carries the 409-locked handling gp-api added for
+// this ticket's dependency (ENG-10703 guards DELETE the same as PUT).
 export default function DeleteListDialog({
   segment,
   open,
@@ -62,9 +60,15 @@ export default function DeleteListDialog({
       await queryClient.invalidateQueries({
         queryKey: ['custom-segments', orgSlug],
       })
-      // ENG-10767: same event the legacy DeleteSegment fired — parity for
-      // the "lists deleted" chart. Ready-gated like the surface's other
-      // events so an unsettled mode can't emit the wrong context.
+      // Same endpoint backs the outreach audience picker's list cache; drop the
+      // deleted list there too so it can't be re-selected.
+      await queryClient.invalidateQueries({
+        queryKey: outreachAudienceListsKey(orgSlug),
+      })
+      // ENG-10767: the shared Contacts-group event rather than a CRM-only
+      // one, so the "lists deleted" chart stays one continuous series.
+      // Ready-gated like the surface's other events so an unsettled mode
+      // can't emit the wrong context.
       if (isWinContextReady) {
         trackEvent(EVENTS.Contacts.SegmentDeleted, {
           context: isWinContext ? 'win' : 'serve',
@@ -81,6 +85,9 @@ export default function DeleteListDialog({
         errorSnackbar(LOCKED_LIST_MESSAGE, { autoHideDuration: 6000 })
         await queryClient.invalidateQueries({
           queryKey: ['custom-segments', orgSlug],
+        })
+        await queryClient.invalidateQueries({
+          queryKey: outreachAudienceListsKey(orgSlug),
         })
         onOpenChange(false)
         return

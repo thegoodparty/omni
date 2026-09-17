@@ -46,6 +46,15 @@ model Race {
   officeLevel             String?       @map("office_level") // Civics (HubSpot-sourced) office level — distinct from BR positionLevel above
   // PositionElection
   frequency               Int[]         @map("frequency")
+  // Turnout projection for this race's own election day, written nightly by
+  // the data-platform race mart. Nullable because the model's horizon covers
+  // only the current year plus two. The columns themselves ship one PR
+  // earlier, so this one only starts reading them.
+  electionCode            ElectionCode? @map("election_code")
+  projectedTurnout        Int?          @map("projected_turnout")
+  projectedTurnoutLower   Int?          @map("projected_turnout_lower")
+  projectedTurnoutUpper   Int?          @map("projected_turnout_upper")
+  inferenceAt             DateTime?     @map("inference_at")
 
   // Relations
   Place       Place?      @relation(fields: [placeId], references: [id])

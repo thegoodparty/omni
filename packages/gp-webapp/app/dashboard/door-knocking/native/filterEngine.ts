@@ -1,4 +1,6 @@
 import { DecodedPack } from './packDecoder'
+import { groupAgeSlices, type DimSlice } from './audienceMix'
+import { statusByteActionability } from './statusPresentation'
 
 // Per-dim selections: dim key -> set of ALLOWED byte values. A dim absent
 // from the map (or with every value selected) doesn't constrain.
@@ -6,13 +8,20 @@ export type DimSelections = Map<string, Set<number>>
 
 export interface FilterResult {
   people: number
-  households: number
-  dots: number
+  // Present only on a district-wide pass. `maskToPolygon` leaves it off
+  // because no surface reads a household count off a masked result: the one
+  // reader is the create flow's `districtHouseholds`, which renders only while
+  // the flow is open, and the mask runs only while it is closed. Optional
+  // rather than a sentinel so that interlock is the compiler's to enforce.
+  households?: number
   // Matched people per dot — a dot with 0 renders dimmed.
   matchedPerDot: Uint32Array
   // Most-actionable canvass status byte among each dot's matched people.
-  // The DOOR_KNOCK_STATUSES array order IS the actionability order, so the
-  // minimum byte wins; 255 = no matched people at the dot.
+  // Ranked through `statusByteActionability` and NOT by the byte itself: the
+  // byte is an index into `DOOR_KNOCK_STATUSES`, which the Serve statuses were
+  // appended to so that packs already on phones keep decoding — so a raw
+  // comparison would rank a Serve conversation below every way a door can
+  // fail. 255 = no matched people at the dot.
   statusPerDot: Uint8Array
 }
 
@@ -72,51 +81,111 @@ export const runFilter = (
       households++
     }
     const status = canvassPlane?.[i] ?? 0
-    if (status < (statusPerDot[dot] ?? 255)) {
+    const current = statusPerDot[dot] ?? 255
+    if (statusByteActionability(status) < statusByteActionability(current)) {
       statusPerDot[dot] = status
     }
   }
 
-  let dots = 0
-  for (let i = 0; i < dotCount; i++) {
-    if ((matchedPerDot[i] ?? 0) > 0) dots++
+  return { people, households, matchedPerDot, statusPerDot }
+}
+
+// A dot's coordinate as a comparable key. Both sides are rounded to f32 first:
+// `positions` is a Float32Array and a route stop's lat/lng is the same value
+// still at double width, so the two agree only once the stop has been through
+// the same narrowing the pack's encoder put the dot through.
+const dotKey = (lng: number, lat: number): string =>
+  `${Math.fround(lng)},${Math.fround(lat)}`
+
+// Fold the doors logged on this device into a filter result, so a walk shows on
+// the map without re-downloading the district it was cut from.
+//
+// The merge is a MAX and never a rewrite, because knocking can only ever make a
+// door less actionable and `runFilter` reports the most actionable status at a
+// dot — so a dot the pack already answered for keeps what it had, and a
+// coordinate with no dot behind it is dropped rather than guessed at.
+//
+// Where it over-reports is any coordinate whose residents are not all on the
+// turf, because the two sides roll up over different populations: the stop over
+// the turf's filtered targets, the dot over everyone the pack put at that
+// coordinate. A block of flats is the loud version of it (the pack groups
+// households at `AddressLine` while a stop carries the apartment — ADR 0010),
+// but the common one is smaller and worth naming: a party-filtered turf that
+// took one half of a mixed-party couple colours the house for both of them.
+//
+// The exact answer is only knowable from the per-person statuses, which live on
+// the server side of the pack build — and asking for them means the same
+// tens-of-seconds district download this exists to avoid, on the one gesture
+// whose next frame is a navigation away from the map. It errs toward "already
+// knocked", which costs a second look at a door rather than a missed one.
+export const applyLoggedKnocks = (
+  pack: DecodedPack,
+  result: FilterResult,
+): FilterResult => {
+  const knocks = pack.loggedKnocks
+  // The overwhelming case, and the reason this is a guard rather than a branch
+  // inside the loop: without a walk behind it the pass below is a scan of every
+  // dot in the district on every filter pill the create flow toggles.
+  if (!knocks || knocks.length === 0) return result
+
+  const byDot = new Map<string, number>()
+  for (const knock of knocks) {
+    const key = dotKey(knock.lng, knock.lat)
+    const current = byDot.get(key)
+    // Most actionable wins among doors sharing a coordinate, which is the same
+    // rule `runFilter` rolls a dot's people up by.
+    if (
+      current === undefined ||
+      statusByteActionability(knock.status) < statusByteActionability(current)
+    ) {
+      byDot.set(key, knock.status)
+    }
   }
 
-  return { people, households, dots, matchedPerDot, statusPerDot }
+  const { positions } = pack
+  const statusPerDot = result.statusPerDot.slice()
+  for (let dot = 0; dot < statusPerDot.length; dot++) {
+    const logged = byDot.get(
+      dotKey(positions[dot * 2] ?? 0, positions[dot * 2 + 1] ?? 0),
+    )
+    if (logged === undefined) continue
+    const current = statusPerDot[dot] ?? 255
+    // A dot with no matched people keeps its sentinel rather than taking a
+    // logged knock: it is not on this filter, and 255 is what dims it.
+    if (current === 255) continue
+    if (statusByteActionability(logged) > statusByteActionability(current)) {
+      statusPerDot[dot] = logged
+    }
+  }
+  return { ...result, statusPerDot }
 }
 
-export interface PartySlice {
-  // The pack's own bucket name for the party ('Democratic', 'Unknown', …),
-  // so a district whose buckets differ still reads correctly.
-  label: string
-  people: number
-}
+// Defined in audienceMix and re-exported here, where its consumers already
+// look for it: this module needs audienceMix's age grouping, and importing the
+// type back the other way would make the pair circular.
+export type { DimSlice }
 
 export interface PolygonStats {
   stops: number
   people: number
   households: number
   // Biggest bucket first, empty buckets dropped.
-  partyMix: PartySlice[]
+  partyMix: DimSlice[]
+  // Same shape and the same pass, for the only other dim a FROZEN ROUTE can
+  // also answer (its targets carry a live age and party and nothing else).
+  // Every other dim the pack carries — education, income, ethnicity and ten
+  // more — would build a breakdown that emptied itself the moment the list
+  // was knocked, so the sheet reports the two both sources have.
+  ageMix: DimSlice[]
 }
 
-// Everything the draw step reports about the shape being drawn, all on the
-// one denominator that matters there: what is INSIDE the ring. A district-wide
-// number next to an in-polygon one is how the footer previously managed to
-// read "12,000 matching households · 84 selected doors".
-//
-// The households count is person-level exact — a household counts only when a
-// person in it survives the filter — so it matches what runFilter would report
-// for the same audience, restricted to the ring. That is deliberately stricter
-// than maskToPolygon's dot-granular rollup, which counts every household
-// sharing a matched coordinate and is documented as a slight overcount.
-export const polygonStats = (
+// Ray-cast the dots once (bbox prefiltered) so a person pass is a lookup per
+// voter rather than a point-in-polygon test per voter.
+const dotsInRing = (
   pack: DecodedPack,
-  selections: DimSelections,
   ring: Array<[number, number]>,
-): PolygonStats => {
-  const { positions, personToHousehold, householdToDot, dimPlanes, manifest } =
-    pack
+): Uint8Array => {
+  const { positions, manifest } = pack
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity
@@ -128,8 +197,6 @@ export const polygonStats = (
     if (y > maxY) maxY = y
   }
 
-  // Ray-cast the dots once (bbox prefiltered) so the person pass below is a
-  // lookup per voter rather than a point-in-polygon test per voter.
   const dotCount = manifest.counts.dots
   const insideDot = new Uint8Array(dotCount)
   for (let i = 0; i < dotCount; i++) {
@@ -139,11 +206,33 @@ export const polygonStats = (
     if (!pointInRing(x, y, ring)) continue
     insideDot[i] = 1
   }
+  return insideDot
+}
+
+// Everything the draw step reports about the shape being drawn, all on the
+// one denominator that matters there: what is INSIDE the ring. A district-wide
+// number next to an in-polygon one is how the footer previously managed to
+// read "12,000 matching households · 84 selected doors".
+//
+// The households count is person-level exact — a household counts only when a
+// person in it survives the filter — so it matches what runFilter would report
+// for the same audience, restricted to the ring.
+export const polygonStats = (
+  pack: DecodedPack,
+  selections: DimSelections,
+  ring: Array<[number, number]>,
+): PolygonStats => {
+  const { personToHousehold, householdToDot, dimPlanes, manifest } = pack
+  const dotCount = manifest.counts.dots
+  const insideDot = dotsInRing(pack, ring)
 
   const active = activeDimMasks(pack, selections)
   const partyDim = manifest.dims.find((dim) => dim.key === 'party')
   const partyPlane = dimPlanes.get('party')
   const partyPeople = new Array<number>(partyDim?.values.length ?? 0).fill(0)
+  const ageDim = manifest.dims.find((dim) => dim.key === 'age')
+  const agePlane = dimPlanes.get('age')
+  const agePeople = new Array<number>(ageDim?.values.length ?? 0).fill(0)
 
   const dotSeen = new Uint8Array(dotCount)
   const householdSeen = new Uint8Array(manifest.counts.households)
@@ -171,25 +260,38 @@ export const polygonStats = (
     if (party < partyPeople.length) {
       partyPeople[party] = (partyPeople[party] ?? 0) + 1
     }
+    const age = agePlane?.[i] ?? 0
+    if (age < agePeople.length) {
+      agePeople[age] = (agePeople[age] ?? 0) + 1
+    }
   }
 
   const partyMix = (partyDim?.values ?? [])
     .map((label, index) => ({ label, people: partyPeople[index] ?? 0 }))
     .filter((slice) => slice.people > 0)
     .sort((a, b) => b.people - a.people)
+  // Age is the one dim whose buckets are finer than anyone should be shown:
+  // they are cut so every saved-list age key maps onto them exactly, which
+  // costs three single-year buckets. `groupAgeSlices` rolls them up into the
+  // display bands, and re-sorts, since summing changes the order.
+  const ageMix = groupAgeSlices(
+    (ageDim?.values ?? [])
+      .map((label, index) => ({ label, people: agePeople[index] ?? 0 }))
+      .filter((slice) => slice.people > 0),
+  )
 
-  return { stops, people, households, partyMix }
+  return { stops, people, households, partyMix, ageMix }
 }
 
 // Restrict a filter result to the dots inside a turf polygon: dots outside
-// zero out (they render as unmatched grey) and the counts describe only the
-// turf. Used when a saved list is selected on the landing map.
+// zero out (they render as unmatched grey) and the people count describes only
+// the turf. Used when a saved list is selected on the landing map.
 export const maskToPolygon = (
   pack: DecodedPack,
   result: FilterResult,
   ring: Array<[number, number]>,
 ): FilterResult => {
-  const { positions, householdToDot } = pack
+  const { positions } = pack
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity
@@ -203,7 +305,6 @@ export const maskToPolygon = (
   const matchedPerDot = new Uint32Array(result.matchedPerDot.length)
   const statusPerDot = new Uint8Array(result.statusPerDot.length).fill(255)
   let people = 0
-  let dots = 0
   for (let i = 0; i < result.matchedPerDot.length; i++) {
     const matched = result.matchedPerDot[i] ?? 0
     if (matched === 0) continue
@@ -214,17 +315,8 @@ export const maskToPolygon = (
     matchedPerDot[i] = matched
     statusPerDot[i] = result.statusPerDot[i] ?? 255
     people += matched
-    dots++
   }
-  // Household count is dot-granular here (any household at a matched dot),
-  // a slight overcount vs runFilter's person-level rollup — fine for the
-  // rail readout, and the canonical count is knock-time evaluation anyway.
-  let households = 0
-  for (let h = 0; h < householdToDot.length; h++) {
-    const dot = householdToDot[h] ?? 0
-    if ((matchedPerDot[dot] ?? 0) > 0) households++
-  }
-  return { people, households, dots, matchedPerDot, statusPerDot }
+  return { people, matchedPerDot, statusPerDot }
 }
 
 const pointInRing = (

@@ -181,7 +181,7 @@ describe('useContactsDownload', () => {
     expect(onDownloadConfirmed).not.toHaveBeenCalled()
   })
 
-  it('ENG-10709: a caller that omits onDownloadConfirmed (legacy Download.tsx) does not error on success', () => {
+  it('ENG-10709: a caller that omits onDownloadConfirmed does not error on success', () => {
     mockedGetCookie.mockReturnValue(false)
     const { result } = renderHook(() =>
       useContactsDownload({ canUseProFeatures: true }),

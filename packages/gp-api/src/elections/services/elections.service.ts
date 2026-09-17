@@ -215,13 +215,10 @@ export class ElectionsService {
   ) {
     return this.electionApiGet<
       PositionWithOptionalDistrict,
-      { includeDistrict: boolean; includeTurnout: boolean }
+      { includeDistrict: boolean }
     >(
       ElectionApiRoutes.positions.findByBrId.path + `/${ballotreadyPositionId}`,
-      {
-        includeDistrict: options?.includeDistrict ?? false,
-        includeTurnout: false,
-      },
+      { includeDistrict: options?.includeDistrict ?? false },
     )
   }
   // Resolve election-api's internal Position id from a value that may be
@@ -244,23 +241,13 @@ export class ElectionsService {
 
   async getPositionById(
     positionId: string,
-    options?: {
-      includeDistrict?: boolean
-      includeTurnout?: boolean
-      electionDate?: string
-    },
+    options?: { includeDistrict?: boolean },
   ) {
     return this.electionApiGet<
       PositionWithOptionalDistrict,
-      {
-        includeDistrict: boolean
-        includeTurnout: boolean
-        electionDate?: string
-      }
+      { includeDistrict: boolean }
     >(`${ElectionApiRoutes.positions.findById.path}/${positionId}`, {
       includeDistrict: options?.includeDistrict ?? false,
-      includeTurnout: options?.includeTurnout ?? false,
-      electionDate: options?.electionDate,
     })
   }
 
@@ -384,13 +371,11 @@ export class ElectionsService {
         {
           electionDate: string | undefined
           includeDistrict: boolean
-          includeTurnout: boolean
           includeFilingFee: boolean
         }
       >(path, {
         electionDate: electionDate ?? undefined,
         includeDistrict: true,
-        includeTurnout,
         includeFilingFee: true,
       })
 
@@ -401,8 +386,19 @@ export class ElectionsService {
         )
       }
 
-      const turnoutValue = district.projectedTurnout?.projectedTurnout
-      const hasTurnout = includeTurnout && !!turnoutValue
+      // Turnout comes from the district-keyed endpoint, the same one the
+      // override-district path uses, rather than a relation embedded in the
+      // position response. It returns null on any failure, so a miss degrades
+      // to the sentinels below instead of throwing.
+      const details =
+        includeTurnout && electionDate
+          ? await this.buildRaceTargetDetails({
+              districtId: district.id,
+              electionDate,
+            })
+          : null
+      const turnoutValue = details?.projectedTurnout
+      const hasTurnout = !!turnoutValue
       const { L2DistrictType: districtType, L2DistrictName: districtName } =
         district
 
@@ -421,8 +417,8 @@ export class ElectionsService {
       })
       return {
         district,
-        ...(hasTurnout
-          ? this.calculateRaceTargetMetrics(turnoutValue)
+        ...(details && hasTurnout
+          ? details
           : {
               // Sentinel values: turnout unavailable or not requested
               winNumber: -1,
@@ -455,7 +451,6 @@ export class ElectionsService {
         officeName,
         districtType: district?.L2DistrictType,
         districtName: district?.L2DistrictName,
-        projectedTurnout: district?.projectedTurnout?.projectedTurnout,
       })
       if (!isNoMatch) {
         const message = this.buildSlackErrorMessage(

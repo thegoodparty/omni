@@ -6,17 +6,11 @@ import {
   SqlRejected,
   validateInsightsSql,
 } from './districtInsights.tool'
-import { HS_SCORE_SEMANTICS } from './hsScoreSemantics'
+import { DATA_SOURCE_ROUTING_RULES } from './dataSourceRouting'
+import { hsScoreSemantics } from './hsScoreSemantics'
 import type { DatabricksProvider } from './queryDatabricks.tool'
 import { isRecord } from './util/isRecord.util'
 import { parseSingleSelect } from './util/sqlAst.util'
-
-// Amplitude feature flag gating the constituent-data tool. Slice 6a ships it
-// DISABLED: the flag does not exist in Amplitude, so isFeatureEnabled returns
-// false and the CoS scope handler must not register the tool. It is enabled
-// only in slice 6b, after the scoped Databricks credential is validated in
-// dev/qa. NEVER enable this before that credential exists.
-export const CONSTITUENT_DATA_TOOL_FLAG = 'cos-constituent-data-tool'
 
 // Aggregate functions the agent may use. Anything outside this set (including
 // scalar functions and window functions) is rejected so a SELECT item can only
@@ -67,9 +61,16 @@ export interface ConstituentDataScope {
   // a hard line. The Win scope sets true: its mart retains partisan fields by
   // design for campaign targeting, so the description invites them instead.
   partisanQueriesAllowed?: boolean
+  // How the model must name the people in these rows. Serve (elected
+  // officials) says "constituent": they govern everyone in the district,
+  // including the people who did not vote, so electorate framing is wrong for
+  // that product. Win (campaigns) says "voter". The model echoes whichever
+  // noun this description uses straight into its answers, so it is set here
+  // rather than left to the system prompt alone.
+  audienceNoun: 'constituent' | 'voter'
   // Whether advertisedDimensions carries the verified score semantics: meaning
   // labels, categorical value tokens, and the exception marks ("not centered
-  // at 50", "limited coverage") that HS_SCORE_SEMANTICS refers to. Serve sets
+  // at 50", "limited coverage") that hsScoreSemantics refers to. Serve sets
   // true (labels and marks verified against serve_agent_voters, 2026-08-04).
   // Scopes that omit it (Win) keep the legacy score wording: their catalogs
   // have no marks or tokens, so the semantics block would reference entries
@@ -379,7 +380,7 @@ Write ONE SELECT against this exact table — you MUST include the FROM clause:
 The WHERE clause is your district scope — copy it verbatim, AND-combined with any extra filters. The GROUP BY is optional; omit it for a single district-wide total.
 
 Breakdown dimensions: call describe_constituent_data first to see the recommended dimensions and what each one means. Most are modeled issue-support scores (columns named hs_*${scope.catalogCarriesScoreMarks ? '' : ', each a 0-100 likelihood where a higher score means more aligned with the named position — report them as approximate shares/averages, never as exact head counts'}), plus age and urbanicity. Break down or filter by those. Do NOT group by a district or geography column: your district scope above already pins every row to one district, so a district breakdown just returns one meaningless row.
-${scope.catalogCarriesScoreMarks ? `\n${HS_SCORE_SEMANTICS}\n` : ''}
+${scope.catalogCarriesScoreMarks ? `\n${hsScoreSemantics(scope.audienceNoun)}\n` : ''}
 RULES:
   - Single SELECT, and it MUST contain "FROM ${table}".
   - ALWAYS include COUNT(*) (e.g. COUNT(*) AS count); any alias is fine. Queries with no COUNT are rejected.
@@ -397,7 +398,9 @@ ${
 }
   - Small cells (COUNT(*) below the suppression floor) are dropped automatically.
 
-Surface findings to the user in plain language — counts and percentages, not raw scores. Never echo the SQL or internal column names.`
+Surface findings to the user in plain language — counts and percentages, not raw scores. Never echo the SQL or internal column names.
+
+${DATA_SOURCE_ROUTING_RULES}`
 }
 
 export const buildQueryConstituentDataTool = (deps: {
@@ -457,7 +460,8 @@ export const buildDescribeConstituentDataTool = (deps: {
   scope: ConstituentDataScope
 }): LlmStreamTool<Record<string, never>, ConstituentDataMetadata> => ({
   description:
-    'List the table, recommended breakdown dimensions (with labels), and aggregate functions available to query_constituent_data. Call this before writing a query so you use valid names.',
+    'List the table, recommended breakdown dimensions (with labels), and aggregate functions available to query_constituent_data. Call this before writing a query so you use valid names.\n\n' +
+    DATA_SOURCE_ROUTING_RULES,
   inputSchema: z.object({}),
   execute: () => ({
     table: [...deps.scope.allowedTables][0] ?? '',

@@ -2,11 +2,13 @@ import {
   BadGatewayException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { Organization } from '../../../generated/prisma'
 import { PRO_FILTERING_REQUIRED_MESSAGE } from '@/contacts/services/contacts.service'
 import { FILTER_PRO_REQUIRED_MESSAGE } from '@/voters/services/voterFileFilter.service'
+import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 import { buildCrudSavedFiltersTool } from './crudSavedFilters.tool'
 
 const ORGANIZATION = { slug: 'win-campaign' } as Organization
@@ -47,6 +49,16 @@ describe('crud_saved_filters input schema', () => {
           // voicemail_left is a robocall outcome; invalid on the text channel
           { outreachType: 'text', actions: ['voicemail_left'] },
         ],
+      }).success,
+    ).toBe(false)
+  })
+
+  it('rejects the legacy registration keys the filter engine ignores', () => {
+    expect(
+      tool.inputSchema.safeParse({
+        action: 'create',
+        name: 'Inactive registrations',
+        registeredVoterFalse: true,
       }).success,
     ).toBe(false)
   })
@@ -102,6 +114,54 @@ describe('crud_saved_filters execute', () => {
     expect(deps.voterFileFilters.create).not.toHaveBeenCalled()
   })
 
+  it('refuses a create name that claims an unfiltered place', async () => {
+    const { deps, tool } = buildTool()
+    const result = await tool.execute(
+      tool.inputSchema.parse({
+        action: 'create',
+        name: 'Likely County Voters',
+      }),
+    )
+    expect(result).toEqual({
+      error: expect.stringContaining('no precinct narrowing'),
+    })
+    expect(result).toEqual({
+      error: expect.stringContaining('precincts are the one filter'),
+    })
+    expect(deps.contacts.countContacts).not.toHaveBeenCalled()
+    expect(deps.voterFileFilters.create).not.toHaveBeenCalled()
+  })
+
+  it('refuses a create name using a plural place word', async () => {
+    const { deps, tool } = buildTool()
+    const result = await tool.execute(
+      tool.inputSchema.parse({ action: 'create', name: 'All Counties List' }),
+    )
+    expect(result).toEqual({
+      error: expect.stringContaining('no precinct narrowing'),
+    })
+    expect(deps.voterFileFilters.create).not.toHaveBeenCalled()
+  })
+
+  it('accepts a create name with a place word when precincts narrow it', async () => {
+    const countContacts = vi.fn(() => Promise.resolve({ count: 12 }))
+    const create = vi.fn(() =>
+      Promise.resolve({ id: 5, name: 'Likely County Voters' }),
+    )
+    const { tool } = buildTool({
+      countContacts,
+      voterFileFilters: { create: create as never },
+    })
+    const result = await tool.execute(
+      tool.inputSchema.parse({
+        action: 'create',
+        name: 'Likely County Voters',
+        precincts: ['Franklin|12'],
+      }),
+    )
+    expect(result).toEqual({ id: 5, name: 'Likely County Voters', count: 12 })
+  })
+
   it('update and delete require an id', async () => {
     const { deps, tool } = buildTool()
     expect(await tool.execute({ action: 'update', name: 'New' })).toEqual({
@@ -133,6 +193,125 @@ describe('crud_saved_filters execute', () => {
     expect(
       deps.voterFileFilters.updateByIdAndOrganizationSlug,
     ).not.toHaveBeenCalled()
+  })
+
+  it('refuses a rename that claims an unfiltered place', async () => {
+    const { deps, tool } = buildTool({
+      voterFileFilters: {
+        findByIdAndOrganizationSlug: vi.fn(() =>
+          Promise.resolve({ id: 4, name: 'Existing', precincts: [] }),
+        ) as never,
+      },
+    })
+    const result = await tool.execute(
+      tool.inputSchema.parse({ action: 'update', id: 4, name: 'City Voters' }),
+    )
+    expect(result).toEqual({
+      error: expect.stringContaining('no precinct narrowing'),
+    })
+    expect(result).toEqual({
+      error: expect.stringContaining('precincts are the one filter'),
+    })
+    expect(
+      deps.voterFileFilters.updateByIdAndOrganizationSlug,
+    ).not.toHaveBeenCalled()
+  })
+
+  it('refuses clearing precincts on an update that leaves an existing place-word name unbacked', async () => {
+    const { deps, tool } = buildTool({
+      voterFileFilters: {
+        findByIdAndOrganizationSlug: vi.fn(() =>
+          Promise.resolve({
+            id: 4,
+            name: 'Franklin County Voters',
+            precincts: ['Franklin|12'],
+          }),
+        ) as never,
+      },
+    })
+    const result = await tool.execute(
+      tool.inputSchema.parse({ action: 'update', id: 4, precincts: [] }),
+    )
+    expect(result).toEqual({
+      error: expect.stringContaining('no precinct narrowing'),
+    })
+    expect(
+      deps.voterFileFilters.updateByIdAndOrganizationSlug,
+    ).not.toHaveBeenCalled()
+  })
+
+  it('refuses a rename that claims an unfiltered place when the existing list has no persisted precincts field', async () => {
+    const { deps, tool } = buildTool({
+      voterFileFilters: {
+        findByIdAndOrganizationSlug: vi.fn(() =>
+          Promise.resolve({ id: 4, name: 'Existing' }),
+        ) as never,
+      },
+    })
+    const result = await tool.execute(
+      tool.inputSchema.parse({ action: 'update', id: 4, name: 'City Voters' }),
+    )
+    expect(result).toEqual({
+      error: expect.stringContaining('no precinct narrowing'),
+    })
+    expect(
+      deps.voterFileFilters.updateByIdAndOrganizationSlug,
+    ).not.toHaveBeenCalled()
+  })
+
+  it('refuses a rename that clears precincts back to an unfiltered place', async () => {
+    const { deps, tool } = buildTool({
+      voterFileFilters: {
+        findByIdAndOrganizationSlug: vi.fn(() =>
+          Promise.resolve({
+            id: 4,
+            name: 'Old name',
+            precincts: ['Franklin|12'],
+          }),
+        ) as never,
+      },
+    })
+    const result = await tool.execute(
+      tool.inputSchema.parse({
+        action: 'update',
+        id: 4,
+        name: 'City Voters',
+        precincts: [],
+      }),
+    )
+    expect(result).toEqual({
+      error: expect.stringContaining('no precinct narrowing'),
+    })
+    expect(
+      deps.voterFileFilters.updateByIdAndOrganizationSlug,
+    ).not.toHaveBeenCalled()
+  })
+
+  it('accepts a rename with a place word when the existing list already has precincts', async () => {
+    const updateByIdAndOrganizationSlug = vi.fn(() =>
+      Promise.resolve({ id: 4, name: 'City Voters' }),
+    )
+    const { tool } = buildTool({
+      voterFileFilters: {
+        findByIdAndOrganizationSlug: vi.fn(() =>
+          Promise.resolve({
+            id: 4,
+            name: 'Old name',
+            precincts: ['Franklin|12'],
+          }),
+        ) as never,
+        updateByIdAndOrganizationSlug: updateByIdAndOrganizationSlug as never,
+      },
+    })
+    const result = await tool.execute(
+      tool.inputSchema.parse({ action: 'update', id: 4, name: 'City Voters' }),
+    )
+    expect(result).toEqual({ id: 4, name: 'City Voters' })
+    expect(updateByIdAndOrganizationSlug).toHaveBeenCalledWith(
+      4,
+      'win-campaign',
+      { name: 'City Voters' },
+    )
   })
 
   it('create counts first, then persists, and returns { id, name, count }', async () => {
@@ -176,7 +355,7 @@ describe('crud_saved_filters execute', () => {
     const { tool } = buildTool({
       voterFileFilters: {
         filterAccessCheck: vi.fn(() =>
-          Promise.reject(new BadRequestException(FILTER_PRO_REQUIRED_MESSAGE)),
+          Promise.reject(new ForbiddenException(FILTER_PRO_REQUIRED_MESSAGE)),
         ),
         create,
       },
@@ -194,7 +373,7 @@ describe('crud_saved_filters execute', () => {
     const create = vi.fn()
     const { tool } = buildTool({
       countContacts: vi.fn(() =>
-        Promise.reject(new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)),
+        Promise.reject(new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)),
       ),
       voterFileFilters: { create },
     })
@@ -203,6 +382,30 @@ describe('crud_saved_filters execute', () => {
     )
     expect(result).toEqual({
       error: expect.stringContaining('upgrading to Pro'),
+    })
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  // The pro gates above are 403s and every other business-rule rejection is a
+  // 400, so the catch has to recognize both classes. Narrowing it back to one
+  // would let the other escape as a generic tool failure.
+  it('surfaces a non-Pro-gate business rejection as a plain tool error', async () => {
+    const create = vi.fn()
+    const { tool } = buildTool({
+      countContacts: vi.fn(() =>
+        Promise.reject(
+          new BadRequestException(
+            'Political party filtering is not available for this organization',
+          ),
+        ),
+      ),
+      voterFileFilters: { create },
+    })
+    const result = await tool.execute(
+      tool.inputSchema.parse({ action: 'create', name: 'Blocked' }),
+    )
+    expect(result).toEqual({
+      error: 'Political party filtering is not available for this organization',
     })
     expect(create).not.toHaveBeenCalled()
   })
@@ -262,5 +465,10 @@ describe('crud_saved_filters execute', () => {
     await expect(
       tool.execute(tool.inputSchema.parse({ action: 'create', name: 'X' })),
     ).rejects.toBe(outage)
+  })
+
+  it('carries the cross-catalog routing rules in its description', () => {
+    const { tool } = buildTool()
+    expect(tool.description).toContain(DATA_SOURCE_ROUTING_RULES)
   })
 })

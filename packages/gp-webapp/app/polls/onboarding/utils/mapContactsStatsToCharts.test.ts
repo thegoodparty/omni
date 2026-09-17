@@ -18,6 +18,7 @@ const buildStats = (
   computedAt: '2026-01-01T00:00:00Z',
   totalConstituents: 100,
   totalConstituentsWithCellPhone: 50,
+  districtPopulation: null,
   buckets: {
     age: overrides.age ?? [],
     homeowner: overrides.homeowner ?? [],

@@ -89,6 +89,14 @@ build` peaks near Node's default ~4GB heap and started OOMing intermittently
   on the runners (2026-06-12). The cap is per process and propagates to every
   worker the build spawns, so raise it cautiously — several workers at a
   bigger cap can trip the kernel OOM killer instead.
+- The deploy step runs `vercel deploy --prebuilt --archive=tgz`: Vercel's
+  `api-upload-paid` quota counts **uploaded files**, not deploys, and caps the
+  account at 40,000 per 24h. A Next.js `.vercel/output` is tens of thousands of
+  files (each `.func` bundle carries its own traced `node_modules`), so the
+  parallel-agent PR volume exhausted the account-wide quota on 2026-08-25 and
+  every preview deploy in the repo failed. `--archive=tgz` uploads the output as
+  one compressed file, making each deploy cost ~1 against the quota. It changes
+  only the upload transport, so preview and prod both use it.
 - A single workflow (`pr-preview-comment.yml`) upserts **one** unified preview
   comment on the PR listing every app; every app's deploy job runs on every PR,
   so all the URLs resolve.
@@ -170,6 +178,13 @@ deploy happens inside one run, `main` cannot move underneath a deploy or the E2E
 one fixed SHA flows dev -> E2E -> prod. That is what removes the deploy/E2E/promote
 races the old per-push topology hit under load (a validated commit could be built
 and green on dev yet never promoted because it was no longer the tip).
+
+A failed run posts one alert to Slack `#bot-urgent`
+(`release-failure-alert.yml`, a `workflow_run` listener), naming the failed jobs
+and the phase that died. Read the phase line before triaging: a failed
+`Dev <service>` job **skips** the E2E shards, so the run's red gate job is named
+`E2E` even when nothing e2e-related ran. Cancelled runs are the train coalescing
+a merge burst and do not alert.
 
 The stages:
 

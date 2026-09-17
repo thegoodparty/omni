@@ -1,47 +1,21 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
-import { DistrictStats } from '../../generated/people-prisma'
-import { createPeopleDbBase, PEOPLE_MODELS } from '../peopleDbBase.util'
+import { Injectable } from '@nestjs/common'
 import { StatsDTO } from '../schemas/people.schema'
+import { DatabricksVoterService } from '../databricks/databricksVoter.service'
+import { type ComputedDistrictStats } from '../databricks/databricksDistrictStatsSql.util'
+import { VoterReadLogService } from '../databricks/voterReadLog.service'
 
 @Injectable()
-export class StatsService extends createPeopleDbBase(
-  PEOPLE_MODELS.DistrictStats,
-) {
-  async getStats(dto: StatsDTO): Promise<DistrictStats> {
-    const stats = await this.model.findUnique({
-      where: { districtId: dto.districtId },
+export class StatsService {
+  constructor(
+    private readonly databricks: DatabricksVoterService,
+    private readonly readLog: VoterReadLogService,
+  ) {}
+
+  async findStats(dto: StatsDTO): Promise<ComputedDistrictStats | null> {
+    return this.readLog.measure({
+      op: 'stats',
+      districtId: dto.districtId,
+      read: () => this.databricks.findStats(dto.districtId),
     })
-
-    if (!stats) {
-      throw new NotFoundException(
-        `District stats not found for districtId=${dto.districtId}`,
-      )
-    }
-
-    return stats
-  }
-
-  async findTotalConstituents(districtId: string): Promise<number | null> {
-    const stats = await this.model.findUnique({
-      select: { totalConstituents: true },
-      where: { districtId },
-    })
-    return stats?.totalConstituents ?? null
-  }
-
-  async getTotalCounts(districtId: string) {
-    const totalCounts = await this.model.findUnique({
-      select: {
-        totalConstituents: true,
-        totalConstituentsWithCellPhone: true,
-      },
-      where: { districtId },
-    })
-    if (!totalCounts) {
-      throw new NotFoundException(
-        `District stats not found for districtId=${districtId}`,
-      )
-    }
-    return totalCounts
   }
 }

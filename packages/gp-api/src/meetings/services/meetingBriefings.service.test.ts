@@ -14,6 +14,7 @@ import { useTestService } from '@/test-service'
 // chain (analytics -> users -> campaigns -> analytics) and must not be the
 // first app-graph module evaluated, or Nest sees an undefined DI token.
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { MeetingBriefingsService } from './meetingBriefings.service'
 
 const service = useTestService()
@@ -954,6 +955,132 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
   })
 })
 
+describe('MeetingBriefingsService Agenda Created HubSpot single-send (ENG-11035)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  const createBriefingReadyRun = async (orgSlug: string) => {
+    await service.prisma.organization.create({
+      data: { slug: orgSlug, ownerId: service.user.id },
+    })
+    const eo = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    const briefingRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'briefing-bucket',
+        artifactKey: `${orgSlug}.json`,
+        params: { elected_office_id: eo.id },
+      },
+    })
+    // No `items` field: readTopAgendaItems returns [], so
+    // generateAgendaHook short-circuits on leadInFallback without an LLM
+    // call, keeping this a pure DB/single-send test.
+    mockS3({
+      [`${orgSlug}.json`]: JSON.stringify({
+        briefing_status: 'briefing_ready',
+        meeting_date: '2026-06-08',
+        meeting_time: '19:00',
+        meeting_timezone: 'America/Chicago',
+        meeting_name: 'City Council',
+        location: 'Council Chambers',
+        executive_summary: { lead_in: 'Big vote tonight.' },
+      }),
+    })
+    return { eo, briefingRun }
+  }
+
+  it('does not call HubSpot single-send when HUBSPOT_BRIEFING_READY_EMAIL_ID is unset', async () => {
+    const sendSpy = vi
+      .spyOn(service.app.get(HubspotSingleSendService), 'sendSingleSend')
+      .mockResolvedValue(undefined)
+    const { briefingRun } = await createBriefingReadyRun(
+      `eo-briefing-nosend-${Date.now()}`,
+    )
+
+    await service.app
+      .get(MeetingBriefingsService)
+      .onExperimentRunCompleted(briefingRun)
+
+    expect(sendSpy).not.toHaveBeenCalled()
+  })
+
+  it('sends to the office account email with the flattened agenda content once configured', async () => {
+    vi.stubEnv('HUBSPOT_BRIEFING_READY_EMAIL_ID', '777222')
+    const sendSpy = vi
+      .spyOn(service.app.get(HubspotSingleSendService), 'sendSingleSend')
+      .mockResolvedValue(undefined)
+    const trackSpy = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue({ event: 'stub', userId: 'stub' })
+    const { briefingRun } = await createBriefingReadyRun(
+      `eo-briefing-send-${Date.now()}`,
+    )
+
+    await service.app
+      .get(MeetingBriefingsService)
+      .onExperimentRunCompleted(briefingRun)
+
+    expect(sendSpy).toHaveBeenCalledWith({
+      emailId: 777222,
+      to: service.user.email,
+      customProperties: {
+        meetingDate: '2026-06-08',
+        meetingTime: '19:00',
+        meetingTimezone: 'America/Chicago',
+        meetingPlace: 'Council Chambers',
+        meetingType: 'City Council',
+        execSummary: 'Big vote tonight.',
+      },
+    })
+    // The Segment event keeps firing unchanged alongside the single-send.
+    expect(trackSpy).toHaveBeenCalledWith(
+      service.user.id,
+      'Briefing Assistant - Agenda Created',
+      expect.objectContaining({ meetingPlace: 'Council Chambers' }),
+    )
+  })
+
+  it('does not fail row creation or the Segment event when the single-send fails', async () => {
+    vi.stubEnv('HUBSPOT_BRIEFING_READY_EMAIL_ID', '777222')
+    vi.spyOn(
+      service.app.get(HubspotSingleSendService),
+      'sendSingleSend',
+    ).mockRejectedValue(new Error('HubSpot down'))
+    const trackSpy = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue({ event: 'stub', userId: 'stub' })
+    const { eo, briefingRun } = await createBriefingReadyRun(
+      `eo-briefing-fail-${Date.now()}`,
+    )
+
+    await expect(
+      service.app
+        .get(MeetingBriefingsService)
+        .onExperimentRunCompleted(briefingRun),
+    ).resolves.toBeUndefined()
+
+    const row = await service.prisma.meetingBriefing.findUnique({
+      where: {
+        electedOfficeId_meetingDate: {
+          electedOfficeId: eo.id,
+          meetingDate: new Date('2026-06-08'),
+        },
+      },
+    })
+    expect(row).not.toBeNull()
+    expect(trackSpy).toHaveBeenCalledWith(
+      service.user.id,
+      'Briefing Assistant - Agenda Created',
+      expect.anything(),
+    )
+  })
+})
+
 describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
   beforeEach(async () => {
     vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
@@ -1209,7 +1336,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     )
   })
 
-  it('skips an EO whose position is explicitly not serve-ICP', async () => {
+  it('dispatches for an EO whose position is not serve-ICP', async () => {
     const orgSlug = `eo-cron-non-icp-${Date.now()}`
     await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-cron-non-icp' })
     const campaign = await service.prisma.campaign.findFirst({
@@ -1236,10 +1363,15 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
 
     await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
 
-    expect(dispatchSpy).not.toHaveBeenCalled()
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'meeting_briefing',
+        organizationSlug: orgSlug,
+      }),
+    )
   })
 
-  it('skips an EO when serve-ICP is null (unknown fails closed)', async () => {
+  it('dispatches for an EO when serve-ICP is unknown', async () => {
     const orgSlug = `eo-cron-null-icp-${Date.now()}`
     await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-cron-null-icp' })
     const campaign = await service.prisma.campaign.findFirst({
@@ -1266,7 +1398,12 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
 
     await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
 
-    expect(dispatchSpy).not.toHaveBeenCalled()
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'meeting_briefing',
+        organizationSlug: orgSlug,
+      }),
+    )
   })
 
   // Correctness of the DB-side pre-filter + bounded concurrency: with a mix of
@@ -1750,7 +1887,7 @@ describe('MeetingBriefingsService.dispatchManual', () => {
     )
   })
 
-  it('gated briefing dispatch skips a position that is not serve-ICP', async () => {
+  it('gated briefing dispatch proceeds for a position that is not serve-ICP', async () => {
     const orgSlug = `eo-manual-gate-non-icp-${Date.now()}`
     await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-gate-non-icp' })
     const eo = await service.prisma.electedOffice.create({
@@ -1770,11 +1907,13 @@ describe('MeetingBriefingsService.dispatchManual', () => {
       .get(MeetingBriefingsService)
       .dispatchManual(eo.id, 'briefing', true)
 
-    expect(result.dispatched).toBe(false)
-    expect(dispatchSpy).not.toHaveBeenCalled()
+    expect(result.dispatched).toBe(true)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'meeting_briefing' }),
+    )
   })
 
-  it('gated briefing dispatch fails closed when serve-ICP is null', async () => {
+  it('gated briefing dispatch proceeds when serve-ICP is unknown', async () => {
     const orgSlug = `eo-manual-gate-null-icp-${Date.now()}`
     await seedOrgAndCampaign(orgSlug, { positionId: 'br-pos-gate-null-icp' })
     const eo = await service.prisma.electedOffice.create({
@@ -1794,8 +1933,10 @@ describe('MeetingBriefingsService.dispatchManual', () => {
       .get(MeetingBriefingsService)
       .dispatchManual(eo.id, 'briefing', true)
 
-    expect(result.dispatched).toBe(false)
-    expect(dispatchSpy).not.toHaveBeenCalled()
+    expect(result.dispatched).toBe(true)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'meeting_briefing' }),
+    )
   })
 
   it('ungated briefing dispatch ignores serve-ICP', async () => {

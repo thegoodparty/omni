@@ -41,7 +41,7 @@ Pattern-based matching for consistency:
 Before running the pipeline, ensure you have:
 
 1. **Python environment** with `uv` package manager installed
-2. **Required API credentials** in `/Users/collinpark/work/gp-ai-projects/.env`:
+2. **Required API credentials** in `/Users/collinpark/work/packages/gp-ai/.env`:
    ```bash
    GEMINI_API_KEY=your_gemini_api_key
    DDHQ_MATCHER_GOOGLE_CLIENT_ID=your_google_client_id
@@ -73,16 +73,16 @@ If not installed, install via: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
 **Step 2: Navigate to Project Directory**
 ```bash
-cd /Users/collinpark/work/gp-ai-projects/hubspot_ddhq_match/google_sheets_matcher
+cd /Users/collinpark/work/packages/gp-ai/hubspot_ddhq_match/google_sheets_matcher
 ```
 
 **Step 3: Verify Environment Variables**
 
-The `.env` file should already exist at `/Users/collinpark/work/gp-ai-projects/.env` with the required credentials:
+The `.env` file should already exist at `/Users/collinpark/work/packages/gp-ai/.env` with the required credentials:
 
 ```bash
 # Verify .env file exists and has required variables
-grep -E "GEMINI_API_KEY|DDHQ_MATCHER_GOOGLE|DATABRICKS" /Users/collinpark/work/gp-ai-projects/.env
+grep -E "GEMINI_API_KEY|DDHQ_MATCHER_GOOGLE|DATABRICKS" /Users/collinpark/work/packages/gp-ai/.env
 ```
 
 **Required variables:**
@@ -376,7 +376,7 @@ If the browser doesn't open for Google OAuth on first run:
 ### Missing Environment Variables
 
 If you see errors about missing API keys:
-1. Verify `.env` file exists at `/Users/collinpark/work/gp-ai-projects/.env`
+1. Verify `.env` file exists at `/Users/collinpark/work/packages/gp-ai/.env`
 2. Check all required variables are set (see Prerequisites section)
 3. Restart terminal to reload environment
 

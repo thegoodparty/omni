@@ -1,10 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { formatInTimeZone } from 'date-fns-tz'
 import type { User } from 'helpers/types'
-import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
-import { useCampaignStrategyFlag } from '@shared/experiments/campaignStrategyFlag'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
 import DashboardLayout, {
   type DashboardNavHeaderConfig,
@@ -12,6 +11,25 @@ import DashboardLayout, {
 import { NAV_LABELS } from '../../shared/navLabels'
 import CampaignPlanPage from './CampaignPlanPage'
 import CampaignPlanStoryGate from './CampaignPlanStoryGate'
+import CampaignPlanElectionPassedGate from './CampaignPlanElectionPassedGate'
+
+const ISO_DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+
+// Mirrors gp-api's guard: passed only when every stored date has passed, so a
+// stale general with an upcoming primary stays live. Compare calendar dates in
+// UTC, not the viewer's zone: the API judges against its own UTC clock, so a US
+// browser on election-day evening would otherwise still show the plan while
+// the API already refuses to generate. Election day itself counts as upcoming.
+const electionHasPassed = (
+  electionDate: string | undefined,
+  primaryElectionDate: string | undefined,
+): boolean => {
+  const todayUtc = formatInTimeZone(new Date(), 'UTC', 'yyyy-MM-dd')
+  const days = [electionDate, primaryElectionDate]
+    .map((date) => (date ?? '').trim().slice(0, 10))
+    .filter((day) => ISO_DATE_ONLY.test(day))
+  return days.length > 0 && days.every((day) => day < todayUtc)
+}
 
 interface CampaignPlanRouterProps {
   initialUser: User | null
@@ -41,35 +59,19 @@ const Spinner = ({
   </DashboardLayout>
 )
 
-// Decides what the Campaign Plan tab shows. For the campaign-story cohort the
-// plan/tracker shows only once the story is complete (it feeds both plan and
-// tracker/event generation); an incomplete story — even one that already
-// generated a plan before the flag was turned on — is routed to the story gate
-// rather than a tracker that can never populate. Non-story cohorts keep the
-// legacy behavior: a generated plan wins, otherwise "no plan -> back to
-// dashboard". Flag is read client-side (Amplitude is browser-only), matching
-// the FeatureFlagGuard pattern.
+// Decides what the Campaign Plan tab shows. The plan/tracker shows only once
+// the story is complete (it feeds both plan and tracker/event generation); an
+// incomplete story is routed to the story gate rather than a tracker that can
+// never populate.
 const CampaignPlanRouter = ({
   initialUser,
   planExists,
 }: CampaignPlanRouterProps): React.JSX.Element => {
-  const router = useRouter()
-  // trackExposure=false: this tab isn't the experiment's treatment surface
-  // (the story page's FeatureFlagGuard is), so the read mustn't fire exposure
-  // for every plan visitor — mirrors DashboardMenu.
-  const { ready: storyReady, enabled: storyEnabled } =
-    useCampaignStoryFlag(false)
-  // The strategy-only cohort (campaign-strategy on, campaign-story off) lands
-  // on the onboarding success page post-pledge, but can still open this page
-  // from the menu — they have no story to gate on and see the legacy plan
-  // content (no tracker; CampaignPlanView branches on the story flag).
-  const { ready: strategyReady, enabled: strategyEnabled } =
-    useCampaignStrategyFlag()
-  const ready = storyReady && strategyReady
-  // The plan/tracker is only meaningful for the story cohort once the story is
-  // complete; gate on it (fetched only for that cohort via `enabled`).
+  const [campaign] = useCampaign()
+  const electionDate = campaign?.details?.electionDate
+  const primaryElectionDate = campaign?.details?.primaryElectionDate
   const { isComplete: storyComplete, isLoading: storyLoading } =
-    useCampaignStoryComplete(storyEnabled)
+    useCampaignStoryComplete(true)
   // Initialized false (not from sessionStorage) so the client's first render
   // matches the server's — then rehydrated from sessionStorage in an effect to
   // avoid a hydration mismatch.
@@ -95,15 +97,13 @@ const CampaignPlanRouter = ({
     if (planExists) sessionStorage.removeItem(GENERATE_REQUESTED_KEY)
   }, [planExists])
 
-  // Icon + name are the sidebar tab's, resolved the same way DashboardMenu
-  // resolves the label (story cohort reads "Campaign Tracker", the legacy
-  // cohort "Campaign Plan"), so the title bar can't disagree with the rail.
-  // Only the tracker hero puts a CTA in the bar (the legacy plan keeps its own
-  // bottom download bar, and the story gate / spinner have none) — the bar
-  // tracks that itself, so the same config serves every branch below.
+  // Icon + name are the sidebar tab's, so the title bar can't disagree with
+  // the rail. Only the tracker hero puts a CTA in the bar (the story gate /
+  // spinner have none) — the bar tracks that itself, so the same config
+  // serves every branch below.
   const navHeader: DashboardNavHeaderConfig = {
     icon: 'scroll',
-    label: storyEnabled ? NAV_LABELS.campaignTracker : NAV_LABELS.campaignPlan,
+    label: NAV_LABELS.campaignTracker,
   }
 
   const requestGenerate = (): void => {
@@ -111,27 +111,25 @@ const CampaignPlanRouter = ({
     setGenerateRequested(true)
   }
 
-  // Story cohort: show the plan/tracker only once the story is complete — then
-  // either an existing plan or a fresh generate request lands them on it, and an
-  // incomplete story falls through to the gate below. Non-story cohorts are
-  // unchanged: a generated plan wins, and the strategy-only cohort generates on
-  // the page (as the retired success page did). The generate request only counts
-  // for story users (it's set by the gate), so a stale sessionStorage flag can't
-  // let a flag-off user bypass the redirect below.
-  const showPlan = storyEnabled
-    ? storyComplete && (planExists || generateRequested)
-    : planExists || (strategyEnabled && !storyEnabled)
+  // A returning candidate's campaign still carries last cycle's election until
+  // they update their race. gp-api refuses to generate a plan for a past
+  // electionDate (400), and a tracker for a finished race is meaningless, so
+  // send them to fix the race first — ahead of the story gate and regardless of
+  // an existing plan or a pending generate request.
+  if (electionHasPassed(electionDate, primaryElectionDate)) {
+    return (
+      <DashboardLayout navHeader={navHeader}>
+        <CampaignPlanElectionPassedGate
+          electionDate={electionDate ?? primaryElectionDate ?? ''}
+        />
+      </DashboardLayout>
+    )
+  }
 
-  // Only bounce when no flow applies: no plan, no story flow, no strategy flow.
-  const redirectToDashboard = ready && !showPlan && !storyEnabled
-  useEffect(() => {
-    if (redirectToDashboard) router.replace('/dashboard')
-  }, [redirectToDashboard, router])
-
-  // Redirect wins over a persisted generate request: a user whose flag was
-  // turned off must still go to /dashboard, even if sessionStorage holds a
-  // stale generate flag — otherwise they'd render the plan and fire generation.
-  if (redirectToDashboard) return <Spinner navHeader={navHeader} />
+  // Show the plan/tracker only once the story is complete — then either an
+  // existing plan or a fresh generate request lands them on it, and an
+  // incomplete story falls through to the gate below.
+  const showPlan = storyComplete && (planExists || generateRequested)
 
   // Rendering CampaignPlanView (inside CampaignPlanPage) fires the generation
   // POSTs and streams sections in as they're ready — so "generate" lands on
@@ -140,12 +138,10 @@ const CampaignPlanRouter = ({
     return <CampaignPlanPage initialUser={initialUser} navHeader={navHeader} />
   }
 
-  if (!ready) return <Spinner navHeader={navHeader} />
-
-  // Story cohort: wait until the story/website the completeness check needs have
-  // resolved before choosing gate vs plan, so a complete-story user with a plan
+  // Wait until the story/website the completeness check needs have resolved
+  // before choosing gate vs plan, so a complete-story user with a plan
   // doesn't briefly flash the gate before the plan renders.
-  if (storyEnabled && storyLoading) return <Spinner navHeader={navHeader} />
+  if (storyLoading) return <Spinner navHeader={navHeader} />
 
   return (
     <DashboardLayout navHeader={navHeader}>

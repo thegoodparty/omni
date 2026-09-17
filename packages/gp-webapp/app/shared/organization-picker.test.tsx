@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useQuery } from '@tanstack/react-query'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { Eligibility, Organization } from 'gpApi/api-endpoints'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { SidebarProvider } from '@styleguide'
+import { outreachDetailQueryKey } from 'app/dashboard/outreach/v2/useOutreachDetail'
 import {
   OrganizationProvider,
   OrganizationPicker,
@@ -14,6 +16,7 @@ import {
 
 const mockRouterPush = vi.fn()
 const mockRouterReplace = vi.fn()
+const mockRouterRefresh = vi.fn()
 
 vi.mock('next/navigation', async (importOriginal) => {
   const actual = await importOriginal<typeof import('next/navigation')>()
@@ -22,13 +25,15 @@ vi.mock('next/navigation', async (importOriginal) => {
     useRouter: vi.fn(() => ({
       push: mockRouterPush,
       replace: mockRouterReplace,
+      refresh: mockRouterRefresh,
     })),
     usePathname: vi.fn(() => '/dashboard'),
   }
 })
 
+const mockUseFlagOn = vi.fn(() => ({ ready: true, on: true }))
 vi.mock('./experiments/FeatureFlagsProvider', () => ({
-  useFlagOn: vi.fn(() => ({ on: true })),
+  useFlagOn: (...args: unknown[]) => mockUseFlagOn(...(args as [])),
 }))
 
 vi.mock('@styleguide/hooks/use-mobile', () => ({
@@ -89,11 +94,14 @@ const orgs: Organization[] = [
 ]
 
 beforeEach(() => {
+  testQueryClient.clear()
   mockSetCookie.mockClear()
   mockGetCookie.mockReset().mockReturnValue(false)
   mockRouterPush.mockClear()
   mockRouterReplace.mockClear()
+  mockRouterRefresh.mockClear()
   vi.mocked(trackEvent).mockClear()
+  mockUseFlagOn.mockReset().mockReturnValue({ ready: true, on: true })
 })
 
 describe('OrganizationProvider', () => {
@@ -109,6 +117,8 @@ describe('OrganizationProvider', () => {
       </OrganizationProvider>,
     )
 
+    // gp-api orders the list so the default org is first — see
+    // listOrganizations. The client does not re-rank it.
     expect(screen.getByTestId('org')).toHaveTextContent('org-one')
   })
 
@@ -363,6 +373,47 @@ describe('OrganizationPicker', () => {
     expect(mockRouterPush).not.toHaveBeenCalledWith('/dashboard/briefings')
   })
 
+  // ENG-11052: a switch onto an org where the viewer is a volunteer lands on
+  // the reductive /volunteer shell, not the campaign dashboard.
+  it('routes to /volunteer when switching to an org where the viewer is a volunteer', async () => {
+    const user = userEvent.setup()
+    renderPicker(
+      orgs.map((org, i) => ({
+        ...org,
+        role: i === 1 ? ('volunteer' as const) : ('owner' as const),
+      })),
+    )
+
+    await user.click(screen.getByText('Organization One'))
+    // Organization Two (index 1) is the volunteer-role destination.
+    await user.click(screen.getByText('Organization Two'))
+
+    await waitFor(() => {
+      expect(mockRouterPush).toHaveBeenCalledWith('/volunteer')
+    })
+  })
+
+  // Flag off keeps routing byte-identical to today even for a role that
+  // (per gp-api) can't really exist yet outside the pilot.
+  it('routes to /dashboard/chief-of-staff for a volunteer-role org when win-team-accounts is off', async () => {
+    mockUseFlagOn.mockReturnValue({ ready: true, on: false })
+    const user = userEvent.setup()
+    renderPicker(
+      orgs.map((org, i) => ({
+        ...org,
+        role: i === 1 ? ('volunteer' as const) : ('owner' as const),
+      })),
+    )
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(screen.getByText('Organization Two'))
+
+    await waitFor(() => {
+      expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/chief-of-staff')
+    })
+    expect(mockRouterPush).not.toHaveBeenCalledWith('/volunteer')
+  })
+
   it('fetches organizations from the API', async () => {
     const updatedOrgs: Organization[] = [
       {
@@ -411,6 +462,114 @@ describe('OrganizationPicker', () => {
     expect(screen.getAllByText('Organization One')[1]).not.toHaveClass(
       'text-muted-foreground',
     )
+  })
+
+  // ENG-11041: identical org names (e.g. two "2026 Campaign" entries for a
+  // multi-campaign member) must still be distinguishable in the dropdown.
+  it('renders a distinguishing secondary line for orgs sharing the same name', async () => {
+    const user = userEvent.setup()
+    const sameNameOrgs: Organization[] = [
+      {
+        slug: 'org-mine',
+        name: '2026 Campaign',
+        positionName: 'Mayor',
+        position: null,
+        district: null,
+        electedOfficeId: null,
+        campaignId: 1,
+        status: 'active',
+        ownerName: 'Jane Candidate',
+      },
+      {
+        slug: 'org-invited',
+        name: '2026 Campaign',
+        positionName: 'City Council',
+        position: null,
+        district: null,
+        electedOfficeId: null,
+        campaignId: 2,
+        status: 'active',
+        ownerName: 'Alex Owner',
+      },
+    ]
+    renderPicker(sameNameOrgs)
+
+    await user.click(screen.getByText('2026 Campaign'))
+
+    expect(screen.getByText('Jane Candidate · Mayor')).toBeInTheDocument()
+    expect(screen.getByText('Alex Owner · City Council')).toBeInTheDocument()
+  })
+
+  it('falls back to office-only when the owner has no name on file', async () => {
+    const user = userEvent.setup()
+    const noOwnerNameOrgs: Organization[] = [
+      {
+        slug: 'org-one',
+        name: 'Organization One',
+        positionName: 'Mayor',
+        position: null,
+        district: null,
+        electedOfficeId: null,
+        campaignId: 1,
+        status: 'active',
+        ownerName: null,
+      },
+    ]
+    renderPicker(noOwnerNameOrgs)
+
+    await user.click(screen.getByText('Organization One'))
+
+    expect(screen.getByText('Mayor')).toBeInTheDocument()
+  })
+
+  it('renders no secondary line when neither owner name nor office exists', async () => {
+    const user = userEvent.setup()
+    const bareOrgs: Organization[] = [
+      {
+        slug: 'org-one',
+        name: 'Organization One',
+        positionName: null,
+        position: null,
+        district: null,
+        electedOfficeId: null,
+        campaignId: 1,
+        status: 'active',
+        ownerName: null,
+      },
+    ]
+    renderPicker(bareOrgs)
+
+    await user.click(screen.getByText('Organization One'))
+
+    expect(screen.queryByTestId('org-secondary-line')).not.toBeInTheDocument()
+  })
+
+  it('prefers customPositionName over positionName for the secondary office line', async () => {
+    const user = userEvent.setup()
+    const customNameOrgs: Organization[] = [
+      {
+        slug: 'org-custom',
+        name: 'My Campaign',
+        customPositionName: 'Town Selectboard',
+        positionName: 'Other Position',
+        position: null,
+        district: null,
+        electedOfficeId: null,
+        campaignId: 1,
+        status: 'active',
+        ownerName: 'Jane Candidate',
+      },
+    ]
+    renderPicker(customNameOrgs)
+
+    await user.click(screen.getByText('My Campaign'))
+
+    expect(
+      screen.getByText('Jane Candidate · Town Selectboard'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Jane Candidate · Other Position'),
+    ).not.toBeInTheDocument()
   })
 
   it('shows both run-for actions when eligible with a re-election office', async () => {
@@ -505,6 +664,65 @@ describe('OrganizationPicker', () => {
     })
   })
 
+  it('does not fire Team - Campaign Switched for a solo owner (no membership role anywhere)', async () => {
+    const user = userEvent.setup()
+    renderPicker()
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(screen.getByText('Organization Three'))
+
+    await waitFor(() => {
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.OrgSwitcher.OrganizationSwitched,
+        expect.any(Object),
+      )
+    })
+    expect(trackEvent).not.toHaveBeenCalledWith(EVENTS.Team.CampaignSwitched)
+  })
+
+  it('fires Team - Campaign Switched when switching TO an org where the viewer is a non-owner member', async () => {
+    const user = userEvent.setup()
+    renderPicker(
+      orgs.map((org, i) => ({
+        ...org,
+        role: i === 1 ? ('campaignAdmin' as const) : ('owner' as const),
+      })),
+    )
+
+    await user.click(screen.getByText('Organization One'))
+    // Organization Two (index 1) is the campaignAdmin-role destination.
+    await user.click(screen.getByText('Organization Two'))
+
+    await waitFor(() => {
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.Team.CampaignSwitched)
+    })
+  })
+
+  it('does not fire when switching between two owned orgs, even if the viewer is a manager elsewhere', async () => {
+    const user = userEvent.setup()
+    renderPicker(
+      // The viewer is a manager on Organization Two, but never switches to
+      // or from it here — the predicate must key off the destination org
+      // (Organization Three, role owner), not "is the viewer a manager
+      // anywhere" (delegate review, PR #1688).
+      orgs.map((org, i) => ({
+        ...org,
+        role: i === 1 ? ('campaignAdmin' as const) : ('owner' as const),
+      })),
+    )
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(screen.getByText('Organization Three'))
+
+    await waitFor(() => {
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.OrgSwitcher.OrganizationSwitched,
+        expect.any(Object),
+      )
+    })
+    expect(trackEvent).not.toHaveBeenCalledWith(EVENTS.Team.CampaignSwitched)
+  })
+
   it('does not track a switch when re-selecting the already-active org', async () => {
     const user = userEvent.setup()
     renderPicker()
@@ -554,6 +772,84 @@ describe('OrganizationPicker', () => {
       EVENTS.OrgSwitcher.RunForOfficeClicked,
       { intent: 'new-office' },
     )
+  })
+})
+
+describe('outreach-detail query isolation on org switch (ENG-10991)', () => {
+  it('does not refetch an active outreach-detail query when switching orgs', async () => {
+    const user = userEvent.setup()
+    const detailFetcher = vi.fn().mockResolvedValue({ id: 999 })
+
+    const OutreachDetailProbe = () => {
+      useQuery({
+        queryKey: outreachDetailQueryKey(999),
+        queryFn: detailFetcher,
+      })
+      return null
+    }
+
+    api.mock('GET /v1/eligibility', { status: 200, data: ineligible })
+
+    render(
+      <SidebarProvider>
+        <OrganizationProvider initialOrganizations={orgs}>
+          <OutreachDetailProbe />
+          <OrganizationPicker />
+        </OrganizationProvider>
+      </SidebarProvider>,
+    )
+
+    // Simulates the just-saved row's "N platforms" metric being an active
+    // observer at the moment of the org switch — the trigger in ENG-10991.
+    await waitFor(() => expect(detailFetcher).toHaveBeenCalledTimes(1))
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(screen.getByText('Organization Two'))
+
+    // The switch's broad invalidateQueries call has run by the time the
+    // route push fires.
+    await waitFor(() =>
+      expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/chief-of-staff'),
+    )
+
+    expect(detailFetcher).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not refetch an active contact-notes query when switching orgs', async () => {
+    const user = userEvent.setup()
+    const notesFetcher = vi.fn().mockResolvedValue([])
+
+    // Same shape as outreach-detail: PhoneBankingNotes keys per person id, so
+    // an open caller panel is an active observer at the moment of the switch.
+    const ContactNotesProbe = () => {
+      useQuery({
+        queryKey: ['contact-notes', 42],
+        queryFn: notesFetcher,
+      })
+      return null
+    }
+
+    api.mock('GET /v1/eligibility', { status: 200, data: ineligible })
+
+    render(
+      <SidebarProvider>
+        <OrganizationProvider initialOrganizations={orgs}>
+          <ContactNotesProbe />
+          <OrganizationPicker />
+        </OrganizationProvider>
+      </SidebarProvider>,
+    )
+
+    await waitFor(() => expect(notesFetcher).toHaveBeenCalledTimes(1))
+
+    await user.click(screen.getByText('Organization One'))
+    await user.click(screen.getByText('Organization Two'))
+
+    await waitFor(() =>
+      expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/chief-of-staff'),
+    )
+
+    expect(notesFetcher).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -648,5 +944,121 @@ describe('X-Organization-Slug header attachment', () => {
       'X-Organization-Slug',
       expect.anything(),
     )
+  })
+})
+
+// The split this whole change exists to prevent: the server component tree
+// rendered against a cookie that names no org this user can see, while the
+// client resolved a different one — campaign-manager content beneath a Serve
+// sidebar, neither chat dock mounted. Repairing the cookie is not enough on its
+// own; the already-rendered server half has to be re-run against it.
+describe('stale org cookie repair (server/client divergence)', () => {
+  const Probe = () => {
+    const org = useOrganization()
+    return <div data-testid="org">{org?.slug}</div>
+  }
+
+  it('rewrites the cookie and refreshes when the cookie names an unknown org', async () => {
+    // A slug left behind by a previous session — the shape an impersonating
+    // staff member's browser carries into the impersonated user's session.
+    mockGetCookie.mockImplementation((name: string) =>
+      name === 'organization-slug' ? 'org-from-another-user' : false,
+    )
+
+    render(
+      <OrganizationProvider
+        initialOrganizations={orgs}
+        initialSlug="org-from-another-user"
+      >
+        <Probe />
+      </OrganizationProvider>,
+    )
+
+    await waitFor(() => {
+      expect(mockSetCookie).toHaveBeenCalledWith('organization-slug', 'org-one')
+    })
+    expect(mockRouterRefresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not refresh when the cookie is valid', async () => {
+    mockGetCookie.mockImplementation((name: string) =>
+      name === 'organization-slug' ? 'org-one' : false,
+    )
+
+    render(
+      <OrganizationProvider initialOrganizations={orgs} initialSlug="org-one">
+        <Probe />
+      </OrganizationProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('org')).toHaveTextContent('org-one')
+    })
+    expect(mockRouterRefresh).not.toHaveBeenCalled()
+    expect(mockSetCookie).not.toHaveBeenCalled()
+  })
+
+  it('does not refresh when the user picks an org from the switcher', async () => {
+    const user = userEvent.setup()
+    mockGetCookie.mockImplementation((name: string) =>
+      name === 'organization-slug' ? 'org-one' : false,
+    )
+
+    render(
+      <SidebarProvider>
+        <OrganizationProvider initialOrganizations={orgs} initialSlug="org-one">
+          <OrganizationPicker />
+        </OrganizationProvider>
+      </SidebarProvider>,
+    )
+
+    await user.click(screen.getByRole('button', { name: /Organization One/ }))
+    // setSelectedSlug writes the cookie itself, so the sync effect sees a
+    // matching value and must stay out of the way — a refresh here would
+    // re-run the server tree on top of the switcher's own router.push.
+    mockGetCookie.mockImplementation((name: string) =>
+      name === 'organization-slug' ? 'org-two' : false,
+    )
+    await user.click(screen.getByText('Organization Two'))
+
+    await waitFor(() => {
+      expect(mockSetCookie).toHaveBeenCalledWith('organization-slug', 'org-two')
+    })
+    expect(mockRouterRefresh).not.toHaveBeenCalled()
+  })
+
+  it('refreshes at most once even if the cookie write never lands', async () => {
+    // Cookies blocked: getCookie keeps reporting the stale value however many
+    // times we write it. The repair must not become a refresh loop.
+    mockGetCookie.mockImplementation((name: string) =>
+      name === 'organization-slug' ? 'org-from-another-user' : false,
+    )
+
+    const { rerender } = render(
+      <OrganizationProvider
+        initialOrganizations={orgs}
+        initialSlug="org-from-another-user"
+      >
+        <Probe />
+      </OrganizationProvider>,
+    )
+
+    await waitFor(() => expect(mockRouterRefresh).toHaveBeenCalledTimes(1))
+
+    // Re-render the way a completed refresh does: same unusable cookie, a new
+    // organizations array identity from the fresh server pass.
+    rerender(
+      <OrganizationProvider
+        initialOrganizations={[...orgs]}
+        initialSlug="org-from-another-user"
+      >
+        <Probe />
+      </OrganizationProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('org')).toHaveTextContent('org-one')
+    })
+    expect(mockRouterRefresh).toHaveBeenCalledTimes(1)
   })
 })

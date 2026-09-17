@@ -1,8 +1,7 @@
 import { Card } from '@styleguide'
 import { CircleAlertIcon } from '@styleguide/components/ui/icons'
+import { PRO_COMPLIANCE_SUPPORT_EMAIL as SUPPORT_EMAIL } from '@shared/utils/supportContact'
 import ComplianceCardArt from './ComplianceCardArt'
-
-const SUPPORT_EMAIL = 'campaignsuccess@goodparty.org'
 
 export default function TextingComplianceDenied(): React.JSX.Element {
   return (

@@ -1,15 +1,20 @@
 import { type Page, expect } from '@playwright/test'
 
-// HeaderSection's greeting h1 ("Hi <name>"), or the ElectionOver heading that
-// replaces it once the election has passed. CampaignManager renders nothing
-// until the campaign query hydrates, and the whole dashboard shell (greeting,
-// sidebar, mobile menu) lives behind that gate, so this heading doubles as the
-// "dashboard is ready" signal. Shared so the dashboard and mobile specs query it
-// the same way instead of each redefining the locator.
+// The /dashboard/election-result h1 (still shown once the election has
+// passed — unrelated to campaign-story), or CampaignManagerTasks' "Your top
+// priorities this week" h2 — the one heading CampaignManagerHome always
+// renders, regardless of task-loading state. Shared so the dashboard and
+// mobile specs query it the same way instead of each redefining the locator.
 export const dashboardGreetingHeading = (page: Page) =>
   page
     .getByRole('heading', { level: 1 })
-    .filter({ hasText: /Hi|Hello|until|General|Primary|Election|concluded/ })
+    .filter({ hasText: /until|General|Primary|Election|concluded/ })
+    .or(
+      page.getByRole('heading', {
+        level: 2,
+        name: /your top priorities this week/i,
+      }),
+    )
     .first()
 
 // A task detail modal (e.g. the awareness "Fundraising ask" sheet) occasionally
@@ -21,11 +26,24 @@ export const dashboardGreetingHeading = (page: Page) =>
 // in the a11y tree. Call this inside a retry loop (see waitForDashboardReady),
 // because the dialog can open late — a one-shot close misses one that appears
 // after it runs.
+//
+// CampaignManagerTasks' cards can also pop a vaul Drawer (not a Radix dialog —
+// no `role="dialog"`, so the check above misses it), same as the awareness-task
+// drawer NavigationHelper.dismissTaskDrawer already handles for the mobile nav
+// sheet. Check its overlay too so the same stray-modal window is covered here.
 export const closeStrayDialog = async (page: Page) => {
   const dialog = page.getByRole('dialog').first()
   if (await dialog.isVisible().catch(() => false)) {
     await page.keyboard.press('Escape')
     await dialog
+      .waitFor({ state: 'hidden', timeout: 5_000 })
+      .catch(() => undefined)
+  }
+
+  const drawerOverlay = page.locator('[data-slot="drawer-overlay"]').first()
+  if (await drawerOverlay.isVisible({ timeout: 1_000 }).catch(() => false)) {
+    await page.keyboard.press('Escape')
+    await drawerOverlay
       .waitFor({ state: 'hidden', timeout: 5_000 })
       .catch(() => undefined)
   }

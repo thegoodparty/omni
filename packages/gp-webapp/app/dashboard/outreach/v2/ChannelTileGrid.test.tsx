@@ -1,0 +1,470 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { render, testQueryClient } from 'helpers/test-utils/render'
+import { voterPackQueryOptions } from 'app/dashboard/door-knocking/native/useVoterPack'
+import { ChannelTileGrid } from './ChannelTileGrid'
+
+// Counts district downloads. The real one is a binary fetch of tens of MB, and
+// what this file cares about is only whether pressing the tile asks for it.
+const packFetches = vi.hoisted(() => ({ count: 0 }))
+vi.mock('app/dashboard/door-knocking/native/useVoterPack', () => ({
+  voterPackQueryOptions: {
+    queryKey: ['door-knocking-pack'],
+    queryFn: async () => {
+      packFetches.count += 1
+      return {}
+    },
+  },
+}))
+
+// The per-day allowance the hub reads to decide whether pressing Door
+// knocking is worth navigating for. Left null (unresolved endpoint) by
+// default so the vast majority of tests here mirror the pre-gate behavior:
+// a click that goes through as-is, since a pending read is not a refusal.
+const quotaData = vi.hoisted(
+  () =>
+    ({ current: null }) as {
+      current: { campaignsRemaining: number; campaignLimit: number } | null
+    },
+)
+vi.mock('app/dashboard/door-knocking/native/turfQueries', () => ({
+  quotaQueryOptions: {
+    queryKey: ['door-knocking-quota'],
+    queryFn: async () =>
+      quotaData.current ?? { campaignsRemaining: 5, campaignLimit: 5 },
+  },
+}))
+
+const mockRouterPush = vi.fn()
+vi.mock('next/navigation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/navigation')>()),
+  useRouter: () => ({ push: mockRouterPush }),
+}))
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
+
+vi.mock('app/dashboard/outreach/hooks/useTextOutreachGate', () => ({
+  useTextOutreachGate: () => ({ runTextGate: () => true, gateModals: null }),
+}))
+
+let mockCampaign: { id: number; isPro: boolean } = { id: 9, isPro: true }
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: () => [mockCampaign, vi.fn()],
+}))
+
+let mockElectedOffice: {
+  data: { id: number } | null | undefined
+  isPending: boolean
+} = { data: null, isPending: false }
+vi.mock('@shared/hooks/useElectedOffice', () => ({
+  useElectedOffice: () => mockElectedOffice,
+}))
+
+const nativeDoorKnockingFlag = { ready: true, enabled: true }
+vi.mock('@shared/experiments/nativeDoorKnockingFlag', () => ({
+  useNativeDoorKnockingFlag: () => nativeDoorKnockingFlag,
+}))
+
+const renderGrid = (
+  overrides: Partial<{
+    onCreateSocial: () => void
+    onCreateSms: () => void
+    onCreateRobocall: () => void
+    onCreatePhoneBanking: (preselectedListId?: number) => void
+    preselectedListId: number
+  }> = {},
+) =>
+  render(
+    <ChannelTileGrid
+      preselectedListId={overrides.preselectedListId}
+      onCreateSocial={overrides.onCreateSocial ?? vi.fn()}
+      onCreateSms={overrides.onCreateSms ?? vi.fn()}
+      onCreateRobocall={overrides.onCreateRobocall ?? vi.fn()}
+      onCreatePhoneBanking={overrides.onCreatePhoneBanking ?? vi.fn()}
+    />,
+  )
+
+describe('ChannelTileGrid — social tile', () => {
+  it('always opens the new social flow', async () => {
+    const onCreateSocial = vi.fn()
+    renderGrid({ onCreateSocial })
+
+    await userEvent.click(screen.getByText('Social media'))
+
+    expect(onCreateSocial).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ChannelTileGrid — robocall tile', () => {
+  beforeEach(() => {
+    mockCampaign = { id: 9, isPro: true }
+  })
+
+  it('opens the robocall flow', async () => {
+    const onCreateRobocall = vi.fn()
+    renderGrid({ onCreateRobocall })
+
+    await userEvent.click(screen.getByText('Robocall'))
+
+    expect(onCreateRobocall).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ChannelTileGrid — SMS tile', () => {
+  beforeEach(() => {
+    mockCampaign = { id: 9, isPro: true }
+    mockRouterPush.mockClear()
+  })
+
+  it('Pro campaign: opens the SMS flow once the text gate passes', async () => {
+    const onCreateSms = vi.fn()
+    renderGrid({ onCreateSms })
+
+    await userEvent.click(screen.getByText('SMS'))
+
+    expect(onCreateSms).toHaveBeenCalledTimes(1)
+    expect(mockRouterPush).not.toHaveBeenCalled()
+  })
+
+  // Upgrade-at-entry: a non-Pro click goes to the wizard, not the legacy
+  // marketing modal — the same pattern the phone-banking tile set.
+  it('non-Pro campaign: redirects to pro-upgrade instead of opening', async () => {
+    mockCampaign = { id: 9, isPro: false }
+    const onCreateSms = vi.fn()
+    renderGrid({ onCreateSms })
+
+    await userEvent.click(screen.getByText('SMS'))
+
+    expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/pro-upgrade')
+    expect(onCreateSms).not.toHaveBeenCalled()
+  })
+})
+
+// ENG-10920: tile handler matrix — pro / non-pro / electedOffice / pending
+// asserting open vs redirect.
+describe('ChannelTileGrid — phone-banking tile + Pro redirect', () => {
+  beforeEach(() => {
+    mockCampaign = { id: 9, isPro: true }
+    mockElectedOffice = { data: null, isPending: false }
+    mockRouterPush.mockClear()
+  })
+
+  it('Pro campaign: opens the new PhoneBankingFlow', async () => {
+    mockCampaign = { id: 9, isPro: true }
+    const onCreatePhoneBanking = vi.fn()
+    renderGrid({ onCreatePhoneBanking })
+
+    await userEvent.click(screen.getByText('Phone banking'))
+
+    expect(onCreatePhoneBanking).toHaveBeenCalledTimes(1)
+    expect(mockRouterPush).not.toHaveBeenCalled()
+  })
+
+  it('non-Pro campaign: redirects to pro-upgrade, no modal', async () => {
+    mockCampaign = { id: 9, isPro: false }
+    mockElectedOffice = { data: null, isPending: false }
+    const onCreatePhoneBanking = vi.fn()
+    renderGrid({ onCreatePhoneBanking })
+
+    await userEvent.click(screen.getByText('Phone banking'))
+
+    expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/pro-upgrade')
+    expect(onCreatePhoneBanking).not.toHaveBeenCalled()
+  })
+
+  it('elected official (no Pro sub): opens the flow', async () => {
+    mockCampaign = { id: 9, isPro: false }
+    mockElectedOffice = { data: { id: 1 }, isPending: false }
+    const onCreatePhoneBanking = vi.fn()
+    renderGrid({ onCreatePhoneBanking })
+
+    await userEvent.click(screen.getByText('Phone banking'))
+
+    expect(onCreatePhoneBanking).toHaveBeenCalledTimes(1)
+    expect(mockRouterPush).not.toHaveBeenCalled()
+  })
+
+  it('elected official (no Pro sub): tile is not visually locked', () => {
+    mockCampaign = { id: 9, isPro: false }
+    mockElectedOffice = { data: { id: 1 }, isPending: false }
+    renderGrid()
+
+    expect(
+      screen.getByText('Phone banking').closest('button'),
+    ).not.toHaveAttribute('data-locked')
+  })
+
+  it('non-Pro + pending elected-office state: tile is not visually locked', () => {
+    mockCampaign = { id: 9, isPro: false }
+    mockElectedOffice = { data: undefined, isPending: true }
+    renderGrid()
+
+    expect(
+      screen.getByText('Phone banking').closest('button'),
+    ).not.toHaveAttribute('data-locked')
+  })
+
+  it('non-Pro, no elected office: tile is visually locked', () => {
+    mockCampaign = { id: 9, isPro: false }
+    mockElectedOffice = { data: null, isPending: false }
+    renderGrid()
+
+    expect(screen.getByText('Phone banking').closest('button')).toHaveAttribute(
+      'data-locked',
+    )
+  })
+
+  it('non-Pro + pending elected-office state: does not redirect', async () => {
+    mockCampaign = { id: 9, isPro: false }
+    mockElectedOffice = { data: undefined, isPending: true }
+    const onCreatePhoneBanking = vi.fn()
+    renderGrid({ onCreatePhoneBanking })
+
+    await userEvent.click(screen.getByText('Phone banking'))
+
+    expect(mockRouterPush).not.toHaveBeenCalled()
+    expect(onCreatePhoneBanking).toHaveBeenCalledTimes(1)
+  })
+})
+
+// Door knocking is the one tile that navigates rather than opening a flow in
+// place, so the selected list has to survive the navigation or "start a walk
+// from this list" lands the candidate back on the picker they came from.
+describe('ChannelTileGrid — door-knocking tile carries the selected list', () => {
+  beforeEach(() => {
+    mockCampaign = { id: 9, isPro: true }
+    mockElectedOffice = { data: null, isPending: false }
+    mockRouterPush.mockClear()
+    testQueryClient.clear()
+    packFetches.count = 0
+  })
+
+  // The district download is the slowest read the product has (p50 4.5s, p95
+  // 33.6s in prod) and every count in the create flow is arithmetic over it, so
+  // the flow's first two steps are a dead Continue for as long as it runs. This
+  // is the only place that wait can be started before it is being waited on:
+  // the route transition and the map chunk are a head start the far side of the
+  // navigation cannot give itself.
+  it('starts the district download before navigating to the flow', async () => {
+    renderGrid()
+
+    await userEvent.click(screen.getByText('Door knocking'))
+
+    await waitFor(() => expect(packFetches.count).toBe(1))
+    // And the flow re-uses it rather than asking again — same key, and
+    // `staleTime: Infinity` on the query the page mounts.
+    expect(
+      testQueryClient.getQueryState(voterPackQueryOptions.queryKey),
+    ).toBeDefined()
+  })
+
+  it('does not touch the pack for a tile that is not door knocking', async () => {
+    renderGrid()
+
+    await userEvent.click(screen.getByText('SMS'))
+
+    expect(packFetches.count).toBe(0)
+  })
+
+  // The control arm lands on the eCanvasser dashboard, which has no map in it.
+  // Tens of megabytes of district for a surface they will never be shown is a
+  // worse deal than the wait this prefetch exists to shorten.
+  it('does not download a district for the arm that never sees the map', async () => {
+    nativeDoorKnockingFlag.enabled = false
+    try {
+      renderGrid()
+
+      await userEvent.click(screen.getByText('Door knocking'))
+
+      expect(packFetches.count).toBe(0)
+      // Still navigates: the gate on the far side decides which surface.
+      expect(mockRouterPush).toHaveBeenCalled()
+    } finally {
+      nativeDoorKnockingFlag.enabled = true
+    }
+  })
+
+  it('carries the preselected list as ?listId=', async () => {
+    renderGrid({ preselectedListId: 42 })
+
+    await userEvent.click(screen.getByText('Door knocking'))
+
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      '/dashboard/door-knocking?create=1&listId=42',
+    )
+  })
+
+  it('navigates bare when no list is selected', async () => {
+    renderGrid()
+
+    await userEvent.click(screen.getByText('Door knocking'))
+
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      '/dashboard/door-knocking?create=1',
+    )
+  })
+
+  it('leaves the list intact for another tile when door knocking was not pressed', async () => {
+    const onCreatePhoneBanking = vi.fn()
+    renderGrid({ preselectedListId: 42, onCreatePhoneBanking })
+
+    await userEvent.click(screen.getByText('Social media'))
+    await userEvent.click(screen.getByText('Phone banking'))
+
+    expect(onCreatePhoneBanking).toHaveBeenCalledWith(42)
+  })
+
+  // The instance can outlive the navigation in the App Router's soft-nav
+  // cache, so a list handed to door knocking has to be spent on the way out
+  // — otherwise a Back to this hub aims the next tile pressed at a list the
+  // candidate chose for a walk.
+  it('spends the list on the way out, so a later tile opens clean', async () => {
+    const onCreatePhoneBanking = vi.fn()
+    renderGrid({ preselectedListId: 42, onCreatePhoneBanking })
+
+    await userEvent.click(screen.getByText('Door knocking'))
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      '/dashboard/door-knocking?create=1&listId=42',
+    )
+
+    // Phone banking is the one remaining tile that APPLIES a preselect, so
+    // it's where a leftover id would show up as a real preselection.
+    await userEvent.click(screen.getByText('Phone banking'))
+
+    expect(onCreatePhoneBanking).toHaveBeenCalledWith(undefined)
+  })
+
+  // The tile is Pro-locked, and carrying a list must not become a way past
+  // that: a non-Pro click still gets the upgrade modal and goes nowhere.
+  it('shows the Pro modal instead of navigating for a non-Pro campaign', async () => {
+    mockCampaign = { id: 9, isPro: false }
+    renderGrid({ preselectedListId: 42 })
+
+    await userEvent.click(screen.getByText('Door knocking'))
+
+    expect(mockRouterPush).not.toHaveBeenCalled()
+    expect(
+      await screen.findByText('Get Pro voter data and tools'),
+    ).toBeInTheDocument()
+  })
+})
+
+// The per-day cap the door-knocking backend enforces used to be raised
+// only after the destination page had mounted, so a candidate who had spent
+// the day's allowance had to load /dashboard/door-knocking to be told they
+// couldn't create anything. The hub intercepts the click here when the
+// quota query has already answered zero — the same dialog on the far side
+// stays as the safety net for direct-URL entry and quota-refetch races.
+describe('ChannelTileGrid — door-knocking daily-limit gate', () => {
+  beforeEach(() => {
+    mockCampaign = { id: 9, isPro: true }
+    mockElectedOffice = { data: null, isPending: false }
+    mockRouterPush.mockClear()
+    testQueryClient.clear()
+    quotaData.current = null
+  })
+
+  it('opens the daily-limit dialog and does not navigate when the allowance is spent', async () => {
+    quotaData.current = { campaignsRemaining: 0, campaignLimit: 5 }
+    renderGrid({ preselectedListId: 42 })
+
+    // Wait for the quota query to resolve before clicking. Prefetching the
+    // query here mirrors what the tile's own useQuery does on mount, and
+    // guarantees the click sees a settled read.
+    await testQueryClient.prefetchQuery({
+      queryKey: ['door-knocking-quota'],
+      queryFn: async () => quotaData.current,
+    })
+
+    await userEvent.click(screen.getByText('Door knocking'))
+
+    expect(mockRouterPush).not.toHaveBeenCalled()
+    expect(await screen.findByText('Daily limit reached')).toBeInTheDocument()
+    expect(
+      screen.getByText(/created 5 door knocking campaigns today/),
+    ).toBeInTheDocument()
+  })
+
+  it('navigates as usual when the quota still has capacity', async () => {
+    quotaData.current = { campaignsRemaining: 3, campaignLimit: 5 }
+    renderGrid()
+    await testQueryClient.prefetchQuery({
+      queryKey: ['door-knocking-quota'],
+      queryFn: async () => quotaData.current,
+    })
+
+    await userEvent.click(screen.getByText('Door knocking'))
+
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      '/dashboard/door-knocking?create=1',
+    )
+    expect(screen.queryByText('Daily limit reached')).not.toBeInTheDocument()
+  })
+})
+
+// ENG-11020: phone banking opens in the hub (not here), so the list travels
+// through the open callback — and is spent on hand-off, exactly like door
+// knocking spends it on the way out, so no later tile inherits it.
+describe('ChannelTileGrid — phone-banking tile carries the selected list', () => {
+  beforeEach(() => {
+    mockCampaign = { id: 9, isPro: true }
+    mockElectedOffice = { data: null, isPending: false }
+    mockRouterPush.mockClear()
+  })
+
+  it('hands the preselected list to the open callback', async () => {
+    const onCreatePhoneBanking = vi.fn()
+    renderGrid({ preselectedListId: 42, onCreatePhoneBanking })
+
+    await userEvent.click(screen.getByText('Phone banking'))
+
+    expect(onCreatePhoneBanking).toHaveBeenCalledWith(42)
+  })
+
+  it('spends the list on hand-off, so a later open starts clean', async () => {
+    const onCreatePhoneBanking = vi.fn()
+    renderGrid({ preselectedListId: 42, onCreatePhoneBanking })
+
+    await userEvent.click(screen.getByText('Phone banking'))
+    expect(onCreatePhoneBanking).toHaveBeenNthCalledWith(1, 42)
+
+    await userEvent.click(screen.getByText('Phone banking'))
+
+    expect(onCreatePhoneBanking).toHaveBeenNthCalledWith(2, undefined)
+  })
+
+  // The Pro redirect happens before the hand-off: the candidate never
+  // entered the flow, so the deep-linked list must survive for whichever
+  // tile they press after coming back.
+  it('does not spend the list on a non-Pro redirect', async () => {
+    mockCampaign = { id: 9, isPro: false }
+    const onCreatePhoneBanking = vi.fn()
+    const { rerender } = renderGrid({
+      preselectedListId: 42,
+      onCreatePhoneBanking,
+    })
+
+    await userEvent.click(screen.getByText('Phone banking'))
+    expect(mockRouterPush).toHaveBeenCalledWith('/dashboard/pro-upgrade')
+    expect(onCreatePhoneBanking).not.toHaveBeenCalled()
+
+    // Coming back upgraded: the list the deep link carried is still there.
+    mockCampaign = { id: 9, isPro: true }
+    rerender(
+      <ChannelTileGrid
+        preselectedListId={42}
+        onCreateSocial={vi.fn()}
+        onCreateSms={vi.fn()}
+        onCreateRobocall={vi.fn()}
+        onCreatePhoneBanking={onCreatePhoneBanking}
+      />,
+    )
+    await userEvent.click(screen.getByText('Phone banking'))
+
+    expect(onCreatePhoneBanking).toHaveBeenCalledWith(42)
+  })
+})

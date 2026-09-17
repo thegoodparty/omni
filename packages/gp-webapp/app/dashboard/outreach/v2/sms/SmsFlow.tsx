@@ -1,0 +1,968 @@
+'use client'
+
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { format } from 'date-fns'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import type {
+  OutreachReceipt,
+  SmsDraftRequest,
+  SmsPurpose,
+  SocialTone,
+} from '@goodparty_org/contracts'
+import type { TcrCompliance } from 'helpers/types'
+import {
+  checkSmsStandards,
+  SMS_COMPOSED_MAX_LENGTH,
+} from '@goodparty_org/contracts'
+import { Button, Card } from '@styleguide'
+import { CircleCheckIcon, DownloadIcon } from '@styleguide/components/ui/icons'
+import { clientRequest } from 'gpApi/typed-request'
+import { useCampaign } from '@shared/hooks/useCampaign'
+import { useUser } from '@shared/hooks/useUser'
+import { LongPoll } from '@shared/utils/LongPoll'
+import {
+  createP2pPhoneList,
+  getP2pPhoneListStatus,
+  type PhoneListStatusResponse,
+} from 'helpers/createP2pPhoneList'
+import { createOutreach } from 'helpers/createOutreach'
+import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
+import {
+  OUTREACH_OPTIONS,
+  OUTREACH_TYPES,
+  FREE_TEXTS_OFFER,
+} from 'app/dashboard/outreach/constants'
+import { PURCHASE_TYPES } from 'helpers/purchaseTypes'
+import { dollarsToCents } from 'helpers/numberHelper'
+import { hasAnyVoterFileSelection } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import { ChannelBadge } from '../channelMeta'
+import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
+import {
+  OutreachAudienceStep,
+  type OutreachAudienceCopy,
+} from '../audience/OutreachAudienceStep'
+import {
+  intentForOutreachPurpose,
+  useOutreachAudience,
+} from '../audience/useOutreachAudience'
+import { SmsPurposeStep } from './SmsPurposeStep'
+import { SmsScheduleStep, TIME_OPTIONS } from './SmsScheduleStep'
+import { SmsComposeStep } from './SmsComposeStep'
+import { SmsReviewStep } from './SmsReviewStep'
+import { composeScript, identificationIntro } from './smsCompose.util'
+
+type StepId = 'purpose' | 'audience' | 'schedule' | 'compose' | 'review'
+const STEP_ORDER: StepId[] = [
+  'purpose',
+  'audience',
+  'schedule',
+  'compose',
+  'review',
+]
+
+const STEP_TITLES: Record<StepId, string> = {
+  purpose: 'What do you want to do?',
+  audience: 'Who do you want to reach?',
+  schedule: 'When do you want to send?',
+  compose: 'What do you want to say?',
+  review: 'Review & pay',
+}
+
+const PRICE_PER_MESSAGE =
+  OUTREACH_OPTIONS.find((o) => o.type === OUTREACH_TYPES.text)?.cost ?? 0.035
+
+// SMS texts cell phones, so both counts use the cell dimension:
+// reachability.sms for a saved list, and a { hasCellPhone: true } overlay on
+// the in-flow builder count. Count-only — the saved list stays general (see
+// useOutreachAudience).
+const SMS_COUNT_OVERLAY = { hasCellPhone: true }
+
+const SMS_AUDIENCE_COPY: OutreachAudienceCopy = {
+  pickerTitle: 'Who do you want to reach?',
+  pickerBody:
+    'Select a list or create a new one. Lists include all voters with a mobile number.',
+  filtersTitle: 'Build a voter list',
+  filtersBody: 'Pick filters to define who this campaign reaches.',
+  nameTitle: 'Name your list',
+  nameBody: 'You can rename it any time.',
+  reachVerb: 'Message',
+  reachNoun: 'voters',
+  unitCostLabel: 'Each message costs',
+}
+
+interface SmsFlowProps {
+  open: boolean
+  tcrCompliance?: TcrCompliance
+  onClose: () => void
+  // Fired after payment (or free redemption) completes server-side; the hub
+  // refetches the outreach list there.
+  onScheduled: () => Promise<void>
+  // Seeds carried in by the hub's `?compose=text` deep link (campaign
+  // tracker / manager task CTAs, Know Your Opponent's suggested message).
+  // A tracker task's due date, persisted on the outreach row and forwarded
+  // into the CAS Slack notification — the flow never derives it.
+  campaignPlanDueDate?: string
+  // A message the candidate is meant to send as written (Know Your
+  // Opponent). It opens the flow on `custom`, the one purpose that never
+  // AI-drafts, so the seeded words are what they edit rather than something
+  // a draft immediately overwrites.
+  initialScript?: string
+  preselectedListId?: number
+}
+
+const successDate = (d: Date) =>
+  d.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+
+const successTime = (d: Date) =>
+  d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+
+// "visa" → "Visa" — Stripe reports card brands lowercase.
+const cardBrandLabel = (brand: string) =>
+  brand.charAt(0).toUpperCase() + brand.slice(1)
+
+// Exported for its component test — the paid branch is unreachable through
+// the flow in jsdom (CheckoutPayment mounts real Stripe elements).
+export const SuccessScreen = ({
+  contactCount,
+  sendAt,
+  outreachId,
+  paid,
+  onDone,
+}: {
+  contactCount: number
+  sendAt: Date | null
+  outreachId: number | null
+  // Free-texts sends skip the receipt entirely — there is no charge, and
+  // the endpoint 404s rows without a checkout session.
+  paid: boolean
+  onDone: () => void
+}) => {
+  const receiptQuery = useQuery({
+    queryKey: ['outreach-receipt', outreachId],
+    queryFn: async (): Promise<OutreachReceipt> => {
+      const { data } = await clientRequest('GET /v1/outreach/:id/receipt', {
+        id: String(outreachId),
+      })
+      return data
+    },
+    enabled: paid && outreachId !== null,
+    retry: false,
+  })
+  const receipt = paid ? receiptQuery.data : undefined
+
+  return (
+    <div className="space-y-6 py-8 text-center">
+      <div className="flex justify-center">
+        <span className="flex size-16 items-center justify-center rounded-full bg-primary-light">
+          <CircleCheckIcon className="size-8 text-primary" />
+        </span>
+      </div>
+      <div className="space-y-2">
+        <h2 className="text-2xl font-semibold text-foreground">
+          {paid ? 'Payment successful!' : 'Scheduled!'}
+        </h2>
+        <p className="text-muted-foreground">
+          Your sms campaign will reach {contactCount.toLocaleString()}{' '}
+          recipients
+          {sendAt
+            ? ` starting ${successDate(sendAt)} at ${successTime(sendAt)}.`
+            : ' soon.'}
+        </p>
+      </div>
+      {receipt && (
+        <Card className="gap-0 p-0 text-left">
+          <div className="flex items-center justify-between px-4 py-4">
+            <p className="font-medium text-foreground">Receipt</p>
+            <p className="text-sm text-muted-foreground">
+              {new Date().toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+              })}
+            </p>
+          </div>
+          <div className="border-t border-border px-4 py-4">
+            <dl className="space-y-1.5 text-sm">
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">
+                  SMS campaign, {contactCount.toLocaleString()} recipients
+                </dt>
+                <dd className="text-foreground">
+                  ${receipt.amount.toFixed(2)}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">Cost per outreach</dt>
+                <dd className="text-foreground">
+                  ${PRICE_PER_MESSAGE.toFixed(3)}
+                </dd>
+              </div>
+              {receipt.cardBrand && receipt.cardLast4 && (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">Card</dt>
+                  <dd className="text-foreground">
+                    {cardBrandLabel(receipt.cardBrand)} •••• {receipt.cardLast4}
+                  </dd>
+                </div>
+              )}
+            </dl>
+          </div>
+          <div className="flex items-center justify-between border-t border-border px-4 py-4">
+            <span className="font-semibold text-foreground">Charged today</span>
+            <span className="font-semibold text-foreground">
+              ${receipt.amount.toFixed(2)}
+            </span>
+          </div>
+        </Card>
+      )}
+      {receipt?.receiptUrl && (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={() => {
+            window.open(receipt.receiptUrl ?? '', '_blank', 'noopener')
+          }}
+        >
+          <DownloadIcon className="size-4" />
+          Download receipt
+        </Button>
+      )}
+      <Button size="large" className="w-full" onClick={onDone}>
+        Done
+      </Button>
+    </div>
+  )
+}
+
+// Flow state is flat client state owned here (phase 1 shell convention):
+// nothing persists until the pay step's draft-first create, and reopening
+// starts fresh.
+export const SmsFlow = ({
+  open,
+  onClose,
+  onScheduled,
+  tcrCompliance,
+  campaignPlanDueDate,
+  initialScript,
+  preselectedListId,
+}: SmsFlowProps) => {
+  const [campaign] = useCampaign()
+  const [user] = useUser()
+
+  const [stepId, setStepId] = useState<StepId>('purpose')
+  const [purpose, setPurpose] = useState<SmsPurpose | null>(null)
+  const [tone, setTone] = useState<SocialTone>('warm')
+  const [body, setBody] = useState('')
+  const [manuallyEdited, setManuallyEdited] = useState(false)
+  const [undoText, setUndoText] = useState<string | null>(null)
+  const [toneDrafts, setToneDrafts] = useState<
+    Partial<Record<SocialTone, string>>
+  >({})
+
+  const [phoneListToken, setPhoneListToken] = useState<string | null>(null)
+  const [phoneListCreating, setPhoneListCreating] = useState(false)
+  const [phoneListError, setPhoneListError] = useState(false)
+  const [stopPolling, setStopPolling] = useState(false)
+  const [phoneList, setPhoneList] = useState<PhoneListStatusResponse | null>(
+    null,
+  )
+
+  const [name, setName] = useState('')
+  const [nameEdited, setNameEdited] = useState(false)
+  const [date, setDate] = useState<Date | undefined>(undefined)
+  const [timeSlot, setTimeSlot] = useState('10')
+  const [customTime, setCustomTime] = useState('10:00')
+
+  const [image, setImage] = useState<File | null>(null)
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
+  const [imageError, setImageError] = useState<string | null>(null)
+
+  const [draftOutreachId, setDraftOutreachId] = useState<number | null>(null)
+  const [draftCreateError, setDraftCreateError] = useState(false)
+  const isDraftCreatingRef = useRef(false)
+  // Bumped whenever the current draft is discarded (Back off review): an
+  // in-flight create started before the bump must not resurrect its id —
+  // checkout would then charge for the pre-edit message and date.
+  const draftGenerationRef = useRef(0)
+  const [scheduled, setScheduled] = useState(false)
+  const [paidSend, setPaidSend] = useState(false)
+
+  const draftRequestRef = useRef(0)
+
+  const recommendedListIntent = purpose
+    ? intentForOutreachPurpose(purpose)
+    : null
+
+  const audience = useOutreachAudience({
+    open,
+    active: stepId === 'audience',
+    reachabilityKey: 'sms',
+    countOverlay: SMS_COUNT_OVERLAY,
+    recommendedListIntent,
+    preselectedListId,
+  })
+  const { reset: resetAudience } = audience
+  const selectedList = audience.selectedList
+  const reachableCount = audience.reachableCount
+
+  const draftMutation = useMutation({
+    mutationFn: async (input: SmsDraftRequest) => {
+      const { data } = await clientRequest('POST /v1/outreach/sms/draft', input)
+      return data.draft
+    },
+  })
+  const { reset: resetDraftMutation } = draftMutation
+
+  useEffect(() => {
+    if (!open) return
+    draftRequestRef.current += 1
+    // A seeded message opens past the purpose picker on `custom`: the words
+    // are already chosen, so asking what the candidate wants to do and then
+    // drafting over them would throw the seed away.
+    setStepId(initialScript ? 'audience' : 'purpose')
+    setPurpose(initialScript ? 'custom' : null)
+    setTone('warm')
+    setBody(initialScript ?? '')
+    setManuallyEdited(Boolean(initialScript))
+    setUndoText(null)
+    setToneDrafts({})
+    resetAudience()
+    setPhoneListToken(null)
+    setPhoneListCreating(false)
+    setPhoneListError(false)
+    setStopPolling(false)
+    setPhoneList(null)
+    setName('')
+    setNameEdited(false)
+    setDate(undefined)
+    setTimeSlot('10')
+    setCustomTime('10:00')
+    setImage(null)
+    setImageError(null)
+    setDraftOutreachId(null)
+    setDraftCreateError(false)
+    setScheduled(false)
+    setPaidSend(false)
+    resetDraftMutation()
+  }, [open, resetDraftMutation, resetAudience, initialScript])
+
+  // Object URL lifecycle for the image preview.
+  useEffect(() => {
+    if (!image) {
+      setImagePreviewUrl(null)
+      return
+    }
+    const url = URL.createObjectURL(image)
+    setImagePreviewUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [image])
+
+  const introFor = (t: SocialTone) =>
+    identificationIntro(
+      t,
+      user?.firstName ?? '',
+      campaign?.details?.normalizedOffice ?? '',
+    )
+  const committeeName = tcrCompliance?.committeeName ?? null
+  const composedMessage = composeScript(body, committeeName)
+  const composedLength = composedMessage.length
+  const accountName = `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
+  const standards = checkSmsStandards(composedMessage, {
+    candidateNames: [accountName, tcrCompliance?.candidateName].filter(
+      (name): name is string => !!name,
+    ),
+    committeeName,
+  })
+
+  // Only fully verified campaigns can reach this flow (the 2026-08-28 full
+  // gate), so the send floor is the hard 48-hour scheduling window.
+  const earliestSend = useMemo(
+    () => Date.now() + 48 * 60 * 60 * 1000,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recompute on
+    // each open, like the fresh-state reset
+    [open],
+  )
+
+  const scheduledAt = useMemo(() => {
+    if (!date) return null
+    const slot = TIME_OPTIONS.find((t) => t.id === timeSlot)
+    const timeStr = timeSlot === 'custom' ? customTime : slot?.time
+    if (!timeStr) return null
+    const [hh, mm] = timeStr.split(':').map(Number)
+    if (hh === undefined || mm === undefined || Number.isNaN(hh)) return null
+    const d = new Date(date)
+    d.setHours(hh, mm, 0, 0)
+    return d
+  }, [date, timeSlot, customTime])
+
+  const violates48h = scheduledAt ? scheduledAt.getTime() < earliestSend : false
+  // 8 PM cap, not the 9 PM compliance cutoff: the chosen time opens Peerly's
+  // send window and the window always closes at 9 PM, so a later start
+  // would leave a zero-width window (server clamps too).
+  const outsideWindow = scheduledAt
+    ? scheduledAt.getHours() < 9 ||
+      scheduledAt.getHours() > 20 ||
+      (scheduledAt.getHours() === 20 && scheduledAt.getMinutes() > 0)
+    : false
+
+  // Auto-name from list + date until the user edits the name.
+  const lastAutoName = useRef('')
+  useEffect(() => {
+    if (nameEdited) return
+    const listPart = selectedList?.name ?? 'Text campaign'
+    const datePart = date
+      ? `, ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+      : ''
+    const auto = `${listPart} — SMS${datePart}`
+    if (name === '' || name === lastAutoName.current) {
+      setName(auto)
+      lastAutoName.current = auto
+    }
+  }, [selectedList, date, name, nameEdited])
+
+  const requestDraft = (
+    nextPurpose: SmsPurpose | null,
+    nextTone: SocialTone,
+    priorBody: string,
+    priorManuallyEdited: boolean,
+    currentDraft?: string,
+  ) => {
+    if (!nextPurpose) return
+    if (nextPurpose === 'custom' && currentDraft === undefined) return
+    const requestId = ++draftRequestRef.current
+    draftMutation.mutate(
+      {
+        purpose: nextPurpose,
+        tone: nextTone,
+        ...(currentDraft === undefined ? {} : { currentDraft }),
+      },
+      {
+        onSuccess: (generated) => {
+          if (requestId !== draftRequestRef.current) return
+          if (priorManuallyEdited) {
+            setUndoText(priorBody)
+            setManuallyEdited(false)
+          }
+          // Fresh drafts open with the identification (design model: it is
+          // the message's editable first sentence); improve mode polishes a
+          // message that already carries it.
+          const full =
+            currentDraft === undefined
+              ? `${introFor(nextTone)} ${generated}`
+              : generated
+          setBody(full)
+          setToneDrafts((prev) => ({ ...prev, [nextTone]: full }))
+        },
+      },
+    )
+  }
+
+  const handleSelectPurpose = (selected: SmsPurpose) => {
+    setPurpose(selected)
+    setTone('warm')
+    setManuallyEdited(false)
+    setUndoText(null)
+    setBody('')
+    setToneDrafts({})
+    resetDraftMutation()
+    setStepId('audience')
+  }
+
+  const handleToneChange = (nextTone: SocialTone) => {
+    if (nextTone === tone) return
+    if (!purpose || purpose === 'custom') {
+      setTone(nextTone)
+      return
+    }
+    // A blank body (first generation still in flight) must neither be
+    // cached for the outgoing tone nor treated as a memory hit for the
+    // incoming one — restoring '' would blank the editor and skip the fetch.
+    const remembered = toneDrafts[nextTone]
+    if (body.trim().length > 0) {
+      setToneDrafts((prev) => ({ ...prev, [tone]: body }))
+    }
+    setTone(nextTone)
+    if (remembered !== undefined && remembered.trim().length > 0) {
+      draftRequestRef.current += 1
+      resetDraftMutation()
+      setBody(remembered)
+      setManuallyEdited(false)
+      return
+    }
+    requestDraft(purpose, nextTone, body, manuallyEdited)
+  }
+
+  const handleBodyChange = (value: string) => {
+    setBody(value)
+    setManuallyEdited(true)
+    if (draftMutation.isError) resetDraftMutation()
+  }
+
+  const handleImprove = () => {
+    if (body.trim().length === 0) return
+    requestDraft(purpose, tone, body, manuallyEdited, body)
+  }
+
+  const handleUndo = () => {
+    if (undoText === null) return
+    setBody(undoText)
+    setUndoText(null)
+    setManuallyEdited(true)
+  }
+
+  // Name-step continue: create the list through the shared audience hook
+  // (same endpoint the CRM wizard uses; the hook selects it and refreshes
+  // both list caches), derive its phone list, and land on the schedule step —
+  // the prototype's build-and-keep-going path.
+  const handleCreateListContinue = async () => {
+    if (audience.builderName.trim().length === 0 || audience.createListPending)
+      return
+    setPhoneListError(false)
+    try {
+      const created = await audience.createList()
+      setPhoneListToken(null)
+      setPhoneList(null)
+      setStopPolling(false)
+      setPhoneListCreating(true)
+      const result = await createP2pPhoneList(created, created.id)
+      setPhoneListCreating(false)
+      if (!result.ok || !result.token) {
+        setPhoneListError(true)
+        return
+      }
+      setPhoneListToken(result.token)
+      setStepId('schedule')
+    } catch {
+      setPhoneListCreating(false)
+      // audience.createListError renders the inline message below.
+    }
+  }
+
+  // Audience advance: derive the Peerly phone list from the saved filter.
+  // The status poll runs across the later steps; the pay step waits on it.
+  const handleAudienceContinue = async () => {
+    if (!selectedList) return
+    if (phoneListToken) {
+      setStepId('schedule')
+      return
+    }
+    setPhoneListCreating(true)
+    setPhoneListError(false)
+    const result = await createP2pPhoneList(selectedList, selectedList.id)
+    setPhoneListCreating(false)
+    if (!result.ok || !result.token) {
+      setPhoneListError(true)
+      return
+    }
+    setPhoneListToken(result.token)
+    setStepId('schedule')
+  }
+
+  // First compose entry generates the initial draft (custom writes its own).
+  useEffect(() => {
+    if (stepId !== 'compose' || !open) return
+    if (purpose === 'custom' || body.trim() || draftMutation.isPending) return
+    requestDraft(purpose, tone, '', false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepId, open])
+
+  // Draft-first purchase: entering review persists the campaign as a
+  // pending_payment draft once the phone list is ready — the draft id gates
+  // the checkout session (legacy TaskFlow sequence, relocated).
+  useEffect(() => {
+    if (stepId !== 'review' || !open || scheduled) return
+    if (draftOutreachId || isDraftCreatingRef.current) return
+    if (!campaign?.id || !phoneList?.phoneListId || !scheduledAt) return
+    isDraftCreatingRef.current = true
+    setDraftCreateError(false)
+    const generation = draftGenerationRef.current
+    const discount = campaign?.hasFreeTextsOffer
+      ? Math.min(phoneList.leadsLoaded, FREE_TEXTS_OFFER.COUNT)
+      : 0
+    ;(async () => {
+      try {
+        const outreach = await createOutreach(
+          {
+            campaignId: campaign.id,
+            outreachType: OUTREACH_TYPES.p2p,
+            name: name.trim(),
+            message: composedMessage,
+            script: composedMessage,
+            title: `P2P Outreach - Campaign ${campaign.id}`,
+            // Offset-annotated local time, not toISOString(): the server
+            // slices the first 10 chars as the user's send DAY for Peerly,
+            // and the UTC rendering puts evening sends on the next day.
+            date: format(scheduledAt, "yyyy-MM-dd'T'HH:mm:ssXXX"),
+            // The wall-clock time as picked — approve opens Peerly's
+            // contact-local send window at it ("6 PM" means 6 PM wherever
+            // the contact lives).
+            scheduledLocalTime: format(scheduledAt, 'HH:mm'),
+            ...(audience.selectedListId
+              ? { voterFileFilterId: audience.selectedListId }
+              : {}),
+            phoneListId: phoneList.phoneListId,
+            textCount: phoneList.leadsLoaded,
+            billableTextCount: phoneList.leadsLoaded - discount,
+            ...(campaignPlanDueDate ? { campaignPlanDueDate } : {}),
+            draft: true,
+          },
+          image,
+        )
+        if (generation !== draftGenerationRef.current) return
+        if (outreach?.id) {
+          setDraftOutreachId(outreach.id)
+        } else {
+          setDraftCreateError(true)
+        }
+      } finally {
+        if (generation === draftGenerationRef.current) {
+          isDraftCreatingRef.current = false
+        }
+      }
+    })()
+  }, [
+    stepId,
+    open,
+    scheduled,
+    draftOutreachId,
+    campaign,
+    phoneList,
+    scheduledAt,
+    composedMessage,
+    name,
+    audience.selectedListId,
+    image,
+  ])
+
+  const handleScheduled = async (paid: boolean) => {
+    setPaidSend(paid)
+    setScheduled(true)
+    await onScheduled()
+  }
+
+  const stepIndex = STEP_ORDER.indexOf(stepId)
+
+  const handleBack = () => {
+    if (stepId === 'audience' && audience.mode === 'name') {
+      // Drop any failed-create error so it can't re-flash on re-entry; keep
+      // the built filters.
+      audience.clearCreateError()
+      audience.setMode('filters')
+      return
+    }
+    if (stepId === 'audience' && audience.mode === 'filters') {
+      audience.resetBuilder()
+      return
+    }
+    if (stepId === 'review') {
+      // Back off the pay step discards the draft (stale drafts stay hidden
+      // server-side); re-entry creates a fresh one.
+      draftGenerationRef.current += 1
+      isDraftCreatingRef.current = false
+      setDraftOutreachId(null)
+      setDraftCreateError(false)
+    }
+    const previous = STEP_ORDER[stepIndex - 1]
+    if (previous) setStepId(previous)
+  }
+
+  const dirty = !scheduled && purpose !== null
+
+  const cta: FlowShellCta | null = scheduled
+    ? null
+    : stepId === 'audience' && audience.mode === 'filters'
+      ? {
+          label: audience.builderCounting
+            ? 'Continue'
+            : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
+          onClick: () => audience.setMode('name'),
+          disabled:
+            !hasAnyVoterFileSelection(
+              audience.builderFilters,
+              audience.builderSupportStatus,
+              audience.builderPrecincts,
+            ) ||
+            audience.builderCounting ||
+            audience.builderZeroMatch ||
+            audience.builderCapError,
+          loading:
+            hasAnyVoterFileSelection(
+              audience.builderFilters,
+              audience.builderSupportStatus,
+              audience.builderPrecincts,
+            ) && audience.builderCounting,
+        }
+      : stepId === 'audience' && audience.mode === 'name'
+        ? {
+            label: 'Continue',
+            onClick: () => {
+              void handleCreateListContinue()
+            },
+            disabled: audience.builderName.trim().length === 0,
+            loading: audience.createListPending || phoneListCreating,
+          }
+        : stepId === 'audience'
+          ? {
+              label: phoneListError
+                ? 'Try again'
+                : reachableCount !== null
+                  ? `Continue (${reachableCount.toLocaleString()})`
+                  : 'Continue',
+              onClick: () => {
+                void handleAudienceContinue()
+              },
+              disabled:
+                !selectedList ||
+                audience.reachableLoading ||
+                reachableCount === null ||
+                reachableCount === 0,
+              // A list the naming drawer just created lands here with its
+              // reachability fetch still in flight, so "Try again" would sit
+              // disabled with no explanation until the count resolves.
+              loading:
+                phoneListCreating ||
+                (phoneListError && audience.reachableLoading),
+            }
+          : stepId === 'schedule'
+            ? {
+                label: 'Continue',
+                onClick: () => setStepId('compose'),
+                disabled:
+                  name.trim().length === 0 ||
+                  scheduledAt === null ||
+                  violates48h ||
+                  outsideWindow,
+              }
+            : stepId === 'compose'
+              ? {
+                  label: 'Continue',
+                  onClick: () => setStepId('review'),
+                  disabled:
+                    body.trim().length === 0 ||
+                    !standards.passed ||
+                    composedLength > SMS_COMPOSED_MAX_LENGTH ||
+                    image === null ||
+                    draftMutation.isPending,
+                }
+              : null
+
+  // Mirrors the review step's isFree: a free send reads "Review and send" /
+  // "Schedule campaign" instead of the pay vocabulary (design prototype).
+  const isFreeSend =
+    Boolean(campaign?.hasFreeTextsOffer) &&
+    (phoneList?.leadsLoaded ?? reachableCount ?? 0) <= FREE_TEXTS_OFFER.COUNT
+
+  return (
+    <OutreachFlowShell
+      open={open}
+      onClose={onClose}
+      title={
+        scheduled
+          ? 'Done'
+          : stepId === 'review' && isFreeSend
+            ? 'Review and send'
+            : STEP_TITLES[stepId]
+      }
+      headerBadge={<ChannelBadge type={OUTREACH_TYPES.text} />}
+      currentStep={stepIndex + 1}
+      totalSteps={scheduled ? 0 : STEP_ORDER.length}
+      onBack={!scheduled && stepIndex > 0 ? handleBack : undefined}
+      cta={cta}
+      dirty={dirty}
+    >
+      {phoneListToken && !phoneList && (
+        <LongPoll<PhoneListStatusResponse | false>
+          pollingMethod={async () => getP2pPhoneListStatus(phoneListToken)}
+          onSuccess={(result) => {
+            if (result === undefined || result === false) {
+              setStopPolling(true)
+              return
+            }
+            setPhoneList(result)
+            setStopPolling(true)
+          }}
+          stopPolling={stopPolling}
+          limit={60}
+        />
+      )}
+      {scheduled ? (
+        <SuccessScreen
+          contactCount={phoneList?.leadsLoaded ?? reachableCount ?? 0}
+          sendAt={scheduledAt}
+          outreachId={draftOutreachId}
+          paid={paidSend}
+          onDone={onClose}
+        />
+      ) : stepId === 'purpose' ? (
+        <SmsPurposeStep selected={purpose} onSelect={handleSelectPurpose} />
+      ) : stepId === 'audience' ? (
+        <>
+          <OutreachAudienceStep
+            channel="text"
+            copy={SMS_AUDIENCE_COPY}
+            mode={audience.mode}
+            lists={audience.lists}
+            listsLoading={audience.listsLoading}
+            selectedId={audience.selectedListId}
+            onSelect={(id) => {
+              audience.onSelect(id)
+              // A different audience needs a fresh phone list, and a stale
+              // "couldn't prepare" error from the last attempt is moot.
+              setPhoneListToken(null)
+              setPhoneList(null)
+              setStopPolling(false)
+              setPhoneListError(false)
+            }}
+            onStartBuilder={() => {
+              setPhoneListError(false)
+              audience.startBuilder()
+            }}
+            recommendations={audience.recommendations}
+            recommendationsLoading={audience.recommendationsLoading}
+            recommendationsError={audience.recommendationsError}
+            recommendedListsChannel={audience.recommendedListsChannel}
+            onCreateRecommendedList={async (recommendation, name) => {
+              // Recommendation flow (naming drawer): create the saved
+              // filter, derive its phone list, and advance to schedule in
+              // one atomic gesture. Only the create may throw into the
+              // drawer. Past it the list exists under the typed name and
+              // is selected, so a phone-list failure is the audience
+              // step's error (same as handleAudienceContinue) — thrown
+              // into the drawer it read as "couldn't save this list" and
+              // every retry POSTed a duplicate.
+              const created = await audience.createRecommendedList(
+                recommendation,
+                name,
+              )
+              // Same reset as onSelect: a token left over from a previously
+              // picked list would let a retry skip straight to schedule with
+              // the wrong audience.
+              setPhoneListToken(null)
+              setPhoneList(null)
+              setStopPolling(false)
+              setPhoneListError(false)
+              setPhoneListCreating(true)
+              const result = await createP2pPhoneList(created, created.id)
+              setPhoneListCreating(false)
+              if (!result.ok || !result.token) {
+                setPhoneListError(true)
+                return
+              }
+              setPhoneListToken(result.token)
+              setStepId('schedule')
+            }}
+            onRecommendationReused={audience.trackRecommendationReused}
+            reachableCount={reachableCount}
+            reachableLoading={audience.reachableLoading}
+            pricePerContact={PRICE_PER_MESSAGE}
+            builderFilters={audience.builderFilters}
+            onBuilderFiltersChange={audience.setBuilderFilters}
+            builderSupportStatus={audience.builderSupportStatus}
+            builderPrecincts={audience.builderPrecincts}
+            onBuilderPrecinctsChange={audience.setBuilderPrecincts}
+            precinctOptions={audience.precinctOptions}
+            onBuilderSupportStatusChange={audience.setBuilderSupportStatus}
+            builderName={audience.builderName}
+            onBuilderNameChange={audience.setBuilderName}
+            isElectedOfficial={audience.isElectedOfficial}
+            builderCount={audience.builderCount}
+            builderCounting={audience.builderCounting}
+            builderCapError={audience.builderCapError}
+            builderCountErrorMessage={audience.builderCountErrorMessage}
+          />
+          {audience.createListError && (
+            <p className="mt-4 text-sm text-destructive">
+              We couldn&apos;t save this list. Try again.
+            </p>
+          )}
+          {phoneListError && (
+            <p className="mt-4 text-sm text-destructive">
+              We couldn&apos;t prepare this audience. Try again.
+            </p>
+          )}
+        </>
+      ) : stepId === 'schedule' ? (
+        <SmsScheduleStep
+          name={name}
+          onNameChange={(value) => {
+            setName(value)
+            setNameEdited(true)
+          }}
+          date={date}
+          onDateChange={setDate}
+          timeSlot={timeSlot}
+          onTimeSlotChange={setTimeSlot}
+          customTime={customTime}
+          onCustomTimeChange={setCustomTime}
+          earliestSend={earliestSend}
+          calendarFloor={earliestSend}
+          violates48h={violates48h}
+          outsideWindow={outsideWindow}
+        />
+      ) : stepId === 'compose' ? (
+        <SmsComposeStep
+          tone={tone}
+          onToneChange={handleToneChange}
+          audienceName={selectedList?.name ?? audience.builderName}
+          standardsFailures={standards.failures}
+          identificationExample={introFor(tone)}
+          committeeName={committeeName}
+          body={body}
+          onBodyChange={handleBodyChange}
+          composedLength={composedLength}
+          onRegenerate={() => requestDraft(purpose, tone, body, manuallyEdited)}
+          onImprove={handleImprove}
+          canImprove={manuallyEdited && body.trim().length > 0}
+          isDrafting={draftMutation.isPending}
+          isDraftError={draftMutation.isError}
+          canUndo={undoText !== null}
+          onUndo={handleUndo}
+          isCustomPurpose={purpose === 'custom'}
+          image={image}
+          imagePreviewUrl={imagePreviewUrl}
+          onImageChange={setImage}
+          imageError={imageError}
+          onImageError={setImageError}
+        />
+      ) : (
+        <CheckoutSessionProvider
+          key={draftOutreachId ?? 'pending'}
+          type={PURCHASE_TYPES.TEXT}
+          purchaseMetaData={{
+            contactCount: phoneList?.leadsLoaded ?? 0,
+            pricePerContact: dollarsToCents(PRICE_PER_MESSAGE) || 0,
+            outreachType: OUTREACH_TYPES.p2p,
+            campaignId: campaign?.id,
+            outreachId: draftOutreachId ?? undefined,
+            phoneListToken: phoneListToken ?? undefined,
+          }}
+        >
+          <SmsReviewStep
+            name={name}
+            audienceName={selectedList?.name ?? 'Saved list'}
+            sendAt={scheduledAt ?? new Date()}
+            composedMessage={composedMessage}
+            imagePreviewUrl={imagePreviewUrl}
+            contactCount={phoneList?.leadsLoaded ?? 0}
+            pricePerContact={PRICE_PER_MESSAGE}
+            outreachId={draftOutreachId}
+            phoneListToken={phoneListToken}
+            excludedOptedOutCount={phoneList?.excludedOptedOutCount ?? null}
+            excludedDuplicatePhoneCount={
+              phoneList?.excludedDuplicatePhoneCount ?? null
+            }
+            preparing={!phoneList || (!draftOutreachId && !draftCreateError)}
+            prepareError={draftCreateError}
+            onComplete={handleScheduled}
+          />
+        </CheckoutSessionProvider>
+      )}
+    </OutreachFlowShell>
+  )
+}

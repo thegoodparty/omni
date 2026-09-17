@@ -34,6 +34,17 @@ vi.mock('@shared/hooks/EcanvasserProvider', () => ({
 vi.mock('./DashboardMenu', () => ({ default: () => null }))
 vi.mock('./ProUpgradePrompt', () => ({ ProUpgradePrompt: () => null }))
 vi.mock('@shared/user/ImpersonationBanner', () => ({ default: () => null }))
+// The dock (mounted for every Win org now) pulls in FooterChatBar's styleguide
+// deps, which are irrelevant to this file's DashboardLayout-only assertions.
+// It stands in as a marker element rather than as bare children, because
+// whether the layout mounts the wrapper AT ALL is itself under test below.
+vi.mock('../campaign-manager/CampaignManagerChatProvider', () => ({
+  DashboardCampaignManagerChat: ({
+    children,
+  }: {
+    children: React.ReactNode
+  }) => <div data-testid="campaign-manager-chat-dock">{children}</div>,
+}))
 vi.mock('@styleguide/components/ui/icons', () => ({
   MenuIcon: () => null,
   XMarkIcon: () => null,
@@ -47,6 +58,7 @@ vi.mock('@styleguide/components/ui/icons', () => ({
   LayoutDashboardIcon: () => null,
   BookOpenIcon: () => null,
   CircleUserRoundIcon: () => null,
+  MegaphoneIcon: () => null,
 }))
 vi.mock('@styleguide', () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
@@ -113,11 +125,55 @@ describe('DashboardLayout election-result redirect', () => {
   })
 })
 
+// The dock is a fixed bar across the bottom of the window, so a route that
+// owns the bottom of the viewport cannot also carry it: door knocking's walk
+// ends its person sheet in the knock-log footer, and the dock painted over the
+// only controls that record a knock. Asserted on whether the wrapper is in the
+// tree rather than on anything it draws — Win/Serve is the wrapper's own
+// decision, and what the layout owes either answer is the chance to make it.
+describe('DashboardLayout chat dock', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUseCampaign.mockReturnValue([null])
+    mockIsImpersonating.mockReturnValue(false)
+    mockIsDismissed.mockReturnValue(false)
+    // An election still ahead, so the election-result gate stays out of a pair
+    // of tests that are only about what the layout renders.
+    mockWeeksTill.mockReturnValue({ weeks: 4 })
+  })
+
+  const dock = () => screen.queryByTestId('campaign-manager-chat-dock')
+
+  it('mounts the dock around a page that has not opted out', async () => {
+    render(
+      <DashboardLayout>
+        <div>dashboard content</div>
+      </DashboardLayout>,
+    )
+
+    await screen.findByText('dashboard content')
+    expect(dock()).toContainElement(screen.getByText('dashboard content'))
+  })
+
+  it('drops the dock, keeping the page, for a route that owns the bottom', async () => {
+    render(
+      <DashboardLayout hideChatDock>
+        <div>dashboard content</div>
+      </DashboardLayout>,
+    )
+
+    // The page itself is untouched: this suppresses the dock, not the content
+    // it used to wrap.
+    await screen.findByText('dashboard content')
+    expect(dock()).toBeNull()
+  })
+})
+
 // The title bar's CTA slot, exercised through the real layout rather than a
 // stand-in harness — the wiring under test (ref callback -> state -> context ->
 // portal, plus the mounted-action count) lives in DashboardLayout itself.
 describe('DashboardLayout nav header CTA', () => {
-  const navHeader = { icon: 'book', label: 'Your story' } as const
+  const navHeader = { icon: 'book', label: 'Your Story' } as const
   const bar = () =>
     document.querySelector('[data-slot="nav-header-action"]')?.parentElement
 

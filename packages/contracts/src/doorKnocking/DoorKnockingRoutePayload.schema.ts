@@ -1,9 +1,122 @@
 import { z } from 'zod'
+import {
+  DoorKnockConstituentActivitySchema,
+  PhoneBankingConstituentActivitySchema,
+  RobocallConstituentActivitySchema,
+  StatusChangeConstituentActivitySchema,
+  TextConstituentActivitySchema,
+} from '../people/ContactActivity.schema'
+import { ContactNoteSchema } from '../people/ContactNote.schema'
+import { NotAVoterReasonSchema } from '../people/ContactStatus.schema'
+import { DoorKnockingDemographicsShape } from './DoorKnockingResidents.schema'
 import { DoorKnockingRouteHeaderSchema } from './DoorKnockingTurf.schema'
 
+// ADR 0009. Previous outreach to one resident, riding the route payload so
+// the walk keeps working on the bad signal it was designed around.
+//
+// The variants are the CRM's own ConstituentActivity members, not a
+// door-knocking copy of them: the same event has to read the same way in
+// Contacts and at the door, and reusing the schemas means the webapp's
+// existing feed rows render this without a fork.
+//
+// Two of the CRM's seven variants are deliberately absent. POLL_INTERACTIONS
+// is elected-office only and door knocking is Win-only. OUTREACH (the
+// deprecated VoterOutreachActivity rows) is keyed on lalVoterId, and
+// door_knocking_stop_target stores a people-db personId precisely so no raw
+// LALVOTERID is frozen into a route — so the door cannot join to them.
+export const RouteTargetActivitySchema = z.discriminatedUnion('type', [
+  DoorKnockConstituentActivitySchema,
+  TextConstituentActivitySchema,
+  RobocallConstituentActivitySchema,
+  PhoneBankingConstituentActivitySchema,
+  StatusChangeConstituentActivitySchema,
+])
+
+export type RouteTargetActivity = z.infer<typeof RouteTargetActivitySchema>
+
+// `DoorKnockingDemographicsShape` with every member made optional, built by
+// mapping rather than re-declared, so the eleven attributes are still written
+// down exactly once (in DoorKnockingResidents.schema.ts, next to the column
+// each one reads and the mapper that produced it). A hand-copied optional twin
+// is a second list to keep in step, and the first thing to fall out of step is
+// the one nobody re-reads.
+const optionalDemographics = (): {
+  [K in keyof typeof DoorKnockingDemographicsShape]: z.ZodOptional<
+    (typeof DoorKnockingDemographicsShape)[K]
+  >
+} =>
+  Object.fromEntries(
+    Object.entries(DoorKnockingDemographicsShape).map(([key, schema]) => [
+      key,
+      schema.optional(),
+    ]),
+  ) as {
+    [K in keyof typeof DoorKnockingDemographicsShape]: z.ZodOptional<
+      (typeof DoorKnockingDemographicsShape)[K]
+    >
+  }
+
+// Most-recent-first, capped server-side. The cap is what makes the payload's
+// cost independent of how long a person's CRM history runs: a person with two
+// hundred rows costs the same bytes as one with five. Full history lives in
+// the CRM person view, which pages.
+export const ROUTE_TARGET_ACTIVITY_LIMIT = 5
+
+// ADR 0011. The same server-side cap as the activity feed above and for the
+// same reason, at a lower number: notes are several times more expensive per
+// row. An activity row is a fixed handful of short fields, while a note is
+// free text a human typed and `ContactNoteInputSchema` lets it run to 10,000
+// characters. On ADR 0009's own 100-stop rig, one 140-character note per
+// target costs roughly what all five activity rows cost together.
+//
+// Three is also close to product's "show them all": a resident with three or
+// fewer notes — nearly all of them — loses nothing.
+export const ROUTE_TARGET_NOTE_LIMIT = 3
+
+// Notes plus the resident's full note count, so a truncated list says so.
+//
+// The count is on the wire rather than inferred from
+// `entries.length === ROUTE_TARGET_NOTE_LIMIT`, which is wrong in exactly the
+// case that matters least dramatically and most often: a resident with
+// precisely three notes would render as truncated forever. With `total` the
+// sheet can say "3 of 7" and point at the CRM for the rest, instead of showing
+// a subset as though it were the whole record.
+//
+// One object rather than sibling `notes` / `notesTotal` keys on the target,
+// because the two halves are only meaningful together. Siblings make "rows
+// with no count" a representable state, and a renderer that reads the rows and
+// forgets the count drops the truncation silently. Nothing parses this schema
+// at runtime (see `notes` below), so nothing but the shape can enforce that
+// they arrive as a pair.
+export const RoutePayloadTargetNotesSchema = z.object({
+  entries: z.array(ContactNoteSchema),
+  total: z.number().int(),
+})
+
+export type RoutePayloadTargetNotes = z.infer<
+  typeof RoutePayloadTargetNotesSchema
+>
+
 // Knock statuses derived from the CRM door-knock vocabulary (outcome +
-// supportAnswer). 'unknown' covers never-knocked, answered-but-unsure, and
-// unsure support.
+// supportAnswer + followUp). 'unknown' covers never-knocked,
+// answered-but-unsure, and unsure support.
+//
+// The last two are the Serve surface's endings, and they exist because
+// 'unknown' is what a Serve conversation would otherwise derive to. `answered`
+// is not a member of this array — everything under a support answer is a way a
+// door FAILED — so a walk whose canvasser is never asked about support would
+// never leave 'unknown', and `knockStatus !== 'unknown'` is the "logged"
+// predicate in the walk view, walk completion, the server-side turf counts and
+// both paper surfaces. A Serve walk needed its own terminal statuses to
+// register any progress at all.
+//
+// **Appended rather than slotted in beside the support answers they replace.**
+// The pack encodes a status as this array's index in a byte, and a frozen pack
+// on a phone is read against whatever vocabulary the client shipped with, so
+// inserting a member would silently re-label every existing byte during the
+// deploy skew. What the array order costs is the actionability ranking that
+// used to be read off it — see `STATUS_ACTIONABILITY` in the webapp's
+// `statusPresentation.ts`, which is now an explicit table for that reason.
 export const DOOR_KNOCK_STATUSES = [
   'unknown',
   'not_home',
@@ -12,6 +125,8 @@ export const DOOR_KNOCK_STATUSES = [
   'inaccessible',
   'refused',
   'not_a_voter',
+  'engaged',
+  'needs_follow_up',
 ] as const
 
 export const DoorKnockStatusSchema = z.enum(DOOR_KNOCK_STATUSES)
@@ -35,8 +150,101 @@ export const RoutePayloadTargetSchema = z.object({
   // walk sheet deliberately omits these, since paper leaves the building.
   cellPhone: z.string().nullable(),
   landline: z.string().nullable(),
+  // The eleven-attribute demographic profile, derived from the residents
+  // contract's shape so the two cannot drift — `serve()` copies these across
+  // one for one, and a field added on one side without the other would be a
+  // silent hole rather than a type error.
+  //
+  // Live-only like age, party and the phones: a `mayHaveMoved` target has no
+  // live row, so every one of these is null for them rather than describing
+  // whoever lives there now. Screen only — both paper surfaces omit them, for
+  // the reason they omit the phone numbers, and with more force: a demographic
+  // profile of a named voter on a page that leaves the building is a larger
+  // disclosure than a phone number is.
+  //
+  // Targets only. `otherResidents` below stays name-only.
+  //
+  // **Optional here and required on the residents response**, which is the same
+  // split `history` and `notAVoterReason` above make and for the same reason:
+  // this payload is what a service worker snapshots for a walk with no signal,
+  // so one taken before this shipped carries none of these keys and has to keep
+  // parsing on a phone that cannot refetch. The residents response is an
+  // in-process S2S read with no snapshot, so required there is what actually
+  // enforces that the SELECT widened.
+  //
+  // Consequence for renderers, and it is the whole reason this is written down:
+  // absent means the same thing as null and must render the same way. A
+  // `boolean | null | undefined` fed to a bare ternary makes `undefined` false,
+  // which would print "No" against `registeredVoter` on every pre-ship
+  // snapshot — see `demographicFacts.ts`, which normalizes both.
+  ...optionalDemographics(),
   knockStatus: DoorKnockStatusSchema,
   mayHaveMoved: z.boolean(),
+  // ADR 0007. A flag rather than a DoorKnockStatus member: a knock status is
+  // derived from an interaction, and this comes from the contact-status
+  // projection instead. Read live at serve time, so a person flagged this
+  // morning is marked on a route frozen yesterday — turf evaluation keeps them
+  // out of new routes, but it cannot reach back into one already built.
+  doNotKnock: z.boolean(),
+  // ADR 0008. Why this person is not a voter to reach here, when someone at
+  // the door said so. Read live at serve time for the same reason doNotKnock
+  // is: evaluation keeps them out of new routes, but the frozen one in
+  // someone's hand already passed it.
+  //
+  // An absent key rather than a nullable one — `cleared` is the absence of a
+  // reason, and the marker is present or it isn't. Keeping it optional also
+  // means a payload snapshotted offline before this shipped still parses.
+  notAVoterReason: NotAVoterReasonSchema.optional(),
+  // ADR 0009. This resident's own recent outreach, newest first — never the
+  // household's. Two people behind one door disagree, and attributing a
+  // neighbor's refusal to the person answering is worse than showing nothing.
+  //
+  // The server always sends the array, empty included: "we have never been
+  // here" is a thing the card says out loud. Optional for the same reason
+  // notAVoterReason above is — a payload snapshotted offline before this
+  // shipped has to keep parsing on a phone that cannot refetch.
+  //
+  // Deliberately not `.default([])`, which reads like the safer form and is
+  // not: nothing parses this schema at runtime in either direction
+  // (ZodResponseInterceptor isn't registered globally and DoorKnockingController
+  // doesn't apply it, so serveRoute's @ResponseSchema is inert; the webapp's
+  // clientRequest casts ofetch's JSON without parsing). A default would fill in
+  // nothing and only promise the compiler a non-optional array, so a service
+  // worker's pre-ship snapshot would hand a `.map()` undefined with no type
+  // error. Optional keeps that decision at the call site. See ADR 0009.
+  history: z.array(RouteTargetActivitySchema).optional(),
+  // ADR 0011. This resident's saved contact notes, newest first, capped at
+  // ROUTE_TARGET_NOTE_LIMIT with their true count beside them. Riding the
+  // payload rather than fetched per resident for the reason ADR 0009 gave
+  // about `history`: the sheet is deliberately fetch-free, because the moment
+  // a canvasser needs it is the moment they are standing on a porch in the
+  // dead zone the whole feature is shaped around.
+  //
+  // Keyed by personId like `history`, never rolled up to the address. Two
+  // people behind one door are two records, and free text written about one of
+  // them read against the housemate who answered is the ADR 0009 failure with
+  // worse material than an outcome enum.
+  //
+  // The CRM's own `ContactNoteSchema`, not a door-knocking narrowing of it, so
+  // one note cannot be worded two ways — and so the webapp can drop the
+  // response of its own create/edit straight into `entries` without a
+  // translation step that would be a second idea of what a note is.
+  //
+  // The server always sends the block, `{ entries: [], total: 0 }` included:
+  // "nothing written down about this person yet" is a thing the sheet says out
+  // loud, and it has to stay distinguishable from a payload that predates this
+  // field, where the key is absent and absence is not a claim about anything.
+  //
+  // Optional and deliberately not `.default([])`, for the reason set out on
+  // `history` above: nothing parses this schema at runtime in either
+  // direction, so a default fills in nothing anywhere and only promises the
+  // compiler a value that a service worker's pre-ship snapshot does not carry.
+  //
+  // Screen only. Both paper surfaces omit it, for the reason they omit the
+  // phones and the demographic profile and with more force again — free text
+  // about a named voter, on a page that stops being access-controlled the
+  // moment it leaves the building.
+  notes: RoutePayloadTargetNotesSchema.optional(),
 })
 
 export type RoutePayloadTarget = z.infer<typeof RoutePayloadTargetSchema>
@@ -45,9 +253,27 @@ export const RoutePayloadAddressSchema = z.object({
   addressKey: z.string(),
   // Frozen at the lock (the addressKey's address line) — never re-derived
   // from live data, so the walk view matches what was routed.
+  //
+  // The WHOLE address, street line included, because the surfaces without a
+  // stop heading above them need one: the printed walk sheet and the PDF put
+  // one row per door on paper, and "Apt 8309" on its own names no house.
   address: z.string(),
+  // Just the unit — "Apt 8309" — and empty for a single-family house.
+  //
+  // Its own field rather than something the client slices off `address`,
+  // because only the key knows where the street line ends: `AddressLine`
+  // arrives with the unit already in it, so the split is a subtraction the
+  // server does against `ApartmentNum` and cannot be redone downstream
+  // without shipping the apartment too.
+  //
+  // The walk view's door rows render this alone, since the stop above them
+  // already carries the street. Empty is the signal that a door needs no row
+  // at all: with one unnamed door under a stop there is nothing to tell apart,
+  // so the list goes straight to its residents.
+  unit: z.string(),
   targets: z.array(RoutePayloadTargetSchema),
-  // Live household context, deliberately name-only.
+  // Live household context, deliberately name-only — the demographic profile
+  // above is for targets alone.
   otherResidents: z.array(z.object({ name: z.string().nullable() })),
 })
 
@@ -58,12 +284,25 @@ export const RoutePayloadStopSchema = z.object({
   seq: z.number().int(),
   lat: z.number(),
   lng: z.number(),
+  // The street line alone — "205 Benton Dr", never "205 Benton Dr Apt 8309".
+  //
+  // A stop is a coordinate and an apartment building is one coordinate with
+  // many doors, so naming the stop after a single unit picked whichever
+  // resident happened to sort first and then labelled the whole building with
+  // their apartment. The units live on `addresses[].unit` below, where a
+  // canvasser can read them as the list of doors they actually are.
+  //
+  // Derived at serve time rather than read straight from the frozen column,
+  // which still holds the unit: routes created before this was a distinction
+  // would otherwise keep announcing one door's apartment as the building's
+  // name for as long as they exist.
   displayAddress: z.string(),
   legSeconds: z.number().int(),
   legMeters: z.number().int(),
-  // Most-actionable rollup across the stop's people: an 'unknown' person
-  // keeps the whole stop knockable.
-  knockStatus: DoorKnockStatusSchema,
+  // No stop-level rollup: the webapp's `rollupStopStatus` derives one from
+  // `addresses[].targets[].knockStatus`, and shipping a second copy meant two
+  // implementations of one rule that had to agree about suppressing
+  // do-not-knock and not-a-voter residents. One implementation cannot drift.
   addresses: z.array(RoutePayloadAddressSchema),
 })
 
@@ -85,6 +324,30 @@ export const RoutePathGeometrySchema = z.union([
 
 export type RoutePathGeometry = z.infer<typeof RoutePathGeometrySchema>
 
+// Whose door-knocking this is: the candidate or official the canvasser names
+// at the door, and the office they are running for or already hold.
+//
+// It rides the payload for the same reason `isServe` below does, with a
+// sharper case. A volunteer's walk has no campaign context at all —
+// `GET /v1/campaigns/mine` 403s a volunteer (ENG-11072), so `useCampaign()`
+// resolves null and the door script had no way to learn whose campaign the
+// person holding the phone was canvassing for. The route is the one thing a
+// volunteer can always read, so the answer travels with it.
+//
+// `name` is the org owner's, not the reader's: on a candidate's own walk the
+// two are the same person, and on a volunteer's they are emphatically not.
+// `office` is the resolved position name — the seat sought on Win, the seat
+// held on Serve — which is the same string `NativeDoorKnockingPage` passes
+// into `DoorKnockingSurface` from the organization.
+export const RoutePayloadRepresentingSchema = z.object({
+  name: z.string(),
+  office: z.string(),
+})
+
+export type RoutePayloadRepresenting = z.infer<
+  typeof RoutePayloadRepresentingSchema
+>
+
 // The full serve response: the frozen route plus live enrichment. Phones
 // snapshot this offline; there is no navigate block — the phone builds deep
 // links from lat/lng.
@@ -92,6 +355,47 @@ export const DoorKnockingRoutePayloadSchema = z.object({
   route: DoorKnockingRouteHeaderSchema,
   pathGeometry: RoutePathGeometrySchema.nullable(),
   stops: z.array(RoutePayloadStopSchema),
+  // The owning org's surface (the `eo-` slug prefix, the system-wide Win/Serve
+  // invariant — see gp-api's `src/contacts/AGENTS.md`), riding the payload for
+  // the same reason `PhoneBankingListSchema` carries it: door knocking has ONE
+  // route for both surfaces, so nothing in the URL distinguishes them.
+  //
+  // The webapp has a context (`doorKnockingSurface.tsx`) and could re-derive
+  // this while the create flow is open, but the surfaces that read a served
+  // route cannot: the printable walk sheet and the PDF render server-side from
+  // this payload alone, with no organization provider above them. Deriving it
+  // once here is also what keeps the walk, the person sheet and the two paper
+  // formats from arriving at four answers about one list.
+  //
+  // Optional, like `history` and `notes` above and for the identical reason: a
+  // service worker's pre-ship snapshot carries no such key and has to keep
+  // parsing on a phone that cannot refetch. Absent reads as Win, which is the
+  // surface every route frozen before this shipped belonged to.
+  isServe: z.boolean().optional(),
+  // Optional for the reason every field above it is: a service worker's
+  // pre-ship snapshot carries no such key and has to keep parsing on a phone
+  // that cannot refetch. Absent means the door script falls back to what it
+  // built before this shipped — the candidate's own opener on the dashboard,
+  // and the bare "Hi, I'm {volunteer}." on the volunteer walk.
+  //
+  // Also absent when the position name cannot be resolved: `serve()` treats
+  // this as best-effort, because a walk is worth more than an opener and
+  // election-api being down is not a reason a canvasser cannot knock.
+  representing: RoutePayloadRepresentingSchema.optional(),
+  // The list's frozen talking points, plain text, one line per section.
+  //
+  // Riding the payload rather than fetched by a hook, for the reason `isServe`
+  // gives above and `history` gives at length: the printable walk sheet and
+  // the PDF render server-side from this payload alone, and the person sheet
+  // is deliberately fetch-free because the moment a canvasser needs it is the
+  // moment they are standing on a porch in the dead zone this whole feature is
+  // shaped around.
+  //
+  // Optional, and never `.default('')`, like every field above it: absent
+  // means a list created before this shipped, and the door script falls back
+  // to the static build for exactly those. Absent must render identically to
+  // empty.
+  talkingPoints: z.string().optional(),
 })
 
 export type DoorKnockingRoutePayload = z.infer<

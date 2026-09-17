@@ -52,11 +52,11 @@ describe('getFlagVariants', () => {
   it('returns the gp-api variants when resolution succeeds', async () => {
     mockServerRequest.mockResolvedValue({
       ok: true,
-      data: { variants: { 'serve-access': { value: 'on' } } },
+      data: { variants: { 'some-flag': { value: 'on' } } },
     })
 
     expect(await getFlagVariants()).toEqual({
-      'serve-access': { value: 'on' },
+      'some-flag': { value: 'on' },
     })
   })
 

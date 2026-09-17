@@ -29,6 +29,8 @@ export const createMockCampaign = (
   updatedAt: new Date(),
   slug: 'test-campaign',
   organizationSlug: 'campaign-1',
+  ballotStatus: null,
+  signupGoal: null,
   userId: 7,
   isActive: true,
   isVerified: false,

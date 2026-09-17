@@ -20,7 +20,11 @@
 set -euo pipefail
 
 WT="$(cd "${1:-.}" && git rev-parse --show-toplevel)"
-MAIN="$(git -C "$WT" worktree list --porcelain | head -1 | sed 's/^worktree //')"
+# The first `worktree ` line is the main checkout. sed must consume the whole
+# stream: an early-exiting consumer (`head -1`) closes the pipe, git dies of
+# SIGPIPE, and under `pipefail` that aborts this script before it provisions
+# anything — silently, with exit 141.
+MAIN="$(git -C "$WT" worktree list --porcelain | sed -n '1s/^worktree //p')"
 
 if [ "$WT" = "$MAIN" ]; then
   # npm ci wipes node_modules — running it against the shared main checkout

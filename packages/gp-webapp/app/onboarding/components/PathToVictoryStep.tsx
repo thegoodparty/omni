@@ -15,6 +15,9 @@ import {
 import { clientRequest } from 'gpApi/typed-request'
 import { numberFormatter } from 'helpers/numberHelper'
 import { reportErrorToSentry } from '@shared/sentry'
+import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
+import { FetchError } from 'ofetch'
+import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from 'app/dashboard/contacts/crm/shared/constants'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import type { Campaign } from 'helpers/types'
 
@@ -31,7 +34,6 @@ const CHECKLIST_ITEMS = [
   'Calculating the votes you need to win',
 ] as const
 
-const WIN_NUMBER_RANGE_PCT = 0.15
 const REVEAL_INTERVAL_MS = 700
 const RESULTS_HOLD_MS = 600
 
@@ -93,6 +95,17 @@ const useRegisteredVoters = (campaignId: number | undefined) => {
       .catch((error: unknown) => {
         if (cancelled) return
         setRegisteredVoters(null)
+        // "We have no constituent data for this office" is an expected state,
+        // not an error — a district that resolves but has no stats row raises
+        // it just like an unresolvable one, and the predicate above can't see
+        // that case. Reporting it made a normal office a Sentry event.
+        if (
+          error instanceof FetchError &&
+          extractApiErrorInfo(error.data).errorCode ===
+            VOTER_DATA_UNAVAILABLE_ERROR_CODE
+        ) {
+          return
+        }
         reportErrorToSentry(error, {
           context: SENTRY_CONTEXT_FETCH_CONTACTS_STATS,
           campaignId,
@@ -258,18 +271,18 @@ const MetricsUnavailable = (): React.JSX.Element => (
 
 interface WinNumberHeroCardProps {
   winNumber: number
+  winNumberLower: number | null
+  winNumberUpper: number | null
   officeName: string
 }
 
 const WinNumberHeroCard = ({
   winNumber,
+  winNumberLower,
+  winNumberUpper,
   officeName,
 }: WinNumberHeroCardProps): React.JSX.Element => {
-  const lowEstimate = Math.max(
-    0,
-    Math.round(winNumber * (1 - WIN_NUMBER_RANGE_PCT)),
-  )
-  const highEstimate = Math.round(winNumber * (1 + WIN_NUMBER_RANGE_PCT))
+  const hasRange = winNumberLower !== null && winNumberUpper !== null
 
   return (
     <Card className="overflow-hidden rounded-2xl border-blue-100 bg-linear-to-b from-blue-50 to-white shadow-none">
@@ -281,13 +294,16 @@ const WinNumberHeroCard = ({
           Projected votes needed to win
         </p>
         <p className="text-base font-semibold text-foreground">{officeName}</p>
-        <p className="pt-2 text-xs text-muted-foreground">
-          Projected range:{' '}
-          <span className="font-semibold">
-            {numberFormatter(lowEstimate)}–{numberFormatter(highEstimate)}
-          </span>{' '}
-          (~95% confidence)
-        </p>
+        {hasRange && (
+          <p className="pt-2 text-xs text-muted-foreground">
+            Projected range:{' '}
+            <span className="font-semibold">
+              {numberFormatter(winNumberLower)}–
+              {numberFormatter(winNumberUpper)}
+            </span>{' '}
+            (70% prediction interval)
+          </p>
+        )}
       </CardContent>
     </Card>
   )
@@ -419,13 +435,9 @@ export const PathToVictoryStep = ({
   const officeName = officeNameProp || formatOfficeName(campaign)
   const metrics = campaign?.raceTargetMetrics ?? null
   const winNumber = metrics?.winNumber ?? 0
-  // Prefer the general-election-anchored voter-turnout baseline (the number
-  // win-number and contact targets are sized against on election-api) over
-  // the race's own election-code turnout — for a primary or off-cycle
-  // municipal race the latter is a much smaller figure and reads as
-  // "incorrect" next to the copy "voters we expect to cast a ballot".
-  const projectedTurnout =
-    metrics?.projectedVoterTurnout ?? metrics?.projectedTurnout ?? 0
+  const winNumberLower = metrics?.winNumberLower ?? null
+  const winNumberUpper = metrics?.winNumberUpper ?? null
+  const projectedTurnout = metrics?.projectedTurnout ?? 0
 
   useEffect(() => {
     onLoadingChange?.(!showResults)
@@ -455,7 +467,12 @@ export const PathToVictoryStep = ({
 
   return (
     <div className="space-y-6 text-left">
-      <WinNumberHeroCard winNumber={winNumber} officeName={officeName} />
+      <WinNumberHeroCard
+        winNumber={winNumber}
+        winNumberLower={winNumberLower}
+        winNumberUpper={winNumberUpper}
+        officeName={officeName}
+      />
       <ProjectionExplanation
         registeredVoters={registeredVoters}
         projectedTurnout={projectedTurnout}

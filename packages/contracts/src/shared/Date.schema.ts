@@ -1,13 +1,13 @@
 import { z } from 'zod'
 
-// zod v4's z.toJSONSchema — which nestjs-zod v5 calls when NestJS builds the
-// OpenAPI document at bootstrap (SwaggerModule.createDocument) — throws
-// "Date cannot be represented in JSON Schema" for any ZodDate, and nestjs-zod
-// offers no way to pass it `unrepresentable: 'any'`. The previous
-// zod-to-json-schema rendered dates as { type: 'string', format: 'date-time' }.
-// zod core consults a per-schema `_zod.toJSONSchema` hook before its (throwing)
-// processor, so we attach that rendering here. Only the generated JSON Schema
-// changes; runtime parsing is identical to the wrapped z.coerce.date()/z.date().
+// zod v4's z.toJSONSchema throws "Date cannot be represented in JSON Schema"
+// for any ZodDate, which breaks callers that render a contract schema to JSON
+// Schema without passing `unrepresentable: 'any'` (notably the Gemini
+// structured-output path in gp-api). zod core consults a per-schema
+// `_zod.toJSONSchema` hook before its (throwing) processor, so we attach the
+// { type: 'string', format: 'date-time' } rendering here. Only the generated
+// JSON Schema changes; runtime parsing is identical to the wrapped
+// z.coerce.date()/z.date().
 const withDateTimeJsonSchema = <T extends z.ZodType>(schema: T): T => {
   ;(schema._zod as unknown as { toJSONSchema: () => unknown }).toJSONSchema =
     () => ({ type: 'string', format: 'date-time' })

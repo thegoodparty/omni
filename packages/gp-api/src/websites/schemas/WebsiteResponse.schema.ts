@@ -9,7 +9,6 @@ const WebsiteContentSchema = z
     theme: z.string().optional(),
     main: z
       .object({
-        title: z.string().optional(),
         tagline: z.string().optional(),
         image: z.string().optional(),
       })
@@ -64,6 +63,7 @@ export const MyWebsiteResponseSchema = z.object({
   hasEverBeenPublished: z.boolean(),
   vanityPath: z.string(),
   content: WebsiteContentSchema,
+  legacyTitleOverride: z.string().nullable(),
   domain: DomainSchema,
 })
 
@@ -81,6 +81,7 @@ export const PublicWebsiteResponseSchema = z.object({
   status: z.nativeEnum(WebsiteStatus),
   vanityPath: z.string(),
   content: WebsiteContentSchema,
+  legacyTitleOverride: z.string().nullable(),
   campaign: z
     .object({
       user: z

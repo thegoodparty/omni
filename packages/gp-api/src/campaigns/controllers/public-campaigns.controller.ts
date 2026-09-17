@@ -10,7 +10,6 @@ import {
   UsePipes,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
-import { PinoLogger } from 'nestjs-pino'
 import { FindByRaceIdDto } from '../schemas/public/FindByRaceId.schema'
 import { FindByRaceIdResponseSchema } from '../schemas/public/FindByRaceIdResponse.schema'
 import { PublicCampaignsService } from '../services/public-campaigns.service'
@@ -22,18 +21,15 @@ import { PublicCampaignsService } from '../services/public-campaigns.service'
 export class PublicCampaignsController {
   constructor(
     private readonly publicCampaignsService: PublicCampaignsService,
-    private readonly logger: PinoLogger,
-  ) {
-    this.logger.setContext(PublicCampaignsController.name)
-  }
+  ) {}
 
+  // The per-request debug line this used to emit restated raceId, firstName
+  // and lastName, all of which the framework's own request log already carries
+  // in the query string — 123k duplicate lines a day, including candidate
+  // names, for a route whose useful signal is its error rate.
   @Get()
   @ResponseSchema(FindByRaceIdResponseSchema)
   async findByRaceId(@Query() dto: FindByRaceIdDto) {
-    this.logger.debug(
-      `Finding campaign by race ID: ${dto.raceId}, name: ${dto.firstName} ${dto.lastName}`,
-    )
-
     const result = await this.publicCampaignsService.findCampaignByRaceId(dto)
 
     if (!result) {

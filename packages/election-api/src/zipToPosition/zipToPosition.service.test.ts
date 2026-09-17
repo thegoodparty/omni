@@ -92,7 +92,32 @@ describe('ZipToPositionService.search', () => {
     expect(raceFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          electionDate: { gte: new Date('2026-05-12T00:00:00Z') },
+          electionDate: {
+            gte: new Date('2026-05-12T00:00:00Z'),
+            lte: new Date('2028-05-12T00:00:00Z'),
+          },
+        }),
+      }),
+    )
+    vi.useRealTimers()
+  })
+
+  // Feb 29 + 2 years is not a real date, so setUTCFullYear rolls it to Mar 1.
+  // A one-day-wider horizon is harmless; pinning it here keeps the rollover
+  // from looking like a bug to the next reader.
+  it('rolls a leap-day horizon forward to March 1', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2028-02-29T12:00:00Z'))
+
+    await service.search({ zip: '90210', timeframe: 'future' })
+
+    expect(raceFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          electionDate: {
+            gte: new Date('2028-02-29T00:00:00Z'),
+            lte: new Date('2030-03-01T00:00:00Z'),
+          },
         }),
       }),
     )
@@ -401,15 +426,19 @@ describe.skipIf(process.env.CI === 'true')(
         ],
       })
 
-      // Future races so the default (future) timeframe returns them. The
-      // Beverly Hills race carries placeId so search resolves its city.
+      // Future races so the default (future) timeframe returns them, dated
+      // relative to now rather than a literal: search bounds `future` at a
+      // 2-year horizon, so a far-future literal would fall outside it and a
+      // near-future literal would rot into the past. The Beverly Hills race
+      // carries placeId so search resolves its city.
+      const upcomingElection = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
       await prisma.race.createMany({
         data: [
           {
             id: raceBeverlyHillsId,
             positionId: positionBeverlyHillsId,
             placeId: placeBeverlyHillsId,
-            electionDate: new Date('2099-11-03'),
+            electionDate: upcomingElection,
             slug: `ca/beverly-hills/mayor-${raceBeverlyHillsId}`,
             state: 'CA',
             positionLevel: 'CITY',
@@ -419,7 +448,7 @@ describe.skipIf(process.env.CI === 'true')(
           {
             id: raceAtlantaId,
             positionId: positionAtlantaId,
-            electionDate: new Date('2099-11-03'),
+            electionDate: upcomingElection,
             slug: `ga/atlanta/city-council-${raceAtlantaId}`,
             state: 'GA',
             positionLevel: 'CITY',

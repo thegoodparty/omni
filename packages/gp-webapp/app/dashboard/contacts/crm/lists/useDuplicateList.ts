@@ -6,6 +6,7 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { trimCustomSegmentName } from '../shared/segments.util'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { useContactsTable } from '../ContactsTableProvider'
+import { outreachAudienceListsKey } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
 
 // "List-from-list is filter composition at creation time" (locked design):
 // duplicate reposts the segment's own demographic/activity criteria as a new
@@ -15,7 +16,13 @@ import { useContactsTable } from '../ContactsTableProvider'
 // (id, timestamps, organizationSlug, firstUsedForOutreachAt) are stripped,
 // and each activityConditions entry is narrowed to
 // { outreachType, outreachId, actions } (its own id/voterFileFilterId are
-// server-only too).
+// server-only too). recommendation provenance (recommendedVariant/Channel/
+// Intent/Modified) is stripped the same way — a duplicate is a hand-built
+// list, and reposting the original's provenance would both misattribute the
+// copy to a recommendation it never came from and, for the common case of a
+// non-recommended source list, 400 outright (these are known columns on
+// SegmentResponse carrying `null`, not absent keys the create schema would
+// silently strip).
 export const useDuplicateList = () => {
   const { selectList, isWinContext, isWinContextReady } = useContactsTable()
   const orgSlug = useOrganization()?.slug
@@ -33,6 +40,10 @@ export const useDuplicateList = () => {
         createdAt: _createdAt,
         updatedAt: _updatedAt,
         organizationSlug: _organizationSlug,
+        recommendedVariant: _recommendedVariant,
+        recommendedChannel: _recommendedChannel,
+        recommendedIntent: _recommendedIntent,
+        recommendedModified: _recommendedModified,
         ...rest
       } = segment
 
@@ -90,6 +101,11 @@ export const useDuplicateList = () => {
       )
       queryClient.invalidateQueries({
         queryKey: ['custom-segments', orgSlug],
+      })
+      // Same endpoint backs the outreach audience picker's list cache; surface
+      // the duplicate there too.
+      queryClient.invalidateQueries({
+        queryKey: outreachAudienceListsKey(orgSlug),
       })
       // Shallow (ENG-10725): opens the copy's detail sheet over the index.
       selectList(response.id)

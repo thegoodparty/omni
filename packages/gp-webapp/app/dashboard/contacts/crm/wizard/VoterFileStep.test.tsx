@@ -15,6 +15,15 @@ describe('VoterFileStep — Support status pills', () => {
         filters={{}}
         onFiltersChange={vi.fn()}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={vi.fn()}
         isElectedOfficial={false}
       />,
@@ -40,6 +49,15 @@ describe('VoterFileStep — Support status pills', () => {
         filters={{}}
         onFiltersChange={vi.fn()}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={onSupportStatusChange}
         isElectedOfficial={false}
       />,
@@ -55,7 +73,7 @@ describe('VoterFileStep — Support status pills', () => {
 
 // ENG-10838: Voter Likelihood moves to render directly below Support status
 // in the wizard (a wizard-only rendering change — filters.config.ts's
-// section/field order is untouched, so the legacy flag-off page, which
+// section/field order is untouched, so door-knocking's WhoStep, which
 // renders that same config directly, is unaffected).
 describe('VoterFileStep — Voter Likelihood section position', () => {
   const noop = vi.fn()
@@ -66,6 +84,15 @@ describe('VoterFileStep — Voter Likelihood section position', () => {
         filters={{}}
         onFiltersChange={noop}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={noop}
         isElectedOfficial={false}
       />,
@@ -88,6 +115,15 @@ describe('VoterFileStep — Voter Likelihood section position', () => {
         filters={{}}
         onFiltersChange={noop}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={noop}
         isElectedOfficial={false}
       />,
@@ -112,6 +148,15 @@ describe('VoterFileStep — Voter Likelihood section position', () => {
         filters={{}}
         onFiltersChange={noop}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={noop}
         isElectedOfficial
       />,
@@ -142,6 +187,15 @@ describe('VoterFileStep — prototype filter order', () => {
         filters={{}}
         onFiltersChange={noop}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={noop}
         isElectedOfficial={false}
       />,
@@ -160,7 +214,7 @@ describe('VoterFileStep — prototype filter order', () => {
       'Marital status',
       'Children',
       'Veteran status',
-      'Homeowner',
+      'Homeownership',
       'Business owner',
       'Level of education',
       'Household income range',
@@ -178,6 +232,15 @@ describe('VoterFileStep — prototype filter order', () => {
         filters={{}}
         onFiltersChange={noop}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={noop}
         isElectedOfficial
       />,
@@ -193,7 +256,7 @@ describe('VoterFileStep — prototype filter order', () => {
       'Marital status',
       'Children',
       'Veteran status',
-      'Homeowner',
+      'Homeownership',
       'Business owner',
       'Level of education',
       'Household income range',
@@ -218,6 +281,15 @@ describe('VoterFileStep — Contacts Made section', () => {
         filters={{}}
         onFiltersChange={noop}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={noop}
         isElectedOfficial={false}
       />,
@@ -240,6 +312,15 @@ describe('VoterFileStep — Contacts Made section', () => {
         filters={{}}
         onFiltersChange={noop}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={noop}
         isElectedOfficial={false}
       />,
@@ -265,6 +346,15 @@ describe('VoterFileStep — Contacts Made section', () => {
         filters={{}}
         onFiltersChange={onFiltersChange}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={noop}
         isElectedOfficial={false}
       />,
@@ -288,6 +378,15 @@ describe('VoterFileStep — Contacts Made section', () => {
         filters={{}}
         onFiltersChange={noop}
         supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
         onSupportStatusChange={noop}
         isElectedOfficial
       />,
@@ -300,5 +399,382 @@ describe('VoterFileStep — Contacts Made section', () => {
     expect(
       screen.queryByRole('toolbar', { name: 'Prior Contacts Made' }),
     ).not.toBeInTheDocument()
+  })
+})
+
+// ENG-10948: per-group "Select all" — every multi-option group header gets a
+// Select all / Clear affordance; single-option groups (cell_phone, landline)
+// don't, since there's nothing to bulk-toggle.
+describe('VoterFileStep — per-group Select all', () => {
+  const noop = vi.fn()
+
+  // Finds the field's own header row (heading + the optional Select
+  // all/Clear button) so assertions don't collide with the same option
+  // labels ("Unknown", etc.) repeated across other groups.
+  const headerRowFor = (fieldLabel: string) => {
+    const heading = screen.getByRole('heading', {
+      name: new RegExp(`^${fieldLabel}$`, 'i'),
+    })
+    const headerRow = heading.parentElement
+    if (!headerRow) throw new Error(`${fieldLabel} header row not rendered`)
+    return headerRow
+  }
+
+  it('selects every option of a multi-option group and reports them all via onFiltersChange', async () => {
+    const user = userEvent.setup()
+    const onFiltersChange = vi.fn()
+
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={onFiltersChange}
+        supportStatus={[]}
+        onSupportStatusChange={noop}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
+        isElectedOfficial={false}
+      />,
+    )
+
+    await user.click(
+      within(headerRowFor('Ethnicity')).getByRole('button', {
+        name: /select all/i,
+      }),
+    )
+
+    expect(onFiltersChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ethnicityAfricanAmerican: true,
+        ethnicityAsian: true,
+        ethnicityEuropean: true,
+        ethnicityHispanic: true,
+        ethnicityOther: true,
+        ethnicityUnknown: true,
+      }),
+    )
+  })
+
+  it('toggles to Clear once every option is selected, and Clear deselects them all', async () => {
+    const user = userEvent.setup()
+    const onFiltersChange = vi.fn()
+
+    render(
+      <VoterFileStep
+        filters={{
+          ethnicityAfricanAmerican: true,
+          ethnicityAsian: true,
+          ethnicityEuropean: true,
+          ethnicityHispanic: true,
+          ethnicityOther: true,
+          ethnicityUnknown: true,
+        }}
+        onFiltersChange={onFiltersChange}
+        supportStatus={[]}
+        onSupportStatusChange={noop}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
+        isElectedOfficial={false}
+      />,
+    )
+
+    const clearButton = within(headerRowFor('Ethnicity')).getByRole('button', {
+      name: 'Clear',
+    })
+    await user.click(clearButton)
+
+    expect(onFiltersChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ethnicityAfricanAmerican: false,
+        ethnicityAsian: false,
+        ethnicityEuropean: false,
+        ethnicityHispanic: false,
+        ethnicityOther: false,
+        ethnicityUnknown: false,
+      }),
+    )
+  })
+
+  it('shows no Select all button for a single-option group (Cell phone, Landline)', () => {
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={noop}
+        supportStatus={[]}
+        onSupportStatusChange={noop}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
+        isElectedOfficial={false}
+      />,
+    )
+
+    expect(
+      within(headerRowFor('Cell phone')).queryByRole('button', {
+        name: /select all/i,
+      }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(headerRowFor('Landline')).queryByRole('button', {
+        name: /select all/i,
+      }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('Support status also gets Select all / Clear', async () => {
+    const user = userEvent.setup()
+    const onSupportStatusChange = vi.fn()
+
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={noop}
+        supportStatus={[]}
+        onSupportStatusChange={onSupportStatusChange}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
+        isElectedOfficial={false}
+      />,
+    )
+
+    await user.click(
+      within(headerRowFor('Support status')).getByRole('button', {
+        name: /select all/i,
+      }),
+    )
+
+    expect(onSupportStatusChange).toHaveBeenCalledWith([
+      'supporter',
+      'non_supporter',
+      'undecided',
+      'refused',
+      'unknown',
+    ] as SupportStatusRollup[])
+  })
+
+  it('toggles Support status to Clear once every pill is selected', async () => {
+    const user = userEvent.setup()
+    const onSupportStatusChange = vi.fn()
+
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={noop}
+        supportStatus={
+          [
+            'supporter',
+            'non_supporter',
+            'undecided',
+            'refused',
+            'unknown',
+          ] as SupportStatusRollup[]
+        }
+        onSupportStatusChange={onSupportStatusChange}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
+        isElectedOfficial={false}
+      />,
+    )
+
+    await user.click(
+      within(headerRowFor('Support status')).getByRole('button', {
+        name: 'Clear',
+      }),
+    )
+
+    expect(onSupportStatusChange).toHaveBeenCalledWith([])
+  })
+})
+// The recommended-list dimensions, rendered only when the caller passes
+// showRecommendedListFilters. The default-off path is what the callers that
+// must NOT gain these groups (door-knocking's WhoStep, TurfDetailsSheet)
+// keep rendering.
+describe('VoterFileStep — recommended-list filter groups', () => {
+  const renderStep = (
+    props: Partial<{
+      filters: Record<string, boolean>
+      onFiltersChange: (filters: Record<string, boolean>) => void
+      isElectedOfficial: boolean
+      showRecommendedListFilters: boolean
+    }> = {},
+  ) =>
+    render(
+      <VoterFileStep
+        filters={props.filters ?? {}}
+        onFiltersChange={props.onFiltersChange ?? vi.fn()}
+        supportStatus={[]}
+        onSupportStatusChange={vi.fn()}
+        precincts={[]}
+        onPrecinctsChange={vi.fn()}
+        precinctOptions={{
+          options: [],
+          truncated: false,
+          isLoading: false,
+          isError: false,
+          refetch: vi.fn(),
+        }}
+        isElectedOfficial={props.isElectedOfficial ?? false}
+        showRecommendedListFilters={props.showRecommendedListFilters ?? false}
+      />,
+    )
+
+  const headings = () =>
+    screen
+      .getAllByRole('heading', { level: 4 })
+      .map((heading) => heading.textContent)
+
+  it('hides all three groups when the flag is off', () => {
+    renderStep()
+
+    expect(headings()).not.toContain('Independent affinity')
+    expect(headings()).not.toContain('Ideology')
+    expect(screen.queryByText('Has Any Phone')).not.toBeInTheDocument()
+  })
+
+  it('renders all three groups when the flag is on', () => {
+    renderStep({ showRecommendedListFilters: true })
+
+    expect(headings()).toContain('Independent affinity')
+    expect(headings()).toContain('Ideology')
+    expect(screen.getByText('Open to Independents')).toBeInTheDocument()
+    expect(screen.getByText('Has Any Phone')).toBeInTheDocument()
+  })
+
+  // The mart column says Liberal; house copy says Progressive. The pill
+  // shows the copy and the persisted key follows the data.
+  it('labels the Liberal bucket Progressive and offers Unknown', async () => {
+    const user = userEvent.setup()
+    const onFiltersChange = vi.fn()
+    renderStep({ showRecommendedListFilters: true, onFiltersChange })
+
+    expect(screen.queryByText('Liberal')).not.toBeInTheDocument()
+    await user.click(screen.getByText('Progressive'))
+
+    expect(onFiltersChange).toHaveBeenCalledWith(
+      expect.objectContaining({ ideologyLiberal: true }),
+    )
+
+    const ideologyGroup = screen.getByLabelText('Ideology')
+    expect(within(ideologyGroup).getByText('Unknown')).toBeInTheDocument()
+  })
+
+  // Win-only for the same reason political party is: gp-api 400s both an
+  // affinity and an ideology filter for an eo- org. Any-phone survives —
+  // plain contactability, and Serve runs phone banking and robocall.
+  it('hides affinity and ideology for a Serve organization', () => {
+    renderStep({ showRecommendedListFilters: true, isElectedOfficial: true })
+
+    expect(headings()).not.toContain('Independent affinity')
+    expect(headings()).not.toContain('Ideology')
+    expect(screen.getByText('Has Any Phone')).toBeInTheDocument()
+  })
+
+  it('clears the cell/landline picks when Has Any Phone is selected', async () => {
+    const user = userEvent.setup()
+    const onFiltersChange = vi.fn()
+    renderStep({
+      showRecommendedListFilters: true,
+      filters: { hasCellPhone: true, hasLandline: true },
+      onFiltersChange,
+    })
+
+    await user.click(screen.getByText('Has Any Phone'))
+
+    expect(onFiltersChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hasAnyPhone: true,
+        hasCellPhone: false,
+        hasLandline: false,
+      }),
+    )
+  })
+
+  it('clears Has Any Phone when a specific phone type is selected', async () => {
+    const user = userEvent.setup()
+    const onFiltersChange = vi.fn()
+    renderStep({
+      showRecommendedListFilters: true,
+      filters: { hasAnyPhone: true },
+      onFiltersChange,
+    })
+
+    await user.click(screen.getByText('Has Cell Phone'))
+
+    expect(onFiltersChange).toHaveBeenCalledWith(
+      expect.objectContaining({ hasAnyPhone: false, hasCellPhone: true }),
+    )
+  })
+})
+
+// Precinct is offered to Win and Serve alike: unlike party, contacts made and
+// voter likelihood, a precinct is a subdivision of the district an elected
+// official already serves. The Serve case is the one that regressed, so it is
+// the one asserted.
+describe('VoterFileStep — Precinct group', () => {
+  const precinctOptions = {
+    options: [{ county: 'LARAMIE', precinct: '14', voters: 900 }],
+    truncated: false,
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  }
+
+  it.each([
+    ['a campaign', false],
+    ['an elected official', true],
+  ])('renders the Precinct pills for %s', async (_who, isElectedOfficial) => {
+    const onPrecinctsChange = vi.fn()
+    const user = userEvent.setup()
+
+    render(
+      <VoterFileStep
+        filters={{}}
+        onFiltersChange={vi.fn()}
+        supportStatus={[]}
+        precincts={[]}
+        onPrecinctsChange={onPrecinctsChange}
+        precinctOptions={precinctOptions}
+        onSupportStatusChange={vi.fn()}
+        isElectedOfficial={isElectedOfficial}
+      />,
+    )
+
+    expect(screen.getByText('Precinct')).toBeInTheDocument()
+    await user.click(screen.getByText('Laramie — 14'))
+
+    expect(onPrecinctsChange).toHaveBeenCalledWith(['LARAMIE|14'])
   })
 })

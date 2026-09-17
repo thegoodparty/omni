@@ -71,6 +71,14 @@ export const mapPeerlyJobToOutreachStatus = (
   if (job.status === PeerlyJobStatus.PENDING) {
     return OutreachStatus.pending
   }
+  // A job scheduled for the future reads `paused` in Peerly (verified against
+  // a real dev job, ENG-10727's inverse case), and `paused` alone must not
+  // ratchet the row to in_progress two weeks before anything sends — that
+  // both lies in the history UI and strips the pending-only cancel window.
+  // Not started until the start_date UTC day begins.
+  if (isBefore(now, parseIsoDateAsUTC(job.start_date))) {
+    return OutreachStatus.pending
+  }
   if (isPeerlyJobComplete(job, now)) {
     return OutreachStatus.completed
   }
@@ -142,8 +150,12 @@ export class OutreachCompletionService extends createPrismaBase(
       return
     }
 
-    await this.model.update({
-      where: { id: outreach.id },
+    // CAS on the status the decision was based on: cancel can claim the
+    // row (pending → canceled) between this sweep's fetch and its write,
+    // and an unguarded update would resurrect a canceled row — whose
+    // vendor job is deleted and charge refunded — as in_progress.
+    await this.model.updateMany({
+      where: { id: outreach.id, status: outreach.status },
       data: { status: nextStatus },
     })
   }

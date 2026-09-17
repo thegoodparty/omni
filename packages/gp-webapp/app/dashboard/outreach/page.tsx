@@ -1,9 +1,7 @@
 import pageMetaData from 'helpers/metadataHelper'
-import { OutreachPage } from './components/OutreachPage'
+import { OutreachHubPage } from './v2/OutreachHubPage'
 import candidateAccess from '../shared/candidateAccess'
 import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
-import { NUM_OF_MOCK_OUTREACHES } from 'app/dashboard/outreach/constants'
-import { createOutreach } from 'app/dashboard/outreach/util/createOutreach.util'
 import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveListId.util'
 import { serverFetch } from 'gpApi/serverFetch'
 import { apiRoutes } from 'gpApi/routes'
@@ -64,20 +62,15 @@ export default async function Page({
     ? tcrComplianceResponse.data
     : undefined
 
-  const mockOutreaches = Array.from({ length: NUM_OF_MOCK_OUTREACHES }, () =>
-    createOutreach(campaign.id),
-  )
-
   return (
-    <OutreachPage
+    <OutreachHubPage
       {...{
         pathname: '/dashboard/outreach',
         campaign,
         outreaches,
-        mockOutreaches,
         tcrCompliance,
         preselectedListId,
-        highlightOutreachId,
+        initialOutreachId: highlightOutreachId,
       }}
     />
   )

@@ -109,6 +109,38 @@ describe('LlmService non-streaming (Anthropic via ai SDK)', () => {
     expect(generateObject.mock.calls[0]?.[0].maxOutputTokens).toBe(200)
   })
 
+  it('jsonCompletion forwards a user message file part unchanged to generateObject', async () => {
+    const { service, generateObject } = build()
+    generateObject.mockResolvedValueOnce({
+      object: { answer: '42' },
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    })
+    const fileBytes = new Uint8Array([1, 2, 3])
+
+    await service.jsonCompletion({
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'hi' },
+            { type: 'file', data: fileBytes, mediaType: 'application/pdf' },
+          ],
+        },
+      ],
+      schema: z.object({ answer: z.string() }),
+      models: ['claude-sonnet-4-6'],
+      retries: 0,
+    })
+
+    const forwardedMessages = generateObject.mock.calls[0]?.[0].messages as {
+      content: unknown
+    }[]
+    expect(forwardedMessages[0]?.content).toEqual([
+      { type: 'text', text: 'hi' },
+      { type: 'file', data: fileBytes, mediaType: 'application/pdf' },
+    ])
+  })
+
   it('forwards userId as an X-User-Id header on non-streaming calls', async () => {
     const { service, generateText } = build()
     generateText.mockResolvedValueOnce({

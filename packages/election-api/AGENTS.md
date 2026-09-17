@@ -96,7 +96,7 @@ Never bypass the DTO and read `request` raw — the global pipe is what enforces
 ## Never
 
 - Never edit a file under `prisma/schema/migrations/<timestamp>/` — applied migrations are immutable.
-- Never expose this API to public traffic. It's an internal service consumed by `gp-api`; auth is network-level (VPC/SG).
+- Never treat the network as the security boundary. The ALB is internet-facing; the default-deny `M2MAuthGuard` (Clerk M2M) is what gates access. Every non-`@PublicAccess` route must keep requiring a valid M2M token — the guard rejects unconditionally in every environment.
 - Never bypass `createZodDto` for request validation — the global `ZodValidationPipe` is the only enforcement point.
 - Never disable `unused-imports/no-unused-imports` without an inline comment justifying it.
 - Never add `any` casually — the rule is off, but typed code is still the bar.

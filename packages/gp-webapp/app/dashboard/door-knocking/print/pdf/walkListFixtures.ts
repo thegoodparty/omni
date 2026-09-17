@@ -1,0 +1,130 @@
+import type {
+  DoorKnockingRoutePayload,
+  RoutePayloadStop,
+  RoutePayloadTarget,
+  RouteTargetActivity,
+} from '@goodparty_org/contracts'
+
+// ADR 0009's per-resident history, as the paper surfaces read it. The default
+// date is mid-month so it names the same month in UTC and in every US zone —
+// the one test that cares about the boundary passes its own.
+export const doorKnock = (
+  overrides: Partial<
+    Extract<RouteTargetActivity, { type: 'DOOR_KNOCK' }>['data']
+  > = {},
+  date = '2026-06-12T18:00:00.000Z',
+): RouteTargetActivity => ({
+  type: 'DOOR_KNOCK',
+  date,
+  data: {
+    activityId: 'dk-1',
+    outcome: 'answered',
+    supportAnswer: 'unsure',
+    note: null,
+    manual: false,
+    actorName: null,
+    actorUserId: null,
+    ...overrides,
+  },
+})
+
+// Shared by the row-model tests and the rendered-PDF tests, so both are
+// asserting against the same route rather than two hand-built ones that drift.
+export const target = (
+  overrides: Partial<RoutePayloadTarget> = {},
+): RoutePayloadTarget => ({
+  stopTargetId: 21,
+  personId: 'person-1',
+  name: 'Dorian Fen',
+  age: 31,
+  politicalParty: 'Independent',
+  // The design template's Phone column reads this, cell before landline. It is
+  // the one field on this fixture both paper surfaces are meant to print; every
+  // other screen-side block below is here to fail an omission test.
+  cellPhone: '(312) 555-0101',
+  landline: null,
+  // The eleven-attribute demographic profile rides the route payload for
+  // `PersonSheet` and is deliberately absent from both paper surfaces — paper
+  // leaves the building and stops being access-controlled when it does, and a
+  // profile of a named voter is a far larger disclosure than the number above
+  // is. Every value below is distinctive enough that a renderer leaking it fails
+  // a test rather than passing quietly.
+  registeredVoter: true,
+  turnoutLikelihood: 'Super',
+  maritalStatus: 'Likely Married',
+  hasChildrenUnder18: 'Yes',
+  veteranStatus: 'Yes',
+  homeowner: 'Homeowner',
+  businessOwner: 'Yes',
+  levelOfEducation: 'Graduate Degree',
+  estimatedIncomeAmount: 82000,
+  language: 'Spanish',
+  ethnicityGroup: 'Hispanic',
+  knockStatus: 'unknown',
+  mayHaveMoved: false,
+  doNotKnock: false,
+  // ADR 0011, and carried for the same reason as the block above. Saved contact
+  // notes ride the route payload for `PersonSheet`'s Notes section and are
+  // absent from both paper surfaces with more force again than the profile is: a
+  // page of free text a named person typed about a named voter is the largest
+  // disclosure on this payload, on the one surface that stops being
+  // access-controlled the moment it is printed. The body below is distinctive
+  // enough that a renderer leaking it fails a test rather than passing quietly.
+  notes: {
+    entries: [
+      {
+        id: '019826f4-0000-7000-8000-000000000001',
+        personId: 'person-1',
+        body: 'Do not ring the bell, the dog bites',
+        createdAt: '2026-07-01T15:00:00.000Z',
+        updatedAt: '2026-07-01T15:00:00.000Z',
+        actorName: null,
+      },
+    ],
+    total: 9,
+  },
+  ...overrides,
+})
+
+export const stop = (
+  overrides: Partial<RoutePayloadStop> = {},
+): RoutePayloadStop => ({
+  id: 11,
+  seq: 1,
+  lat: 36.16,
+  lng: -86.78,
+  displayAddress: '105 Elm St',
+  legSeconds: 0,
+  legMeters: 0,
+  addresses: [
+    {
+      addressKey: '105|elm|st',
+      address: '105 Elm St',
+      // A single-family house, which is what carries no unit — the stop's
+      // `displayAddress` above and this whole address are the same street line,
+      // and there is no door number to tell anything apart. The multi-unit
+      // shapes are built per test, where the units are the point.
+      unit: '',
+      targets: [target()],
+      otherResidents: [],
+    },
+  ],
+  ...overrides,
+})
+
+export const payload = (
+  stops: RoutePayloadStop[],
+): DoorKnockingRoutePayload => ({
+  route: {
+    id: 5,
+    doorKnockingTurfId: 3,
+    mode: 'walk',
+    loop: true,
+    totalSeconds: 1860,
+    totalMeters: 3218,
+    stopCount: stops.length,
+    createdAt: new Date('2026-07-21T00:00:00Z'),
+  },
+  pathGeometry: null,
+  stops,
+})

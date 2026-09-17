@@ -1,6 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import { DoorKnockOutcome, SupportAnswer } from '../../generated/prisma'
-import { deriveKnockStatus, rollupStopStatus } from './knockStatus.util'
+import {
+  DoorKnockOutcome,
+  FollowUpAnswer,
+  SupportAnswer,
+} from '../../generated/prisma'
+import { deriveKnockStatus } from './knockStatus.util'
+
+// Both answer columns are required on the input, so every case has to state
+// which surface's row it is. Named defaults rather than an optional field on
+// `KnockAnswers`: a caller that forgot to select `follow_up` would otherwise
+// derive Win statuses for Serve rows and typecheck clean.
+const knock = (row: {
+  outcome: DoorKnockOutcome
+  supportAnswer?: SupportAnswer | null
+  followUp?: FollowUpAnswer | null
+}) =>
+  deriveKnockStatus({
+    supportAnswer: null,
+    followUp: null,
+    ...row,
+  })
 
 describe('deriveKnockStatus', () => {
   it('returns unknown for a person never knocked', () => {
@@ -9,13 +28,13 @@ describe('deriveKnockStatus', () => {
 
   it('support answers outrank door outcomes', () => {
     expect(
-      deriveKnockStatus({
+      knock({
         outcome: DoorKnockOutcome.answered,
         supportAnswer: SupportAnswer.supporter,
       }),
     ).toBe('supporter')
     expect(
-      deriveKnockStatus({
+      knock({
         outcome: DoorKnockOutcome.answered,
         supportAnswer: SupportAnswer.non_supporter,
       }),
@@ -24,77 +43,57 @@ describe('deriveKnockStatus', () => {
 
   it('unsure reads as unknown — the door is still worth knocking', () => {
     expect(
-      deriveKnockStatus({
+      knock({
         outcome: DoorKnockOutcome.answered,
         supportAnswer: SupportAnswer.unsure,
       }),
     ).toBe('unknown')
   })
 
+  // The Serve surface's two endings, and the reason they exist: without them a
+  // conversation an elected official's canvasser actually had derives to
+  // `unknown`, which every "logged" predicate in the feature reads as a door
+  // nobody has been to.
+  it('derives the Serve statuses from the follow-up answer', () => {
+    expect(
+      knock({
+        outcome: DoorKnockOutcome.answered,
+        followUp: FollowUpAnswer.yes,
+      }),
+    ).toBe('needs_follow_up')
+    expect(
+      knock({
+        outcome: DoorKnockOutcome.answered,
+        followUp: FollowUpAnswer.no,
+      }),
+    ).toBe('engaged')
+  })
+
+  // The contract refuses both answers on one payload, so this only arises for a
+  // row written before that refinement existed. Follow-up winning is what keeps
+  // the Win ladder underneath it byte-identical.
+  it('prefers follow-up over a support answer on the same row', () => {
+    expect(
+      knock({
+        outcome: DoorKnockOutcome.answered,
+        supportAnswer: SupportAnswer.supporter,
+        followUp: FollowUpAnswer.yes,
+      }),
+    ).toBe('needs_follow_up')
+  })
+
   it('maps the door-knocking-tool outcomes', () => {
-    expect(
-      deriveKnockStatus({
-        outcome: DoorKnockOutcome.inaccessible,
-        supportAnswer: null,
-      }),
-    ).toBe('inaccessible')
-    expect(
-      deriveKnockStatus({
-        outcome: DoorKnockOutcome.not_a_voter,
-        supportAnswer: null,
-      }),
-    ).toBe('not_a_voter')
+    expect(knock({ outcome: DoorKnockOutcome.inaccessible })).toBe(
+      'inaccessible',
+    )
+    expect(knock({ outcome: DoorKnockOutcome.not_a_voter })).toBe('not_a_voter')
   })
 
   it('maps door outcomes when no support answer exists', () => {
-    expect(
-      deriveKnockStatus({
-        outcome: DoorKnockOutcome.refused_to_engage,
-        supportAnswer: null,
-      }),
-    ).toBe('refused')
-    expect(
-      deriveKnockStatus({
-        outcome: DoorKnockOutcome.not_home,
-        supportAnswer: null,
-      }),
-    ).toBe('not_home')
-    expect(
-      deriveKnockStatus({
-        outcome: DoorKnockOutcome.answered,
-        supportAnswer: null,
-      }),
-    ).toBe('unknown')
-  })
-})
-
-describe('rollupStopStatus', () => {
-  it('one unknown person keeps the stop knockable', () => {
-    expect(rollupStopStatus(['supporter', 'unknown', 'refused'])).toBe(
-      'unknown',
+    expect(knock({ outcome: DoorKnockOutcome.refused_to_engage })).toBe(
+      'refused',
     )
-  })
-
-  it('not_home outranks settled outcomes', () => {
-    expect(rollupStopStatus(['refused', 'not_home', 'supporter'])).toBe(
-      'not_home',
-    )
-  })
-
-  it('not_a_voter is the least actionable status', () => {
-    expect(rollupStopStatus(['not_a_voter', 'refused'])).toBe('refused')
-    expect(rollupStopStatus(['not_a_voter', 'inaccessible'])).toBe(
-      'inaccessible',
-    )
-  })
-
-  it('settled stops report their best outcome', () => {
-    expect(rollupStopStatus(['refused', 'supporter'])).toBe('supporter')
-    expect(rollupStopStatus(['refused', 'non_supporter'])).toBe('non_supporter')
-    expect(rollupStopStatus(['refused'])).toBe('refused')
-  })
-
-  it('an empty stop is unknown', () => {
-    expect(rollupStopStatus([])).toBe('unknown')
+    expect(knock({ outcome: DoorKnockOutcome.not_home })).toBe('not_home')
+    expect(knock({ outcome: DoorKnockOutcome.answered })).toBe('unknown')
   })
 })

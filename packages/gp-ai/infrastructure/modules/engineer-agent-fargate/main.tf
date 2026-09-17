@@ -29,6 +29,60 @@ variable "failure_notification_email" {
   default     = ""
 }
 
+variable "escalate_analysis_to_work" {
+  description = <<-EOT
+    When true, an analyze run that ends with `GPBOT-VERDICT: fix` tags its own
+    ClickUp ticket `gpbot-work`, which queues an implementation run and opens a
+    PR with no human in between.
+
+    Defaults to FALSE, and the default is the point: this changes what arrives in
+    the repository unreviewed, so it must be switched on deliberately rather than
+    inherited by deploying the code. With it off, the agent still logs the verdict
+    it would have acted on ("escalation disabled"), which is how you judge whether
+    the verdicts are trustworthy before handing them the trigger.
+
+    Before enabling: vars.GPBOT_PR_CHANNEL_ID must be set AND
+    secrets.GPBOT_SLACK_BOT_TOKEN must hold an app that can post to that channel
+    (Slack refuses with not_in_channel otherwise), and the team should know bot
+    PRs are coming, that a bot approval does not merge them, and that closing a
+    weak one is the expected outcome.
+
+    This doubles as the kill switch. Setting it back to false and applying stops
+    the bot opening PRs without reverting any code, and leaves the analyze half
+    running.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "escalation_repos" {
+  description = <<-EOT
+    Which repos an analyze run may tag a ticket into an implementation run for,
+    as a comma-separated list of `owner/name`.
+
+    The switch above is the master one and remains the kill switch for
+    everything. This one narrows it per repo, so a repo the bot has only just
+    learned to READ can be analyzed for a while before it is allowed to open PRs
+    there — the ramp omni had, rather than a new repo inheriting the trust omni
+    spent months earning.
+
+    Defaults to omni alone, so adding a repo to REPO_BY_LIST_ID in the Lambda
+    starts it analyze-only with no second decision required.
+
+    THIS IS HALF THE FLIP. It stops an analysis TAGGING a ticket; it does not
+    stop an implement run. The enforcement lives in the clickup-bot module's
+    implement_repos, and the two must be widened together — a tag applied to a
+    ticket the Lambda then refuses is what read as a broken pipeline on
+    2026-09-01.
+
+    Before adding a repo: that repo needs its own copies of gpbot-pr-triage and
+    gpbot-ci-drive, or its bot PRs open with no reviewer and nothing driving
+    them to green.
+  EOT
+  type        = string
+  default     = "thegoodparty/omni"
+}
+
 variable "shared_slack_notifier_lambda_arn" {
   description = "ARN of the shared Slack notifier Lambda function"
   type        = string
@@ -51,8 +105,19 @@ data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
 
 resource "aws_cloudwatch_log_group" "agent" {
-  name              = "/ecs/engineer-agent-${var.environment}"
-  retention_in_days = 30
+  name = "/ecs/engineer-agent-${var.environment}"
+  # This log group is the ONLY durable record of what the bot decided and what
+  # it cost. The `GPBOT-VERDICT` line and the per-run dollar figure are emitted
+  # here and almost nowhere else — a survey on 2026-08-20 found the verdict in
+  # just 2 of 165 ClickUp bot comments — so at 30 days the evidence for "is this
+  # thing working" was being deleted a month after each run, faster than anyone
+  # could report on a quarter of it.
+  #
+  # 400 rather than 90: reporting on this system is annual-ish and comparative
+  # ("how did Q3 look against Q2"), which needs a full year plus slack for a late
+  # look. Volume makes the choice nearly free — roughly 25 agent runs a month at
+  # a few hundred KB each.
+  retention_in_days = 400
 
   tags = {
     Environment = var.environment
@@ -260,6 +325,14 @@ resource "aws_ecs_task_definition" "agent" {
         {
           name  = "WORKSPACE_DIR"
           value = "/workspace"
+        },
+        {
+          name  = "GPBOT_ESCALATE_TO_WORK"
+          value = tostring(var.escalate_analysis_to_work)
+        },
+        {
+          name  = "GPBOT_ESCALATE_REPOS"
+          value = var.escalation_repos
         }
       ]
     }

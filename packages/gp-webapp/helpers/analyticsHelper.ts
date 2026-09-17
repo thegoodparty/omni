@@ -2,6 +2,7 @@ import { kebabCase } from 'es-toolkit'
 import { segmentTrackEvent } from './segmentHelper'
 import cookie from 'js-cookie'
 import type { Analytics } from '@segment/analytics-next'
+import type { OrganizationRole } from '@goodparty_org/contracts'
 
 let isImpersonating = false
 export const setImpersonating = (value: boolean): void => {
@@ -11,6 +12,27 @@ export const setImpersonating = (value: boolean): void => {
 let userEmail: string | undefined
 export const setUserEmail = (value: string | undefined): void => {
   userEmail = value
+}
+
+// Actor identity for the server-side join (ENG-10829/gp-api PR #1674): every
+// trackEvent call carries actorUserId + actorRole so a client event can be
+// joined to the server-side actor who caused it. Kept as module state (same
+// pattern as userEmail/isImpersonating above) and set from SegmentIdentify,
+// which already sits inside both UserProvider and OrganizationProvider.
+let actorUserId: number | undefined
+export const setActorUserId = (value: number | undefined): void => {
+  actorUserId = value
+}
+
+// null (not undefined) once resolved-but-absent — a signed-in user with no
+// selected org still needs a set() call to distinguish "resolved, no org"
+// from "never resolved" (undefined stays undefined pre-hydration too, but
+// trackEvent below normalizes both to null on the wire).
+let actorRole: OrganizationRole | null | undefined
+export const setActorRole = (
+  value: OrganizationRole | null | undefined,
+): void => {
+  actorRole = value
 }
 
 const UTM_KEYS = [
@@ -64,6 +86,13 @@ export const EVENTS = {
     resultsViewed: 'Polls - Poll Results Overview Viewed',
     issueDetailsViewed: 'Polls - Poll Results Issue Details Viewed',
     lowConfidenceModalClicked: 'Polls - Low Confidence Modal Clicked',
+  },
+  // Shared across every polls surface that can hard-block on missing
+  // constituent data (onboarding, create, expand) — one event with a `source`
+  // rather than three near-duplicates.
+  Polls: {
+    ConstituentDataUnavailableViewed:
+      'Polls - Constituent Data Unavailable Viewed',
   },
   createPoll: {
     createPollClicked: 'Polls - Create Poll Clicked',
@@ -169,7 +198,6 @@ export const EVENTS = {
       ClickDashboard: 'Navigation - Dashboard: Click Dashboard',
       ClickVoterData: 'Navigation - Dashboard: Click Voter Data',
       ClickDoorKnocking: 'Navigation - Dashboard: Click Door Knocking',
-      ClickContentBuilder: 'Navigation - Dashboard: Click Content Builder',
       ClickMyProfile: 'Navigation - Dashboard: Click My Profile',
       ClickCampaignTeam: 'Navigation - Dashboard: Click Campaign Team',
       ClickCommunity: 'Navigation - Dashboard: Click Community',
@@ -179,6 +207,8 @@ export const EVENTS = {
       ClickBriefings: 'Navigation - Dashboard: Click Briefings',
       ClickCommunityIssues: 'Navigation - Dashboard: Click Community Issues',
       ClickCampaignPlan: 'Navigation - Dashboard: Click Campaign Plan',
+      ClickConstituentOutreach:
+        'Navigation - Dashboard: Click Constituent Outreach',
     },
   },
 
@@ -190,12 +220,20 @@ export const EVENTS = {
     OrganizationSwitched: 'Org Switcher - Organization Switched',
   },
 
+  // Team accounts (ENG-10816). CampaignSwitched has no properties: it exists
+  // purely to measure whether a member with more than one campaign uses the
+  // picker to move between them, as distinct from the always-present
+  // OrgSwitcher.OrganizationSwitched (which fires for every switch,
+  // including a solo owner's).
+  Team: {
+    CampaignSwitched: 'Team - Campaign Switched',
+    InviteModalOpened: 'Team - Invite Modal Opened',
+    InviteSubmitted: 'Team - Invite Submitted',
+  },
+
   Dashboard: {
     CampaignPlan: {
       GenerationCompleted: 'Dashboard - Campaign Plan Generation Completed',
-      // The legacy dashboard task checklist (story-off cohort only). The
-      // campaign tracker that replaced it fires CampaignTrackerViewed below.
-      Viewed: 'Dashboard - Campaign Plan Viewed',
       CampaignTrackerViewed: 'Campaign Plan - Campaign Tracker Viewed',
       WeekNavigated: 'Dashboard - Campaign Plan Week Navigated',
       TaskCTAClicked: 'Dashboard - Campaign Plan Task CTA Clicked',
@@ -383,6 +421,22 @@ export const EVENTS = {
       PinEntryViewed: 'Pro Upgrade - PIN Entry Viewed',
     },
   },
+  // Candidate questions flow. The event string is snake_case, predating the
+  // 'Product Area - Action' convention; the name is kept exactly as ingested so
+  // moving it into the registry stays a no-op for Amplitude and HubSpot.
+  Questions: {
+    Completed: 'question_complete',
+  },
+  // Peer-to-peer texting upsell modal, a sibling of ProUpgrade.Modal above with
+  // its own event family. Every event carries `variant` (P2PModalVariant) so the
+  // two upsell copies are a property filter, not separate events.
+  P2PUpgrade: {
+    Modal: {
+      Shown: 'P2P Upgrade - Modal: Modal Shown',
+      Exit: 'P2P Upgrade - Modal: Exit',
+      ClickButton: 'P2P Upgrade - Modal: Click Button',
+    },
+  },
   // Shared Serve (elected office) + Win (campaign) contacts experience, both on
   // the People API. Every event carries a `context: 'win' | 'serve'` property
   // (sourced from ContactsTableProvider's isWinContext) so Win adoption of the
@@ -465,81 +519,17 @@ export const EVENTS = {
     // ENG-10767: entry point of the CRM list → outreach funnel. Fires on
     // every "Send outreach" click in the CRM with
     // { surface: 'listCard' | 'listDetail' | 'universeRow' } plus { listId }
-    // for the two saved-list surfaces (the universe row links bare). Joins to
-    // the outreach wizard's audienceSource: 'deepLink' property on the
-    // audience-step Next and Voter Outreach - Campaign Completed events.
-    // Win-only by construction (ENG-10749 hides the button for Serve), so
-    // there is no ConstituentData variant.
+    // for the two saved-list surfaces (the universe row links bare). This is
+    // the funnel's entry only: the v2 outreach flows emit no audienceSource
+    // counterpart, so a click cannot currently be joined to the campaign it
+    // produced. Win-only by construction (ENG-10749 hides the button for
+    // Serve), so there is no ConstituentData variant.
     SendOutreachClicked: 'Voter Data - Send Outreach Clicked',
     // ENG-10836: the person-record status row (Voter Likelihood / Support
     // Status dropdowns). Fires once per confirmed-successful change with
     // { field, from, to } — never on a failed PATCH. Win-only surface (Opt In
     // Status is read-only, no event), so there is no ConstituentData variant.
     ContactStatusChanged: 'Voter Data - Contact Status Changed',
-    ClickNeedHelp: 'Voter Data: Click Need Help',
-    NeedHelp: {
-      Exit: 'Voter Data - Need Help: Exit modal',
-      SelectType: 'Voter Data - Need Help: Select Voter File type',
-      Submit: 'Voter Data - Need Help: Submit',
-    },
-    ClickCreateCustom: 'Voter Data: Click Create Custom Voter File',
-    CustomFile: {
-      Exit: 'Voter Data - Custom Voter File: Exit modal',
-      SelectChannel: 'Voter Data - Custom Voter File: Select Channel',
-      SelectPurpose: 'Voter Data - Custom Voter File: Select Purpose',
-      ClickNext: 'Voter Data - Custom Voter File: Click Next',
-      Audience: {
-        CheckAudience:
-          'Voter Data - Custom Voter File - Audience: Check Audience',
-        CheckPoliticalParty:
-          'Voter Data - Custom Voter File - Audience: Check Political Party',
-        CheckAge: 'Voter Data - Custom Voter File - Audience: Check Age',
-        CheckGender: 'Voter Data - Custom Voter File - Audience: Check Gender',
-        ClickBack: 'Voter Data - Custom Voter File - Audience: Click Back',
-      },
-      ClickCreate: 'Voter Data - Custom Voter File: Click Create',
-    },
-    ClickDetail: 'Voter Data: Click Detail View',
-    FileDetail: {
-      ClickBack: 'Voter Data - File Detail: Click Back',
-      ClickDownloadCSV: 'Voter Data - File Detail: Click Download CSV',
-      ClickViewFilters: 'Voter Data - File Detail: Click View Audience Filters',
-      ClickInfoIcon: 'Voter Data - File Detail: Click Custom File Info Icon',
-      LearnTakeAction: {
-        ClickWriteScript:
-          'Voter Data - File Detail - Learn & Take Action: Click Write Script',
-        ClickReadMore:
-          'Voter Data - File Detail - Learn & Take Action: Click Read More',
-        ClickSchedule:
-          'Voter Data - File Detail - Learn & Take Action: Click Schedule',
-      },
-      RecommendedPartners: {
-        ClickReadMore:
-          'Voter Data - File Detail - Recommended Partners: Click Read More',
-      },
-    },
-  },
-  ContentBuilder: {
-    ClickContinueQuestions: 'Content Builder: Click Continue Questions',
-    ClickGenerate: 'Content Builder: Click Generate',
-    SelectTemplate: 'Content Builder: Select Template',
-    CloseAdditionalInputs: 'Content Builder: Close Additional Inputs',
-    SubmitAdditionalInputs: 'Content Builder: Submit Additional Inputs',
-    ClickContent: 'Content Builder: Click Content',
-    Editor: {
-      ClickRegenerate: 'Content Builder - Editor: Click Regenerate',
-      SubmitRegenerate: 'Content Builder - Editor: Submit Regenerate',
-      ClickCopy: 'Content Builder - Editor: Click Copy',
-      ClickTranslate: 'Content Builder - Editor: Click Translate',
-      SubmitTranslate: 'Content Builder - Editor: Submit Translate',
-      OpenVersionPicker: 'Content Builder - Editor: Open Version Picker',
-      SelectVersion: 'Content Builder - Editor: Select Version',
-    },
-    OpenKebabMenu: 'Content Builder - Editor: Open Kebab Menu',
-    KebabMenu: {
-      ClickRename: 'Content Builder - Editor: Click Rename',
-      ClickDelete: 'Content Builder - Editor: Click Delete',
-    },
   },
   Profile: {
     CampaignDetails: {
@@ -619,6 +609,24 @@ export const EVENTS = {
     },
     PhoneBanking: {
       Complete: 'Outreach - Phone Banking: Complete',
+      // v2 create flow (phase 1 TDD): fires once the create call succeeds.
+      ListCreated: 'Voter Outreach - Phone Banking Call List Created',
+      // Fires from every entry point that links to the print/[listId]/pdf
+      // route (the flow's download step, and later the call-session header
+      // button) — ENG-10918.
+      SheetDownloaded: 'Voter Outreach - Phone Banking Call Sheet Downloaded',
+      // ENG-10921: the in-app caller page. Distinct from the legacy
+      // Dashboard.VoterContact.PhoneBanking group above, which belongs to
+      // the pre-native script/download surface.
+      ContactViewed: 'Outreach - Phone Banking: Contact Viewed',
+      CallLogged: 'Outreach - Phone Banking: Call Logged',
+    },
+    // The audience step's recommended-lists cards.
+    // Fires once the recommendation is accepted (the saved list is created),
+    // not on card selection — modified vs as-is is only knowable at that
+    // point (useOutreachAudience.ts).
+    RecommendedList: {
+      Accepted: 'Voter Outreach - Recommended List Accepted',
     },
     ActionClicked: 'Outreach - Action Clicked',
   },
@@ -713,6 +721,8 @@ export const EVENTS = {
     IssuesViewed: 'Onboarding V2 - What Issues Do You Want To Solve Viewed',
     IssuesCompleted:
       'Onboarding V2 - What Issues Do You Want To Solve Completed',
+    SignupGoalViewed: 'Onboarding V2 - Signup Goal Viewed',
+    SignupGoalCompleted: 'Onboarding V2 - Signup Goal Completed',
     OnboardingSkipped: 'Onboarding V2 - Onboarding Skipped',
   },
   CommunityIssues: {
@@ -748,6 +758,10 @@ export const EVENTS = {
   // (left having logged none). RouteBuildFailed is the funnel's only real
   // failure, since building a route is the one step that calls a paid vendor.
   //
+  // RouteBuildFailed has no success twin: the route is bought inside the
+  // list-creation transaction, so ListCreated is that success and a second
+  // event would count one press twice.
+  //
   // Session Completed also fires the canonical
   // Dashboard.VoterContact.CampaignCompleted with medium 'doorKnocking' —
   // that's the event the door-knocking activation metric counts, and the
@@ -756,12 +770,20 @@ export const EVENTS = {
     ListCreated: 'Door Knocking - List Created',
     ListEdited: 'Door Knocking - List Edited',
     ListDeleted: 'Door Knocking - List Deleted',
-    RouteBuilt: 'Door Knocking - Route Built',
     RouteBuildFailed: 'Door Knocking - Route Build Failed',
     SessionStarted: 'Door Knocking - Session Started',
     SessionCompleted: 'Door Knocking - Session Completed',
     SessionAbandoned: 'Door Knocking - Session Abandoned',
     DoorLogged: 'Door Knocking - Door Logged',
+    // ADR 0007, clear direction only: the walk's door is read-only-plus-Undo
+    // (DoNotKnockControl), so nothing in the product sets the flag.
+    DoNotKnockCleared: 'Door Knocking - Do Not Knock Cleared',
+    // ADR 0008. Both directions for the same reason, and the Set event carries
+    // which reason was given: the follow-up is optional, so how often it is
+    // answered at all — and how the two answers split — is the only way to tell
+    // whether the question is worth asking.
+    NotAVoterReasonSet: 'Door Knocking - Not A Voter Reason Set',
+    NotAVoterReasonCleared: 'Door Knocking - Not A Voter Reason Cleared',
   },
 } as const
 
@@ -944,6 +966,8 @@ export const trackEvent = (
       ...(userEmail ? { email: userEmail } : {}),
       ...properties,
       impersonation: isImpersonating,
+      actorUserId: actorUserId ?? null,
+      actorRole: actorRole ?? null,
     }
     // Return the segmentTrackEvent promise so callers that need the event to
     // flush before a page unload (e.g. a redirect) can await it.

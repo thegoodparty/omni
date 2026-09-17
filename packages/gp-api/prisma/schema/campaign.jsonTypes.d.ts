@@ -27,11 +27,6 @@ declare global {
       zip?: User['zip']
       knowRun?: 'yes' | null
       runForOffice?: 'yes' | 'no' | null
-      ballotStatus?:
-        | 'on-ballot'
-        | 'qualified-not-filed'
-        | 'considering'
-        | 'testing'
       pledged?: boolean
       // ISO string for new writes; legacy unix-ms numbers persist in
       // existing rows until backfilled

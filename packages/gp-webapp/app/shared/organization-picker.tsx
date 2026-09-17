@@ -6,15 +6,18 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   type ReactNode,
 } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 import { Eligibility, Organization } from 'gpApi/api-endpoints'
+import type { OrganizationRole } from '@goodparty_org/contracts'
 import { getCookie, setCookie } from 'helpers/cookieHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { useSelectedOrgSlug } from '@shared/hooks/useSelectedOrgSlug'
+import { outreachDetailQueryPrefix } from 'app/dashboard/outreach/v2/useOutreachDetail'
 import {
   DropdownMenu,
   DropdownMenuItem,
@@ -32,11 +35,15 @@ import { ChevronDown } from 'lucide-react'
 import { useIsMobile } from '@styleguide/hooks/use-mobile'
 import { usePathname, useRouter } from 'next/navigation'
 import { useCampaign } from './hooks/useCampaign'
+import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
 
 const SHARED_PATHS = [
   '/dashboard/profile',
   '/dashboard/campaign-details',
   '/dashboard/account',
+  // Org-scoped but valid under any org: the team query keys on the org slug
+  // and refetches on switch, so stay put instead of bouncing to /dashboard.
+  '/dashboard/team',
 ]
 
 interface OrganizationContextValue {
@@ -54,6 +61,26 @@ export const useOrganization = (): Organization | undefined => {
   }
   return ctx.selected
 }
+
+// The full list, for surfaces that build their own switcher UI instead of
+// rendering `OrganizationPicker` (e.g. the volunteer sidebar's in-sidebar
+// "switch campaign" list, ENG-11068).
+export const useOrganizations = (): Organization[] => {
+  const ctx = useContext(OrganizationContext)
+  if (!ctx) {
+    throw new Error('useOrganizations must be used within OrganizationProvider')
+  }
+  return ctx.organizations
+}
+
+// The viewer's own role in the selected org (owner via ownerId match, else
+// their membership role — see gp-api's OrganizationMembershipService). Only
+// GET /v1/organizations (the list this provider is seeded from) sends role,
+// so it's undefined only when there's no selected org at all (e.g. signed in
+// with no organizations yet) — never for a resolved org, where the server
+// always answers 'owner' for a solo user.
+export const useOrganizationRole = (): OrganizationRole | undefined =>
+  useOrganization()?.role
 
 export const useSetOrganizationSlug = () => {
   const ctx = useContext(OrganizationContext)
@@ -75,6 +102,10 @@ export const ORGANIZATIONS_QUERY_KEY = ['organizations']
 // Eligibility is per-user, not per-org, so it must survive an org switch
 // untouched (see the invalidation predicate in setSelectedSlug).
 export const ELIGIBILITY_QUERY_KEY = ['eligibility']
+// The person-notes family (NotesSection, PhoneBankingNotes) — per-person-id
+// rows, excluded from the org-switch invalidation for the same reason as
+// outreach-detail (see setSelectedSlug).
+const CONTACT_NOTES_QUERY_PREFIX = 'contact-notes'
 
 export const OrganizationProvider = ({
   children,
@@ -82,6 +113,7 @@ export const OrganizationProvider = ({
   initialSlug = null,
 }: OrganizationProviderProps) => {
   const queryClient = useQueryClient()
+  const router = useRouter()
 
   const { data: organizations } = useQuery({
     queryKey: ORGANIZATIONS_QUERY_KEY,
@@ -103,20 +135,41 @@ export const OrganizationProvider = ({
     [organizations, selectedSlug],
   )
 
+  // Fires at most once per mount: a repaired cookie can only be repaired once,
+  // and a browser that refuses the write (cookies blocked) must not be able to
+  // drive an endless refresh loop.
+  const staleCookieRepaired = useRef(false)
+
   // If the resolved slug diverges from the cookie (e.g. cookie pointed at an
-  // org the user no longer has access to, so pickSlug fell back to
-  // organizations[0]), rewrite the cookie. gpFetch, clientFetch, and middleware
-  // read the cookie directly for the X-Organization-Slug header, so a stale
-  // cookie would make the API see the wrong slug while the UI shows the
-  // fallback. This fires only on a genuine mismatch — SSR/client agree on
-  // first render because initialSlug is sourced from the cookie server-side.
+  // org the user no longer has access to, so resolveOrgSlug fell back), rewrite
+  // the cookie. gpFetch, clientFetch, and middleware read the cookie directly
+  // for the X-Organization-Slug header, so a stale cookie would make the API
+  // see the wrong slug while the UI shows the fallback.
+  //
+  // Because `resolveOrgSlug` returns the cookie untouched whenever it is valid,
+  // a divergence here means exactly one thing: the cookie named no org this
+  // user can see. The server component tree that produced the current page ran
+  // against that same unusable cookie, so its data is answering for the wrong
+  // org (or for none) while this client tree has already moved on to the right
+  // one — the split that renders campaign-manager content beneath a Serve
+  // sidebar after an impersonation hand-off. Refreshing re-runs those server
+  // components against the repaired cookie so both halves agree.
+  //
+  // `router.refresh()` deliberately, not a redirect: it re-runs the route the
+  // user is already on and preserves client state. No route decision is made or
+  // second-guessed here, so this cannot introduce a redirect cycle with the
+  // gates that own those decisions (serveAccess, candidateAccess).
   useEffect(() => {
     const resolved = selectedOrganization?.slug
     if (!resolved) return
-    if (resolved !== getCookie(ORG_SLUG_COOKIE)) {
-      setCookie(ORG_SLUG_COOKIE, resolved)
-    }
-  }, [selectedOrganization?.slug])
+    if (resolved === getCookie(ORG_SLUG_COOKIE)) return
+
+    setCookie(ORG_SLUG_COOKIE, resolved)
+
+    if (staleCookieRepaired.current) return
+    staleCookieRepaired.current = true
+    router.refresh()
+  }, [selectedOrganization?.slug, router])
 
   const setSelectedSlug = useCallback(
     (slug: string) => {
@@ -126,10 +179,25 @@ export const OrganizationProvider = ({
       // neither changes when switching between orgs (the org list doesn't
       // change, and eligibility is per-user). Invalidating the org list also
       // causes a brief flash where nav items disappear while it refetches.
+      //
+      // outreach-detail is excluded too, and for a different reason: it's
+      // per-row-id, not per-org, so a query for a row owned by the org we're
+      // leaving can still be actively observed (e.g. the history table's "N
+      // platforms" metric for a just-saved row) at the moment we switch. The
+      // cookie above already points at the new org, so invalidateQueries'
+      // default `refetchType: 'active'` would immediately refetch that old
+      // row's detail endpoint under the NEW org's header, 404ing (ENG-10991).
+      // Row ids never repeat across orgs, so the new org's own rows never
+      // need this cache entry refreshed either — there's nothing to gain by
+      // invalidating it here. contact-notes is the same shape (per-person-id,
+      // observed by PhoneBankingNotes while the caller panel is open), so it
+      // gets the same exclusion.
       void queryClient.invalidateQueries({
         predicate: (query) =>
           query.queryKey[0] !== ORGANIZATIONS_QUERY_KEY[0] &&
-          query.queryKey[0] !== ELIGIBILITY_QUERY_KEY[0],
+          query.queryKey[0] !== ELIGIBILITY_QUERY_KEY[0] &&
+          query.queryKey[0] !== outreachDetailQueryPrefix[0] &&
+          query.queryKey[0] !== CONTACT_NOTES_QUERY_PREFIX,
       })
     },
     [queryClient],
@@ -159,6 +227,9 @@ export const OrganizationPicker = () => {
 
   const [campaign] = useCampaign()
   const pathname = usePathname()
+  // trackExposure=false: a render-decision read for switch routing, not the
+  // experiment's own treatment surface.
+  const { enabled: teamAccountsEnabled } = useTeamAccountsFlag(false)
 
   const { data: eligibility } = useQuery<Eligibility>({
     queryKey: ELIGIBILITY_QUERY_KEY,
@@ -176,12 +247,29 @@ export const OrganizationPicker = () => {
       toStatus: org.status,
       isElectedOfficeOrg: Boolean(org.electedOfficeId),
     })
+    // Team accounts (ENG-10816): scoped to the DESTINATION org's role only —
+    // not "does the viewer have a non-owner role anywhere" (delegate review,
+    // PR #1688). That broader check fired for every switch an owner made
+    // between their own owned orgs, as long as they were a manager on some
+    // unrelated third org, which isn't what this event is meant to measure.
+    if (org.role && org.role !== 'owner') {
+      trackEvent(EVENTS.Team.CampaignSwitched)
+    }
     setSelectedSlug(org.slug)
 
     const isOnSharedPage = SHARED_PATHS.some((p) => pathname?.startsWith(p))
     if (!isOnSharedPage) {
+      // Volunteer route group (ENG-11052): a switch onto an org where the
+      // viewer is a volunteer lands on the reductive /volunteer shell
+      // instead of the campaign dashboard. Gated on the flag so a flag-off
+      // session is byte-identical to today even if a volunteer role somehow
+      // resolved.
       router.push(
-        org.electedOfficeId ? '/dashboard/chief-of-staff' : '/dashboard',
+        teamAccountsEnabled && org.role === 'volunteer'
+          ? '/volunteer'
+          : org.electedOfficeId
+            ? '/dashboard/chief-of-staff'
+            : '/dashboard',
       )
     }
   }
@@ -237,6 +325,13 @@ export const OrganizationPicker = () => {
               {organizations.map((org) => {
                 const isSelected = org.slug === selected.slug
                 const isPast = org.status === 'past'
+                const office =
+                  org.customPositionName ??
+                  org.positionName ??
+                  org.position?.name
+                const secondaryLine = [org.ownerName, office]
+                  .filter(Boolean)
+                  .join(' · ')
                 return (
                   <DropdownMenuItem
                     key={org.slug}
@@ -254,13 +349,24 @@ export const OrganizationPicker = () => {
                         <span className="size-1.5 rounded-full bg-white" />
                       )}
                     </span>
-                    <span
-                      className={`text-sm font-opensans ${
-                        isPast ? 'text-muted-foreground' : ''
-                      }`}
-                    >
-                      {org.name}
-                    </span>
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <span
+                        data-testid="org-picker-item-name"
+                        className={`truncate text-sm font-opensans ${
+                          isPast ? 'text-muted-foreground' : ''
+                        }`}
+                      >
+                        {org.name}
+                      </span>
+                      {secondaryLine && (
+                        <span
+                          data-testid="org-secondary-line"
+                          className="truncate text-xs font-opensans text-muted-foreground"
+                        >
+                          {secondaryLine}
+                        </span>
+                      )}
+                    </div>
                     {isPast && (
                       <span className="ml-auto text-xs font-opensans text-muted-foreground">
                         Past

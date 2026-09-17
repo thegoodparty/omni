@@ -39,10 +39,22 @@ silently stripped the Lambda's `ECS_*` env vars and ECS IAM policy for 12 days
 | Field | Value |
 |-------|-------|
 | Endpoint | `https://ai.goodparty.org/clickup/webhook` |
-| Events | `taskTagUpdated` |
+| Events | `taskTagUpdated`, `taskCreated` |
 | Scope | Whole workspace (no space_id filter) |
-| Webhook ID | `f32d86c4-29c4-4cd9-b260-797389eda10c` |
+| Webhook ID | `a013274b-e696-458e-8946-ff94b0f7cdf7` |
 | Team ID | `90132012119` |
+
+`taskCreated` is not optional: the tag is applied by the HubSpot integration, and
+when it lands inside the create call ClickUp never emits a tag update, so a
+`taskTagUpdated`-only subscription silently drops those bugs (2 of 5 over
+2026-08-14..17). See `clickup_bot/README.md`, "Why both events".
+
+The webhook was recreated on 2026-08-14 after the previous one
+(`f32d86c4-29c4-4cd9-b260-797389eda10c`) was orphaned by a departed employee's
+personal API token — the bot received nothing from 2026-07-31 to 2026-08-14 and
+looked healthy the whole time. A webhook secret is issued per webhook, so
+recreating one **always** means writing the new `CLICKUP_WEBHOOK_SECRET` into
+`AI_SECRETS_PROD` in the same sitting.
 
 ### Supported tags
 
@@ -94,9 +106,13 @@ curl -X POST "https://api.clickup.com/api/v2/team/90132012119/webhook" \
   -H "Content-Type: application/json" \
   -d '{
     "endpoint": "https://ai.goodparty.org/clickup/webhook",
-    "events": ["taskTagUpdated"]
+    "events": ["taskTagUpdated", "taskCreated"]
   }'
 ```
+
+The response carries the new signing secret at `.webhook.secret` (nested — not
+top level). Capture it and write it to `CLICKUP_WEBHOOK_SECRET` in
+`AI_SECRETS_PROD` immediately, or every delivery 401s until someone notices.
 
 **Note:** Omitting `space_id` creates a workspace-wide webhook that triggers for all tasks.
 

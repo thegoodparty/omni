@@ -6,9 +6,7 @@ import { stripHtml } from 'string-strip-html'
 import DashboardLayout from '../../shared/DashboardLayout'
 import DashboardNavHeaderAction from '../../shared/DashboardNavHeaderAction'
 import { NAV_LABELS } from '../../shared/navLabels'
-import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import { Button, Card, CheckIcon } from '@styleguide'
-import { CAMPAIGN_STORY_FLAG_KEY } from '@shared/experiments/campaignStoryFlag'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
 import { useSnackbar } from 'helpers/useSnackbar'
@@ -36,7 +34,7 @@ interface CampaignStoryPageProps {
   pathname?: string
 }
 
-// The standalone "Your story" dashboard page. Reuses the same onboarding story
+// The standalone "Your Story" dashboard page. Reuses the same onboarding story
 // cards (StoryIntakeCard for why/background, StoryIssuesCard for the policy
 // priorities). Unlike onboarding, it's a single editable page: one page-level
 // Save in the title bar commits every field at once, and a "Start over" clears
@@ -49,16 +47,14 @@ const CampaignStoryPage = ({
   pathname,
 }: CampaignStoryPageProps): React.JSX.Element => {
   return (
-    <FeatureFlagGuard flagKey={CAMPAIGN_STORY_FLAG_KEY}>
-      <DashboardLayout
-        pathname={pathname}
-        wrapperClassName="w-full"
-        showAlert={false}
-        navHeader={{ icon: 'book', label: NAV_LABELS.campaignStory }}
-      >
-        <StoryEditor />
-      </DashboardLayout>
-    </FeatureFlagGuard>
+    <DashboardLayout
+      pathname={pathname}
+      wrapperClassName="w-full"
+      showAlert={false}
+      navHeader={{ icon: 'book', label: NAV_LABELS.campaignStory }}
+    >
+      <StoryEditor />
+    </DashboardLayout>
   )
 }
 

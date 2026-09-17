@@ -34,6 +34,12 @@ export const voterFilterBaseSchema = z.object({
   genderUnknown: z.boolean().optional(),
   hasCellPhone: z.boolean().optional(),
   hasLandline: z.boolean().optional(),
+  hasAnyPhone: z.boolean().optional(),
+  independentAffinity: z.boolean().optional(),
+  ideologyConservative: z.boolean().optional(),
+  ideologyLiberal: z.boolean().optional(),
+  ideologyModerate: z.boolean().optional(),
+  ideologyUnknown: z.boolean().optional(),
   // New boolean flags to allow FE to pass simple true/false values
   registeredVoterTrue: z.boolean().optional(),
   registeredVoterFalse: z.boolean().optional(),
@@ -76,6 +82,11 @@ export const voterFilterBaseSchema = z.object({
   voterStatus: z.array(z.string()).optional(),
   incomeRanges: z.array(z.string()).optional(),
   incomeUnknown: z.boolean().optional(),
+  // Encoded `county|precinct` pairs (encodePrecinctPair). The vocabulary is
+  // per-district rather than fixed, so it is enumerated by
+  // GET /v1/contacts/precincts instead of being declared here. Capped to match
+  // the filter schema in contracts.
+  precincts: z.array(z.string().min(1).max(200)).max(5_000).optional(),
   // Free-text search term captured when a list is saved directly from a
   // contacts search result set, re-applied on read so selecting the saved
   // list reproduces the searched-down view (ENG-10518). Nullish because a
@@ -85,3 +96,5 @@ export const voterFilterBaseSchema = z.object({
   supportStatus: z.array(SupportStatusRollupSchema).optional(),
   activityConditions: z.array(activityConditionSchema).optional(),
 })
+
+export type VoterFilterBase = z.infer<typeof voterFilterBaseSchema>

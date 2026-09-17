@@ -6,7 +6,6 @@ import {
 } from '../../shared/constants/tasks.const'
 import CampaignPlanTaskItem from 'app/dashboard/campaign-plan/components/CampaignPlanTaskItem'
 import AwarenessTaskItem from './AwarenessTaskItem'
-import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import type { TcrCompliance } from 'helpers/types'
 
@@ -55,7 +54,6 @@ export default function TaskItem({
     proRequired,
   } = task
 
-  const { p2pUxEnabled } = useP2pUxEnabled()
   const isTextCompliant =
     tcrCompliance?.status === TCR_COMPLIANCE_STATUS.APPROVED
 
@@ -75,11 +73,7 @@ export default function TaskItem({
   }
 
   const textRequiresCompliance =
-    isTextFlowType(flowType) &&
-    isPro &&
-    p2pUxEnabled &&
-    !isTextCompliant &&
-    !completed
+    isTextFlowType(flowType) && isPro && !isTextCompliant && !completed
 
   const isExpired = deadline ? daysUntilElection < deadline : false
   const noLongerAvailable = isExpired && !completed

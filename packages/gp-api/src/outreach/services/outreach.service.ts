@@ -1,22 +1,35 @@
 import {
+  BadGatewayException,
   BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
+import {
+  OutreachReceipt,
+  P2P_SCRIPT_MAX_LENGTH,
+} from '@goodparty_org/contracts'
 import {
   Campaign,
+  Outreach,
   OutreachStatus,
   OutreachType,
   User,
 } from '../../generated/prisma'
+import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
 import { AreaCodeFromZipService } from 'src/ai/util/areaCodeFromZip.util'
 import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
+import { isBefore } from 'date-fns'
+import {
+  checkSmsStandards,
+  type SmsOutreachResults,
+  type SmsStandardsRule,
+} from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { ASSET_DOMAIN } from 'src/shared/util/appEnvironment.util'
 import { DateFormats, formatDate } from 'src/shared/util/date.util'
 import { GooglePlacesService } from 'src/vendors/google/services/google-places.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
+import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
 import { Readable } from 'stream'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
@@ -39,6 +52,14 @@ export interface P2pOutreachImageInput {
   mimetype: string
 }
 
+const SMS_STANDARDS_FIXES: Record<SmsStandardsRule, string> = {
+  opt_out_line: 'add an opt-out line ("Reply STOP to opt out.")',
+  first_name_token: 'use the {first_name} personalization token',
+  candidate_name: "include the candidate's name",
+  paid_for_by: 'include "Paid for by <your committee name>"',
+  length: 'shorten the message to fit the length limit',
+}
+
 @Injectable()
 export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   constructor(
@@ -50,6 +71,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly materializationService: OutreachMaterializationService,
     private readonly s3: S3Service,
+    private readonly stripeService: StripeService,
   ) {
     super()
   }
@@ -78,6 +100,36 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     return peerlyIdentityId
   }
 
+  private async requireCompliantScript(
+    campaign: Campaign,
+    script: string,
+  ): Promise<void> {
+    const tcr = await this.tcrComplianceService.findFirst({
+      where: { campaignId: campaign.id },
+    })
+    const user = await this.client.user.findUnique({
+      where: { id: campaign.userId ?? -1 },
+    })
+    const accountName = user
+      ? `${(user.firstName ?? '').trim()} ${(user.lastName ?? '').trim()}`.trim()
+      : ''
+    const verdict = checkSmsStandards(script, {
+      candidateNames: [accountName, tcr?.candidateName].filter(
+        (name): name is string => !!name,
+      ),
+      committeeName: tcr?.committeeName ?? null,
+    })
+    if (verdict.passed) return
+    const fixes = verdict.failures
+      .map((rule) => SMS_STANDARDS_FIXES[rule])
+      .filter((fix): fix is string => !!fix)
+    throw new BadRequestException(
+      `The message does not meet texting compliance standards: ${fixes.join(
+        '; ',
+      )}`,
+    )
+  }
+
   private async resolveP2pCreateInputs(
     campaign: Campaign,
     createOutreachDto: CreateOutreachSchema,
@@ -103,6 +155,11 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
           `P2P outreach (got ${resolvedScriptText.length})`,
       )
     }
+
+    // Compliance is enforced at scheduling, deterministically (product
+    // decision 2026-09-02): a message missing a required element never
+    // becomes a scheduled campaign. Admin approval stays advisory-only.
+    await this.requireCompliantScript(campaign, resolvedScriptText)
 
     let resolvedGeography: P2pJobGeographyResult
     try {
@@ -149,6 +206,10 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         name,
         didState,
         didNpaSubset,
+        // The payload's offset-annotated datetime starts with the user's
+        // local calendar day; the DateTime column loses that offset, and
+        // finalize needs the local day for Peerly's start/end dates.
+        scheduledLocalDate: createOutreachDto.date?.slice(0, 10),
       },
       imageUrl,
       peerlyIdentityId,
@@ -190,6 +251,11 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         scheduledDate: createOutreachDto.date,
       })
     } catch (err) {
+      // Peerly content rejections (400) are the user's to fix — propagate
+      // as their natural HttpException per outreachStepError.ts.
+      if (err instanceof BadRequestException) {
+        throw err
+      }
       throw new OutreachStepError('peerlyJobCreation', err)
     }
 
@@ -319,7 +385,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         campaign: { include: { user: true } },
       },
     })
-    const { campaign } = outreach
+    // The claim above matched a real campaignId — text/p2p finalize never
+    // reaches an org-only (social) row, the only kind with no campaign.
+    const campaign = outreach.campaign!
     const user = campaign.user
 
     let jobId: string
@@ -348,8 +416,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
               script: outreach.script ?? undefined,
               date: outreach.date?.toISOString(),
             },
+            // Mirror OutreachNotificationInterceptor.classifyFailure: a 400
+            // content rejection is the user's to fix, so CAS sees it labeled
+            // validation, not as a vendor-step failure. Still notified — on
+            // the paid path money was captured with nothing scheduled.
             step:
-              err instanceof OutreachStepError ? err.step : 'peerlyJobCreation',
+              err instanceof OutreachStepError
+                ? err.step
+                : err instanceof BadRequestException
+                  ? 'validation'
+                  : 'peerlyJobCreation',
             error: err,
           })
         } catch (notifyErr) {
@@ -386,6 +462,47 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       textCount: outreach.textCount ?? undefined,
       billableTextCount: outreach.billableTextCount ?? undefined,
     })
+  }
+
+  /**
+   * Stamped BEFORE redemption, from the server's own numbers: the row's
+   * billableTextCount is client-supplied at draft time and can be stale
+   * (a browser that missed a promo restore sends the full count), and the
+   * cancel path's promo restore keys on billable < textCount to tie
+   * consumption to THIS row. Running the stamp first makes the invariant
+   * one-directional — a consumed promo is always a stamped row — because
+   * a stamp failure skips redemption and the webhook retry re-runs both.
+   */
+  async markFreeTextsConsumed(
+    outreachId: number,
+    campaignId: number,
+  ): Promise<boolean> {
+    const row = await this.model.findFirst({
+      where: { id: outreachId, campaignId },
+    })
+    if (!row) {
+      this.logger.error(
+        { outreachId, campaignId },
+        'markFreeTextsConsumed: no such row for this campaign — ' +
+          'redemption must not proceed unstamped',
+      )
+      return false
+    }
+    if (row.textCount === null) {
+      this.logger.error(
+        { outreachId, campaignId },
+        'markFreeTextsConsumed: textCount is null — billableTextCount ' +
+          'cannot be stamped; redemption must not proceed unstamped',
+      )
+      return false
+    }
+    await this.model.update({
+      where: { id: outreachId },
+      data: {
+        billableTextCount: Math.max(0, row.textCount - FREE_TEXTS_OFFER.COUNT),
+      },
+    })
+    return true
   }
 
   /**
@@ -462,7 +579,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
 
     try {
       return await this.peerlyP2pJobService.createPeerlyP2pJob({
-        campaignId: outreach.campaignId,
+        // p2p drafts are always campaign-scoped — only social outreach can
+        // be org-only (outreach.prisma).
+        campaignId: outreach.campaignId!,
         listId: outreach.phoneListId,
         imageInfo: {
           fileStream: image.bytes,
@@ -475,9 +594,18 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         name: outreach.name ?? undefined,
         didState: outreach.didState ?? undefined,
         didNpaSubset: outreach.didNpaSubset,
-        scheduledDate: outreach.date?.toISOString(),
+        // Legacy drafts created before scheduledLocalDate existed carry
+        // only the UTC instant, whose sliced day is one late for evening
+        // US sends — unscheduled (Peerly holds P2P jobs for canvassers
+        // anyway) beats a wrong-day send for that transient set.
+        scheduledDate: outreach.scheduledLocalDate ?? undefined,
       })
     } catch (err) {
+      // Peerly content rejections (400) are the user's to fix — propagate
+      // as their natural HttpException per outreachStepError.ts.
+      if (err instanceof BadRequestException) {
+        throw err
+      }
       throw new OutreachStepError('peerlyJobCreation', err)
     }
   }
@@ -537,7 +665,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   /** Persists a single outreach record. Used by both non-P2P and P2P flows. */
   private async createRecord(
     campaign: Campaign,
-    createOutreachDto: CreateOutreachSchema,
+    // scheduledLocalDate is server-derived at draft creation, never client
+    // input — hence the widening rather than a schema field.
+    createOutreachDto: CreateOutreachSchema & { scheduledLocalDate?: string },
     imageUrl?: string,
     identityId?: string,
   ) {
@@ -557,10 +687,365 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     })
   }
 
-  async findByCampaignId(campaignId: number) {
-    const outreachCampaigns = await this.findMany({
+  // Scoped by organizationSlug, not campaignId: archiving is an
+  // organization-level action on the history drawer, and the response reads
+  // back the persisted row rather than trusting the request's `archived`
+  // flag.
+  async setArchived(
+    id: number,
+    organizationSlug: string,
+    archived: boolean,
+  ): Promise<{ id: number; archivedAt: Date | null }> {
+    const claimed = await this.model.updateMany({
+      where: { id, organizationSlug },
+      data: { archivedAt: archived ? new Date() : null },
+    })
+    if (claimed.count === 0) {
+      throw new NotFoundException('Outreach not found')
+    }
+    return this.model.findUniqueOrThrow({
+      where: { id },
+      select: { id: true, archivedAt: true },
+    })
+  }
+
+  // Durable payment link for cancel-before-send. Idempotent by shape (same
+  // session id on every webhook retry); scoped to the paying campaign like
+  // finalize, since outreachId rides in client-influenced metadata.
+  async recordCheckoutSession(
+    outreachId: number,
+    campaignId: number,
+    checkoutSessionId: string,
+  ): Promise<void> {
+    await this.model.updateMany({
+      where: { id: outreachId, campaignId },
+      data: { stripeCheckoutSessionId: checkoutSessionId },
+    })
+  }
+
+  /**
+   * Cancel-before-send (product decision: permanent, vendor job deleted,
+   * automatic refund). Cancelable = status `pending` only: that is the
+   * scheduled-not-started state finalize leaves a paid campaign in;
+   * `in_progress`/`completed` rows have sent messages and are not
+   * refundable here.
+   *
+   * Ordering is the failure policy. The row is CLAIMED first (finalize's
+   * updateMany-as-CAS pattern, `pending` → `canceled`), so the hourly
+   * completion sweep can never advance it mid-cancel — canceled rows are
+   * outside the sweep's candidate set. The vendor delete runs second — if
+   * it fails, the claim is reverted and the user keeps their campaign. The
+   * refund runs third — if IT fails, the claim is reverted too, so the row
+   * deliberately reads `pending`: the cancel CTA stays live, and a retry
+   * re-runs every step safely (the claim is atomic, the vendor delete
+   * treats already-deleted as done, and the refund's idempotency key is
+   * stable per outreach, so it can neither be lost nor doubled).
+   */
+  async cancelOutreach(
+    outreachId: number,
+    campaignId: number,
+    attribution?: { canceledBy: string; byAdmin: boolean },
+  ): Promise<{ outreach: Outreach; refunded: boolean }> {
+    const outreach = await this.model.findFirst({
+      where: { id: outreachId, campaignId },
+    })
+    if (!outreach) {
+      throw new NotFoundException('Outreach not found')
+    }
+    // A robocall's send/capture lifecycle runs off its satellite settleState,
+    // not the spine status, so canceling here would flip the spine to canceled
+    // without voiding the hold or stopping the dial. Robocall has no cancel path
+    // yet; refuse rather than desync. (The spine reads `pending` once the pay
+    // step commits — see OutreachRobocallHoldService.markSpineScheduled.)
+    if (outreach.outreachType === OutreachType.robocall) {
+      throw new BadRequestException(
+        'Robocall campaigns cannot be canceled here',
+      )
+    }
+    if (outreach.status === OutreachStatus.canceled) {
+      return { outreach, refunded: false }
+    }
+    if (outreach.status !== OutreachStatus.pending) {
+      throw new BadRequestException('Only scheduled campaigns can be canceled')
+    }
+    // Cancel is available up to the scheduled send, not through it: once the
+    // send time arrives canvassers may be texting, and deleting the vendor
+    // job mid-send is not a cancel, it is a mess (product decision
+    // 2026-09-02). That mess is only possible for a BOOKED send — nothing
+    // sends without the approve gate's canvasser booking — so an unbooked
+    // row past its date is dead, not mid-send, and must stay cancelable:
+    // the guard otherwise strands it in Awaiting Review with the payment
+    // unrefundable (QA 2026-09-10, prod outreach 81412).
+    const bookedToSend =
+      outreach.approvedAt !== null || outreach.canvassRequestedAt !== null
+    if (bookedToSend && outreach.date && !isBefore(new Date(), outreach.date)) {
+      throw new BadRequestException(
+        'This campaign has reached its send time and can no longer be canceled',
+      )
+    }
+
+    const claimed = await this.model.updateMany({
+      where: { id: outreachId, status: OutreachStatus.pending },
+      data: {
+        status: OutreachStatus.canceled,
+        canceledAt: new Date(),
+        canceledBy: attribution?.canceledBy ?? null,
+        canceledByAdmin: attribution?.byAdmin ?? false,
+      },
+    })
+    if (claimed.count === 0) {
+      const current = await this.model.findFirstOrThrow({
+        where: { id: outreachId, campaignId },
+      })
+      if (current.status === OutreachStatus.canceled) {
+        return { outreach: current, refunded: false }
+      }
+      throw new BadRequestException('Only scheduled campaigns can be canceled')
+    }
+
+    // A revert failure must never replace the error that triggered it: the
+    // row would sit `canceled` with the cancel unfinished, and the
+    // idempotent early-return would make every retry silently succeed —
+    // for the refund path, with the user's money never returned.
+    const revertClaim = async (cause: string) => {
+      try {
+        await this.model.update({
+          where: { id: outreachId },
+          data: {
+            status: OutreachStatus.pending,
+            canceledAt: null,
+            canceledBy: null,
+            canceledByAdmin: false,
+          },
+        })
+      } catch (revertErr) {
+        this.logger.error(
+          { err: revertErr },
+          `revertClaim failed for outreach ${outreachId} after ${cause}; ` +
+            'row is stuck canceled with the cancel unfinished — manual ' +
+            'intervention required',
+        )
+      }
+    }
+
+    if (outreach.projectId) {
+      try {
+        await this.peerlyP2pJobService.deleteJob(outreach.projectId)
+      } catch (error) {
+        await revertClaim('vendor delete failure')
+        throw error
+      }
+    }
+
+    let refunded = false
+    if (outreach.stripeCheckoutSessionId) {
+      try {
+        const session = await this.stripeService.retrieveCheckoutSession(
+          outreach.stripeCheckoutSessionId,
+        )
+        const paymentIntentId =
+          typeof session.payment_intent === 'string'
+            ? session.payment_intent
+            : session.payment_intent?.id
+        if (paymentIntentId) {
+          await this.stripeService.refundPaymentIntent(
+            paymentIntentId,
+            `outreach-cancel-${outreachId}`,
+          )
+          refunded = true
+        }
+      } catch (error) {
+        this.logger.error(
+          { err: error },
+          `Refund failed canceling outreach ${outreachId}; claim reverted so cancel can retry`,
+        )
+        await revertClaim('refund failure')
+        throw new BadGatewayException(
+          'The refund could not be processed. Try canceling again.',
+        )
+      }
+    }
+
+    // Canceling returns what the send consumed: a row whose billable count
+    // ran below its text count spent free-promo texts, so the offer is
+    // restored for the campaign's next send (product decision 2026-09-03).
+    // Guarded on the redeemed state, so a cancel retry cannot double-grant,
+    // and a later full-price campaign (billable == textCount) never
+    // triggers it. A restore failure reverts the claim and rethrows like
+    // the refund path: a cancelled row cannot be retried (the idempotent
+    // early-return wins), so swallowing here would lose the promo for
+    // good. The vendor delete and refund are idempotent on retry.
+    const consumedFreeTexts =
+      outreach.textCount !== null &&
+      outreach.billableTextCount !== null &&
+      outreach.billableTextCount < outreach.textCount
+    if (consumedFreeTexts) {
+      try {
+        await this.client.campaign.updateMany({
+          where: {
+            id: campaignId,
+            hasFreeTextsOffer: false,
+            freeTextsOfferRedeemedAt: { not: null },
+          },
+          data: {
+            hasFreeTextsOffer: true,
+            freeTextsOfferRedeemedAt: null,
+          },
+        })
+      } catch (err) {
+        this.logger.error(
+          { err, outreachId, campaignId },
+          `Free-texts restore failed canceling outreach ${outreachId}; ` +
+            'claim reverted so cancel can retry',
+        )
+        await revertClaim('promo restore failure')
+        throw err
+      }
+    }
+
+    // The cancel notice (CAS request 2026-09-09), covering both the
+    // candidate route and the admin console: best-effort, after the cancel
+    // fully committed — a Slack failure must never fail or retry a
+    // completed cancel.
+    try {
+      const notifRow = await this.model.findFirst({
+        where: { id: outreachId },
+        include: { voterFileFilter: true },
+      })
+      const campaignWithUser = await this.client.campaign.findFirst({
+        where: { id: campaignId },
+        include: { user: true },
+      })
+      if (notifRow && campaignWithUser?.user) {
+        await this.notificationService.notifyCanceled({
+          user: campaignWithUser.user,
+          campaign: campaignWithUser,
+          outreach: notifRow,
+          textCount: notifRow.textCount ?? undefined,
+          billableTextCount: notifRow.billableTextCount ?? undefined,
+          canceledByAdmin: attribution?.byAdmin ?? false,
+        })
+      }
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId, campaignId },
+        'Cancel Slack notice failed; the cancel itself is unaffected',
+      )
+    }
+
+    const updated = await this.model.findFirstOrThrow({
+      where: { id: outreachId, campaignId },
+    })
+    return { outreach: updated, refunded }
+  }
+
+  /**
+   * Live receipt read for a paid campaign. No local payment snapshot
+   * exists — the row only stores the checkout session id — so the card and
+   * receipt URL come from Stripe on every read. Free-texts rows never
+   * record a session, so they 404 here; a Stripe failure is a 502, never
+   * an empty receipt.
+   */
+  async getOutreachReceipt(
+    outreachId: number,
+    campaignId: number,
+  ): Promise<OutreachReceipt> {
+    const outreach = await this.model.findFirst({
+      where: { id: outreachId, campaignId },
+    })
+    if (!outreach?.stripeCheckoutSessionId) {
+      throw new NotFoundException('No receipt for this outreach')
+    }
+    let session: Awaited<
+      ReturnType<StripeService['retrieveCheckoutSessionWithCharge']>
+    >
+    try {
+      session = await this.stripeService.retrieveCheckoutSessionWithCharge(
+        outreach.stripeCheckoutSessionId,
+      )
+    } catch (error) {
+      this.logger.error(
+        { err: error },
+        `Receipt read failed for outreach ${outreachId}`,
+      )
+      throw new BadGatewayException('Could not load the receipt from Stripe')
+    }
+    const paymentIntent =
+      typeof session.payment_intent === 'object' ? session.payment_intent : null
+    const charge =
+      paymentIntent && typeof paymentIntent.latest_charge === 'object'
+        ? paymentIntent.latest_charge
+        : null
+    const card = charge?.payment_method_details?.card
+    // A session without an amount is not a $0 receipt — the UI reads 0 as
+    // "Free". The documented contract is 502-or-real-receipt.
+    if (session.amount_total == null) {
+      throw new BadGatewayException(
+        'Stripe session has no amount; receipt unavailable',
+      )
+    }
+    return {
+      // DOLLARS, matching the checkout-session endpoint convention.
+      amount: session.amount_total / 100,
+      cardBrand: card?.brand ?? null,
+      cardLast4: card?.last4 ?? null,
+      receiptUrl: charge?.receipt_url ?? null,
+      paidAt: charge?.created
+        ? new Date(charge.created * 1000).toISOString()
+        : null,
+    }
+  }
+
+  // Counts only (reply content never leaves the CRM). The per-recipient
+  // interaction rows are the source when they exist; a campaign that
+  // predates recipient capture falls back to the purchase-time count.
+  async getSmsResults(
+    outreachId: number,
+    campaignId: number,
+  ): Promise<SmsOutreachResults> {
+    const outreach = await this.model.findFirst({
+      where: { id: outreachId, campaignId },
+    })
+    if (!outreach) {
+      throw new NotFoundException('Outreach not found')
+    }
+    if (
+      outreach.outreachType !== OutreachType.p2p &&
+      outreach.outreachType !== OutreachType.text
+    ) {
+      throw new BadRequestException(
+        'Results are only available for text campaigns',
+      )
+    }
+    const [recipients, responded, optedOut] = await Promise.all([
+      this.client.contactInteractionText.count({ where: { outreachId } }),
+      this.client.contactInteractionText.count({
+        where: { outreachId, respondedAt: { not: null } },
+      }),
+      this.client.contactInteractionText.count({
+        where: { outreachId, optedOutAt: { not: null } },
+      }),
+    ])
+    const contacts =
+      recipients > 0
+        ? recipients
+        : (outreach.billableTextCount ?? outreach.textCount ?? 0)
+    return { contacts, responded, optedOut }
+  }
+
+  // Shared list query behind both scoped list readers below. Win rows carry
+  // BOTH campaignId and organizationSlug (createRecord copies the campaign
+  // org's slug), so the Serve scope must pin campaignId: null — an org that
+  // holds a Campaign and an ElectedOffice (the post-election transition)
+  // would otherwise leak its Win history onto the Serve list (ENG-10976).
+  private async findByScope(
+    scope:
+      | { campaignId: number }
+      | { organizationSlug: string; campaignId: null },
+  ) {
+    return this.findMany({
       where: {
-        campaignId,
+        ...scope,
         // Unpaid drafts are an implementation detail of the purchase flow.
         // Prisma's `not` also excludes NULL, so nullable legacy rows need the
         // explicit OR branch.
@@ -573,6 +1058,10 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         voterFileFilter: true,
       },
     })
+  }
+
+  async findByCampaignId(campaignId: number) {
+    const outreachCampaigns = await this.findByScope({ campaignId })
 
     if (!outreachCampaigns.length) {
       throw new NotFoundException(
@@ -581,6 +1070,13 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
 
     return outreachCampaigns
+  }
+
+  // Serve list: no "empty is 404" quirk (a fresh org legitimately has no
+  // history yet) and no p2pJob decoration (Serve never runs P2P texting) —
+  // the Win controller keeps that decoration on top of the shared query.
+  async findByOrganizationSlug(organizationSlug: string) {
+    return this.findByScope({ organizationSlug, campaignId: null })
   }
 
   async resolveP2pJobGeography(

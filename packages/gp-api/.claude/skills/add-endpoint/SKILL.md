@@ -79,7 +79,7 @@ ADR: `docs/adr/0001-prisma-base-pattern.md`.
 ```ts
 import { Body, Controller, Post } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
-import { ResponseSchema } from '@/shared/decorators/responseSchema.decorator'
+import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import {
   CreateThingSchema,
   ThingResponseSchema,

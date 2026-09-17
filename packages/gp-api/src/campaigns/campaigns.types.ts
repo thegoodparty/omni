@@ -1,4 +1,6 @@
 import { Prisma } from '../generated/prisma'
+import type { BallotStatus } from './schemas/ballotStatus.schema'
+import type { SignupGoal } from './schemas/signupGoal.schema'
 
 export type CampaignPlanVersionData = Record<string, PlanVersion[]>
 
@@ -35,4 +37,6 @@ export interface UpdateCampaignFieldsInput {
   canDownloadFederal?: boolean
   overrideDistrictId?: string | null
   primaryResult?: 'won' | 'lost' | null
+  ballotStatus?: BallotStatus | null
+  signupGoal?: SignupGoal | null
 }

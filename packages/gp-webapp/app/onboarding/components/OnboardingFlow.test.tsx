@@ -4,7 +4,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import type { Campaign } from 'helpers/types'
-import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { EVENTS } from 'helpers/analyticsHelper'
 import * as landscapeModule from '../success/hooks/useStrategicLandscape'
 import OnboardingFlow from './OnboardingFlow'
@@ -13,7 +12,6 @@ import {
   getNextOnboardingStep,
   getPreviousOnboardingStep,
   getVisibleOnboardingSteps,
-  resolvePostPledgeRoute,
 } from './onboardingHelpers'
 
 // PathToVictoryStep reads the org's resolved district so it can skip a stats fetch
@@ -56,7 +54,7 @@ const IDLE_DICTATION = {
   stop: vi.fn(),
   toggle: vi.fn(),
 }
-vi.mock('app/dashboard/briefings/shared/useDictationAppend', () => ({
+vi.mock('app/dashboard/shared/dictation/useDictationAppend', () => ({
   useDictationAppend: (input: { analyticsLabel: string }) =>
     mockUseDictationAppend(input),
 }))
@@ -98,8 +96,7 @@ vi.mock('helpers/useSnackbar', () => ({
 
 // Stubbed out so tests can drive the manual-office path with a couple of
 // clicks instead of exercising the real search/geo UI (unrelated to what
-// these tests cover - the flag-gated campaign-story step further down the
-// flow).
+// these tests cover - the campaign-story step further down the flow).
 vi.mock('./OfficeSelectionStep', () => ({
   OfficeSelectionStep: ({
     onCantFindOffice,
@@ -117,6 +114,7 @@ vi.mock('./ManualOfficeEntryStep', () => ({
   }: {
     onChange: (form: {
       office: string
+      level: string
       state: string
       city: string
       district: string
@@ -129,6 +127,7 @@ vi.mock('./ManualOfficeEntryStep', () => ({
       onClick={() =>
         onChange({
           office: 'Mayor',
+          level: 'LOCAL',
           state: 'CA',
           city: 'Springfield',
           district: '',
@@ -141,15 +140,6 @@ vi.mock('./ManualOfficeEntryStep', () => ({
     </button>
   ),
 }))
-vi.mock('@shared/experiments/campaignStoryFlag', () => ({
-  useCampaignStoryFlag: vi.fn(),
-}))
-
-const mockCampaignStoryFlag = vi.mocked(useCampaignStoryFlag)
-const setCampaignStoryFlag = (ready: boolean, enabled: boolean): void => {
-  mockCampaignStoryFlag.mockReturnValue({ ready, enabled })
-}
-
 const renderFlow = (props: { campaign?: Campaign | null } = {}) =>
   render(
     <QueryClientProvider client={new QueryClient()}>
@@ -159,9 +149,9 @@ const renderFlow = (props: { campaign?: Campaign | null } = {}) =>
 
 // Drives the flow from welcome through the manual-office-entry step (using
 // the mocked office steps above) and clicks Continue once more, landing on
-// whatever step comes next - campaign-story when the flag is on, pledge when
-// it's off. Requires the caller to have mocked the PUT /campaigns/mine and
-// PATCH /organizations/:slug endpoints the manual-office persist path hits.
+// the first campaign-story step. Requires the caller to have mocked the PUT
+// /campaigns/mine and PATCH /organizations/:slug endpoints the manual-office
+// persist path hits.
 const advancePastManualOfficeEntry = async (): Promise<void> => {
   const continueButton = screen.getByRole('button', { name: /continue/i })
   fireEvent.click(continueButton) // welcome -> ballot-status
@@ -197,8 +187,20 @@ const continueThroughStorySteps = async (): Promise<void> => {
   // background -> issues
   await clickEnabledContinue()
   await screen.findByRole('button', { name: /add a policy priority/i })
-  // issues -> pledge (persists the draft)
+  // issues -> signup-goal (persists the draft)
   await clickEnabledContinue()
+}
+
+// The story block hands off to signup-goal, which sits between it and the
+// pledge — so a story test's landing assertion is this step, not the pledge.
+const findSignupGoalStep = (): Promise<HTMLElement> =>
+  screen.findByRole('heading', { level: 1, name: /most want help with/i })
+
+// Skips signup-goal, landing on the pledge. For tests that need the pledge
+// screen itself rather than the end of the story.
+const skipSignupGoalStep = async (): Promise<void> => {
+  await findSignupGoalStep()
+  fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
 }
 
 // Skip is now per-question: it advances one story step at a time (why ->
@@ -212,16 +214,11 @@ const skipThroughStorySteps = async (): Promise<void> => {
   // background -> issues
   fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
   await screen.findByRole('button', { name: /add a policy priority/i })
-  // issues -> pledge
+  // issues -> signup-goal
   fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
 }
 
 beforeEach(() => {
-  // Flag resolved (ready) but story cohort off by default, so every existing
-  // test keeps seeing the story step omitted while Continue stays enabled
-  // (canContinue now gates on campaignStoryReady). Tests opt into the cohort
-  // by calling setCampaignStoryFlag(true, true) themselves.
-  setCampaignStoryFlag(true, false)
   mockTrackEvent.mockClear()
   // Reset call history + implementation so a prior test's calls/returns don't
   // leak (these vi.fn()s aren't restored by vi.restoreAllMocks). Empty story by
@@ -246,7 +243,11 @@ describe('new onboarding flow shell', () => {
     expect(
       screen.getByRole('heading', { level: 1, name: /winning campaign plan/i }),
     ).toBeInTheDocument()
-    expect(screen.getByText(/Step 1 of/)).toBeInTheDocument()
+    const stepper = screen.getByRole('progressbar', { name: 'Progress' })
+    expect(stepper).toHaveAttribute('aria-valuenow', '1')
+    // Pinned: valuemin=0 is the a11y percentage math fix — reverting it
+    // to 1 would make screen readers announce step 1 as 0%.
+    expect(stepper).toHaveAttribute('aria-valuemin', '0')
   })
 
   it('routes structured office users through structured calculation steps', () => {
@@ -257,7 +258,7 @@ describe('new onboarding flow shell', () => {
     ).toBe('path-to-victory')
   })
 
-  it('routes through the three story steps and on to the pledge', () => {
+  it('routes through the three story steps, then signup-goal, then the pledge', () => {
     const structured = { officePath: 'structured' as const }
     expect(
       getNextOnboardingStep(ONBOARDING_STEPS, 'campaign-story-why', structured)
@@ -276,6 +277,9 @@ describe('new onboarding flow shell', () => {
         'campaign-story-issues',
         structured,
       )?.id,
+    ).toBe('signup-goal')
+    expect(
+      getNextOnboardingStep(ONBOARDING_STEPS, 'signup-goal', structured)?.id,
     ).toBe('pledge')
   })
 
@@ -390,7 +394,9 @@ describe('new onboarding flow shell', () => {
         { timeout: 300 },
       ),
     ).rejects.toThrow()
-    expect(screen.getByText(/Step 1 of/)).toBeInTheDocument()
+    expect(
+      screen.getByRole('progressbar', { name: 'Progress' }),
+    ).toHaveAttribute('aria-valuenow', '1')
   })
 
   it('supports back and continue navigation across skipped manual-office steps', () => {
@@ -401,10 +407,14 @@ describe('new onboarding flow shell', () => {
     }
 
     // path-to-victory is skipped for manual users, but the story steps are
-    // not, so the last story step sits directly before the pledge, and the
-    // first story step directly after manual-office-entry.
+    // not, so the last story step sits directly before signup-goal (itself the
+    // pledge's predecessor), and the first story step directly after
+    // manual-office-entry.
     expect(
       getPreviousOnboardingStep(ONBOARDING_STEPS, 'pledge', answers)?.id,
+    ).toBe('signup-goal')
+    expect(
+      getPreviousOnboardingStep(ONBOARDING_STEPS, 'signup-goal', answers)?.id,
     ).toBe('campaign-story-issues')
     expect(
       getNextOnboardingStep(ONBOARDING_STEPS, 'manual-office-entry', answers)
@@ -412,8 +422,7 @@ describe('new onboarding flow shell', () => {
     ).toBe('campaign-story-why')
   })
 
-  it('renders the first story step (why) when the flag is on and never the demographics step', async () => {
-    setCampaignStoryFlag(true, true)
+  it('renders the first story step (why) and never the demographics step', async () => {
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
@@ -438,35 +447,10 @@ describe('new onboarding flow shell', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('omits the story steps when the flag is off', async () => {
-    setCampaignStoryFlag(true, false)
-    mswServer.use(
-      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
-      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
-    )
-    renderFlow({ campaign: { id: 1 } as Campaign })
-
-    await advancePastManualOfficeEntry()
-
-    expect(
-      await screen.findByRole('heading', {
-        level: 1,
-        name: /take our pledge/i,
-      }),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole('heading', {
-        level: 1,
-        name: /why are you running/i,
-      }),
-    ).not.toBeInTheDocument()
-  })
-
   it('persists and fires plan generation once when continuing through a completed story', async () => {
     const prewarm = vi
       .spyOn(landscapeModule, 'prewarmStrategicLandscape')
       .mockResolvedValue()
-    setCampaignStoryFlag(true, true)
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
@@ -499,9 +483,7 @@ describe('new onboarding flow shell', () => {
 
     await continueThroughStorySteps()
 
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
+    expect(await findSignupGoalStep()).toBeInTheDocument()
     // Deferred save fired on the final step: background via the story endpoint,
     // bio + issues via saveAboutFields.
     expect(storyBody).toEqual({
@@ -529,7 +511,6 @@ describe('new onboarding flow shell', () => {
   })
 
   it('blocks Continue on the issues step until at least one policy exists', async () => {
-    setCampaignStoryFlag(true, true)
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
@@ -575,7 +556,6 @@ describe('new onboarding flow shell', () => {
   })
 
   it('blocks Continue on the issues step while a policy row is mid-dictation', async () => {
-    setCampaignStoryFlag(true, true)
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
@@ -633,7 +613,6 @@ describe('new onboarding flow shell', () => {
     const prewarm = vi
       .spyOn(landscapeModule, 'prewarmStrategicLandscape')
       .mockResolvedValue()
-    setCampaignStoryFlag(true, true)
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
@@ -673,7 +652,6 @@ describe('new onboarding flow shell', () => {
     const prewarm = vi
       .spyOn(landscapeModule, 'prewarmStrategicLandscape')
       .mockResolvedValue()
-    setCampaignStoryFlag(true, true)
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
@@ -687,9 +665,7 @@ describe('new onboarding flow shell', () => {
     await advancePastManualOfficeEntry()
     await skipThroughStorySteps()
 
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
+    expect(await findSignupGoalStep()).toBeInTheDocument()
     expect(prewarm).not.toHaveBeenCalled()
     // Nothing was answered, so persist writes nothing.
     expect(mockSaveAboutFields).not.toHaveBeenCalled()
@@ -699,7 +675,6 @@ describe('new onboarding flow shell', () => {
     const prewarm = vi
       .spyOn(landscapeModule, 'prewarmStrategicLandscape')
       .mockResolvedValue()
-    setCampaignStoryFlag(true, true)
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
@@ -730,9 +705,7 @@ describe('new onboarding flow shell', () => {
 
     await continueThroughStorySteps()
 
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
+    expect(await findSignupGoalStep()).toBeInTheDocument()
     expect(prewarm).toHaveBeenCalledTimes(1)
     expect(mockTrackEvent).toHaveBeenCalledWith(
       EVENTS.OnboardingV2.IssuesCompleted,
@@ -750,9 +723,7 @@ describe('new onboarding flow shell', () => {
     })
     fireEvent.click(skipButton)
 
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
+    expect(await findSignupGoalStep()).toBeInTheDocument()
     expect(prewarm).toHaveBeenCalledTimes(1)
     expect(mockTrackEvent).not.toHaveBeenCalledWith(
       EVENTS.OnboardingV2.IssuesCompleted,
@@ -765,7 +736,6 @@ describe('new onboarding flow shell', () => {
   })
 
   it('fires Onboarding Skipped once per story step, labeled with the step it left', async () => {
-    setCampaignStoryFlag(true, true)
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
@@ -779,9 +749,9 @@ describe('new onboarding flow shell', () => {
     await advancePastManualOfficeEntry()
     await skipThroughStorySteps()
 
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
+    // Asserted at signup-goal, before it is itself skipped, so the list below
+    // stays the three story steps.
+    expect(await findSignupGoalStep()).toBeInTheDocument()
 
     const skippedSteps = mockTrackEvent.mock.calls
       .filter(([event]) => event === EVENTS.OnboardingV2.OnboardingSkipped)
@@ -793,8 +763,7 @@ describe('new onboarding flow shell', () => {
     ])
   })
 
-  it('returns from the pledge to the first unanswered story step, not the last one', async () => {
-    setCampaignStoryFlag(true, true)
+  it('returns from signup-goal to the first unanswered story step, not the last one', async () => {
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
@@ -813,10 +782,11 @@ describe('new onboarding flow shell', () => {
     })
 
     await skipThroughStorySteps()
-    await screen.findByText('Take our pledge to get your campaign plan')
+    await findSignupGoalStep()
 
     // Back lands straight on the why step (first unanswered), not the issues
     // step (the literal previous step), and without stepping through each one.
+    // signup-goal now carries this rule: it is the story block's successor.
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(
       await screen.findByRole('heading', {
@@ -826,8 +796,7 @@ describe('new onboarding flow shell', () => {
     ).toBeInTheDocument()
   })
 
-  it('labels the pledge button "Meet your campaign manager" for the campaign-story cohort', async () => {
-    setCampaignStoryFlag(true, true)
+  it('labels the pledge button "Meet your campaign manager"', async () => {
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
@@ -843,8 +812,9 @@ describe('new onboarding flow shell', () => {
 
     await advancePastManualOfficeEntry()
 
-    // Skip through the (incomplete) story to the pledge.
+    // Skip through the (incomplete) story and past signup-goal to the pledge.
     await skipThroughStorySteps()
+    await skipSignupGoalStep()
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),
@@ -859,47 +829,10 @@ describe('new onboarding flow shell', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('keeps the flag-off pledge label "Agree & Create My Plan"', async () => {
-    setCampaignStoryFlag(true, false)
-    mswServer.use(
-      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
-      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
-    )
-    renderFlow({ campaign: { id: 1 } as Campaign })
-
-    // Story step is omitted when the flag is off, so this lands on the pledge.
-    await advancePastManualOfficeEntry()
-
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'Agree & Create My Plan' }),
-    ).toBeInTheDocument()
-  })
-
-  it('blocks Continue until the campaign-story flag is ready', () => {
-    setCampaignStoryFlag(false, false)
-    const { rerender } = renderFlow()
-
-    // Flag not yet resolved: advancing could skip the story step, so hold.
-    expect(screen.getByRole('button', { name: /continue/i })).toBeDisabled()
-
-    setCampaignStoryFlag(true, false)
-    rerender(
-      <QueryClientProvider client={new QueryClient()}>
-        <OnboardingFlow />
-      </QueryClientProvider>,
-    )
-
-    expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled()
-  })
-
   it('fires Issues Completed and generation once when a prior issues-skip is followed by completion', async () => {
     const prewarm = vi
       .spyOn(landscapeModule, 'prewarmStrategicLandscape')
       .mockResolvedValue()
-    setCampaignStoryFlag(true, true)
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
@@ -932,9 +865,7 @@ describe('new onboarding flow shell', () => {
     await clickEnabledContinue()
     fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
 
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
+    expect(await findSignupGoalStep()).toBeInTheDocument()
     expect(mockTrackEvent).toHaveBeenCalledWith(
       EVENTS.OnboardingV2.OnboardingSkipped,
       expect.objectContaining({ step: 'What Issues Do You Want To Solve' }),
@@ -949,9 +880,7 @@ describe('new onboarding flow shell', () => {
     )
     await clickEnabledContinue()
 
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
+    expect(await findSignupGoalStep()).toBeInTheDocument()
     expect(prewarm).toHaveBeenCalledTimes(1)
 
     const issuesCompletedCalls = mockTrackEvent.mock.calls.filter(
@@ -964,7 +893,6 @@ describe('new onboarding flow shell', () => {
     const prewarm = vi
       .spyOn(landscapeModule, 'prewarmStrategicLandscape')
       .mockResolvedValue()
-    setCampaignStoryFlag(true, true)
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
@@ -997,9 +925,7 @@ describe('new onboarding flow shell', () => {
 
     await skipThroughStorySteps()
 
-    expect(
-      await screen.findByText('Take our pledge to get your campaign plan'),
-    ).toBeInTheDocument()
+    expect(await findSignupGoalStep()).toBeInTheDocument()
     expect(prewarm).not.toHaveBeenCalled()
     expect(mockTrackEvent).toHaveBeenCalledWith(
       EVENTS.OnboardingV2.OnboardingSkipped,
@@ -1010,34 +936,5 @@ describe('new onboarding flow shell', () => {
       EVENTS.OnboardingV2.IssuesCompleted,
       expect.anything(),
     )
-  })
-})
-
-describe('resolvePostPledgeRoute', () => {
-  it('sends campaign-story users to the Campaign Manager home (highest precedence)', () => {
-    expect(
-      resolvePostPledgeRoute({
-        campaignStoryEnabled: true,
-        campaignStrategyEnabled: true,
-      }),
-    ).toBe('/dashboard')
-  })
-
-  it('sends campaign-strategy-only (story-off) users to the legacy success page', () => {
-    expect(
-      resolvePostPledgeRoute({
-        campaignStoryEnabled: false,
-        campaignStrategyEnabled: true,
-      }),
-    ).toBe('/onboarding/success')
-  })
-
-  it('sends everyone else to the dashboard', () => {
-    expect(
-      resolvePostPledgeRoute({
-        campaignStoryEnabled: false,
-        campaignStrategyEnabled: false,
-      }),
-    ).toBe('/dashboard')
   })
 })

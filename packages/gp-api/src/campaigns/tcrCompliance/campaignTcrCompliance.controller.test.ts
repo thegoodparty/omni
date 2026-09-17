@@ -5,7 +5,7 @@ import { CommitteeType, TcrComplianceStatus } from '../../generated/prisma'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PinoLogger } from 'nestjs-pino'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { CampaignTcrComplianceController } from './campaignTcrCompliance.controller'
 import { CampaignTcrComplianceService } from './services/campaignTcrCompliance.service'
@@ -13,14 +13,14 @@ import { ComplianceStateService } from './services/complianceState.service'
 import { ComplianceStage } from '@goodparty_org/contracts'
 import { UsersService } from '../../users/services/users.service'
 import { CampaignsService } from '../services/campaigns.service'
+import { OrganizationMembershipService } from '@/organizations/services/organizationMembership.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import {
   createMockUser,
   createMockCampaign,
 } from '@/shared/test-utils/mockData.util'
-import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
-import { createMockClerkEnricher } from '@/shared/test-utils/mockClerkEnricher.util'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 
 function getGuards(methodName: keyof CampaignTcrComplianceController) {
   return (
@@ -54,6 +54,7 @@ describe('CampaignTcrComplianceController', () => {
     resendCampaignVerifyPin: ReturnType<typeof vi.fn>
     grantInternalTestingApproval: ReturnType<typeof vi.fn>
     revokeInternalTestingApproval: ReturnType<typeof vi.fn>
+    overrideCvValidation: ReturnType<typeof vi.fn>
     model: { update: ReturnType<typeof vi.fn> }
   }
   let mockUserService: { findByCampaign: ReturnType<typeof vi.fn> }
@@ -64,11 +65,17 @@ describe('CampaignTcrComplianceController', () => {
   let mockComplianceStateService: {
     findStateForCampaign: ReturnType<typeof vi.fn>
   }
+  let mockSendSingleSend: ReturnType<typeof vi.fn>
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
 
   beforeEach(async () => {
     mockAnalytics = {
       track: vi.fn().mockResolvedValue(undefined),
     }
+    mockSendSingleSend = vi.fn().mockResolvedValue(undefined)
 
     mockTcrService = {
       fetchByCampaignId: vi.fn().mockResolvedValue(null),
@@ -84,6 +91,7 @@ describe('CampaignTcrComplianceController', () => {
         .fn()
         .mockResolvedValue(mockTcrCompliance),
       revokeInternalTestingApproval: vi.fn().mockResolvedValue(undefined),
+      overrideCvValidation: vi.fn().mockResolvedValue(undefined),
       model: { update: vi.fn().mockResolvedValue(mockTcrCompliance) },
     }
 
@@ -117,12 +125,13 @@ describe('CampaignTcrComplianceController', () => {
           useValue: mockComplianceStateService,
         },
         { provide: CampaignsService, useValue: mockCampaignsService },
+        { provide: OrganizationMembershipService, useValue: {} },
         { provide: AnalyticsService, useValue: mockAnalytics },
-        {
-          provide: ClerkUserEnricherService,
-          useValue: createMockClerkEnricher(),
-        },
         { provide: PinoLogger, useValue: createMockLogger() },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: mockSendSingleSend },
+        },
         CampaignTcrComplianceController,
       ],
     }).compile()
@@ -156,6 +165,7 @@ describe('CampaignTcrComplianceController', () => {
     const tcrComplianceDto = {
       ein: '12-3456789',
       committeeName: 'Test Committee',
+      candidateName: 'Jane Candidate',
       websiteDomain: 'example.com',
       filingUrl: 'https://fec.gov/filing',
       email: 'test@example.com',
@@ -197,12 +207,45 @@ describe('CampaignTcrComplianceController', () => {
 
       expect(result).toEqual(mockTcrCompliance)
     })
+
+    describe('HubSpot single-send (ENG-11035)', () => {
+      it('does not call single-send when HUBSPOT_FORM_SUBMITTED_EMAIL_ID is unset', async () => {
+        await controller.createTcrCompliance(mockCampaign, tcrComplianceDto)
+
+        expect(mockSendSingleSend).not.toHaveBeenCalled()
+      })
+
+      it('sends to the triggering account email once configured', async () => {
+        vi.stubEnv('HUBSPOT_FORM_SUBMITTED_EMAIL_ID', '111222')
+
+        await controller.createTcrCompliance(mockCampaign, tcrComplianceDto)
+
+        expect(mockSendSingleSend).toHaveBeenCalledWith({
+          emailId: 111222,
+          to: mockUser.email,
+          customProperties: { source: 'compliance_flow' },
+        })
+      })
+
+      it('still returns the result when single-send fails', async () => {
+        vi.stubEnv('HUBSPOT_FORM_SUBMITTED_EMAIL_ID', '111222')
+        mockSendSingleSend.mockRejectedValueOnce(new Error('HubSpot down'))
+
+        const result = await controller.createTcrCompliance(
+          mockCampaign,
+          tcrComplianceDto,
+        )
+
+        expect(result).toEqual(mockTcrCompliance)
+      })
+    })
   })
 
   describe('createAgenticTcrCompliance', () => {
     const agenticDto = {
       ein: '12-3456789',
       committeeName: 'Test Committee',
+      candidateName: 'Jane Candidate',
       filingUrl: 'https://example.com/filing',
       email: 'test@example.com',
       phone: '5555555555',
@@ -272,6 +315,50 @@ describe('CampaignTcrComplianceController', () => {
       await controller.createAgenticTcrCompliance(mockCampaign, agenticDto)
 
       expect(mockAnalytics.track).not.toHaveBeenCalled()
+    })
+
+    describe('HubSpot single-send (ENG-11035)', () => {
+      it('does not call single-send when HUBSPOT_FORM_SUBMITTED_EMAIL_ID is unset', async () => {
+        await controller.createAgenticTcrCompliance(mockCampaign, agenticDto)
+
+        expect(mockSendSingleSend).not.toHaveBeenCalled()
+      })
+
+      it('sends to the triggering account email with the agentic source once configured', async () => {
+        vi.stubEnv('HUBSPOT_FORM_SUBMITTED_EMAIL_ID', '111222')
+
+        await controller.createAgenticTcrCompliance(mockCampaign, agenticDto)
+
+        expect(mockSendSingleSend).toHaveBeenCalledWith({
+          emailId: 111222,
+          to: mockUser.email,
+          customProperties: { source: 'agentic_compliance_flow' },
+        })
+      })
+
+      it('does not call single-send on an idempotent re-call', async () => {
+        vi.stubEnv('HUBSPOT_FORM_SUBMITTED_EMAIL_ID', '111222')
+        mockTcrService.createAgentic.mockResolvedValue({
+          record: mockTcrCompliance,
+          created: false,
+        })
+
+        await controller.createAgenticTcrCompliance(mockCampaign, agenticDto)
+
+        expect(mockSendSingleSend).not.toHaveBeenCalled()
+      })
+
+      it('still returns the record when single-send fails', async () => {
+        vi.stubEnv('HUBSPOT_FORM_SUBMITTED_EMAIL_ID', '111222')
+        mockSendSingleSend.mockRejectedValueOnce(new Error('HubSpot down'))
+
+        const result = await controller.createAgenticTcrCompliance(
+          mockCampaign,
+          agenticDto,
+        )
+
+        expect(result).toEqual(mockTcrCompliance)
+      })
     })
 
     it('still returns the result when analytics tracking fails', async () => {
@@ -369,6 +456,54 @@ describe('CampaignTcrComplianceController', () => {
       )
 
       expect(result).toEqual(expectedBrand)
+    })
+
+    describe('HubSpot single-send (ENG-11035)', () => {
+      it('does not call single-send when HUBSPOT_PIN_SUBMITTED_EMAIL_ID is unset', async () => {
+        await controller.submitCampaignVerifyPIN(
+          mockTcrCompliance.id,
+          { pin: '123456' },
+          mockUser,
+          mockCampaign,
+        )
+
+        expect(mockSendSingleSend).not.toHaveBeenCalled()
+      })
+
+      it('sends to the triggering account email once configured', async () => {
+        vi.stubEnv('HUBSPOT_PIN_SUBMITTED_EMAIL_ID', '333444')
+
+        await controller.submitCampaignVerifyPIN(
+          mockTcrCompliance.id,
+          { pin: '123456' },
+          mockUser,
+          mockCampaign,
+        )
+
+        expect(mockSendSingleSend).toHaveBeenCalledWith({
+          emailId: 333444,
+          to: mockUser.email,
+          customProperties: { source: 'compliance_flow' },
+        })
+      })
+
+      it('still returns the result when single-send fails', async () => {
+        vi.stubEnv('HUBSPOT_PIN_SUBMITTED_EMAIL_ID', '333444')
+        mockSendSingleSend.mockRejectedValueOnce(new Error('HubSpot down'))
+        const expectedBrand = { brand: 'ok' }
+        mockTcrService.submitCampaignVerifyToken.mockResolvedValue(
+          expectedBrand,
+        )
+
+        const result = await controller.submitCampaignVerifyPIN(
+          mockTcrCompliance.id,
+          { pin: '123456' },
+          mockUser,
+          mockCampaign,
+        )
+
+        expect(result).toEqual(expectedBrand)
+      })
     })
   })
 
@@ -492,6 +627,7 @@ describe('CampaignTcrComplianceController', () => {
 
       expect(mockCampaignsService.findUniqueOrThrow).toHaveBeenCalledWith({
         where: { id: mockCampaign.id },
+        include: { user: true },
       })
       expect(mockTcrService.resendCampaignVerifyPin).toHaveBeenCalledWith(
         mockCampaign,
@@ -590,6 +726,49 @@ describe('CampaignTcrComplianceController', () => {
       expect(
         mockTcrService.revokeInternalTestingApproval,
       ).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('overrideCvValidationForCampaign (admin)', () => {
+    it('is gated by AdminOrM2MGuard', () => {
+      expect(
+        getGuards('overrideCvValidationForCampaign').map(
+          (g: { name: string }) => g.name,
+        ),
+      ).toContain(AdminOrM2MGuard.name)
+    })
+
+    it('responds with HTTP 204 No Content', () => {
+      const statusCode = Reflect.getMetadata(
+        HTTP_CODE_METADATA,
+        CampaignTcrComplianceController.prototype
+          .overrideCvValidationForCampaign,
+      )
+      expect(statusCode).toBe(HttpStatus.NO_CONTENT)
+    })
+
+    it('verifies the campaign exists and delegates the override', async () => {
+      mockCampaignsService.findUniqueOrThrow.mockResolvedValue(mockCampaign)
+
+      await controller.overrideCvValidationForCampaign(mockCampaign.id)
+
+      expect(mockCampaignsService.findUniqueOrThrow).toHaveBeenCalledWith({
+        where: { id: mockCampaign.id },
+      })
+      expect(mockTcrService.overrideCvValidation).toHaveBeenCalledWith(
+        mockCampaign.id,
+      )
+    })
+
+    it('does not override when the campaign does not exist', async () => {
+      mockCampaignsService.findUniqueOrThrow.mockRejectedValue(
+        new NotFoundException(),
+      )
+
+      await expect(
+        controller.overrideCvValidationForCampaign(12345),
+      ).rejects.toThrow(NotFoundException)
+      expect(mockTcrService.overrideCvValidation).not.toHaveBeenCalled()
     })
   })
 })

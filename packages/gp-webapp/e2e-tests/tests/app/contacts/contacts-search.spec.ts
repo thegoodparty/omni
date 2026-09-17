@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import {
-  enableCrmFlags,
   fetchListMembers,
   fullPersonName,
   gotoCrmContacts,
@@ -24,7 +23,6 @@ import { setupProCampaignUser } from 'src/helpers/organizations'
 test.describe('Voter Data contact search', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
-    await enableCrmFlags(page)
   })
 
   test('full-name, case-insensitive, and partial search surface the matching person', async ({

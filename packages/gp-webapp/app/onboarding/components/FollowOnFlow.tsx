@@ -1,6 +1,7 @@
 'use client'
 
 import { Alert, AlertDescription, Button } from '@styleguide'
+import { SUPPORT_EMAIL } from '@shared/utils/supportContact'
 import { CircleAlert } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -243,7 +244,7 @@ export default function FollowOnFlow({
       })
     }
     if (answers.ballotStatus) {
-      attrs.push({ key: 'details.ballotStatus', value: answers.ballotStatus })
+      attrs.push({ key: 'ballotStatus', value: answers.ballotStatus })
     }
     return attrs
   }
@@ -322,7 +323,7 @@ export default function FollowOnFlow({
         })
         setErrorMessage(
           "We couldn't find an upcoming election for this office yet. " +
-            'Please contact support@goodparty.org and we will help you ' +
+            `Please contact ${SUPPORT_EMAIL} and we will help you ` +
             'start your re-election campaign.',
         )
         return false
@@ -421,7 +422,7 @@ export default function FollowOnFlow({
       liveCampaign
     ) {
       const ok = await updateCampaign([
-        { key: 'details.ballotStatus', value: answers.ballotStatus },
+        { key: 'ballotStatus', value: answers.ballotStatus },
       ])
       if (ok === false) return
     }

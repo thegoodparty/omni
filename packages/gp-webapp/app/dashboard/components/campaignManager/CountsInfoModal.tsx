@@ -5,6 +5,9 @@ import { numberFormatter } from 'helpers/numberHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ModalOrDrawer } from '@shared/ui/ModalOrDrawer'
 import { reportErrorToSentry } from '@shared/sentry'
+import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
+import { FetchError } from 'ofetch'
+import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from 'app/dashboard/contacts/crm/shared/constants'
 import { districtStatsQueryOptions } from 'app/dashboard/polls/shared/queries'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 import { RaceTargetMetrics } from 'helpers/types'
@@ -40,6 +43,16 @@ export const CountsInfoModal = ({
   // failure from another consumer would surface here and report while closed.
   useEffect(() => {
     if (!open || !error) return
+    // "No constituent data for this office" is an expected product state, and
+    // a district that resolves but has no stats row raises it too — which the
+    // predicate above can't see. The row already hides on a null count.
+    if (
+      error instanceof FetchError &&
+      extractApiErrorInfo(error.data).errorCode ===
+        VOTER_DATA_UNAVAILABLE_ERROR_CODE
+    ) {
+      return
+    }
     reportErrorToSentry(error, {
       context: 'dashboard.countsInfoModal.fetchContactsStats',
     })

@@ -5,31 +5,29 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
-import { Campaign, User } from '../../generated/prisma'
+import { Campaign, OrganizationRole } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 
+import { OrganizationMembershipService } from '@/organizations/services/organizationMembership.service'
 import {
   REQUIRE_CAMPAIGN_META_KEY,
   RequireCampaignMetadata,
 } from '../decorators/UseCampaign.decorator'
 import { CampaignsService } from '../services/campaigns.service'
-import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
-
-const isUser = (value: object): value is User =>
-  'clerkId' in value && 'email' in value
 
 /**
  * Guard that resolves a Campaign and attaches it to the request.
  *
- * Requires the `X-Organization-Slug` header. Looks up the Organization by slug
- * and owner, then fetches the associated campaign.
+ * Requires the `X-Organization-Slug` header. Resolves a role for the org
+ * (owner fallback, else a membership row), then fetches the associated
+ * campaign.
  */
 @Injectable()
 export class UseCampaignGuard implements CanActivate {
   constructor(
     private campaignsService: CampaignsService,
+    private organizationMembership: OrganizationMembershipService,
     private reflector: Reflector,
-    private readonly clerkEnricher: ClerkUserEnricherService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(UseCampaignGuard.name)
@@ -39,6 +37,7 @@ export class UseCampaignGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<{
       headers: Record<string, string | undefined>
       campaign?: Campaign
+      organizationRole?: OrganizationRole
       user: { id: number }
     }>()
 
@@ -51,38 +50,38 @@ export class UseCampaignGuard implements CanActivate {
     const userId = request.user.id
     const include = campaignInclude ?? {}
     let campaign: Campaign | null = null
+    let role: OrganizationRole | undefined
 
     const slug = request.headers['x-organization-slug']
     if (typeof slug === 'string') {
-      const [org, cam] = await Promise.all([
-        this.campaignsService.client.organization.findFirst({
-          where: { slug, ownerId: userId },
-        }),
-        this.campaignsService.findFirst({
-          where: { organizationSlug: slug, userId },
+      const resolved = await this.organizationMembership.resolveRole(
+        slug,
+        userId,
+      )
+      // This guard only resolves and attaches — it doesn't gate on role.
+      // OrganizationRoleGuard (next in @UseCampaign()'s guard chain)
+      // enforces the team-role line, so a volunteer reaches it as a
+      // resolved member and gets a 403 there, not a 404 here.
+      if (resolved) {
+        campaign = await this.campaignsService.findFirst({
+          where: { organizationSlug: slug },
           include,
-        }),
-      ])
-      if (org && cam) {
-        campaign = cam
+        })
+        role = resolved.role
       }
     }
 
     if (campaign) {
-      if (
-        include &&
-        'user' in include &&
-        'user' in campaign &&
-        typeof campaign.user === 'object' &&
-        campaign.user !== null &&
-        isUser(campaign.user)
-      ) {
-        const enriched = await this.clerkEnricher.enrichUser(campaign.user)
-        Object.assign(campaign, { user: enriched })
-      }
       request.campaign = campaign
+      request.organizationRole = role
       return true
     } else if (continueIfNotFound === true) {
+      // A resolved member of a campaign-less org must still carry their
+      // role, or OrganizationRoleGuard's unset-role passthrough would let
+      // a volunteer through unenforced on solo-@UseCampaign routes.
+      if (role) {
+        request.organizationRole = role
+      }
       return true
     }
 

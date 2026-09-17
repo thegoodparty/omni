@@ -27,12 +27,22 @@ import {
 //   assistant can't compose new filters from retired keys.
 const EXCLUDED_SCHEMA_FIELDS = new Set([
   'search',
+  // Filterable in the wizard, but the catalog is the AI assistant's value
+  // vocabulary and precinct has no fixed one — its values are enumerated per
+  // district by GET /v1/contacts/precincts. Listing the dimension without
+  // them would invite the assistant to invent precinct names. See the note
+  // at the top of filterDimensions.catalog.ts.
+  'precincts',
   'registeredVoterTrue',
   'registeredVoterFalse',
   'age18_25',
   'age25_35',
   'age35_50',
   'age50Plus',
+  // Legacy wire value: still accepted from saved filters persisted before
+  // the Homeowner/Renter/Unknown collapse (ENG-10947), but no longer
+  // offered as its own catalog option.
+  'homeownerLikely',
 ])
 
 const schemaFieldKeys = new Set(Object.keys(voterFilterBaseSchema.shape))
@@ -88,9 +98,9 @@ describe('FILTER_DIMENSIONS catalog', () => {
   })
 
   // ENG-10837: the catalog advertises all five SupportStatusRollup values —
-  // SupportStatusService.personIdsByEffectiveStatus resolves undecided/
-  // refused (override-only, ENG-10833) alongside the three derivable ones,
-  // so the assistant/wizard can safely build a filter on any of them.
+  // SupportStatusService.personIdsByEffectiveStatus resolves refused
+  // (override-only, ENG-10833) alongside the four derivable ones, so the
+  // assistant/wizard can safely build a filter on any of them.
   it('sources supportStatus values from the full SupportStatusRollup vocabulary', () => {
     const supportStatus = FILTER_DIMENSIONS.find(
       (d) => d.key === 'supportStatus',
@@ -163,8 +173,10 @@ describe('FILTER_DIMENSIONS provenance', () => {
         'education',
         'ethnicity',
         'homeowner',
+        'ideology',
         'income',
         'incomeRanges',
+        'independentAffinity',
         'maritalStatus',
         'veteran',
         'voterStatus',

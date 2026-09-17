@@ -41,7 +41,7 @@ export const NavHeaderActionSlotContext = createContext<NavHeaderActionSlot>({
 // stay visible on mobile. That has to be observed rather than declared by the
 // page: whether a CTA is mounted depends on page state (Know Your Opponent only
 // has its Export brief in the report state, Public Profile only once a profile
-// exists, Your story only once the story loads), so a page-level flag would
+// exists, Your Story only once the story loads), so a page-level flag would
 // leave an empty bar on mobile in every other state.
 //
 // With no slot in context the action renders in place, so a page that doesn't

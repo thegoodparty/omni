@@ -219,4 +219,25 @@ describe('toModelMessages — user content parts', () => {
       ])
     },
   )
+
+  it('passes a file part through to the AI SDK message alongside text', () => {
+    const fileBytes = new Uint8Array([1, 2, 3])
+    const messages: LlmMessage[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Candidate name: Jane' },
+          { type: 'file', data: fileBytes, mediaType: 'application/pdf' },
+        ],
+      },
+    ]
+
+    const converted = toModelMessages(messages)
+    const userMsg = converted[0]
+    if (!userMsg || userMsg.role !== 'user') throw new Error('expected user')
+    expect(userMsg.content).toEqual([
+      { type: 'text', text: 'Candidate name: Jane' },
+      { type: 'file', data: fileBytes, mediaType: 'application/pdf' },
+    ])
+  })
 })

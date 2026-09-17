@@ -15,9 +15,25 @@ const ALL_SEGMENTS = 'all'
 // VOTER_DATA_UNAVAILABLE_ERROR_CODE in gp-api's contacts.types.ts.
 const VOTER_DATA_UNAVAILABLE_ERROR_CODE = 'VOTER_DATA_UNAVAILABLE'
 
-// Shown when a list's rename/delete 409s because it was used for outreach
+// The two ways a voter READ fails, as opposed to the eligibility state above.
+// Both are 5xx and both carry a message gp-api wrote for the candidate, which
+// is the whole reason they are coded: a client cannot tell from the status
+// alone that a people-db 502 explains itself and a Geoapify 502 does not.
+// Mirrors VOTER_QUERY_TIMEOUT_ERROR_CODE / VOTER_DATA_UNREACHABLE_ERROR_CODE
+// in gp-api's shared/constants/voterData.consts.ts.
+const VOTER_QUERY_TIMEOUT_ERROR_CODE = 'VOTER_QUERY_TIMEOUT'
+const VOTER_DATA_UNREACHABLE_ERROR_CODE = 'VOTER_DATA_UNREACHABLE'
+
+// Codes whose message is safe — and better than anything this client could
+// write — to show verbatim, whatever the status.
+export const VOTER_READ_FAILURE_ERROR_CODES: readonly string[] = [
+  VOTER_QUERY_TIMEOUT_ERROR_CODE,
+  VOTER_DATA_UNREACHABLE_ERROR_CODE,
+]
+
+// Shown when a list's edit/delete 409s because it was used for outreach
 // (locked) — including the race where it gets locked between page load and
-// the mutation. RenameListDialog, DeleteListDialog, and their tests all need
+// the mutation. CreateListWizard, DeleteListDialog, and their tests all need
 // this exact copy, so it lives here once (ENG-10707).
 const LOCKED_LIST_MESSAGE =
   'This list was just used for outreach and is now locked — duplicate it to make changes.'

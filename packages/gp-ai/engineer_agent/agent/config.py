@@ -2,6 +2,8 @@ import math
 import os
 from dataclasses import dataclass
 
+from .repos import other_profiles, resolve_repo
+
 BOT_PREFIX = "[GP-Bot]"
 
 # Per-run ceilings. Until now a run had neither: max_turns=200 on Opus with no
@@ -36,6 +38,25 @@ def _positive_float_from_env(name: str, default: float) -> float:
     return default
 
 
+ANALYZE_LABEL = "analyze"
+# A dev-only E2E triage run. Read-only and verdict-emitting exactly like an
+# analyze run, so it escalates on the same terms (see escalation.py); it is a
+# separate value only so the cost of the bot's self-filed tickets stays
+# separable from the cost of a human's.
+#
+# A SECOND COPY of clickup_bot/lambda/handler.py's DEV_TEST_LABEL, which is the
+# side that sets it. The Lambda imports nothing from this repo — it is packaged
+# and deployed on its own — so the two cannot share a definition, and
+# clickup_bot/tests/test_scope_is_mirrored.py fails if they drift.
+DEV_TEST_LABEL = "dev-test"
+
+# Which kinds of run are allowed to queue an implementation run off a verdict.
+# Both are read-only runs that end in a GPBOT-VERDICT line; nothing else is, and
+# an unset label (a local run, an older task definition) is deliberately absent
+# so the escalation path stays closed when nobody said what kind of run this is.
+ESCALATING_LABELS = frozenset({ANALYZE_LABEL, DEV_TEST_LABEL})
+
+
 @dataclass
 class AgentConfig:
     task_id: str
@@ -45,6 +66,18 @@ class AgentConfig:
     model: str = "opus"
     max_budget_usd: float = DEFAULT_MAX_BUDGET_USD
     deadline_seconds: float = DEFAULT_DEADLINE_SECONDS
+    # Which kind of run this is ("analyze" / "implement"), set by the ClickUp
+    # bot's container override. Defaults to empty rather than to "analyze": an
+    # unset label means we are running somewhere that does not set it (a local
+    # invocation, an older task definition), and the escalation path must stay
+    # closed in that case rather than treating an unknown run as an analysis
+    # allowed to queue implementation work.
+    label: str = ""
+    # Which repo this run is about, set by the ClickUp bot's container override
+    # from the ticket's list. Empty means nobody routed — a local run, or a task
+    # definition from before multi-repo — and resolve_repo() reads that as omni,
+    # which is what every such run meant before this field existed.
+    target_repo: str = ""
 
     @classmethod
     def from_env(cls) -> "AgentConfig":
@@ -56,6 +89,8 @@ class AgentConfig:
             model=os.environ.get("AGENT_MODEL", "opus"),
             max_budget_usd=_positive_float_from_env("AGENT_MAX_BUDGET_USD", DEFAULT_MAX_BUDGET_USD),
             deadline_seconds=_positive_float_from_env("AGENT_DEADLINE_SECONDS", DEFAULT_DEADLINE_SECONDS),
+            label=os.environ.get("AGENT_LABEL", ""),
+            target_repo=os.environ.get("TARGET_REPO", ""),
         )
 
 
@@ -64,31 +99,73 @@ CAPABILITIES = {
 }
 
 
-def build_capability_prompt() -> str:
-    return """You are an expert software engineer.
+def build_capability_prompt(target_repo: str | None = None) -> str:
+    """The system prompt, briefed for the repo this run is about and the rest.
+
+    Every repo's briefing is included, with the routed one marked as the only
+    place a PR may be opened. That is a deliberate reversal: showing one briefing
+    and one only was meant to stop the model working confidently in the wrong
+    codebase, which is still the expensive mistake.
+
+    It stopped the wrong thing. A bug is reported by symptom, and the symptom does
+    not know which repo produced it, so a run that must stop at the repo boundary
+    stops on exactly the tickets where finding the cause was the whole job. The
+    boundary now applies to writes rather than reads — see repos.other_profiles.
+    """
+    profile = resolve_repo(target_repo)
+    other_briefings = "\n\n".join(p.briefing for p in other_profiles(profile))
+    return f"""You are an expert software engineer.
 
 ## TOOLS AVAILABLE
 
-**CLI**: git, gh, aws, python, node, npm (can install more via apt-get/pip)
+**CLI**: git, gh, aws, python, node, npm, bun (can install more via apt-get/pip)
 
 **GitHub org**: thegoodparty
 
-Product code lives in the **thegoodparty/omni** monorepo (default branch `main`):
-```bash
-git clone --depth 1 https://x-access-token:$GITHUB_TOKEN@github.com/thegoodparty/omni.git /workspace/omni
-```
-Packages live under `packages/`: gp-webapp, gp-api, election-api,
-gp-admin, candidate-sites, gp-sdk, contracts, gp-ai. Open PRs against omni's `main`.
+## THE REPO FOR THIS TASK
 
-Your own code (this agent, the ClickUp bot) lives in omni at `packages/gp-ai` —
-it is NOT a separate repo.
+This run is about **{profile.full_name}**. Any PR you open goes there, against
+its `{profile.base_branch}` branch, and nowhere else.
 
-The old standalone repos (gp-webapp, gp-api, people-api, election-api,
-gp-ai-projects) are **archived** (read-only) — never clone them and never open a
-PR against them. gp-data-platform remains a separate live repo:
-```bash
-git clone --depth 1 https://x-access-token:$GITHUB_TOKEN@github.com/thegoodparty/gp-data-platform.git /workspace/gp-data-platform
-```
+**You were pointed here by the ClickUp list the ticket was filed in. That is a
+good guess, not a fact.** Bugs are reported by symptom, and a symptom does not
+know which repo produced it: the same list collects bugs whose cause is an email
+template, an API, or a data pipeline. The first marketing ticket this bot ever
+saw was routed here by its list and turned out to be a gp-api email.
+
+**So follow the cause wherever it goes.** Read any repo below that you need to.
+Clone it, grep it, read its docs. Finding out that the cause is elsewhere is a
+real answer and a useful one — much more useful than stopping at the boundary
+and handing a human an investigation to start over.
+
+Two rules bound that freedom, and they are what keep it safe:
+
+1. **Read anywhere, write in one place.** You may examine every repo below. You
+   may open a PR only in **{profile.full_name}**. A confident fix in the wrong
+   codebase is the most expensive thing you can produce, because it looks
+   exactly like work.
+2. **Name where the fix belongs**, on the `GPBOT-REPO:` line described with the
+   verdict in your task instruction. If the cause is not in
+   {profile.full_name}, do not look for something here to change instead. Say
+   where it is. That line is machine-read, and the implementation run is pointed
+   at the repo it names — so naming the right repo is how a fix actually reaches
+   the right codebase.
+
+**When a bug genuinely spans two repos** — a link in one pointing at a page in
+another, a caller and its API — work out which side actually has the defect.
+Usually only one does, and that side is your answer. Only when the fix truly
+cannot be made in a single repo does it need coordinated PRs: say so, describe
+what each side needs, and give the verdict `needs-human`. Do not guess at half
+of it.
+
+{profile.briefing}
+
+### Other repos you may read
+
+You were not routed to these. Do not open a PR in one. They are here so that if
+the cause turns out to live in one, you can read it knowing how it works.
+
+{other_briefings}
 
 **Databricks** (read-only): `python -m engineer_agent.scripts.query_db --help`
 Default catalog: goodparty_data_catalog.dbt
@@ -102,6 +179,22 @@ Default catalog: goodparty_data_catalog.dbt
 - Workspace ID: 90132012119
 
 **Slack**: use shared.slack_client.SlackClient to read threads by URL
+
+## ONE THING YOUR CREDENTIALS CANNOT PUSH
+
+You push as a GitHub App, and that App is not granted the `workflows`
+permission. A commit that adds or edits anything under `.github/workflows/` is
+rejected by GitHub at push time, however correct the change is, and the whole
+branch is refused with it — not just the offending file.
+
+So if the fix you have found is a change to a workflow file, do not spend the
+run discovering that. Say on the ticket which file needs which change and why,
+and give the verdict `needs-human`. A person applies it in seconds; you cannot
+apply it at all.
+
+This is about the workflow FILES, not about CI. Reading them, reading their
+logs, and changing the code they run are all fine and are usually where the
+answer is anyway.
 
 ## OUTPUT
 

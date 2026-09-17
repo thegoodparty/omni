@@ -46,14 +46,17 @@ import {
   recordVoterDensityRequest,
 } from '../observability/person-profiles.metrics'
 
-// A 200 "removal requested" payload: identity-free, no authored content, just
-// the `removed` flag so the marketing site knows to render the minimal K/L
-// states (which still show the crawlable civics spine from election-api). All
-// overlay fields are null; issues is empty.
-function buildRemovedResponse(personId: string): PublicPersonProfileResponse {
+// A 200 marker payload: identity-free, no authored content, just the flag the
+// marketing site gates on. Every overlay field is null and issues is empty, so
+// nothing the owner wrote can leave the server on these paths — the caller
+// learns only which gate it hit.
+function buildMarkerResponse(
+  personId: string,
+  marker: { removed: true } | { unpublished: true },
+): PublicPersonProfileResponse {
   return {
     personId,
-    removed: true,
+    ...marker,
     displayName: null,
     roleTitleOverride: null,
     bioOverride: null,
@@ -82,10 +85,14 @@ function buildRemovedResponse(personId: string): PublicPersonProfileResponse {
 // The marketing site's render gate. A profile is only "live" when it is
 // published and not deleted; this endpoint enforces that so unpublished/draft
 // content never leaves the server:
-//   - removal requested           -> 200 { removed: true } (page renders K/L)
-//   - never existed / unpublished -> 404 (page renders "not found")
-//   - deleted                     -> 410 Gone (page renders "removed")
-//   - live                        -> 200 with the whitelisted overlay
+//   - removal requested -> 200 { removed: true } (page renders K/L)
+//   - deleted           -> 410 Gone (page renders "not found")
+//   - unpublished/draft -> 200 { unpublished: true } (spine page, no claim CTA)
+//   - never existed     -> 404 (spine page with claim CTAs, or "not found")
+//   - live              -> 200 with the whitelisted overlay
+//
+// Deletion still outranks unpublished: an owner who deleted a draft asked for
+// the page to be gone, which is a stronger request than "not live right now".
 @Controller('public-person-profiles')
 @PublicAccess()
 @UsePipes(ZodValidationPipe)
@@ -164,7 +171,7 @@ export class PublicPersonProfilesController {
     // marker and no authored content. The marketing site renders K/L from this.
     if (await this.personProfilesService.isRemoved(dto.personId)) {
       gate('removed')
-      return buildRemovedResponse(dto.personId)
+      return buildMarkerResponse(dto.personId, { removed: true })
     }
 
     const profile = await this.personProfilesService.findByPersonId(
@@ -179,9 +186,13 @@ export class PublicPersonProfilesController {
       gate('gone')
       throw new GoneException('Profile has been removed')
     }
+    // Distinct from the 404 above: an owner exists and has authored something,
+    // it just isn't live. The marketing page renders the same civics spine
+    // either way, but it must not invite this person to claim a profile they
+    // already own — or invite voters to nudge them into finishing it.
     if (!profile.publishedAt) {
-      gate('not_found')
-      throw new NotFoundException('Profile is not published')
+      gate('unpublished')
+      return buildMarkerResponse(dto.personId, { unpublished: true })
     }
 
     gate('live')
@@ -216,12 +227,14 @@ export class PublicPersonProfilesController {
   // scripted caller from flooding the leads table until edge/WAF limits land.
   //
   // A `notify` submission (a VISITOR nudging this person, as opposed to the
-  // person claiming their own page) also refreshes the candidate's HubSpot
-  // `candidate_profile_requests` count. That runs detached and after the row is
-  // committed: the visitor's submission is already durable and successful by
-  // then, so a HubSpot or warehouse outage can only cost the CRM number a
-  // refresh — which the next submission repairs, since the write is a computed
-  // total rather than an increment.
+  // person claiming their own page) also drives the CRM: it refreshes the
+  // candidate's HubSpot `candidate_profile_requests` count and emits the Segment
+  // event that person's nudge email is sent off (see CrmPersonProfilesService).
+  // Both run detached and after the row is committed: the visitor's submission
+  // is already durable and successful by then, so a HubSpot, warehouse, or
+  // Segment outage can only cost the CRM side, never the lead. The count repairs
+  // itself on the next submission, being a computed total rather than an
+  // increment; a lost event is a lost email, which is why it is metered.
   @Post('claim-request')
   @HttpCode(HttpStatus.CREATED)
   @ResponseSchema(ProfileClaimRequestResponseSchema)
@@ -233,14 +246,14 @@ export class PublicPersonProfilesController {
       await this.personProfilesService.createClaimRequest(dto)
 
     if (dto.source === ProfileClaimRequestSource.notify) {
-      // `syncClaimRequestCount` already swallows its own failures, but settle
+      // `handleNotifySubmitted` already swallows its own failures, but settle
       // BOTH outcomes explicitly rather than `void`-ing the promise: an
       // unhandled rejection here would take the process down, and a bare
       // `void p` (or `p.finally()`) leaves one unhandled if that guarantee ever
       // regresses.
       const settle = (): void => undefined
       this.crmPersonProfiles
-        .syncClaimRequestCount(dto.personId)
+        .handleNotifySubmitted(dto.personId, claimRequest.id)
         .then(settle, settle)
     }
 

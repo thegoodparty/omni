@@ -18,10 +18,6 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { CampaignStrategyService } from './services/campaignStrategy.service'
 import {
-  CommunityEventsResponse,
-  CommunityEventsResponseSchema,
-} from '@goodparty_org/contracts'
-import {
   StrategicLandscapeResponse,
   StrategicLandscapeResponseSchema,
 } from './schemas/strategicLandscape.schema'
@@ -65,21 +61,6 @@ export class CampaignStrategyController {
   ): Promise<StrategicLandscapeResponse> {
     const response =
       await this.campaignStrategy.getOrGenerateStrategicLandscape(campaign)
-    if (response.status === 'generating') {
-      res.status(HttpStatus.ACCEPTED)
-    }
-    return response
-  }
-
-  @Post('mine/community-events')
-  @ResponseSchema(CommunityEventsResponseSchema)
-  @UseCampaign({ include: { user: true } })
-  async generateCommunityEvents(
-    @ReqCampaign() campaign: CampaignWith<'user'>,
-    @Res({ passthrough: true }) res: FastifyReply,
-  ): Promise<CommunityEventsResponse> {
-    const response =
-      await this.campaignStrategy.getOrGenerateCommunityEvents(campaign)
     if (response.status === 'generating') {
       res.status(HttpStatus.ACCEPTED)
     }

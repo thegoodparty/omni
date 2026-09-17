@@ -9,6 +9,14 @@ import { RaceListItem } from './zipToPosition.types'
 const PCT_DISTRICTZIP_TO_ZIP_THRESHOLD =
   Number(process.env.PCT_DISTRICTZIP_TO_ZIP_THRESHOLD) || 0.005
 
+// Upper bound on the `future` timeframe. A no-op against today's data: the
+// BallotReady ingest carries a rolling ~2-year forward window, so Race already
+// ends inside this horizon and the bound excludes nothing. It exists so that a
+// widened ingest can't silently start offering races too far out to act on.
+// Beware if that day comes: long-cycle seats (6-year Senate, 4-year mayor)
+// would be the first thing this hides.
+const FUTURE_SEARCH_HORIZON_YEARS = 2
+
 type SearchParams = {
   zip?: string
   name?: string
@@ -70,8 +78,14 @@ export class ZipToPositionService extends createPrismaBase(
     const todayUtc = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
     )
+    const horizonUtc = new Date(todayUtc)
+    horizonUtc.setUTCFullYear(
+      horizonUtc.getUTCFullYear() + FUTURE_SEARCH_HORIZON_YEARS,
+    )
     const electionDate =
-      params.timeframe === 'past' ? { lt: todayUtc } : { gte: todayUtc }
+      params.timeframe === 'past'
+        ? { lt: todayUtc }
+        : { gte: todayUtc, lte: horizonUtc }
 
     const races = await this.client.race.findMany({
       where: { positionId: { in: [...metaByPositionId.keys()] }, electionDate },

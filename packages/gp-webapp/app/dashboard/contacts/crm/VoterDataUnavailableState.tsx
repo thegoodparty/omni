@@ -1,7 +1,6 @@
 import { Button, Card, MapPinIcon } from '@styleguide'
+import { SUPPORT_EMAIL } from '@shared/utils/supportContact'
 import { getContactsLabels } from '../../shared/contactsLabels'
-
-const SUPPORT_EMAIL = 'help@goodparty.org'
 
 interface VoterDataUnavailableStateProps {
   officeName: string | null

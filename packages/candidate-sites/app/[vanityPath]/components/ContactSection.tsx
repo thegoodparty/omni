@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import TextField from '../../shared/inputs/TextField'
 import EmailInput from '../../shared/inputs/EmailInput'
 import PhoneInput from '../../shared/inputs/PhoneInput'
@@ -57,19 +57,7 @@ export default function ContactSection({
   const [loading, setLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
-  const muiInputSx = useMemo(() => {
-    const color = activeTheme.muiColor
-    return {
-      '& label': { color },
-      '& label.Mui-focused': { color },
-      '& .MuiOutlinedInput-root': {
-        color,
-        '& fieldset': { borderColor: color },
-        '&:hover fieldset': { borderColor: color },
-        '&.Mui-focused fieldset': { borderColor: color },
-      },
-    }
-  }, [activeTheme.muiColor])
+  const accentColor = activeTheme.muiColor
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -119,12 +107,10 @@ export default function ContactSection({
                   value={formData.name || ''}
                   label="Your Name"
                   name="name"
-                  fullWidth
                   required
                   placeholder="John Doe"
                   onChange={(e) => handleChange('name', e.target.value)}
-                  sx={muiInputSx}
-                  InputLabelProps={{ shrink: true }}
+                  accentColor={accentColor}
                 />
               </div>
               <div className="mb-4">
@@ -135,18 +121,15 @@ export default function ContactSection({
                   onChangeCallback={(e) =>
                     handleChange('email', e.target.value)
                   }
-                  sx={muiInputSx}
-                  InputLabelProps={{ shrink: true }}
+                  accentColor={accentColor}
                 />
               </div>
               <div className="mb-4">
                 <PhoneInput
                   value={formData.phone || ''}
                   hideIcon
-                  shrink
                   onChangeCallback={(phone) => handleChange('phone', phone)}
-                  sx={muiInputSx}
-                  InputLabelProps={{ shrink: true }}
+                  accentColor={accentColor}
                 />
               </div>
               <div className="mb-4">
@@ -154,14 +137,12 @@ export default function ContactSection({
                   value={formData.message || ''}
                   label="Message"
                   name="message"
-                  fullWidth
                   required
                   multiline
                   rows={4}
                   placeholder="How can we help you?"
                   onChange={(e) => handleChange('message', e.target.value)}
-                  sx={muiInputSx}
-                  InputLabelProps={{ shrink: true }}
+                  accentColor={accentColor}
                 />
               </div>
               <div className="flex items-start space-x-2">

@@ -47,7 +47,7 @@ describe('VoterDataUnavailableState', () => {
       .getByRole('link', { name: /contact support/i })
       .getAttribute('href')
 
-    expect(href).toContain('mailto:help@goodparty.org')
+    expect(href).toContain('mailto:support@goodparty.org')
     expect(href).toContain('Mayor')
   })
 
@@ -58,7 +58,7 @@ describe('VoterDataUnavailableState', () => {
       .getByRole('link', { name: /contact support/i })
       .getAttribute('href')
 
-    expect(href).toContain('mailto:help@goodparty.org')
+    expect(href).toContain('mailto:support@goodparty.org')
     expect(href).not.toContain('undefined')
     expect(href).not.toContain('null')
   })

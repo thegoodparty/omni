@@ -29,6 +29,11 @@ export abstract class BaseResource {
     body: OfetchRequestBody,
   ): Promise<T> => this.httpClient.request<T>(path, { method: 'PATCH', body })
 
-  protected deleteRequest = <T>(path: string): Promise<T> =>
-    this.httpClient.request<T>(path, { method: 'DELETE' })
+  // A body is optional but sometimes required: gp-api keys some deletes on a
+  // payload rather than a path param, because the subject is an identifier
+  // from another service with no resource URL of its own.
+  protected deleteRequest = <T>(
+    path: string,
+    body?: OfetchRequestBody,
+  ): Promise<T> => this.httpClient.request<T>(path, { method: 'DELETE', body })
 }

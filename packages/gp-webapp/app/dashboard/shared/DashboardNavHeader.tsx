@@ -21,13 +21,13 @@ const DashboardNavHeader = ({
   hasAction = false,
   actionSlotRef,
 }: {
-  icon: NavHeaderIconKey
+  icon?: NavHeaderIconKey
   label: string
   centered?: boolean
   hasAction?: boolean
   actionSlotRef?: (node: HTMLDivElement | null) => void
 }): React.JSX.Element => {
-  const Icon = NAV_HEADER_ICONS[icon]
+  const Icon = icon ? NAV_HEADER_ICONS[icon] : null
   return (
     <div
       className={cn(
@@ -42,7 +42,7 @@ const DashboardNavHeader = ({
           hasAction ? 'hidden lg:flex' : 'flex',
         )}
       >
-        <Icon className="size-5 text-foreground" aria-hidden />
+        {Icon && <Icon className="size-5 text-foreground" aria-hidden />}
         <h1 className="text-base font-semibold text-foreground">{label}</h1>
       </div>
       {/* DashboardNavHeaderAction portals a page's primary action in here, so

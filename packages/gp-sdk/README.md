@@ -95,6 +95,39 @@ const patched = await client.organizations.patch('campaign-123', {
   overrideDistrictId: 'district-uuid',
 })
 
+// Person profile privacy takedowns (admin / M2M)
+//
+// A privacy request names a public URL, not a UUID. Resolve it first so the
+// operator can confirm the subject — a mis-keyed personId silently takes down
+// the wrong person's page.
+const subject = await client.personProfiles.lookupPerson(
+  'https://goodparty.org/people/jordan-reyes-a1b2c3d4',
+)
+// => { personId, fullName, state, office }
+
+// appliedBy / clearedBy are required: gp-api sees only a shared M2M token on
+// these routes and cannot derive who acted. Use an email for a person, or
+// `system:<name>` for automation.
+await client.personProfiles.setRemoval({
+  personId: subject.personId,
+  appliedBy: 'ops@goodparty.org',
+  note: 'CA privacy request',
+})
+
+// Active takedowns by default; pass includeCleared for the reverted ones too.
+// Each row carries fullName + profileUrl, resolved from the civics spine at
+// read time — both null if that lookup fails, so a row never disappears.
+const removals = await client.personProfiles.listRemovals()
+const withHistory = await client.personProfiles.listRemovals({
+  includeCleared: true,
+})
+
+// Reverting preserves the record (clearedAt / clearedBy) rather than deleting it.
+await client.personProfiles.clearRemoval({
+  personId: subject.personId,
+  clearedBy: 'ops@goodparty.org',
+})
+
 // Ecanvasser
 const ecanvasser = await client.ecanvasser.create({
   apiKey: 'ecanvasser-api-key',
@@ -118,6 +151,16 @@ const runs = await client.adminAgentRuns.list({
 const runDetail = await client.adminAgentRuns.get('run-uuid')
 
 const retriedRun = await client.adminAgentRuns.retry('run-uuid')
+
+// One-time sign-in link for an existing user (admin / M2M). Hand the url to
+// the account's real owner — it is not an impersonation token. Pass the acting
+// admin's email so the gp-api audit log records who minted the link; M2M
+// callers should always send it, a direct admin session need not.
+const signInLink = await client.admin.createSignInLink(
+  42,
+  'admin@goodparty.org',
+)
+// { url: 'https://app.goodparty.org/sign-in-link?__clerk_ticket=…', expiresAt }
 
 // Admin briefings (admin / M2M)
 const briefings = await client.admin.briefings.list({

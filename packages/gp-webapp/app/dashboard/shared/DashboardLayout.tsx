@@ -12,7 +12,13 @@ import { ProUpgradePrompt } from './ProUpgradePrompt'
 import { usePathname, useRouter } from 'next/navigation'
 import { weeksTill } from 'helpers/dateHelper'
 import { Campaign } from 'helpers/types'
-import { Sidebar, SidebarInset, SidebarProvider, useSidebar } from '@styleguide'
+import {
+  Separator,
+  Sidebar,
+  SidebarInset,
+  SidebarProvider,
+  useSidebar,
+} from '@styleguide'
 import { MenuIcon, XMarkIcon } from '@styleguide/components/ui/icons'
 import { useOrganization } from '@shared/organization-picker'
 import ImpersonationBanner from '@shared/user/ImpersonationBanner'
@@ -21,11 +27,11 @@ import { useIsImpersonating } from '@shared/hooks/useIsImpersonating'
 import { isElectionResultDismissed } from '../election-result/dismissal'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
 import { useWinVoterContext } from './useWinVoterContext'
-import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { DashboardCampaignManagerChat } from '../campaign-manager/CampaignManagerChatProvider'
 
 export interface DashboardNavHeaderConfig {
-  icon: NavHeaderIconKey
+  // Omitted = label-only bar (the Voter Outreach design carries no icon).
+  icon?: NavHeaderIconKey
   label: string
   centered?: boolean
 }
@@ -37,6 +43,17 @@ interface DashboardLayoutProps {
   showAlert?: boolean
   wrapperClassName?: string
   hideMenu?: boolean
+  // Drops the campaign-manager chat dock for a route that owns the bottom of
+  // the viewport itself. Door knocking's walk is one: its person sheet ends in
+  // the knock-log footer — the "Did they answer?" ladder and the not-a-voter
+  // control — and the dock's fixed bar paints over exactly that strip, leaving
+  // a canvasser standing at a door with no control to record what happened.
+  // Same class of conflict as the Serve orgs DashboardCampaignManagerChat
+  // already skips. Separate from `hideMenu` on purpose: website/create,
+  // website/domain, website/editor and purchase all hide the menu and are
+  // entitled to the manager, so one flag for both would take the dock off four
+  // routes that never asked.
+  hideChatDock?: boolean
   navHeader?: DashboardNavHeaderConfig
 }
 
@@ -46,6 +63,7 @@ const DashboardLayout = ({
   campaign,
   wrapperClassName = '',
   hideMenu = false,
+  hideChatDock = false,
   navHeader,
 }: DashboardLayoutProps): React.JSX.Element | null => {
   const [user] = useUser()
@@ -112,6 +130,18 @@ const DashboardLayout = ({
     }
   }, [currentPath, details?.wonGeneral, electionDate, router, isImpersonating])
 
+  const pageBody = (
+    <div className={`flex flex-1 flex-col p-2 md:p-4 ${wrapperClassName}`}>
+      <ProUpgradePrompt
+        campaign={activeCampaign}
+        user={user}
+        pathname={currentPath || undefined}
+        isElectedOffice={!!organization?.electedOfficeId}
+      />
+      {children}
+    </div>
+  )
+
   return (
     <EcanvasserProvider>
       <SidebarProvider>
@@ -134,17 +164,13 @@ const DashboardLayout = ({
             />
           )}
           <NavHeaderActionSlotContext.Provider value={navHeaderActionSlotValue}>
-            <DashboardCampaignManagerChat>
-              <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
-                <ProUpgradePrompt
-                  campaign={activeCampaign}
-                  user={user}
-                  pathname={currentPath || undefined}
-                  isElectedOffice={!!organization?.electedOfficeId}
-                />
-                {children}
-              </div>
-            </DashboardCampaignManagerChat>
+            {hideChatDock ? (
+              pageBody
+            ) : (
+              <DashboardCampaignManagerChat>
+                {pageBody}
+              </DashboardCampaignManagerChat>
+            )}
           </NavHeaderActionSlotContext.Provider>
         </SidebarInset>
       </SidebarProvider>
@@ -161,37 +187,31 @@ const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/dashboard/community-issues', 'Community Issues'],
   ['/dashboard/public-profile', NAV_LABELS.publicProfile],
   ['/dashboard/ordinances', 'Ordinances'],
+  ['/dashboard/constituent-outreach', NAV_LABELS.constituentOutreach],
   ['/dashboard/race-opponent', NAV_LABELS.knowYourOpponent],
   ['/dashboard/campaign-story', NAV_LABELS.campaignStory],
-  ['/dashboard/outreach', 'Voter Outreach'],
+  ['/dashboard/outreach', NAV_LABELS.voterOutreach],
   // /dashboard/contacts is intentionally absent: its title depends on Win vs
   // Serve, so MobileMenuTrigger resolves it from the org instead.
   ['/dashboard/polls', 'Polls'],
   ['/dashboard/website', 'Website'],
   ['/dashboard/profile', 'My Profile'],
   ['/dashboard/account', 'Account Settings'],
-  ['/dashboard/content', 'Content Builder'],
   ['/dashboard/door-knocking', 'Door Knocking'],
+  ['/dashboard/team', NAV_LABELS.team],
 ]
 
 const isContactsPath = (pathname: string): boolean =>
   pathname === '/dashboard/contacts' ||
   pathname.startsWith('/dashboard/contacts/')
 
-const getMobilePageTitle = (
-  pathname: string | null,
-  campaignStoryEnabled: boolean,
-): string | null => {
+const getMobilePageTitle = (pathname: string | null): string | null => {
   if (!pathname) return null
-  // Exact matches, ahead of the table: a '/dashboard' entry in it would prefix-
-  // match (and mistitle) every dashboard subroute that isn't listed, and the
-  // plan tab's name depends on the campaign-story flag exactly as it does in
-  // DashboardMenu.
+  // Exact matches, ahead of the table: a '/dashboard' entry in it would
+  // prefix-match (and mistitle) every dashboard subroute that isn't listed.
   if (pathname === '/dashboard') return NAV_LABELS.campaignManager
   if (pathname === '/dashboard/campaign-plan') {
-    return campaignStoryEnabled
-      ? NAV_LABELS.campaignTracker
-      : NAV_LABELS.campaignPlan
+    return NAV_LABELS.campaignTracker
   }
   for (const [prefix, title] of MOBILE_PAGE_TITLES) {
     if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return title
@@ -207,15 +227,12 @@ const MobileMenuTrigger = () => {
   // (useWinVoterContext) so the header and content always agree — and wait for
   // isReady so a Win user never flashes "Constituent Data" during load.
   const { isWin, isReady } = useWinVoterContext()
-  // Same trackExposure=false read DashboardMenu uses to label the plan tab —
-  // the mobile title must not disagree with the sidebar item it mirrors.
-  const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
   const pageTitle =
     pathname && isContactsPath(pathname)
       ? isReady
         ? CONTACTS_DATA_TITLE[isWin ? 'win' : 'serve']
         : null
-      : getMobilePageTitle(pathname, campaignStoryEnabled)
+      : getMobilePageTitle(pathname)
   return (
     <>
       <div className="flex lg:hidden items-center justify-between h-16 px-4 bg-sidebar border-b border-sidebar-border">
@@ -228,9 +245,17 @@ const MobileMenuTrigger = () => {
             />
           </Link>
           {pageTitle && (
-            <h1 className="truncate text-base font-semibold text-foreground">
-              {pageTitle}
-            </h1>
+            <>
+              {/* Same logo | title divider anatomy as the styleguide's
+                  PageHeader (which this hand-rolled bar predates). */}
+              <Separator
+                orientation="vertical"
+                className="data-[orientation=vertical]:h-5"
+              />
+              <h1 className="truncate text-base font-semibold text-foreground">
+                {pageTitle}
+              </h1>
+            </>
           )}
         </div>
         <button

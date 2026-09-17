@@ -21,7 +21,7 @@ uv run silver-to-gold-migration/serve-silver-migration/run_complete_pipeline.py 
 ## Prerequisites
 
 ### Environment Variables
-Create `.env` in `gp-ai-projects/`:
+Create `.env` in `packages/gp-ai/`:
 ```bash
 DATABRICKS_API_KEY=your_databricks_token
 DATABRICKS_SERVER_HOSTNAME=your-workspace.cloud.databricks.com

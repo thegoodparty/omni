@@ -186,7 +186,16 @@ export default function EditQuestion(
               </form>
               <ol className="mt-2 list-decimal list-inside">
                 {answers.map((option, index) => (
-                  <li key={option.id}>
+                  <li
+                    key={option.id}
+                    // `list-item` because globals.css gives every `<li>` inside
+                    // a `data-slot` element `display: flex`, and `Modal`'s
+                    // `DialogContent` emits one: that drops the space between
+                    // the answer and the trash icon (flex containers discard
+                    // whitespace-only text between items) and suppresses the
+                    // marker this `list-decimal` list is asking for.
+                    className="list-item"
+                  >
                     {option.name}{' '}
                     <FaTrash
                       className="ml-2 inline-block text-red-500 cursor-pointer"

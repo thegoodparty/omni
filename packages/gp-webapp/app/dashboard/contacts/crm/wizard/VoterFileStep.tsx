@@ -1,25 +1,45 @@
 'use client'
 
 import { Button, ToggleGroup, ToggleGroupItem } from '@styleguide'
-import filterSections from '../../[[...attr]]/components/configs/filters.config'
+import filterSections from '../../shared/filters.config'
 import {
   FILTER_GROUP_LABEL_CLASSNAME,
   PILL_TOGGLE_ITEM_CLASSNAME,
 } from '../shared/constants'
 import { sentenceCase } from '../shared/labels.util'
+import {
+  ANY_PHONE_FIELD,
+  ANY_PHONE_FILTER_KEY,
+  RECOMMENDED_LIST_FILTER_FIELDS,
+  SPECIFIC_PHONE_FILTER_KEYS,
+  WIN_ONLY_RECOMMENDED_FIELD_KEYS,
+} from '../shared/recommendedListFilters.config'
 import { SUPPORT_STATUS_OPTIONS } from '../shared/activityConditionOptions'
 import type { SupportStatusRollup } from '../shared/contacts-types'
 import {
   hasAnyVoterFileSelection,
   type VoterFileFilters,
 } from '../shared/voterFileFilterTransform.util'
+import PrecinctFilter from './PrecinctFilter'
+import type { PrecinctOptionsResult } from './usePrecinctOptions'
 
 interface VoterFileStepProps {
   filters: VoterFileFilters
   onFiltersChange: (filters: VoterFileFilters) => void
   supportStatus: SupportStatusRollup[]
   onSupportStatusChange: (value: SupportStatusRollup[]) => void
+  precincts: string[]
+  onPrecinctsChange: (value: string[]) => void
+  // Fetched by the caller, not here: this component stays dumb (same reason
+  // isElectedOfficial is resolved upstream), and both callers already own a
+  // React Query context that a bare render of this component does not.
+  precinctOptions: PrecinctOptionsResult
   isElectedOfficial: boolean
+  // Whether to render the recommended-list groups. Visibility only: the keys
+  // serialize either way (voterFileFilterTransform.util.ts). Defaults false
+  // so the surfaces that share this step and must NOT gain these groups
+  // (door-knocking's WhoStep, TurfDetailsSheet) stay unchanged.
+  showRecommendedListFilters?: boolean
 }
 
 // filters.config.ts's "General Information" section key for Contacts Made:
@@ -31,8 +51,8 @@ const CONTACTS_MADE_FIELD_KEY = 'contacts_made'
 // status, in the Lovable prototype's order (ENG-10847; supersedes the
 // ENG-10838 single-field pull-out). Support status is a hardcoded block with
 // no config entry, so no filters.config.ts reorder could express this — and
-// the config's section order must stay untouched anyway because the legacy
-// flag-off page (FiltersSheet.tsx) renders it directly. Fields the prototype
+// the config's section order must stay untouched anyway because
+// door-knocking's WhoStep renders it directly. Fields the prototype
 // doesn't have (gender, cell phone, landline) trail at the end; a config
 // field missing from this array still renders, after the ordered set.
 const FIELD_ORDER_BELOW_SUPPORT_STATUS = [
@@ -48,35 +68,56 @@ const FIELD_ORDER_BELOW_SUPPORT_STATUS = [
   'income_ranges',
   'language',
   'ethnicity',
+  'independent_affinity',
+  'ideology',
   'gender',
+  'any_phone',
   'cell_phone',
   'landline',
 ]
 
 // Step 2 of the voter-file branch (ENG-10721 locked-prototype parity): pill
-// toggles over the same filters.config.ts sections/options FiltersSheet and
-// the original checkbox rendering used — the filter dimensions and the
-// backend payload shape (voterFileFilterTransform.util.ts) are unchanged,
-// only the control chrome is new.
+// toggles over the same filters.config.ts sections/options the original
+// checkbox rendering used — the filter dimensions and the backend payload
+// shape (voterFileFilterTransform.util.ts) are unchanged, only the control
+// chrome is new.
 export default function VoterFileStep({
   filters,
   onFiltersChange,
   supportStatus,
   onSupportStatusChange,
+  precincts,
+  onPrecinctsChange,
+  precinctOptions,
   isElectedOfficial,
+  showRecommendedListFilters = false,
 }: VoterFileStepProps) {
-  // Political party doesn't apply to an elected official's constituent file —
-  // same exclusion FiltersSheet applies today. Contacts Made is Win-only the
-  // same way (campaign activity has no Serve equivalent), and so is Voter
-  // Likelihood: an elected official serves everyone in the district, so
-  // segmenting constituents by how reliably they vote has no Serve meaning.
+  // Political party doesn't apply to an elected official's constituent file.
+  // Contacts Made is Win-only the same way (campaign activity has no Serve
+  // equivalent), and so is Voter Likelihood: an elected official serves
+  // everyone in the district, so segmenting constituents by how reliably
+  // they vote has no Serve meaning.
   const orderIndex = (key: string) => {
     const index = FIELD_ORDER_BELOW_SUPPORT_STATUS.indexOf(key)
     return index === -1 ? FIELD_ORDER_BELOW_SUPPORT_STATUS.length : index
   }
 
-  const fieldsBelowSupportStatus = filterSections
-    .flatMap((section) => section.fields)
+  // Affinity and ideology are Win-only for the same reason political party
+  // is — gp-api 400s both for an eo- org, so neither may be selectable
+  // there. Any-phone stays, being plain contactability. This strip is the
+  // permanent product rule; showRecommendedListFilters is the flag.
+  const recommendedListFields = showRecommendedListFilters
+    ? [...RECOMMENDED_LIST_FILTER_FIELDS, ANY_PHONE_FIELD].filter(
+        (field) =>
+          !isElectedOfficial ||
+          !WIN_ONLY_RECOMMENDED_FIELD_KEYS.includes(field.key),
+      )
+    : []
+
+  const fieldsBelowSupportStatus = [
+    ...filterSections.flatMap((section) => section.fields),
+    ...recommendedListFields,
+  ]
     .filter(
       (field) =>
         field.key !== CONTACTS_MADE_FIELD_KEY &&
@@ -103,46 +144,86 @@ export default function VoterFileStep({
     options.forEach((option) => {
       updated[option.key] = selected.has(option.key)
     })
+    // "Has any phone" is the OR of cell and landline, which AND together, so
+    // holding it alongside either narrows to the specific number and reads
+    // as a bug. Whichever side the user just touched wins.
+    if (updated[ANY_PHONE_FILTER_KEY]) {
+      if (options.some((option) => option.key === ANY_PHONE_FILTER_KEY)) {
+        SPECIFIC_PHONE_FILTER_KEYS.forEach((key) => {
+          updated[key] = false
+        })
+      } else if (SPECIFIC_PHONE_FILTER_KEYS.some((key) => updated[key])) {
+        updated[ANY_PHONE_FILTER_KEY] = false
+      }
+    }
     onFiltersChange(updated)
   }
 
-  const hasAnySelection = hasAnyVoterFileSelection(filters, supportStatus)
+  const hasAnySelection = hasAnyVoterFileSelection(
+    filters,
+    supportStatus,
+    precincts,
+  )
 
   const handleClearFilters = () => {
     onFiltersChange({})
     onSupportStatusChange([])
+    onPrecinctsChange([])
   }
 
   const renderField = (field: {
     key: string
     label: string
     options: Array<{ key: string; label: string }>
-  }) => (
-    <div key={field.key} className="flex flex-col gap-2">
-      <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>
-        {sentenceCase(field.label)}
-      </h4>
-      <ToggleGroup
-        type="multiple"
-        value={selectedOptionsForField(field.options)}
-        onValueChange={(values) =>
-          handleFieldValueChange(field.options, values)
-        }
-        aria-label={field.label}
-        className="flex flex-wrap gap-2"
-      >
-        {field.options.map((option) => (
-          <ToggleGroupItem
-            key={option.key}
-            value={option.key}
-            className={PILL_TOGGLE_ITEM_CLASSNAME}
-          >
-            {option.label}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
-    </div>
-  )
+  }) => {
+    const selectedOptions = selectedOptionsForField(field.options)
+    const allSelected = selectedOptions.length === field.options.length
+
+    return (
+      <div key={field.key} className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>
+            {sentenceCase(field.label)}
+          </h4>
+          {field.options.length > 1 && (
+            <Button
+              type="button"
+              variant="link"
+              size="small"
+              className="h-auto border-none p-0 text-xs"
+              onClick={() =>
+                handleFieldValueChange(
+                  field.options,
+                  allSelected ? [] : field.options.map((option) => option.key),
+                )
+              }
+            >
+              {allSelected ? 'Clear' : 'Select all'}
+            </Button>
+          )}
+        </div>
+        <ToggleGroup
+          type="multiple"
+          value={selectedOptions}
+          onValueChange={(values) =>
+            handleFieldValueChange(field.options, values)
+          }
+          aria-label={field.label}
+          className="flex flex-wrap gap-2"
+        >
+          {field.options.map((option) => (
+            <ToggleGroupItem
+              key={option.key}
+              value={option.key}
+              className={PILL_TOGGLE_ITEM_CLASSNAME}
+            >
+              {option.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -161,12 +242,45 @@ export default function VoterFileStep({
         )}
       </div>
 
+      {/* First group on the step, per the locked prototype: Precinct sits
+          above Prior contacts made. Offered to Win and Serve alike — a
+          precinct is a subdivision of the district an official already
+          serves, so unlike party or voter likelihood it has a plain Serve
+          meaning. */}
+      <PrecinctFilter
+        options={precinctOptions.options}
+        selected={precincts}
+        onChange={onPrecinctsChange}
+        isLoading={precinctOptions.isLoading}
+        isError={precinctOptions.isError}
+        onRetry={precinctOptions.refetch}
+      />
+
       {!isElectedOfficial &&
         contactsMadeField &&
         renderField(contactsMadeField)}
 
       <div className="flex flex-col gap-2">
-        <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>Support status</h4>
+        <div className="flex items-center justify-between">
+          <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>Support status</h4>
+          <Button
+            type="button"
+            variant="link"
+            size="small"
+            className="h-auto border-none p-0 text-xs"
+            onClick={() =>
+              onSupportStatusChange(
+                supportStatus.length === SUPPORT_STATUS_OPTIONS.length
+                  ? []
+                  : SUPPORT_STATUS_OPTIONS.map((option) => option.value),
+              )
+            }
+          >
+            {supportStatus.length === SUPPORT_STATUS_OPTIONS.length
+              ? 'Clear'
+              : 'Select all'}
+          </Button>
+        </div>
         <ToggleGroup
           type="multiple"
           value={supportStatus}

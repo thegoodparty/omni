@@ -67,4 +67,25 @@ describe('Nav global-nav visibility', () => {
     expect(isNavHidden(container)).toBe(false)
     expect(getByTestId('left-side')).toBeInTheDocument()
   })
+
+  // ENG-11052: the volunteer shell draws its own top bar, same reasoning as
+  // /dashboard and /serve.
+  it('hides the global nav inside the volunteer shell', () => {
+    mockPathname = '/volunteer/dashboard'
+    const { container, queryByTestId } = render(<Nav />)
+
+    expect(isNavHidden(container)).toBe(true)
+    expect(queryByTestId('left-side')).not.toBeInTheDocument()
+    expect(queryByTestId('right-side')).not.toBeInTheDocument()
+  })
+
+  it('keeps the global nav on routes that merely contain "volunteer"', () => {
+    // Guards against narrowing the prefix check in a way that would catch
+    // unrelated marketing routes like /involunteer.
+    mockPathname = '/involunteer'
+    const { container, getByTestId } = render(<Nav />)
+
+    expect(isNavHidden(container)).toBe(false)
+    expect(getByTestId('left-side')).toBeInTheDocument()
+  })
 })

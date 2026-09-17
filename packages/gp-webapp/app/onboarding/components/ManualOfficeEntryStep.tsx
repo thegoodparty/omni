@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from '@styleguide'
 import { useId } from 'react'
+import { BallotReadyPositionLevel } from '@goodparty_org/contracts'
 import { flatStates } from 'helpers/statesHelper'
 import {
   dateFromNonStandardUSFormatString,
@@ -24,8 +25,18 @@ interface ManualOfficeEntryStepProps {
 
 const TERM_OPTIONS = ['2 years', '3 years', '4 years', '6 years']
 
+// Values are BallotReadyPositionLevel enum members — details.ballotLevel is
+// validated against that enum server-side, so UI labels can't be persisted.
+const LEVEL_OPTIONS: { value: BallotReadyPositionLevel; label: string }[] = [
+  { value: BallotReadyPositionLevel.LOCAL, label: 'Local, township or city' },
+  { value: BallotReadyPositionLevel.COUNTY, label: 'County or regional' },
+  { value: BallotReadyPositionLevel.STATE, label: 'State' },
+  { value: BallotReadyPositionLevel.FEDERAL, label: 'Federal' },
+]
+
 const EMPTY_FORM: ManualOfficeForm = {
   office: '',
+  level: '',
   state: '',
   city: '',
   district: '',
@@ -39,7 +50,10 @@ export const ManualOfficeEntryStep = ({
   value,
   onChange,
 }: ManualOfficeEntryStepProps): React.JSX.Element => {
-  const form = value ?? EMPTY_FORM
+  // Spread over EMPTY_FORM: drafts persisted before `level` existed
+  // (data.onboarding JSON) come back without it, and Radix Selects must never
+  // receive undefined (it flips them to uncontrolled).
+  const form = value ? { ...EMPTY_FORM, ...value } : EMPTY_FORM
   const selectedDate = dateFromNonStandardUSFormatString(form.electionDate)
   const now = new Date()
   const isDateInPast =
@@ -52,6 +66,7 @@ export const ManualOfficeEntryStep = ({
     onChange({ ...form, [key]: val })
 
   const officeId = useId()
+  const levelId = useId()
   const stateId = useId()
   const cityId = useId()
   const districtId = useId()
@@ -68,6 +83,26 @@ export const ManualOfficeEntryStep = ({
           onChange={(e) => update('office')(e.target.value)}
           data-amplitude-unmask="true"
         />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={levelId}>Office Level </Label>
+        <Select value={form.level} onValueChange={update('level')}>
+          <SelectTrigger
+            id={levelId}
+            className="w-full"
+            data-amplitude-unmask="true"
+          >
+            <SelectValue placeholder="Select an office level" />
+          </SelectTrigger>
+          <SelectContent>
+            {LEVEL_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex flex-col gap-1.5">

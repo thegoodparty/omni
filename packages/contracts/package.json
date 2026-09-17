@@ -17,6 +17,7 @@
   ],
   "scripts": {
     "generate-enums": "tsx scripts/generate-enums.ts",
+    "ensure-built": "tsx scripts/ensure-built.cli.ts",
     "dev": "npm run generate-enums && tsup --watch",
     "build": "npm run generate-enums && tsup",
     "lint": "npm run generate-enums && eslint src",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HS_SCORE_SEMANTICS } from './hsScoreSemantics'
+import { hsScoreSemantics } from './hsScoreSemantics'
 import {
   buildDistrictTopicsTool,
   DISTRICT_TOPICS_CATALOG,
@@ -103,14 +103,14 @@ describe('buildDistrictTopicsTool', () => {
 })
 
 describe('off-center baseline marker coupling', () => {
-  // The EXCEPTION rule in HS_SCORE_SEMANTICS keys on the literal marker text
+  // The EXCEPTION rule in hsScoreSemantics keys on the literal marker text
   // carried by annotated catalog meanings — the two must quote the same string.
   const OFFCENTER_MARKER = 'not centered at 50'
   const COVERAGE_MARKER = 'limited coverage'
 
   it('quotes both markers in the score semantics', () => {
-    expect(HS_SCORE_SEMANTICS).toContain(OFFCENTER_MARKER)
-    expect(HS_SCORE_SEMANTICS).toContain(COVERAGE_MARKER)
+    expect(hsScoreSemantics('constituent')).toContain(OFFCENTER_MARKER)
+    expect(hsScoreSemantics('constituent')).toContain(COVERAGE_MARKER)
   })
 
   it('carries the off-center marker on both shifted-baseline columns', () => {
@@ -121,14 +121,17 @@ describe('off-center baseline marker coupling', () => {
     }
   })
 
+  // Asserted by name: the 12-state set is small enough that a count would
+  // pass while marking the wrong columns.
   it('carries the coverage marker on a known vintage-limited column', () => {
     const all = Object.values(DISTRICT_TOPICS_CATALOG).flatMap((t) => t.columns)
-    const known = all.find(
-      (c) => c.name === 'hs_social_security_tax_increase_support',
-    )
+    const known = all.find((c) => c.name === 'hs_mass_deportations_support')
     expect(known?.meaning).toContain(COVERAGE_MARKER)
     const marked = all.filter((c) => c.meaning.includes(COVERAGE_MARKER))
-    expect(marked.length).toBeGreaterThan(20)
+    expect(marked.map((c) => c.name).sort()).toEqual([
+      'hs_mass_deportations_oppose',
+      'hs_mass_deportations_support',
+    ])
   })
 })
 
@@ -147,7 +150,9 @@ describe('chief-of-staff catalog mirror', () => {
     const shared = Object.values(DISTRICT_TOPICS_CATALOG)
       .flatMap((t) => t.columns)
       .filter((c) => c.name.startsWith('hs_') && cosByName.has(c.name))
-    expect(shared.length).toBeGreaterThan(100)
+    // The label-equality loop below is the real invariant; this floor only
+    // guards against the overlap collapsing to nothing.
+    expect(shared.length).toBeGreaterThan(80)
     for (const col of shared) {
       expect(lowerFirst(col.meaning), col.name).toBe(
         lowerFirst(cosByName.get(col.name) ?? ''),

@@ -6,6 +6,8 @@ import {
   ElectionLevelSchema,
 } from '@goodparty_org/contracts'
 import { StateSchema } from '@/shared/schemas/State.schema'
+import { BallotStatusSchema } from './ballotStatus.schema'
+import { SignupGoalSchema } from './signupGoal.schema'
 
 const CampaignDetailsSchema = z
   .object({
@@ -16,6 +18,11 @@ const CampaignDetailsSchema = z
     zip: z.string(),
     knowRun: z.enum(['yes']),
     runForOffice: z.enum(['yes', 'no']),
+    // Deprecated: the answer now lives on the campaign.ballotStatus column.
+    // Still accepted so a frontend from before the cutover isn't silently
+    // dropped mid-deploy; updateJsonFields forwards it to the column and
+    // removes it from details. Delete once no client sends it.
+    ballotStatus: BallotStatusSchema,
     pledged: z.boolean(),
     customIssues: z.array(
       z.object({
@@ -80,6 +87,8 @@ export const updateCampaignBodySchema = CampaignSchema.pick({
   .extend({
     details: CampaignDetailsSchema.optional(),
     primaryResult: z.enum(['won', 'lost']).nullish(),
+    ballotStatus: BallotStatusSchema.nullish(),
+    signupGoal: SignupGoalSchema.nullish(),
   })
   .strict()
 

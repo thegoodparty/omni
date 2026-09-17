@@ -444,6 +444,12 @@ jobs:
       - name: apply dev/agent-run-inputs
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/agent-run-inputs
+      - name: apply dev/autopilot-agent-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/autopilot-agent-fargate autopilot-agent-${{ needs.await-checks.outputs.sha }} autopilot-agent-playwright-${{ needs.await-checks.outputs.sha }}
+      - name: apply dev/autopilot-bot
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/autopilot-bot
       - name: apply dev/pmf-vpc-endpoints
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/pmf-vpc-endpoints
@@ -468,11 +474,16 @@ jobs:
       - name: apply dev/engineer-agent-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
-      - name: apply dev/shared-infra
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/shared-infra
 
       - wait-all:
+
+      # Same reasoning as prod below: dev/shared-infra reads
+      # ddhq-matcher-fargate and serve-analyze-fargate state, so it applies
+      # after them rather than alongside. Dev has no alert-filter root and so
+      # did not break, but it is the same unordered read, and it is only a
+      # question of which environment the next such root lands in first.
+      - name: apply dev/shared-infra
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/shared-infra
 
       - name: reverify dev/agent-experiment-metadata
         background: true
@@ -480,6 +491,12 @@ jobs:
       - name: reverify dev/agent-run-inputs
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/agent-run-inputs
+      - name: reverify dev/autopilot-agent-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/autopilot-agent-fargate autopilot-agent-${{ needs.await-checks.outputs.sha }} autopilot-agent-playwright-${{ needs.await-checks.outputs.sha }}
+      - name: reverify dev/autopilot-bot
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/autopilot-bot
       - name: reverify dev/pmf-vpc-endpoints
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh dev/pmf-vpc-endpoints
@@ -710,6 +727,34 @@ jobs:
             echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
             echo "failed=$FAILED" >> "$GITHUB_OUTPUT"
             echo "passed=$PASSED" >> "$GITHUB_OUTPUT"
+
+            # The names, not just the count. A failed release train blocks every
+            # prod promotion, and "3 failed" sends whoever is looking into the
+            # HTML report to find out which three.
+            #
+            # FILE FIRST, then the describes, then the test — Playwright's own
+            # reporter shape, so a name here is searchable verbatim in the HTML
+            # report. NOT a `--grep` argument: that is matched against project,
+            # file, describes, title and tags joined by SPACES, so no separator
+            # this prints would match. The file path is the part a repro command
+            # takes, and it takes it positionally.
+            #
+            # DELIBERATELY NOT CLASSIFIED HERE. Whether a spec is `@dev-only`
+            # decides whether the bot files a ticket for it, and that judgement
+            # is single-sourced in clickup_bot/dev_test_triage.py where tests
+            # pin it. A second grep in YAML is how the two start disagreeing
+            # about which failures are nobody's problem.
+            {
+              echo "failed_tests<<E2E_FAILED_TESTS"
+              jq -r '
+                def titles($anc):
+                  ($anc + [.title]) as $here
+                  | (.suites[]? | titles($here)),
+                    (.specs[]? | select(.ok == false) | ($here + [.title]) | join(" › "));
+                [.suites[]? | titles([])] | .[]
+              ' test-results/results.json 2>/dev/null || true
+              echo "E2E_FAILED_TESTS"
+            } >> "$GITHUB_OUTPUT"
           else
             echo "total=0" >> "$GITHUB_OUTPUT"
             echo "failed=0" >> "$GITHUB_OUTPUT"
@@ -725,6 +770,7 @@ jobs:
           TOTAL: ${{ steps.results.outputs.total }}
           PASSED: ${{ steps.results.outputs.passed }}
           FAILED: ${{ steps.results.outputs.failed }}
+          FAILED_TESTS: ${{ steps.results.outputs.failed_tests }}
           TEST_OUTCOME: ${{ needs.e2e-shard.result }}
         run: |
           status="✅"
@@ -742,6 +788,14 @@ jobs:
             echo "| ❌ Failed | ${FAILED:-0} |"
             echo "| 📊 Total | ${TOTAL:-0} |"
             echo ""
+            if [ -n "${FAILED_TESTS:-}" ]; then
+              echo "**Failed:**"
+              echo ""
+              while IFS= read -r failed_test; do
+                [ -n "$failed_test" ] && echo "- \`${failed_test}\`"
+              done <<< "$FAILED_TESTS"
+              echo ""
+            fi
             if [ -n "$REPORT_URL" ]; then
               echo "[View HTML report]($REPORT_URL)"
             else
@@ -975,7 +1029,7 @@ jobs:
           set -euo pipefail
           found=0; missing=0; absent=""
           # KEEP IN SYNC with the "Build service matrix" step in gp-ai.yml.
-          for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent; do
+          for s in broker pmf-engine serve-analyze ddhq-matcher engineer-agent autopilot-agent autopilot-agent-playwright; do
             if aws ecr describe-images --repository-name gp-ai-projects \
                  --image-ids "imageTag=$s-$SHA" --region "$AWS_REGION" >/dev/null 2>&1; then
               found=$((found+1))
@@ -985,10 +1039,10 @@ jobs:
           done
           if [ "$missing" -eq 0 ]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
-            echo "All 5 gp-ai images present for $SHA; promoting gp-ai."
+            echo "All 7 gp-ai images present for $SHA; promoting gp-ai."
           elif [ "$found" -eq 0 ]; then
             echo "deploy=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::No gp-ai images for $SHA. gp-ai.yml builds all five on every main push, so for a recent main commit this is UNEXPECTED and means the build failed or never pushed — investigate. It is only expected for a workflow_dispatch of a SHA predating unconditional builds. Skipping gp-ai promotion."
+            echo "::warning::No gp-ai images for $SHA. gp-ai.yml builds all seven on every main push, so for a recent main commit this is UNEXPECTED and means the build failed or never pushed — investigate. It is only expected for a workflow_dispatch of a SHA predating unconditional builds. Skipping gp-ai promotion."
           else
             echo "::error::Partial gp-ai image set for $SHA ($found present,$absent missing). A build failed; refusing to promote a mixed set."
             exit 1
@@ -1062,6 +1116,12 @@ jobs:
       - name: apply prod/agent-run-inputs
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/agent-run-inputs
+      - name: apply prod/autopilot-agent-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/autopilot-agent-fargate autopilot-agent-${{ needs.await-checks.outputs.sha }} autopilot-agent-playwright-${{ needs.await-checks.outputs.sha }}
+      - name: apply prod/autopilot-bot
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/autopilot-bot
       - name: apply prod/campaign-plan-lambda
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/campaign-plan-lambda
@@ -1086,11 +1146,28 @@ jobs:
       - name: apply prod/engineer-agent-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
-      - name: apply prod/shared-infra
+      - name: apply prod/alert-filter
         background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/shared-infra
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/alert-filter
 
       - wait-all:
+
+      # shared-infra applies alone, after everything above, because it is the
+      # only root that consumes other roots' outputs: it reads the lambda ARN
+      # and name out of alert-filter, clickup-bot and ddhq-matcher-fargate state
+      # to build a target group and permission for each. Nothing reads
+      # shared-infra in turn, so it is free to go last.
+      #
+      # It used to apply inside the batch above, which worked only because those
+      # states already existed — an unordered read returns whatever the previous
+      # release wrote, one release stale, and nobody noticed because a lambda ARN
+      # rarely changes. Adding a root broke that: `terraform_remote_state` on a
+      # key with no object is a hard plan failure, not an empty result, so
+      # `prod/shared-infra: plan failed` took down every release for a day and
+      # blocked all prod gp-ai infrastructure, not just the new root. Ordering it
+      # after its inputs means the next root to be added cannot do that again.
+      - name: apply prod/shared-infra
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/shared-infra
 
       - name: reverify prod/agent-experiment-metadata
         background: true
@@ -1098,6 +1175,12 @@ jobs:
       - name: reverify prod/agent-run-inputs
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/agent-run-inputs
+      - name: reverify prod/autopilot-agent-fargate
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/autopilot-agent-fargate autopilot-agent-${{ needs.await-checks.outputs.sha }} autopilot-agent-playwright-${{ needs.await-checks.outputs.sha }}
+      - name: reverify prod/autopilot-bot
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/autopilot-bot
       - name: reverify prod/campaign-plan-lambda
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/campaign-plan-lambda
@@ -1122,6 +1205,9 @@ jobs:
       - name: reverify prod/engineer-agent-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
+      - name: reverify prod/alert-filter
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/alert-filter
       - name: reverify prod/shared-infra
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/shared-infra

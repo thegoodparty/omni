@@ -235,6 +235,49 @@ describe('Contact interactions routes', () => {
     }, 15_000)
   })
 
+  describe('actor stamping', () => {
+    it('stamps the manual door-knock log with the authenticated caller', async () => {
+      const slug = `win-pro-dk-actor-${Date.now()}`
+      await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
+      const headers = { [ORG_SLUG_HEADER]: slug }
+      const personId = 'person-dk-actor'
+      mockPersonFound(personId)
+
+      const result = await service.client.post(
+        interactionsPath(personId),
+        { channel: 'doorKnock', outcome: 'answered' },
+        { headers },
+      )
+      expect(result.status).toBe(201)
+
+      const row =
+        await service.prisma.contactInteractionDoorKnock.findUniqueOrThrow({
+          where: { id: result.data.id },
+        })
+      expect(row.actorUserId).toBe(service.user.id)
+    }, 15_000)
+
+    it('text logs write no actor column (channel has none)', async () => {
+      const slug = `win-pro-text-actor-${Date.now()}`
+      await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
+      const headers = { [ORG_SLUG_HEADER]: slug }
+      const personId = 'person-text-actor'
+      mockPersonFound(personId)
+
+      const result = await service.client.post(
+        interactionsPath(personId),
+        { channel: 'text', outcome: 'responded' },
+        { headers },
+      )
+      expect(result.status).toBe(201)
+
+      const row = await service.prisma.contactInteractionText.findUniqueOrThrow(
+        { where: { id: result.data.id } },
+      )
+      expect(row).not.toHaveProperty('actorUserId')
+    }, 15_000)
+  })
+
   describe('empty note', () => {
     // A controlled HTML/React input emits '' (not undefined) for a cleared
     // field. NoteSchema coerces '' to undefined so this is accepted, not a
@@ -305,7 +348,7 @@ describe('Contact interactions routes', () => {
   })
 
   describe('non-pro Win campaign', () => {
-    it('rejects with 400', async () => {
+    it('rejects with 403', async () => {
       const slug = `win-nonpro-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: false })
       const headers = { [ORG_SLUG_HEADER]: slug }
@@ -316,7 +359,7 @@ describe('Contact interactions routes', () => {
         { headers },
       )
 
-      expect(result.status).toBe(400)
+      expect(result.status).toBe(403)
     })
   })
 

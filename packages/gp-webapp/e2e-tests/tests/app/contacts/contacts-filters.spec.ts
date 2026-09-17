@@ -5,7 +5,6 @@ import {
   closeCrmSheet,
   closePersonPanel,
   crmSheet,
-  enableCrmFlags,
   fetchListMembers,
   fullPersonName,
   gotoCrmContacts,
@@ -157,7 +156,6 @@ const expectPanelField = async (
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
-  await enableCrmFlags(page)
 })
 
 test('contacts filters: demographics', async ({ page }) => {
@@ -290,8 +288,8 @@ test('contacts filters: household and socioeconomic', async ({ page }) => {
     await probeCount(page, wizard, unfiltered, [['Children', 'No']])
   })
 
-  await test.step('Filter: Homeowner (No)', async () => {
-    await probeCount(page, wizard, unfiltered, [['Homeowner', 'No']])
+  await test.step('Filter: Homeownership (Renter)', async () => {
+    await probeCount(page, wizard, unfiltered, [['Homeownership', 'Renter']])
   })
 
   await test.step('Filter: Education', async () => {
@@ -312,8 +310,8 @@ test('contacts filters: household and socioeconomic', async ({ page }) => {
     ])
   })
 
-  await test.step('Homeowner Yes: count + list detail + person record', async () => {
-    await selectWizardPill(wizard, 'Homeowner', 'Yes')
+  await test.step('Homeowner: count + list detail + person record', async () => {
+    await selectWizardPill(wizard, 'Homeownership', 'Homeowner')
     const homeownerCount = await readSettledWizardCount(page, {
       differentFrom: unfiltered,
     })
@@ -326,17 +324,17 @@ test('contacts filters: household and socioeconomic', async ({ page }) => {
       `E2E homeowner ${Date.now()}`,
     )
 
-    // homeownerYes maps to eq 'Yes' server-side (never 'Likely'), so every
-    // member must carry the exact value.
+    // homeownerYes now folds Probable Home Owner in server-side (ENG-10947),
+    // so every member displays the folded 'Homeowner' value, never 'Renter'.
     const members = await fetchListMembers(client, listId)
     expect(members.length).toBeGreaterThan(0)
     for (const member of members) {
-      expect(member.homeowner).toBe('Yes')
+      expect(member.homeowner).toBe('Homeowner')
     }
 
     const member = pickNamedMember(members)
     const panel = await openPersonViaTypeahead(page, member)
-    await expectPanelField(panel, 'Homeowner', /Yes/i)
+    await expectPanelField(panel, 'Homeowner', /Homeowner/i)
     await closePersonPanel(panel)
   })
 })
@@ -383,7 +381,7 @@ test('contacts filters: ethnicity and multi-filter combos', async ({
       ['Gender', 'Male'],
       ['Marital Status', 'Married'],
       ['Marital Status', 'Likely Married'],
-      ['Homeowner', 'Yes'],
+      ['Homeownership', 'Homeowner'],
       ['Level of Education', 'College Degree'],
       ['Level of Education', 'Graduate Degree'],
     ])
@@ -437,5 +435,64 @@ test('contacts filters: ethnicity and multi-filter combos', async ({
       /Male.*\b(2[5-9]|3[0-4]) years old\b/,
     )
     await closePersonPanel(panel)
+  })
+})
+
+// Recommended-list dimensions (ENG-10708 follow-on): three dimensions in the
+// wizard — independent affinity, ideology, and hasAnyPhone. Affinity and
+// ideology are Win-only (gp-api 400s both for an eo- org via
+// assertNoRecommendedListFilterForElectedOffice, and VoterFileStep/
+// ListFilterSummary strip them the same way), so this Serve/eo- suite can
+// only exercise hasAnyPhone directly — the other two are covered against a
+// Win Pro user in win-contacts-filters.spec.ts. What belongs here instead is
+// the negative space: proving the Win-only gate is actually enforced
+// end-to-end for Serve, which nothing else in this repo tests.
+test('contacts filters: recommended-list dimensions (any-phone + Win-only gate)', async ({
+  page,
+}) => {
+  test.setTimeout(TEST_TIMEOUT)
+  const client = await setUpCrmContacts(page)
+  const { wizard, unfiltered } = await openWizard(page)
+
+  await test.step('Independent Affinity and Ideology are absent for Serve (permanent Win-only gate)', async () => {
+    await expect(wizardPillGroup(wizard, 'Independent Affinity')).toHaveCount(0)
+    await expect(wizardPillGroup(wizard, 'Ideology')).toHaveCount(0)
+  })
+
+  let cellCount = 0
+  let anyPhoneCount = 0
+  await test.step('Filter: hasAnyPhone is never narrower than Has Cell Phone alone (OR, not AND)', async () => {
+    cellCount = await probeCount(
+      page,
+      wizard,
+      unfiltered,
+      [['Cell Phone', 'Has Cell Phone']],
+      { strict: false },
+    )
+    anyPhoneCount = await probeCount(
+      page,
+      wizard,
+      unfiltered,
+      [['Phone', 'Has Any Phone']],
+      { strict: false },
+    )
+    expect(anyPhoneCount).toBeGreaterThanOrEqual(cellCount)
+  })
+
+  await test.step('hasAnyPhone: saved list round-trips (reopen shows the same count)', async () => {
+    await selectWizardPill(wizard, 'Phone', 'Has Any Phone')
+    const settledCount = await readSettledWizardCount(page, {
+      differentFrom: unfiltered,
+    })
+    expect(settledCount).toBeGreaterThan(0)
+
+    const listId = await buildListFromSelection(
+      page,
+      settledCount,
+      `E2E any phone ${Date.now()}`,
+    )
+
+    const members = await fetchListMembers(client, listId)
+    expect(members.length).toBeGreaterThan(0)
   })
 })

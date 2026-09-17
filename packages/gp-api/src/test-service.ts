@@ -15,22 +15,67 @@ import {
 import './configrc'
 import { PrismaService } from './prisma/prisma.service'
 import {
-  TEMPLATE_DB,
   TEMPLATE_LOCK_KEY,
+  TEST_POOL_LIMIT,
   startTestPostgres,
+  templateDbName,
 } from './test-postgres'
-import { ClerkUserEnricherService } from './vendors/clerk/services/clerk-user-enricher.service'
 import { ElectionApiTokenService } from './vendors/clerk/services/electionApiToken.service'
+import { ElectionsService } from './elections/services/elections.service'
+import { District } from './elections/types/elections.types'
 
 export const TEST_CLERK_ID = 'user_test_123'
 
+// The reset below is a few tens of milliseconds of work. This ceiling is here
+// only to survive real pathology (a starved runner, a lock held by work that
+// outlived the test that started it) — vitest's 10s default was tight enough
+// that ordinary CI contention tripped it, and a tripped reset is what starts
+// the cascade that `pendingReset` guards against.
+const RESET_TIMEOUT_MS = 30_000
+
 /**
- * What ClerkUserEnricherService resolves to when Clerk cannot be reached: the
- * DB identity fields stand, but a locally stored avatar is never served as if
- * it were Clerk's.
+ * Empty every table, then seed the one user the suite authenticates as.
+ *
+ * Truncating all 88 tables unconditionally costs a flat ~350ms, because the
+ * commit syncs a new relation file for each one; asking all 88 whether they
+ * hold a row costs ~15ms in a single round trip, and a test typically dirties
+ * a handful. So probe first and truncate only what the last test actually
+ * wrote. CASCADE may pull in an empty child table, which is harmless — the
+ * post-condition is only that every table is empty.
  */
-const dropClerkAvatar = <T extends object>(user: T): T =>
-  'avatar' in user ? { ...user, avatar: null } : user
+const resetDatabase = async (
+  prisma: PrismaService,
+  tables: string[],
+): Promise<User> => {
+  const dirty = tables.length
+    ? await prisma.$queryRawUnsafe<Array<{ tablename: string }>>(
+        tables
+          .map(
+            (table) =>
+              `SELECT '${table}' AS tablename ` +
+              `WHERE EXISTS (SELECT 1 FROM "public"."${table}")`,
+          )
+          .join(' UNION ALL '),
+      )
+    : []
+
+  if (dirty.length > 0) {
+    const tableList = dirty
+      .map(({ tablename }) => `"public"."${tablename}"`)
+      .join(', ')
+    await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${tableList} CASCADE;`)
+  }
+
+  return prisma.user.create({
+    data: {
+      id: 123,
+      clerkId: TEST_CLERK_ID,
+      email: 'tests@goodparty.org',
+      firstName: 'Johnny',
+      lastName: 'Goodparty',
+    },
+  })
+}
 
 export type TestServiceContext = {
   /** A client targeting the test service. */
@@ -69,11 +114,21 @@ export const useTestService = (): TestServiceContext => {
   let app: NestFastifyApplication
   let client: AxiosInstance
   let user: User
+  let uniqueDbName: string
+  let tables: string[] = []
+
+  // When a hook exceeds its timeout vitest rejects the hook's promise but
+  // cannot cancel the queries already in flight, so an abandoned reset runs to
+  // completion regardless. Unordered, its user insert lands after the NEXT
+  // test's truncate and every later test in the file dies on a duplicate id —
+  // which is how one slow reset used to fail a whole file. Chaining keeps an
+  // abandoned reset strictly ahead of its successor, so it costs one test.
+  let pendingReset: Promise<unknown> = Promise.resolve()
 
   beforeAll(async () => {
     // Generate unique database name for this test suite. It's important to use unique
     // database names per suite to ensure that suites are isolated from each other.
-    const uniqueDbName = `test_db_${randomBytes(8).toString('hex')}`
+    uniqueDbName = `test_db_${randomBytes(8).toString('hex')}`
 
     container = await startTestPostgres()
 
@@ -84,16 +139,16 @@ export const useTestService = (): TestServiceContext => {
     // operation, which is what keeps 60+ suites off a per-suite migration
     // replay against the one shared container.
     //
-    // Held in shared mode: a concurrent vitest run process's globalSetup can
-    // be rebuilding this same template (see test-global-setup.ts) right now.
-    // The shared lock blocks only while that rebuild's exclusive lock is
-    // held, so the clone can't land against a template mid-drop/rebuild.
+    // Held in shared mode against globalSetup's exclusive lock. Nothing
+    // rebuilds a template in place any more, but globalSetup does sweep
+    // superseded ones, and this is what stops a sweep dropping the template
+    // this clone is reading.
     const admin = new Client({ connectionString: baseConnectionUri })
     await admin.connect()
     try {
       await admin.query(`SELECT pg_advisory_lock_shared(${TEMPLATE_LOCK_KEY})`)
       await admin.query(
-        `CREATE DATABASE ${uniqueDbName} TEMPLATE ${TEMPLATE_DB}`,
+        `CREATE DATABASE ${uniqueDbName} TEMPLATE ${templateDbName()}`,
       )
     } finally {
       await admin.query(
@@ -104,7 +159,10 @@ export const useTestService = (): TestServiceContext => {
 
     const databaseUrl = baseConnectionUri.replace(
       '/postgres',
-      `/${uniqueDbName}`,
+      // One container serves every checkout on the machine, so the pool
+      // Prisma would size itself (cores * 2 + 1 per worker) lets concurrent
+      // runs exhaust max_connections.
+      `/${uniqueDbName}?connection_limit=${TEST_POOL_LIMIT}`,
     )
     // Set DATABASE_URL for Prisma with the unique database
     process.env.DATABASE_URL = databaseUrl
@@ -139,31 +197,43 @@ export const useTestService = (): TestServiceContext => {
     )
 
     // election-api calls now require a Clerk M2M token (ElectionApiTokenService).
-    // Route tests don't set GP_API_MACHINE_SECRET and stub the election-api HTTP
-    // calls anyway, so stub the token — otherwise authHeader() throws and every
-    // election-api-backed endpoint (e.g. district resolution behind contacts
-    // count) returns a 502.
+    // Route tests don't set GP_API_MACHINE_SECRET, so stub the token —
+    // otherwise authHeader() throws and every election-api-backed endpoint
+    // (e.g. district resolution behind contacts count) returns a 502.
     const electionApiTokenService = app.get(ElectionApiTokenService)
     vi.spyOn(electionApiTokenService, 'authHeader').mockResolvedValue({
       Authorization: 'Bearer test-election-api-token',
     })
 
-    // SessionGuard enriches the request user through Clerk on every
-    // authenticated call, so unstubbed this is a live round trip to
-    // api.clerk.com per request. It can only ever 401, since .env.test carries
-    // a placeholder CLERK_SECRET_KEY. The guard and enrichUser/enrichUsers
-    // absorb that 401 by keeping the DB fields and dropping the avatar, so
-    // resolve to that outcome directly instead. The enricher's own behavior
-    // stays covered by clerk-user-enricher.service.test.ts, which mocks the
-    // Clerk client rather than the service.
-    const enricher = app.get(ClerkUserEnricherService)
-    vi.spyOn(enricher, 'fetchClerkFields').mockResolvedValue(null)
-    vi.spyOn(enricher, 'enrichUser').mockImplementation((user) =>
-      Promise.resolve(dropClerkAvatar(user)),
+    // ...and stub the two lookups that token was only ever buying access to.
+    // Stubbing the token alone left the REQUEST live, so any suite that did not
+    // stub election-api itself was quietly reading the dev deployment. That was
+    // invisible until election-api began enforcing M2M unconditionally, at
+    // which point the 401 surfaced as a 502 on every route that resolves a
+    // district (door-knocking, phone-banking, outreach — 138 tests).
+    //
+    // Both are only reached when the org carries the corresponding id, so this
+    // cannot manufacture a district for an org that has none — the "no
+    // position/district" paths still resolve to null. The L2 fields are what
+    // make VoterFileDownloadAccess.canDownload eligible, which is what the live
+    // service used to return here. A suite needing specific data re-spies these
+    // and its own mock wins.
+    const electionsService = app.get(ElectionsService)
+    vi.spyOn(electionsService, 'getDistrict').mockImplementation(
+      (id: string): Promise<District> =>
+        Promise.resolve({
+          id,
+          state: 'IL',
+          L2DistrictType: 'City Council',
+          L2DistrictName: 'District 1',
+        }),
     )
-    vi.spyOn(enricher, 'enrichUsers').mockImplementation((users) =>
-      Promise.resolve(users.map(dropClerkAvatar)),
-    )
+    // Null rather than a synthetic position: the ids these suites invent do
+    // not exist upstream, so "not found" is what the live service already gave
+    // them, and callers fall back to campaign.details (normalizedOffice,
+    // ballotLevel) accordingly. Manufacturing one here would silently take that
+    // fallback away. Suites that need a real position stub it themselves.
+    vi.spyOn(electionsService, 'getPositionById').mockResolvedValue(null)
 
     // Start the application on a random available port
     await app.listen({ port: 0, host: '127.0.0.1' })
@@ -197,41 +267,48 @@ export const useTestService = (): TestServiceContext => {
       }
       return config
     })
+
+    // Read once: the database is cloned from the template and never migrated
+    // again, so the reset would otherwise re-ask for the same 88 names before
+    // every single test.
+    tables = (
+      await app.get(PrismaService).$queryRaw<Array<{ tablename: string }>>`
+        SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+      `
+    ).map(({ tablename }) => tablename)
   }, 25_000)
 
   beforeEach(async () => {
-    const prisma = app.get(PrismaService)
-
-    // Get all table names from the Prisma schema
-    const tableNames = await prisma.$queryRaw<Array<{ tablename: string }>>`
-      SELECT tablename FROM pg_tables WHERE schemaname='public'
-    `
-
-    // Empty every table before each test run to isolate individual tests
-    // within a suite. Truncate all tables in a single statement for better performance.
-    if (tableNames.length > 0) {
-      const tableList = tableNames
-        .map(({ tablename }) => `"public"."${tablename}"`)
-        .join(', ')
-      await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${tableList} CASCADE;`)
-    }
-
-    // Create a test user for the current test
-    user = await prisma.user.create({
-      data: {
-        id: 123,
-        clerkId: TEST_CLERK_ID,
-        email: 'tests@goodparty.org',
-        firstName: 'Johnny',
-        lastName: 'Goodparty',
-      },
-    })
-  })
+    const reset = pendingReset
+      .catch(() => undefined)
+      .then(() => resetDatabase(app.get(PrismaService), tables))
+    // Keep the chain itself settled, so one failed reset doesn't reject every
+    // reset after it.
+    pendingReset = reset.catch(() => undefined)
+    user = await reset
+  }, RESET_TIMEOUT_MS)
 
   afterAll(async () => {
     // Close the NestJS application
     if (app) {
       await app.close()
+    }
+
+    // Drop this suite's clone. Nothing else does, so a reused container
+    // otherwise carries every database every suite ever created — a long-lived
+    // local one had accumulated 248 — and autovacuum keeps working through all
+    // of them, which is what leaves a "warm" container measurably slower to
+    // test against than a fresh one. FORCE covers any connection app.close()
+    // left behind.
+    if (!container) return
+    const admin = new Client({
+      connectionString: container.getConnectionUri(),
+    })
+    await admin.connect()
+    try {
+      await admin.query(`DROP DATABASE IF EXISTS ${uniqueDbName} WITH (FORCE)`)
+    } finally {
+      await admin.end()
     }
   })
 

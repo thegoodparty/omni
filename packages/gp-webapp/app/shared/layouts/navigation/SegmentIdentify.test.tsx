@@ -8,14 +8,22 @@ import {
   getPersistedClids,
   extractClids,
   setUserEmail,
+  setActorUserId,
+  setActorRole,
 } from 'helpers/analyticsHelper'
 import { buildUserTraits } from 'helpers/buildUserTraits'
 
 let mockUser: User | null = null
 let mockSearchParamsValue: URLSearchParams | null = new URLSearchParams()
+let mockOrganizationRole: 'owner' | 'campaignAdmin' | 'volunteer' | undefined =
+  undefined
 
 vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => [mockUser, vi.fn()],
+}))
+
+vi.mock('@shared/organization-picker', () => ({
+  useOrganizationRole: () => mockOrganizationRole,
 }))
 
 vi.mock('next/navigation', () => ({
@@ -33,6 +41,8 @@ vi.mock('helpers/analyticsHelper', () => ({
   getPersistedClids: vi.fn(() => ({})),
   extractClids: vi.fn(() => ({})),
   setUserEmail: vi.fn(),
+  setActorUserId: vi.fn(),
+  setActorRole: vi.fn(),
 }))
 
 vi.mock('helpers/buildUserTraits', () => ({
@@ -64,6 +74,7 @@ const fullUserTraits = {
 beforeEach(() => {
   mockUser = null
   mockSearchParamsValue = new URLSearchParams()
+  mockOrganizationRole = undefined
   vi.mocked(identifyUser).mockReset().mockResolvedValue(true)
   vi.mocked(persistUtmsOnce).mockReset()
   vi.mocked(getPersistedUtms).mockReset().mockReturnValue({})
@@ -71,6 +82,8 @@ beforeEach(() => {
   vi.mocked(extractClids).mockReset().mockReturnValue({})
   vi.mocked(buildUserTraits).mockReset().mockReturnValue(fullUserTraits)
   vi.mocked(setUserEmail).mockReset()
+  vi.mocked(setActorUserId).mockReset()
+  vi.mocked(setActorRole).mockReset()
 })
 
 describe('SegmentIdentify', () => {
@@ -213,5 +226,38 @@ describe('SegmentIdentify', () => {
       expect(identifyUser).toHaveBeenCalled()
     })
     expect(extractClids).not.toHaveBeenCalled()
+  })
+
+  it('sets the actor user id and role for analytics when signed in with a selected org', async () => {
+    mockUser = fullUser
+    mockOrganizationRole = 'campaignAdmin'
+
+    render(<SegmentIdentify />)
+
+    await vi.waitFor(() => {
+      expect(setActorUserId).toHaveBeenCalledWith(42)
+    })
+    expect(setActorRole).toHaveBeenCalledWith('campaignAdmin')
+  })
+
+  it('sets a null actor role, not undefined, with no selected org', async () => {
+    mockUser = fullUser
+    mockOrganizationRole = undefined
+
+    render(<SegmentIdentify />)
+
+    await vi.waitFor(() => {
+      expect(setActorRole).toHaveBeenCalledWith(null)
+    })
+  })
+
+  it('sets an undefined actor user id when signed out', async () => {
+    mockUser = null
+
+    render(<SegmentIdentify />)
+
+    await vi.waitFor(() => {
+      expect(setActorUserId).toHaveBeenCalledWith(undefined)
+    })
   })
 })

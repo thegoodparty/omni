@@ -4,6 +4,7 @@ import { PersonProfilesController } from './person-profiles.controller'
 import { PersonProfilesService } from '../services/person-profiles.service'
 import { MarketingRevalidationService } from '../services/marketing-revalidation.service'
 import { PersonIdBackfillService } from '../services/person-id-backfill.service'
+import { PersonLookupService } from '../services/person-lookup.service'
 import { UsersService } from '@/users/services/users.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import type { FileUpload } from 'src/files/files.types'
@@ -67,6 +68,7 @@ describe('PersonProfilesController.uploadImage', () => {
       s3 as unknown as S3Service,
       {} as unknown as PersonIdBackfillService,
       {} as unknown as UsersService,
+      {} as unknown as PersonLookupService,
     )
   })
 

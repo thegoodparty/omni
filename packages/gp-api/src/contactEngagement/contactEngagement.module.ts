@@ -1,5 +1,6 @@
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
+import { OrganizationsModule } from '@/organizations/organizations.module'
 import { PollsModule } from '@/polls/polls.module'
 import { VoterOutreachActivityModule } from '@/voterOutreachActivity/voterOutreachActivity.module'
 import { Module } from '@nestjs/common'
@@ -10,6 +11,7 @@ import { UseEngagementContextGuard } from './guards/UseEngagementContext.guard'
 @Module({
   imports: [
     ElectedOfficeModule,
+    OrganizationsModule,
     PollsModule,
     VoterOutreachActivityModule,
     ContactInteractionModule,

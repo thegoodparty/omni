@@ -4,7 +4,10 @@ RUN apk add --no-cache \
   libc6-compat \
   openssl \
   curl \
-  libcap
+  libcap \
+  ffmpeg
+# ffmpeg transcodes robocall recordings (webm/mp4) to mp3 in-process before the
+# CallHub media upload, which accepts only mp3/wav/ogg (AudioTranscodeService).
 
 WORKDIR /app
 

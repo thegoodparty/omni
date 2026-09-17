@@ -45,13 +45,15 @@ While the flag is loading, the guard renders a centered spinner. While the flag 
 
 ## Per-flag wrapper hooks
 
-When a flag is read in many places, wrap it once and export a named hook so the key is centralized. Example: `app/shared/experiments/campaignStoryFlag.ts`:
+When a flag is read in many places, wrap it once and export a named hook so the key is centralized. Example: `app/shared/experiments/nativeDoorKnockingFlag.ts`:
 
 ```ts
-export const CAMPAIGN_STORY_FLAG_KEY = 'campaign-story'
+export const NATIVE_DOOR_KNOCKING_FLAG_KEY = 'native-door-knocking'
 
-export const useCampaignStoryFlag = (trackExposure = true) => {
-  const { ready, on } = useFlagOn(CAMPAIGN_STORY_FLAG_KEY, { trackExposure })
+export const useNativeDoorKnockingFlag = (trackExposure = true) => {
+  const { ready, on } = useFlagOn(NATIVE_DOOR_KNOCKING_FLAG_KEY, {
+    trackExposure,
+  })
   return { ready, enabled: on }
 }
 ```
@@ -66,20 +68,45 @@ The SSR seed is resolved for the authenticated user by gp-api. Client-side, the 
 
 ## E2E overrides
 
-Because the browser never fetches Amplitude, an e2e test can't stub a variant. Instead `getFlagVariants` merges an `e2e-flag-overrides` cookie over gp-api's result (`app/shared/experiments/flagOverrides.ts`), so a test can force a flag deterministically. The Playwright helper sets it via `enableCampaignStoryFlag(page)` (`e2e-tests/src/helpers/campaignStory.helper.ts`).
+Because the browser never fetches Amplitude, an e2e test can't stub a variant. Instead `getFlagVariants` merges an `e2e-flag-overrides` cookie over gp-api's result (`app/shared/experiments/flagOverrides.ts`), so a test can force a flag deterministically. The Playwright helper sets it via `setFlagOverrides(page, { 'native-door-knocking': 'on' })` (`e2e-tests/src/helpers/campaignStory.helper.ts`).
 
 It's honored on every environment **except production** (`process.env.VERCEL_ENV === 'production'` — Vercel's reserved runtime var, not the unreliable `NEXT_PUBLIC_VERCEL_TARGET_ENV`), read only from a cookie, and schema-validated. Flags gate UX, not authz, so the off-prod blast radius is the requester's own gated UI.
 
 ## Server-side flags
 
-Server components currently can't read Amplitude experiments — the provider is client-only. If you need server-side gating, gate at the gp-api layer or pass the flag down to a `'use client'` boundary.
+The **provider and its hooks are client-only**, so a server component can't call `useFlagOn`. It can, however, call the same resolver that produces the SSR seed: `await getFlagVariants()` returns the variant map (or `null` for an anonymous request or a gp-api failure, in which case every flag reads off). That is the way to gate a route without rendering it at all:
+
+```tsx
+// app/dashboard/<feature>/layout.tsx — server component
+const variants = await getFlagVariants()
+if (variants?.[MY_FLAG_KEY]?.value === 'on') {
+  redirect('/somewhere-else')
+}
+```
+
+Reach for this when the gated surface must not render or fetch — `door-knocking/surveys/layout.tsx` redirects pilot users away from the legacy eCanvasser survey designer before its eCanvasser reads run. It costs one extra gp-api call per request, and it emits no `$exposure` (exposure is a client-side analytics event), which is correct for a surface that isn't the experiment's treatment. For the ordinary case — flag off means "don't show this route" — the client `FeatureFlagGuard` is still simpler and free.
 
 ## Adding a new flag
 
 1. Create the flag in Amplitude Experiment with a stable key (kebab-case, e.g. `outreach-bulk-send`).
 2. If the key is read in more than one component, add a wrapper hook under `app/shared/experiments/`.
 3. Use `useFlagOn(key)` (or your wrapper) at the call site.
-4. **Removing the flag**: delete the wrapper hook + key constant, then grep for stragglers.
+4. **Removing the flag** (or defaulting it on): delete the wrapper hook + key
+   constant, then grep for stragglers. Before merging, run the `@dev-only`
+   merge-gate suite against dev with the flag forced via the override cookie
+   (`setFlagOverrides`, see E2E overrides above) — those specs never run on
+   PRs and pre-merge dev still runs the old code, so this is the only
+   pre-merge way to see them against the post-merge state. Skipping this is
+   how PR #1773 turned the release train red for two days (ENG-11106):
+
+   ```bash
+   cd packages/gp-webapp/e2e-tests
+   BASE_URL=https://dev.goodparty.org npx playwright test \
+     --config="$PWD/playwright.config.ts" --grep @dev-only --retries=0
+   ```
+
+   (with the flag override wired into the affected specs' setup, or the flag
+   temporarily targeted on for `@test.goodparty.org` users in dev Amplitude).
 
 ## Anti-patterns
 

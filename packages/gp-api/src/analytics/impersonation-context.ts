@@ -1,18 +1,18 @@
 import { AsyncLocalStorage } from 'async_hooks'
+import { OrganizationRole } from '../generated/prisma'
 
-interface ImpersonationStore {
+export interface ActorContext {
   isImpersonating: boolean
+  actorUserId: number | null
+  actorRole: OrganizationRole | null
 }
 
-export const impersonationStorage = new AsyncLocalStorage<ImpersonationStore>()
+export const impersonationStorage = new AsyncLocalStorage<ActorContext>()
 
-export function getImpersonationContext(): boolean | undefined {
-  return impersonationStorage.getStore()?.isImpersonating
+export function getActorContext(): ActorContext | undefined {
+  return impersonationStorage.getStore()
 }
 
-export function runWithImpersonation<T>(
-  isImpersonating: boolean,
-  fn: () => T,
-): T {
-  return impersonationStorage.run({ isImpersonating }, fn)
+export function runWithActorContext<T>(context: ActorContext, fn: () => T): T {
+  return impersonationStorage.run(context, fn)
 }

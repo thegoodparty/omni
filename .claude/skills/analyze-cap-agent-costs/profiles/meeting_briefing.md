@@ -25,7 +25,7 @@ trusted `costUsd`, never from token x list price.
 ## Milestone attribution
 
 Per-milestone cost attribution is **live**: the `pmf_runtime.milestone()` primitive
-ships in gp-ai-projects and `build-cap-agent` agents mark a milestone at each Step
+ships in gp-ai and `build-cap-agent` agents mark a milestone at each Step
 boundary. Runs that carry a `milestones.jsonl` get per-milestone attribution (the
 heatmap and hot-region detector key on the named, ordered milestone). meeting_briefing
 runs that predate the primitive have no markers and **fall back to turn-progress**

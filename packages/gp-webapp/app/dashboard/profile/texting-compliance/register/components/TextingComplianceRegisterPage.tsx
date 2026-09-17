@@ -49,6 +49,10 @@ const reconcileInitialFormState = (
   return {
     electionFilingLink: '',
     campaignCommitteeName: campaignCommittee || '',
+    // Left blank rather than seeded from the account holder's name — this is
+    // exactly the ENG-10964 mismatch (a campaign manager's account signing up
+    // under their own name, not the candidate's).
+    candidateName: '',
     officeLevel: '',
     ein: ein || '',
     phone: phone || '',

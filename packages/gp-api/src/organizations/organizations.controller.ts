@@ -5,13 +5,16 @@ import {
   Param,
   Patch,
   Query,
+  Req,
   UseGuards,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
+import { PinoLogger } from 'nestjs-pino'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { z } from 'zod'
 import {
+  OrganizationRoleSchema,
   OrganizationStatus,
   OrganizationStatusSchema,
 } from '@goodparty_org/contracts'
@@ -27,6 +30,8 @@ import {
   PatchOrganizationDto,
 } from './schemas/organization.schema'
 import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
+import { IncomingRequest } from '@/authentication/authentication.types'
+import { effectiveUser } from '@/authentication/util/effectiveUser.util'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { organizationStatus } from '@/campaigns/util/eligibility.util'
@@ -79,8 +84,23 @@ const APIOrganizationSchema = z.object({
 
 type APIOrganization = z.infer<typeof APIOrganizationSchema>
 
+// List-only: role is the viewer's own role in this org (owner via ownerId
+// match, else their membership row's role) — a per-viewer fact, not a
+// property of the org itself, so it stays off the shared APIOrganizationSchema
+// that the singular get/patch and admin routes also validate against.
+// ownerName rides along for the same reason: it's display enrichment for the
+// multi-org picker (ENG-11041), not a property the singular get/patch/admin
+// routes need to answer. getUserFullName always returns a string (possibly
+// empty, coerced to null) — never absent — so nullable, not nullish.
+const APIOrganizationWithRoleSchema = APIOrganizationSchema.extend({
+  role: OrganizationRoleSchema,
+  ownerName: z.string().nullable(),
+})
+
+type APIOrganizationWithRole = z.infer<typeof APIOrganizationWithRoleSchema>
+
 const ListOrganizationsResponseSchema = z.object({
-  organizations: z.array(APIOrganizationSchema),
+  organizations: z.array(APIOrganizationWithRoleSchema),
 })
 
 // /admin/list returns each org plus an `extra` block. `campaign.details` is a
@@ -106,6 +126,22 @@ const AdminListOrganizationSchema = APIOrganizationSchema.extend({
 const AdminListOrganizationsResponseSchema = z.object({
   organizations: z.array(AdminListOrganizationSchema),
 })
+
+// The single-org admin read, extended the same way the list shape above is:
+// the door-knocking campaign override is readable exactly where it is
+// writable, and nowhere else. It stays off APIOrganizationSchema because that
+// shape is what a candidate gets back about their own organization, and a
+// control over vendor spend is not part of the answer to "what is my org?".
+//
+// Not a confidentiality boundary — the 429 quotes an org's own limit straight
+// back to the candidate who hits it — but a question of which contract owns
+// the field. Absent it, the value could be set and never read, which leaves
+// an admin unable to tell whether an org already has one.
+const AdminOrganizationDetailSchema = APIOrganizationSchema.extend({
+  overrideDoorKnockingCampaignLimit: z.number().int().nullable(),
+})
+
+type AdminOrganizationDetail = z.infer<typeof AdminOrganizationDetailSchema>
 
 const toAPIOrganization = (
   org: FriendlyOrganization,
@@ -158,22 +194,29 @@ const toAPIOrganization = (
 @UsePipes(ZodValidationPipe)
 @UseInterceptors(ZodResponseInterceptor)
 export class OrganizationsController {
-  constructor(private readonly organizationsService: OrganizationsService) {}
+  constructor(
+    private readonly organizationsService: OrganizationsService,
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(OrganizationsController.name)
+  }
 
   @Get('/')
   @ResponseSchema(ListOrganizationsResponseSchema)
   async listOrganizations(
     @ReqUser() user: User,
-  ): Promise<{ organizations: APIOrganization[] }> {
+  ): Promise<{ organizations: APIOrganizationWithRole[] }> {
     const organizations = await this.organizationsService.listOrganizations(
       user.id,
     )
 
     const now = new Date()
     return {
-      organizations: organizations.map((org) =>
-        toAPIOrganization(org, organizationStatus(org, now)),
-      ),
+      organizations: organizations.map((org) => ({
+        ...toAPIOrganization(org, organizationStatus(org, now)),
+        role: org.role,
+        ownerName: org.ownerName,
+      })),
     }
   }
 
@@ -242,25 +285,61 @@ export class OrganizationsController {
 
   @Get('/admin/:slug')
   @UseGuards(AdminOrM2MGuard)
-  @ResponseSchema(APIOrganizationSchema)
+  @ResponseSchema(AdminOrganizationDetailSchema)
   async adminGetOrganization(
     @Param('slug') slug: string,
-  ): Promise<APIOrganization> {
+  ): Promise<AdminOrganizationDetail> {
     const org = await this.organizationsService.adminGetOrganization(slug)
-    return toAPIOrganization(org, organizationStatus(org, new Date()))
+    return {
+      ...toAPIOrganization(org, organizationStatus(org, new Date())),
+      overrideDoorKnockingCampaignLimit: org.overrideDoorKnockingCampaignLimit,
+    }
   }
 
   @Patch('/admin/:slug')
   @UseGuards(AdminOrM2MGuard)
-  @ResponseSchema(APIOrganizationSchema)
+  @ResponseSchema(AdminOrganizationDetailSchema)
   async adminPatchOrganization(
     @Param('slug') slug: string,
+    @Req() req: IncomingRequest,
     @Body() updates: AdminPatchOrganizationDto,
-  ): Promise<APIOrganization> {
-    const org = await this.organizationsService.adminPatchOrganization(
-      slug,
-      updates,
-    )
-    return toAPIOrganization(org, organizationStatus(org, new Date()))
+  ): Promise<AdminOrganizationDetail> {
+    // The previous limit comes back from the patch itself rather than from a
+    // read taken here: it is then the value that this write replaced, and not
+    // one a concurrent admin PATCH could have already overwritten in between.
+    const { organization: org, previousLimit } =
+      await this.organizationsService.adminPatchOrganization(slug, updates)
+
+    // Only when the patch names the field — an org edit that leaves the
+    // spending limit alone should not emit a spend-control line into the log.
+    const touchesCampaignLimit = 'overrideDoorKnockingCampaignLimit' in updates
+    const newLimit = updates.overrideDoorKnockingCampaignLimit ?? null
+    if (touchesCampaignLimit && newLimit !== previousLimit) {
+      // There is no audit table anywhere in gp-api, and AdminAuditInterceptor
+      // keys off @Roles(admin) metadata, which this AdminOrM2MGuard route does
+      // not carry — so this line is the only durable record that someone moved
+      // an organization's Geoapify spending limit. `event:` is queryable in
+      // Loki exactly as `DoorKnockingSpend` is.
+      //
+      // The actor is often unknowable here and that is a real limitation, not
+      // an oversight: gp-admin calls this with an M2M token and authorizes the
+      // human in its own server action, so `req.user` is empty and the email
+      // below is null for the calls this endpoint mostly serves.
+      this.logger.info(
+        {
+          event: 'DoorKnockingCampaignLimitOverride',
+          organizationSlug: slug,
+          previousLimit,
+          newLimit,
+          actorEmail: effectiveUser(req)?.email ?? null,
+        },
+        'Door knocking campaign limit override changed',
+      )
+    }
+
+    return {
+      ...toAPIOrganization(org, organizationStatus(org, new Date())),
+      overrideDoorKnockingCampaignLimit: org.overrideDoorKnockingCampaignLimit,
+    }
   }
 }

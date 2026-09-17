@@ -7,55 +7,62 @@ enum UserRole {
 }
 
 model User {
-  id                    Int                     @id @default(autoincrement())
-  createdAt             DateTime                @default(now()) @map("created_at")
-  updatedAt             DateTime                @updatedAt @map("updated_at")
-  firstName             String?                 @default("") @map("first_name")
-  lastName              String?                 @default("") @map("last_name")
-  name                  String?
-  avatar                String?
-  password              String?
-  hasPassword           Boolean                 @default(false) @map("has_password")
+  id                          Int                              @id @default(autoincrement())
+  createdAt                   DateTime                         @default(now()) @map("created_at")
+  updatedAt                   DateTime                         @updatedAt @map("updated_at")
+  firstName                   String?                          @default("") @map("first_name")
+  lastName                    String?                          @default("") @map("last_name")
+  name                        String?
+  avatar                      String?
+  password                    String?
+  hasPassword                 Boolean                          @default(false) @map("has_password")
   /// Also unique case-insensitively via a raw-SQL expression index
   /// (user_email_lower_unique on LOWER(email)) that schema.prisma can't declare.
-  email                 String                  @unique
-  clerkId               String?                 @unique @map("clerk_id")
+  email                       String                           @unique
+  clerkId                     String?                          @unique @map("clerk_id")
   // Canonical civics person id (= election-api gp_candidate_id). Null until the
   // data team's entity resolution mints a Person and reverse-ETL sets it here;
   // required before this user can own a public PersonProfile.
-  personId              String?                 @unique @map("person_id")
-  phone                 String?
-  zip                   String?
-  roles                 UserRole[]              @default([])
+  personId                    String?                          @unique @map("person_id")
+  phone                       String?
+  zip                         String?
+  roles                       UserRole[]                       @default([])
 
   // SMS consent, captured by the rep on the HubSpot card when the lead agrees on
   // a call to be texted their magic link. Lives on the user rather than on the
   // link because consent outlives any single link, and because "did this person
   // agree to be texted" has to be answerable without joining through a link.
   // `smsConsentSource` records who claimed it (e.g. "hubspot_card:<repEmail>").
-  smsConsentAt          DateTime?               @map("sms_consent_at")
-  smsConsentSource      String?                 @map("sms_consent_source")
+  smsConsentAt                DateTime?                        @map("sms_consent_at")
+  smsConsentSource            String?                          @map("sms_consent_source")
   // Set from Sinch's inbound STOP callback. Checked before every send, so an
   // opt-out is enforced by us and not only by the carrier.
-  smsOptedOutAt         DateTime?               @map("sms_opted_out_at")
-
+  smsOptedOutAt               DateTime?                        @map("sms_opted_out_at")
   /// [UserMetaData]
-  metaData              Json?                   @map("meta_data") @db.JsonB
-  campaignUpdateHistory CampaignUpdateHistory[]
-  organizations         Organization[]
-  campaigns             Campaign[] //TODO: Pretty sure this is supposed to be a 1-to-1 relation here
-  passwordResetToken    String?                 @map("password_reset_token")
-  aiChats               AiChat[]
-  electedOffices        ElectedOffice[]
+  metaData                    Json?                            @map("meta_data") @db.JsonB
+  campaignUpdateHistory       CampaignUpdateHistory[]
+  organizations               Organization[]
+  campaigns                   Campaign[] //TODO: Pretty sure this is supposed to be a 1-to-1 relation here
+  passwordResetToken          String?                          @map("password_reset_token")
+  aiChats                     AiChat[]
+  electedOffices              ElectedOffice[]
   // Plural since @@unique([userId, kind]): a lead sent down both funnels holds
   // a SERVE link and a WIN link at once.
-  magicLinks            MagicLink[]
-  annotations           Annotation[]
-  chatConversations     ChatConversation[]
-  artifactFeedbacks     ArtifactFeedback[]
-  userAgendaUploads     UserAgendaUpload[]
-  personProfile         PersonProfile?
-  contactStatusEvents   ContactStatusEvent[]
+  magicLinks                  MagicLink[]
+  annotations                 Annotation[]
+  chatConversations           ChatConversation[]
+  artifactFeedbacks           ArtifactFeedback[]
+  chatMessageFeedbacks        ChatMessageFeedback[]
+  userAgendaUploads           UserAgendaUpload[]
+  personProfile               PersonProfile?
+  contactStatusEvents         ContactStatusEvent[]
+  phoneBankingCalls           ContactInteractionPhoneBanking[]
+  contactNotes                ContactNote[]
+  organizationMemberships     OrganizationMembership[]
+  invitedMemberships          OrganizationMembership[]         @relation("OrganizationMembershipInvitedBy")
+  doorKnockInteractions       ContactInteractionDoorKnock[]
+  outreachAssignments         OutreachAssignment[]
+  assignedOutreachAssignments OutreachAssignment[]             @relation("OutreachAssignmentAssignedBy")
 
   @@index([firstName])
   @@index([lastName])

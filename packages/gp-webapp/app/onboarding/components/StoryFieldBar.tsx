@@ -8,10 +8,10 @@ import {
   SquareIcon,
 } from '@styleguide'
 import { SparklesIcon } from '@styleguide/components/ui/icons'
-import type { UseDictationAppendResult } from 'app/dashboard/briefings/shared/useDictationAppend'
+import type { UseDictationAppendResult } from 'app/dashboard/shared/dictation/useDictationAppend'
 import type { StoryRewrite } from 'app/dashboard/campaign-story/components/useStoryRewrite'
 
-// Optional per-field Save. Passed on the standalone "Your story" dashboard page
+// Optional per-field Save. Passed on the standalone "Your Story" dashboard page
 // (each card persists on its own); omitted in onboarding, where the whole story
 // is deferred to one save on the final step.
 export interface StorySaveState {

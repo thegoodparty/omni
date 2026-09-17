@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { decodePack } from './packDecoder'
+import {
+  PACK_AGE_BUCKETS,
+  PACK_STREAM_ALIGNMENT,
+  PACK_STREAM_FRAME_HEADER_BYTES,
+  PACK_STREAM_FRAME_KINDS,
+  PACK_STREAM_MAGIC,
+  PACK_STREAM_MAGIC_BYTES,
+} from '@goodparty_org/contracts'
+import { decodePack, PackStreamError } from './packDecoder'
 import {
   DimSelections,
   maskToPolygon,
@@ -8,13 +16,21 @@ import {
 } from './filterEngine'
 
 // Hand-built pack matching the wire framing: 4 people, 3 households, 2 dots,
-// two dims (party, canvassStatus). Mirrors the people-api encoder layout.
-const buildFixture = (): ArrayBuffer => {
+// three dims (party, age, canvassStatus). Mirrors the people-api encoder
+// layout.
+const buildPack = (): ArrayBuffer => {
   const counts = { people: 4, households: 3, dots: 2 }
   const positions = new Float32Array([-87.65, 41.9, -87.66, 41.91])
   const personToHousehold = new Uint32Array([0, 0, 1, 2])
   const householdToDot = new Uint32Array([0, 0, 1])
   const party = new Uint8Array([1, 2, 0, 0]) // Dem, Rep, Unknown, Unknown
+  // Deliberately a different shape from `party` — same four people bucketed
+  // unevenly — so a stat that read the wrong plane produces the wrong answer
+  // rather than coincidentally the right one.
+  // Persons 0 and 2 are in the two buckets that make up the 35–49 band (the
+  // single-year 35 and 36_49), so a breakdown that forgot to roll the pack's
+  // filtering buckets up into display bands reports them as two slices.
+  const age = new Uint8Array([4, 1, 5, 0]) // 35, 18_24, 36_49, Unknown
   const canvass = new Uint8Array([2, 0, 0, 0]) // supporter, unknown...
 
   const pad4 = (n: number) => Math.ceil(n / 4) * 4
@@ -23,6 +39,7 @@ const buildFixture = (): ArrayBuffer => {
     personToHousehold.byteLength +
     householdToDot.byteLength +
     party.byteLength +
+    age.byteLength +
     canvass.byteLength
 
   let dataStart = 4
@@ -43,6 +60,7 @@ const buildFixture = (): ArrayBuffer => {
     push('personToHousehold', 'u32', counts.people, 4)
     push('householdToDot', 'u32', counts.households, 4)
     push('dim:party', 'u8', counts.people, 1)
+    push('dim:age', 'u8', counts.people, 1)
     push('dim:canvassStatus', 'u8', counts.people, 1)
     manifestJson = JSON.stringify({
       version: 1,
@@ -50,6 +68,12 @@ const buildFixture = (): ArrayBuffer => {
       counts,
       dims: [
         { key: 'party', values: ['Unknown', 'Democratic', 'Republican'] },
+        // contracts' PACK_AGE_BUCKETS, in its order — the byte IS the index
+        // into this.
+        {
+          key: 'age',
+          values: [...PACK_AGE_BUCKETS],
+        },
         {
           key: 'canvassStatus',
           values: ['unknown', 'not_home', 'supporter'],
@@ -78,9 +102,51 @@ const buildFixture = (): ArrayBuffer => {
   write(personToHousehold)
   write(householdToDot)
   write(party)
+  write(age)
   write(canvass)
   return buffer
 }
+
+type Frame = { kind: number; payload: ArrayBuffer }
+
+const padded = (byteLength: number) =>
+  Math.ceil(byteLength / PACK_STREAM_ALIGNMENT) * PACK_STREAM_ALIGNMENT
+
+// The streaming envelope gp-api writes: magic first, then frames. Built here
+// rather than imported so the decoder is tested against the framing the
+// contract describes, not against the producer's own code.
+const envelope = (frames: Frame[]): ArrayBuffer => {
+  const total =
+    PACK_STREAM_MAGIC_BYTES +
+    frames.reduce(
+      (sum, f) =>
+        sum + PACK_STREAM_FRAME_HEADER_BYTES + padded(f.payload.byteLength),
+      0,
+    )
+  const buffer = new ArrayBuffer(total)
+  const bytes = new Uint8Array(buffer)
+  const view = new DataView(buffer)
+  bytes.set(new TextEncoder().encode(PACK_STREAM_MAGIC), 0)
+  let offset = PACK_STREAM_MAGIC_BYTES
+  for (const frame of frames) {
+    view.setUint32(offset, frame.kind, true)
+    view.setUint32(offset + 4, frame.payload.byteLength, true)
+    bytes.set(
+      new Uint8Array(frame.payload),
+      offset + PACK_STREAM_FRAME_HEADER_BYTES,
+    )
+    offset += PACK_STREAM_FRAME_HEADER_BYTES + padded(frame.payload.byteLength)
+  }
+  return buffer
+}
+
+// A heartbeat ahead of the pack, as a slow build produces: the decoder has to
+// walk past it rather than assume the pack starts at a fixed offset.
+const buildFixture = (): ArrayBuffer =>
+  envelope([
+    { kind: PACK_STREAM_FRAME_KINDS.heartbeat, payload: new ArrayBuffer(0) },
+    { kind: PACK_STREAM_FRAME_KINDS.pack, payload: buildPack() },
+  ])
 
 describe('decodePack', () => {
   it('mounts typed-array views at the manifest offsets', () => {
@@ -90,20 +156,63 @@ describe('decodePack', () => {
     expect(Array.from(pack.personToHousehold)).toEqual([0, 0, 1, 2])
     expect(Array.from(pack.householdToDot)).toEqual([0, 0, 1])
     expect(pack.positions[0]).toBeCloseTo(-87.65, 4)
+    // All three planes, not just party. A dim's bytes are found by the manifest
+    // offset its `push` assigned, so the fixture's push order and its write
+    // order have to stay in step — insert a plane into one and not the other
+    // and every dim after it decodes as its neighbour. Nothing about that is
+    // visibly wrong: the demographics stay plausible, they are just the wrong
+    // dim's, which is exactly the kind of thing a merge introduces silently.
     expect(Array.from(pack.dimPlanes.get('party') ?? [])).toEqual([1, 2, 0, 0])
+    expect(Array.from(pack.dimPlanes.get('age') ?? [])).toEqual([4, 1, 5, 0])
+    expect(Array.from(pack.dimPlanes.get('canvassStatus') ?? [])).toEqual([
+      2, 0, 0, 0,
+    ])
   })
 
   it('throws on a pack missing a core array', () => {
-    const buffer = buildFixture()
+    const pack = buildPack()
     // Corrupt the manifest: rename positions.
-    const manifestBytes = new DataView(buffer).getUint32(0, true)
+    const manifestBytes = new DataView(pack).getUint32(0, true)
     const json = new TextDecoder().decode(
-      new Uint8Array(buffer, 4, manifestBytes),
+      new Uint8Array(pack, 4, manifestBytes),
     )
     const broken = json.replace('"positions"', '"positionsX"')
-    const brokenBuffer = buffer.slice(0)
-    new Uint8Array(brokenBuffer).set(new TextEncoder().encode(broken), 4)
-    expect(() => decodePack(brokenBuffer)).toThrow()
+    new Uint8Array(pack).set(new TextEncoder().encode(broken), 4)
+    expect(() =>
+      decodePack(
+        envelope([{ kind: PACK_STREAM_FRAME_KINDS.pack, payload: pack }]),
+      ),
+    ).toThrow()
+  })
+
+  // gp-api starts writing before it starts building, so a build that fails
+  // afterwards arrives as a truncated 200. Reading that as an empty district
+  // would show a canvasser a map with no doors on it and no error.
+  it('rejects a response that ended before the pack arrived', () => {
+    const truncated = envelope([
+      { kind: PACK_STREAM_FRAME_KINDS.heartbeat, payload: new ArrayBuffer(0) },
+    ])
+
+    expect(() => decodePack(truncated)).toThrow(PackStreamError)
+    expect(() => decodePack(truncated)).toThrow(/ended before/)
+  })
+
+  it('surfaces the failure the server put in the envelope', () => {
+    const message = 'The voter map could not be built. Please try again.'
+    const failed = envelope([
+      {
+        kind: PACK_STREAM_FRAME_KINDS.error,
+        payload: new TextEncoder().encode(message).buffer as ArrayBuffer,
+      },
+    ])
+
+    expect(() => decodePack(failed)).toThrow(message)
+  })
+
+  // gp-api and gp-webapp do not deploy atomically, and an envelope-less body
+  // is simply the pack itself.
+  it('still decodes a body with no envelope', () => {
+    expect(decodePack(buildPack()).manifest.counts.people).toBe(4)
   })
 })
 
@@ -112,13 +221,13 @@ describe('runFilter + polygonStats', () => {
     const pack = decodePack(buildFixture())
 
     const all = runFilter(pack, new Map())
-    expect(all).toMatchObject({ people: 4, households: 3, dots: 2 })
+    expect(all).toMatchObject({ people: 4, households: 3 })
     // Dot 0 holds a supporter (byte 2) and unknowns — most actionable wins.
     expect(all.statusPerDot[0]).toBe(0)
 
     const demsOnly: DimSelections = new Map([['party', new Set([1])]])
     const filtered = runFilter(pack, demsOnly)
-    expect(filtered).toMatchObject({ people: 1, households: 1, dots: 1 })
+    expect(filtered).toMatchObject({ people: 1, households: 1 })
     expect(filtered.matchedPerDot[0]).toBe(1)
     expect(filtered.matchedPerDot[1]).toBe(0)
     // The only matched person at dot 0 is the supporter now.
@@ -184,12 +293,8 @@ describe('polygonStats', () => {
     const stats = polygonStats(pack, demsOnly, dotZeroRing)
 
     // Only person 0 is Democratic, and they live in household 0 — so the
-    // Republican's household 1 at the same dot must not be counted. That is
-    // stricter than maskToPolygon's dot-granular rollup, which returns 2 here.
+    // Republican's household 1 at the same dot must not be counted.
     expect(stats).toMatchObject({ stops: 1, people: 1, households: 1 })
-    expect(
-      maskToPolygon(pack, runFilter(pack, demsOnly), dotZeroRing).households,
-    ).toBe(2)
   })
 
   it('breaks the ring down by party, biggest bucket first', () => {
@@ -214,6 +319,50 @@ describe('polygonStats', () => {
     ])
   })
 
+  // Age is the details sheet's second breakdown and reads its own plane, so it
+  // gets the same three assertions party does. The fixture buckets the four
+  // people differently across the two dims on purpose: a stat that read the
+  // party plane for age would otherwise still produce a plausible answer.
+  it('breaks the ring down by age, biggest bucket first', () => {
+    const pack = decodePack(buildFixture())
+
+    const stats = polygonStats(pack, new Map(), wholeDistrictRing)
+
+    // Persons 0 and 2 are in the pack's `35` and `36_49` buckets, person 1 in
+    // `18_24`, person 3 Unknown. The first two ROLL UP into the 35–49 display
+    // band: the pack's buckets are cut fine enough for every saved-list age
+    // key to map onto them exactly, and showing that cut would put a one-year
+    // slice beside a fourteen-year one. The two one-person buckets tie, and
+    // the sort is stable, so they hold manifest order (Unknown is index 0).
+    expect(stats.ageMix).toEqual([
+      { label: '35_49', people: 2 },
+      { label: 'Unknown', people: 1 },
+      { label: '18_24', people: 1 },
+    ])
+  })
+
+  it('counts age only for the people inside the ring', () => {
+    const pack = decodePack(buildFixture())
+
+    // Dot 0 holds households 0 and 1, i.e. persons 0, 1 and 2.
+    expect(polygonStats(pack, new Map(), dotZeroRing).ageMix).toEqual([
+      { label: '35_49', people: 2 },
+      { label: '18_24', people: 1 },
+    ])
+  })
+
+  it('drops age buckets the filter excluded rather than showing them at zero', () => {
+    const pack = decodePack(buildFixture())
+    const demsOnly: DimSelections = new Map([['party', new Set([1])]])
+
+    // Person 0 is the only Democrat, and they are 35–49 — so the other age
+    // buckets go, rather than reporting the polygon's whole age spread beside
+    // a people count of 1.
+    expect(polygonStats(pack, demsOnly, wholeDistrictRing).ageMix).toEqual([
+      { label: '35_49', people: 1 },
+    ])
+  })
+
   it('returns an empty turf when the ring encloses no dot', () => {
     const pack = decodePack(buildFixture())
 
@@ -229,6 +378,7 @@ describe('polygonStats', () => {
       people: 0,
       households: 0,
       partyMix: [],
+      ageMix: [],
     })
   })
 })
@@ -252,7 +402,7 @@ describe('maskToPolygon', () => {
 
     expect(masked.matchedPerDot[0]).toBe(all.matchedPerDot[0])
     expect(masked.matchedPerDot[1]).toBe(0)
-    expect(masked).toMatchObject({ people: 3, dots: 1 })
+    expect(masked.people).toBe(3)
     // Statuses survive for kept dots and reset to the 255 sentinel otherwise,
     // so the excluded dot renders as absent rather than as 'unknown' (0).
     expect(masked.statusPerDot[0]).toBe(all.statusPerDot[0])
@@ -277,7 +427,7 @@ describe('maskToPolygon', () => {
 
     expect(masked.matchedPerDot[0]).toBe(all.matchedPerDot[0])
     expect(masked.matchedPerDot[1]).toBe(0)
-    expect(masked).toMatchObject({ people: 3, dots: 1 })
+    expect(masked.people).toBe(3)
   })
 
   it('zeroes everything when the ring encloses no dot', () => {
@@ -293,23 +443,22 @@ describe('maskToPolygon', () => {
     ]
     const masked = maskToPolygon(pack, all, elsewhere)
 
-    expect(masked).toMatchObject({ people: 0, households: 0, dots: 0 })
+    expect(masked.people).toBe(0)
     expect(Array.from(masked.matchedPerDot)).toEqual([0, 0])
   })
 
-  it('counts every household at a kept dot, overcounting by design', () => {
+  // The rail prints `people` and nothing else off a masked result, so the mask
+  // carries no household count at all rather than a dot-granular approximation
+  // of one that only looked maintained.
+  it('carries no household count', () => {
     const pack = decodePack(buildFixture())
-    // Only person 0 (Democratic) matches, and person 0 lives in household 0.
     const demsOnly: DimSelections = new Map([['party', new Set([1])]])
     const filtered = runFilter(pack, demsOnly)
     expect(filtered.households).toBe(1)
 
     const masked = maskToPolygon(pack, filtered, dotZeroRing)
 
-    // Households 0 and 1 both sit at dot 0, so the dot-granular rollup returns
-    // 2 where runFilter's person-level pass returns 1. This is the documented
-    // approximation for the rail readout — knock-time evaluation is canonical.
-    expect(masked.households).toBe(2)
+    expect(masked.households).toBeUndefined()
     expect(masked.people).toBe(1)
   })
 })

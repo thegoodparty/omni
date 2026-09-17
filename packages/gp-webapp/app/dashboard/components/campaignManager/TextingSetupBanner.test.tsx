@@ -31,14 +31,16 @@ beforeEach(() => {
 })
 
 describe('TextingSetupBanner — visibility', () => {
-  it('renders for a Pro campaign with no TCR record', () => {
-    render(<TextingSetupBanner tcrCompliance={null} />)
-    expect(screen.getByText(HEADING)).toBeInTheDocument()
-  })
-
   it('renders for a Pro campaign with a retryable error record', () => {
     render(<TextingSetupBanner tcrCompliance={tcrWith('error')} />)
     expect(screen.getByText(HEADING)).toBeInTheDocument()
+  })
+
+  // A candidate with no record has not started: the "Set up texting
+  // compliance" card owns that state, so a "finish" prompt would contradict it.
+  it('renders nothing for a Pro campaign with no TCR record', () => {
+    render(<TextingSetupBanner tcrCompliance={null} />)
+    expect(screen.queryByText(HEADING)).not.toBeInTheDocument()
   })
 
   it.each(['submitted', 'pending', 'approved', 'rejected'])(
@@ -51,14 +53,14 @@ describe('TextingSetupBanner — visibility', () => {
 
   it('renders nothing for a free campaign (ProUpgradeBanner owns that slot)', () => {
     mockUseCampaign.mockReturnValue([{ isPro: false }])
-    render(<TextingSetupBanner tcrCompliance={null} />)
+    render(<TextingSetupBanner tcrCompliance={tcrWith('error')} />)
     expect(screen.queryByText(HEADING)).not.toBeInTheDocument()
   })
 })
 
 describe('TextingSetupBanner — CTA and analytics', () => {
   it('links the CTA to the election-filing form', () => {
-    render(<TextingSetupBanner tcrCompliance={null} />)
+    render(<TextingSetupBanner tcrCompliance={tcrWith('error')} />)
     expect(
       screen.getByRole('link', { name: 'Start registration' }),
     ).toHaveAttribute(
@@ -69,7 +71,7 @@ describe('TextingSetupBanner — CTA and analytics', () => {
 
   it('fires the view event when visible and the click event on the CTA', async () => {
     const user = userEvent.setup()
-    render(<TextingSetupBanner tcrCompliance={null} />)
+    render(<TextingSetupBanner tcrCompliance={tcrWith('error')} />)
 
     expect(mockTrackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.TextingSetupBannerViewed,

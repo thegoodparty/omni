@@ -41,6 +41,9 @@ type SlackBlocksParams = {
   campaignPlanDueDate?: string
   textCount?: number
   billableTextCount?: number
+  // Overrides the request header — the approval notice reuses the whole
+  // block set under its own label.
+  headerText?: string
 }
 
 export function buildSlackBlocks({
@@ -63,13 +66,14 @@ export function buildSlackBlocks({
   campaignPlanDueDate,
   textCount,
   billableTextCount,
+  headerText,
 }: SlackBlocksParams) {
   const blocks = [
     {
       type: SlackMessageType.HEADER,
       text: {
         type: SlackMessageType.PLAIN_TEXT,
-        text: '🚨 Campaign Schedule Request 🚨',
+        text: headerText ?? '🚨 Campaign Schedule Request 🚨',
         emoji: true,
       },
     },

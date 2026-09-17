@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
+import { SUPPORT_EMAIL } from '@shared/utils/supportContact'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { dateUsHelper } from 'helpers/dateHelper'
 import { deleteCookie, getCookie } from 'helpers/cookieHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useDistrictResolution } from '../../../shared/useDistrictResolution'
 
-// Exported (not just used internally) so downloadVoterList.util's saved-list
-// branch (ENG-10765) can poll the same cookie on the same schedule instead of
-// hand-rolling a second copy of this timing-sensitive handshake — the two
-// callers hit the identical GET /api/v1/contacts/download endpoint and must
-// not drift on the interval or fallback window.
+// Exported (not just used internally) so a second caller of
+// GET /api/v1/contacts/download can poll the same cookie on the same
+// schedule rather than hand-rolling a copy of this timing-sensitive
+// handshake and drifting on the interval or fallback window.
 export const DOWNLOAD_COOKIE_NAME = 'gp_download'
 export const DOWNLOAD_COOKIE_POLL_MS = 250
 // Fallback in case the server-side cookie handshake is missing (older deploy,
@@ -35,9 +35,10 @@ export interface UseContactsDownloadOptions {
 }
 
 // The top-level-navigation download flow (cookie handshake + poll + fallback
-// timeout) shared by the legacy Download.tsx (segment-search page) and the
-// CRM list-detail page (ENG-10707) — extracted so the two surfaces can't
-// drift on this subtle timing logic (single source per repo convention).
+// timeout) behind the CRM list-detail page's Download button (ENG-10707).
+// Its own module rather than inlined there because the timing logic below is
+// subtle enough that a second download surface must reuse it, not restate
+// it.
 export function useContactsDownload({
   canUseProFeatures,
   onProGated,
@@ -81,9 +82,9 @@ export function useContactsDownload({
     // ENG-10709: called from the cookie-confirmed success branch below, not
     // at click time — the CRM `List Exported` event must not fire on a
     // failed download, and the cookie handshake is the only signal this hook
-    // has that the server actually started streaming. Optional: the legacy
-    // (pre-CRM) Download.tsx caller doesn't pass one, so it never emits the
-    // CRM-only event. The 15s fallback branch is deliberately excluded (see
+    // has that the server actually started streaming. Optional, so a caller
+    // that has no `List Exported` event to fire can omit it rather than
+    // pass a no-op. The 15s fallback branch is deliberately excluded (see
     // its own comment) — it's ambiguous between "failed" and "succeeded but
     // missed the cookie", so it can't safely fire a success event either.
     onDownloadConfirmed?: () => void,
@@ -98,7 +99,7 @@ export function useContactsDownload({
     // Gated here rather than at the two call sites so both are covered.
     if (isUnresolvable) {
       errorSnackbar(
-        'Voter data is not available for this office yet. Contact support at help@goodparty.org.',
+        `Voter data is not available for this office yet. Contact support at ${SUPPORT_EMAIL}.`,
         { autoHideDuration: 6000 },
       )
       return

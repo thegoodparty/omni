@@ -11,11 +11,11 @@ import {
 // `ActivityConditionAction` enum comment). Task 05 (resolution engine) and
 // task 09 (wizard UI) render against this same map so the vocabulary can't
 // drift between validation, resolution, and display. Only channels with an
-// interaction model are keys here — phoneBanking/socialMedia stay out until
-// their models exist.
+// interaction model are keys here — socialMedia stays out until its model
+// exists.
 export type ActivityConditionChannel = Extract<
   OutreachType,
-  'text' | 'p2p' | 'doorKnocking' | 'robocall'
+  'text' | 'p2p' | 'doorKnocking' | 'robocall' | 'phoneBanking'
 >
 
 export const ACTIVITY_CONDITION_CHANNEL_ACTIONS: Record<
@@ -33,6 +33,18 @@ export const ACTIVITY_CONDITION_CHANNEL_ACTIONS: Record<
     'support_no',
   ],
   robocall: ['answered', 'voicemail_left', 'no_answer'],
+  phoneBanking: [
+    'answered',
+    'no_answer',
+    'voicemail',
+    'wrong_number',
+    'refused',
+    'disconnected',
+    'hung_up',
+    'support_yes',
+    'support_unsure',
+    'support_no',
+  ],
 }
 
 const isActivityConditionChannel = (

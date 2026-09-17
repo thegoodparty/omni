@@ -21,9 +21,8 @@ import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { FileUpload } from 'src/files/files.types'
 import { WebsiteViewsService } from '../services/websiteViews.service'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
-import { createMockClerkEnricher } from '@/shared/test-utils/mockClerkEnricher.util'
+import { OrganizationMembershipService } from 'src/organizations/services/organizationMembership.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
 import {
   createMockUser,
   createMockCampaign,
@@ -60,7 +59,6 @@ const GENUINE_BIO =
   'ones with the loudest voices or the deepest pockets backing them.'
 
 const completeContent: PrismaJson.WebsiteContent = {
-  main: { title: 'Smith for City Council' },
   about: {
     bio: GENUINE_BIO,
     issues: [{ title: 'Issue 1', description: 'Description 1' }],
@@ -87,7 +85,6 @@ describe('WebsitesController', () => {
     getWebsiteIdByDomain: ReturnType<typeof vi.fn>
     update: ReturnType<typeof vi.fn>
   }
-  let mockClerkEnricher: ReturnType<typeof createMockClerkEnricher>
 
   beforeEach(async () => {
     mockAnalytics = {
@@ -98,6 +95,7 @@ describe('WebsitesController', () => {
       findUniqueOrThrow: vi.fn().mockResolvedValue({
         content: completeContent,
         hasEverBeenPublished: false,
+        status: WebsiteStatus.unpublished,
         domain: { status: DomainStatus.submitted },
       }),
       findUnique: vi.fn(),
@@ -123,14 +121,8 @@ describe('WebsitesController', () => {
         { provide: S3Service, useValue: mockS3Service },
         { provide: WebsiteViewsService, useValue: {} },
         { provide: CampaignsService, useValue: {} },
+        { provide: OrganizationMembershipService, useValue: {} },
         { provide: AnalyticsService, useValue: mockAnalytics },
-        {
-          provide: ClerkUserEnricherService,
-          useFactory: () => {
-            mockClerkEnricher = createMockClerkEnricher()
-            return mockClerkEnricher
-          },
-        },
         { provide: PinoLogger, useValue: createMockLogger() },
         WebsitesController,
       ],
@@ -373,10 +365,11 @@ describe('WebsitesController', () => {
       expect(mockWebsitesService.update).toHaveBeenCalled()
     })
 
-    it('does not gate content-only edits (no status change)', async () => {
+    it('does not gate content-only edits to an unpublished site', async () => {
       mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
         content: {},
         hasEverBeenPublished: false,
+        status: WebsiteStatus.unpublished,
         domain: null,
       })
 
@@ -410,6 +403,68 @@ describe('WebsitesController', () => {
       expect(mockWebsitesService.update).not.toHaveBeenCalled()
     })
 
+    it('blocks publish when the owner has only the legacy name field', async () => {
+      // getUserFullName would accept this user, but the public website response
+      // carries only firstName/lastName, so candidate-sites renders a blank
+      // headline. The gate must agree with the renderer, not with the helper.
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        content: completeContent,
+        hasEverBeenPublished: false,
+        status: WebsiteStatus.unpublished,
+        domain: { status: DomainStatus.submitted },
+      })
+      const nameOnlyUser = createMockUser({
+        firstName: null,
+        lastName: null,
+        name: 'Legacy Candidate',
+      })
+
+      await expect(
+        controller.updateWebsite(nameOnlyUser, mockCampaign, publishBody()),
+      ).rejects.toMatchObject({
+        status: HttpStatus.BAD_REQUEST,
+        message: expect.stringContaining('no first or last name'),
+      })
+
+      expect(mockWebsitesService.update).not.toHaveBeenCalled()
+    })
+
+    it('allows publish when only lastName is set', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        content: completeContent,
+        hasEverBeenPublished: false,
+        status: WebsiteStatus.unpublished,
+        domain: { status: DomainStatus.submitted },
+      })
+      const lastNameOnly = createMockUser({ firstName: null, name: null })
+
+      await controller.updateWebsite(lastNameOnly, mockCampaign, publishBody())
+
+      expect(mockWebsitesService.update).toHaveBeenCalled()
+    })
+
+    it('blocks publish when the campaign owner has no name', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        content: completeContent,
+        hasEverBeenPublished: false,
+        domain: { status: DomainStatus.submitted },
+      })
+      const namelessUser = createMockUser({
+        firstName: null,
+        lastName: null,
+        name: null,
+      })
+
+      await expect(
+        controller.updateWebsite(namelessUser, mockCampaign, publishBody()),
+      ).rejects.toMatchObject({
+        status: HttpStatus.BAD_REQUEST,
+        message: expect.stringContaining('no first or last name'),
+      })
+
+      expect(mockWebsitesService.update).not.toHaveBeenCalled()
+    })
+
     it('reports every missing required field in the error message', async () => {
       mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
         content: {},
@@ -421,11 +476,6 @@ describe('WebsitesController', () => {
         controller.updateWebsite(mockUser, mockCampaign, publishBody()),
       ).rejects.toMatchObject({
         status: HttpStatus.BAD_REQUEST,
-        message: expect.stringContaining('main.title'),
-      })
-      await expect(
-        controller.updateWebsite(mockUser, mockCampaign, publishBody()),
-      ).rejects.toMatchObject({
         message: expect.stringContaining('about.bio'),
       })
       await expect(
@@ -731,6 +781,103 @@ describe('WebsitesController', () => {
     })
   })
 
+  describe('updateWebsite - edits to an already-published site', () => {
+    // Cloned because updateWebsite's merge() mutates the content it is handed,
+    // and completeContent is shared with every other suite in this file.
+    const publishedSite = (content: PrismaJson.WebsiteContent) => ({
+      content: structuredClone(content),
+      hasEverBeenPublished: true,
+      status: WebsiteStatus.published,
+      domain: { status: DomainStatus.registered },
+    })
+
+    it('blocks an edit that blanks about.bio on a published site', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue(
+        publishedSite(completeContent),
+      )
+
+      const body = new UpdateWebsiteSchema()
+      body.about = { bio: '' }
+
+      await expect(
+        controller.updateWebsite(mockUser, mockCampaign, body),
+      ).rejects.toMatchObject({ status: HttpStatus.BAD_REQUEST })
+
+      expect(mockWebsitesService.update).not.toHaveBeenCalled()
+    })
+
+    it('names about.bio as the missing field', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue(
+        publishedSite(completeContent),
+      )
+
+      const body = new UpdateWebsiteSchema()
+      body.about = { bio: '' }
+
+      await expect(
+        controller.updateWebsite(mockUser, mockCampaign, body),
+      ).rejects.toMatchObject({ message: expect.stringContaining('about.bio') })
+    })
+
+    it('blocks an edit that empties about.issues on a published site', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue(
+        publishedSite(completeContent),
+      )
+
+      const body = new UpdateWebsiteSchema()
+      body.about = { issues: [] }
+
+      await expect(
+        controller.updateWebsite(mockUser, mockCampaign, body),
+      ).rejects.toMatchObject({ status: HttpStatus.BAD_REQUEST })
+
+      expect(mockWebsitesService.update).not.toHaveBeenCalled()
+    })
+
+    it('allows an edit that leaves required fields populated', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue(
+        publishedSite(completeContent),
+      )
+
+      const body = new UpdateWebsiteSchema()
+      body.main = { tagline: 'A fresh start for our district' }
+
+      await controller.updateWebsite(mockUser, mockCampaign, body)
+
+      expect(mockWebsitesService.update).toHaveBeenCalled()
+    })
+
+    it('does not re-gate the attached domain on a content-only edit', async () => {
+      // Deliberate asymmetry with the content gate: a Domain row sits at
+      // `pending` for the duration of an async registrar purchase, and gating
+      // edits on it would lock the candidate out of their own editor.
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        content: structuredClone(completeContent),
+        hasEverBeenPublished: true,
+        status: WebsiteStatus.published,
+        domain: { status: DomainStatus.pending },
+      })
+
+      const body = new UpdateWebsiteSchema()
+      body.main = { tagline: 'Still editable while the domain settles' }
+
+      await controller.updateWebsite(mockUser, mockCampaign, body)
+
+      expect(mockWebsitesService.update).toHaveBeenCalled()
+    })
+
+    it('allows unpublishing a site whose content is incomplete', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue(publishedSite({}))
+
+      const body = new UpdateWebsiteSchema()
+      body.status = WebsiteStatus.unpublished
+
+      await controller.updateWebsite(mockUser, mockCampaign, body)
+
+      expect(mockWebsitesService.update).toHaveBeenCalled()
+    })
+  })
+
   describe('updateWebsite - file upload scoping', () => {
     it('scopes uploaded image keys to the campaign ID', async () => {
       mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
@@ -824,7 +971,7 @@ describe('WebsitesController', () => {
       )
     })
 
-    it('returns published website and enriches user', async () => {
+    it('serves the published website user from Postgres', async () => {
       const user = { clerkId: 'clerk_1', firstName: 'Jane', lastName: 'Doe' }
       mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
         id: 1,
@@ -836,7 +983,7 @@ describe('WebsitesController', () => {
       const result = await controller.viewWebsite(vanityPath)
 
       expect(result.id).toBe(1)
-      expect(mockClerkEnricher.enrichUser).toHaveBeenCalledWith(user)
+      expect(result.campaign.user).toEqual(user)
     })
   })
 
@@ -868,7 +1015,7 @@ describe('WebsitesController', () => {
       )
     })
 
-    it('returns published website and enriches user', async () => {
+    it('serves the by-domain website user from Postgres', async () => {
       const mockDomainUser = {
         clerkId: 'clerk_123',
         firstName: 'Jane',
@@ -884,10 +1031,10 @@ describe('WebsitesController', () => {
       const result = await controller.getWebsiteByDomain(domain)
 
       expect(result.id).toBe(websiteId)
-      expect(mockClerkEnricher.enrichUser).toHaveBeenCalledWith(mockDomainUser)
+      expect(result.campaign.user).toEqual(mockDomainUser)
     })
 
-    it('skips enrichment when no user', async () => {
+    it('returns the website when the campaign has no user', async () => {
       mockWebsitesService.findUnique.mockResolvedValue({
         id: websiteId,
         status: WebsiteStatus.published,
@@ -898,7 +1045,7 @@ describe('WebsitesController', () => {
       const result = await controller.getWebsiteByDomain(domain)
 
       expect(result.id).toBe(websiteId)
-      expect(mockClerkEnricher.enrichUser).not.toHaveBeenCalled()
+      expect(result.campaign.user).toBeNull()
     })
 
     it('does not select campaign.details on the public query', async () => {
@@ -928,6 +1075,7 @@ describe('WebsitesController', () => {
         campaignId: 7,
         status: WebsiteStatus.published,
         vanityPath: 'jane',
+        legacyTitleOverride: null,
         hasEverBeenPublished: true,
         content: completeContent,
         campaign: {
@@ -954,6 +1102,7 @@ describe('WebsitesController', () => {
         hasEverBeenPublished: false,
         vanityPath: 'jane',
         content: completeContent,
+        legacyTitleOverride: null,
         createdAt: new Date(),
         updatedAt: new Date(),
         domain: {
@@ -996,6 +1145,7 @@ describe('WebsitesController', () => {
         hasEverBeenPublished: true,
         vanityPath: 'jane',
         content: completeContent,
+        legacyTitleOverride: null,
         createdAt: new Date(),
         updatedAt: new Date(),
         domain: {
@@ -1152,7 +1302,6 @@ describe('WebsitesController MCP discoverability', () => {
       { provide: WebsiteViewsService, useValue: {} },
       { provide: CampaignsService, useValue: {} },
       { provide: AnalyticsService, useValue: { track: vi.fn() } },
-      { provide: ClerkUserEnricherService, useValue: {} },
       { provide: PinoLogger, useValue: createMockLogger() },
       {
         provide: HttpAdapterHost,

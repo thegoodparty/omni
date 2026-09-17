@@ -50,16 +50,23 @@ const mockTcr = (
   overrides?: Partial<
     Pick<
       TcrCompliance,
-      'status' | 'peerlyIdentityId' | 'internalTestingApprovedAt'
+      | 'status'
+      | 'peerlyIdentityId'
+      | 'internalTestingApprovedAt'
+      | 'cvValidationFailedAt'
     >
   >,
 ): Pick<
   TcrCompliance,
-  'status' | 'peerlyIdentityId' | 'internalTestingApprovedAt'
+  | 'status'
+  | 'peerlyIdentityId'
+  | 'internalTestingApprovedAt'
+  | 'cvValidationFailedAt'
 > => ({
   status: TcrComplianceStatus.submitted,
   peerlyIdentityId: null,
   internalTestingApprovedAt: null,
+  cvValidationFailedAt: null,
   ...overrides,
 })
 
@@ -123,7 +130,7 @@ describe('deriveComplianceStage', () => {
     ).toBe(ComplianceStage.pending_website_live)
   })
 
-  it('returns awaiting_pin for a legacy pre-2026-06 domain with no registrant stamp', () => {
+  it('clears the website gate for a legacy pre-2026-06 domain with no registrant stamp', () => {
     expect(
       deriveComplianceStage(
         mockCampaign(),
@@ -135,7 +142,7 @@ describe('deriveComplianceStage', () => {
         }),
         mockTcr(),
       ),
-    ).toBe(ComplianceStage.awaiting_pin)
+    ).toBe(ComplianceStage.ready_to_submit)
   })
 
   it('still requires the registrant stamp for a domain created after the cutoff', () => {
@@ -166,15 +173,73 @@ describe('deriveComplianceStage', () => {
     ).toBe(ComplianceStage.pending_website_live)
   })
 
-  it('returns awaiting_pin when website is live and TCR status is submitted', () => {
+  // ENG-11018: `awaiting_pin` used to be the fallthrough for every live-site
+  // `submitted` record, so a record that never reached Peerly reported an
+  // outstanding PIN that was never issued. `peerlyIdentityId` is what tells
+  // the two halves apart.
+  it('returns ready_to_submit when the site is live but nothing reached Peerly', () => {
     expect(
       deriveComplianceStage(
         mockCampaign(),
         mockWebsite(),
         mockDomain(),
-        mockTcr(),
+        mockTcr({ peerlyIdentityId: null }),
+      ),
+    ).toBe(ComplianceStage.ready_to_submit)
+  })
+
+  it('returns awaiting_pin only once a Peerly identity exists', () => {
+    expect(
+      deriveComplianceStage(
+        mockCampaign(),
+        mockWebsite(),
+        mockDomain(),
+        mockTcr({ peerlyIdentityId: 'peerly-123' }),
       ),
     ).toBe(ComplianceStage.awaiting_pin)
+  })
+
+  it('returns filing_review_hold when the CV pre-submission gate holds it', () => {
+    expect(
+      deriveComplianceStage(
+        mockCampaign(),
+        mockWebsite(),
+        mockDomain(),
+        mockTcr({
+          peerlyIdentityId: null,
+          cvValidationFailedAt: parseISO('2026-09-01T18:08:56Z'),
+        }),
+      ),
+    ).toBe(ComplianceStage.filing_review_hold)
+  })
+
+  // An admin override clears the hold columns in the same write
+  // (overrideCvValidation), so an overridden record is indistinguishable from
+  // one that was never held — and must be submittable again.
+  it('returns ready_to_submit once a held record has been overridden', () => {
+    expect(
+      deriveComplianceStage(
+        mockCampaign(),
+        mockWebsite(),
+        mockDomain(),
+        mockTcr({ peerlyIdentityId: null, cvValidationFailedAt: null }),
+      ),
+    ).toBe(ComplianceStage.ready_to_submit)
+  })
+
+  it('lets a terminal TCR status outrank a stale validation hold', () => {
+    expect(
+      deriveComplianceStage(
+        mockCampaign(),
+        mockWebsite(),
+        mockDomain(),
+        mockTcr({
+          status: TcrComplianceStatus.approved,
+          peerlyIdentityId: 'peerly-123',
+          cvValidationFailedAt: parseISO('2026-09-01T18:08:56Z'),
+        }),
+      ),
+    ).toBe(ComplianceStage.tcr_approved)
   })
 
   it('returns tcr_in_review when status is pending', () => {
@@ -396,7 +461,11 @@ describe('ComplianceStateService - findStateForCampaign', () => {
     expect(result.pinDelivery).toBeNull()
   })
 
-  it('returns null CV status + PIN delivery without calling Peerly when no identity exists', async () => {
+  // Before ENG-11018 this same record reported `awaiting_pin` — an
+  // outstanding PIN for a candidate Peerly had never heard of. It now reports
+  // the pre-submission stage, and the Peerly read is skipped by the stage
+  // itself rather than by the identity check further in.
+  it('reports ready_to_submit and calls no Peerly when no identity exists', async () => {
     vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
     mockFindUniqueOrThrow.mockResolvedValue(
       awaitingPinCampaign({ peerlyIdentityId: null }),
@@ -404,7 +473,7 @@ describe('ComplianceStateService - findStateForCampaign', () => {
 
     const result = await service.findStateForCampaign(42)
 
-    expect(result.stage).toBe(ComplianceStage.awaiting_pin)
+    expect(result.stage).toBe(ComplianceStage.ready_to_submit)
     expect(result.peerlyCvStatus).toBeNull()
     expect(result.pinDelivery).toBeNull()
     expect(mockRetrieveCv).not.toHaveBeenCalled()

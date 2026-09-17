@@ -1,10 +1,13 @@
-import { NotFoundException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { formatInTimeZone } from 'date-fns-tz'
 import { subDays, subHours, subMinutes } from 'date-fns'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { TcrComplianceStatus } from '../../../generated/prisma'
+import {
+  DomainStatus,
+  TcrComplianceStatus,
+  WebsiteStatus,
+} from '../../../generated/prisma'
 import { PrismaService } from '@/prisma/prisma.service'
 import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
 import { MessageGroup, QueueType } from '../../../queue/queue.types'
@@ -12,24 +15,30 @@ import { SlackService } from '../../../vendors/slack/services/slack.service'
 import {
   SlackChannel,
   SlackMessageBlock,
+  SlackMessageType,
 } from '../../../vendors/slack/slackService.types'
 import { EASTERN_TIMEZONE } from '../../../shared/util/date.util'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { PeerlyCvVerificationStatus } from '../../../vendors/peerly/peerly.types'
 import {
-  PEERLY_PROFILE_STATUS_FINALIZED,
   PEERLY_PROFILE_STATUS_PENDING,
   PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE,
 } from '../../../vendors/peerly/services/peerly.const'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
+import { AnalyticsService } from 'src/analytics/analytics.service'
 import { PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES } from './campaignTcrCompliance.service'
+import { REGISTRANT_STAMPING_UNIVERSAL_FROM } from './complianceState.service'
 import { Nightly10DlcReportService } from './nightly10DlcReport.service'
 
-// The poll loop sleeps PEERLY_CV_READ_SPACING_MS between records; real
-// timers would make the 121-record cap test take ~42s.
-vi.mock('timers/promises', () => ({
-  setTimeout: () => Promise.resolve(),
+const { mockResolveNs } = vi.hoisted(() => ({ mockResolveNs: vi.fn() }))
+vi.mock('node:dns/promises', () => ({
+  Resolver: class {
+    resolveNs = mockResolveNs
+  },
 }))
+
+const dnsError = (code: string) =>
+  Object.assign(new Error(`queryNs ${code}`), { code })
 
 type WhereClause = {
   status?: TcrComplianceStatus | { in: TcrComplianceStatus[] }
@@ -37,7 +46,7 @@ type WhereClause = {
   kickoffSentAt?: null | { lt: Date }
   createdAt?: { lt: Date }
   peerlyBillingBlockedAt?: { gte: Date }
-  peerlyCvStatus?: string | null | { not: null; notIn: string[] }
+  peerlyCvStatus?: string | null | { in: string[] }
   peerlyProfileStatus?: string | null
   peerlyProfileStatusChangedAt?: { lt: Date }
   NOT?: object
@@ -75,18 +84,17 @@ const proRecord = (
   ...overrides,
 })
 
-// Queues the first 10 of the 11 sequential model.findMany results
-// handleNightlyReport makes, in call order: poll candidates,
-// stuckSubmissions, errorRecords, rejectedRecords, billingBlocked,
-// agingAwaitingPin, neverReachedCv (case 1), profileStalled (case 3a),
-// inReviewStalled (case 2), waitingToFinalizeStalled (case 3b). The 11th
+// Queues the first 9 of the 10 sequential model.findMany results
+// handleNightlyReport makes, in call order: stuckSubmissions, errorRecords,
+// rejectedRecords, billingBlocked, agingCvInFlight, neverReachedCv (case 1),
+// profileStalled (case 3a), inReviewStalled (case 2),
+// waitingToFinalizeStalled (case 3b). The 10th
 // (deferredDispatchCandidates) falls through to the beforeEach [] default —
 // tests exercising it use a mockImplementation keyed on its
 // `kickoffSentAt: null` filter instead.
 const queueFindManyResults = (
   mockFindMany: ReturnType<typeof vi.fn>,
   results: [
-    unknown[],
     unknown[],
     unknown[],
     unknown[],
@@ -109,9 +117,12 @@ const blocksText = (blocks: SlackMessageBlock[]): string =>
 // doesn't count), Friday->Thursday is 4 — a test using calendar days instead
 // would wrongly escalate the Monday case (3 calendar days) and would compute
 // the wrong count for Thursday (6 calendar days).
+// Anchors are noon ET, not midnight: `differenceInBusinessDays` counts local
+// calendar days, so a midnight-ET instant lands on the previous day in any
+// timezone west of Eastern and the count comes out one short.
 const FRIDAY_6PM_ET = new Date('2026-07-24T18:00:00-04:00')
-const MONDAY_MIDNIGHT_ET = new Date('2026-07-27T00:00:00-04:00')
-const THURSDAY_MIDNIGHT_ET = new Date('2026-07-30T00:00:00-04:00')
+const MONDAY_NOON_ET = new Date('2026-07-27T12:00:00-04:00')
+const THURSDAY_NOON_ET = new Date('2026-07-30T12:00:00-04:00')
 
 const inReviewRecord = (overrides: object = {}) =>
   proRecord('tcr-in-review', 'in-review-camp', 950, {
@@ -140,6 +151,22 @@ const vendorCalls = (mockSlackMessage: ReturnType<typeof vi.fn>) =>
     ][]
   ).filter(([, channel]) => channel === SlackChannel.sharedGoodpartyPeerly10Dlc)
 
+// The main nightly report shares the bot10DlcCompliance channel with the
+// once-only case 1 / case 3a alerts (ENG-10966), but only the report itself
+// carries a HEADER block — filter on that instead of call position, since a
+// test may invoke the handler more than once.
+const internalAlertCalls = (mockSlackMessage: ReturnType<typeof vi.fn>) =>
+  (
+    mockSlackMessage.mock.calls as [
+      { blocks: SlackMessageBlock[] },
+      SlackChannel,
+    ][]
+  ).filter(
+    ([{ blocks }, channel]) =>
+      channel === SlackChannel.bot10DlcCompliance &&
+      !blocks.some((block) => block.type === SlackMessageType.HEADER),
+  )
+
 describe('Nightly10DlcReportService', () => {
   let service: Nightly10DlcReportService
   let mockQueue: { sendMessage: ReturnType<typeof vi.fn> }
@@ -156,6 +183,7 @@ describe('Nightly10DlcReportService', () => {
     retrieveCampaignVerifyStatus: ReturnType<typeof vi.fn>
     getIdentityProfile: ReturnType<typeof vi.fn>
   }
+  let mockAnalytics: { track: ReturnType<typeof vi.fn> }
 
   beforeEach(async () => {
     mockQueue = { sendMessage: vi.fn().mockResolvedValue(undefined) }
@@ -167,6 +195,9 @@ describe('Nightly10DlcReportService', () => {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     }
     mockDomain = { findMany: vi.fn().mockResolvedValue([]) }
+    // Healthy delegation by default so tests exercising other sections
+    // never trip the registry-hold sweep.
+    mockResolveNs.mockResolvedValue(['ns1.vercel-dns.com'])
     mockExperimentRun = { findMany: vi.fn().mockResolvedValue([]) }
     // Defaults to "no CV request yet" so tests that don't care about the
     // poll (most of the pre-existing suite) never see an unexpected update.
@@ -174,6 +205,7 @@ describe('Nightly10DlcReportService', () => {
       retrieveCampaignVerifyStatus: vi.fn().mockResolvedValue(null),
       getIdentityProfile: vi.fn().mockResolvedValue(null),
     }
+    mockAnalytics = { track: vi.fn().mockResolvedValue(undefined) }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -188,6 +220,7 @@ describe('Nightly10DlcReportService', () => {
         { provide: QueueProducerService, useValue: mockQueue },
         { provide: SlackService, useValue: mockSlack },
         { provide: PeerlyIdentityService, useValue: mockPeerlyIdentity },
+        { provide: AnalyticsService, useValue: mockAnalytics },
         { provide: PinoLogger, useValue: createMockLogger() },
         Nightly10DlcReportService,
       ],
@@ -308,19 +341,25 @@ describe('Nightly10DlcReportService', () => {
             typeof where.peerlyIdentityId === 'object'
           ) {
             // The poll query (ENG-10793) shares this shape but carries no
-            // OR clause — only the awaiting-PIN query does.
-            if (!where.OR) {
+            // peerlyCvStatus — only the in-flight CV query lists statuses.
+            if (
+              typeof where.peerlyCvStatus !== 'object' ||
+              where.peerlyCvStatus === null ||
+              !('in' in where.peerlyCvStatus)
+            ) {
               return Promise.resolve([])
             }
             return Promise.resolve([
               proRecord('tcr-5', 'pin-camp', 555, {
                 peerlyIdentityId: '11540157',
+                peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
                 pinSentDetectedAt: subDays(new Date(), 10),
               }),
               proRecord('tcr-6', 'pin-undetected-camp', 556, {
                 peerlyIdentityId: '11540158',
+                peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
                 pinSentDetectedAt: null,
-                updatedAt: subDays(new Date(), 12),
+                peerlyCvStatusChangedAt: subDays(new Date(), 12),
               }),
             ])
           }
@@ -362,7 +401,8 @@ describe('Nightly10DlcReportService', () => {
       expect(text).toContain('vote-dead-domain.site')
       expect(text).toContain('pin-camp (campaign 555)')
       expect(text).toContain('Awaiting PIN')
-      // The pinSentDetectedAt-null arm falls back to updatedAt for the age.
+      // The pinSentDetectedAt-null arm falls back to when CV reached APPROVED
+      // (peerlyCvStatusChangedAt), which is when Peerly issues the PIN.
       expect(text).toContain('pin-undetected-camp (campaign 556)')
       expect(text).toContain('PIN out 12d')
       // Nudge rows are not system failures and must not inflate the count.
@@ -374,16 +414,21 @@ describe('Nightly10DlcReportService', () => {
 
       // Staff test accounts use @goodparty.org (not just the seeded
       // @test.goodparty.org), so both domains must be excluded or their
-      // intentionally stuck records page as real incidents.
+      // intentionally stuck records page as real incidents. The suffixes must
+      // be OR'd *inside* the NOT: Prisma reads a bare `NOT: [a, b]` as
+      // NOT(a AND b), and since no address ends with both suffixes that form
+      // is always true and excludes nobody.
       const expectedCampaignWhere = {
         isPro: true,
         user: {
-          NOT: [
-            { email: { endsWith: '@goodparty.org', mode: 'insensitive' } },
-            {
-              email: { endsWith: '@test.goodparty.org', mode: 'insensitive' },
-            },
-          ],
+          NOT: {
+            OR: [
+              { email: { endsWith: '@goodparty.org', mode: 'insensitive' } },
+              {
+                email: { endsWith: '@test.goodparty.org', mode: 'insensitive' },
+              },
+            ],
+          },
         },
       }
       for (const call of mockModel.findMany.mock.calls) {
@@ -399,6 +444,93 @@ describe('Nightly10DlcReportService', () => {
           status: TcrComplianceStatus.submitted,
           peerlyIdentityId: null,
         },
+      })
+      // The registry-hold sweep must stay disjoint from the purchase-failure
+      // section above: only bought domains (registrant-verified, or legacy
+      // pre-cutoff) qualify, under a published site of the same reportable
+      // population.
+      const [heldCall] = mockDomain.findMany.mock.calls[1] as [
+        {
+          where: {
+            website: { status: WebsiteStatus; campaign: object }
+            OR: object[]
+          }
+        },
+      ]
+      expect(heldCall.where.website).toEqual({
+        status: WebsiteStatus.published,
+        campaign: expectedCampaignWhere,
+      })
+      expect(heldCall.where.OR).toEqual([
+        { registrantVerifiedAt: { not: null } },
+        { createdAt: { lt: REGISTRANT_STAMPING_UNIVERSAL_FROM } },
+      ])
+    })
+
+    describe('registry-hold domain sweep', () => {
+      const boughtDomainRow = (name: string, overrides: object = {}) => ({
+        name,
+        status: DomainStatus.submitted,
+        createdAt: subDays(new Date(), 7),
+        registrantVerifiedAt: subDays(new Date(), 7),
+        website: {
+          campaignId: 777,
+          campaign: { id: 777, slug: 'held-camp', isPro: true },
+        },
+        ...overrides,
+      })
+
+      const queueHeldSweepDomains = (rows: object[]) => {
+        mockDomain.findMany.mockImplementation(
+          ({ where }: { where: { website?: { status?: WebsiteStatus } } }) =>
+            Promise.resolve(
+              where.website?.status === WebsiteStatus.published ? rows : [],
+            ),
+        )
+      }
+
+      it('reports a bought domain with no DNS delegation and counts it stuck', async () => {
+        queueHeldSweepDomains([
+          boughtDomainRow('vote-for-paholsky-nov-2026.site'),
+        ])
+        mockResolveNs.mockRejectedValue(dnsError('ENOTFOUND'))
+
+        await service.handleNightlyReport({ reportDate: '2026-09-10' })
+
+        const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+          { blocks: SlackMessageBlock[] },
+        ]
+        const text = blocksText(blocks)
+        expect(text).toContain('🚨 10DLC nightly report — 2026-09-10: 1 stuck')
+        expect(text).toContain('Domain not resolving (registry hold?)')
+        expect(text).toContain('held-camp (campaign 777)')
+        expect(text).toContain('vote-for-paholsky-nov-2026.site')
+        expect(text).toContain('abuse.radix.website/unsuspension')
+      })
+
+      it('does not report a transient lookup failure — a resolver outage must not mark the fleet dark', async () => {
+        queueHeldSweepDomains([boughtDomainRow('vote-transient.site')])
+        mockResolveNs.mockRejectedValue(dnsError('ETIMEOUT'))
+
+        await service.handleNightlyReport({ reportDate: '2026-09-10' })
+
+        const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+          { blocks: SlackMessageBlock[] },
+        ]
+        const text = blocksText(blocks)
+        expect(text).toContain('no campaigns stuck')
+        expect(text).not.toContain('Domain not resolving')
+      })
+
+      it('does not report a domain whose delegation resolves', async () => {
+        queueHeldSweepDomains([boughtDomainRow('vote-healthy.site')])
+
+        await service.handleNightlyReport({ reportDate: '2026-09-10' })
+
+        const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+          { blocks: SlackMessageBlock[] },
+        ]
+        expect(blocksText(blocks)).not.toContain('Domain not resolving')
       })
     })
 
@@ -522,258 +654,11 @@ describe('Nightly10DlcReportService', () => {
 
       expect(result).toBe(false)
     })
-
-    it('polls only Pro/non-internal, identity-bearing, in-flight records', async () => {
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
-
-      // The poll always runs first, before the section queries.
-      const [pollCall] = mockModel.findMany.mock.calls[0] as [
-        { where: WhereClause; orderBy: object },
-      ]
-      expect(pollCall.where.peerlyIdentityId).toEqual({ not: null })
-      expect(pollCall.where.status).toEqual({
-        in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
-      })
-      // Oldest-touched first — the per-run cap drops the tail, not the head.
-      expect(pollCall.orderBy).toEqual({ updatedAt: 'asc' })
-    })
   })
 
-  describe('handleNightlyReport — Peerly status poll (ENG-10793)', () => {
-    const pollRecord = (overrides: object = {}) =>
-      proRecord('tcr-poll', 'poll-camp', 900, {
-        peerlyIdentityId: 'ident-900',
-        status: TcrComplianceStatus.submitted,
-        ...overrides,
-      })
-
-    it('stamps status + changedAt on first observation (null → REQUESTED)', async () => {
-      const record = pollRecord()
-      mockModel.findMany.mockResolvedValueOnce([record])
-      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
-        PeerlyCvVerificationStatus.REQUESTED,
-      )
-
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
-
-      expect(
-        mockPeerlyIdentity.retrieveCampaignVerifyStatus,
-      ).toHaveBeenCalledExactlyOnceWith('ident-900', record.campaign, {
-        suppressSlackAlert: true,
-      })
-      expect(mockModel.update).toHaveBeenCalledExactlyOnceWith({
-        where: { id: 'tcr-poll' },
-        data: {
-          peerlyCvStatus: PeerlyCvVerificationStatus.REQUESTED,
-          peerlyCvStatusChangedAt: expect.any(Date),
-        },
-      })
-    })
-
-    it('does not rewrite changedAt on a repeat observation', async () => {
-      mockModel.findMany.mockResolvedValueOnce([
-        pollRecord({ peerlyCvStatus: PeerlyCvVerificationStatus.REQUESTED }),
-      ])
-      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
-        PeerlyCvVerificationStatus.REQUESTED,
-      )
-
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
-
-      expect(mockModel.update).not.toHaveBeenCalled()
-    })
-
-    it('rewrites status + changedAt on a real transition (REQUESTED → IN_REVIEW)', async () => {
-      mockModel.findMany.mockResolvedValueOnce([
-        pollRecord({ peerlyCvStatus: PeerlyCvVerificationStatus.REQUESTED }),
-      ])
-      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
-        PeerlyCvVerificationStatus.IN_REVIEW,
-      )
-
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
-
-      expect(mockModel.update).toHaveBeenCalledExactlyOnceWith({
-        where: { id: 'tcr-poll' },
-        data: {
-          peerlyCvStatus: PeerlyCvVerificationStatus.IN_REVIEW,
-          peerlyCvStatusChangedAt: expect.any(Date),
-        },
-      })
-    })
-
-    it('does not call getProfile for a non-VERIFIED CV status', async () => {
-      mockModel.findMany.mockResolvedValueOnce([pollRecord()])
-      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
-        PeerlyCvVerificationStatus.IN_REVIEW,
-      )
-
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
-
-      expect(mockPeerlyIdentity.getIdentityProfile).not.toHaveBeenCalled()
-    })
-
-    it('calls getProfile and stamps profile status only for VERIFIED', async () => {
-      const record = pollRecord()
-      mockModel.findMany.mockResolvedValueOnce([record])
-      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
-        PeerlyCvVerificationStatus.VERIFIED,
-      )
-      mockPeerlyIdentity.getIdentityProfile.mockResolvedValueOnce({
-        link: 'https://peerly.example/link',
-        profile: { status: PEERLY_PROFILE_STATUS_PENDING },
-      })
-
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
-
-      expect(
-        mockPeerlyIdentity.getIdentityProfile,
-      ).toHaveBeenCalledExactlyOnceWith('ident-900', record.campaign, {
-        suppressSlackAlert: true,
-      })
-      expect(mockModel.update).toHaveBeenCalledExactlyOnceWith({
-        where: { id: 'tcr-poll' },
-        data: {
-          peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
-          peerlyCvStatusChangedAt: expect.any(Date),
-          peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
-          peerlyProfileStatusChangedAt: expect.any(Date),
-        },
-      })
-    })
-
-    it('does not erase an observed CV status when Peerly returns no CV request', async () => {
-      mockModel.findMany.mockResolvedValueOnce([
-        pollRecord({ peerlyCvStatus: PeerlyCvVerificationStatus.REQUESTED }),
-      ])
-      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
-        null,
-      )
-
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
-
-      expect(mockModel.update).not.toHaveBeenCalled()
-    })
-
-    it('caps a large backlog at 120 polled records per run', async () => {
-      mockModel.findMany.mockResolvedValueOnce(
-        Array.from({ length: 121 }, (_, i) =>
-          pollRecord({ id: `tcr-cap-${i}`, peerlyIdentityId: `ident-${i}` }),
-        ),
-      )
-      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValue(
-        PeerlyCvVerificationStatus.REQUESTED,
-      )
-
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
-
-      expect(
-        mockPeerlyIdentity.retrieveCampaignVerifyStatus,
-      ).toHaveBeenCalledTimes(120)
-    })
-
-    it('keeps a stored profile status when getProfile succeeds with an empty body', async () => {
-      mockModel.findMany.mockResolvedValueOnce([
-        pollRecord({
-          peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
-          peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
-        }),
-      ])
-      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
-        PeerlyCvVerificationStatus.VERIFIED,
-      )
-      mockPeerlyIdentity.getIdentityProfile.mockResolvedValueOnce(null)
-
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
-
-      expect(mockModel.update).not.toHaveBeenCalled()
-    })
-
-    it('clears a stale profile status when getProfile 404s (identity gone)', async () => {
-      mockModel.findMany.mockResolvedValueOnce([
-        pollRecord({
-          peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
-          peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
-        }),
-      ])
-      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
-        PeerlyCvVerificationStatus.VERIFIED,
-      )
-      mockPeerlyIdentity.getIdentityProfile.mockRejectedValueOnce(
-        new NotFoundException(
-          'Identity profile for given identity ID could not be found',
-        ),
-      )
-
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
-
-      expect(mockModel.update).toHaveBeenCalledExactlyOnceWith({
-        where: { id: 'tcr-poll' },
-        data: {
-          peerlyProfileStatus: null,
-          peerlyProfileStatusChangedAt: expect.any(Date),
-        },
-      })
-    })
-
-    it('persists an observed CV transition even when the profile read fails', async () => {
-      mockModel.findMany.mockResolvedValueOnce([
-        pollRecord({ peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED }),
-      ])
-      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
-        PeerlyCvVerificationStatus.VERIFIED,
-      )
-      mockPeerlyIdentity.getIdentityProfile.mockRejectedValueOnce(
-        new Error('peerly 502'),
-      )
-
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
-
-      expect(mockModel.update).toHaveBeenCalledExactlyOnceWith({
-        where: { id: 'tcr-poll' },
-        data: {
-          peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
-          peerlyCvStatusChangedAt: expect.any(Date),
-        },
-      })
-    })
-
-    it("one record's Peerly error does not stop the next record's poll or overwrite its status", async () => {
-      mockModel.findMany.mockResolvedValueOnce([
-        pollRecord({
-          id: 'tcr-fail',
-          peerlyIdentityId: 'ident-fail',
-          peerlyCvStatus: PeerlyCvVerificationStatus.REQUESTED,
-        }),
-        pollRecord({
-          id: 'tcr-ok',
-          campaignId: 901,
-          peerlyIdentityId: 'ident-ok',
-        }),
-      ])
-      mockPeerlyIdentity.retrieveCampaignVerifyStatus
-        .mockRejectedValueOnce(new Error('peerly down'))
-        .mockResolvedValueOnce(PeerlyCvVerificationStatus.APPROVED)
-
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
-
-      expect(mockModel.update).not.toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: 'tcr-fail' } }),
-      )
-      expect(mockModel.update).toHaveBeenCalledExactlyOnceWith({
-        where: { id: 'tcr-ok' },
-        data: {
-          peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
-          peerlyCvStatusChangedAt: expect.any(Date),
-        },
-      })
-    })
-  })
-
-  describe('handleNightlyReport — CV never reached, case 1 (ENG-10795)', () => {
-    it('lists a record submitted 4d ago with a live CV status still null', async () => {
+  describe('handleNightlyReport — CV never reached, case 1 (ENG-10795, ENG-10966)', () => {
+    it('fires a one-time internal alert for a record submitted 4d ago with a live CV status still null, and drops the old report section', async () => {
       queueFindManyResults(mockModel.findMany, [
-        [],
         [],
         [],
         [],
@@ -795,20 +680,36 @@ describe('Nightly10DlcReportService', () => {
       })
 
       expect(result).toBe(true)
-      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+      const [{ blocks: reportBlocks }] = mockSlack.message.mock.calls[0] as [
         { blocks: SlackMessageBlock[] },
       ]
-      const text = blocksText(blocks)
-      expect(text).toContain('Never reached CampaignVerify')
-      expect(text).toContain('never-reached-camp (campaign 700)')
-      expect(text).toContain('identity ident-700')
-      expect(text).toContain('submitted 4d ago')
-      expect(text).toContain('1 stuck')
+      const reportText = blocksText(reportBlocks)
+      // The accumulating report section is gone — this is not a nightly
+      // digest entry, and it must not inflate the stuck header either.
+      expect(reportText).not.toContain('Never reached CampaignVerify')
+      expect(reportText).not.toContain('never-reached-camp')
+      expect(reportText).toContain('no campaigns stuck')
+
+      const alerts = internalAlertCalls(mockSlack.message)
+      expect(alerts).toHaveLength(1)
+      const [{ blocks: alertBlocks }] = alerts[0] as [
+        { blocks: SlackMessageBlock[] },
+        SlackChannel,
+      ]
+      const alertText = blocksText(alertBlocks)
+      expect(alertText).toContain('never-reached-camp (campaign 700)')
+      expect(alertText).toContain('Peerly identity: ident-700')
+      expect(alertText).toContain('Submitted 4d ago')
+      expect(alertText).toContain('CV never reached')
+      expect(alertText).not.toContain('candidate-email@example.com')
+      expect(mockModel.updateMany).toHaveBeenCalledExactlyOnceWith({
+        where: { id: 'tcr-case1', cvNeverReachedAlertedAt: null },
+        data: { cvNeverReachedAlertedAt: expect.any(Date) },
+      })
     })
 
     it('falls back to createdAt when peerlySubmissionStartedAt is null', async () => {
       queueFindManyResults(mockModel.findMany, [
-        [],
         [],
         [],
         [],
@@ -828,18 +729,94 @@ describe('Nightly10DlcReportService', () => {
 
       await service.handleNightlyReport({ reportDate: '2026-07-10' })
 
-      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+      const [{ blocks }] = internalAlertCalls(mockSlack.message)[0] as [
         { blocks: SlackMessageBlock[] },
+        SlackChannel,
       ]
       const text = blocksText(blocks)
       expect(text).toContain('fallback-camp (campaign 701)')
-      expect(text).toContain('submitted 4d ago')
+      expect(text).toContain('Submitted 4d ago')
     })
 
-    it('queries a 3-day threshold with the null-CV / submitted / has-identity filter', async () => {
+    it('does not re-fire across two consecutive handler runs (once-only)', async () => {
+      const record = proRecord('tcr-case1c', 'repeat-camp', 702, {
+        peerlyIdentityId: 'ident-702',
+        peerlySubmissionStartedAt: subDays(new Date(), 4),
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+        [],
+        [],
+        [],
+      ])
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+        [],
+        [],
+        [],
+      ])
+      // First run's claim succeeds; the second run's claim finds the row
+      // already claimed (updateMany's WHERE no longer matches) — mirrors the
+      // real DB behavior without needing to thread state through the mock.
+      mockModel.updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValueOnce({ count: 0 })
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+      await service.handleNightlyReport({ reportDate: '2026-07-11' })
+
+      expect(internalAlertCalls(mockSlack.message)).toHaveLength(1)
+    })
+
+    it('rolls back the claim when the internal alert post fails, so the next run retries', async () => {
+      const record = proRecord('tcr-case1d', 'retry-camp', 703, {
+        peerlyIdentityId: 'ident-703',
+        peerlySubmissionStartedAt: subDays(new Date(), 4),
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+        [],
+        [],
+        [],
+      ])
+      mockSlack.message
+        .mockResolvedValueOnce('ok') // internal report post succeeds
+        .mockResolvedValueOnce(undefined) // case 1 alert post fails
+
+      const result = await service.handleNightlyReport({
+        reportDate: '2026-07-10',
+      })
+
+      expect(result).toBe(true)
+      expect(mockModel.updateMany).toHaveBeenNthCalledWith(1, {
+        where: { id: 'tcr-case1d', cvNeverReachedAlertedAt: null },
+        data: { cvNeverReachedAlertedAt: expect.any(Date) },
+      })
+      expect(mockModel.updateMany).toHaveBeenNthCalledWith(2, {
+        where: { id: 'tcr-case1d', cvNeverReachedAlertedAt: expect.any(Date) },
+        data: { cvNeverReachedAlertedAt: null },
+      })
+    })
+
+    it('queries a 13-hour threshold with the null-CV / submitted / has-identity filter', async () => {
       await service.handleNightlyReport({ reportDate: '2026-07-10' })
 
-      const case1Call = mockModel.findMany.mock.calls[6] as [
+      const case1Call = mockModel.findMany.mock.calls[5] as [
         { where: WhereClause },
       ]
       const { where } = case1Call[0]
@@ -854,7 +831,7 @@ describe('Nightly10DlcReportService', () => {
       const [startedAtBranch] = where.OR as [
         { peerlySubmissionStartedAt: { lt: Date } },
       ]
-      const thresholdMs = subDays(new Date(), 3).getTime()
+      const thresholdMs = subHours(new Date(), 13).getTime()
       expect(
         Math.abs(
           startedAtBranch.peerlySubmissionStartedAt.lt.getTime() - thresholdMs,
@@ -865,20 +842,279 @@ describe('Nightly10DlcReportService', () => {
     it('excludes never-reached-CV and PIN-entered records from the awaiting-PIN nudge', async () => {
       await service.handleNightlyReport({ reportDate: '2026-07-10' })
 
-      const nudgeCall = mockModel.findMany.mock.calls[5] as [
+      const nudgeCall = mockModel.findMany.mock.calls[4] as [
         { where: WhereClause },
       ]
       expect(nudgeCall[0].where.peerlyCvStatus).toEqual({
-        not: null,
-        notIn: [PeerlyCvVerificationStatus.VERIFIED],
+        in: [
+          PeerlyCvVerificationStatus.APPROVED,
+          PeerlyCvVerificationStatus.REQUESTED,
+          PeerlyCvVerificationStatus.IN_REVIEW,
+        ],
       })
     })
   })
 
-  describe('handleNightlyReport — PIN verified but stalled, case 3a (ENG-10795)', () => {
-    it('lists a record whose profile has sat pending since the last poll (2d ago)', async () => {
+  // ENG-10866: the nudge used to claim "PIN out Nd" for REQUESTED/IN_REVIEW
+  // records too, which sent staff to chase candidates who had no PIN — and
+  // straight into the PIN box that then rejected whatever they typed.
+  describe('handleNightlyReport — awaiting-PIN nudge split (ENG-10866)', () => {
+    // These assert exact day counts ("PIN out 21d"). Fixtures and the service's
+    // own `new Date()` would otherwise be read either side of a calendar
+    // midnight, making differenceInCalendarDays off by one at random. Pin the
+    // clock and derive every fixture from it, as the escalation tests below do.
+    const FIXED_NOW = new Date('2026-07-10T12:00:00-04:00')
+
+    beforeEach(() => {
+      vi.useFakeTimers({ now: FIXED_NOW, shouldAdvanceTime: true })
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    // 9 days in flight, with the row written last night — the shape the
+    // nightly poll leaves behind every time it observes anything.
+    const cvInFlight = (
+      id: string,
+      slug: string,
+      campaignId: number,
+      peerlyCvStatus: string,
+    ) =>
+      proRecord(id, slug, campaignId, {
+        peerlyIdentityId: `ident-${campaignId}`,
+        peerlyCvStatus,
+        pinSentDetectedAt: null,
+        peerlySubmissionStartedAt: subDays(new Date(), 9),
+        peerlyCvStatusChangedAt: subDays(new Date(), 9),
+        createdAt: subDays(new Date(), 9),
+        updatedAt: subDays(new Date(), 1),
+      })
+
+    it('nudges only the APPROVED record and files the rest as no-PIN-issued', async () => {
       queueFindManyResults(mockModel.findMany, [
         [],
+        [],
+        [],
+        [],
+        [
+          cvInFlight(
+            'tcr-a',
+            'approved-camp',
+            801,
+            PeerlyCvVerificationStatus.APPROVED,
+          ),
+          cvInFlight(
+            'tcr-r',
+            'requested-camp',
+            802,
+            PeerlyCvVerificationStatus.REQUESTED,
+          ),
+          cvInFlight(
+            'tcr-i',
+            'in-review-camp',
+            803,
+            PeerlyCvVerificationStatus.IN_REVIEW,
+          ),
+        ],
+        [],
+        [],
+        [],
+        [],
+      ])
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+        { blocks: SlackMessageBlock[] },
+      ]
+      const nudge = blocks.find((block) =>
+        blocksText([block]).includes('Awaiting PIN >7d'),
+      )
+      const unissued = blocks.find((block) =>
+        blocksText([block]).includes('CampaignVerify still reviewing'),
+      )
+
+      expect(blocksText([nudge!])).toContain('approved-camp (campaign 801)')
+      expect(blocksText([nudge!])).toContain('PIN out 9d')
+      expect(blocksText([nudge!])).not.toContain('requested-camp')
+      expect(blocksText([nudge!])).not.toContain('in-review-camp')
+
+      expect(blocksText([unissued!])).toContain('requested-camp (campaign 802)')
+      expect(blocksText([unissued!])).toContain('in-review-camp (campaign 803)')
+      expect(blocksText([unissued!])).toContain(
+        'no PIN issued, waiting 9d (CV REQUESTED)',
+      )
+      expect(blocksText([unissued!])).not.toContain('PIN out')
+      expect(blocksText([unissued!])).not.toContain('approved-camp')
+    })
+
+    // The nightly poll writes peerlyCvStatusChangedAt AND bumps updatedAt on
+    // every CV transition, so keying the age off updatedAt reported a
+    // three-week wait as "0d" the night after CampaignVerify moved the record
+    // from REQUESTED to IN_REVIEW — hiding exactly the stalls this section
+    // exists to surface.
+    it('reports the true wait for a record whose CV status just transitioned', async () => {
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [
+          proRecord('tcr-moved', 'just-moved-camp', 804, {
+            peerlyIdentityId: 'ident-804',
+            peerlyCvStatus: PeerlyCvVerificationStatus.IN_REVIEW,
+            pinSentDetectedAt: null,
+            peerlySubmissionStartedAt: subDays(new Date(), 30),
+            createdAt: subDays(new Date(), 30),
+            // Moved REQUESTED -> IN_REVIEW on last night's poll, which also
+            // bumped updatedAt.
+            peerlyCvStatusChangedAt: subDays(new Date(), 1),
+            updatedAt: subDays(new Date(), 1),
+          }),
+        ],
+        [],
+        [],
+        [],
+        [],
+      ])
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+        { blocks: SlackMessageBlock[] },
+      ]
+      const unissued = blocks.find((block) =>
+        blocksText([block]).includes('CampaignVerify still reviewing'),
+      )
+
+      expect(unissued).toBeDefined()
+      expect(blocksText([unissued!])).toContain(
+        'just-moved-camp (campaign 804)',
+      )
+      expect(blocksText([unissued!])).toContain(
+        'no PIN issued, waiting 30d (CV IN_REVIEW)',
+      )
+      expect(blocksText([unissued!])).not.toContain('waiting 1d')
+    })
+
+    // Same class of bug on the nudge line: `PIN out Nd` fell back to updatedAt
+    // when the delivery sweep had not stamped pinSentDetectedAt, so any
+    // unrelated write to the row reset the age.
+    it('ages `PIN out` from the APPROVED transition, not the last row write', async () => {
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [
+          proRecord('tcr-approved', 'approved-stale-camp', 805, {
+            peerlyIdentityId: 'ident-805',
+            peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
+            // Delivery sweep never detected the channel, so the fallback is
+            // the APPROVED transition — 21 days ago.
+            pinSentDetectedAt: null,
+            peerlyCvStatusChangedAt: subDays(new Date(), 21),
+            createdAt: subDays(new Date(), 25),
+            updatedAt: subDays(new Date(), 1),
+          }),
+        ],
+        [],
+        [],
+        [],
+        [],
+      ])
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+        { blocks: SlackMessageBlock[] },
+      ]
+      const nudge = blocks.find((block) =>
+        blocksText([block]).includes('Awaiting PIN >7d'),
+      )
+
+      expect(nudge).toBeDefined()
+      expect(blocksText([nudge!])).toContain('PIN out 21d')
+      expect(blocksText([nudge!])).not.toContain('PIN out 1d')
+    })
+
+    // With both timestamps null there is no honest answer for "PIN out Nd" —
+    // a createdAt fallback would report the campaign's age (90d here) as PIN
+    // delay. Omit the record instead of inventing a number.
+    it('omits an APPROVED record with no PIN-sent clock at all', async () => {
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [
+          proRecord('tcr-noclock', 'no-clock-camp', 806, {
+            peerlyIdentityId: 'ident-806',
+            peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
+            pinSentDetectedAt: null,
+            peerlyCvStatusChangedAt: null,
+            createdAt: subDays(new Date(), 90),
+            updatedAt: subDays(new Date(), 1),
+          }),
+        ],
+        [],
+        [],
+        [],
+        [],
+      ])
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+        { blocks: SlackMessageBlock[] },
+      ]
+      const nudge = blocks.find((block) =>
+        blocksText([block]).includes('Awaiting PIN >7d'),
+      )
+
+      expect(blocksText(blocks)).not.toContain('ident-806')
+      expect(nudge).toBeUndefined()
+    })
+
+    it('counts neither section toward the stuck total', async () => {
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [
+          cvInFlight(
+            'tcr-a',
+            'approved-camp',
+            801,
+            PeerlyCvVerificationStatus.APPROVED,
+          ),
+          cvInFlight(
+            'tcr-i',
+            'in-review-camp',
+            803,
+            PeerlyCvVerificationStatus.IN_REVIEW,
+          ),
+        ],
+        [],
+        [],
+        [],
+        [],
+      ])
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+        { blocks: SlackMessageBlock[] },
+      ]
+      expect(blocksText(blocks)).toContain('no campaigns stuck')
+    })
+  })
+
+  describe('handleNightlyReport — PIN verified but stalled, case 3a (ENG-10795, ENG-10966)', () => {
+    it('fires a one-time internal alert for a record whose profile has sat pending since the last poll (2d ago), and drops the old report section', async () => {
+      queueFindManyResults(mockModel.findMany, [
         [],
         [],
         [],
@@ -902,21 +1138,193 @@ describe('Nightly10DlcReportService', () => {
       })
 
       expect(result).toBe(true)
-      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+      const [{ blocks: reportBlocks }] = mockSlack.message.mock.calls[0] as [
         { blocks: SlackMessageBlock[] },
       ]
-      const text = blocksText(blocks)
-      expect(text).toContain('CV token/approve never completed')
-      expect(text).toContain('stalled-camp (campaign 800)')
-      expect(text).toContain('identity ident-800')
-      expect(text).toContain('profile pending 2d')
-      expect(text).toContain('1 stuck')
+      const reportText = blocksText(reportBlocks)
+      expect(reportText).not.toContain('CV token/approve never completed')
+      expect(reportText).not.toContain('stalled-camp')
+      expect(reportText).toContain('no campaigns stuck')
+
+      const alerts = internalAlertCalls(mockSlack.message)
+      expect(alerts).toHaveLength(1)
+      const [{ blocks: alertBlocks }] = alerts[0] as [
+        { blocks: SlackMessageBlock[] },
+        SlackChannel,
+      ]
+      const alertText = blocksText(alertBlocks)
+      expect(alertText).toContain('stalled-camp (campaign 800)')
+      expect(alertText).toContain('Peerly identity: ident-800')
+      expect(alertText).toContain('Profile pending 2d')
+      expect(alertText).toContain('PIN verified, profile stalled')
+      expect(mockModel.updateMany).toHaveBeenCalledExactlyOnceWith({
+        where: { id: 'tcr-case3a', profileStalledAlertedAt: null },
+        data: { profileStalledAlertedAt: expect.any(Date) },
+      })
+    })
+
+    it('does not re-fire across two consecutive handler runs (once-only)', async () => {
+      const record = proRecord('tcr-case3a-repeat', 'repeat3a-camp', 801, {
+        peerlyIdentityId: 'ident-801',
+        peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+        peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
+        peerlyProfileStatusChangedAt: subDays(new Date(), 2),
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+        [],
+        [],
+      ])
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+        [],
+        [],
+      ])
+      mockModel.updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValueOnce({ count: 0 })
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+      await service.handleNightlyReport({ reportDate: '2026-07-11' })
+
+      expect(internalAlertCalls(mockSlack.message)).toHaveLength(1)
+    })
+
+    // ENG-10966 review-round finding: unlike case 1, `pending` can recur for
+    // real — Peerly's finalized -> pending reopening (retrieveCampaignVerifyToken
+    // / submit-cv-pin retry) means a row alerted once can genuinely stall
+    // again. cvStatusPoll.service.ts's pollProfileStatus clears
+    // profileStalledAlertedAt whenever the profile leaves `pending` (covered
+    // in cvStatusPoll.service.test.ts); this test names the trigger on this
+    // side — once that clear has happened and the profile is later observed
+    // back in `pending` past the 20h floor, the alert must fire again.
+    it('re-alerts after a real re-stall once the profile has left and re-entered pending', async () => {
+      // Run 1: first stall. profileStalledAlertedAt starts null (never
+      // alerted) and gets claimed. The two runs' findMany results are queued
+      // and consumed one run at a time — queuing both up front would let
+      // run 1's unused 10th (deferredDispatchCandidates) call default-slot
+      // siphon the first value meant for run 2, shifting every later result
+      // by one position.
+      const firstStall = proRecord('tcr-case3a-recur', 'recur3a-camp', 803, {
+        peerlyIdentityId: 'ident-803',
+        peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+        peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
+        peerlyProfileStatusChangedAt: subDays(new Date(), 2),
+        profileStalledAlertedAt: null,
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [firstStall],
+        [],
+        [],
+      ])
+      mockModel.updateMany.mockResolvedValueOnce({ count: 1 })
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      // Run 2: the profile left `pending` in between (cleared the claim —
+      // proven separately in cvStatusPoll.service.test.ts) and has now
+      // re-entered `pending` past the 20h floor as a fresh, unrelated stall.
+      // profileStalledAlertedAt is null again — that's the observable state
+      // the clear-on-progress write leaves behind.
+      const secondStall = proRecord('tcr-case3a-recur', 'recur3a-camp', 803, {
+        peerlyIdentityId: 'ident-803',
+        peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+        peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
+        peerlyProfileStatusChangedAt: subDays(new Date(), 3),
+        profileStalledAlertedAt: null,
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [secondStall],
+        [],
+        [],
+      ])
+      // The second claim also finds the column null and succeeds — the
+      // second run is not a duplicate of the first, it's a distinct
+      // incident.
+      mockModel.updateMany.mockResolvedValueOnce({ count: 1 })
+
+      await service.handleNightlyReport({ reportDate: '2026-07-17' })
+
+      const alerts = internalAlertCalls(mockSlack.message)
+      expect(alerts).toHaveLength(2)
+      expect(mockModel.updateMany).toHaveBeenNthCalledWith(1, {
+        where: { id: 'tcr-case3a-recur', profileStalledAlertedAt: null },
+        data: { profileStalledAlertedAt: expect.any(Date) },
+      })
+      expect(mockModel.updateMany).toHaveBeenNthCalledWith(2, {
+        where: { id: 'tcr-case3a-recur', profileStalledAlertedAt: null },
+        data: { profileStalledAlertedAt: expect.any(Date) },
+      })
+    })
+
+    it('rolls back the claim when the internal alert post fails, so the next run retries', async () => {
+      const record = proRecord('tcr-case3a-retry', 'retry3a-camp', 802, {
+        peerlyIdentityId: 'ident-802',
+        peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+        peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
+        peerlyProfileStatusChangedAt: subDays(new Date(), 2),
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+        [],
+        [],
+      ])
+      mockSlack.message
+        .mockResolvedValueOnce('ok') // internal report post succeeds
+        .mockResolvedValueOnce(undefined) // case 3a alert post fails
+
+      const result = await service.handleNightlyReport({
+        reportDate: '2026-07-10',
+      })
+
+      expect(result).toBe(true)
+      expect(mockModel.updateMany).toHaveBeenNthCalledWith(1, {
+        where: { id: 'tcr-case3a-retry', profileStalledAlertedAt: null },
+        data: { profileStalledAlertedAt: expect.any(Date) },
+      })
+      expect(mockModel.updateMany).toHaveBeenNthCalledWith(2, {
+        where: {
+          id: 'tcr-case3a-retry',
+          profileStalledAlertedAt: expect.any(Date),
+        },
+        data: { profileStalledAlertedAt: null },
+      })
     })
 
     it('queries a 20-hour threshold with the VERIFIED / profile-pending filter', async () => {
       await service.handleNightlyReport({ reportDate: '2026-07-10' })
 
-      const case3aCall = mockModel.findMany.mock.calls[7] as [
+      const case3aCall = mockModel.findMany.mock.calls[6] as [
         { where: WhereClause },
       ]
       const { where } = case3aCall[0]
@@ -951,9 +1359,12 @@ describe('Nightly10DlcReportService', () => {
   })
 
   describe('handleNightlyReport — stuck count aggregation', () => {
-    it('counts both new sections toward the header stuck count', async () => {
+    // ENG-10966: cases 1 and 3a moved from accumulating report sections to
+    // one-time internal pings, so they must no longer inflate the nightly
+    // header total — the header now tracks only ongoing recurring digest
+    // entries.
+    it('does not count case 1 / case 3a alerts toward the header stuck total', async () => {
       queueFindManyResults(mockModel.findMany, [
-        [],
         [],
         [],
         [],
@@ -983,15 +1394,15 @@ describe('Nightly10DlcReportService', () => {
         { blocks: SlackMessageBlock[] },
       ]
       const text = blocksText(blocks)
-      expect(text).toContain('2 stuck')
+      expect(text).toContain('no campaigns stuck')
+      expect(internalAlertCalls(mockSlack.message)).toHaveLength(2)
     })
   })
 
   describe('handleNightlyReport — vendor escalation, CV IN_REVIEW (case 2, ENG-10796)', () => {
     it('does not escalate 1 business day after entering IN_REVIEW (Friday -> Monday)', async () => {
-      vi.useFakeTimers({ now: MONDAY_MIDNIGHT_ET })
+      vi.useFakeTimers({ now: MONDAY_NOON_ET })
       queueFindManyResults(mockModel.findMany, [
-        [],
         [],
         [],
         [],
@@ -1010,10 +1421,9 @@ describe('Nightly10DlcReportService', () => {
     })
 
     it('escalates once 4 business days after entering IN_REVIEW (Friday -> Thursday)', async () => {
-      vi.useFakeTimers({ now: THURSDAY_MIDNIGHT_ET })
+      vi.useFakeTimers({ now: THURSDAY_NOON_ET })
       const record = inReviewRecord({ peerlyCvStatusChangedAt: FRIDAY_6PM_ET })
       queueFindManyResults(mockModel.findMany, [
-        [],
         [],
         [],
         [],
@@ -1056,12 +1466,10 @@ describe('Nightly10DlcReportService', () => {
         [],
         [],
         [],
-        [],
         [record],
         [],
       ])
       queueFindManyResults(mockModel.findMany, [
-        [],
         [],
         [],
         [],
@@ -1097,7 +1505,6 @@ describe('Nightly10DlcReportService', () => {
         [],
         [],
         [],
-        [],
         [record],
         [],
       ])
@@ -1120,26 +1527,6 @@ describe('Nightly10DlcReportService', () => {
       })
     })
 
-    it('clears cvInReviewEscalatedAt when the poll observes IN_REVIEW -> APPROVED', async () => {
-      mockModel.findMany.mockResolvedValueOnce([
-        inReviewRecord({ cvInReviewEscalatedAt: subDays(new Date(), 1) }),
-      ])
-      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
-        PeerlyCvVerificationStatus.APPROVED,
-      )
-
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
-
-      expect(mockModel.update).toHaveBeenCalledExactlyOnceWith({
-        where: { id: 'tcr-in-review' },
-        data: {
-          peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
-          peerlyCvStatusChangedAt: expect.any(Date),
-          cvInReviewEscalatedAt: null,
-        },
-      })
-    })
-
     it('names the identity + committee and omits candidate email/phone', async () => {
       const record = inReviewRecord({
         peerlyCvStatusChangedAt: subDays(new Date(), 10),
@@ -1148,7 +1535,6 @@ describe('Nightly10DlcReportService', () => {
         phone: '555-867-5309',
       })
       queueFindManyResults(mockModel.findMany, [
-        [],
         [],
         [],
         [],
@@ -1177,10 +1563,9 @@ describe('Nightly10DlcReportService', () => {
   describe('handleNightlyReport — vendor escalation, waiting_to_finalize (case 3b, ENG-10796)', () => {
     it('does not escalate at 2 business days (no weekend crossed)', async () => {
       const mondaySixPm = new Date('2026-07-20T18:00:00-04:00')
-      const wednesdayMidnight = new Date('2026-07-22T00:00:00-04:00')
-      vi.useFakeTimers({ now: wednesdayMidnight })
+      const wednesdayNoon = new Date('2026-07-22T12:00:00-04:00')
+      vi.useFakeTimers({ now: wednesdayNoon })
       queueFindManyResults(mockModel.findMany, [
-        [],
         [],
         [],
         [],
@@ -1202,12 +1587,11 @@ describe('Nightly10DlcReportService', () => {
     })
 
     it('escalates once 4 business days after entering waiting_to_finalize (Friday -> Thursday)', async () => {
-      vi.useFakeTimers({ now: THURSDAY_MIDNIGHT_ET })
+      vi.useFakeTimers({ now: THURSDAY_NOON_ET })
       const record = waitingToFinalizeRecord({
         peerlyProfileStatusChangedAt: FRIDAY_6PM_ET,
       })
       queueFindManyResults(mockModel.findMany, [
-        [],
         [],
         [],
         [],
@@ -1237,54 +1621,6 @@ describe('Nightly10DlcReportService', () => {
       })
     })
 
-    it('clears finalizeStalledEscalatedAt when the poll observes profile leaving waiting_to_finalize', async () => {
-      mockModel.findMany.mockResolvedValueOnce([
-        waitingToFinalizeRecord({
-          finalizeStalledEscalatedAt: subDays(new Date(), 1),
-        }),
-      ])
-      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
-        PeerlyCvVerificationStatus.VERIFIED,
-      )
-      mockPeerlyIdentity.getIdentityProfile.mockResolvedValueOnce({
-        link: 'https://peerly.example/link',
-        profile: { status: PEERLY_PROFILE_STATUS_FINALIZED },
-      })
-
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
-
-      expect(mockModel.update).toHaveBeenCalledExactlyOnceWith({
-        where: { id: 'tcr-w2f' },
-        data: {
-          peerlyProfileStatus: PEERLY_PROFILE_STATUS_FINALIZED,
-          peerlyProfileStatusChangedAt: expect.any(Date),
-          finalizeStalledEscalatedAt: null,
-        },
-      })
-    })
-
-    it('clears finalizeStalledEscalatedAt when CV leaves VERIFIED mid-wait', async () => {
-      mockModel.findMany.mockResolvedValueOnce([
-        waitingToFinalizeRecord({
-          finalizeStalledEscalatedAt: subDays(new Date(), 1),
-        }),
-      ])
-      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
-        PeerlyCvVerificationStatus.REJECTED,
-      )
-
-      await service.handleNightlyReport({ reportDate: '2026-07-10' })
-
-      expect(mockModel.update).toHaveBeenCalledExactlyOnceWith({
-        where: { id: 'tcr-w2f' },
-        data: {
-          peerlyCvStatus: PeerlyCvVerificationStatus.REJECTED,
-          peerlyCvStatusChangedAt: expect.any(Date),
-          finalizeStalledEscalatedAt: null,
-        },
-      })
-    })
-
     it('does not re-post across two consecutive handler runs (once-only)', async () => {
       const record = waitingToFinalizeRecord({
         peerlyProfileStatusChangedAt: subDays(new Date(), 10),
@@ -1298,11 +1634,9 @@ describe('Nightly10DlcReportService', () => {
         [],
         [],
         [],
-        [],
         [record],
       ])
       queueFindManyResults(mockModel.findMany, [
-        [],
         [],
         [],
         [],
@@ -1338,7 +1672,6 @@ describe('Nightly10DlcReportService', () => {
         [],
         [],
         [],
-        [],
         [record],
       ])
       mockSlack.message
@@ -1361,11 +1694,68 @@ describe('Nightly10DlcReportService', () => {
     })
   })
 
+  describe('handleNightlyReport — Peerly contact ping on vendor escalations (ENG-10967)', () => {
+    it('includes the Slack mention when SLACK_PEERLY_CONTACT_MEMBER_ID is set', async () => {
+      vi.stubEnv('SLACK_PEERLY_CONTACT_MEMBER_ID', 'U12345PEERLY')
+      const record = inReviewRecord({
+        peerlyCvStatusChangedAt: subDays(new Date(), 10),
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+        [],
+      ])
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      const [{ blocks }] = vendorCalls(mockSlack.message)[0] as [
+        { blocks: SlackMessageBlock[] },
+        SlackChannel,
+      ]
+      expect(blocksText(blocks)).toContain('<@U12345PEERLY>')
+    })
+
+    it('omits the mention (no crash) when SLACK_PEERLY_CONTACT_MEMBER_ID is unset', async () => {
+      const record = waitingToFinalizeRecord({
+        peerlyProfileStatusChangedAt: subDays(new Date(), 10),
+      })
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [record],
+      ])
+
+      const result = await service.handleNightlyReport({
+        reportDate: '2026-07-10',
+      })
+
+      expect(result).toBe(true)
+      const [{ blocks }] = vendorCalls(mockSlack.message)[0] as [
+        { blocks: SlackMessageBlock[] },
+        SlackChannel,
+      ]
+      const text = blocksText(blocks)
+      expect(text).not.toContain('<@')
+      expect(text).toContain('*10DLC vendor escalation*')
+    })
+  })
+
   describe('handleNightlyReport — vendor escalation internal mirror sections (ENG-10796)', () => {
     it('lists escalated records tagged with (escalated <date>) and counts them toward stuck', async () => {
       const escalatedAt = subDays(new Date(), 1)
       queueFindManyResults(mockModel.findMany, [
-        [],
         [],
         [],
         [],
@@ -1409,7 +1799,6 @@ describe('Nightly10DlcReportService', () => {
         [],
         [],
         [],
-        [],
         [inReviewRecord({ peerlyCvStatusChangedAt: subDays(new Date(), 10) })],
         [],
       ])
@@ -1425,7 +1814,6 @@ describe('Nightly10DlcReportService', () => {
 
     it('shows "escalation pending" when the waiting_to_finalize claim is still null', async () => {
       queueFindManyResults(mockModel.findMany, [
-        [],
         [],
         [],
         [],

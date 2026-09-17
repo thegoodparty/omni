@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import type { DatabricksProvider } from './queryDatabricks.tool'
 import { isRecord } from './util/isRecord.util'
-import { HS_SCORE_SEMANTICS } from './hsScoreSemantics'
+import { hsScoreSemantics } from './hsScoreSemantics'
 import { parseSingleSelect } from './util/sqlAst.util'
 
 export class SqlRejected extends Error {
@@ -385,9 +385,9 @@ const buildDescription = (
 
   return `Query aggregate constituent data for YOUR district. Use this for questions about how your constituents feel on issues, demographic composition, turnout propensity.
 
-Table: ${tableName} (one row per registered voter, joined with Haystaq modeled scores; 200+ hs_* scored columns)
+Table: ${tableName} (one row per constituent on the registration file, joined with modeled scores; 200+ hs_* scored columns)
 
-${HS_SCORE_SEMANTICS}
+${hsScoreSemantics('constituent')}
 
 Required WHERE clause (your district scope, copy verbatim):
   WHERE ${whereClause}

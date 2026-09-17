@@ -2,11 +2,14 @@ import { expect, test } from '@playwright/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import {
   closeCrmSheet,
+  closePersonPanel,
   crmSheet,
-  enableCrmFlags,
+  fetchListMembers,
+  fullPersonName,
   gotoCrmContacts,
   listCard,
   openListCardMenu,
+  openPersonViaTypeahead,
   readSettledWizardCount,
   saveWizardList,
   selectWizardPill,
@@ -15,20 +18,18 @@ import {
 } from 'src/helpers/crm-contacts-e2e'
 import { setupElectedOfficeUser } from 'src/helpers/organizations'
 
-// The flag-on CRM contacts page in Serve mode (ENG-10756 port of the legacy
+// The CRM contacts page in Serve mode (ENG-10756 port of the legacy
 // contacts.spec). The legacy member table / pagination / segment combobox are
 // gone by design — the universe stat card, lists index, bottom-sheet wizard,
-// and card kebab lifecycle are the rebuilt equivalents. The legacy flag-off
-// flow stays covered by contacts-legacy-smoke.spec.ts.
+// and card kebab lifecycle are the rebuilt equivalents.
 test.describe('CRM Contacts Page (Serve)', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
-    await enableCrmFlags(page)
   })
 
   test('universe, wizard, and list lifecycle', async ({ page }) => {
     test.setTimeout(5 * 60 * 1000)
-    await setupElectedOfficeUser(page)
+    const { client } = await setupElectedOfficeUser(page)
 
     await gotoCrmContacts(page)
 
@@ -39,9 +40,11 @@ test.describe('CRM Contacts Page (Serve)', () => {
     await expect(
       page.getByRole('heading', { name: 'Your Constituent Universe' }),
     ).toBeVisible({ timeout: 20_000 })
-    const statRow = page
-      .getByText('Total constituents in your district')
-      .locator('xpath=..')
+    // 'Records available' (the L2 record count) is always rendered; the
+    // census population row above it ('Total constituents in your district')
+    // hides itself whenever the district has no census figure, so it isn't a
+    // safe anchor here.
+    const statRow = page.getByText('Records available').locator('xpath=..')
     await expect(statRow).toBeVisible({ timeout: 20_000 })
     // The card renders a skeleton until GET /v1/contacts/stats resolves; a
     // real district count is a formatted integer, never 'Unavailable'.
@@ -62,6 +65,19 @@ test.describe('CRM Contacts Page (Serve)', () => {
       0,
     )
 
+    // --- Person overlay: Notes is mounted unconditionally — no flag gates
+    // it, and this spec sets no override.
+    const people = await fetchListMembers(client, 'all')
+    const person = people.find(
+      (candidate) => fullPersonName(candidate).length >= 3,
+    )
+    expect(person).toBeTruthy()
+    const panel = await openPersonViaTypeahead(page, person!)
+    await expect(panel.getByRole('button', { name: 'Add a note' })).toBeVisible(
+      { timeout: 10_000 },
+    )
+    await closePersonPanel(panel)
+
     // --- Wizard: Serve opens directly on the constituent filters as a
     // 2-step flow — no branch chooser, no activity branch (ENG-10750) ---
     await page.getByRole('button', { name: 'Create new list' }).click()
@@ -70,7 +86,14 @@ test.describe('CRM Contacts Page (Serve)', () => {
     await expect(
       wizard.getByText('Build a constituent list', { exact: true }),
     ).toBeVisible({ timeout: 10_000 })
-    await expect(wizard.getByText('Step 1 of 2')).toBeVisible()
+    await expect(wizard.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuenow',
+      '1',
+    )
+    await expect(wizard.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuemax',
+      '2',
+    )
     await expect(
       wizard.getByText('How do you want to build this list?'),
     ).toHaveCount(0)
@@ -97,7 +120,10 @@ test.describe('CRM Contacts Page (Serve)', () => {
     await expect(wizard.getByText('Name your list')).toBeVisible({
       timeout: 10_000,
     })
-    await expect(wizard.getByText('Step 2 of 2')).toBeVisible()
+    await expect(wizard.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuenow',
+      '2',
+    )
     await expect(
       wizard.getByText(/constituents match\. Give this list a name/),
     ).toBeVisible({ timeout: 30_000 })
@@ -123,7 +149,7 @@ test.describe('CRM Contacts Page (Serve)', () => {
       { timeout: 30_000 },
     )
     await expect(
-      detailSheet.getByRole('heading', { name: 'Outreach history' }),
+      detailSheet.getByRole('heading', { name: 'Outreach campaign history' }),
     ).toBeVisible()
     await expect(detailSheet.getByText('No outreach yet.')).toBeVisible({
       timeout: 30_000,
@@ -136,29 +162,54 @@ test.describe('CRM Contacts Page (Serve)', () => {
 
     await expect(listCard(page, listName)).toBeVisible({ timeout: 20_000 })
 
-    // --- Lifecycle via the card kebab (ENG-10707): rename ---
+    // --- Lifecycle via the card kebab (ENG-10707): edit ---
+    // Edit reopens the wizard seeded from the list, collapsed to one step
+    // with the name in the sheet header — so renaming and refiltering are
+    // the same screen and there is no separate rename dialog.
     // Kept short: the duplicate step appends " (copy)" and
     // trimCustomSegmentName truncates past 40 chars, which would break the
     // exact-name card lookups below.
     const renamedName = `E2E renamed ${Date.now()}`
     await openListCardMenu(page, listName)
-    await page.getByRole('menuitem', { name: 'Rename' }).click()
-    const renameDialog = page.getByRole('dialog', { name: /rename list/i })
-    await expect(renameDialog).toBeVisible({ timeout: 10_000 })
-    await renameDialog.getByLabel('List name').fill(renamedName)
-    await renameDialog.getByRole('button', { name: 'Save' }).click()
-    await expect(renameDialog).toBeHidden({ timeout: 10_000 })
+    await page.getByRole('menuitem', { name: 'Edit', exact: true }).click()
+    const editSheet = crmSheet(page)
+    await expect(editSheet.getByText('Edit list')).toBeVisible({
+      timeout: 15_000,
+    })
+    const editNameInput = editSheet.getByLabel('List name')
+    // Seeded from the saved list, not blank — this is the rename affordance.
+    await expect(editNameInput).toHaveValue(listName, { timeout: 15_000 })
+    await editNameInput.fill(renamedName)
+    // The CTA carries the live count and stays disabled until it settles.
+    const saveChangesButton = editSheet.getByRole('button', {
+      name: /^Save changes/,
+    })
+    await expect(saveChangesButton).toBeEnabled({ timeout: 45_000 })
+    await saveChangesButton.click()
+    // Saving lands back on the edited list's own detail sheet.
+    await expect(
+      crmSheet(page).getByText(renamedName, { exact: true }),
+    ).toBeVisible({ timeout: 30_000 })
+    await closeCrmSheet(page)
     await expect(listCard(page, renamedName)).toBeVisible({ timeout: 20_000 })
     await expect(listCard(page, listName)).toHaveCount(0)
 
-    // --- Duplicate: opens the copy's detail sheet and adds a card ---
+    // --- Duplicate: confirms first (ENG-10943), then opens the copy's
+    // detail sheet and adds a card ---
     await openListCardMenu(page, renamedName)
     await page.getByRole('menuitem', { name: 'Duplicate' }).click()
+    const duplicateDialog = page.getByRole('alertdialog')
+    await expect(duplicateDialog).toBeVisible({ timeout: 10_000 })
+    await expect(
+      duplicateDialog.getByText(/re-runs this list's filters/i),
+    ).toBeVisible()
+    await duplicateDialog.getByRole('button', { name: 'Duplicate' }).click()
     const copyName = `${renamedName} (copy)`
     const copySheet = crmSheet(page)
     await expect(copySheet.getByText(copyName, { exact: true })).toBeVisible({
       timeout: 30_000,
     })
+    await expect(duplicateDialog).toBeHidden()
     await closeCrmSheet(page)
     await expect(listCard(page, copyName)).toBeVisible({ timeout: 20_000 })
 

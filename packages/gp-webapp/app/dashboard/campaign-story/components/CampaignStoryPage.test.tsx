@@ -65,7 +65,7 @@ const enabledSaveButtons = (): HTMLElement[] =>
     .getAllByRole('button', { name: /^save$/i })
     .filter((b) => !(b as HTMLButtonElement).disabled)
 
-describe('StoryEditorForm (the "Your story" dashboard editor)', () => {
+describe('StoryEditorForm (the "Your Story" dashboard editor)', () => {
   it('keeps the single header Save disabled until a field changes', async () => {
     const user = userEvent.setup()
     renderForm()

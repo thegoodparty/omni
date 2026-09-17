@@ -2,7 +2,6 @@ import { expect, type Page, type Response, test } from '@playwright/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import {
   crmSheet,
-  enableCrmFlags,
   gotoCrmContacts,
   typeaheadInput,
 } from 'src/helpers/crm-contacts-e2e'
@@ -33,8 +32,8 @@ const isContactsListResponse = (res: Response): boolean =>
 // assert on the parsed JSON response rather than any rendered value so the
 // check is robust to UI churn and never reproduces a real voter record in the
 // DOM snapshot / trace (org data policy). The CRM provider still mounts the
-// base-list query on the flag-on page, so the capture pattern is unchanged
-// from the legacy spec.
+// base-list query on page load, so the capture pattern is unchanged from the
+// legacy spec.
 type ContactsListBody = {
   people: { lalVoterId: string; cellPhone: string | null }[]
   pagination: { totalResults: number }
@@ -64,7 +63,6 @@ const gotoContactsAndCaptureList = async (
 test.describe('Contacts pro gating', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
-    await enableCrmFlags(page)
   })
 
   // A non-pro Win candidate must never receive real voter PII (ENG-10508 /

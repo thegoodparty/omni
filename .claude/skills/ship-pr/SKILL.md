@@ -64,7 +64,7 @@ always resolves.
 
 ## Phase 2 — converge with delegate (autonomous to approval)
 
-Delegate is `delegate-reviewer[bot]`. It submits a GitHub **review**:
+Delegate is `delegate-reviewer[bot]`. It normally submits a GitHub **review**:
 
 - `APPROVED` — body is `Approved.`
 - `COMMENTED` — body starts with `**N blocker(s).**` and asks you to reply
@@ -74,27 +74,85 @@ Findings carry stable `<!-- delegate-finding-id: <uuid> -->` markers: in-diff
 findings are inline review comments, out-of-diff findings live in the review body.
 Re-reviews are prefixed `_X resolved since last review, Y new._`.
 
+**Fallback channel: delegate doesn't always land a review.** When delegate hits a
+GitHub API error posting inline comments, it falls back to posting its findings as
+a plain **issue comment** on the PR instead of a review. Recognize the fallback by
+the `<!-- delegate-reviewer-state -->` marker at the top of the comment body (a real
+review carries no such marker). The fallback comment has the same
+`**N blocker(s).**` / `Approved.` verdict line and the same `delegate-finding-id`
+markers, but every finding — in-diff or not — is inline in the comment body; there
+are no separate inline PR review comments to fetch. Triage is otherwise identical.
+This happened on PR #1609: `/pulls/1609/reviews` stayed empty for the review's
+entire lifetime because it never landed as a review at all — only as an issue
+comment — and a reviews-only poll would wait forever without ever seeing it.
+
 Loop:
 
-1. **Get the review for the current HEAD.** Anchor on the commit, not a timestamp,
-   so this is correct even on a fresh resume against an existing PR. Fetch the
-   latest `delegate-reviewer[bot]` review (`gh api
-repos/thegoodparty/omni/pulls/<n>/reviews`) and compare its `commit_id` to the
-   PR's HEAD SHA:
-   - **A review already exists at HEAD** (its `commit_id` == HEAD) → use it; go to
-     step 2. Do **not** re-trigger (that wastes a capped round and corrupts
-     delegate's resolved-count).
-   - **HEAD has no review yet** → get one: a just-opened PR auto-reviews (just
-     wait); if you just pushed fixes to an existing PR, post an issue comment
-     `delegate review` to trigger.
-   - Then poll every ~30–60s for a review whose `commit_id` == HEAD. Budget
-     **~10 min**; if none lands, stop and report.
+1. **Get delegate's verdict for the current HEAD, checking both channels.**
+   Delegate can land on the reviews endpoint or, on fallback, the issue comments
+   endpoint. Poll both every cycle and take whichever is newer and valid for HEAD.
+   **An empty or unchanged result from one endpoint is not evidence delegate hasn't
+   run — it may have used the other channel.** Never conclude "no review yet" from
+   one endpoint alone.
+
+   - **Reviews** (`gh api repos/thegoodparty/omni/pulls/<n>/reviews`): filter to
+     `user.login == "delegate-reviewer[bot]"`, take the latest by `submitted_at`.
+     Anchor on its `commit_id`: valid for HEAD iff `commit_id == HEAD SHA`.
+   - **Issue comments** (`gh api repos/thegoodparty/omni/issues/<n>/comments`):
+     filter to `user.login == "delegate-reviewer[bot]"` and a body starting with
+     `<!-- delegate-reviewer-state -->`, take the latest by `created_at`. An issue
+     comment carries **no `commit_id`**, so anchor by time instead: get the HEAD
+     commit's timestamp (`gh api repos/thegoodparty/omni/commits/<HEAD SHA> --jq
+.commit.committer.date` — verified equal to its push time via the PR
+     timeline) and treat the comment as valid for HEAD only if its `created_at` is
+     **after** that timestamp. A comment timestamped at or before HEAD's commit
+     time is stale — it answered an earlier push.
+
+   Worked example (verified against the live PR #1609 fallback comment):
+
+   ```bash
+   PR=1609
+   HEAD_SHA=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
+   HEAD_AT=$(gh api repos/thegoodparty/omni/commits/"$HEAD_SHA" --jq .commit.committer.date)
+
+   # channel 1: reviews
+   gh api repos/thegoodparty/omni/pulls/"$PR"/reviews \
+     --jq '[.[] | select(.user.login=="delegate-reviewer[bot]")] | sort_by(.submitted_at) | last'
+
+   # channel 2: issue-comment fallback, filtered to the marker and anchored past HEAD's commit time
+   gh api repos/thegoodparty/omni/issues/"$PR"/comments \
+     | jq --arg since "$HEAD_AT" \
+       '[.[] | select(.user.login=="delegate-reviewer[bot]"
+                      and (.body | startswith("<!-- delegate-reviewer-state -->"))
+                      and .created_at > $since)] | sort_by(.created_at) | last'
+   ```
+
+   (Note the second command pipes into plain `jq` for `--arg` — `gh api --jq`
+   doesn't accept extra jq flags.) Whichever channel returns the newer,
+   valid-for-HEAD result is delegate's verdict for this round.
+
+   - **A valid verdict exists at HEAD** (review `commit_id == HEAD`, or issue
+     comment `created_at` after HEAD's commit time) → use it; go to step 2. Do
+     **not** re-trigger (that wastes a capped round and corrupts delegate's
+     resolved-count).
+   - **Neither channel has a valid verdict yet** → get one: a just-opened PR
+     auto-reviews (just wait); if you just pushed fixes to an existing PR, post an
+     issue comment `delegate review` to trigger.
+   - **The wait is bounded, always.** Poll both endpoints every ~30–60s. Budget
+     **~10 min, hard stop** — fix the deadline before the first poll, not after you
+     notice you've been waiting a while. Silence from a polled endpoint is not
+     evidence a review isn't coming; it's only evidence you haven't seen one yet.
+     If neither channel has a valid verdict when the deadline passes, stop polling
+     and report — don't keep the loop running past its budget on the chance the
+     next check finds something.
 
 2. **Verdict.**
    - `APPROVED` (`Approved.`) → delegate gate passed. Go to **Phase 3** to confirm
      the full check set before declaring done — do not exit yet.
-   - Otherwise parse the blockers: review body + inline comments
-     (`gh api .../pulls/<n>/comments`), keyed by `delegate-finding-id`.
+   - Otherwise parse the blockers, keyed by `delegate-finding-id`: for a review,
+     that's the review body plus inline comments (`gh api .../pulls/<n>/comments`);
+     for the issue-comment fallback, every finding is already inline in the one
+     comment body you fetched in step 1 — nothing separate to pull.
 
 3. **Triage each finding — comply by default, but verify first.** Read the cited
    code before acting. If the claim is real, apply the fix. **Escalate instead of
@@ -187,13 +245,17 @@ re-triggers them. Anchor on HEAD, the same as delegate.
 - Delegate `Approved.` **and** every required GitHub check green at the same HEAD
   → success.
 - 3 delegate rounds, or 2 check-fix rounds, reached → summary handback.
-- ~10 min poll with no new review, or ~45 min with checks still unresolved →
-  timeout handback.
+- ~10 min poll with no valid verdict on either channel, or ~45 min with checks
+  still unresolved → timeout handback.
 - A pre-flight failure (any phase), an escalated finding, or a check failure that
   is flaky/pre-existing/infra → wait for the user.
 
 ## Notes
 
+- **An empty poll result is not evidence that nothing happened.** This applies
+  beyond delegate's two channels: a polled endpoint returning nothing means "not
+  seen yet," never "not coming" — don't let a quiet poll justify waiting past a
+  budget, and don't let it justify concluding a step is done early either.
 - All findings escalated to the user need: the file/line, delegate's claim, and
   _your_ verified take (agree / disagree, with evidence). For an escalated
   **check failure**: the check name, the failing spec/job name(s), the

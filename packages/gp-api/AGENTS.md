@@ -47,14 +47,35 @@ The local `npm run verify` is unchanged — it runs the whole suite in one pass.
 
 The unit-test DB is provisioned by cloning a schema template, not by replaying
 every migration per suite. `vitest.config.ts` runs `src/test-global-setup.ts`
-once, which builds the full schema into a `gp_api_test_template` database in the
-shared testcontainer; each `useTestService` suite then does
-`CREATE DATABASE ... TEMPLATE gp_api_test_template` (a near-instant Postgres
-copy) instead of re-running all 258 migrations. `src/test-postgres.ts` owns the
-container config that both paths share — keep it identical in both or
+once, which builds the full schema into a template database; each
+`useTestService` suite then does `CREATE DATABASE ... TEMPLATE` (a near-instant
+Postgres copy) instead of re-running all 258 migrations. `src/test-postgres.ts`
+owns the container config that both paths share — keep it identical in both or
 testcontainers' reuse hash stops matching and suites get a fresh, template-less
 container. Suites still run with `isolate: true`; sharding is what keeps wall
 clock down, since the per-file cost is re-importing the Nest app graph.
+
+One container serves every checkout on the machine, and three things are what
+make that safe. The template is named for a digest of the migrations it holds
+(`gp_api_tmpl_<hash>`), so every checkout on the same migrations shares one warm
+copy while a checkout on any other set gets its own. It is built under a scratch
+name and published with a rename, because `CREATE DATABASE` makes a database
+visible before the migrations finish replaying into it — a run killed mid-replay
+would otherwise leave a half-built template that every later run would clone.
+And a published template has `ALLOW_CONNECTIONS false`, the way `template0`
+does, because Postgres refuses to copy a database while any session is connected
+to it. `globalSetup` also sweeps abandoned scratch databases, superseded
+templates, and clones left behind by killed runs.
+
+Two things about that container and the per-test reset are load-bearing, not
+incidental. It runs with `fsync`/`synchronous_commit`/`full_page_writes` off,
+because TRUNCATE's commit syncs a new relation file per table and the defaults
+put the reset near vitest's hook timeout on a contended runner. And the reset
+truncates only the tables that actually hold a row (one `EXISTS` probe across
+all of them costs far less than truncating all 88), then each suite drops its
+own clone in `afterAll` so a reused container doesn't accumulate one database
+per suite forever. Post-condition is unchanged: every table is empty and user
+`123` exists.
 
 If you touched `prisma/`, make sure there are no undeclared schema changes (the
 migration-diff step in `Checks` will fail otherwise — see `npm run migrate:dev`).
@@ -122,14 +143,20 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | Working in                                               | Read                                                 |
 | -------------------------------------------------------- | ---------------------------------------------------- |
 | Campaigns / plans / tasks                                | `src/campaigns/AGENTS.md`                            |
+| Organizations, roles/guards, team accounts               | `src/organizations/AGENTS.md`                        |
 | The CRM (contacts, saved filters, write-back, assistant) | `src/contacts/AGENTS.md` (system-level doc)          |
 | Contact interactions (per-channel models)                | `src/contactInteraction/contactInteraction.types.ts` |
+| Door knocking (turfs, routes, the served walk)           | `docs/door-knocking.md` + `docs/adr/`                |
 | Campaign plan PDF sharing                                | `src/campaignPlanShares/AGENTS.md`                   |
 | Voter file / L2 lookups                                  | `src/voters/AGENTS.md`                               |
+| Recommended lists (the audience picker's cards)          | `docs/features/recommended-lists.md`                 |
+| Candidate ideology classifier (feeds those cards)        | `docs/features/recommended-lists.md`                 |
 | Stripe payments / pro upgrades                           | `src/payments/AGENTS.md`                             |
+| Voter outreach (Peerly texting, social, AI compose)      | `src/outreach/AGENTS.md`                             |
 | Campaign websites / domains                              | `src/websites/AGENTS.md`                             |
 | Opposition research (Know Your Opponent)                 | `src/raceOpponent/AGENTS.md`                         |
 | Ordinances / drafting / quality loop                     | `src/ordinances/AGENTS.md`                           |
+| What the chat assistants know about the product          | `src/chats/general/product-knowledge/AGENTS.md`      |
 | SQS producer/consumer / async                            | `src/queue/AGENTS.md`                                |
 | Auth, JWT, Clerk M2M, roles                              | `src/authentication/AGENTS.md`                       |
 | Agent experiments                                        | `src/agentExperiments/AGENTS.md`                     |
@@ -138,6 +165,7 @@ Per-area `AGENTS.md` files cover purpose, key files, patterns, and gotchas for t
 | Pulumi / Docker / Grafana                                | `deploy/AGENTS.md`                                   |
 | One-off / build scripts                                  | `scripts/AGENTS.md`                                  |
 | Seed data / factories / scenarios                        | `seed/AGENTS.md`                                     |
+| QA test-user fixtures (dev/preview only)                 | `src/testFixtures/AGENTS.md`                         |
 
 `VoterOutreachActivity` is deprecated: new per-person interaction write paths
 target the `ContactInteraction*` models via `ContactInteractionModule` (see

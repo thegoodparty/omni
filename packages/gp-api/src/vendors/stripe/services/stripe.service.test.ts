@@ -1,8 +1,11 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { BadGatewayException } from '@nestjs/common'
+import { fromUnixTime } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
+import { UsersService } from 'src/users/services/users.service'
+import { User } from 'src/generated/prisma'
 import { StripeService } from './stripe.service'
 
 const {
@@ -10,18 +13,37 @@ const {
   sessionsExpire,
   sessionsRetrieve,
   productsRetrieve,
+  paymentIntentsCreate,
+  paymentIntentsSearch,
+  customersCreate,
+  customersDel,
   MockStripeError,
+  MockStripeCardError,
 } = vi.hoisted(() => ({
   sessionsCreate: vi.fn(),
   sessionsExpire: vi.fn(),
   sessionsRetrieve: vi.fn(),
   productsRetrieve: vi.fn(),
+  paymentIntentsCreate: vi.fn(),
+  paymentIntentsSearch: vi.fn(),
+  customersCreate: vi.fn(),
+  customersDel: vi.fn(),
   MockStripeError: class StripeInvalidRequestError extends Error {},
+  MockStripeCardError: class StripeCardError extends Error {
+    payment_intent?: { id: string }
+    constructor(message: string, paymentIntentId?: string) {
+      super(message)
+      if (paymentIntentId) this.payment_intent = { id: paymentIntentId }
+    }
+  },
 }))
 
 vi.mock('stripe', () => ({
   default: class {
-    static errors = { StripeInvalidRequestError: MockStripeError }
+    static errors = {
+      StripeInvalidRequestError: MockStripeError,
+      StripeCardError: MockStripeCardError,
+    }
     checkout = {
       sessions: {
         create: sessionsCreate,
@@ -30,20 +52,39 @@ vi.mock('stripe', () => ({
       },
     }
     products = { retrieve: productsRetrieve }
+    paymentIntents = {
+      create: paymentIntentsCreate,
+      search: paymentIntentsSearch,
+    }
+    customers = { create: customersCreate, del: customersDel }
   },
 }))
 
 const userId = 7
 const email = 'buyer@example.com'
 const priceId = 'price_test_pro'
+const storedCustomerId = 'cus_stored_123'
+
+const proUser = {
+  id: userId,
+  email,
+  firstName: 'Test',
+  lastName: 'Buyer',
+  metaData: { customerId: storedCustomerId },
+} as unknown as User
 
 describe('StripeService Pro subscription checkout', () => {
   let service: StripeService
+  let setCustomerIdIfAbsent: ReturnType<typeof vi.fn>
+  let findUser: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     productsRetrieve.mockResolvedValue({ default_price: priceId })
+    setCustomerIdIfAbsent = vi.fn()
+    findUser = vi.fn()
     service = new StripeService(
       {} as unknown as SlackService,
+      { setCustomerIdIfAbsent, findUser } as unknown as UsersService,
       createMockLogger(),
     )
   })
@@ -56,8 +97,7 @@ describe('StripeService Pro subscription checkout', () => {
       })
 
       const result = await service.createEmbeddedProSubscriptionCheckoutSession(
-        userId,
-        email,
+        proUser,
         'https://app.test/dashboard/pro-upgrade?session_id={CHECKOUT_SESSION_ID}',
       )
 
@@ -84,7 +124,7 @@ describe('StripeService Pro subscription checkout', () => {
       })
 
       await expect(
-        service.createEmbeddedProSubscriptionCheckoutSession(userId, email),
+        service.createEmbeddedProSubscriptionCheckoutSession(proUser),
       ).rejects.toThrow(BadGatewayException)
     })
 
@@ -95,15 +135,84 @@ describe('StripeService Pro subscription checkout', () => {
         url: 'https://stripe.test/checkout',
       })
 
-      await service.createCheckoutSession(userId, email)
+      await service.createCheckoutSession(proUser)
       const redirectArgs = firstOrThrow(sessionsCreate.mock.calls)[0]
 
-      await service.createEmbeddedProSubscriptionCheckoutSession(userId, email)
+      await service.createEmbeddedProSubscriptionCheckoutSession(proUser)
       const embeddedArgs = nthOrThrow(sessionsCreate.mock.calls, 1)[0]
 
       expect(embeddedArgs.metadata).toEqual(redirectArgs.metadata)
       expect(embeddedArgs.mode).toBe(redirectArgs.mode)
       expect(embeddedArgs.line_items).toEqual(redirectArgs.line_items)
+      expect(embeddedArgs.customer).toBe(redirectArgs.customer)
+      expect(embeddedArgs.customer).toBe(storedCustomerId)
+      expect(embeddedArgs.customer_email).toBeUndefined()
+    })
+  })
+
+  describe('Pro session customer pinning', () => {
+    it('pins the stored Stripe customer instead of customer_email', async () => {
+      sessionsCreate.mockResolvedValue({
+        id: 'cs_test',
+        url: 'https://stripe.test/checkout',
+      })
+
+      await service.createCheckoutSession(proUser)
+
+      const args = firstOrThrow(sessionsCreate.mock.calls)[0]
+      expect(args.customer).toBe(storedCustomerId)
+      expect(args.customer_email).toBeUndefined()
+      expect(customersCreate).not.toHaveBeenCalled()
+    })
+
+    it('creates and persists a customer for a user without one', async () => {
+      customersCreate.mockResolvedValue({ id: 'cus_new_456' })
+      setCustomerIdIfAbsent.mockResolvedValue(true)
+      sessionsCreate.mockResolvedValue({
+        id: 'cs_test',
+        url: 'https://stripe.test/checkout',
+      })
+
+      const newUser = { ...proUser, metaData: null } as unknown as User
+      await service.createCheckoutSession(newUser)
+
+      expect(setCustomerIdIfAbsent).toHaveBeenCalledWith(userId, 'cus_new_456')
+      const args = firstOrThrow(sessionsCreate.mock.calls)[0]
+      expect(args.customer).toBe('cus_new_456')
+      expect(args.customer_email).toBeUndefined()
+    })
+
+    it('drops the orphan and uses the winning customerId on a lost race', async () => {
+      customersCreate.mockResolvedValue({ id: 'cus_orphan' })
+      setCustomerIdIfAbsent.mockResolvedValue(false)
+      findUser.mockResolvedValue({
+        ...proUser,
+        metaData: { customerId: 'cus_winner' },
+      })
+      sessionsCreate.mockResolvedValue({
+        id: 'cs_test',
+        url: 'https://stripe.test/checkout',
+      })
+
+      const newUser = { ...proUser, metaData: null } as unknown as User
+      await service.createCheckoutSession(newUser)
+
+      expect(customersDel).toHaveBeenCalledWith('cus_orphan')
+      const args = firstOrThrow(sessionsCreate.mock.calls)[0]
+      expect(args.customer).toBe('cus_winner')
+    })
+
+    it('502s when a lost race finds no stored winner customerId', async () => {
+      customersCreate.mockResolvedValue({ id: 'cus_orphan' })
+      setCustomerIdIfAbsent.mockResolvedValue(false)
+      findUser.mockResolvedValue(null)
+
+      const newUser = { ...proUser, metaData: null } as unknown as User
+      await expect(service.createCheckoutSession(newUser)).rejects.toThrow(
+        BadGatewayException,
+      )
+      expect(customersDel).toHaveBeenCalledWith('cus_orphan')
+      expect(sessionsCreate).not.toHaveBeenCalled()
     })
   })
 
@@ -171,5 +280,218 @@ describe('StripeService Pro subscription checkout', () => {
         BadGatewayException,
       )
     })
+  })
+})
+
+describe('StripeService.createOffSessionCharge', () => {
+  let service: StripeService
+
+  beforeEach(() => {
+    service = new StripeService(
+      {} as unknown as SlackService,
+      {} as unknown as UsersService,
+      createMockLogger(),
+    )
+  })
+
+  const chargeArgs = {
+    customerId: 'cus_1',
+    paymentMethodId: 'pm_1',
+    amountInCents: 450,
+    robocallId: 42,
+    metadata: { outreachId: '42' },
+  }
+
+  it('charges off-session with a stable idempotency key and returns the intent id', async () => {
+    paymentIntentsCreate.mockResolvedValue({ id: 'pi_ok', status: 'succeeded' })
+
+    const result = await service.createOffSessionCharge(chargeArgs)
+
+    expect(result).toEqual({ paymentIntentId: 'pi_ok' })
+    const [body, opts] = firstOrThrow(paymentIntentsCreate.mock.calls)
+    expect(body).toMatchObject({
+      amount: 450,
+      customer: 'cus_1',
+      payment_method: 'pm_1',
+      capture_method: 'automatic',
+      confirm: true,
+      off_session: true,
+      // The kind marker is what the recovery search matches on.
+      metadata: { outreachId: '42', kind: 'robocall_fresh_charge' },
+    })
+    // Stable per outreach so a retry replays instead of double-charging.
+    expect(opts).toEqual({ idempotencyKey: 'robocall-fresh-charge-42' })
+  })
+
+  it('maps a card decline to StripeChargeDeclinedError carrying the PI id', async () => {
+    paymentIntentsCreate.mockRejectedValue(
+      new MockStripeCardError('card_declined', 'pi_declined'),
+    )
+
+    await expect(
+      service.createOffSessionCharge(chargeArgs),
+    ).rejects.toMatchObject({
+      name: 'StripeChargeDeclinedError',
+      paymentIntentId: 'pi_declined',
+    })
+  })
+
+  it('treats a confirmed-but-not-succeeded PI as a decline carrying its PI id', async () => {
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_pending',
+      status: 'requires_action',
+    })
+
+    // The caller records this paymentIntentId to mark the run charge-attempted,
+    // so the decline must carry intent.id, not just be the right error type.
+    await expect(
+      service.createOffSessionCharge(chargeArgs),
+    ).rejects.toMatchObject({
+      name: 'StripeChargeDeclinedError',
+      paymentIntentId: 'pi_pending',
+    })
+  })
+
+  it('maps a non-card Stripe failure to a 502', async () => {
+    paymentIntentsCreate.mockRejectedValue(new Error('stripe down'))
+
+    await expect(
+      service.createOffSessionCharge(chargeArgs),
+    ).rejects.toBeInstanceOf(BadGatewayException)
+  })
+
+  it('treats a processing PI as transient (plain Error, NOT a decline)', async () => {
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_proc',
+      status: 'processing',
+    })
+
+    // A plain Error routes the caller to its transient-retry path (revert with
+    // no chargeIntentId), so the charge is reconciled once it settles — never
+    // parked as a permanent decline. So it must NOT carry a paymentIntentId.
+    const err = await service
+      .createOffSessionCharge(chargeArgs)
+      .catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect((err as Error).name).not.toBe('StripeChargeDeclinedError')
+    expect(
+      (err as { paymentIntentId?: string }).paymentIntentId,
+    ).toBeUndefined()
+  })
+
+  it('finds a succeeded fresh charge by kind + outreach metadata', async () => {
+    paymentIntentsSearch.mockResolvedValue({
+      data: [{ id: 'pi_landed', amount_received: 450 }],
+    })
+
+    const found = await service.findSucceededChargeByOutreach(42)
+
+    expect(found).toEqual({ paymentIntentId: 'pi_landed', amountReceived: 450 })
+    const [{ query }] = firstOrThrow(paymentIntentsSearch.mock.calls)
+    expect(query).toContain("status:'succeeded'")
+    expect(query).toContain("metadata['kind']:'robocall_fresh_charge'")
+    expect(query).toContain("metadata['outreachId']:'42'")
+  })
+
+  it('returns null when no succeeded fresh charge exists', async () => {
+    paymentIntentsSearch.mockResolvedValue({ data: [] })
+
+    expect(await service.findSucceededChargeByOutreach(42)).toBeNull()
+  })
+})
+
+describe('StripeService.createManualCaptureHold', () => {
+  let service: StripeService
+
+  beforeEach(() => {
+    service = new StripeService(
+      {} as unknown as SlackService,
+      {} as unknown as UsersService,
+      createMockLogger(),
+    )
+  })
+
+  const holdArgs = {
+    customerId: 'cus_1',
+    paymentMethodId: 'pm_1',
+    amountInCents: 450,
+    robocallId: 42,
+    attempt: 0,
+    metadata: { outreachId: '42' },
+  }
+
+  it('places a manual-capture hold and returns the capture deadline', async () => {
+    const captureBeforeUnix = 1893456000
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_hold',
+      status: 'requires_capture',
+      capture_before: captureBeforeUnix,
+    })
+
+    const result = await service.createManualCaptureHold(holdArgs)
+
+    expect(result).toEqual({
+      paymentIntentId: 'pi_hold',
+      captureBefore: fromUnixTime(captureBeforeUnix),
+    })
+    const [body, opts] = firstOrThrow(paymentIntentsCreate.mock.calls)
+    expect(body).toMatchObject({
+      amount: 450,
+      customer: 'cus_1',
+      payment_method: 'pm_1',
+      capture_method: 'manual',
+      confirm: true,
+      off_session: true,
+      metadata: { outreachId: '42' },
+    })
+    // The account is not enrolled in extended authorization, so the hold must
+    // never request it — an ineligible account rejects the whole intent.
+    expect(body).not.toHaveProperty('payment_method_options')
+    expect(opts).toEqual({ idempotencyKey: 'robocall-hold-42-0' })
+  })
+
+  it('falls back to now+7d when Stripe omits capture_before', async () => {
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_hold',
+      status: 'requires_capture',
+    })
+
+    const before = Date.now()
+    const result = await service.createManualCaptureHold(holdArgs)
+    const after = Date.now()
+
+    expect(result.paymentIntentId).toBe('pi_hold')
+    const captured = result.captureBefore.getTime()
+    expect(captured).toBeGreaterThanOrEqual(before + 7 * 24 * 60 * 60 * 1000)
+    expect(captured).toBeLessThanOrEqual(after + 7 * 24 * 60 * 60 * 1000)
+  })
+
+  it('maps a card decline to StripeHoldDeclinedError', async () => {
+    paymentIntentsCreate.mockRejectedValue(
+      new MockStripeCardError('card_declined'),
+    )
+
+    await expect(
+      service.createManualCaptureHold(holdArgs),
+    ).rejects.toMatchObject({ name: 'StripeHoldDeclinedError' })
+  })
+
+  it('treats a confirmed PI that did not reach requires_capture as a decline', async () => {
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_pending',
+      status: 'requires_action',
+    })
+
+    await expect(
+      service.createManualCaptureHold(holdArgs),
+    ).rejects.toMatchObject({ name: 'StripeHoldDeclinedError' })
+  })
+
+  it('maps a non-card Stripe failure to a 502', async () => {
+    paymentIntentsCreate.mockRejectedValue(new Error('stripe down'))
+
+    await expect(
+      service.createManualCaptureHold(holdArgs),
+    ).rejects.toBeInstanceOf(BadGatewayException)
   })
 })

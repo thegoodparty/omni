@@ -130,18 +130,7 @@
  },
  "tina-starkey": {
   "source": "frozen:artifact_a4644548",
-  "issues": [
-   {
-    "phrase": "being very worried about violent crime",
-    "hs_column": "hs_violent_crime_very_worried",
-    "cited_pct": 31.1,
-    "dir": "low",
-    "standout_order": 0,
-    "opponent_name": "Scott McCollum",
-    "threat_tier": "primary_threat",
-    "attribution": "text:standout_title"
-   }
-  ],
+  "issues": [],
   "threat": {
    "matched": true,
    "single_opponent": false,
@@ -1063,16 +1052,6 @@
   "source": "frozen:artifact_a4644548",
   "issues": [
    {
-    "phrase": "supporting a $15 minimum wage increase",
-    "hs_column": "hs_min_wage_15_increase_support",
-    "cited_pct": 79.3,
-    "dir": "high",
-    "standout_order": 0,
-    "opponent_name": "Rosalyn Henderson-Myers",
-    "threat_tier": "primary_threat",
-    "attribution": "text:standout_title"
-   },
-   {
     "phrase": "more school funding",
     "hs_column": "hs_school_funding_more",
     "cited_pct": 77.6,
@@ -1205,16 +1184,6 @@
     "cited_pct": 58.3,
     "dir": "high",
     "standout_order": 1,
-    "opponent_name": "Drew Christensen",
-    "threat_tier": "primary_threat",
-    "attribution": "text:standout_title"
-   },
-   {
-    "phrase": "serious worry about violent crime",
-    "hs_column": "hs_violent_crime_very_worried",
-    "cited_pct": 59.4,
-    "dir": "high",
-    "standout_order": 2,
     "opponent_name": "Drew Christensen",
     "threat_tier": "primary_threat",
     "attribution": "text:standout_title"

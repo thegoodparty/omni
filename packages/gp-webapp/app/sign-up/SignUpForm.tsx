@@ -1,9 +1,10 @@
 'use client'
 
-import { type FormEvent, type ReactNode, useState } from 'react'
+import { type FormEvent, type ReactNode, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useSignUp } from '@clerk/nextjs/legacy'
+import { AsYouType } from 'libphonenumber-js'
 import {
   Button,
   Checkbox,
@@ -14,11 +15,14 @@ import {
   InputOTPSlot,
   Label,
 } from '@styleguide'
+import { isValidPhone } from '@shared/inputs/PhoneInput'
+import { nextPhoneDigits } from './phoneUtils'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { GoogleIcon } from './GoogleIcon'
 
 const SIGN_UP_REDIRECT = '/post-auth-redirect?source=signup'
 const SSO_CALLBACK_URL = '/sign-up/sso-callback'
+const PHONE_STEP_URL = '/sign-up/phone'
 
 /**
  * The classic Clerk hook throws a `ClerkAPIResponseError` (whose `errors[]`
@@ -55,6 +59,9 @@ export default function SignUpForm() {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
+  // Digits only; AsYouType renders the punctuation, and gp-api and HubSpot
+  // both want the bare number.
+  const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [agreed, setAgreed] = useState(false)
 
@@ -63,10 +70,23 @@ export default function SignUpForm() {
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const phoneRef = useRef<HTMLInputElement>(null)
+
+  const phoneReady = isValidPhone(phone)
+
+  const handlePhoneChange = (next: string) => {
+    setPhone(nextPhoneDigits(phone, next))
+    setError(null)
+  }
 
   const handleDetailsSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!clerk.isLoaded || submitting) return
+    if (!phoneReady) {
+      setError('Please enter your phone number to continue.')
+      phoneRef.current?.focus()
+      return
+    }
     setError(null)
     setSubmitting(true)
     try {
@@ -78,6 +98,10 @@ export default function SignUpForm() {
         firstName,
         lastName,
         legalAccepted: agreed,
+        // The Clerk instance has no phone attribute enabled (that would force
+        // SMS verification on every signup); gp-api reads the number back off
+        // here when it provisions the user, and syncs it to HubSpot.
+        unsafeMetadata: { phone },
       })
 
       // Instances without required email verification complete the sign-up on
@@ -126,10 +150,15 @@ export default function SignUpForm() {
     if (!clerk.isLoaded || submitting) return
     setError(null)
     try {
+      // No phone gate here — Google stays one click and the phone step
+      // collects it afterwards. Clerk sends a sign-up that completes with no
+      // further requirements straight to redirectUrlComplete and never loads
+      // the SSO callback, so this, not the callback's redirect props, is what
+      // decides where a new Google account lands.
       await clerk.signUp.authenticateWithRedirect({
         strategy: 'oauth_google',
         redirectUrl: SSO_CALLBACK_URL,
-        redirectUrlComplete: SIGN_UP_REDIRECT,
+        redirectUrlComplete: PHONE_STEP_URL,
       })
     } catch (err) {
       setError(messageFrom(err))
@@ -235,7 +264,7 @@ export default function SignUpForm() {
         className="w-full border-[#0a0a0a] font-semibold text-[#0a0a0a] hover:bg-[#0a0a0a]/5"
         data-testid="signup-google"
       >
-        Sign in with Google
+        Continue with Google
       </Button>
 
       <div className="flex flex-col gap-4">
@@ -272,6 +301,23 @@ export default function SignUpForm() {
             onChange={(e) => setEmail(e.target.value)}
             required
           />
+        </Field>
+
+        <Field label="Phone">
+          <Input
+            ref={phoneRef}
+            name="phone"
+            type="tel"
+            autoComplete="tel"
+            placeholder="Phone"
+            value={new AsYouType('US').input(phone)}
+            onChange={(e) => handlePhoneChange(e.target.value)}
+            aria-invalid={phone.length > 0 && !phoneReady}
+            required
+          />
+          <p className="text-xs leading-4 text-muted-foreground">
+            So we can reach you if you need help.
+          </p>
         </Field>
 
         <Field label="Password">
@@ -330,10 +376,10 @@ export default function SignUpForm() {
           type="submit"
           className="w-full"
           loading={submitting}
-          disabled={!agreed || !clerk.isLoaded}
+          disabled={!agreed || !phoneReady || !clerk.isLoaded}
           data-testid="signup-submit"
         >
-          Sign up
+          Sign Up
         </Button>
         <p className="text-sm text-muted-foreground">
           Already have an account?{' '}
@@ -342,7 +388,7 @@ export default function SignUpForm() {
             className="text-primary underline"
             onClick={() => trackEvent(EVENTS.SignUp.ClickLogin)}
           >
-            Sign in
+            Log In
           </Link>
         </p>
       </div>

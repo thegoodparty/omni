@@ -79,6 +79,7 @@ describe('GeneralChatsService', () => {
       store,
       {} as never,
       {} as never,
+      {} as never,
     )
     const result = await service.resolveConversation(
       { scope: SCOPE, organizationSlug: ORG },
@@ -95,6 +96,7 @@ describe('GeneralChatsService', () => {
     const service = new GeneralChatsService(
       buildRegistry(handler),
       store,
+      {} as never,
       {} as never,
       {} as never,
     )
@@ -125,6 +127,7 @@ describe('GeneralChatsService', () => {
       store,
       {} as never,
       {} as never,
+      {} as never,
     )
     const list = await service.listConversations({
       scope: SCOPE,
@@ -153,6 +156,7 @@ describe('GeneralChatsService', () => {
       store,
       { softDeleteConversation: softDelete } as never,
       {} as never,
+      {} as never,
     )
     await service.deleteConversation('c1', SCOPE, USER_ID, ORG)
     expect(softDelete).toHaveBeenCalledWith('c1', USER_ID)
@@ -165,6 +169,7 @@ describe('GeneralChatsService', () => {
     const service = new GeneralChatsService(
       buildRegistry(handler),
       store,
+      {} as never,
       {} as never,
       {} as never,
     )
@@ -199,6 +204,7 @@ describe('GeneralChatsService', () => {
         store,
         {} as never,
         chatStream as never,
+        {} as never,
       )
       const chunks = await collect(
         service.sendMessage({
@@ -247,6 +253,7 @@ describe('GeneralChatsService', () => {
       store,
       {} as never,
       chatStream as never,
+      {} as never,
     )
     await collect(
       service.sendMessage({
@@ -267,6 +274,7 @@ describe('GeneralChatsService', () => {
     const service = new GeneralChatsService(
       buildRegistry(handler),
       store,
+      {} as never,
       {} as never,
       {} as never,
     )
@@ -310,6 +318,7 @@ describe('GeneralChatsService', () => {
         store,
         chatStore,
         chatStream as never,
+        {} as never,
       )
       const chunks = await collect(
         service.sendMessage({
@@ -369,6 +378,7 @@ describe('GeneralChatsService', () => {
         store,
         chatStore,
         chatStream as never,
+        {} as never,
       )
       const args = {
         conversationId: 'c1',
@@ -431,6 +441,7 @@ describe('GeneralChatsService', () => {
         store,
         chatStore,
         chatStream as never,
+        {} as never,
       )
       const chunks = await collect(
         service.sendMessage({
@@ -478,6 +489,7 @@ describe('GeneralChatsService', () => {
       store,
       chatStore,
       chatStream as never,
+      {} as never,
     )
     const chunks = await collect(
       service.sendMessage({

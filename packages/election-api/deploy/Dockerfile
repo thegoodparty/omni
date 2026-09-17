@@ -72,8 +72,20 @@ WORKDIR /app/packages/election-api
 # Generate Prisma client
 RUN npm run generate
 
-# Build the application (output in /dist)
-RUN npm run build
+# Build the application (output in /dist).
+#
+# `nest build` directly, not `npm run build`: that script is
+# `build:contracts && nest build`, and build:contracts runs contracts'
+# ensure-built guard, which cannot work here and is not needed here. It exists
+# so a local checkout with a gitignored, unbuilt contracts/dist rebuilds it
+# automatically; CI already builds contracts before this image, and the result
+# is copied in above. In the image the guard has nothing to run on — src/ and
+# scripts/ are deliberately not copied — and nothing to run with, since tsx is
+# not a dependency of this package. Leaving it in the build path is what broke
+# every release after #1516.
+#
+# If `build` gains a step that the image does need, add it here too.
+RUN npx nest build
 
 # Stage 2: Create a minimal runtime image
 FROM public.ecr.aws/docker/library/node:22.23.0-alpine

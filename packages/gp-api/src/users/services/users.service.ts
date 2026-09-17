@@ -5,7 +5,6 @@ import {
   DEFAULT_SORT_ORDER,
 } from '@/shared/constants/paginationOptions.consts'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
-import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { ClerkClient } from '@clerk/backend'
 import { type ListUsersPagination } from '@goodparty_org/contracts'
@@ -20,7 +19,7 @@ import {
 import { Cron } from '@nestjs/schedule'
 import { Campaign, Prisma, User } from '../../generated/prisma'
 import { isPrismaError } from 'src/prisma/util/prismaErrors.util'
-import { subHours } from 'date-fns'
+import { addSeconds, subHours } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   PaginatedResults,
@@ -36,8 +35,15 @@ import {
   SIGN_UP_MODE,
 } from '../schemas/CreateUserInput.schema'
 import { hashPassword } from '../util/passwords.util'
+import {
+  FIXTURE_USER_EMAIL_DOMAIN,
+  FIXTURE_USER_EMAIL_PREFIX,
+  isTestUser,
+  TEST_USER_DOMAIN,
+} from '../util/users.util'
 import { APP_ROOT } from 'src/shared/util/appEnvironment.util'
 import { CrmUsersService } from './crmUsers.service'
+import { UserAvatarService } from './userAvatar.service'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
 
 /** Result of resolving a gp-api Clerk user by email for impersonation actor.sub. */
@@ -47,8 +53,9 @@ export type ResolvedActorIdentity =
 
 const REGISTER_USER_CRM_FORM_ID = '37d98f01-7062-405f-b0d1-c95179057db1'
 
-const TEST_USER_DOMAIN = '@test.goodparty.org'
 const CLERK_PAGE_SIZE = 500
+
+const SIGN_IN_LINK_TTL_SECONDS = 3600
 
 // Refusal shown to sales when an EO magic link targets an email that already
 // belongs to a real, self-owned GoodParty login (password set or owns a
@@ -66,17 +73,11 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     private readonly crm: WrapperType<CrmUsersService>,
     @Inject(forwardRef(() => StripeService))
     private readonly stripeService: WrapperType<StripeService>,
-    @Inject(forwardRef(() => ClerkUserEnricherService))
-    private readonly clerkEnricher: WrapperType<ClerkUserEnricherService>,
     @Inject(CLERK_CLIENT_PROVIDER_TOKEN)
     private readonly clerkClient: ClerkClient,
+    private readonly userAvatar: UserAvatarService,
   ) {
     super()
-  }
-
-  override onModuleInit() {
-    super.onModuleInit()
-    this.wrapReadsWithEnrichment()
   }
 
   findUser(where: Prisma.UserWhereUniqueInput) {
@@ -251,18 +252,30 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     email: string
     firstName: string
     lastName: string
+    avatarUrl?: string
+    phone?: string
   }): Promise<User | null> {
     const existingByClerkId = await this.findUser({
       clerkId: data.clerkId,
     })
-    if (existingByClerkId) return existingByClerkId
+    if (existingByClerkId) {
+      const backfilled = await this.maybeBackfillPhone(
+        existingByClerkId,
+        data.phone,
+      )
+      return this.maybeIngestAvatar(backfilled, data.avatarUrl)
+    }
 
     const existingByEmail = await this.findUserByEmail(data.email)
     if (existingByEmail) {
       // A concurrent provision of the same Clerk user may have created the
       // row between our two lookups — same clerkId is a match, not a rebind.
       if (existingByEmail.clerkId === data.clerkId) {
-        return existingByEmail
+        const backfilled = await this.maybeBackfillPhone(
+          existingByEmail,
+          data.phone,
+        )
+        return this.maybeIngestAvatar(backfilled, data.avatarUrl)
       }
       if (existingByEmail.clerkId) {
         this.logger.warn(
@@ -275,7 +288,10 @@ export class UsersService extends createPrismaBase(MODELS.User) {
         )
         return null
       }
-      return this.tryBindClerkId(existingByEmail.id, data.clerkId)
+      const bound = await this.tryBindClerkId(existingByEmail.id, data.clerkId)
+      if (!bound) return bound
+      const backfilled = await this.maybeBackfillPhone(bound, data.phone)
+      return this.maybeIngestAvatar(backfilled, data.avatarUrl)
     }
 
     try {
@@ -286,19 +302,81 @@ export class UsersService extends createPrismaBase(MODELS.User) {
           firstName: data.firstName,
           lastName: data.lastName,
           name: `${data.firstName} ${data.lastName}`.trim(),
+          ...(data.phone ? { phone: data.phone } : {}),
         },
       })
+      // Ingest after the insert, because the S3 key is scoped by user id.
+      const withAvatar = await this.maybeIngestAvatar(user, data.avatarUrl)
       this.logger.info(
         { userId: user.id, clerkId: data.clerkId },
         'Created new user from Clerk',
       )
-      return user
+      return withAvatar
     } catch (err) {
       if (isPrismaError(err, 'P2002')) {
         return this.resolveAfterP2002(data)
       }
       throw err
     }
+  }
+
+  // The sign-up form's phone reaches us through Clerk, so it only lands on
+  // the row the first authenticated request provisions. Every other path
+  // here resolves a row that already existed (an email/magic-link account
+  // that later signed up, a re-provision after a failed first call), and
+  // those would otherwise never get the number. Blank-only: a phone the
+  // user edited in their profile outranks whatever sign-up captured.
+  private async maybeBackfillPhone(
+    user: User,
+    phone: string | undefined,
+  ): Promise<User> {
+    if (!phone || user.phone) return user
+
+    // Both flavours of blank, matching maybeIngestAvatar below: the guard
+    // above treats '' as empty, so a null-only predicate would match no rows
+    // for a legacy '' row and drop the number without saying so.
+    const updated = await this.model.updateMany({
+      where: { id: user.id, OR: [{ phone: null }, { phone: '' }] },
+      data: { phone },
+    })
+    return updated.count > 0 ? { ...user, phone } : user
+  }
+
+  // Every provisioning path funnels through here because they share one
+  // subtle invariant: the row may already hold a picture the user uploaded
+  // themselves via POST /v1/users/me/upload-image, and a Clerk-hosted image
+  // must never overwrite it. Two traps this centralises — read the STORED
+  // avatar rather than trusting user.avatar, which can predate a self-upload
+  // that landed after the caller loaded the row; and treat '' as empty, which
+  // is what most legacy rows hold.
+  //
+  // Safe to call from the every-sign-in fast path: Clerk reports no image for
+  // the vast majority of users, so avatarUrl is undefined and this returns
+  // before issuing any query. That is what lets a picture added to Clerk
+  // after the backfill ran still land, without a perpetual re-run.
+  private async maybeIngestAvatar(
+    user: User,
+    avatarUrl: string | undefined,
+  ): Promise<User> {
+    if (!avatarUrl) return user
+
+    const stored = await this.model.findUnique({
+      where: { id: user.id },
+      select: { avatar: true },
+    })
+    if (stored?.avatar) return user
+
+    const avatar = await this.userAvatar.ingestFromUrl(user.id, avatarUrl)
+    if (!avatar) return user
+
+    // Filtered on "still empty" so a self-upload that landed between the read
+    // above and here still wins.
+    const written = await this.model.updateMany({
+      where: { id: user.id, OR: [{ avatar: null }, { avatar: '' }] },
+      data: { avatar },
+    })
+    if (written.count > 0) user.avatar = avatar
+    return user
   }
 
   private async tryBindClerkId(
@@ -328,6 +406,8 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   private async resolveAfterP2002(data: {
     clerkId: string
     email: string
+    avatarUrl?: string
+    phone?: string
   }): Promise<User | null> {
     this.logger.debug(
       { clerkId: data.clerkId },
@@ -336,7 +416,10 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     const byClerkId = await this.findUser({
       clerkId: data.clerkId,
     })
-    if (byClerkId) return byClerkId
+    if (byClerkId) {
+      const backfilled = await this.maybeBackfillPhone(byClerkId, data.phone)
+      return this.maybeIngestAvatar(backfilled, data.avatarUrl)
+    }
 
     const byEmail = await this.findUserByEmail(data.email)
     if (!byEmail) {
@@ -358,9 +441,13 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       return null
     }
     if (!byEmail.clerkId) {
-      return this.tryBindClerkId(byEmail.id, data.clerkId)
+      const bound = await this.tryBindClerkId(byEmail.id, data.clerkId)
+      if (!bound) return bound
+      const backfilled = await this.maybeBackfillPhone(bound, data.phone)
+      return this.maybeIngestAvatar(backfilled, data.avatarUrl)
     }
-    return byEmail
+    const backfilled = await this.maybeBackfillPhone(byEmail, data.phone)
+    return this.maybeIngestAvatar(backfilled, data.avatarUrl)
   }
 
   async updateUser(where: Prisma.UserWhereUniqueInput, data: Partial<User>) {
@@ -399,6 +486,30 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       WHERE id = ${userId}
         AND meta_data->>'checkoutSessionId'
           IS NOT DISTINCT FROM ${expectedSessionId}::text
+    `
+    return updatedCount === 1
+  }
+
+  // Set-if-absent CAS on the Stripe customerId: the write lands only when no
+  // customerId is stored yet, so concurrent first-time card-vault requests can
+  // never each persist a different customer. Raw SQL because a conditional
+  // single-key JSON write can't be expressed as a Prisma merge (mirrors
+  // compareAndSwapCheckoutSessionId).
+  async setCustomerIdIfAbsent(
+    userId: number,
+    customerId: string,
+  ): Promise<boolean> {
+    const updatedCount = await this.client.$executeRaw`
+      UPDATE "user"
+      SET
+        meta_data = jsonb_set(
+          COALESCE(meta_data, '{}'::jsonb),
+          '{customerId}',
+          to_jsonb(${customerId}::text)
+        ),
+        updated_at = NOW()
+      WHERE id = ${userId}
+        AND meta_data->>'customerId' IS NULL
     `
     return updatedCount === 1
   }
@@ -580,6 +691,54 @@ export class UsersService extends createPrismaBase(MODELS.User) {
   }
 
   /**
+   * Mints a single-use Clerk sign-in token for an existing user so an admin can
+   * hand the account's real owner a way back in. Not impersonation: no actor
+   * claim is embedded, so the redeemed session is the user's own.
+   */
+  async createSignInLink(userId: number) {
+    const user = await this.findUser({ id: userId })
+    if (!user?.clerkId) {
+      throw new BadRequestException('User does not have an associated Clerk ID')
+    }
+    // Deliberately skips assertReusableForMagicLink's passwordless gate: this
+    // link is issued to the account's real owner, so an account the person
+    // already controls is the expected case here, not a takeover risk.
+    const expiresInSeconds = SIGN_IN_LINK_TTL_SECONDS
+    try {
+      const { token } = await this.clerkClient.signInTokens.createSignInToken({
+        userId: user.clerkId,
+        expiresInSeconds,
+      })
+      if (!token) {
+        throw new BadGatewayException('Clerk did not return a sign-in token')
+      }
+      return {
+        token,
+        expiresAt: addSeconds(new Date(), expiresInSeconds).toISOString(),
+      }
+    } catch (err) {
+      this.logger.error(
+        {
+          err,
+          userId,
+          targetClerkId: user.clerkId,
+          clerkStatus:
+            err instanceof Error
+              ? (err as Error & { status?: unknown }).status
+              : undefined,
+          clerkErrors:
+            err instanceof Error
+              ? (err as Error & { errors?: unknown }).errors
+              : undefined,
+          clerkMessage: err instanceof Error ? err.message : String(err),
+        },
+        'Failed to create Clerk sign-in token',
+      )
+      throw new BadGatewayException('Failed to create sign-in link')
+    }
+  }
+
+  /**
    * Provisions a passwordless Clerk identity + local user for a sales-sent EO
    * magic link and mints a single-use sign-in token. Idempotent on email:
    * reuses an existing Clerk user / local user when present, so returning leads
@@ -588,9 +747,10 @@ export class UsersService extends createPrismaBase(MODELS.User) {
    */
   // A magic-link sign-in may only be minted for a fresh EO lead (or a stranded
   // partial-create), never a real account: any assigned role (admin, sales,
-  // candidate, …) or campaign ownership marks a real account and is refused. A
-  // new lead and a stranded partial-create both have roles: [] and no campaign,
-  // so this never blocks legitimate provisioning (incl. admin retries).
+  // candidate, …), campaign ownership, or an onboarded elected office marks a
+  // real account and is refused. A new lead and a stranded partial-create have
+  // roles: [], no campaign, and no completed onboarding, so this never blocks
+  // legitimate provisioning (incl. admin retries).
   private async assertReusableForMagicLink(user: User): Promise<void> {
     if (user.roles.length > 0) {
       throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
@@ -599,6 +759,20 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       where: { userId: user.id },
     })
     if (campaignCount > 0) {
+      throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+    }
+
+    // A Serve (elected-official) account owns an Organization, not a Campaign,
+    // so the campaign check alone misses it. Scoped to a completed onboarding
+    // because this very flow creates the lead's Organization + ElectedOffice —
+    // plain ownership would refuse every legitimate admin retry.
+    const establishedOfficeCount = await this.client.organization.count({
+      where: {
+        ownerId: user.id,
+        electedOffice: { onboardingCompletedAt: { not: null } },
+      },
+    })
+    if (establishedOfficeCount > 0) {
       throw new ConflictException(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
     }
   }
@@ -794,7 +968,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     })
 
     return {
-      data: await this.clerkEnricher.enrichUsers(data),
+      data,
       meta: {
         total: await this.model.count({ where }),
         offset: skip,
@@ -812,14 +986,27 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     try {
       const cutoff = subHours(new Date(), 24)
 
-      // 1. Delete DB users.
-      const dbUsers = await this.model.findMany({
+      // 1. Delete DB users. The SQL clauses only prefilter candidates; the
+      // isTestUser pass is what makes the fixture match exact (qa-<uuid>
+      // only), so a real staff alias like qa-team@goodparty.org survives.
+      const candidates = await this.model.findMany({
         where: {
-          email: { endsWith: TEST_USER_DOMAIN },
+          OR: [
+            { email: { endsWith: TEST_USER_DOMAIN } },
+            {
+              email: {
+                startsWith: FIXTURE_USER_EMAIL_PREFIX,
+                endsWith: FIXTURE_USER_EMAIL_DOMAIN,
+              },
+            },
+          ],
           createdAt: { lt: cutoff },
         },
-        select: { id: true },
+        select: { id: true, email: true },
       })
+      const dbUsers = candidates.filter((user) =>
+        isTestUser({ email: user.email }),
+      )
 
       let dbDeleted = 0
       for (const dbUser of dbUsers) {
@@ -860,7 +1047,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
           (user) =>
             user.createdAt < cutoffMs &&
             user.emailAddresses.some((e) =>
-              e.emailAddress.endsWith(TEST_USER_DOMAIN),
+              isTestUser({ email: e.emailAddress }),
             ),
         )
 
@@ -898,54 +1085,5 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     } catch (err) {
       this.logger.error({ err }, 'Failed to delete test users')
     }
-  }
-
-  private wrapReadsWithEnrichment() {
-    const enricher = this.clerkEnricher
-
-    Object.defineProperty(this, 'findUnique', {
-      value: async (args: Prisma.UserFindUniqueArgs) => {
-        const result = await this.model.findUnique(args)
-        return result ? enricher.enrichUser(result) : result
-      },
-      writable: true,
-      configurable: true,
-    })
-
-    Object.defineProperty(this, 'findUniqueOrThrow', {
-      value: async (args: Prisma.UserFindUniqueOrThrowArgs) => {
-        const result = await this.model.findUniqueOrThrow(args)
-        return enricher.enrichUser(result)
-      },
-      writable: true,
-      configurable: true,
-    })
-
-    Object.defineProperty(this, 'findFirst', {
-      value: async (args: Prisma.UserFindFirstArgs) => {
-        const result = await this.model.findFirst(args)
-        return result ? enricher.enrichUser(result) : result
-      },
-      writable: true,
-      configurable: true,
-    })
-
-    Object.defineProperty(this, 'findFirstOrThrow', {
-      value: async (args: Prisma.UserFindFirstOrThrowArgs) => {
-        const result = await this.model.findFirstOrThrow(args)
-        return enricher.enrichUser(result)
-      },
-      writable: true,
-      configurable: true,
-    })
-
-    Object.defineProperty(this, 'findMany', {
-      value: async (args: Prisma.UserFindManyArgs) => {
-        const results = await this.model.findMany(args)
-        return enricher.enrichUsers(results)
-      },
-      writable: true,
-      configurable: true,
-    })
   }
 }

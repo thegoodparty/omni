@@ -42,9 +42,39 @@ def test_to_date_handles_date_string_and_empty():
 # --- parse_gpmeta ------------------------------------------------------------
 
 
-def test_parse_gpmeta_absent_returns_none():
+def test_parse_gpmeta_none_only_when_description_is_empty():
     assert eh.parse_gpmeta(None) is None
-    assert eh.parse_gpmeta("a plain description, no markers") is None
+    assert eh.parse_gpmeta("") is None
+    assert eh.parse_gpmeta("   \n  ") is None
+
+
+def test_parse_gpmeta_prose_only_description_is_the_purpose():
+    # DATA-2426 regression: 193 events carry a good prose description in Amplitude and
+    # no gp-meta block. They rendered an empty description cell in the sheet.
+    meta = eh.parse_gpmeta("Fired when a candidate publishes their website.")
+    assert meta is not None
+    assert meta["purpose"] == "Fired when a candidate publishes their website."
+    assert meta["intent"] is None
+    assert meta["intent_date"] is None
+    assert meta["supersession"] is None
+
+
+def test_parse_gpmeta_prose_only_collapses_multiline_to_one_line():
+    meta = eh.parse_gpmeta("Fired on publish.\n\nCounts once per campaign.\n")
+    assert meta["purpose"] == "Fired on publish. Counts once per campaign."
+
+
+def test_parse_gpmeta_block_without_purpose_line_falls_back_to_prose_outside():
+    desc = (
+        "Fired when a member submits an issue.\n"
+        "<!-- gp-meta -->\n"
+        "supersession: original |\n"
+        "in use: 2026-06-16 (#171)\n"
+        "<!-- /gp-meta -->\n"
+    )
+    meta = eh.parse_gpmeta(desc)
+    assert meta["purpose"] == "Fired when a member submits an issue."
+    assert meta["intent"] == "in_use"
 
 
 def test_parse_gpmeta_extracts_intent_and_supersession():
@@ -90,16 +120,103 @@ def test_parse_gpmeta_extracts_purpose():
     assert result["intent"] == "not_in_use"
 
 
-def test_parse_gpmeta_purpose_none_when_block_has_no_prose_line():
+def test_parse_gpmeta_purpose_none_when_block_has_no_prose_line_and_no_prose_outside():
     desc = "<!-- gp-meta -->\nsupersession: original |\nin use: 2026-06-16 (#171)\n<!-- /gp-meta -->"
     result = eh.parse_gpmeta(desc)
     assert result["purpose"] is None
     assert result["supersession"] == "original"
 
 
-def test_parse_gpmeta_none_when_no_block():
-    assert eh.parse_gpmeta("plain description, no markers") is None
-    assert eh.parse_gpmeta(None) is None
+def test_parse_gpmeta_extracts_fires_on_and_url():
+    desc = (
+        "<!-- gp-meta -->\n"
+        "Confirms an admin approved a campaign for sending. |\n"
+        "fires_on: Admin SMS outreach queue, Approve & book send on a campaign detail page. |\n"
+        "url: /dashboard/sms-outreach/:id (gp-admin) |\n"
+        "supersession: original |\n"
+        "in use: 2026-09-09 (#1)\n"
+        "<!-- /gp-meta -->"
+    )
+    meta = eh.parse_gpmeta(desc)
+    assert meta["fires_on"] == (
+        "Admin SMS outreach queue, Approve & book send on a campaign detail page."
+    )
+    assert meta["url"] == "/dashboard/sms-outreach/:id (gp-admin)"
+    assert meta["purpose"] == "Confirms an admin approved a campaign for sending."
+
+
+def test_parse_gpmeta_anchor_fields_absent_are_none():
+    desc = "<!-- gp-meta -->\npurpose line\nin use: 2026-06-18 (#1)\n<!-- /gp-meta -->"
+    meta = eh.parse_gpmeta(desc)
+    assert meta["fires_on"] is None
+    assert meta["url"] is None
+    meta = eh.parse_gpmeta("prose only, no block")
+    assert meta["fires_on"] is None
+    assert meta["url"] is None
+
+
+def test_parse_gpmeta_anchor_line_above_the_prose_is_not_mistaken_for_the_purpose():
+    desc = (
+        "<!-- gp-meta -->\n"
+        "fires_on: Campaign plan page, Generate button. |\n"
+        "The question this event answers. |\n"
+        "in use: 2026-09-09 (#1)\n"
+        "<!-- /gp-meta -->"
+    )
+    assert eh.parse_gpmeta(desc)["purpose"] == "The question this event answers."
+
+
+def test_parse_gpmeta_purpose_starting_with_the_word_url_survives():
+    desc = "<!-- gp-meta -->\nURL of the shared plan was opened. |\nin use: 2026-09-09\n<!-- /gp-meta -->"
+    assert eh.parse_gpmeta(desc)["purpose"] == "URL of the shared plan was opened."
+
+
+def test_parse_gpmeta_prose_only_does_not_raise_a_divergence():
+    # The fallback must not turn 193 undeclared events into intent-vs-reality flags.
+    meta = eh.parse_gpmeta("A plain prose description, no markers.")
+    assert eh.divergence(meta, "retired", firing_recent=False) is None
+    assert eh.divergence(meta, "active", firing_recent=True) is None
+
+
+def test_parse_gpmeta_unclosed_marker_does_not_leak_markup_into_the_purpose():
+    # A hand-edit in the Amplitude Govern UI is exactly how a marker breaks. Without the
+    # closing marker, GPMETA.search misses and the whole raw description — including the
+    # opening marker and field lines — would otherwise become the purpose. Worst case
+    # degrades to the pre-DATA-2426 blank cell, never a garbled one.
+    desc = "Real prose here.\n<!-- gp-meta -->\nfires_on: Admin page. |\nin use: 2026-01-01 (#1)\n"
+    meta = eh.parse_gpmeta(desc)
+    assert meta["purpose"] == "Real prose here."
+    assert "gp-meta" not in meta["purpose"]
+    assert "fires_on" not in meta["purpose"]
+
+
+def test_parse_gpmeta_supersession_substring_inside_fires_on_does_not_hijack_the_field():
+    # The supersession regex was unanchored, so a "supersession:" substring anywhere in the
+    # block — including inside another field's free-prose value — used to win over the real
+    # supersession line further down.
+    desc = (
+        "<!-- gp-meta -->\n"
+        "fires_on: Page X, supersession: nope |\n"
+        "The purpose line. |\n"
+        "supersession: original |\n"
+        "in use: 2026-09-09 (#1)\n"
+        "<!-- /gp-meta -->"
+    )
+    meta = eh.parse_gpmeta(desc)
+    assert meta["supersession"] == "original"
+    assert meta["fires_on"] == "Page X, supersession: nope"
+
+
+def test_parse_gpmeta_url_field_name_collision_with_url_prefixed_purpose():
+    # Accepted tradeoff, not a bug: the skip regex for the purpose scan requires a colon so
+    # that a colon-less purpose line like "URL of the shared plan…" survives (see
+    # test_parse_gpmeta_purpose_starting_with_the_word_url_survives above). The unavoidable
+    # other side is that a purpose line that itself begins "URL:" is read as the `url` field
+    # instead of the purpose.
+    desc = "<!-- gp-meta -->\nURL: the shared plan link was opened. |\nin use: 2026-09-09\n<!-- /gp-meta -->"
+    meta = eh.parse_gpmeta(desc)
+    assert meta["purpose"] is None
+    assert meta["url"] == "the shared plan link was opened."
 
 
 # --- is_system / is_elevated -------------------------------------------------
@@ -303,6 +420,35 @@ def test_rank_record_zero_calls_active_with_anomaly_stays_rank_2():
     rec = {"status": "active", "elevated": False, "anomaly": {"current": 1, "baseline": 9},
            "divergence": None, "call_site_count": 0, "event_count_30d": 50}
     assert eh.rank_record(rec) == 2
+
+
+def test_rank_record_zero_calls_firing_only_before_removal_is_not_canary():
+    # DATA-2427: the canary's premise ("a client event cannot fire normally with zero call
+    # sites") breaks when the 30-day window STRADDLES the call site's removal -- the firing is
+    # all pre-removal traffic, so the zero is a genuine retirement, not a blind counter. Same
+    # straddle trap DATA-2140 fixed for orphaned_firing, now on call_site_retired_date. Without
+    # this gate a single flag-removal PR posts a burst of false rank-0 tooling alerts.
+    rec = {"status": "active", "elevated": False, "anomaly": None, "divergence": None,
+           "call_site_count": 0, "event_count_30d": 1883,
+           "call_site_retired_date": "2026-09-08", "last_seen_date": "2026-09-09"}
+    assert eh.rank_record(rec) == 2
+
+
+def test_rank_record_zero_calls_firing_after_removal_stays_canary():
+    # Firing that continues well past the removal is the real contradiction: the counter is
+    # blind, or the event fires from somewhere the scan cannot see. Still rank 0.
+    rec = {"status": "active", "elevated": False, "anomaly": None, "divergence": None,
+           "call_site_count": 0, "event_count_30d": 1883,
+           "call_site_retired_date": "2026-09-01", "last_seen_date": "2026-09-09"}
+    assert eh.rank_record(rec) == 0
+
+
+def test_rank_record_zero_calls_with_no_removal_date_stays_canary():
+    # No attributable removal at all -> nothing to straddle -> the canary still fires.
+    rec = {"status": "active", "elevated": False, "anomaly": None, "divergence": None,
+           "call_site_count": 0, "event_count_30d": 50,
+           "call_site_retired_date": None, "last_seen_date": "2026-09-09"}
+    assert eh.rank_record(rec) == 0
 
 
 def test_rank_record_null_call_sites_never_canary():
@@ -738,6 +884,64 @@ def test_load_watchlist_returns_okr_map(tmp_path):
 
 def test_load_watchlist_missing_file_returns_empty_okr(tmp_path):
     assert eh.load_watchlist(tmp_path / "absent.yaml") == ([], [], [], {})
+
+
+# --- load_monitored_events ---------------------------------------------------
+
+BEHAVIOR_YAML = (
+    "watched_families: [win_dashboard]\n"
+    "events:\n"
+    '  - {event: "Sign Up Clicked", product: win, family: win_onboarding}\n'
+    "behaviors:\n"
+    "  - id: voter_file_exported\n"
+    "    product: win\n"
+    "    surfaces:\n"
+    '      - {path: a.tsx, label: crm, instrumented_by: "Voter Data - List Exported"}\n'
+    "      - {path: b.tsx, label: wizard, instrumented_by: null}\n"
+    "  - id: voter_outreach_scheduled\n"
+    "    product: win\n"
+    '    okr: ["Activated Candidates", "Outreach Intensity"]\n'
+    "    surfaces:\n"
+    '      - {path: c.tsx, label: campaign, '
+    'instrumented_by: "Voter Outreach - Campaign Completed"}\n'
+    '      - {path: d.tsx, label: doors, instrumented_by: "Door Knocking - List Created"}\n'
+)
+
+
+def test_load_monitored_events_adds_behavior_instruments(tmp_path):
+    y = tmp_path / "w.yaml"
+    y.write_text(BEHAVIOR_YAML)
+    _, events, _, _ = eh.load_monitored_events(y)
+    assert events == [
+        "Sign Up Clicked",
+        "Voter Data - List Exported",
+        "Voter Outreach - Campaign Completed",
+        "Door Knocking - List Created",
+    ]
+
+
+def test_load_monitored_events_anchors_the_behavior_okr_on_every_instrument(tmp_path):
+    y = tmp_path / "w.yaml"
+    y.write_text(BEHAVIOR_YAML)
+    _, _, _, okr = eh.load_monitored_events(y)
+    assert okr == {
+        "Voter Outreach - Campaign Completed": "Activated Candidates, Outreach Intensity",
+        "Door Knocking - List Created": "Activated Candidates, Outreach Intensity",
+    }
+
+
+def test_load_watchlist_stays_blind_to_behaviors(tmp_path):
+    """Rule 8 compares instrumented_by against this list, so widening it in place would
+    turn every migrated behavior into a duplicate-anchor error."""
+    y = tmp_path / "w.yaml"
+    y.write_text(BEHAVIOR_YAML)
+    _, events, _, okr = eh.load_watchlist(y)
+    assert events == ["Sign Up Clicked"]
+    assert okr == {}
+
+
+def test_load_monitored_events_missing_file_returns_empty(tmp_path):
+    assert eh.load_monitored_events(tmp_path / "absent.yaml") == ([], [], [], {})
 
 
 def test_reconcile_stamps_okr_on_records():

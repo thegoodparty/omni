@@ -1,27 +1,76 @@
 import { HttpModule } from '@nestjs/axios'
 import { forwardRef, Module } from '@nestjs/common'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { CrmModule } from '@/crm/crmModule'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
+import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
+import { LlmModule } from '@/llm/llm.module'
 import { AiModule } from 'src/ai/ai.module'
 import { EmailModule } from 'src/email/email.module'
 import { PurchaseType } from 'src/payments/purchase.types'
 import { PurchaseService } from 'src/payments/services/purchase.service'
 import { AwsModule } from 'src/vendors/aws/aws.module'
+import { CallhubModule } from 'src/vendors/callhub/callhub.module'
 import { GoogleModule } from 'src/vendors/google/google.module'
 import { SlackModule } from 'src/vendors/slack/slack.module'
+import { StripeModule } from 'src/vendors/stripe/stripe.module'
+import { DoorKnockingModule } from '../doorKnocking/doorKnocking.module'
 import { ContactsModule } from '../contacts/contacts.module'
 import { OrganizationsModule } from '../organizations/organizations.module'
 import { PaymentsModule } from '../payments/payments.module'
 import { PeerlyModule } from '../vendors/peerly/peerly.module'
 import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
+import { OutreachAssignmentController } from './outreachAssignment.controller'
+import { OutreachSmsAdminController } from './outreachSmsAdmin.controller'
+import { OutreachSmsAdminService } from './services/outreachSmsAdmin.service'
+import { OutreachSmsController } from './outreachSms.controller'
+import { OutreachSocialController } from './outreachSocial.controller'
+import { OutreachServeSocialController } from './outreachServeSocial.controller'
+import { OutreachPhoneBankingController } from './outreachPhoneBanking.controller'
+import { OutreachServePhoneBankingController } from './outreachServePhoneBanking.controller'
+import { OutreachDoorKnockingController } from './outreachDoorKnocking.controller'
+import { OutreachServeDoorKnockingController } from './outreachServeDoorKnocking.controller'
+import { OutreachRobocallController } from './outreachRobocall.controller'
+import { OutreachRobocallAudioController } from './outreachRobocallAudio.controller'
 import { OutreachNotificationInterceptor } from './interceptors/outreachNotification.interceptor'
 import { OutreachCompletionService } from './services/outreachCompletion.service'
 import { OutreachInboundSweepService } from './services/outreachInboundSweep.service'
 import { OutreachMaterializationService } from './services/outreachMaterialization.service'
+import { OutreachAssignmentService } from './services/outreachAssignment.service'
 import { OutreachService } from './services/outreach.service'
+import { OutreachSocialService } from './services/outreachSocial.service'
+import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
+import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
+import { OutreachDoorKnockingGenerationService } from './services/outreachDoorKnockingGeneration.service'
+import { OutreachSmsGenerationService } from './services/outreachSmsGeneration.service'
+import { OutreachRobocallGenerationService } from './services/outreachRobocallGeneration.service'
+import { OutreachRobocallService } from './services/outreachRobocall.service'
+import { OutreachRobocallHoldService } from './services/outreachRobocallHold.service'
+import { OutreachRobocallHoldRecoveryService } from './services/outreachRobocallHoldRecovery.service'
+import { RobocallOrphanedCampaignService } from './services/robocallOrphanedCampaign.service'
+import { OutreachRobocallCallhubCleanupService } from './services/outreachRobocallCallhubCleanup.service'
+import { OutreachRobocallDeferredHoldService } from './services/outreachRobocallDeferredHold.service'
+import { OutreachRobocallStrandedService } from './services/outreachRobocallStranded.service'
+import { OutreachRobocallStagingService } from './services/outreachRobocallStaging.service'
+import { OutreachRobocallSendService } from './services/outreachRobocallSend.service'
+import { OutreachRobocallHoldFailureService } from './services/outreachRobocallHoldFailure.service'
+import { OutreachRobocallWebhookService } from './services/outreachRobocallWebhook.service'
+import { OutreachRobocallCompletionService } from './services/outreachRobocallCompletion.service'
+import { OutreachRobocallCaptureService } from './services/outreachRobocallCapture.service'
+import { OutreachRobocallFreshChargeService } from './services/outreachRobocallFreshCharge.service'
+import { RobocallOrphanedHoldService } from './services/robocallOrphanedHold.service'
+import { OutreachRobocallHoldReconcileService } from './services/outreachRobocallHoldReconcile.service'
+import { RobocallTranscriptionService } from './services/robocallTranscription.service'
+import { RobocallComplianceService } from './services/robocallCompliance.service'
+import { RobocallComplianceResultService } from './services/robocallComplianceResult.service'
+import { RobocallPhonebookService } from './services/robocallPhonebook.service'
+import { OutreachComposeContextService } from './services/outreachComposeContext.service'
+import { OutreachServeComposeContextService } from './services/outreachServeComposeContext.service'
+import { OutreachRobocallAudioService } from './services/outreachRobocallAudio.service'
 import { OutreachNotificationService } from './services/outreachNotification.service'
 import { OutreachPurchaseHandlerService } from './services/outreachPurchase.service'
+import { OutreachRobocallSingleSendService } from './services/outreachRobocallSingleSend.service'
 
 @Module({
   imports: [
@@ -37,24 +86,84 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     forwardRef(() => VotersModule),
     GoogleModule,
     AiModule,
+    LlmModule,
     SlackModule,
+    StripeModule,
     // ContactsModule pulls in CampaignsModule (and onward to Peerly), which
     // loops back to Outreach — defer this edge so the module graph resolves.
     forwardRef(() => ContactsModule),
     OrganizationsModule,
+    ElectedOfficeModule,
     ContactInteractionModule,
+    CallhubModule,
+    // For DoorKnockingTurfCountsService, behind the detail read's doorKnocking
+    // block. forwardRef because DoorKnocking → Contacts → Campaigns → Peerly
+    // loops back here, the same cycle the ContactsModule edge above defers.
+    forwardRef(() => DoorKnockingModule),
+    // For HubspotSingleSendService, the robocall payment/receipt single-send
+    // cutover (ENG-11035).
+    CrmModule,
   ],
-  controllers: [OutreachController],
+  controllers: [
+    OutreachController,
+    OutreachAssignmentController,
+    OutreachSocialController,
+    OutreachServeSocialController,
+    OutreachPhoneBankingController,
+    OutreachServePhoneBankingController,
+    OutreachDoorKnockingController,
+    OutreachServeDoorKnockingController,
+    OutreachSmsController,
+    OutreachRobocallController,
+    OutreachRobocallAudioController,
+    OutreachSmsAdminController,
+  ],
   providers: [
     OutreachService,
+    OutreachSmsAdminService,
+    OutreachSocialService,
+    OutreachSocialGenerationService,
+    OutreachPhoneBankingGenerationService,
+    OutreachDoorKnockingGenerationService,
+    OutreachSmsGenerationService,
+    OutreachRobocallGenerationService,
+    OutreachRobocallService,
+    OutreachRobocallHoldService,
+    OutreachRobocallHoldRecoveryService,
+    RobocallOrphanedCampaignService,
+    OutreachRobocallCallhubCleanupService,
+    OutreachRobocallDeferredHoldService,
+    OutreachRobocallStrandedService,
+    OutreachRobocallStagingService,
+    OutreachRobocallSendService,
+    OutreachRobocallHoldFailureService,
+    OutreachRobocallWebhookService,
+    OutreachRobocallCompletionService,
+    OutreachRobocallCaptureService,
+    OutreachRobocallFreshChargeService,
+    RobocallOrphanedHoldService,
+    OutreachRobocallHoldReconcileService,
+    RobocallTranscriptionService,
+    RobocallComplianceService,
+    RobocallComplianceResultService,
+    RobocallPhonebookService,
+    OutreachComposeContextService,
+    OutreachServeComposeContextService,
+    OutreachRobocallAudioService,
     OutreachCompletionService,
     OutreachInboundSweepService,
     OutreachNotificationService,
     OutreachNotificationInterceptor,
     OutreachPurchaseHandlerService,
     OutreachMaterializationService,
+    OutreachRobocallSingleSendService,
+    OutreachAssignmentService,
   ],
-  exports: [OutreachService, OutreachPurchaseHandlerService],
+  exports: [
+    OutreachService,
+    OutreachPurchaseHandlerService,
+    OutreachAssignmentService,
+  ],
 })
 export class OutreachModule {
   constructor(

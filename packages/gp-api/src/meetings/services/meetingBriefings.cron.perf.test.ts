@@ -24,7 +24,6 @@ type BenchOffice = {
   hasFutureBriefing: boolean // MeetingBriefing already covering meetingDate >= now
   hasInFlightRun: boolean // QUEUED/RUNNING/AWAITING_RESUME briefing run
   inImminenceWindow: boolean // schedule projects a meeting inside the 3-day window
-  isServeIcp: boolean // serve-ICP position (from election-api)
   isActive: boolean // user active within the inactivity threshold
   latencyMs: number // simulated per-office async work (DB + S3 + election-api)
 }
@@ -37,7 +36,6 @@ const officeWouldDispatch = (o: BenchOffice): boolean =>
   !o.hasFutureBriefing &&
   !o.hasInFlightRun &&
   o.inImminenceWindow &&
-  o.isServeIcp &&
   o.isActive
 
 // The DB-side pre-filter applied in the cron's findMany `where`. These are the
@@ -87,15 +85,14 @@ const runBoundedConcurrent = async (
 }
 
 // Deterministic population: the realistic case is that most offices have no
-// completed schedule yet (serve-ICP backfill still pending), so the pre-filter
-// eliminates the majority before any per-office work runs.
+// completed schedule yet, so the pre-filter eliminates the majority before any
+// per-office work runs.
 const buildOffices = (): BenchOffice[] => {
   const base: Omit<BenchOffice, 'id' | 'latencyMs'> = {
     hasScheduleRun: true,
     hasFutureBriefing: false,
     hasInFlightRun: false,
     inImminenceWindow: true,
-    isServeIcp: true,
     isActive: true,
   }
   const specs: Array<{
@@ -108,7 +105,6 @@ const buildOffices = (): BenchOffice[] => {
     { count: 3, template: { ...base, hasFutureBriefing: true } },
     // Survive the pre-filter but the per-office guard still skips them:
     { count: 3, template: { ...base, inImminenceWindow: false } },
-    { count: 3, template: { ...base, isServeIcp: false } },
     { count: 3, template: { ...base, isActive: false } },
     { count: 3, template: { ...base, hasInFlightRun: true } },
     // Fully qualify — these actually dispatch.

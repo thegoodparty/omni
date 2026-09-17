@@ -1,58 +1,26 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ASSISTANT_BUBBLE, ChatMarkdown } from '../agent-chat/chatUI'
+import { useQueryClient } from '@tanstack/react-query'
+import { reportErrorToSentry } from '@shared/sentry'
+import { Button, ToggleGroup, ToggleGroupItem } from '@styleguide'
+import { ThumbsDownIcon, ThumbsUpIcon } from '@styleguide/components/ui/icons'
 import {
-  Button,
-  IconButton,
-  Loader2Icon,
-  MicIcon,
-  SquareIcon,
-  ToggleGroup,
-  ToggleGroupItem,
-} from '@styleguide'
-import {
-  SearchIcon,
-  SendIcon,
-  ThumbsDownIcon,
-  ThumbsUpIcon,
-} from '@styleguide/components/ui/icons'
-import { useDictationAppend } from 'app/dashboard/briefings/shared/useDictationAppend'
-import type { AiChatClient, AiChatConfig, ChatMessageSegment } from './types'
+  ASSISTANT_BUBBLE,
+  AssistantRow,
+  ChatComposer,
+  InlineSegments,
+  ThinkingRow,
+  UserBubble,
+} from '../agent-chat/chatUI'
+import { segmentsToLive } from '../agent-chat/streaming'
+import { useStreamingTurn } from '../agent-chat/useStreamingTurn'
+import { usePinnedAutoScroll } from '../agent-chat/usePinnedAutoScroll'
+import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
+import type { AiChatClient, AiChatConfig } from './types'
 import { CHAT_MAX_W } from './constants'
 import AiChatHistoryPopover from './AiChatHistoryPopover'
-import ChatPill from './ChatPill'
-import { useAiChat } from './useAiChat'
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// Fold persisted segments into ordered render blocks: a text run, or a group of
-// consecutive tool pills (deduped by label within the group). Mirrors the Chief
-// of Staff renderer so a turn shows ordered text / tools / text instead of a
-// flat string plus one tool row.
-type RenderBlock =
-  | { kind: 'text'; text: string }
-  | { kind: 'tools'; tools: string[] }
-
-function groupSegments(segments: ChatMessageSegment[]): RenderBlock[] {
-  const blocks: RenderBlock[] = []
-  for (const seg of segments) {
-    if (seg.kind === 'text') {
-      blocks.push({ kind: 'text', text: seg.text ?? '' })
-      continue
-    }
-    const tool = seg.toolName ?? ''
-    const last = blocks[blocks.length - 1]
-    if (last && last.kind === 'tools') {
-      if (!last.tools.includes(tool)) last.tools.push(tool)
-    } else {
-      blocks.push({ kind: 'tools', tools: [tool] })
-    }
-  }
-  return blocks
-}
+import { HISTORY_QUERY_KEY } from './useAiChatHistory'
 
 // ---------------------------------------------------------------------------
 // Props
@@ -68,7 +36,13 @@ interface Props {
   onConversationCreated?: (conversationId: string) => void
   onSelectConversation?: (conversationId: string) => void
   className?: string
-  /** Custom renderer for assistant message content. Defaults to ReactMarkdown. */
+  /**
+   * Optional override for assistant message content. When set, a completed
+   * assistant turn renders `messageRenderer(content)` in the shared bubble
+   * instead of the default markdown + inline tool pills — the escape hatch for
+   * a surface that folds structured widgets into the reply. Live streaming
+   * always uses the default renderer.
+   */
   messageRenderer?: (content: string) => React.ReactNode
   /** Optional content rendered between the messages area and the composer. */
   bottomSlot?: React.ReactNode
@@ -80,6 +54,12 @@ interface Props {
 // Component
 // ---------------------------------------------------------------------------
 
+// The generic AI assistant body. Streaming, smooth reveal, inline tool pills,
+// the composer, and the persisted-history handoff all come from the shared
+// agent-chat kit (useStreamingTurn + chatUI); this component owns only the
+// conversation lifecycle for a drawer surface (deferred create, open-into an
+// existing conversation, retry) plus its product chrome: the intro typing
+// animation, response feedback, starter suggestions, and dictation.
 export default function AiChatBody({
   chatApi,
   config,
@@ -92,8 +72,8 @@ export default function AiChatBody({
   bottomSlot,
   autoDictate = false,
 }: Props): React.JSX.Element {
+  const queryClient = useQueryClient()
   const [composer, setComposer] = useState('')
-  const [multiline, setMultiline] = useState(false)
   const dictation = useDictationAppend({
     value: composer,
     onChange: setComposer,
@@ -104,51 +84,182 @@ export default function AiChatBody({
     Record<string, 'up' | 'down' | undefined>
   >({})
 
-  const {
-    history,
-    streaming,
-    liveStatus,
-    activeTools,
-    error,
-    creating,
-    busy,
-    sendContent,
-    onRetry,
-  } = useAiChat({
-    chatApi,
-    conversationIdOverride,
-    active,
-    onConversationCreated,
-    surface: config.title,
-  })
+  // Wrapper-owned conversation lifecycle. The engine drives one turn at a time
+  // against a known conversation id; resolving/creating that id, opening into an
+  // existing conversation, and surfacing a retryable error live here.
+  const [conversationId, setConversationId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [streamError, setStreamError] = useState<string | null>(null)
+  const [liveStatus, setLiveStatus] = useState('')
+  const creatingRef = useRef(false)
+  const loadRequestedRef = useRef(false)
+  const lastSentRef = useRef('')
 
-  // TODO: feedback is local-only and lost on close. Persist via the chat API
-  // (e.g. chatApi.submitFeedback(messageId, value)) once the endpoint exists.
+  const toolLabel = useCallback(
+    (toolName: string): string =>
+      config.toolDisplayNames?.[toolName] ?? toolName,
+    [config.toolDisplayNames],
+  )
+
+  const { messages, setMessages, visibleSegments, sending, send } =
+    useStreamingTurn(chatApi, {
+      toolLabel,
+      onTurnStart: () => setStreamError(null),
+      onError: (message) => setStreamError(message),
+    })
+
+  const busy = sending || loading
+
+  // Load an existing conversation when opened from history.
+  useEffect(() => {
+    if (!active || !conversationIdOverride) return
+    if (loadRequestedRef.current) return
+    loadRequestedRef.current = true
+    let cancelled = false
+    setLoading(true)
+    setConversationId(conversationIdOverride)
+    chatApi
+      .listMessages(conversationIdOverride)
+      .then((msgs) => {
+        if (!cancelled) setMessages(msgs)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        reportErrorToSentry(err, {
+          surface: config.title,
+          phase: 'init',
+          conversationIdOverride,
+        })
+        loadRequestedRef.current = false
+        setStreamError('Could not load this chat. Try again.')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [active, conversationIdOverride, chatApi, config.title, setMessages])
+
+  const ensureConversationId = useCallback(async (): Promise<string | null> => {
+    if (conversationId) return conversationId
+    if (creatingRef.current) return null
+    creatingRef.current = true
+    setLoading(true)
+    try {
+      const { conversationId: id } = await chatApi.createConversation()
+      setConversationId(id)
+      onConversationCreated?.(id)
+      void queryClient.invalidateQueries({
+        queryKey: HISTORY_QUERY_KEY(config.title),
+      })
+      return id
+    } catch (err) {
+      reportErrorToSentry(err, { surface: config.title, phase: 'init' })
+      return null
+    } finally {
+      creatingRef.current = false
+      setLoading(false)
+    }
+  }, [
+    conversationId,
+    chatApi,
+    onConversationCreated,
+    queryClient,
+    config.title,
+  ])
+
+  // Resolve-or-create the conversation, then stream the turn. The user bubble is
+  // pushed optimistically (a `hidden` send skips the engine's own push) so it
+  // shows immediately rather than after the create round-trip.
+  const deliver = useCallback(
+    async (content: string): Promise<void> => {
+      const trimmed = content.trim()
+      if (!trimmed) return
+      setStreamError(null)
+      lastSentRef.current = trimmed
+      const id = await ensureConversationId()
+      if (!id) {
+        setStreamError('Could not start chat. Try again.')
+        return
+      }
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `pending-${crypto.randomUUID()}`,
+          conversationId: id,
+          role: 'user',
+          content: trimmed,
+          createdAt: new Date().toISOString(),
+        },
+      ])
+      await send(id, trimmed, { hidden: true })
+    },
+    [ensureConversationId, send, setMessages],
+  )
+
+  const onSend = useCallback((): void => {
+    const text = composer.trim()
+    if (!text || busy) return
+    // Stop dictation on send so the mic doesn't keep transcribing into the
+    // now-cleared composer after the message goes out.
+    if (dictation.active) void dictation.stop()
+    setComposer('')
+    void deliver(text)
+  }, [composer, busy, dictation, deliver])
+
+  // Retry re-streams the last turn. On a stream error the user's message is
+  // already in the transcript, so re-send hidden (no duplicate user bubble); an
+  // init error left nothing behind, so fall back to the full deliver.
+  const onRetry = useCallback((): void => {
+    const text = lastSentRef.current
+    if (!text) return
+    setStreamError(null)
+    if (conversationId) void send(conversationId, text, { hidden: true })
+    else void deliver(text)
+  }, [conversationId, send, deliver])
+
   const onFeedback = useCallback((id: string, value: 'up' | 'down' | '') => {
+    // TODO: feedback is local-only and lost on close. Persist via the chat API
+    // (e.g. chatApi.submitFeedback(messageId, value)) once the endpoint exists.
     setFeedback((prev) => ({ ...prev, [id]: value || undefined }))
   }, [])
 
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
-  const scrollRef = useRef<HTMLDivElement | null>(null)
-  // One-row textarea height (line-height + vertical padding), measured once.
-  const oneRowHeightRef = useRef<number | null>(null)
-  // Guard so auto-dictation starts at most once per mount.
-  const autoDictateStartedRef = useRef(false)
+  // Announce generation status on transitions only, so the whole streamed answer
+  // isn't re-read on every token.
+  const prevSendingRef = useRef(false)
+  useEffect(() => {
+    if (sending && !prevSendingRef.current) setLiveStatus('Generating response')
+    else if (!sending && prevSendingRef.current)
+      setLiveStatus(streamError ? '' : 'Response ready')
+    prevSendingRef.current = sending
+  }, [sending, streamError])
 
+  const autoDictateStartedRef = useRef(false)
+  useEffect(() => {
+    if (!active) autoDictateStartedRef.current = false
+  }, [active])
+  useEffect(() => {
+    if (!autoDictate || !active || autoDictateStartedRef.current) return
+    if (dictation.status !== 'idle') return
+    autoDictateStartedRef.current = true
+    void dictation.start()
+  }, [autoDictate, active, dictation.status, dictation.start, dictation])
+
+  // ----- intro typing animation -----
   const introMessages = config.introMessages ?? []
   const introTotal = useMemo(
     () => introMessages.reduce((sum, m) => sum + m.length, 0),
     [introMessages],
   )
-
   const showIntroAnimation =
     introMessages.length > 0 &&
     !conversationIdOverride &&
-    history.length === 0 &&
-    !streaming &&
-    !error
+    messages.length === 0 &&
+    !sending &&
+    visibleSegments.length === 0 &&
+    !streamError
 
-  // Type the intro in character by character on first-ever open.
   useEffect(() => {
     if (!showIntroAnimation || introTotal === 0) return
     let seen = false
@@ -165,8 +276,6 @@ export default function AiChatBody({
         const next = Math.min(p + step, introTotal)
         if (next >= introTotal) {
           clearInterval(id)
-          // Mark seen only once the animation finishes — closing mid-stream
-          // should not suppress the intro on the next open.
           try {
             window.localStorage.setItem(config.introSeenKey, '1')
           } catch {
@@ -190,51 +299,27 @@ export default function AiChatBody({
     return parts
   }, [introProgress, introMessages])
 
-  // Reset the once-per-open dictation guard when the surface closes; the body
-  // isn't unmounted on close (same key for new-conversation slots).
-  useEffect(() => {
-    if (!active) autoDictateStartedRef.current = false
-  }, [active])
+  // Project persisted turns once per history change (not on every reveal tick).
+  const history = useMemo(
+    () =>
+      messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        live:
+          m.role === 'user'
+            ? null
+            : segmentsToLive(m.segments ?? [], m.content),
+      })),
+    [messages],
+  )
 
-  // Auto-scroll to the latest content.
-  useEffect(() => {
-    const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [streaming, history.length])
+  const { scrollRef, onScroll } = usePinnedAutoScroll([
+    messages,
+    visibleSegments,
+  ])
 
-  // When opened via the mic (autoDictate), begin recording once the surface is
-  // active so the user can talk straight away.
-  useEffect(() => {
-    if (!autoDictate || !active || autoDictateStartedRef.current) return
-    if (dictation.status !== 'idle') return
-    autoDictateStartedRef.current = true
-    void dictation.start()
-  }, [autoDictate, active, dictation.status, dictation.start])
-
-  const onSend = useCallback(async () => {
-    const trimmed = composer.trim()
-    if (!trimmed || busy) return
-    // Stop dictation on send so the mic doesn't keep transcribing into the
-    // now-cleared composer after the message goes out.
-    if (dictation.status === 'recording') void dictation.stop()
-    setComposer('')
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
-    }
-    setMultiline(false)
-    await sendContent(trimmed)
-  }, [composer, sendContent, dictation, busy])
-
-  const toolLabel = (toolName: string): string =>
-    config.toolDisplayNames?.[toolName] ?? toolName
-
-  const renderMessage = (content: string) =>
-    messageRenderer ? (
-      messageRenderer(content)
-    ) : (
-      <ChatMarkdown>{content}</ChatMarkdown>
-    )
-
+  const working = sending && visibleSegments.length === 0
   const suggestions = config.suggestions ?? []
 
   return (
@@ -242,13 +327,14 @@ export default function AiChatBody({
       {/* Messages */}
       <div
         ref={scrollRef}
+        onScroll={onScroll}
         className={
           className ??
           `mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-10 overflow-y-auto px-4 py-5`
         }
         data-testid="ai-chat-conversation"
       >
-        {creating && history.length === 0 && !streaming && (
+        {loading && messages.length === 0 && !sending && (
           <div className="text-sm text-muted-foreground">Loading chat...</div>
         )}
 
@@ -262,67 +348,23 @@ export default function AiChatBody({
             </div>
           ))}
 
-        {history.map((item) =>
-          item.kind === 'user' ? (
-            <div
-              key={item.id}
-              className="self-end rounded-2xl bg-primary px-3 py-2 text-sm text-primary-foreground break-words max-w-full"
-            >
-              {item.content}
-            </div>
+        {history.map((m) =>
+          m.live === null ? (
+            <UserBubble key={m.id}>{m.content}</UserBubble>
           ) : (
-            <div
-              key={item.id}
-              className="self-start max-w-full text-sm text-foreground space-y-2"
-            >
-              {item.segments && item.segments.length > 0 ? (
-                // Ordered text / tool / text blocks from the persisted segments.
-                groupSegments(item.segments).map((block, bi) =>
-                  block.kind === 'tools' ? (
-                    <div key={`b-${bi}`} className="flex flex-wrap gap-1.5">
-                      {block.tools.map((t) => (
-                        <span
-                          key={t}
-                          className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                        >
-                          <SearchIcon className="size-3" aria-hidden />
-                          {toolLabel(t)}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <div key={`b-${bi}`} className={ASSISTANT_BUBBLE}>
-                      {renderMessage(block.text)}
-                    </div>
-                  ),
-                )
+            <AssistantRow key={m.id}>
+              {messageRenderer ? (
+                <div className={ASSISTANT_BUBBLE}>
+                  {messageRenderer(m.content)}
+                </div>
               ) : (
-                <>
-                  {item.toolsUsed && item.toolsUsed.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {item.toolsUsed.map((t) => (
-                        <span
-                          key={t}
-                          className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                        >
-                          <SearchIcon className="size-3" aria-hidden />
-                          {toolLabel(t)}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <div className={ASSISTANT_BUBBLE}>
-                    {renderMessage(item.content)}
-                  </div>
-                </>
+                <InlineSegments segments={m.live} toolLabel={toolLabel} />
               )}
               <ToggleGroup
                 type="single"
                 size="sm"
-                value={feedback[item.id] ?? ''}
-                onValueChange={(v) =>
-                  onFeedback(item.id, v as 'up' | 'down' | '')
-                }
+                value={feedback[m.id] ?? ''}
+                onValueChange={(v) => onFeedback(m.id, v as 'up' | 'down' | '')}
                 className="-ml-1 gap-1"
               >
                 <ToggleGroupItem
@@ -340,9 +382,17 @@ export default function AiChatBody({
                   <ThumbsDownIcon className="size-3" aria-hidden />
                 </ToggleGroupItem>
               </ToggleGroup>
-            </div>
+            </AssistantRow>
           ),
         )}
+
+        {visibleSegments.length > 0 ? (
+          <AssistantRow>
+            <InlineSegments segments={visibleSegments} toolLabel={toolLabel} />
+          </AssistantRow>
+        ) : null}
+
+        {working ? <ThinkingRow /> : null}
 
         {/* Announce generation status once, instead of re-reading the whole
             streamed answer on every token. */}
@@ -350,57 +400,30 @@ export default function AiChatBody({
           {liveStatus}
         </span>
 
-        {streaming !== null && (
-          <div className="self-start max-w-full text-sm text-foreground space-y-2">
-            {activeTools.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {activeTools.map((t) => (
-                  <span
-                    key={t}
-                    className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                  >
-                    <SearchIcon className="size-3" aria-hidden />
-                    {toolLabel(t)}
-                  </span>
-                ))}
-              </div>
-            )}
-            {streaming ? (
-              <div className={ASSISTANT_BUBBLE}>{renderMessage(streaming)}</div>
-            ) : activeTools.length === 0 ? (
-              <span className="text-muted-foreground">Thinking...</span>
-            ) : null}
-          </div>
-        )}
-
-        {error && (
+        {streamError && (
           <div
             role="alert"
             className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
           >
-            <span>{error.message}</span>
-            {error.retryable && (
-              <Button
-                type="button"
-                size="small"
-                variant="outline"
-                onClick={onRetry}
-                disabled={busy}
-              >
-                Retry
-              </Button>
-            )}
+            <span>{streamError}</span>
+            <Button
+              type="button"
+              size="small"
+              variant="outline"
+              onClick={onRetry}
+              disabled={busy}
+            >
+              Retry
+            </Button>
           </div>
         )}
       </div>
 
-      {/* Suggestion chips — only on a fresh chat. Same px-3-on-outer /
-          max-w-inner structure as the composer so the chips' left edge lines
-          up with the input pill's left edge at every width. */}
+      {/* Suggestion chips — only on a fresh chat. */}
       {suggestions.length > 0 &&
-        history.length === 0 &&
-        streaming === null &&
-        !error && (
+        messages.length === 0 &&
+        !sending &&
+        !streamError && (
           <div className="px-3 pb-3 pt-2">
             <div
               className={`mx-auto flex w-full ${CHAT_MAX_W} flex-col items-start gap-2`}
@@ -412,7 +435,7 @@ export default function AiChatBody({
                   variant="outline"
                   size="small"
                   disabled={busy}
-                  onClick={() => void sendContent(s)}
+                  onClick={() => void deliver(s)}
                   className="rounded-full"
                 >
                   {s}
@@ -435,96 +458,25 @@ export default function AiChatBody({
 
       {/* Composer */}
       <div className="border-t border-border px-3 py-3">
-        <ChatPill
-          rounded={multiline ? '3xl' : 'full'}
-          className={`mx-auto w-full ${CHAT_MAX_W} transition-all`}
-          innerClassName={`overflow-hidden transition-all focus-within:ring-2 focus-within:ring-primary-focus focus-within:ring-offset-0 ${multiline ? 'items-end' : 'items-center'}`}
-        >
-          {onSelectConversation && (
-            <AiChatHistoryPopover
-              chatApi={chatApi}
-              configTitle={config.title}
-              onSelect={onSelectConversation}
-            />
-          )}
-          <textarea
-            ref={textareaRef}
+        <div className={`mx-auto w-full ${CHAT_MAX_W}`}>
+          <ChatComposer
             value={composer}
-            onChange={(e) => {
-              const ta = e.target
-              setComposer(ta.value)
-              ta.style.height = 'auto'
-              const sh = ta.scrollHeight
-              // Measure the one-row threshold once from the textarea's own
-              // metrics so wrapping detection avoids a magic pixel value and
-              // doesn't read layout on every keystroke.
-              if (oneRowHeightRef.current === null) {
-                const styles = window.getComputedStyle(ta)
-                const lineHeight = parseFloat(styles.lineHeight) || 20
-                const paddingY =
-                  parseFloat(styles.paddingTop) +
-                  parseFloat(styles.paddingBottom)
-                oneRowHeightRef.current = lineHeight + paddingY + 1
-              }
-              setMultiline(sh > oneRowHeightRef.current)
-              ta.style.height = `${sh}px`
-            }}
-            onKeyDown={(e) => {
-              // isComposing: don't send on the Enter that commits an IME
-              // candidate (CJK and other composed input) — it would fire a
-              // half-composed message and swallow the confirmation.
-              if (
-                e.key === 'Enter' &&
-                !e.shiftKey &&
-                !e.nativeEvent.isComposing
-              ) {
-                e.preventDefault()
-                void onSend()
-              }
-            }}
+            onChange={setComposer}
+            onSubmit={onSend}
+            disabled={busy}
             placeholder={config.placeholder ?? 'How can I help?'}
-            disabled={creating}
-            aria-label="Ask a question"
-            rows={1}
-            className={`flex-1 resize-none overflow-y-hidden bg-transparent px-2 py-1.5 text-sm leading-snug text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 max-h-36${composer === '' ? ' whitespace-nowrap' : ''}`}
-          />
-          <IconButton
-            type="button"
-            size="medium"
-            variant="ghost"
-            aria-label={
-              dictation.status === 'recording'
-                ? 'Stop dictation'
-                : 'Dictate a message'
+            dictation={dictation}
+            leadingSlot={
+              onSelectConversation ? (
+                <AiChatHistoryPopover
+                  chatApi={chatApi}
+                  configTitle={config.title}
+                  onSelect={onSelectConversation}
+                />
+              ) : undefined
             }
-            className="shrink-0"
-            disabled={busy || dictation.status === 'stopping'}
-            onClick={() => void dictation.toggle()}
-          >
-            {dictation.busy ? (
-              <Loader2Icon className="size-5 animate-spin" aria-hidden />
-            ) : dictation.status === 'recording' ? (
-              <SquareIcon
-                className="size-5 animate-pulse text-destructive"
-                aria-hidden
-              />
-            ) : (
-              <MicIcon className="size-5" aria-hidden />
-            )}
-          </IconButton>
-          <IconButton
-            type="button"
-            size="medium"
-            aria-label="Send"
-            className="shrink-0 bg-primary text-primary-foreground"
-            onClick={() => void onSend()}
-            // Disabled while a reply streams so the button can't look active
-            // while the send handler bails mid-stream. Pattern-wide default.
-            disabled={busy || composer.trim().length === 0}
-          >
-            <SendIcon className="size-4" aria-hidden />
-          </IconButton>
-        </ChatPill>
+          />
+        </div>
       </div>
     </div>
   )

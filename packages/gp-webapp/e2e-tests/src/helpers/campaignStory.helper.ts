@@ -40,12 +40,6 @@ export const setFlagOverrides = async (
   ])
 }
 
-// Force `campaign-story: on`. Call BEFORE navigating/authenticating so the cookie
-// is set before the first SSR render reads it.
-export const enableCampaignStoryFlag = async (page: Page): Promise<void> => {
-  await setFlagOverrides(page, { 'campaign-story': 'on' })
-}
-
 // Pre-accept the cookie-consent banner so its snackbar (fixed bottom-4,
 // pointer-events-auto) never mounts and intercepts clicks on bottom-of-page
 // controls. The banner reads `cookiesAccepted` from document.cookie once on

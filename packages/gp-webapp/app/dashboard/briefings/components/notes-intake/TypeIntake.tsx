@@ -3,7 +3,10 @@
 import { useEffect, useRef } from 'react'
 import { Mic, Square, Loader2 } from 'lucide-react'
 import { Button, Textarea } from '@styleguide'
-import { useDictation, type DictationStatus } from '../../shared/useDictation'
+import {
+  useDictation,
+  type DictationStatus,
+} from '../../../shared/dictation/useDictation'
 
 type Props = {
   body: string

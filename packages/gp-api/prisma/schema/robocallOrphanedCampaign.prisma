@@ -1,0 +1,29 @@
+// A work queue of CallHub voice-broadcast campaigns that were created PAUSED but
+// abandoned before they could ever dial, recorded so a sweep can ABORT them
+// (status 3) and stop cluttering the CallHub account. A PAUSED campaign charges
+// nothing, so an uncleaned orphan is harmless — this is account hygiene, not
+// money safety. Two sources record here: a hold re-authorize that nulls a
+// draft's previously-staged callhubCampaignPkStr (the re-derived count forces a
+// fresh re-stage, orphaning the old campaign), and the staging orphan-guard (a
+// lost commit whose just-created campaign is attached to no row). The pk_str is
+// captured here BECAUSE the row that referenced it no longer does — an
+// account-wide list-and-reconcile is deliberately avoided (aborting a
+// still-referenced, to-be-dialed campaign would block a paid send), so only
+// pk_strs recorded at a known abandonment point are ever aborted.
+model RobocallOrphanedCampaign {
+  id            Int       @id @default(autoincrement())
+  createdAt     DateTime  @default(now()) @map("created_at")
+  // The CallHub campaign pk_str to abort. Unique so re-recording the same
+  // orphan (a redelivered write) upserts to one row rather than accumulating.
+  campaignPkStr String    @unique @map("campaign_pk_str")
+  // The draft the campaign was staged for, for debugging — nullable because the
+  // staging-lost-commit source has no surviving row to attribute it to.
+  outreachId    Int?      @map("outreach_id")
+  // Which abandonment path recorded it (reauth_restage | staging_lost_commit).
+  reason        String
+  // Stamped once the sweep has ABORTed the campaign at CallHub. A null row is
+  // still pending cleanup; the sweep selects on null and retries until it sticks.
+  abortedAt     DateTime? @map("aborted_at")
+
+  @@map("robocall_orphaned_campaign")
+}

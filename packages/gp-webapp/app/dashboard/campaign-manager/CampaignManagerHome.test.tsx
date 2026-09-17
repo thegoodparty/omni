@@ -110,6 +110,12 @@ vi.mock('../components/campaignManager/TextingSetupBanner', () => ({
     />
   ),
 }))
+// Rendered rather than nulled out: the composition test below is the guard
+// against this card going missing again, and its own Pro gating / status
+// branching is covered in ProUpgrade3ComplianceCard.test.tsx.
+vi.mock('../components/campaignManager/ProUpgrade3ComplianceCard', () => ({
+  default: () => <div data-testid="pro-upgrade-3-compliance-card" />,
+}))
 vi.mock('../components/campaignManager/ProgressSection', () => ({
   default: () => null,
 }))
@@ -466,6 +472,18 @@ describe('CampaignManagerHome story auto-launch', () => {
       'data-tcr-status',
       'none',
     )
+  })
+
+  it('renders the post-start compliance card alongside the banner (ENG-10866)', () => {
+    renderHome()
+
+    // The banner only covers "never started" — every post-start state (PIN
+    // entry, in review, approved, denied) lives in this card. Shipping the
+    // home without it left candidates awaiting a PIN with no compliance
+    // surface here at all, so PIN entry existed only in account settings.
+    expect(
+      screen.getByTestId('pro-upgrade-3-compliance-card'),
+    ).toBeInTheDocument()
   })
 
   it('does not auto-launch the story flow without the personalize deep link', () => {

@@ -8,7 +8,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { useEffect } from 'react'
 import { PRO_UPGRADE_ENTRY_PATH } from '@shared/experiments/proUpgrade3Flag'
-import { trackEvent, buildTrackingAttrs } from 'helpers/analyticsHelper'
+import { EVENTS, trackEvent, buildTrackingAttrs } from 'helpers/analyticsHelper'
 
 export type P2PModalVariant = 'ProFreeTextsNonCompliant' | 'NonProUpgrade'
 
@@ -75,7 +75,7 @@ export function P2PUpgradeModal({
 
   useEffect(() => {
     if (open) {
-      trackEvent('P2P Upgrade - Modal: Modal Shown', {
+      trackEvent(EVENTS.P2PUpgrade.Modal.Shown, {
         variant,
         modalType: 'P2PUpgrade',
         ...trackingAttrs,
@@ -84,7 +84,7 @@ export function P2PUpgradeModal({
   }, [open, variant, trackingAttrs])
 
   const handleClose = (): void => {
-    trackEvent('P2P Upgrade - Modal: Exit', {
+    trackEvent(EVENTS.P2PUpgrade.Modal.Exit, {
       variant,
       modalType: 'P2PUpgrade',
       ...trackingAttrs,
@@ -93,7 +93,7 @@ export function P2PUpgradeModal({
   }
 
   const handleButtonClick = (): void => {
-    trackEvent('P2P Upgrade - Modal: Click Button', {
+    trackEvent(EVENTS.P2PUpgrade.Modal.ClickButton, {
       variant,
       modalType: 'P2PUpgrade',
       buttonText: content.cta,

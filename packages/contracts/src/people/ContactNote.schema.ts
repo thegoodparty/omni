@@ -3,12 +3,15 @@ import { z } from 'zod'
 // A dated note against a person record (Feature 3 of the CRM TDD). `personId`
 // is the opaque people-api Voter.id — gp-api never validates it against
 // people-api, so a note can outlive that voter's record in the L2 refresh.
+// actorName is the author's display name (ENG-10946), null for a note
+// written before that column existed — no backfill, renders authorless.
 export const ContactNoteSchema = z.object({
   id: z.string(),
   personId: z.string(),
   body: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  actorName: z.string().nullable(),
 })
 
 export type ContactNote = z.infer<typeof ContactNoteSchema>

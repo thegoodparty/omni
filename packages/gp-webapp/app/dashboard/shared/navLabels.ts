@@ -4,6 +4,7 @@ import {
   ClipboardListIcon,
   FlagIcon,
   LayoutDashboardIcon,
+  MegaphoneIcon,
   ScrollTextIcon,
   SendIcon,
   SparklesIcon,
@@ -28,6 +29,7 @@ export const NAV_HEADER_ICONS = {
   dashboard: LayoutDashboardIcon,
   book: BookOpenIcon,
   profile: CircleUserRoundIcon,
+  megaphone: MegaphoneIcon,
 }
 
 export type NavHeaderIconKey = keyof typeof NAV_HEADER_ICONS
@@ -37,9 +39,14 @@ export type NavHeaderIconKey = keyof typeof NAV_HEADER_ICONS
 // they clicked in the left rail. Same single-source rule as contactsLabels.ts.
 export const NAV_LABELS = {
   campaignManager: 'Campaign Manager',
-  campaignStory: 'Your story',
-  campaignTracker: 'Campaign Plan',
-  campaignPlan: 'Campaign Plan',
+  campaignStory: 'Your Story',
+  campaignTracker: 'Campaign Tracker',
   knowYourOpponent: 'Know Your Opponent',
   publicProfile: 'Public Profile',
+  voterOutreach: 'Voter Outreach',
+  constituentOutreach: 'Constituent Outreach',
+  // The Team page's H1 (ENG-11061: the sidebar account-menu item that links
+  // here reads plain "Team", matching Profile / Account Settings — this is
+  // the page-title-only half of the pair, not shared with a nav item anymore).
+  team: 'Team Settings',
 } as const

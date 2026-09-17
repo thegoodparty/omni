@@ -1,0 +1,39 @@
+import { HttpModule } from '@nestjs/axios'
+import { Module } from '@nestjs/common'
+import { CallhubBulkImportService } from './services/callhubBulkImport.service'
+import { CallhubCampaignService } from './services/callhubCampaign.service'
+import { CallhubCampaignReportService } from './services/callhubCampaignReport.service'
+import { CallhubDncService } from './services/callhubDnc.service'
+import { CallhubErrorHandlingService } from './services/callhubErrorHandling.service'
+import { CallhubHttpService } from './services/callhubHttp.service'
+import { CallhubMediaService } from './services/callhubMedia.service'
+import { CallhubNumbersService } from './services/callhubNumbers.service'
+import { CallhubPhonebookService } from './services/callhubPhonebook.service'
+
+// Vendor wrapper for CallHub (robocall / voice broadcast): the HTTP/auth
+// foundation plus the API surface a send needs — caller-ID number rental,
+// media upload, phonebook, and bulk contact import.
+@Module({
+  imports: [HttpModule],
+  providers: [
+    CallhubErrorHandlingService,
+    CallhubHttpService,
+    CallhubNumbersService,
+    CallhubMediaService,
+    CallhubPhonebookService,
+    CallhubBulkImportService,
+    CallhubDncService,
+    CallhubCampaignService,
+    CallhubCampaignReportService,
+  ],
+  exports: [
+    CallhubNumbersService,
+    CallhubMediaService,
+    CallhubPhonebookService,
+    CallhubBulkImportService,
+    CallhubDncService,
+    CallhubCampaignService,
+    CallhubCampaignReportService,
+  ],
+})
+export class CallhubModule {}

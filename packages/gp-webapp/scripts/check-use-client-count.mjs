@@ -171,7 +171,221 @@ import { dirname, join, relative } from 'node:path'
 // 2026-08-13: 564 -> 565 for door-knocking/native/DoorScript.tsx. The door
 // script collapses on tap so it doesn't push the answer pills off a phone
 // screen, and it renders inside PersonSheet, which is already client-only.
-const BASELINE = 565
+// 2026-08-13: 565 -> 566 for door-knocking/native/DoNotKnockControl.tsx — a
+// mutating button pair (flag / undo) rendered inside the client-only
+// PersonSheet, peer to RecordKnockForm.tsx, so it can't render on the server.
+// 2026-08-17: 566 -> 567 for door-knocking/native/NotAVoterControl.tsx — the
+// ADR 0008 follow-up and its marker, same shape and same reason as
+// DoNotKnockControl above: it POSTs on tap and renders from the response,
+// inside the client-only PersonSheet. The paper surfaces read the same reason
+// through statusPresentation.ts, which stays directive-free so print/ keeps its
+// zero.
+// 2026-08-11: 567 -> 580 for Voter Outreach 2.0 phase 1: the flag-gated hub
+// (gate, hub page, tile grid, history table, details drawer), the sheet/flow
+// shell, the four social-flow steps + flow + thinking stream, and the shared
+// asset cards / detail-fetch hook are all interactive drawer/wizard surfaces
+// (flag reads, mutations, flow state) that can't be server components. Net
+// +13 after deleting P2pUxEnabledProvider + useTcrComplianceCheck.
+// 2026-08-20: 580 -> 581 for useCvPinGate — the shared CampaignVerify PIN gate.
+// It owns a react-query subscription and returns a state the three PIN surfaces
+// branch on, so it has to run in the browser; it replaces per-surface inline
+// logic rather than adding a new client boundary.
+// 2026-08-20: 581 -> 582 for door-knocking/native/DeleteTurfControl.tsx — the
+// shared delete affordance owns the DELETE mutation, the confirm dialog's open
+// state and the 409 path, so it cannot render on the server. It is the only one
+// of its change's three new modules that needs the directive: TurfRoster.tsx
+// binds no handler and holds no state, and audienceMix.ts is pure functions, so
+// both stay directive-free and inherit the boundary from TurfDetailsSheet —
+// same reason statusPresentation.ts does. (Written as 567 -> 568 before this
+// branch was rebased onto Voter Outreach 2.0 and the PIN gate; the +1 is what
+// this change is responsible for, and the entries above are the rest.)
+// 2026-08-20: 582 -> 584 for Voter Outreach 2.0 phase 3 (robocall) slice 0/1:
+// RobocallFlow (flow state) and RobocallPurposeStep (onClick selection) are
+// interactive drawer surfaces mirroring the social flow, so both are client
+// components.
+// 2026-08-20: 584 -> 585 for the robocall audience step (phase 3, slice 2):
+// OutreachAudienceStep — the shared, reusable saved-list picker + in-flow
+// builder — owns the popover open state and click handlers, so it's a client
+// component. Its data hook useOutreachAudience.ts stays directive-free (no JSX,
+// pulled into the client graph by its importers).
+// 2026-08-20: 584 -> 590 for the phone-banking create flow (ENG-10919):
+// PhoneBankingFlow (flow state) and its five step components (PurposeStep,
+// WhoStep, ScriptStep, SheetCountStep, DownloadStep) are all interactive
+// drawer-step surfaces mirroring SocialFlow's shape, so all six are client
+// components.
+// 2026-08-21: 590 -> 594 for ENG-10921, the phone banking in-app caller page.
+// PhoneBankingCallerPage (progress/entries + delete + query wiring),
+// PhoneBankingEntryPanel (sheet/drawer switcher), PhoneBankingOutcomeForm
+// (the outcome cascade + save mutation), and PhoneBankingNotes (notes CRUD)
+// all hold client state, mutations, or event handlers, so all four must be
+// client components; the route's page.tsx stays a server component.
+// 2026-08-21: merge reconciliation — main's 594 (phone banking) plus this
+// branch's OutreachAudienceStep (+1) = 595.
+// 2026-08-21: 595 -> 599 for the four door-knocking surface seams
+// (DoorKnockingManageView, CreateListSurface, TurfDetailsDrawer, WalkSurface).
+// This is the one entry here that costs the browser nothing: it is a pure
+// decomposition of NativeDoorKnockingPage, already a client component behind
+// next/dynamic, into four files it is the sole importer of — the same modules
+// in the same graph, split so four agents can rebuild four surfaces without
+// editing one orchestrator. Each holds state, a query or handlers (rail sheet
+// state, the address-preview query, polygonStats over a react-query read, the
+// walk's open-stop request), so none could render on the server even in
+// isolation. Directive-free was the alternative, since a module imported only
+// from a client module inherits the boundary — rejected because these are the
+// files four agents are about to build interactive surfaces in, and a
+// directive-free stateful component reads as an oversight to copy. The
+// genuinely inert new module, savedListFilters.ts, does stay directive-free,
+// same rule as statusPresentation.ts.
+// 2026-08-21: 599 -> 600 for the robocall schedule step (phase 3): the
+// RobocallScheduleStep drawer surface owns the name/date/time inputs and their
+// selection handlers, so it's a client component. Its scheduleTimeZone.ts
+// helper is directive-free (pure date/tz functions, no JSX).
+// 2026-08-24: 600 -> 601 for app/dashboard/shared/ListCard.tsx — the saved-list
+// card the door-knocking rail is rebuilt on, and which voter data and campaign
+// manager reuse. It binds a click handler on its title, so a server-component
+// caller would fail at render; the directive is what makes it safe to import
+// from a surface that hasn't got a boundary yet. Its two door-knocking siblings
+// stay directive-free and inherit the boundary from their importers, the
+// savedListFilters.ts rule: turfLifecycle.ts is a hooks module with no JSX, and
+// TurfLegend.tsx holds no state and binds only handlers it is handed.
+// 2026-08-24: 601 -> 603 for the robocall compose step (phase 3):
+// RobocallComposeStep owns the tone pills, AI-draft display, and record-bar
+// interaction, and its useRobocallRecorder hook drives MediaRecorder state and
+// object-URL lifecycle — both hold browser-only state, so both are client.
+// 2026-08-24: 603 -> 604 for useRobocallAudioUpload — the hook that presigns
+// and POSTs the recording to S3 holds upload/error/key state and calls
+// clientRequest, so it can't run on the server.
+// 2026-08-24: merge reconciliation — main's 604 minus this branch's WhoStep.tsx
+// deletion (phone banking's inline audience builder, replaced by the shared
+// v2/audience/ step) = 603.
+// 2026-08-24: 603 -> 604 for door-knocking/native/DoorNotesCard.tsx (ADR 0011).
+// The door's Notes section owns a compose draft, an in-place editor, three
+// mutations and a dictation session, so it cannot render on the server — the
+// same shape and the same reason as DoNotKnockControl and NotAVoterControl
+// above it, inside the client-only PersonSheet. Its state module,
+// native/doorNotes.ts, stays directive-free and inherits the boundary from its
+// importers: it is a hooks-and-pure-functions module with no JSX, the
+// turfLifecycle.ts rule.
+// 2026-08-25: 604 -> 605 for
+// dashboard/contacts/crm/lists/DuplicateListDialog.tsx (ENG-10943). It owns
+// the confirm-then-mutate flow (useDuplicateList's mutation + its pending
+// state) for the duplicate-list AlertDialog — same shape as its siblings
+// RenameListDialog/DeleteListDialog, both already client components.
+// 2026-08-25: 605 -> 606 for campaign-manager/GetOnBallotCard.tsx — the
+// ballot-access prompt card reads the campaign from context and persists its
+// own skip in localStorage, so it can't render on the server.
+// 2026-08-24: 600 -> 606 for Voter Outreach 2.0 phase 2 (rebased onto main):
+// the SMS drawer flow (flow + five step components) — interactive wizard
+// surfaces (mutations, flow state, Stripe payment mount) that can't be server
+// components. Same +6 previously recorded against the pre-merge phase 1
+// baseline (580 -> 586).
+// 2026-08-24: 606 -> 605 — SmsAudienceStep deleted in favor of the shared
+// OutreachAudienceStep (v2/audience/), which robocall already counts.
+// 2026-08-26: merge reconciliation — main's 606 plus this branch's SMS
+// flow surfaces (+6 client files) minus its SmsAudienceStep deletion (-1)
+// = 611.
+// 2026-08-26: 606 -> 607 for outreach/v2/robocall/RobocallReviewStep.tsx — the
+// pre-send review step owns the saved-recording playback (audio play/pause
+// state), so it can't render on the server; matches its sibling robocall steps.
+// 2026-08-27: merge reconciliation — 611 (this branch's SMS surfaces) plus
+// main's RobocallReviewStep (+1) = 612.
+// 2026-08-28: 612 -> 613 for outreach/v2/robocall/RobocallPayStep.tsx — the
+// robocall pay step mounts a Stripe SetupIntent Payment Element and owns the
+// draft-create/authorize mutation state, so it can't render on the server;
+// matches its sibling robocall steps.
+// 2026-08-28: 613 -> 614 for sign-in-link/SignInLinkContent.tsx — the one-time
+// sign-in link page redeems a Clerk ticket in the browser on click (Clerk
+// hooks, click handler, session state), so it can't render on the server;
+// matches the /serve/welcome and /win/welcome redemption pages.
+// 2026-08-31: 615 -> 616 for outreach/v2/sms/SmsEditFlow.tsx — the
+// edit-before-send sheet (flow state, image object URLs, save mutation);
+// client-only like its sibling SmsFlow.
+// 2026-09-01: 616 -> 609 (ENG-11007) — deleted the legacy outreach page and
+// its client-only support components (OutreachPage, OutreachHeader,
+// FreeTextsBanner, OutreachTable, OutreachCreateCards/Card, OutreachImpact,
+// OutreachActions/*ActionOption, OutreachActionWrapper) now that the v2 hub
+// is the unconditional outreach surface.
+// 2026-09-02: 609 -> 594 for door knocking 3.0. Only a handful of that is door
+// knocking's own — six client components deleted against one added — and the
+// rest is slack that had accumulated in the baseline, measured and locked in
+// here rather than left as headroom nobody meant to grant. Of the deletions:
+// KnockTurfDialog goes because buying the route moved into list creation,
+// so the dialog that used to buy it for an already-saved turf has nothing left
+// to ask, and its mode/loop form is now createFlow/RouteStep.tsx — no
+// directive, since it holds no state and inherits the boundary from
+// CreateListFlow (the turfLifecycle.ts rule). TurfDetailsDrawer goes too: its
+// whole job was deriving pre-route counts from the voter pack for a turf that
+// had been drawn but not bought, a state that no longer exists, so the page
+// renders TurfDetailsSheet directly. DoorKnockingManageView, TurfList and
+// TurfLegend go with the saved-lists rail the design cut, and NameStep with
+// the naming step that the single five-step flow no longer has. The addition
+// is native/doorKnockingSurface.tsx, which owns the Win/Serve context and the
+// turf query hook — a context provider cannot render on the server.
+// Raised for app/team-invite/page.tsx (ENG-10828): reads Clerk's client-side
+// useUser() publicMetadata for display and drives an accept button, matching
+// every sibling post-auth screen in this family (post-auth-redirect,
+// serve/welcome, win/welcome, sign-in-link) — all client components for the
+// same reason.
+// 2026-09-03: 595 -> 597 for the team accounts page (ENG-10816/10827).
+// TeamPage.tsx and InviteMemberDialog.tsx both hold interactive state
+// (mutations, dialog open/close, form fields) and can't be server components;
+// the route itself (app/dashboard/team/page.tsx) stays a server component and
+// renders no directive.
+// 2026-09-04: 597 -> 598 for the volunteer shell's top bar (ENG-11052,
+// VolunteerTopBar.tsx). It holds the profile-dropdown open/close state and
+// reads useUser()/the org-picker context, same reason app/volunteer/layout.tsx
+// stays a server component and this is its one client leaf.
+// 2026-09-05: 598 -> 599 for the volunteer assignments page (ENG-11053,
+// AssignmentsPage.tsx). It runs a React Query fetch, reads useOrganization(),
+// and handles retry — the route itself (app/volunteer/page.tsx) stays a
+// server component and renders no directive. AssignmentCard.tsx is a plain
+// presentational child with no hooks of its own, so it carries none.
+// 2026-09-05: 599 -> 600 for the volunteer door-knocking walk (ENG-11055,
+// VolunteerWalkPage.tsx). It runs several React Query fetches, a live-location
+// watch and the walk session/completion mutations — the route itself
+// (app/volunteer/door-knocking/[turfId]/page.tsx) stays a server component,
+// validating the id param and rendering no directive of its own.
+// 2026-09-05: 600 -> 601 for the outreach drawer's Assignees section
+// (ENG-11056, OutreachAssigneesSection.tsx). It holds picker/dialog open
+// state and drives assign/remove/invite mutations against a query cache, so
+// it can't be a server component — same reasoning as TeamPage.tsx above.
+// ENG-11059: OutreachAssignModal.tsx is a new client component — it owns
+// interactive dialog state (search/role-filter, assign/unassign clicks) that
+// can't run on the server.
+// 2026-09-05: 602 -> 603 for the team page's two-step invite drawer
+// (ENG-11058, InviteMemberDrawer.tsx). It owns the step/form/role state and
+// drives the invite mutation, same reasoning as InviteMemberDialog.tsx —
+// which it replaces on the team page (the outreach entry point keeps using
+// the dialog unchanged, so both files still exist).
+// 2026-09-05: 603 -> 605 for two Radix-based dialog components that
+// landed with the door-knocking design pass:
+//   - DoorKnockingDailyLimitDialog: AlertDialog wrapping the quota-spent
+//     refusal, mounted by both NativeDoorKnockingPage and the outreach
+//     tile (server-side redirect isn't an option — the click that
+//     surfaces it also fires an intent event and starts the pack warm).
+//   - RecommendedListNameDrawer: vaul Drawer for naming a saved list on
+//     recommendation accept, used by OutreachAudienceStep. Vaul is
+//     client-only.
+// 2026-09-08: 589 -> 579. The rebuilt CRM contacts experience became the
+// only one, which deleted the whole pre-CRM contacts page and the flag
+// plumbing that chose between the two. Ten client components went with it:
+// the page shell and its search box, stats section, member table and its
+// server-data-table wrapper, download button, filters sheet and segment
+// section, plus the client-side gate component and the flag hook it read.
+// Nothing was converted to a server component here — the win is entirely
+// deletion, which is why it is this large in one step.
+// 2026-09-10: 565 -> 566 for TalkingPointsStep, the door-knocking wizard's
+// talking-points step. It cannot render on the server: it drafts from an LLM
+// endpoint on arrival, streams while that call is in flight, and keeps five
+// editable fields whose edits have to be distinguishable from generated text
+// so a re-draft never discards what the candidate typed. All of that is
+// client state on a step that only exists inside an already-client wizard.
+// 2026-09-11: 566 -> 567 for SignUpPhoneForm, the Google signup's phone
+// step. OAuth can't carry a phone number, so this step collects one after
+// the handshake — it reads the Clerk session through `useUser`, holds the
+// field's state, and redirects on success, none of which a server component
+// can do. Its page shell stays a server component.
+const BASELINE = 567
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

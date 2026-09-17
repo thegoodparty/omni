@@ -71,20 +71,21 @@ export type BaseDbPerson = Pick<Voter, BaseSelectedField> & {
   householdSize?: bigint | number | null
 }
 
-// ENG-10766: the curated ~54-column CSV subset with friendly headers, restored
-// from the pre-ENG-5032 gp-api `headerMapping.const.ts` (deleted at
-// eb198e327). `satisfies` (not a widening annotation) pins `column` to
-// `keyof Voter` so a rename/typo fails to compile, while keeping each entry's
-// literal column name available for `EXCLUDABLE_VOTER_COLUMNS` below — most
-// excludable columns (turnout/vote-history) are download-only and never
-// appear in `VOTER_SELECT_COLUMNS`. Order matches the legacy mapping; five
-// legacy keys no longer exist on the model — `MaritalStatus_Description` is
-// served via `Marital_Status`, and `Languages_Description` /
-// `Mailing_Families_HHCount` / `Mailing_HHParties_Description` /
-// `MilitaryStatus_Description` are dropped (no current equivalent —
-// `Language_Code` is a code, not a description, so it's deliberately not
-// substituted). Election history ships the four most recent General/Primary
-// years instead of the legacy's hardcoded 2016-2022.
+// The curated CSV subset with friendly headers (ENG-10766), restored from the
+// pre-ENG-5032 gp-api `headerMapping.const.ts` (deleted at eb198e327) and
+// then widened past it (DATA-2281). `satisfies` (not a widening annotation)
+// pins `column` to `keyof Voter` so a rename/typo fails to compile, while
+// keeping each entry's literal column name available for
+// `EXCLUDABLE_VOTER_COLUMNS` below; most excludable columns
+// (turnout/vote-history) are download-only and never appear in
+// `VOTER_SELECT_COLUMNS`. The leading run preserves the legacy mapping's
+// order, and everything after `Primary_2020` is a DATA-2281 addition. Election
+// history ships the four most recent General/Primary years instead of the
+// legacy's hardcoded 2016-2022. Two legacy keys remain unrepresented:
+// `Mailing_Families_HHCount` and `Mailing_HHParties_Description` have no
+// mailing-household equivalent in today's L2 uniform (only the residence-side
+// `Residence_Families_HHVotersCount`, which the serving table does not carry,
+// and `Residence_HHParties_Description`, which ships above).
 export const DOWNLOAD_COLUMNS = [
   { column: 'LALVOTERID', header: 'Voter ID' },
   { column: 'FirstName', header: 'First Name' },
@@ -176,6 +177,48 @@ export const DOWNLOAD_COLUMNS = [
   { column: 'Primary_2024', header: 'Voted in 2024 Primary' },
   { column: 'Primary_2022', header: 'Voted in 2022 Primary' },
   { column: 'Primary_2020', header: 'Voted in 2020 Primary' },
+  // DATA-2281: fields already carried by the serving Voter table that the
+  // curated subset never projected. Appended rather than interleaved so no
+  // existing column changes position for anyone whose spreadsheet or import
+  // mapping is keyed on column order.
+  { column: 'Business_Owner', header: 'Business Owner' },
+  { column: 'Education_Of_Person', header: 'Education Level' },
+  { column: 'Estimated_Income_Amount', header: 'Estimated Household Income' },
+  { column: 'Homeowner_Probability_Model', header: 'Homeowner Likelihood' },
+  { column: 'Presence_Of_Children', header: 'Children in Household' },
+  { column: 'PlaceOfBirth', header: 'Place of Birth' },
+  // Two headers the legacy mapping had and ENG-10766 could not map. Despite
+  // its name `Language_Code` holds language names, not codes ("English",
+  // "Spanish"), so it does serve the legacy `Languages_Description`;
+  // `Veteran_Status` stands in for `MilitaryStatus_Description`.
+  { column: 'Language_Code', header: 'Spoken Language' },
+  { column: 'Veteran_Status', header: 'Military Active/Veteran' },
+  { column: 'StateVoterID', header: 'State Voter ID' },
+  { column: 'CalculatedRegDate', header: 'Registration Date' },
+  { column: 'Active', header: 'Registration Active (A/I)' },
+  { column: 'AbsenteeTypes_Description', header: 'Absentee Type' },
+  {
+    column: 'VotingPerformanceMinorElection',
+    header: 'Local Election Likelihood to Vote',
+  },
+  { column: 'Residence_Addresses_StreetName', header: 'Street Name' },
+  { column: 'Residence_Addresses_Designator', header: 'Street Designator' },
+  { column: 'Residence_Addresses_ApartmentNum', header: 'Apartment Number' },
+  { column: 'SequenceZigZag', header: 'Street Number Zig Zag' },
+  // Odd-year local turnout and presidential primaries, which the even-year
+  // General/Primary series above misses entirely. Municipal candidates are the
+  // ones who need the odd years.
+  { column: 'AnyElection_2025', header: 'Voted in 2025 Local Election' },
+  { column: 'AnyElection_2023', header: 'Voted in 2023 Local Election' },
+  { column: 'AnyElection_2021', header: 'Voted in 2021 Local Election' },
+  {
+    column: 'PresidentialPrimary_2024',
+    header: 'Voted in 2024 Presidential Primary',
+  },
+  {
+    column: 'PresidentialPrimary_2020',
+    header: 'Voted in 2020 Presidential Primary',
+  },
 ] as const satisfies ReadonlyArray<{ column: keyof Voter; header: string }>
 
 export type DownloadColumn = (typeof DOWNLOAD_COLUMNS)[number]['column']
@@ -184,7 +227,9 @@ export type DownloadColumn = (typeof DOWNLOAD_COLUMNS)[number]['column']
 // (ENG-10696: the Serve party-visibility rule; ENG-10830: extended to the
 // remaining party fields, turnout propensity, and vote history). `satisfies`
 // pins this to an actual `DOWNLOAD_COLUMNS` column so a typo can't silently
-// become a no-op filter.
+// become a no-op filter. This is also the Serve download's exclusion set:
+// `ContactsService` passes it verbatim, so every party, turnout-propensity, or
+// vote-history column added to `DOWNLOAD_COLUMNS` must be listed here too.
 export const EXCLUDABLE_VOTER_COLUMNS = [
   'Parties_Description',
   'Residence_HHParties_Description',
@@ -200,6 +245,12 @@ export const EXCLUDABLE_VOTER_COLUMNS = [
   'Primary_2024',
   'Primary_2022',
   'Primary_2020',
+  'VotingPerformanceMinorElection',
+  'AnyElection_2025',
+  'AnyElection_2023',
+  'AnyElection_2021',
+  'PresidentialPrimary_2024',
+  'PresidentialPrimary_2020',
 ] as const satisfies readonly DownloadColumn[]
 
 export type ExcludableVoterColumn = (typeof EXCLUDABLE_VOTER_COLUMNS)[number]

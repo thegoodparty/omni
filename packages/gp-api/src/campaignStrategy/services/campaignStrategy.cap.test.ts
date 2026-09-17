@@ -66,6 +66,7 @@ describe('CampaignStrategyService', () => {
       update: ReturnType<typeof vi.fn>
       updateMany: ReturnType<typeof vi.fn>
       findFirst: ReturnType<typeof vi.fn>
+      count: ReturnType<typeof vi.fn>
     }
     campaignStrategyOpportunity: { deleteMany: ReturnType<typeof vi.fn> }
     campaignStrategyChallenge: { deleteMany: ReturnType<typeof vi.fn> }
@@ -112,6 +113,7 @@ describe('CampaignStrategyService', () => {
         update: vi.fn().mockResolvedValue(undefined),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         findFirst: vi.fn().mockResolvedValue(planRow()),
+        count: vi.fn(),
       },
       campaignStrategyOpportunity: {
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
@@ -136,18 +138,11 @@ describe('CampaignStrategyService', () => {
         ) => (typeof arg === 'function' ? arg(prisma) : Promise.all(arg)),
       ),
     }
-    // The last three deps (communityEvents, electionApi, races) belong to the
-    // community-events pipeline and are never touched by the CAP strategic-
-    // landscape paths exercised here, so no-op mocks suffice. Community-events
-    // behavior is covered in campaignStrategy.service.test.ts.
     service = new CampaignStrategyService(
       params as never,
       experimentRuns as never,
       persister as never,
       s3 as never,
-      { generate: vi.fn() } as never,
-      { getRaceContext: vi.fn() } as never,
-      { getZipCodesByRaceId: vi.fn() } as never,
       analytics as never,
       trackerTasks as never,
     )
@@ -158,10 +153,80 @@ describe('CampaignStrategyService', () => {
     })
   })
 
+  describe('existsForCampaign', () => {
+    it('returns true when a strategy row exists', async () => {
+      prisma.campaignStrategy.count.mockResolvedValue(1)
+
+      expect(await service.existsForCampaign(99)).toBe(true)
+    })
+
+    it('returns false when no strategy row exists', async () => {
+      prisma.campaignStrategy.count.mockResolvedValue(0)
+
+      expect(await service.existsForCampaign(99)).toBe(false)
+    })
+  })
+
   it('rejects a campaign with no raceId', async () => {
     await expect(
       service.getOrGenerateStrategicLandscape(campaign({ details: {} })),
     ).rejects.toBeInstanceOf(BadRequestException)
+  })
+
+  it('rejects a campaign whose election date has passed, before any dispatch or tracker rows', async () => {
+    await expect(
+      service.getOrGenerateStrategicLandscape(
+        campaign({
+          details: { raceId: 'br-general', electionDate: '2024-11-05' },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException)
+    expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+    expect(trackerTasks.materializeStaticTasks).not.toHaveBeenCalled()
+  })
+
+  it('generates for a campaign whose election date is upcoming', async () => {
+    experimentRuns.dispatchRun
+      .mockResolvedValueOnce({ runId: 'opp-run' })
+      .mockResolvedValueOnce({ runId: 'oc-run' })
+
+    await service.getOrGenerateStrategicLandscape(
+      campaign({
+        details: { raceId: 'br-general', electionDate: '2099-11-03' },
+      }),
+    )
+
+    expect(experimentRuns.dispatchRun).toHaveBeenCalledTimes(2)
+  })
+
+  it('generates when the general date is stale but the primary is upcoming', async () => {
+    experimentRuns.dispatchRun
+      .mockResolvedValueOnce({ runId: 'opp-run' })
+      .mockResolvedValueOnce({ runId: 'oc-run' })
+
+    await service.getOrGenerateStrategicLandscape(
+      campaign({
+        details: {
+          raceId: 'br-general',
+          electionDate: '2024-11-05',
+          primaryElectionDate: '2099-03-03',
+        },
+      }),
+    )
+
+    expect(experimentRuns.dispatchRun).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports opponents unavailable for a past election without dispatching', async () => {
+    const res = await service.ensureOppositionResearch(
+      campaign({
+        details: { raceId: 'br-general', electionDate: '2024-11-05' },
+      }),
+    )
+
+    expect(res).toEqual({ disposition: 'unavailable', oppositionRunId: null })
+    expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+    expect(prisma.campaignStrategy.upsert).not.toHaveBeenCalled()
   })
 
   const testUserCampaign = (overrides: Record<string, unknown> = {}) =>
@@ -194,12 +259,6 @@ describe('CampaignStrategyService', () => {
       status: 'ready',
       data: { opportunities: [], challenges: [], opponents: [] },
     })
-    expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
-  })
-
-  it('returns ready-empty for test-user community events, no generate', async () => {
-    const res = await service.getOrGenerateCommunityEvents(testUserCampaign())
-    expect(res).toEqual({ status: 'ready', data: { events: [] } })
     expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
   })
 
@@ -295,7 +354,7 @@ describe('CampaignStrategyService', () => {
 
     const res = await service.getOrGenerateStrategicLandscape(campaign())
 
-    expect(res).toEqual({ status: 'failed' })
+    expect(res).toEqual({ status: 'failed', reason: 'queue_failed' })
     expect(prisma.campaignStrategy.update).not.toHaveBeenCalled()
   })
 
@@ -451,7 +510,7 @@ describe('CampaignStrategyService', () => {
 
     const res = await service.getOrGenerateStrategicLandscape(campaign())
 
-    expect(res).toEqual({ status: 'failed' })
+    expect(res).toEqual({ status: 'failed', reason: 'queue_failed' })
     expect(prisma.campaignStrategy.update).not.toHaveBeenCalled()
   })
 
@@ -462,7 +521,7 @@ describe('CampaignStrategyService', () => {
 
     const res = await service.getOrGenerateStrategicLandscape(campaign())
 
-    expect(res).toEqual({ status: 'failed' })
+    expect(res).toEqual({ status: 'failed', reason: 'race_lookup_failed' })
     expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
   })
 
@@ -648,7 +707,7 @@ describe('CampaignStrategyService', () => {
 
     const res = await service.getOrGenerateStrategicLandscape(campaign())
 
-    expect(res).toEqual({ status: 'failed' })
+    expect(res).toEqual({ status: 'failed', reason: 'attempts_exhausted' })
     expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
     expect(prisma.campaignStrategy.update).not.toHaveBeenCalled()
   })

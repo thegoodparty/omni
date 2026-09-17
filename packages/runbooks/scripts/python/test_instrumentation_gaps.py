@@ -7,6 +7,15 @@ import pytest
 import instrumentation_gaps as ig
 
 
+@pytest.fixture(autouse=True)
+def _isolate_run_state(tmp_path_factory, monkeypatch):
+    """main() defaults --run-state into the committed instrumentation_data/ dir, so without
+    this every sweep-running test would write the repo's real state file."""
+    monkeypatch.setattr(
+        ig, "DEFAULT_RUN_STATE", tmp_path_factory.mktemp("run_state") / "run_state.json"
+    )
+
+
 def test_is_excluded_matches_package_and_file_globs():
     globs = [
         "packages/gp-admin/**",
@@ -400,8 +409,9 @@ class _FakeBlock:
 
 
 class _FakeResp:
-    def __init__(self, content):
+    def __init__(self, content, stop_reason="tool_use"):
         self.content = content
+        self.stop_reason = stop_reason
 
 
 def test_build_judge_messages_carries_candidates():
@@ -435,6 +445,72 @@ def test_parse_judge_response_no_tool_use_raises():
     import pytest
     with pytest.raises(RuntimeError):
         ig.parse_judge_response(_FakeResp([]), candidate_ids=["/a"])
+
+
+def test_parse_judge_response_raises_named_error_on_truncation():
+    """A max_tokens stop truncates the tool_use block to `{}`. Left to pydantic that
+    surfaces as "results Field required", which points at the schema instead of the
+    budget — the exact misdirection that hid this for a month. The error must name
+    truncation so the log line alone is diagnosable."""
+    resp = _FakeResp([_FakeBlock({})], stop_reason="max_tokens")
+    with pytest.raises(RuntimeError, match="truncated"):
+        ig.parse_judge_response(resp, candidate_ids=["/a"])
+
+
+def test_parse_judge_response_rejects_malformed_verdict_with_valid_id():
+    """A verdict can carry a real, non-hallucinated id and still be garbage: missing
+    is_gap/rubric_rule/dashboard_question/rank/reason. That must raise, not silently hand a
+    half-empty dict to merge_judged_state as a confirmed gap."""
+    payload = {"results": [{"id": "/a"}]}
+    resp = _FakeResp([_FakeBlock(payload)])
+    with pytest.raises(Exception):
+        ig.parse_judge_response(resp, candidate_ids=["/a"])
+
+
+def test_judge_candidates_rejects_malformed_verdict_with_valid_id():
+    client = _FakeClient(payload={"results": [{"id": "/a"}]})
+    cands = [{"id": "/a", "surface_type": "route", "location": "a.tsx", "snippet": ""}]
+    with pytest.raises(Exception):
+        ig.judge_candidates(cands, "RUBRIC", client=client, model="m")
+
+
+def test_parse_judge_response_fails_whole_batch_on_malformed_hallucinated_verdict():
+    """A malformed verdict can ride in on an id that was never sent — a plausible forced-
+    tool-use failure mode. Validation must run before the allowed-id filter (matching the
+    pre-extraction original's JudgeBatch.model_validate(block.input) ordering), so this
+    fails the whole batch instead of silently dropping /c and returning only /a as if the
+    batch were clean."""
+    payload = {
+        "results": [
+            {"id": "/a", "is_gap": True, "rubric_rule": "flow", "dashboard_question": "q",
+             "rank": 0, "reason": "r"},
+            {"id": "/c"},
+        ]
+    }
+    resp = _FakeResp([_FakeBlock(payload)])
+    with pytest.raises(Exception):
+        ig.parse_judge_response(resp, candidate_ids=["/a", "/b"])
+
+
+def test_judge_max_tokens_scales_with_batch_size():
+    """The budget is derived from the batch, never a constant: 25 verdicts measured at
+    4.1k-4.8k output tokens, so the cap must clear the larger observation with headroom
+    and still grow if the batch does."""
+    assert ig.judge_max_tokens(1) < ig.judge_max_tokens(25)
+    assert ig.judge_max_tokens(25) >= 10_000
+
+
+def test_judge_max_tokens_is_bounded():
+    """Headroom is not a blank cheque — a pathological batch stays under a hard ceiling
+    so worst-case spend per call is provable."""
+    assert ig.judge_max_tokens(10_000) <= 32_000
+
+
+def test_judge_candidates_sends_the_derived_budget():
+    client = _FakeClient(payload=_VERDICT_PAYLOAD)
+    cands = [{"id": "/a", "surface_type": "wizard_stage", "location": "a.tsx", "snippet": "x"}]
+    ig.judge_candidates(cands, "RUBRIC", client=client, model="m")
+    assert client.messages.calls[0]["max_tokens"] == ig.judge_max_tokens(1)
 
 
 class _FakeMessages:
@@ -549,6 +625,22 @@ def test_run_judgment_ok_path(tmp_path):
     )
     assert status == "ok"
     assert out["/a"]["rubric_rule"] == "flow"
+
+
+def test_run_judgment_fails_closed_on_malformed_verdict(tmp_path):
+    """A well-formed id with missing required fields must degrade to a failed status, not
+    reach merge_judged_state as a silently-confirmed gap (regression: the shared llm_judge
+    plumbing has no notion of a gap-shaped verdict, so this gate must live here)."""
+    rubric = tmp_path / "r.md"
+    rubric.write_text("RUBRIC")
+    cands = [{"id": "/a", "surface_type": "route", "location": "a.tsx", "snippet": ""}]
+    client = _FakeClient(payload={"results": [{"id": "/a"}]})
+    out, status = ig.run_judgment(
+        cands, api_key="sk-ant-x", model="m", rubric_path=rubric,
+        client_factory=lambda _k: client,
+    )
+    assert out == {}
+    assert status.startswith("failed:")
 
 
 def test_scan_repo_enriches_snippet(tmp_path):
@@ -1033,3 +1125,143 @@ def test_merge_preserves_ticket_stamp():
     assert out["a"]["ticket_url"].endswith("DATA-1")
     assert out["a"]["actioned_at"] == "2026-08-03"
     assert out["a"]["disposition"] == "accepted"
+
+
+# --- judge-failure streak (DATA-2425) -----------------------------------------
+# The truncation bug ran for ~10 scheduled runs and every digest read identically, so run 10
+# looked like run 1. The streak is what makes a sustained degradation legible.
+
+
+def test_load_run_state_missing_is_empty(tmp_path):
+    assert ig.load_run_state(tmp_path / "nope.json") == {}
+    assert ig.load_run_state(None) == {}
+
+
+def test_load_run_state_never_raises_on_a_bad_file(tmp_path):
+    """Unlike load_state, this one degrades instead of raising: the streak counter is a
+    reporting nicety and must never be able to fail the unattended cron."""
+    bad = tmp_path / "bad.json"
+    bad.write_text("{ not json")
+    assert ig.load_run_state(bad) == {}
+    notdict = tmp_path / "arr.json"
+    notdict.write_text("[]")
+    assert ig.load_run_state(notdict) == {}
+
+
+def test_judge_streak_increments_on_a_failure():
+    prior = {"judge_consecutive_failures": 3, "last_ok": "2026-08-17"}
+    out = ig.next_run_state(prior, "failed: overloaded", date(2026, 9, 9))
+    assert out["judge_consecutive_failures"] == 4
+    assert out["last_ok"] == "2026-08-17"        # preserved, it is when it last worked
+
+
+def test_judge_streak_resets_and_stamps_last_ok():
+    prior = {"judge_consecutive_failures": 9, "last_ok": "2026-08-17"}
+    out = ig.next_run_state(prior, "ok", date(2026, 9, 9))
+    assert out["judge_consecutive_failures"] == 0
+    assert out["last_ok"] == "2026-09-09"
+
+
+@pytest.mark.parametrize("status", ["no-candidates", ig.NO_JUDGE_STATUS])
+def test_judge_streak_holds_when_the_judge_never_ran(status):
+    """Neither evidence of health nor of failure. "no-candidates" had nothing to judge, and
+    --no-judge is a deliberate opt-out — a local run of it must not commit a spurious streak,
+    and neither may silently clear a real one."""
+    prior = {"judge_consecutive_failures": 4, "last_ok": "2026-08-17"}
+    out = ig.next_run_state(prior, status, date(2026, 9, 9))
+    assert out["judge_consecutive_failures"] == 4
+    assert out["last_ok"] == "2026-08-17"
+
+
+def test_judge_streak_counts_a_missing_api_key():
+    """A standing "skipped: ANTHROPIC_API_KEY unset" is exactly the silent degradation this
+    counter exists to surface, so unlike --no-judge it does count."""
+    out = ig.next_run_state({}, "skipped: ANTHROPIC_API_KEY unset", date(2026, 9, 9))
+    assert out["judge_consecutive_failures"] == 1
+
+
+def test_judge_streak_treats_a_garbage_counter_as_zero():
+    out = ig.next_run_state({"judge_consecutive_failures": "lots"}, "failed: x", date(2026, 9, 9))
+    assert out["judge_consecutive_failures"] == 1
+
+
+def test_build_slack_payload_carries_the_judge_failure_streak():
+    payload = ig.build_slack_payload({}, "2026-09-09", "failed: overloaded", 25,
+                                     browse_url=None, feedback_url=None,
+                                     judge_consecutive_failures=4)
+    assert payload["judge_consecutive_failures"] == 4
+
+
+def test_build_slack_payload_defaults_the_streak_to_zero():
+    payload = ig.build_slack_payload({}, "2026-09-09", "ok", 0,
+                                     browse_url=None, feedback_url=None)
+    assert payload["judge_consecutive_failures"] == 0
+
+
+def _fake_repo(tmp_path):
+    (tmp_path / "packages/gp-webapp/app/foo").mkdir(parents=True)
+    (tmp_path / "packages/gp-webapp/app/foo/page.tsx").write_text("export default () => <div/>")
+    (tmp_path / "packages/gp-api/src").mkdir(parents=True)
+    cfg = tmp_path / "cfg.yaml"; cfg.write_text("exclude_globs: []\n")
+    rubric = tmp_path / "rub.md"; rubric.write_text("RUBRIC")
+    return cfg, rubric
+
+
+def test_main_accumulates_the_judge_streak_across_runs_and_resets(tmp_path, monkeypatch):
+    """End to end over three runs: two failures accumulate through the run-state file, and a
+    successful judge run clears the counter."""
+    cfg, rubric = _fake_repo(tmp_path)
+    state = tmp_path / "state.json"
+    run_state = tmp_path / "run_state.json"
+    out = tmp_path / "gap_slack.json"
+
+    def run(day):
+        rc = ig.main(["--repo", str(tmp_path), "--config", str(cfg), "--state", str(state),
+                      "--rubric", str(rubric), "--no-log", "--today", day,
+                      "--run-state", str(run_state), "--slack-out", str(out)])
+        assert rc == 0
+        return json.loads(out.read_text())
+
+    # the judge is reachable but broken — the shape the truncation bug actually had
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-x")
+    def _broken(_key):
+        raise RuntimeError("overloaded")
+    monkeypatch.setattr(ig, "make_anthropic_client", _broken)
+    assert run("2026-09-01")["judge_consecutive_failures"] == 1
+    assert run("2026-09-02")["judge_consecutive_failures"] == 2
+    assert json.loads(run_state.read_text())["judge_consecutive_failures"] == 2
+
+    payload = {"results": [{"id": "/foo", "is_gap": True, "rubric_rule": "route",
+                            "dashboard_question": "q", "rank": 3, "reason": "r"}]}
+    monkeypatch.setattr(ig, "make_anthropic_client", lambda k: _FakeClient(payload=payload))
+    assert run("2026-09-03")["judge_consecutive_failures"] == 0
+    assert json.loads(run_state.read_text())["last_ok"] == "2026-09-03"
+
+
+def test_main_survives_a_corrupt_run_state_file(tmp_path, monkeypatch):
+    """This file must never be able to break the cron: a bad one restarts the count at 1
+    rather than failing the run."""
+    cfg, rubric = _fake_repo(tmp_path)
+    run_state = tmp_path / "run_state.json"
+    run_state.write_text("{ broken")
+    out = tmp_path / "gap_slack.json"
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    rc = ig.main(["--repo", str(tmp_path), "--config", str(cfg),
+                  "--state", str(tmp_path / "state.json"), "--rubric", str(rubric),
+                  "--no-log", "--today", "2026-09-09",
+                  "--run-state", str(run_state), "--slack-out", str(out)])
+    assert rc == 0
+    assert json.loads(out.read_text())["judge_consecutive_failures"] == 1
+
+
+def test_main_no_judge_leaves_the_streak_alone(tmp_path):
+    """A local --no-judge run must not write a streak that the next digest would report."""
+    cfg, rubric = _fake_repo(tmp_path)
+    run_state = tmp_path / "run_state.json"
+    out = tmp_path / "gap_slack.json"
+    rc = ig.main(["--repo", str(tmp_path), "--config", str(cfg),
+                  "--state", str(tmp_path / "state.json"), "--rubric", str(rubric),
+                  "--no-log", "--today", "2026-09-09", "--no-judge",
+                  "--run-state", str(run_state), "--slack-out", str(out)])
+    assert rc == 0
+    assert json.loads(out.read_text())["judge_consecutive_failures"] == 0

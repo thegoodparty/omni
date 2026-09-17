@@ -10,7 +10,6 @@ import { AnnotationAttachmentService } from '@/annotations/services/annotationAt
 import { CommunityIssueService } from '@/communityIssues/services/communityIssue.service'
 import { OrdinanceCodePersistService } from '@/ordinances/services/ordinanceCodePersist.service'
 import { OrdinanceQualityLoopService } from '@/ordinances/services/ordinanceQualityLoop.service'
-import { RecommendedListsComputeService } from '@/recommendedLists/services/recommendedListsCompute.service'
 import { AiContentService } from '@/campaigns/ai/content/aiContent.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { AiGenerationService } from '@/campaigns/tasks/services/aiGeneration.service'
@@ -18,7 +17,9 @@ import { CampaignTasksService } from '@/campaigns/tasks/services/campaignTasks.s
 import { CampaignTrackerTasksService } from '@/campaigns/campaignTracker/services/campaignTrackerTasks.service'
 import { WeeklyTasksDigestHandlerService } from '@/campaigns/tasks/services/weeklyTasksDigestHandler.service'
 import { Nightly10DlcReportService } from '@/campaigns/tcrCompliance/services/nightly10DlcReport.service'
+import { CvStatusPollService } from '@/campaigns/tcrCompliance/services/cvStatusPoll.service'
 import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -32,10 +33,11 @@ import { SlackService } from '@/vendors/slack/services/slack.service'
 import { DomainsService } from '@/websites/services/domains.service'
 import { Test, TestingModule } from '@nestjs/testing'
 import type { Message } from '@aws-sdk/client-sqs'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { PollsService } from 'src/polls/services/polls.service'
+import { EVENTS } from 'src/vendors/segment/segment.types'
 import type { PollResponseJsonRow } from '../queue.types'
 import { QueueType } from '../queue.types'
 import { QueueConsumerService } from './queueConsumer.service'
@@ -138,10 +140,13 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     identify: ReturnType<typeof vi.fn>
     track: ReturnType<typeof vi.fn>
   }
+  let usersService: { findUnique: ReturnType<typeof vi.fn> }
+  let hubspotSingleSend: { sendSingleSend: ReturnType<typeof vi.fn> }
 
   const pollId = 'poll-123'
   const electedOfficeId = 'office-1'
   const officeUserId = 1
+  const officeUserEmail = 'official@example.com'
   const personId = 'person-1'
   const phoneNumber = '+15551234567'
 
@@ -219,6 +224,14 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       identify: vi.fn().mockResolvedValue(undefined),
       track: vi.fn().mockResolvedValue(undefined),
     }
+    usersService = {
+      findUnique: vi
+        .fn()
+        .mockResolvedValue({ id: officeUserId, email: officeUserEmail }),
+    }
+    hubspotSingleSend = {
+      sendSingleSend: vi.fn().mockResolvedValue(undefined),
+    }
 
     service = new QueueConsumerService(
       {} as never,
@@ -236,6 +249,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       electedOfficeService as never,
       contactsService as never,
       s3Service as never,
+      usersService as never,
       {} as never,
       {} as never,
       {} as never,
@@ -249,7 +263,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
+      hubspotSingleSend as never,
       createMockLogger(),
     )
   })
@@ -950,6 +964,81 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     expect(deleteWhere.id.in).toHaveLength(1)
     expect(mockTx.pollIndividualMessage.createMany).toHaveBeenCalled()
   })
+
+  describe('HubSpot single-send (ENG-11035)', () => {
+    beforeEach(() => {
+      const json = createPollAnalysisJson([
+        {
+          phoneNumber,
+          receivedAt: '2024-01-15T10:00:00Z',
+          originalMessage: 'A response',
+          clusterId: 1,
+        },
+      ])
+      s3Service.getFile.mockResolvedValue(json)
+    })
+
+    afterEach(() => {
+      vi.unstubAllEnvs()
+    })
+
+    it('does not call HubSpot single-send when HUBSPOT_POLL_RESULTS_EMAIL_ID is unset', async () => {
+      const message = createPollAnalysisCompleteMessage({ pollId })
+
+      await service.processMessage(message)
+
+      expect(usersService.findUnique).not.toHaveBeenCalled()
+      expect(hubspotSingleSend.sendSingleSend).not.toHaveBeenCalled()
+    })
+
+    it('sends to the office account email with the poll content once configured', async () => {
+      vi.stubEnv('HUBSPOT_POLL_RESULTS_EMAIL_ID', '555111')
+      const message = createPollAnalysisCompleteMessage({ pollId })
+
+      await service.processMessage(message)
+
+      expect(usersService.findUnique).toHaveBeenCalledWith({
+        where: { id: officeUserId },
+      })
+      expect(hubspotSingleSend.sendSingleSend).toHaveBeenCalledWith({
+        emailId: 555111,
+        to: officeUserEmail,
+        customProperties: {
+          poll_id: pollId,
+          path: `/dashboard/polls/${pollId}`,
+        },
+      })
+      // The Segment event keeps firing unchanged alongside the single-send.
+      expect(analytics.track).toHaveBeenCalledWith(
+        officeUserId,
+        EVENTS.Polls.ResultsSynthesisCompleted,
+        expect.objectContaining({ pollId }),
+      )
+    })
+
+    it('logs and does not requeue the message when the single-send fails', async () => {
+      vi.stubEnv('HUBSPOT_POLL_RESULTS_EMAIL_ID', '555111')
+      hubspotSingleSend.sendSingleSend.mockRejectedValueOnce(
+        new Error('HubSpot down'),
+      )
+      const message = createPollAnalysisCompleteMessage({ pollId })
+
+      const result = await service.processMessage(message)
+
+      expect(result).toBe(true)
+    })
+
+    it('skips the single-send when the office user cannot be found', async () => {
+      vi.stubEnv('HUBSPOT_POLL_RESULTS_EMAIL_ID', '555111')
+      usersService.findUnique.mockResolvedValueOnce(null)
+      const message = createPollAnalysisCompleteMessage({ pollId })
+
+      const result = await service.processMessage(message)
+
+      expect(result).toBe(true)
+      expect(hubspotSingleSend.sendSingleSend).not.toHaveBeenCalled()
+    })
+  })
 })
 
 describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
@@ -989,6 +1078,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       domainsService as unknown as DomainsService,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1203,6 +1293,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
     )
   })
@@ -1336,6 +1427,10 @@ describe('QueueConsumerService - message type routing', () => {
           provide: Nightly10DlcReportService,
           useValue: { handleNightlyReport: vi.fn().mockResolvedValue(true) },
         },
+        {
+          provide: CvStatusPollService,
+          useValue: { handleCvStatusPoll: vi.fn().mockReturnValue(true) },
+        },
         { provide: ExperimentRunsService, useValue: {} },
         {
           provide: MeetingBriefingsService,
@@ -1378,8 +1473,8 @@ describe('QueueConsumerService - message type routing', () => {
           useValue: { runOcr: vi.fn() },
         },
         {
-          provide: RecommendedListsComputeService,
-          useValue: { handleRecompute: vi.fn() },
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn() },
         },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
@@ -1577,6 +1672,52 @@ describe('QueueConsumerService - message type routing', () => {
     expect(result).toBe(false)
   })
 
+  it('routes cvStatusPoll messages to the handler and acks immediately', async () => {
+    const cv = module.get(CvStatusPollService)
+    // handleCvStatusPoll is intentionally synchronous fire-and-forget: it
+    // detaches the paced scan and returns true so the message is acked
+    // before the scan completes (the scan outlives the SQS visibility
+    // timeout). The routing must return its boolean without awaiting any
+    // scan work.
+    const handleSpy = vi.spyOn(cv, 'handleCvStatusPoll').mockReturnValue(true)
+
+    const message: Message = {
+      MessageId: 'msg-cv-poll-ok',
+      Body: JSON.stringify({
+        type: QueueType.CV_STATUS_POLL,
+        data: { scanKey: '2026-08-17-08' },
+      }),
+    }
+
+    const result = await service.processMessage(message)
+
+    expect(result).toBe(true)
+    expect(handleSpy).toHaveBeenCalledExactlyOnceWith({
+      scanKey: '2026-08-17-08',
+    })
+  })
+
+  it('discards cvStatusPoll with invalid payload and does not start a scan', async () => {
+    const cv = module.get(CvStatusPollService)
+    const handleSpy = vi.spyOn(cv, 'handleCvStatusPoll')
+
+    const message: Message = {
+      MessageId: 'msg-cv-poll-invalid',
+      Body: JSON.stringify({
+        type: QueueType.CV_STATUS_POLL,
+        data: { notScanKey: true },
+      }),
+    }
+
+    // withLegacyErrorSwallowing catches the Zod parse failure and discards
+    // (true) rather than redelivering a poison message forever — and no
+    // unkeyed scan ever starts.
+    const result = await service.processMessage(message)
+
+    expect(result).toBe(true)
+    expect(handleSpy).not.toHaveBeenCalled()
+  })
+
   it('discards nightly10DlcReport with invalid payload and does not call handler', async () => {
     const report = module.get(Nightly10DlcReportService)
     const handleSpy = vi.spyOn(report, 'handleNightlyReport')
@@ -1681,6 +1822,172 @@ describe('QueueConsumerService - message type routing', () => {
   })
 })
 
+describe('QueueConsumerService - handleTcrComplianceCheckMessage', () => {
+  let service: QueueConsumerService
+  let mockTcrComplianceService: {
+    findFirstOrThrow: ReturnType<typeof vi.fn>
+    checkTcrRegistrationStatus: ReturnType<typeof vi.fn>
+    model: { updateMany: ReturnType<typeof vi.fn> }
+    sendComplianceCompletedSingleSend: ReturnType<typeof vi.fn>
+  }
+  let mockAnalytics: {
+    track: ReturnType<typeof vi.fn>
+    identify: ReturnType<typeof vi.fn>
+  }
+
+  const recipient = { id: 42, email: 'candidate@example.com' }
+  const campaignRecord = { userId: recipient.id, user: recipient }
+  const tcrComplianceRecord = {
+    peerlyIdentityId: 'peerly-999',
+    peerlyCvStatus: 'VERIFIED',
+    campaign: campaignRecord,
+  }
+
+  const buildMessage = (): Message => ({
+    MessageId: 'msg-tcr-check',
+    Body: JSON.stringify({
+      type: QueueType.TCR_COMPLIANCE_STATUS_CHECK,
+      data: { tcrCompliance: { peerlyIdentityId: 'peerly-999' } },
+    }),
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  beforeEach(async () => {
+    mockTcrComplianceService = {
+      findFirstOrThrow: vi.fn().mockResolvedValue(tcrComplianceRecord),
+      checkTcrRegistrationStatus: vi.fn().mockResolvedValue(true),
+      model: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      sendComplianceCompletedSingleSend: vi.fn().mockResolvedValue(undefined),
+    }
+    mockAnalytics = {
+      track: vi.fn().mockResolvedValue(undefined),
+      identify: vi.fn().mockResolvedValue(undefined),
+    }
+
+    const mod: TestingModule = await Test.createTestingModule({
+      providers: [
+        QueueConsumerService,
+        { provide: AiContentService, useValue: {} },
+        { provide: CampaignsService, useValue: {} },
+        { provide: AiGenerationService, useValue: {} },
+        { provide: CampaignTasksService, useValue: {} },
+        { provide: CampaignTrackerTasksService, useValue: {} },
+        {
+          provide: CampaignTcrComplianceService,
+          useValue: mockTcrComplianceService,
+        },
+        { provide: ContactsService, useValue: {} },
+        { provide: DomainsService, useValue: {} },
+        { provide: ElectedOfficeService, useValue: {} },
+        { provide: OrganizationsService, useValue: {} },
+        { provide: PollIndividualMessageService, useValue: { client: {} } },
+        { provide: PollIssuesService, useValue: {} },
+        { provide: PollsService, useValue: {} },
+        { provide: S3Service, useValue: {} },
+        { provide: SlackService, useValue: { message: vi.fn() } },
+        { provide: UsersService, useValue: {} },
+        { provide: AnalyticsService, useValue: mockAnalytics },
+        { provide: WeeklyTasksDigestHandlerService, useValue: {} },
+        { provide: Nightly10DlcReportService, useValue: {} },
+        { provide: CvStatusPollService, useValue: {} },
+        { provide: ExperimentRunsService, useValue: {} },
+        { provide: MeetingBriefingsService, useValue: {} },
+        { provide: CommunityIssueService, useValue: {} },
+        { provide: CampaignStrategyService, useValue: {} },
+        { provide: RaceOpponentPersistService, useValue: {} },
+        { provide: RaceOpponentResearchPersistService, useValue: {} },
+        { provide: OrdinanceCodePersistService, useValue: {} },
+        { provide: OrdinanceQualityLoopService, useValue: {} },
+        { provide: AnnotationAttachmentService, useValue: {} },
+        { provide: HubspotSingleSendService, useValue: {} },
+        { provide: PinoLogger, useValue: createMockLogger() },
+      ],
+    }).compile()
+    service = mod.get(QueueConsumerService)
+  })
+
+  // Env-var gating (unset -> no-op) is owned by
+  // CampaignTcrComplianceService.sendComplianceCompletedSingleSend itself
+  // and covered in campaignTcrCompliance.service.test.ts — this suite
+  // covers what the consumer owns: resolving the recipient/properties and
+  // never letting a single-send failure affect the SQS ack.
+  it('resolves the campaign account email off the campaign relation and forwards it', async () => {
+    const result = await service.processMessage(buildMessage())
+
+    expect(result).toBe(true)
+    expect(mockTcrComplianceService.model.updateMany).toHaveBeenCalledWith({
+      where: { peerlyIdentityId: 'peerly-999', status: { not: 'approved' } },
+      data: { status: 'approved' },
+    })
+    expect(
+      mockTcrComplianceService.sendComplianceCompletedSingleSend,
+    ).toHaveBeenCalledWith(recipient.email, {
+      peerly_identity_id: 'peerly-999',
+    })
+    expect(mockAnalytics.track).toHaveBeenCalledWith(
+      recipient.id,
+      expect.stringContaining('10DLC Compliance Completed'),
+    )
+  })
+
+  // bootstrapTcrComplianceCheck (@Cron 7am/7pm ET) re-queries every `pending`
+  // record and re-enqueues this message twice daily, so a backlog or a
+  // slow-handler redelivery can land two messages for the same record while
+  // it's still pending — an at-least-once SQS redelivery, not adversarial
+  // timing. Only the caller that actually flips the status may notify.
+  it('does not re-track or re-send when another delivery already transitioned the record', async () => {
+    mockTcrComplianceService.model.updateMany.mockResolvedValueOnce({
+      count: 0,
+    })
+
+    const result = await service.processMessage(buildMessage())
+
+    expect(result).toBe(true)
+    expect(mockAnalytics.track).not.toHaveBeenCalledWith(
+      recipient.id,
+      expect.stringContaining('10DLC Compliance Completed'),
+    )
+    expect(mockAnalytics.identify).not.toHaveBeenCalled()
+    expect(
+      mockTcrComplianceService.sendComplianceCompletedSingleSend,
+    ).not.toHaveBeenCalled()
+  })
+
+  it('does not call single-send when the campaign has no linked user', async () => {
+    mockTcrComplianceService.findFirstOrThrow.mockResolvedValueOnce({
+      ...tcrComplianceRecord,
+      campaign: { userId: recipient.id, user: null },
+    })
+
+    const result = await service.processMessage(buildMessage())
+
+    expect(result).toBe(true)
+    expect(
+      mockTcrComplianceService.sendComplianceCompletedSingleSend,
+    ).not.toHaveBeenCalled()
+  })
+
+  it('never throws out of the handler when single-send fails (no infinite redelivery)', async () => {
+    mockTcrComplianceService.sendComplianceCompletedSingleSend.mockRejectedValueOnce(
+      new Error('HubSpot down'),
+    )
+
+    const result = await service.processMessage(buildMessage())
+
+    // The message is still acked (true) and the Segment event/DB update the
+    // flow depends on already happened — a single-send failure must not
+    // corrupt or requeue this SQS-fired path.
+    expect(result).toBe(true)
+    expect(mockAnalytics.track).toHaveBeenCalledWith(
+      recipient.id,
+      expect.stringContaining('10DLC Compliance Completed'),
+    )
+  })
+})
+
 describe('QueueConsumerService - handleAgentExperimentResult', () => {
   let service: QueueConsumerService
   let module: TestingModule
@@ -1759,6 +2066,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: AnalyticsService, useValue: {} },
         { provide: WeeklyTasksDigestHandlerService, useValue: {} },
         { provide: Nightly10DlcReportService, useValue: {} },
+        { provide: CvStatusPollService, useValue: {} },
         { provide: ExperimentRunsService, useValue: mockExperimentRuns },
         {
           provide: MeetingBriefingsService,
@@ -1798,8 +2106,8 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         },
         { provide: AnnotationAttachmentService, useValue: { runOcr: vi.fn() } },
         {
-          provide: RecommendedListsComputeService,
-          useValue: { handleRecompute: vi.fn() },
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn() },
         },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
@@ -1919,6 +2227,7 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       { handleStep } as never,
       {} as never,
       createMockLogger(),
@@ -1959,72 +2268,5 @@ describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
 
     expect(result).toBe(true)
     expect(handleStep).not.toHaveBeenCalled()
-  })
-})
-
-describe('QueueConsumerService - RECOMMENDED_LISTS_RECOMPUTE', () => {
-  const buildService = (handleRecompute: ReturnType<typeof vi.fn>) =>
-    new QueueConsumerService(
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      { handleRecompute } as never,
-      createMockLogger(),
-    )
-
-  const recomputeMessage = (data: unknown): Message => ({
-    MessageId: 'msg-reclists-1',
-    Body: JSON.stringify({
-      type: QueueType.RECOMMENDED_LISTS_RECOMPUTE,
-      data,
-    }),
-  })
-
-  it('dispatches a valid recompute message to handleRecompute', async () => {
-    const handleRecompute = vi.fn().mockResolvedValue(true)
-    const service = buildService(handleRecompute)
-    const payload = { campaignId: 42, raceId: 'race-1', attempt: 1 }
-
-    const result = await service.processMessage(recomputeMessage(payload))
-
-    expect(result).toBe(true)
-    expect(handleRecompute).toHaveBeenCalledWith(payload)
-  })
-
-  it('acks and drops a malformed recompute message instead of requeueing', async () => {
-    const handleRecompute = vi.fn()
-    const service = buildService(handleRecompute)
-
-    const result = await service.processMessage(
-      recomputeMessage({ campaignId: 'not-a-number' }),
-    )
-
-    expect(result).toBe(true)
-    expect(handleRecompute).not.toHaveBeenCalled()
   })
 })

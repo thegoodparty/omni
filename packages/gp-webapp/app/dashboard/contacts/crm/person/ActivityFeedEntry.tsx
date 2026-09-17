@@ -1,11 +1,17 @@
 import Link from 'next/link'
 import { format } from 'date-fns'
 import { Badge } from '@styleguide'
-import type { DoorKnockOutcome, SupportAnswer } from '@goodparty_org/contracts'
+import type {
+  DoorKnockOutcome,
+  PhoneBankCallOutcome,
+  SupportAnswer,
+  WillVoteAnswer,
+} from '@goodparty_org/contracts'
 import { useUser } from '@shared/hooks/useUser'
 import type {
   ContactStatusField,
   DoorKnockConstituentActivity,
+  PhoneBankingConstituentActivity,
   RobocallConstituentActivity,
   StatusChangeConstituentActivity,
   TextConstituentActivity,
@@ -35,18 +41,37 @@ const SUPPORT_ANSWER_LABELS: Record<SupportAnswer, string> = {
   non_supporter: 'Non-supporter',
 }
 
-// The field's own display name — a fixed 2-value title, not part of what
+const PHONE_BANK_CALL_OUTCOME_LABELS: Record<PhoneBankCallOutcome, string> = {
+  answered: 'Answered',
+  no_answer: 'No Answer',
+  voicemail: 'Voicemail',
+  wrong_number: 'Wrong Number',
+  refused: 'Refused',
+  disconnected: 'Disconnected',
+  hung_up: 'Hung Up',
+}
+
+const WILL_VOTE_ANSWER_LABELS: Record<WillVoteAnswer, string> = {
+  yes: 'Yes',
+  no: 'No',
+  unsure: 'Unsure',
+}
+
+// The field's own display name — a fixed title per field, not part of what
 // resolveContactStatusLabel resolves server-side (that's the fromValue/
-// toValue vocabulary, a different and larger axis).
+// toValue vocabulary, a different and larger axis). Do Not Knock is written
+// from the door rather than edited here (ADR 0007), as is Not A Voter (ADR
+// 0008), but both land in the same event log, so the feed has to name them.
 const STATUS_CHANGE_FIELD_LABELS: Record<ContactStatusField, string> = {
   voter_likelihood: 'Voter Likelihood',
   support_status: 'Support Status',
+  do_not_knock: 'Do Not Knock',
+  not_a_voter: 'Not A Voter',
 }
 
 // No per-outreach detail route exists in this app (app/dashboard/outreach has
-// no [id] page) — link to the outreach list with ?outreachId= so the page
-// scrolls to and highlights that campaign's row (ENG-10769; consumed and
-// stripped by OutreachTable).
+// no [id] page) — link to the outreach hub with ?outreachId= so it opens that
+// campaign's details drawer (ENG-10769; consumed and stripped on mount).
 const outreachHref = (outreachId: number): string =>
   `/dashboard/outreach?outreachId=${outreachId}`
 
@@ -153,6 +178,54 @@ export const RobocallActivityRow: React.FC<{
     ) : null}
   </div>
 )
+
+// "You" when the viewing user made the call; the resolved actorName for a
+// teammate; and — unlike StatusChangeActivityRow's "Someone" fallback — NO
+// author line at all when neither is available (a legacy row logged before
+// ENG-10946 added attribution to this channel).
+export const PhoneBankingActivityRow: React.FC<{
+  activity: PhoneBankingConstituentActivity
+}> = ({ activity }) => {
+  const [user] = useUser()
+  const isViewer = user != null && user.id === activity.data.actorUserId
+  const actor = isViewer ? 'You' : activity.data.actorName
+
+  return (
+    <div className="flex flex-col gap-1 mb-3">
+      <div className="flex items-center gap-2">
+        <p className="text-sm font-semibold text-foreground">
+          Phone Banking:{' '}
+          {PHONE_BANK_CALL_OUTCOME_LABELS[activity.data.outcome] ??
+            activity.data.outcome}
+        </p>
+        {activity.data.manual ? <ManualBadge /> : null}
+      </div>
+      {activity.data.supportAnswer ? (
+        <p className="text-sm font-normal text-muted-foreground">
+          Support:{' '}
+          {SUPPORT_ANSWER_LABELS[activity.data.supportAnswer] ??
+            activity.data.supportAnswer}
+        </p>
+      ) : null}
+      {activity.data.willVote ? (
+        <p className="text-sm font-normal text-muted-foreground">
+          Will vote:{' '}
+          {WILL_VOTE_ANSWER_LABELS[activity.data.willVote] ??
+            activity.data.willVote}
+        </p>
+      ) : null}
+      <ActivityNote note={activity.data.note} />
+      {actor ? (
+        <p className="text-sm font-normal text-muted-foreground">
+          Logged by {actor}
+        </p>
+      ) : null}
+      <p className="text-sm font-normal text-muted-foreground">
+        {formatDateTime(activity.date)}
+      </p>
+    </div>
+  )
+}
 
 // Win-only (the feed itself never returns this type for a Serve context —
 // gated server-side and again in the ActivitiesContent switch). "You" when

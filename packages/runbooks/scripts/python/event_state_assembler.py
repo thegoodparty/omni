@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import analytics_event_health as aeh
+import behavior_registry as br
 from databricks_oauth import run_query as execute_query
 
 # Read through the mart_analytics exposure so access is granted at the mart schema.
@@ -24,33 +25,37 @@ select event_type, govern_display_name, family, first_seen_date, last_seen_date,
 from {CATALOG_TABLE}
 """
 
-# 21 columns, render order. See the design doc for the rationale behind the set.
-# `event` renders the Amplitude display name when one is set, so it can diverge
-# from the name in code; `event_type` carries the ingested name alongside it so a
-# reader can always map a row back to the string in the codebase, the provenance
-# CSV, and HubSpot.
+# 24 columns, render order. Identity and meaning first, firing reality next, governance
+# and provenance last: the sheet's readers are mostly non-engineers confirming that an
+# event is the one they mean (DATA-2426). `event` renders the Amplitude display name when
+# one is set, so it can diverge from the name in code; `event_type` carries the ingested
+# name so a reader can still map a row back to the string in the codebase, the provenance
+# CSV, and HubSpot — but it duplicates `event` for 99.3% of rows, so it sits right.
 COLUMNS = [
     "event",
-    "event_type",
+    "description",
+    "where_it_fires",
+    "url",
     "status",
-    "declared_intent",
-    "intent_date",
-    "supersession",
-    "family",
-    "first_seen_date",
     "last_seen_date",
     "event_count_30d",
     "event_count",
-    "description",
+    "first_seen_date",
+    "family",
     "tags",
+    "questions",
+    "okr",
+    "watchlist_status",
+    "event_type",
+    "declared_intent",
+    "intent_date",
+    "supersession",
     "instrumented_pr",
     "instrumented_date",
     "instrumented_author_email",
     "retired_pr",
     "retired_date",
     "retired_author_email",
-    "watchlist_status",
-    "okr",
 ]
 
 
@@ -82,10 +87,24 @@ def _num(value: Any) -> Any:
     return value
 
 
+def questions_by_event(behaviors: Sequence[Mapping[str, Any]]) -> dict[str, list[str]]:
+    """{event_type: sorted questions it helps answer}. This answers "why do we track this" in
+    the place people already have open, which is why it belongs on the events tab and not
+    only on the questions tab."""
+    out: dict[str, set[str]] = {}
+    for b in behaviors:
+        qs = {str(b["question"])} if b.get("question") else set()
+        qs |= {str(a) for a in (b.get("answers") or [])}
+        for name in br.instrumenting_events(b):
+            out.setdefault(name, set()).update(qs)
+    return {name: sorted(qs) for name, qs in out.items()}
+
+
 def build_rows(
     records: Sequence[Mapping[str, Any]],
     catalog_by_type: Mapping[str, Mapping[str, Any]],
     code_map: Mapping[str, Mapping[str, Any]],
+    questions_by_type: Mapping[str, Sequence[str]] | None = None,
 ) -> list[dict]:
     """Project reconcile records + catalog + provenance into COLUMNS rows, most-recently
     touched-in-code first (rows with no provenance date sort last; 30d volume breaks ties)."""
@@ -101,28 +120,31 @@ def build_rows(
         rows.append(
             {
                 "event": cat.get("govern_display_name") or event_type,
-                "event_type": event_type,
+                "description": _blank(gpmeta.get("purpose")),
+                "where_it_fires": _blank(gpmeta.get("fires_on")),
+                "url": _blank(gpmeta.get("url")),
                 "status": rec["status"],
+                "last_seen_date": _blank(cat.get("last_seen_date")),
+                "event_count_30d": _num(cat.get("event_count_30d", rec.get("event_count_30d", 0))),
+                "event_count": _num(cat.get("event_count", 0)),
+                "first_seen_date": _blank(cat.get("first_seen_date")),
+                "family": _blank(rec.get("family") or cat.get("family")),
+                "tags": format_tags(cat.get("govern_tags")),
+                "questions": "; ".join((questions_by_type or {}).get(event_type, [])),
+                "okr": _blank(rec.get("okr")),
+                "watchlist_status": rec.get("watchlist_status", "—"),
+                "event_type": event_type,
                 "declared_intent": {"in_use": "in use", "not_in_use": "not in use"}.get(
                     gpmeta.get("intent"), ""
                 ),
                 "intent_date": _blank(gpmeta.get("intent_date")),
                 "supersession": supersession,
-                "family": _blank(rec.get("family") or cat.get("family")),
-                "first_seen_date": _blank(cat.get("first_seen_date")),
-                "last_seen_date": _blank(cat.get("last_seen_date")),
-                "event_count_30d": _num(cat.get("event_count_30d", rec.get("event_count_30d", 0))),
-                "event_count": _num(cat.get("event_count", 0)),
-                "description": _blank(gpmeta.get("purpose")),
-                "tags": format_tags(cat.get("govern_tags")),
                 "instrumented_pr": _blank(prov.get("instrumented_pr")),
                 "instrumented_date": _blank(prov.get("instrumented_date")),
                 "instrumented_author_email": _blank(prov.get("instrumented_author_email")),
                 "retired_pr": _blank(prov.get("retired_pr")),
                 "retired_date": _blank(prov.get("retired_date")),
                 "retired_author_email": _blank(prov.get("retired_author_email")),
-                "watchlist_status": rec.get("watchlist_status", "—"),
-                "okr": _blank(rec.get("okr")),
                 "_sort_date": prov.get("last_code_change_date") or "",
             }
         )
@@ -185,7 +207,7 @@ def assemble(
     overrides: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict:
     """Load the catalog + provenance, derive status via the shared reconcile(), and project
-    into the 19-column table. weekly_rows=[] skips the monitor's anomaly query — irrelevant
+    into the 24-column table. weekly_rows=[] skips the monitor's anomaly query — irrelevant
     to this surface — while still yielding the authoritative status for every event.
     ``overrides`` maps event_type -> {govern_*} to overlay Amplitude-direct metadata onto
     (or inject rows into) the Databricks catalog (DATA-2053)."""
@@ -194,7 +216,7 @@ def assemble(
     code_map = aeh.load_code_axis(code_csv) if code_csv else aeh.load_code_axis()
     # aeh.WATCHLIST looked up by attribute (not as reconcile's own default) so tests can
     # monkeypatch it (DATA-2152).
-    families, watchlist_events, dismissed_events, okr_by_event = aeh.load_watchlist(
+    families, watchlist_events, dismissed_events, okr_by_event = aeh.load_monitored_events(
         aeh.WATCHLIST
     )
     reconciled = aeh.reconcile(
@@ -203,7 +225,10 @@ def assemble(
         dismissed_events=dismissed_events, okr_by_event=okr_by_event,
     )
     catalog_by_type = {row["event_type"]: row for row in catalog}
-    rows = build_rows(reconciled["records"], catalog_by_type, code_map)
+    behaviors = br.load_behaviors(aeh.WATCHLIST)
+    rows = build_rows(
+        reconciled["records"], catalog_by_type, code_map, questions_by_event(behaviors)
+    )
     return {
         "rows": rows,
         "meta": {

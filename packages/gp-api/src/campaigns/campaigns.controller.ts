@@ -38,7 +38,7 @@ import { Campaign, MagicLinkKind, User, UserRole } from '../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 import { createZodDto, ZodValidationPipe } from 'nestjs-zod'
 import { AnalyticsService } from 'src/analytics/analytics.service'
-import { userHasRole } from 'src/users/util/users.util'
+import { isTestUser, userHasRole } from 'src/users/util/users.util'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { ReqUser } from '../authentication/decorators/ReqUser.decorator'
@@ -183,8 +183,8 @@ export class CampaignsController {
   // campaign (the Contacts pro-gated flows) had no way to provision one and were
   // stranded @dev-only. Hard-guarded so it can never grant Pro in production or
   // to a real user: fail-closed to a known non-prod deploy (so a misconfigured
-  // or absent env denies rather than ungates), and only for @test.goodparty.org
-  // users acting on their own campaign.
+  // or absent env denies rather than ungates), and only for test users
+  // (isTestUser: e2e or QA fixture accounts) acting on their own campaign.
   @Post('mine/test-set-pro')
   @UseCampaign()
   @HttpCode(HttpStatus.OK)
@@ -192,7 +192,7 @@ export class CampaignsController {
     if (!IS_NON_PROD_DEPLOY) {
       throw new ForbiddenException('Not available in this environment')
     }
-    if (!user.email?.endsWith('@test.goodparty.org')) {
+    if (!user.email || !isTestUser({ email: user.email })) {
       throw new ForbiddenException('Test users only')
     }
     await this.campaigns.setIsPro(campaign.id, true, false)
@@ -290,8 +290,15 @@ export class CampaignsController {
       )
     }
 
+    // Named because the update call below reads it too: an admin slug override
+    // must not wipe a recorded prior-race result.
+    const isAdminSlugOverride =
+      typeof slug === 'string' &&
+      campaign?.slug !== slug &&
+      userHasRole(user, [UserRole.admin, UserRole.sales])
+
     if (typeof slug === 'string' && campaign?.slug !== slug) {
-      if (userHasRole(user, [UserRole.admin, UserRole.sales])) {
+      if (isAdminSlugOverride) {
         campaign = await this.campaigns.findFirstOrThrow({
           where: { slug },
         })
@@ -329,7 +336,20 @@ export class CampaignsController {
 
     this.logger.debug({ campaign, ...{ slug, body } }, 'Updating campaign')
 
-    const updated = await this.campaigns.updateJsonFields(campaign.id, body)
+    // User-driven updates that move electionDate to a new upcoming date
+    // clear stale prior-race result state (ENG-10954). Staff paths never get
+    // this: the admin M2M update (PUT /:id) sets didWin explicitly, and the
+    // slug-override branch here must not silently wipe a recorded result —
+    // didWin isn't in UpdateCampaignSchema, so an admin couldn't re-supply
+    // it through this endpoint.
+    const updated = await this.campaigns.updateJsonFields(
+      campaign.id,
+      body,
+      true,
+      undefined,
+      undefined,
+      isAdminSlugOverride ? {} : { resetStaleElectionResults: true },
+    )
     if (!updated) throw new NotFoundException('Campaign not found after update')
     return updated
   }

@@ -7,6 +7,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
+import { createPresignedPost } from '@aws-sdk/s3-presigned-post'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { Injectable } from '@nestjs/common'
 import slugify from 'slugify'
@@ -35,6 +36,12 @@ export type UploadFileOptions = {
 export type GetSignedUrlOptions = {
   expiresIn?: number
   contentType?: string
+}
+
+export type PresignedUploadOptions = {
+  expiresIn?: number
+  contentType: string
+  maxBytes: number
 }
 
 export type BuildKeyOptions = {
@@ -128,6 +135,28 @@ export class S3Service extends AwsService {
     }, 'getSignedUrlForUpload')
   }
 
+  // Presigned POST (not PUT): the policy's content-length-range lets S3 reject
+  // an oversize upload at upload time, which a presigned PUT URL can't express.
+  // Returns the form `url` + `fields` the browser submits alongside the file.
+  async createPresignedUpload(
+    bucket: string,
+    key: string,
+    options: PresignedUploadOptions,
+  ) {
+    return this.executeAwsOperation(async () => {
+      return await createPresignedPost(this.s3Client, {
+        Bucket: bucket,
+        Key: key,
+        Conditions: [
+          ['content-length-range', 1, options.maxBytes],
+          { 'Content-Type': options.contentType },
+        ],
+        Fields: { 'Content-Type': options.contentType },
+        Expires: options.expiresIn ?? EXPIRES_IN_DEFAULT,
+      })
+    }, 'createPresignedUpload')
+  }
+
   async getSignedUrlForViewing(
     bucket: string,
     key: string,
@@ -187,7 +216,9 @@ export class S3Service extends AwsService {
   async getFileBytesWithContentType(
     bucket: string,
     key: string,
-  ): Promise<{ bytes: Buffer; contentType?: string } | undefined> {
+  ): Promise<
+    { bytes: Buffer; contentType?: string; etag?: string } | undefined
+  > {
     return this.executeAwsOperation(async () => {
       try {
         const response = await this.s3Client.send(
@@ -198,7 +229,11 @@ export class S3Service extends AwsService {
         )
         const bytes = await response.Body?.transformToByteArray()
         return bytes
-          ? { bytes: Buffer.from(bytes), contentType: response.ContentType }
+          ? {
+              bytes: Buffer.from(bytes),
+              contentType: response.ContentType,
+              etag: response.ETag,
+            }
           : undefined
       } catch (error) {
         if (error instanceof NoSuchKey) {
@@ -250,14 +285,17 @@ export class S3Service extends AwsService {
   async headObject(
     bucket: string,
     key: string,
-  ): Promise<{ contentLength: number | null } | null> {
+  ): Promise<{ contentLength: number | null; etag?: string | null } | null> {
     return this.executeAwsOperation(async () => {
       try {
         const { HeadObjectCommand } = await import('@aws-sdk/client-s3')
         const response = await this.s3Client.send(
           new HeadObjectCommand({ Bucket: bucket, Key: key }),
         )
-        return { contentLength: response.ContentLength ?? null }
+        return {
+          contentLength: response.ContentLength ?? null,
+          etag: response.ETag ?? null,
+        }
       } catch (error: unknown) {
         if (error instanceof NoSuchKey) return null
         if (isHttpStatusError(error, 404)) return null

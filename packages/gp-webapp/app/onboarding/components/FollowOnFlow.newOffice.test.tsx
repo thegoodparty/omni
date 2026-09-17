@@ -92,6 +92,10 @@ const fillManualOfficeToPledge = async () => {
   fireEvent.change(await screen.findByLabelText(/office name/i), {
     target: { value: 'Town Dogcatcher' },
   })
+  fireEvent.click(screen.getByRole('combobox', { name: /office level/i }))
+  fireEvent.click(
+    screen.getByRole('option', { name: 'Local, township or city' }),
+  )
   fireEvent.click(screen.getByRole('combobox', { name: /state/i }))
   fireEvent.click(screen.getByRole('option', { name: 'NC' }))
   fireEvent.change(screen.getByLabelText(/city, town or county/i), {
@@ -188,10 +192,8 @@ describe('FollowOnFlow — new office', () => {
       expect(mockClientFetch).toHaveBeenCalledWith(
         expect.objectContaining({ path: '/campaigns/mine' }),
         expect.objectContaining({
-          details: expect.objectContaining({
-            party: 'nonpartisan',
-            ballotStatus: 'on-ballot',
-          }),
+          ballotStatus: 'on-ballot',
+          details: expect.objectContaining({ party: 'nonpartisan' }),
         }),
       ),
     )
@@ -209,6 +211,10 @@ describe('FollowOnFlow — new office', () => {
     fireEvent.change(await screen.findByLabelText(/office name/i), {
       target: { value: 'Town Dogcatcher' },
     })
+    fireEvent.click(screen.getByRole('combobox', { name: /office level/i }))
+    fireEvent.click(
+      screen.getByRole('option', { name: 'Local, township or city' }),
+    )
     fireEvent.click(screen.getByRole('combobox', { name: /state/i }))
     fireEvent.click(screen.getByRole('option', { name: 'NC' }))
     fireEvent.change(screen.getByLabelText(/city, town or county/i), {
@@ -235,6 +241,7 @@ describe('FollowOnFlow — new office', () => {
             raceId: null,
             state: 'NC',
             city: 'Asheville',
+            ballotLevel: 'LOCAL',
             electionDate: '2026-11-03',
           }),
         }),

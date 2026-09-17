@@ -1,10 +1,6 @@
 import { APIPollStatus, derivePollStatus } from '@/polls/polls.types'
 import { Message } from '@aws-sdk/client-sqs'
-import {
-  BadGatewayException,
-  Injectable,
-  InternalServerErrorException,
-} from '@nestjs/common'
+import { Injectable, InternalServerErrorException } from '@nestjs/common'
 import {
   Poll,
   PollIndividualMessageSender,
@@ -13,7 +9,6 @@ import {
 } from '../../generated/prisma'
 import { isPrismaError } from 'src/prisma/util/prismaErrors.util'
 import { SqsConsumerEventHandler, SqsMessageHandler } from '@ssut/nestjs-sqs'
-import { isAxiosError } from 'axios'
 import { addMinutes, format, isBefore, isValid, parseISO } from 'date-fns'
 import { groupBy } from 'es-toolkit'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -37,7 +32,6 @@ import { RaceOpponentPersistService } from 'src/raceOpponent/services/raceOppone
 import { RaceOpponentResearchPersistService } from 'src/raceOpponent/services/raceOpponentResearchPersist.service'
 import { OrdinanceCodePersistService } from 'src/ordinances/services/ordinanceCodePersist.service'
 import { OrdinanceQualityLoopService } from 'src/ordinances/services/ordinanceQualityLoop.service'
-import { RecommendedListsComputeService } from 'src/recommendedLists/services/recommendedListsCompute.service'
 import { PollIssuesService } from 'src/polls/services/pollIssues.service'
 import { PollsService } from 'src/polls/services/polls.service'
 import {
@@ -50,10 +44,8 @@ import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { CampaignTcrComplianceService } from '../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { csvEscape } from '../../shared/util/csv.util'
-import { isNestJsHttpException } from '../../shared/util/http.util'
 import { normalizePhoneNumber } from '../../shared/util/strings.util'
 import { ForwardEmailDomainResponse } from '../../vendors/forwardEmail/forwardEmail.types'
-import { PeerlyCvVerificationStatus } from '../../vendors/peerly/peerly.types'
 import { EVENTS } from '../../vendors/segment/segment.types'
 import { DomainsService } from '../../websites/services/domains.service'
 import {
@@ -62,11 +54,11 @@ import {
   CampaignPlanCompleteMessageSchema,
   AgentExperimentResultSchema,
   DomainEmailForwardingMessage,
+  CvStatusPollMessageSchema,
   Nightly10DlcReportMessageSchema,
   WeeklyTasksDigestMessageSchema,
   OcrAttachmentMessageSchema,
   OrdinanceQualityLoopMessageSchema,
-  RecommendedListsRecomputeMessageSchema,
   PollAnalysisCompleteEvent,
   PollAnalysisCompleteEventSchema,
   PollCreationEvent,
@@ -85,9 +77,11 @@ import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTyp
 import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
 import { WeeklyTasksDigestHandlerService } from '../../campaigns/tasks/services/weeklyTasksDigestHandler.service'
 import { Nightly10DlcReportService } from '../../campaigns/tcrCompliance/services/nightly10DlcReport.service'
+import { CvStatusPollService } from '../../campaigns/tcrCompliance/services/cvStatusPoll.service'
 import { v5 as uuidv5 } from 'uuid'
 import { PinoLogger } from 'nestjs-pino'
 import { OrgDistrict } from '@/organizations/organizations.types'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 
 import type { AgentExperimentResultData } from '../queue.types'
 
@@ -104,6 +98,17 @@ type PollAnalysisIssue = PollAnalysisCompleteEvent['data']['issues'][number]
 // unbounded burst at typical poll sizes (the burst pays a degradation penalty),
 // so we bound the fan-out here.
 const PEOPLE_LOOKUP_CONCURRENCY = 20
+
+// Unset in every environment today — Ops has not yet created the poll
+// results single-send email asset in HubSpot (ENG-11035). Read live rather
+// than cached at module load, mirroring HUBSPOT_PIN_SENT_EMAIL_ID, so a prod
+// cutover needs no redeploy. Until it's set, the existing Segment-event ->
+// HubSpot workflow email path is unchanged.
+const getPollResultsSingleSendEmailId = (): number | null => {
+  const raw = process.env.HUBSPOT_POLL_RESULTS_EMAIL_ID
+  const emailId = raw ? Number(raw) : NaN
+  return Number.isFinite(emailId) ? emailId : null
+}
 
 const TERMINAL_STATUSES: readonly ExperimentRunStatus[] = [
   ExperimentRunStatus.COMPLETED,
@@ -155,6 +160,7 @@ export class QueueConsumerService {
     private readonly organizationsService: OrganizationsService,
     private readonly weeklyTasksDigestHandler: WeeklyTasksDigestHandlerService,
     private readonly nightly10DlcReport: Nightly10DlcReportService,
+    private readonly cvStatusPollService: CvStatusPollService,
     private readonly experimentRunsService: ExperimentRunsService,
     private readonly meetingBriefings: MeetingBriefingsService,
     private readonly communityIssue: CommunityIssueService,
@@ -164,7 +170,7 @@ export class QueueConsumerService {
     private readonly annotationAttachments: AnnotationAttachmentService,
     private readonly ordinanceCodePersist: OrdinanceCodePersistService,
     private readonly ordinanceQualityLoop: OrdinanceQualityLoopService,
-    private readonly recommendedLists: RecommendedListsComputeService,
+    private readonly hubspotSingleSend: HubspotSingleSendService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(QueueConsumerService.name)
@@ -413,6 +419,16 @@ export class QueueConsumerService {
           )
           return await this.nightly10DlcReport.handleNightlyReport(reportData)
         })
+      case QueueType.CV_STATUS_POLL:
+        this.logger.info('received cvStatusPoll message')
+        // Acks immediately — the paced scan runs detached because it outlives
+        // the SQS visibility timeout (see CvStatusPollService). Wrapped so a
+        // malformed payload discards instead of redelivering forever.
+        return await this.withLegacyErrorSwallowing(message, async () =>
+          this.cvStatusPollService.handleCvStatusPoll(
+            CvStatusPollMessageSchema.parse(queueMessage.data),
+          ),
+        )
       case QueueType.AGENT_EXPERIMENT_RESULT:
         return await this.handleAgentExperimentResult(
           AgentExperimentResultSchema.parse(queueMessage.data),
@@ -451,23 +467,6 @@ export class QueueConsumerService {
         }
         return await this.ordinanceQualityLoop.handleStep(step.data)
       }
-      case QueueType.RECOMMENDED_LISTS_RECOMPUTE: {
-        // Parse failure is a poison message — it can never become valid, and
-        // requeueing would block the campaign's FIFO group until the DLQ
-        // limit. Ack-drop it. A valid recompute is idempotent and its own
-        // stale-guard, so redelivery of a valid message is safe.
-        const recompute = RecommendedListsRecomputeMessageSchema.safeParse(
-          queueMessage.data,
-        )
-        if (!recompute.success) {
-          this.logger.error(
-            { messageId: message.MessageId, error: recompute.error },
-            'malformed recommended lists recompute message, discarding',
-          )
-          return true
-        }
-        return await this.recommendedLists.handleRecompute(recompute.data)
-      }
       default:
         this.logger.warn(
           { messageId: message.MessageId, body: message.Body },
@@ -475,50 +474,6 @@ export class QueueConsumerService {
         )
         return true
     }
-  }
-
-  private async getCvTokenStatus(
-    peerlyIdentityId: string,
-  ): Promise<PeerlyCvVerificationStatus | null> {
-    let cvTokenStatus: PeerlyCvVerificationStatus | null = null
-    try {
-      cvTokenStatus =
-        (await this.tcrComplianceService.getCvTokenStatus(peerlyIdentityId)) ||
-        null
-    } catch (e) {
-      // TODO: We have to do all this error handling because of how Peerly is
-      //  throwing `BadGatewayException` instead of just throwing the
-      //  `AxiosError` that caused the problem in the first place. We should revisit
-      //  this when we have more time: https://goodparty.clickup.com/t/86ac8y227
-      if (
-        isNestJsHttpException(e) &&
-        e instanceof BadGatewayException &&
-        isAxiosError(e.cause)
-      ) {
-        const requestError = e.cause
-        const status = requestError.response?.status
-        this.logger.warn(
-          { peerlyIdentityId, status, response: e.getResponse() },
-          `HTTP exception occurred while fetching CV token status: ${status} - ${e.message}`,
-        )
-        if (status && status === 404) {
-          this.logger.debug(
-            `Received 404 NOT FOUND. CV token has not been requested yet for identity ID ${peerlyIdentityId}`,
-          )
-        } else {
-          // Something else went wrong
-          this.logger.error(
-            { peerlyIdentityId, status, response: e.getResponse() },
-            `HTTP exception occurred while fetching CV token status: ${status} - ${e.message}`,
-          )
-          throw e.cause
-        }
-      } else {
-        // Something else went wrong. Just throw the error.
-        throw e
-      }
-    }
-    return cvTokenStatus
   }
 
   // TODO: ALL of the below functions should be moved to their respective
@@ -536,15 +491,19 @@ export class QueueConsumerService {
       return true // remove message from the queue
     }
 
-    const { campaign } = await this.tcrComplianceService.findFirstOrThrow({
+    const record = await this.tcrComplianceService.findFirstOrThrow({
       include: {
-        campaign: true,
+        campaign: { include: { user: true } },
       },
       where: { peerlyIdentityId },
     })
-    const { userId } = campaign
+    const { userId } = record.campaign
 
-    const cvTokenStatus = await this.getCvTokenStatus(peerlyIdentityId)
+    // A `pending` record's CV is VERIFIED by definition (the usecase was
+    // submitted post-PIN), so the persisted mirror the CV status scan and
+    // PIN-entry path stamp is authoritative here — this used to be a live
+    // retrieve_cv read, part of the call volume Peerly flagged (2026-08-17).
+    const cvTokenStatus = record.peerlyCvStatus
 
     cvTokenStatus &&
       (await this.analytics.track(
@@ -572,12 +531,27 @@ export class QueueConsumerService {
       `TCR Registration is active, updating TCR compliance w/ identity ID ${peerlyIdentityId} status to approved`,
     )
 
-    await this.tcrComplianceService.model.update({
-      where: { peerlyIdentityId },
+    // Atomic status-guarded claim (not a plain update): bootstrapTcrComplianceCheck
+    // re-queries every `pending` record and re-enqueues this message twice
+    // daily, so a backlog or a slow-handler redelivery can land two of these
+    // messages for the same record while it's still `pending`. Without a
+    // claim, both would pass the registrationStatus check above and both
+    // would fire the notification below — a real double-send, not a
+    // theoretical race (ENG-11035 review). Only the caller that actually
+    // transitions the status fires the notification.
+    const transitionClaim = await this.tcrComplianceService.model.updateMany({
+      where: {
+        peerlyIdentityId,
+        status: { not: TcrComplianceStatus.approved },
+      },
       data: {
         status: TcrComplianceStatus.approved,
       },
     })
+
+    if (transitionClaim.count === 0) {
+      return true
+    }
 
     try {
       await this.analytics.track(userId, EVENTS.Outreach.ComplianceCompleted)
@@ -589,6 +563,27 @@ export class QueueConsumerService {
         { analyticsError },
         `Failed to track analytics for TCR compliance: ${JSON.stringify(tcrCompliance)}`,
       )
+    }
+
+    // No acting user on this consumer path — resolve the account email off
+    // the same campaign relation the Segment event's target `userId` above
+    // came from, never a HubSpot contact (ENG-11035). Own try/catch so a
+    // single-send failure can never throw out of an SQS handler (infinite
+    // redelivery — src/queue/AGENTS.md) or affect the ack below.
+    const recipientEmail = record.campaign.user?.email
+    if (recipientEmail) {
+      try {
+        await this.tcrComplianceService.sendComplianceCompletedSingleSend(
+          recipientEmail,
+          { peerly_identity_id: peerlyIdentityId },
+        )
+      } catch (singleSendError) {
+        this.logger.error(
+          { singleSendError, peerlyIdentityId },
+          'HubSpot single-send failed for 10DLC Compliance Completed; the ' +
+            'workflow email path still fires from the Segment event',
+        )
+      }
     }
 
     return true
@@ -892,31 +887,89 @@ export class QueueConsumerService {
       )
     }
 
-    await Promise.all([
-      this.analytics.identify(office.userId, { pollcount: pollCount }),
-      this.analytics.track(
-        office.userId,
-        EVENTS.Polls.ResultsSynthesisCompleted,
-        {
-          pollId,
-          path: `/dashboard/polls/${pollId}`,
-          constituencyName: district?.l2Name,
-          'issue 1': issues?.at(0)?.theme || null,
-          'issue 2': issues?.at(1)?.theme || null,
-          'issue 3': issues?.at(2)?.theme || null,
-          ...buildIssueProperties(issues?.at(0), 1),
-          ...buildIssueProperties(issues?.at(1), 2),
-          ...buildIssueProperties(issues?.at(2), 3),
-          pollsSent: poll.targetAudienceSize,
-          pollResponses: totalResponses,
-          pollResponseRate:
-            totalResponses > 0
-              ? `${((totalResponses / poll.targetAudienceSize) * 100).toFixed(1)}%`
-              : '0%',
-        },
-      ),
-    ])
+    try {
+      await Promise.all([
+        this.analytics.identify(office.userId, { pollcount: pollCount }),
+        this.analytics.track(
+          office.userId,
+          EVENTS.Polls.ResultsSynthesisCompleted,
+          {
+            pollId,
+            path: `/dashboard/polls/${pollId}`,
+            constituencyName: district?.l2Name,
+            'issue 1': issues?.at(0)?.theme || null,
+            'issue 2': issues?.at(1)?.theme || null,
+            'issue 3': issues?.at(2)?.theme || null,
+            ...buildIssueProperties(issues?.at(0), 1),
+            ...buildIssueProperties(issues?.at(1), 2),
+            ...buildIssueProperties(issues?.at(2), 3),
+            pollsSent: poll.targetAudienceSize,
+            pollResponses: totalResponses,
+            pollResponseRate:
+              totalResponses > 0
+                ? `${((totalResponses / poll.targetAudienceSize) * 100).toFixed(1)}%`
+                : '0%',
+          },
+        ),
+      ])
+    } catch (err) {
+      this.logger.error(
+        { err, pollId },
+        'Failed to track analytics for Poll Results Synthesis Completed',
+      )
+    }
+
+    await this.sendPollResultsSingleSend(office.userId, pollId)
+
     return true
+  }
+
+  // The email leg of this notification moves to a direct HubSpot single-send
+  // call (ENG-11035) — recipient is the elected official the poll belongs
+  // to, not whatever email a HubSpot workflow would resolve off the contact
+  // record. Reuses the existing "Serve - Transactional Email - Results
+  // Ready" asset as-is (per HUBSPOT_INTEGRATION.md); the Segment event above
+  // keeps firing unchanged for non-email consumers. A single-send failure
+  // must never throw here — this runs inside an SQS handler, and throwing
+  // triggers infinite redelivery rather than a DLQ (see queue/CLAUDE.md).
+  private async sendPollResultsSingleSend(
+    officeUserId: number,
+    pollId: string,
+  ): Promise<void> {
+    const emailId = getPollResultsSingleSendEmailId()
+    if (!emailId) {
+      this.logger.debug(
+        'HUBSPOT_POLL_RESULTS_EMAIL_ID not set — skipping HubSpot ' +
+          'single-send; the workflow email path still covers this notification',
+      )
+      return
+    }
+    try {
+      const user = await this.usersService.findUnique({
+        where: { id: officeUserId },
+      })
+      if (!user) {
+        this.logger.warn(
+          { officeUserId, pollId },
+          'Poll results single-send skipped: office user not found',
+        )
+        return
+      }
+      await this.hubspotSingleSend.sendSingleSend({
+        emailId,
+        to: user.email,
+        customProperties: {
+          poll_id: pollId,
+          path: `/dashboard/polls/${pollId}`,
+        },
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, pollId },
+        'HubSpot single-send failed for Poll Results Ready; the workflow ' +
+          'email path still fires from the Segment event',
+      )
+    }
   }
 
   private async handlePollCreation(

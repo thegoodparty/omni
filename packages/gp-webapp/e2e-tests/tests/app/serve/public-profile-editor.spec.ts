@@ -24,9 +24,9 @@ import { WaitHelper } from 'src/helpers/wait.helper'
  * separate deployment with no per-PR preview, and `MARKETING_REVALIDATE_URL` is
  * deliberately empty for `preview`, so a PR-preview publish has nowhere to bust.
  * We assert the payload the marketing site consumes instead — the public render
- * gate flipping 404 → 200 → 404. Its rendering is covered on the other side by
- * gp-marketing's peopleProfile.states.test.ts (all 12 profile states) and the
- * revalidation seam by its revalidate-person route test.
+ * gate flipping absent → live → unpublished. Its rendering is covered on the
+ * other side by gp-marketing's peopleProfile.states.test.ts (all 12 profile
+ * states) and the revalidation seam by its revalidate-person route test.
  */
 
 const EDITOR_PATH = '/dashboard/public-profile'
@@ -99,17 +99,22 @@ test('win: publishing from the editor makes the profile public, unpublishing hid
   )
   expect(minted.personId).toBeTruthy()
 
-  const publicProfile = async (): Promise<number> => {
-    const res = await client.get('/v1/public-person-profiles', {
-      params: { personId: minted.personId },
-      validateStatus: () => true,
-    })
-    return res.status
+  // Mirrors gp-marketing's own `getPublicPersonProfileStatus` mapping, so this
+  // asserts the render-gate state the marketing site actually derives rather
+  // than the transport code it derives it from.
+  const gateState = async (): Promise<string> => {
+    const res = await client.get<{ unpublished?: boolean }>(
+      '/v1/public-person-profiles',
+      { params: { personId: minted.personId }, validateStatus: () => true },
+    )
+    if (res.status === 404) return 'absent'
+    if (res.status !== 200) return `unexpected:${res.status}`
+    return res.data.unpublished === true ? 'unpublished' : 'live'
   }
 
-  // Nothing published yet, so the marketing render gate must 404 rather than
-  // leak a draft.
-  expect(await publicProfile()).toBe(404)
+  // No profile row exists yet, only a minted personId — the case the marketing
+  // page legitimately answers with claim CTAs.
+  expect(await gateState()).toBe('absent')
 
   await page.goto(EDITOR_PATH, { waitUntil: 'domcontentloaded' })
   await NavigationHelper.dismissOverlays(page)
@@ -138,7 +143,7 @@ test('win: publishing from the editor makes the profile public, unpublishing hid
 
   // The gate opened, and it carries what the owner authored — this is the exact
   // payload gp-marketing renders the claimed profile from.
-  await expect.poll(publicProfile, { timeout: 30_000 }).toBe(200)
+  await expect.poll(gateState, { timeout: 30_000 }).toBe('live')
   const { data: live } = await client.get<{
     displayName: string
     publishedAt: string | null
@@ -149,6 +154,17 @@ test('win: publishing from the editor makes the profile public, unpublishing hid
   await publishToggle.click()
   await expect(publishToggle).not.toBeChecked()
 
-  // Unpublishing has to close the gate, not merely hide the page in the UI.
-  await expect.poll(publicProfile, { timeout: 30_000 }).toBe(404)
+  // Unpublishing has to close the gate, not merely hide the page in the UI —
+  // but as `unpublished`, not `absent`. The owner still owns this profile, and
+  // gp-marketing suppresses its claim CTAs on exactly that distinction.
+  await expect.poll(gateState, { timeout: 30_000 }).toBe('unpublished')
+
+  // The marker is a gate signal, not a back door: the draft the owner just hid
+  // must not come back out of the public endpoint.
+  const { data: hidden } = await client.get<{
+    displayName: string | null
+    publishedAt: string | null
+  }>('/v1/public-person-profiles', { params: { personId: minted.personId } })
+  expect(hidden.displayName).toBeNull()
+  expect(hidden.publishedAt).toBeNull()
 })

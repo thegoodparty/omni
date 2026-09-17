@@ -4,6 +4,7 @@ import { type Page } from '@playwright/test'
 import { setupClerkTestingToken } from '@clerk/testing/playwright'
 import { TestDataHelper } from './data.helper'
 import { clerkThrottle } from 'tests/utils/throttle-requests-with-retry'
+import { withGatewayRetry } from 'tests/utils/headless-user'
 
 /**
  * Helpers for the elected-official ("serve") magic-link onboarding flow.
@@ -42,53 +43,6 @@ const clerkBackend = createClerkClient({ secretKey: CLERK_SECRET_KEY })
 
 const apiBaseURL = process.env.API_BASE_URL || baseURL
 const apiURL = `${apiBaseURL}/api`
-
-// A cold PR-preview gp-api stack returns gateway 5xx (502/503/504) on its first
-// requests until the ECS target passes health checks, and can refuse the
-// connection outright. These are pre-backend (the request never reached a
-// healthy task), so re-issuing is safe even for the EO seed write. 401 is
-// retried for the same reason as in `tests/utils/headless-user.ts`: a freshly
-// minted Clerk session token is transiently rejected until the session
-// propagates (most visible under parallel shards on a cold preview). Mirrors
-// the retry policy in `tests/utils/headless-user.ts`.
-const RETRIABLE_STATUSES = new Set([401, 502, 503, 504])
-const GATEWAY_RETRY_ATTEMPTS = 5
-
-const isRetriableGatewayError = (error: unknown): boolean => {
-  if (!axios.isAxiosError(error)) return false
-  const status = error.response?.status
-  if (status === undefined) return true
-  return RETRIABLE_STATUSES.has(status)
-}
-
-const withGatewayRetry = async <T>(
-  label: string,
-  fn: () => Promise<T>,
-): Promise<T> => {
-  let lastError: unknown
-  for (let attempt = 1; attempt <= GATEWAY_RETRY_ATTEMPTS; attempt++) {
-    try {
-      return await fn()
-    } catch (error) {
-      lastError = error
-      if (
-        attempt === GATEWAY_RETRY_ATTEMPTS ||
-        !isRetriableGatewayError(error)
-      ) {
-        throw error
-      }
-      const backoffMs = Math.min(1_000 * 2 ** (attempt - 1), 8_000)
-      if (process.env.DEBUG) {
-        console.log(
-          `[serve.helper] ${label} transient gateway error on attempt ` +
-            `${attempt}/${GATEWAY_RETRY_ATTEMPTS}, retrying in ${backoffMs}ms`,
-        )
-      }
-      await new Promise((resolve) => setTimeout(resolve, backoffMs))
-    }
-  }
-  throw lastError
-}
 
 /** A passwordless Clerk lead provisioned for the serve magic-link flow. */
 export type ServeLeadUser = {

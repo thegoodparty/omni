@@ -26,6 +26,12 @@ export {
   type WillVoteAnswer,
   WILL_VOTE_ANSWER_VALUES,
   WillVoteAnswerSchema,
+  type FollowUpAnswer,
+  FOLLOW_UP_ANSWER_VALUES,
+  FollowUpAnswerSchema,
+  type PhoneBankCallOutcome,
+  PHONE_BANK_CALL_OUTCOME_VALUES,
+  PhoneBankCallOutcomeSchema,
   type VoterOutreachAttributionSource,
   VOTER_OUTREACH_ATTRIBUTION_SOURCE_VALUES,
   VoterOutreachAttributionSourceSchema,
@@ -71,6 +77,15 @@ export {
   type ActivityConditionAction,
   ACTIVITY_CONDITION_ACTION_VALUES,
   ActivityConditionActionSchema,
+  type SocialAssetPlatform,
+  SOCIAL_ASSET_PLATFORM_VALUES,
+  SocialAssetPlatformSchema,
+  type SocialAssetKind,
+  SOCIAL_ASSET_KIND_VALUES,
+  SocialAssetKindSchema,
+  type OrganizationRole,
+  ORGANIZATION_ROLE_VALUES,
+  OrganizationRoleSchema,
 } from './generated/enums'
 
 export {
@@ -82,6 +97,8 @@ export {
   type PeopleListResponse,
   HOUSEHOLD_KEY_RESIDENCE_COLUMNS,
   DOOR_KNOCKING_UNIT_KEY_COLUMNS,
+  DOOR_KNOCKING_LEGACY_UNIT_KEY_COLUMNS,
+  isLegacyDoorKnockingUnitKey,
   SupportStatusRollupSchema,
   type SupportStatusRollup,
 } from './people/Person.schema'
@@ -97,8 +114,16 @@ export {
   type UpdateContactStatusInput,
   ContactStatusesSchema,
   type ContactStatuses,
+  DoNotKnockStatusSchema,
+  type DoNotKnockStatus,
+  NotAVoterStatusSchema,
+  type NotAVoterStatus,
+  NotAVoterReasonSchema,
+  type NotAVoterReason,
   VOTER_LIKELIHOOD_LABELS,
   SUPPORT_STATUS_ROLLUP_LABELS,
+  DO_NOT_KNOCK_LABELS,
+  NOT_A_VOTER_LABELS,
   resolveContactStatusLabel,
 } from './people/ContactStatus.schema'
 
@@ -128,6 +153,8 @@ export {
   type TextConstituentActivity,
   RobocallConstituentActivitySchema,
   type RobocallConstituentActivity,
+  PhoneBankingConstituentActivitySchema,
+  type PhoneBankingConstituentActivity,
   StatusChangeConstituentActivitySchema,
   type StatusChangeConstituentActivity,
   ConstituentActivitySchema,
@@ -157,6 +184,8 @@ export {
 export {
   PeopleAggregatesResponseSchema,
   type PeopleAggregatesResponse,
+  PeopleListDetailAggregatesResponseSchema,
+  type PeopleListDetailAggregatesResponse,
 } from './people/PeopleAggregates.schema'
 
 export { EmailSchema } from './shared/Email.schema'
@@ -341,7 +370,10 @@ export {
   type CampaignTaskDefinition,
 } from './campaigns/CampaignTaskCatalog.schema'
 
-export { CAMPAIGN_TASK_CATALOG } from './campaigns/CampaignTaskCatalog.data'
+export {
+  BALLOT_ACCESS_CATEGORY,
+  CAMPAIGN_TASK_CATALOG,
+} from './campaigns/CampaignTaskCatalog.data'
 
 export {
   VOTER_CONTACT_SCHEDULE,
@@ -386,6 +418,35 @@ export {
   ListCampaignsPaginationSchema,
   type ListCampaignsPagination,
 } from './campaigns/ListCampaignsPagination.schema'
+
+export {
+  TEAM_INVITE_ROLE_VALUES,
+  type TeamInviteRole,
+  TeamInviteRoleSchema,
+  TeamInviteMetadataSchema,
+  type TeamInviteMetadata,
+} from './campaigns/TeamInviteMetadata.schema'
+
+export {
+  TeamMemberSchema,
+  type TeamMember,
+  PendingInviteSchema,
+  type PendingInvite,
+  TeamResponseSchema,
+  type TeamResponse,
+  InviteMemberResponseSchema,
+  type InviteMemberResponse,
+  AcceptedAssignmentSchema,
+  type AcceptedAssignment,
+  AcceptInviteResponseSchema,
+  type AcceptInviteResponse,
+  MyPendingInviteResponseSchema,
+  type MyPendingInviteResponse,
+  TeamMemberStatsSchema,
+  type TeamMemberStats,
+  TeamStatsResponseSchema,
+  type TeamStatsResponse,
+} from './campaigns/Team.schema'
 
 export * from './campaigns/compliance'
 
@@ -556,9 +617,8 @@ export {
 
 export * from './artifactReview'
 
-export * from './recommendedLists'
-
 export * from './raceOpponent'
+export * from './recommendedLists'
 
 export * from './experiments'
 
@@ -650,6 +710,15 @@ export {
   type SendChatMessageRequest,
   ChatMessageSegmentSchema,
   type ChatMessageSegment,
+  CHAT_FEEDBACK_KIND_VALUES,
+  ChatFeedbackKindSchema,
+  type ChatFeedbackKind,
+  ChatMessageFeedbackStateSchema,
+  type ChatMessageFeedbackState,
+  SetChatMessageFeedbackRequestSchema,
+  type SetChatMessageFeedbackRequest,
+  ChatMessageFeedbackSchema,
+  type ChatMessageFeedback,
   ChatMessageSchema,
   type ChatMessage,
   ChatConversationSchema,
@@ -689,6 +758,203 @@ export * from './ordinances/Ordinance.schema'
 export * from './ordinances/redline'
 
 export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
+export {
+  OUTREACH_PURPOSE_VALUES,
+  OutreachPurposeSchema,
+  type OutreachPurpose,
+  SERVE_OUTREACH_PURPOSE_VALUES,
+  ServeOutreachPurposeSchema,
+  type ServeOutreachPurpose,
+} from './outreach/OutreachPurpose.schema'
+export {
+  SOCIAL_PURPOSE_VALUES,
+  SocialPurposeSchema,
+  type SocialPurpose,
+  SERVE_SOCIAL_PURPOSE_VALUES,
+  ServeSocialPurposeSchema,
+  type ServeSocialPurpose,
+  type SocialSurface,
+  WIN_SOCIAL_PLATFORM_EXCLUSIONS,
+  SERVE_SOCIAL_PLATFORM_EXCLUSIONS,
+  SOCIAL_PLATFORM_EXCLUSION_REASON,
+  excludedSocialPlatformsForPurpose,
+  isSocialPlatformAllowed,
+  SOCIAL_TONE_VALUES,
+  SocialToneSchema,
+  type SocialTone,
+  SocialDraftRequestSchema,
+  type SocialDraftRequest,
+  SocialDraftResponseSchema,
+  type SocialDraftResponse,
+  SOCIAL_DRAFT_MESSAGE_MAX_LENGTH,
+  SOCIAL_POST_COPY_MAX_LENGTH,
+  SOCIAL_VIDEO_SCRIPT_MAX_LENGTH,
+  SOCIAL_VIDEO_PLATFORMS,
+  socialAssetKindForPlatform,
+  SocialAssetSchema,
+  type SocialAsset,
+  SocialGenerateRequestSchema,
+  type SocialGenerateRequest,
+  SocialGenerateResponseSchema,
+  type SocialGenerateResponse,
+  SocialSaveRequestSchema,
+  type SocialSaveRequest,
+  ServeSocialDraftRequestSchema,
+  type ServeSocialDraftRequest,
+  ServeSocialGenerateRequestSchema,
+  type ServeSocialGenerateRequest,
+  ServeSocialSaveRequestSchema,
+  type ServeSocialSaveRequest,
+  OutreachSocialDetailSchema,
+  type OutreachSocialDetail,
+  OutreachDetailSchema,
+  type OutreachDetail,
+} from './outreach/OutreachSocial.schema'
+export {
+  OutreachAssigneeSchema,
+  type OutreachAssignee,
+  OutreachAssigneesResponseSchema,
+  type OutreachAssigneesResponse,
+  MyAssignmentSchema,
+  type MyAssignment,
+  MyAssignmentsResponseSchema,
+  type MyAssignmentsResponse,
+} from './outreach/OutreachAssignment.schema'
+export {
+  PhoneBankingScriptPurposeSchema,
+  type PhoneBankingScriptPurpose,
+  PHONE_BANKING_SCRIPT_MAX_LENGTH,
+  PHONE_BANKING_INSTRUCTIONS_MAX_LENGTH,
+  PhoneBankingScriptDraftRequestSchema,
+  type PhoneBankingScriptDraftRequest,
+  ServePhoneBankingScriptDraftRequestSchema,
+  type ServePhoneBankingScriptDraftRequest,
+  PhoneBankingScriptDraftResponseSchema,
+  type PhoneBankingScriptDraftResponse,
+} from './outreach/PhoneBankingScript.schema'
+
+export {
+  DoorKnockingTalkingPointsPurposeSchema,
+  type DoorKnockingTalkingPointsPurpose,
+  ServeDoorKnockingTalkingPointsPurposeSchema,
+  type ServeDoorKnockingTalkingPointsPurpose,
+  DOOR_KNOCKING_TALKING_POINT_MAX_LENGTH,
+  DOOR_KNOCKING_TALKING_POINTS_MAX_LENGTH,
+  DOOR_KNOCKING_INSTRUCTIONS_MAX_LENGTH,
+  DoorKnockingTalkingPointsDraftResponseSchema,
+  type DoorKnockingTalkingPointsDraftResponse,
+} from './outreach/DoorKnockingTalkingPoints.schema'
+export {
+  ROBOCALL_PURPOSE_VALUES,
+  RobocallPurposeSchema,
+  type RobocallPurpose,
+  ROBOCALL_SCRIPT_MAX_LENGTH,
+  RobocallScriptDraftRequestSchema,
+  type RobocallScriptDraftRequest,
+  RobocallScriptDraftResponseSchema,
+  type RobocallScriptDraftResponse,
+} from './outreach/RobocallScript.schema'
+export {
+  RobocallNumberResponseSchema,
+  type RobocallNumberResponse,
+} from './outreach/RobocallNumber.schema'
+export {
+  RobocallSaveCardIntentResponseSchema,
+  type RobocallSaveCardIntentResponse,
+} from './outreach/RobocallSaveCard.schema'
+export {
+  ROBOCALL_AUDIO_ALLOWED_MIME_TYPES,
+  ROBOCALL_AUDIO_MAX_BYTES,
+  RobocallAudioPresignRequestSchema,
+  type RobocallAudioPresignRequest,
+  RobocallAudioPresignResponseSchema,
+  type RobocallAudioPresignResponse,
+} from './outreach/RobocallAudio.schema'
+export {
+  RobocallComplianceRequestSchema,
+  type RobocallComplianceRequest,
+  RobocallComplianceChecksSchema,
+  type RobocallComplianceChecks,
+  RobocallComplianceVerdictSchema,
+  type RobocallComplianceVerdict,
+} from './outreach/RobocallCompliance.schema'
+export {
+  RobocallDraftCreateRequestSchema,
+  type RobocallDraftCreateRequest,
+  RobocallDraftCreateResponseSchema,
+  type RobocallDraftCreateResponse,
+} from './outreach/RobocallPurchase.schema'
+export {
+  RobocallAuthorizeRequestSchema,
+  type RobocallAuthorizeRequest,
+  RobocallAuthorizeStatusSchema,
+  type RobocallAuthorizeStatus,
+  RobocallAuthorizeResponseSchema,
+  type RobocallAuthorizeResponse,
+} from './outreach/RobocallHold.schema'
+export {
+  OutreachArchiveRequestSchema,
+  type OutreachArchiveRequest,
+  OutreachArchiveResponseSchema,
+  type OutreachArchiveResponse,
+} from './outreach/OutreachArchive.schema'
+export {
+  CancelOutreachResponseSchema,
+  type CancelOutreachResponse,
+} from './outreach/OutreachCancel.schema'
+export {
+  OutreachReceiptSchema,
+  type OutreachReceipt,
+} from './outreach/OutreachReceipt.schema'
+export {
+  SmsOutreachResultsSchema,
+  type SmsOutreachResults,
+} from './outreach/OutreachResults.schema'
+
+export {
+  SMS_PURPOSE_VALUES,
+  SmsPurposeSchema,
+  type SmsPurpose,
+  SMS_COMPOSED_MAX_LENGTH,
+  SMS_BODY_MAX_LENGTH,
+  SmsDraftRequestSchema,
+  type SmsDraftRequest,
+  SmsDraftResponseSchema,
+  type SmsDraftResponse,
+} from './outreach/OutreachSms.schema'
+export {
+  SMS_APPROVAL_STATUS_VALUES,
+  SmsApprovalStatusSchema,
+  type SmsApprovalStatus,
+  SMS_STANDARDS_RULE_VALUES,
+  SmsStandardsRuleSchema,
+  type SmsStandardsRule,
+  SmsStandardsVerdictSchema,
+  type SmsStandardsVerdict,
+  checkSmsStandards,
+  SmsApprovalQueueItemSchema,
+  type SmsApprovalQueueItem,
+  SmsApprovalQueueResponseSchema,
+  type SmsApprovalQueueResponse,
+  SmsAdminJobStatsSchema,
+  type SmsAdminJobStats,
+  SmsAdminDetailResponseSchema,
+  type SmsAdminDetailResponse,
+  ApproveSmsOutreachRequestSchema,
+  type ApproveSmsOutreachRequest,
+  DenySmsOutreachRequestSchema,
+  type DenySmsOutreachRequest,
+  CancelSmsOutreachRequestSchema,
+  type CancelSmsOutreachRequest,
+  EditSmsOutreachRequestSchema,
+  type EditSmsOutreachRequest,
+  EditSmsOutreachDateRequestSchema,
+  type EditSmsOutreachDateRequest,
+  SmsTestMessageRequestSchema,
+  type SmsTestMessageRequest,
+  SmsTestMessageResponseSchema,
+  type SmsTestMessageResponse,
+} from './outreach/SmsAdminConsole.schema'
 
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 
@@ -699,11 +965,22 @@ export {
   createEnumFilterSchema,
   createIdFilterSchema,
   createNumericFilterSchema,
+  createPrecinctFilterSchema,
+  PRECINCT_PAIR_DELIMITER,
+  encodePrecinctPair,
+  decodePrecinctPair,
   PeopleFiltersSchema,
   type PeopleFilters,
   IdOverridesSchema,
   type IdOverrides,
 } from './people/PeopleFilters.schema'
+
+export {
+  PrecinctOptionSchema,
+  type PrecinctOption,
+  PeoplePrecinctsResponseSchema,
+  type PeoplePrecinctsResponse,
+} from './people/PeoplePrecincts.schema'
 
 export {
   MAX_OVERLAP_SAVED_FILTER_SETS,
@@ -725,6 +1002,7 @@ export {
 export {
   DoorKnockingResidentsRequestSchema,
   type DoorKnockingResidentsRequest,
+  DoorKnockingDemographicsShape,
   DoorKnockingResidentTargetSchema,
   type DoorKnockingResidentTarget,
   DoorKnockingResidentsAddressSchema,
@@ -734,10 +1012,39 @@ export {
 } from './doorKnocking/DoorKnockingResidents.schema'
 
 export {
+  DoorKnockingPreviewDoorSchema,
+  type DoorKnockingPreviewDoor,
+  DoorKnockingPreviewLocationSchema,
+  type DoorKnockingPreviewLocation,
+  DoorKnockingAddressPreviewResponseSchema,
+  type DoorKnockingAddressPreviewResponse,
+} from './doorKnocking/DoorKnockingAddressPreview.schema'
+
+export {
+  DoorKnockingAudienceCheckResponseSchema,
+  type DoorKnockingAudienceCheckResponse,
+} from './doorKnocking/DoorKnockingAudienceCheck.schema'
+
+export {
+  DoorKnockingQuotaResponseSchema,
+  type DoorKnockingQuotaResponse,
+} from './doorKnocking/DoorKnockingQuota.schema'
+
+export {
   DoorKnockingPackRequestSchema,
   type DoorKnockingPackRequest,
+  CONTACTS_MADE_DIM_KEY,
+  CONTACTS_MADE_BUCKETS,
+  PACK_CONTACTS_MADE_MAX,
+  PACK_FORMAT_REVISION,
   PACK_ARRAY_TYPES,
+  AGE_DIM_KEY,
   PACK_CORE_ARRAYS,
+  PACK_STREAM_ALIGNMENT,
+  PACK_STREAM_FRAME_HEADER_BYTES,
+  PACK_STREAM_FRAME_KINDS,
+  PACK_STREAM_MAGIC,
+  PACK_STREAM_MAGIC_BYTES,
   DoorKnockingPackDimSchema,
   type DoorKnockingPackDim,
   DoorKnockingPackArraySchema,
@@ -745,6 +1052,18 @@ export {
   DoorKnockingPackManifestSchema,
   type DoorKnockingPackManifest,
 } from './doorKnocking/DoorKnockingPack.schema'
+
+export {
+  AGE_FILTER_KEY_RANGES,
+  type AgeFilterKey,
+  CURRENT_AGE_FILTER_KEYS,
+  PACK_AGE_UNKNOWN,
+  PACK_AGE_BUCKETS,
+  PACK_AGE_BANDS,
+  PACK_AGE_BUCKET_TO_BAND,
+  AGE_KEY_TO_PACK_BUCKETS,
+  encodeAgeBucket,
+} from './doorKnocking/PackAgeBuckets'
 
 export {
   GeoJsonPolygonSchema,
@@ -755,26 +1074,36 @@ export {
   type UpdateDoorKnockingTurf,
   DoorKnockingTurfSchema,
   type DoorKnockingTurf,
-  DoorKnockingKnockRequestSchema,
-  type DoorKnockingKnockRequest,
+  DoorKnockingOutreachDetailSchema,
+  type DoorKnockingOutreachDetail,
+  DoorKnockingArchiveRequestSchema,
+  type DoorKnockingArchiveRequest,
   DoorKnockingRouteHeaderSchema,
   type DoorKnockingRouteHeader,
-  DoorKnockingKnockResponseSchema,
-  type DoorKnockingKnockResponse,
   DoorKnockingModeSchema,
   type DoorKnockingMode,
+  DoorKnockingPurposeSchema,
+  type DoorKnockingPurpose,
 } from './doorKnocking/DoorKnockingTurf.schema'
 
 export {
   DOOR_KNOCK_STATUSES,
   DoorKnockStatusSchema,
   type DoorKnockStatus,
+  RouteTargetActivitySchema,
+  type RouteTargetActivity,
+  ROUTE_TARGET_ACTIVITY_LIMIT,
+  ROUTE_TARGET_NOTE_LIMIT,
+  RoutePayloadTargetNotesSchema,
+  type RoutePayloadTargetNotes,
   RoutePayloadTargetSchema,
   type RoutePayloadTarget,
   RoutePayloadAddressSchema,
   type RoutePayloadAddress,
   RoutePayloadStopSchema,
   type RoutePayloadStop,
+  RoutePayloadRepresentingSchema,
+  type RoutePayloadRepresenting,
   DoorKnockingRoutePayloadSchema,
   type DoorKnockingRoutePayload,
   RoutePathGeometrySchema,
@@ -787,3 +1116,74 @@ export {
   RecordDoorKnockInteractionResponseSchema,
   type RecordDoorKnockInteractionResponse,
 } from './doorKnocking/DoorKnockingInteraction.schema'
+
+export {
+  SetDoNotKnockSchema,
+  type SetDoNotKnock,
+  SetDoNotKnockResponseSchema,
+  type SetDoNotKnockResponse,
+} from './doorKnocking/DoorKnockingDoNotKnock.schema'
+
+export {
+  SetNotAVoterSchema,
+  type SetNotAVoter,
+  SetNotAVoterResponseSchema,
+  type SetNotAVoterResponse,
+} from './doorKnocking/DoorKnockingNotAVoter.schema'
+
+export {
+  PHONE_BANKING_PURPOSE_VALUES,
+  PhoneBankingPurposeSchema,
+  type PhoneBankingPurpose,
+  SERVE_PHONE_BANKING_PURPOSE_VALUES,
+  ServePhoneBankingPurposeSchema,
+  type ServePhoneBankingPurpose,
+  PHONE_BANKING_NAME_MAX_LENGTH,
+  PHONE_BANKING_CREATE_SCRIPT_MAX_LENGTH,
+  PHONE_BANKING_MAX_SHEET_COUNT,
+  PHONE_BANKING_SHEET_SIZE,
+  PhoneBankingCreateSchema,
+  type PhoneBankingCreate,
+  ServePhoneBankingCreateSchema,
+  type ServePhoneBankingCreate,
+  PhoneBankingCreateResponseSchema,
+  type PhoneBankingCreateResponse,
+} from './phoneBanking/PhoneBankingCreate.schema'
+
+export {
+  PHONE_BANKING_CALL_NOTE_MAX_LENGTH,
+  RecordPhoneBankingCallSchema,
+  type RecordPhoneBankingCall,
+  PhoneBankingCallResultSchema,
+  type PhoneBankingCallResult,
+  RecordPhoneBankingCallResponseSchema,
+  type RecordPhoneBankingCallResponse,
+} from './phoneBanking/PhoneBankingCall.schema'
+
+export {
+  PhoneBankingInteractionSchema,
+  type PhoneBankingInteraction,
+  PhoneBankingListPersonSchema,
+  type PhoneBankingListPerson,
+  PhoneBankingListEntrySchema,
+  type PhoneBankingListEntry,
+  PhoneBankingListSchema,
+  type PhoneBankingList,
+  PhoneBankingOutreachDetailSchema,
+  type PhoneBankingOutreachDetail,
+} from './phoneBanking/PhoneBankingList.schema'
+
+export { VOTER_NAME_TOKEN } from './phoneBanking/PhoneBankingScript.const'
+
+export {
+  TEST_FIXTURE_STATE_VALUES,
+  TestFixtureStateSchema,
+  type TestFixtureState,
+  TestFixtureCookiesSchema,
+  TestFixtureUserResponseSchema,
+  type TestFixtureUserResponse,
+  TestFixtureSessionResponseSchema,
+  type TestFixtureSessionResponse,
+  DeleteTestFixtureUsersResponseSchema,
+  type DeleteTestFixtureUsersResponse,
+} from './testFixtures/testFixtures.schema'

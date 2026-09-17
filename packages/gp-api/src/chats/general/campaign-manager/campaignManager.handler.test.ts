@@ -6,9 +6,13 @@ import {
 import { ChatScope } from '../../../generated/prisma'
 import type { CampaignsService } from '@/campaigns/services/campaigns.service'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
+import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
+import type { ConstituentTableConfig } from '../chief-of-staff/services/constituentDataScope'
 import { WIN_CONSTITUENT_TABLES } from './services/constituentDataScope'
+import type { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import type { GeneralChatStoreService } from '../services/generalChatStore.prisma'
+import type { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import {
   buildCampaignManagerGreeting,
   buildStoryGreeting,
@@ -21,10 +25,19 @@ import type {
 } from './campaignStoryIntake.service'
 import type { ContactsService } from '@/contacts/services/contacts.service'
 import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
-import type { FeaturesService } from '@/features/services/features.service'
+import type { ElectionsService } from '@/elections/services/elections.service'
+import type { LlmTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
 
 const fakeProvider = { query: vi.fn() } as unknown as DatabricksProvider
+
+// Native web search has no description; every other registered tool does.
+const descriptionOf = (tool: LlmTool | undefined): string => {
+  if (!tool || !('description' in tool)) {
+    throw new Error('expected a tool with a description')
+  }
+  return tool.description
+}
 
 const buildHandler = (provider?: DatabricksProvider): CampaignManagerHandler =>
   new CampaignManagerHandler(
@@ -42,14 +55,23 @@ const ctxWith = (
   candidateName: '',
   campaignId: null,
   officeName: null,
+  district: null,
+  officeLevel: null,
   location: null,
   weeksToElection: null,
+  ballotStatus: null,
+  filingPeriodStart: null,
+  filingPeriodEnd: null,
+  daysToFilingDeadline: null,
   topTasks: [],
   districtFilters: null,
   constituentToolEnabled: false,
   organization: null,
   crmToolsEnabled: false,
   savedFilterToolsEnabled: false,
+  raceId: null,
+  webSearchEnabled: true,
+  helpCenterToolEnabled: false,
   story: null,
   plan: null,
   ...over,
@@ -88,6 +110,102 @@ describe('CampaignManagerHandler.buildTools — constituent data gating', () => 
     const tools = buildHandler(undefined).buildTools(ctxWith(ENABLED))
     expect(Object.keys(tools)).not.toContain('query_constituent_data')
   })
+
+  it('registers mart tools whose descriptions carry the shared routing rules', () => {
+    const tools = buildHandler(fakeProvider).buildTools(ctxWith(ENABLED))
+    expect(descriptionOf(tools.query_constituent_data)).toContain(
+      DATA_SOURCE_ROUTING_RULES,
+    )
+    expect(descriptionOf(tools.describe_constituent_data)).toContain(
+      DATA_SOURCE_ROUTING_RULES,
+    )
+  })
+})
+
+describe('CampaignManagerHandler.loadContext — constituent tool gating', () => {
+  const ORG_SLUG = 'win-campaign'
+
+  const buildResolvingDistrictResolver = (): DistrictResolverService =>
+    ({
+      resolveByOrgSlug: vi.fn(() =>
+        Promise.resolve({
+          state: 'IL',
+          l2DistrictType: 'city',
+          l2DistrictName: 'Springfield',
+        }),
+      ),
+      toMandatoryFilters: vi.fn(() => [
+        { column: 'state_postal_code', value: 'IL' },
+        { column: 'City', value: 'Springfield' },
+      ]),
+    }) as unknown as DistrictResolverService
+
+  const buildContextHandler = (
+    provider: DatabricksProvider | undefined,
+    tables: ConstituentTableConfig[],
+    districtResolver?: DistrictResolverService,
+  ): CampaignManagerHandler => {
+    const store = {
+      findFirst: vi.fn(() =>
+        Promise.resolve({ id: 'c1', organizationSlug: ORG_SLUG }),
+      ),
+    } as unknown as GeneralChatStoreService
+    const campaigns = {
+      client: {
+        campaign: {
+          findFirst: vi.fn(() =>
+            Promise.resolve({ id: 5, details: {}, data: {}, user: null }),
+          ),
+        },
+        campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
+        organization: { findFirst: vi.fn(() => Promise.resolve(null)) },
+      },
+    } as unknown as CampaignsService
+    return new CampaignManagerHandler(
+      store,
+      campaigns,
+      {} as ChatStoreService,
+      tables,
+      provider,
+      districtResolver,
+    )
+  }
+
+  it('enables the constituent tool when provider + tables + district resolve', async () => {
+    const handler = buildContextHandler(
+      fakeProvider,
+      WIN_CONSTITUENT_TABLES,
+      buildResolvingDistrictResolver(),
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.constituentToolEnabled).toBe(true)
+  })
+
+  it('disables the constituent tool without a provider', async () => {
+    const handler = buildContextHandler(
+      undefined,
+      WIN_CONSTITUENT_TABLES,
+      buildResolvingDistrictResolver(),
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.constituentToolEnabled).toBe(false)
+  })
+
+  it('disables the constituent tool when no table is configured', async () => {
+    const handler = buildContextHandler(
+      fakeProvider,
+      [],
+      buildResolvingDistrictResolver(),
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.constituentToolEnabled).toBe(false)
+  })
+
+  it('disables the constituent tool when the district does not resolve', async () => {
+    const handler = buildContextHandler(fakeProvider, WIN_CONSTITUENT_TABLES)
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.constituentToolEnabled).toBe(false)
+  })
 })
 
 const buildHandlerWithStory = (): CampaignManagerHandler =>
@@ -96,7 +214,6 @@ const buildHandlerWithStory = (): CampaignManagerHandler =>
     {} as CampaignsService,
     {} as ChatStoreService,
     WIN_CONSTITUENT_TABLES,
-    undefined,
     undefined,
     undefined,
     {} as CampaignStoryIntakeService,
@@ -122,6 +239,126 @@ describe('CampaignManagerHandler.buildTools — campaign story tool', () => {
       ctxWith({ campaignId: 42 }),
     )
     expect(Object.keys(tools)).not.toContain('campaign_story')
+  })
+})
+
+// The handler guards this tool on TWO things — the injected service AND the
+// ctx flag — and the tool's own unit tests cannot reach either. Without these,
+// hardcoding helpCenterToolEnabled to false or mis-wiring the provider would
+// leave every other test green.
+// The flag buildTools reads is derived in loadContext, so a buildTools test
+// that hands in its own context cannot see it go wrong. This is the half that
+// catches the flag being stuck, or the service never being injected.
+describe('CampaignManagerHandler.loadContext — help center gating', () => {
+  const buildHelpCenterContextHandler = (
+    helpCenter?: HelpCenterSearchService,
+  ): CampaignManagerHandler => {
+    const store = {
+      findFirst: vi.fn(() =>
+        Promise.resolve({ id: 'c1', organizationSlug: 'win-campaign' }),
+      ),
+    } as unknown as GeneralChatStoreService
+    const campaigns = {
+      client: {
+        campaign: {
+          findFirst: vi.fn(() =>
+            Promise.resolve({ id: 5, details: {}, data: {}, user: null }),
+          ),
+        },
+        campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
+        organization: { findFirst: vi.fn(() => Promise.resolve(null)) },
+      },
+    } as unknown as CampaignsService
+    return new CampaignManagerHandler(
+      store,
+      campaigns,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      helpCenter,
+    )
+  }
+
+  it('enables the help center whenever the service is injected', async () => {
+    const handler = buildHelpCenterContextHandler({} as HelpCenterSearchService)
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.helpCenterToolEnabled).toBe(true)
+  })
+
+  it('disables the help center when no service is injected', async () => {
+    const handler = buildHelpCenterContextHandler(undefined)
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.helpCenterToolEnabled).toBe(false)
+  })
+
+  // Help-center search needs no campaign and no credential, so it must
+  // survive a context that could not resolve one.
+  it('keeps the help center enabled when the campaign does not resolve', async () => {
+    const store = {
+      findFirst: vi.fn(() =>
+        Promise.resolve({ id: 'c1', organizationSlug: null }),
+      ),
+    } as unknown as GeneralChatStoreService
+    const handler = new CampaignManagerHandler(
+      store,
+      {} as CampaignsService,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {} as HelpCenterSearchService,
+    )
+    const ctx = await handler.loadContext('c1', 7)
+    expect(ctx.helpCenterToolEnabled).toBe(true)
+  })
+})
+
+describe('CampaignManagerHandler.buildTools — help center tool', () => {
+  const buildHelpCenterHandler = (
+    helpCenter?: HelpCenterSearchService,
+  ): CampaignManagerHandler =>
+    new CampaignManagerHandler(
+      {} as GeneralChatStoreService,
+      {} as CampaignsService,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      helpCenter,
+    )
+
+  it('registers search_help_center when the service is wired and enabled', () => {
+    const tools = buildHelpCenterHandler(
+      {} as HelpCenterSearchService,
+    ).buildTools(ctxWith({ helpCenterToolEnabled: true }))
+    expect(Object.keys(tools)).toContain('search_help_center')
+  })
+
+  it('omits search_help_center when the context has it disabled', () => {
+    const tools = buildHelpCenterHandler(
+      {} as HelpCenterSearchService,
+    ).buildTools(ctxWith({ helpCenterToolEnabled: false }))
+    expect(Object.keys(tools)).not.toContain('search_help_center')
+  })
+
+  it('omits search_help_center when no service is wired', () => {
+    const tools = buildHelpCenterHandler(undefined).buildTools(
+      ctxWith({ helpCenterToolEnabled: true }),
+    )
+    expect(Object.keys(tools)).not.toContain('search_help_center')
   })
 })
 
@@ -172,7 +409,7 @@ describe('buildStoryGreeting', () => {
   })
 })
 
-describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => {
+describe('CampaignManagerHandler — CRM contact tools gating', () => {
   const ORG = { slug: 'win-campaign' } as Organization
 
   const buildContacts = (): ContactsService =>
@@ -193,7 +430,6 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
       undefined,
       undefined,
       undefined,
-      undefined,
       contacts,
       voterFileFilters,
     )
@@ -206,7 +442,17 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
     expect(Object.keys(tools)).toContain('count_contacts')
   })
 
-  it('omits both when the win-crm flag is off', () => {
+  it('registers CRM tools whose descriptions carry the shared routing rules', () => {
+    const tools = buildCrmHandler(buildContacts()).buildTools(ctxWith(CRM_ON))
+    expect(descriptionOf(tools.describe_filter_dimensions)).toContain(
+      DATA_SOURCE_ROUTING_RULES,
+    )
+    expect(descriptionOf(tools.count_contacts)).toContain(
+      DATA_SOURCE_ROUTING_RULES,
+    )
+  })
+
+  it('omits both when crmToolsEnabled is false', () => {
     const tools = buildCrmHandler(buildContacts()).buildTools(
       ctxWith({ ...CRM_ON, crmToolsEnabled: false }),
     )
@@ -249,7 +495,123 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
     expect(Object.keys(flagOff)).not.toContain('crud_saved_filters')
   })
 
-  const buildLoadContextHandler = (enabledFlags: string[]) => {
+  const buildBallotHandler = (
+    elections?: ElectionsService,
+  ): CampaignManagerHandler =>
+    new CampaignManagerHandler(
+      {} as GeneralChatStoreService,
+      {} as CampaignsService,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      elections,
+    )
+
+  const ELECTIONS = {
+    fetchFilingFeeByRaceHash: vi.fn(() => Promise.resolve(null)),
+  } as unknown as ElectionsService
+
+  // details is untyped JSON at the read site, so an unparseable date must not
+  // reach the prompt as NaN -- it would slip past every null-guard downstream.
+  it.each(['2025-Q1', 'not a date', ''])(
+    'returns null day/week counts for the unparseable date %o',
+    async (bad) => {
+      const store = {
+        findFirst: vi.fn(() =>
+          Promise.resolve({ id: 'c1', organizationSlug: ORG.slug }),
+        ),
+      } as unknown as GeneralChatStoreService
+      const campaigns = {
+        client: {
+          campaign: {
+            findFirst: vi.fn(() =>
+              Promise.resolve({
+                id: 5,
+                details: { electionDate: bad, filingPeriodsEnd: bad },
+                data: {},
+                user: null,
+              }),
+            ),
+          },
+          campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
+          organization: { findFirst: vi.fn(() => Promise.resolve(ORG)) },
+        },
+      } as unknown as CampaignsService
+      const handler = new CampaignManagerHandler(
+        store,
+        campaigns,
+        {} as ChatStoreService,
+        WIN_CONSTITUENT_TABLES,
+      )
+
+      const ctx = await handler.loadContext('c1', 7)
+
+      expect(ctx.daysToFilingDeadline).toBeNull()
+      expect(ctx.weeksToElection).toBeNull()
+      expect(handler.buildSystemPrompt(ctx)).not.toContain('NaN')
+    },
+  )
+
+  it('keeps web search available when the campaign does not resolve', async () => {
+    const store = {
+      findFirst: vi.fn(() => Promise.resolve(null)),
+    } as unknown as GeneralChatStoreService
+    const handler = new CampaignManagerHandler(
+      store,
+      {} as CampaignsService,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+    )
+    const previous = process.env.ANTHROPIC_API_KEY
+    process.env.ANTHROPIC_API_KEY = 'sk-test'
+    try {
+      const ctx = await handler.loadContext('missing', 1)
+      expect(ctx.webSearchEnabled).toBe(true)
+      expect(Object.keys(handler.buildTools(ctx))).toContain('web_search')
+    } finally {
+      if (previous === undefined) delete process.env.ANTHROPIC_API_KEY
+      else process.env.ANTHROPIC_API_KEY = previous
+    }
+  })
+
+  it('registers web_search from the context flag, not the env directly', () => {
+    const handler = buildBallotHandler(ELECTIONS)
+    expect(
+      Object.keys(handler.buildTools(ctxWith({ webSearchEnabled: true }))),
+    ).toContain('web_search')
+    expect(
+      Object.keys(handler.buildTools(ctxWith({ webSearchEnabled: false }))),
+    ).not.toContain('web_search')
+  })
+
+  it('registers get_ballot_requirements when the race resolved', () => {
+    const tools = buildBallotHandler(ELECTIONS).buildTools(
+      ctxWith({ raceId: 'br-hash-1' }),
+    )
+    expect(Object.keys(tools)).toContain('get_ballot_requirements')
+  })
+
+  it('leaves get_ballot_requirements dark without a race hash', () => {
+    const tools = buildBallotHandler(ELECTIONS).buildTools(
+      ctxWith({ raceId: null }),
+    )
+    expect(Object.keys(tools)).not.toContain('get_ballot_requirements')
+  })
+
+  it('leaves get_ballot_requirements dark without the elections service', () => {
+    const tools = buildBallotHandler(undefined).buildTools(
+      ctxWith({ raceId: 'br-hash-1' }),
+    )
+    expect(Object.keys(tools)).not.toContain('get_ballot_requirements')
+  })
+
+  const buildLoadContextHandler = (
+    organization: Organization | null,
+  ): CampaignManagerHandler => {
     const store = {
       findFirst: vi.fn(() =>
         Promise.resolve({ id: 'c1', organizationSlug: ORG.slug }),
@@ -259,42 +621,33 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
       client: {
         campaign: {
           findFirst: vi.fn(() =>
-            Promise.resolve({ id: 5, details: {}, user: null }),
+            Promise.resolve({ id: 5, details: {}, data: {}, user: null }),
           ),
         },
         campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
-        organization: { findFirst: vi.fn(() => Promise.resolve(ORG)) },
+        organization: {
+          findFirst: vi.fn(() => Promise.resolve(organization)),
+        },
       },
     } as unknown as CampaignsService
-    const features = {
-      isFeatureEnabled: vi.fn(({ feature }: { feature: string }) =>
-        Promise.resolve(enabledFlags.includes(feature)),
-      ),
-    } as unknown as FeaturesService
-    const handler = new CampaignManagerHandler(
+    return new CampaignManagerHandler(
       store,
       campaigns,
       {} as ChatStoreService,
       WIN_CONSTITUENT_TABLES,
       undefined,
       undefined,
-      features,
       undefined,
       buildContacts(),
       buildVoterFileFilters(),
     )
-    return { handler, features }
   }
 
-  it('loadContext enables the tools when win-crm is on', async () => {
-    const { handler, features } = buildLoadContextHandler(['win-crm'])
+  it('loadContext enables the CRM tools when contacts and an organization are present', async () => {
+    const handler = buildLoadContextHandler(ORG)
 
     const ctx = await handler.loadContext('c1', 7)
 
-    expect(features.isFeatureEnabled).toHaveBeenCalledWith({
-      user: 7,
-      feature: 'win-crm',
-    })
     expect(ctx.organization).toEqual(ORG)
     expect(ctx.crmToolsEnabled).toBe(true)
     expect(ctx.savedFilterToolsEnabled).toBe(true)
@@ -303,8 +656,8 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
     expect(toolNames).toContain('crud_saved_filters')
   })
 
-  it('loadContext leaves the tools off when win-crm is off', async () => {
-    const { handler } = buildLoadContextHandler([])
+  it('loadContext leaves the CRM tools off without a resolved organization', async () => {
+    const handler = buildLoadContextHandler(null)
 
     const ctx = await handler.loadContext('c1', 7)
 
@@ -396,7 +749,6 @@ describe('CampaignManagerHandler.resolveConversation — single ongoing thread',
       { findFirst } as unknown as CampaignsService,
       { appendMessage } as unknown as ChatStoreService,
       WIN_CONSTITUENT_TABLES,
-      undefined,
       undefined,
       undefined,
       { read } as unknown as CampaignStoryIntakeService,

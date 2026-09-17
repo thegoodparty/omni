@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
@@ -14,6 +15,7 @@ import {
   type SupportStatusRollup,
   type UpdateContactStatusInput,
   type VoterLikelihood,
+  type PeoplePrecinctsResponse,
 } from '@goodparty_org/contracts'
 import {
   ContactStatusField,
@@ -47,6 +49,10 @@ import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
 import { StatsService } from '@/peopleDb/services/stats.service'
 import {
+  EXCLUDABLE_VOTER_COLUMNS,
+  type ExcludableVoterColumn,
+} from '@/peopleDb/voter.select'
+import {
   AggregatesDTO,
   DownloadPeopleDTO,
   GetPersonQueryDTO,
@@ -56,7 +62,6 @@ import {
   StatsDTO,
 } from '@/peopleDb/schemas/people.schema'
 import {
-  PeopleAggregatesResponse,
   StatsResponse,
   VOTER_DATA_UNAVAILABLE_ERROR_CODE,
 } from '../contacts.types'
@@ -91,17 +96,37 @@ const ALL_CONTACTS_SEGMENT = 'all'
 
 // The pro gate message shared by every filter-resolution path. Exported so
 // the assistant's count_contacts tool can recognize the rejection and suggest
-// the Pro upgrade without restating the string.
+// the Pro upgrade without restating the string. Every pro gate throws
+// ForbiddenException (403), not BadRequestException: the request is well
+// formed and the org simply isn't entitled. That started as an alerting fix —
+// the route error-count rules counted 400 and excluded 403, so one free-tier
+// user hitting the gate paged the on-call — and the rules now exclude 400 too,
+// so the reason to keep it is the plain one: 403 is what "not entitled" means.
 export const PRO_FILTERING_REQUIRED_MESSAGE =
   'Filtering voter data is only available for pro campaigns'
 
-// Mirrors people-api's EXCLUDABLE_VOTER_COLUMNS entries (people.select.ts).
-// The CSV download is a Postgres COPY stream gp-api cannot post-process, so
-// an `eo-` org's download asks people-api to drop this column from the
-// projection instead (ENG-10696). downloadVoterFilePeople (the separate
-// outreach/task-flow audience download) still only excludes party — this
-// list is scoped to the CRM download (downloadContacts) below (ENG-10830).
+// The CSV download is a Postgres COPY stream gp-api cannot post-process, so an
+// `eo-` org's download drops this column from the projection instead
+// (ENG-10696). Only downloadVoterFilePeople (the separate outreach/task-flow
+// audience download) uses it alone; the CRM download excludes the wider
+// SERVE_EXCLUDED_DOWNLOAD_COLUMNS set below (ENG-10830).
 const PARTY_DOWNLOAD_COLUMN = 'Parties_Description'
+
+// The recommended-list dimensions a Serve org may not filter on. Keep in
+// step with the `modes: 'win'` marks in filterDimensions.catalog.ts — the
+// catalog hides them from the assistant, this rejects them at the routes.
+const WIN_ONLY_RECOMMENDED_FILTER_KEYS = [
+  'independentAffinity',
+  'ideology',
+] as const
+
+const RECOMMENDED_FILTER_LABELS: Record<
+  (typeof WIN_ONLY_RECOMMENDED_FILTER_KEYS)[number],
+  string
+> = {
+  independentAffinity: 'Independent affinity',
+  ideology: 'Ideology',
+}
 
 // people-api's Voter_Status vocabulary and the editable voter-likelihood
 // vocabulary (ENG-10833) are one-to-one.
@@ -177,22 +202,13 @@ const extractContactsMadeSelection = (
 
 // Serve (`eo-`) CRM downloads must omit these columns entirely — a blank
 // column still reveals the field exists (ENG-10830). Party (completing
-// ENG-10696), turnout propensity, and vote history.
-const SERVE_EXCLUDED_DOWNLOAD_COLUMNS = [
-  PARTY_DOWNLOAD_COLUMN,
-  'Residence_HHParties_Description',
-  'VoterParties_Change_Changed_Party',
-  'VotingPerformanceEvenYearGeneral',
-  'VotingPerformanceEvenYearPrimary',
-  'VotingPerformanceEvenYearGeneralAndPrimary',
-  'General_2026',
-  'General_2024',
-  'General_2022',
-  'General_2020',
-  'Primary_2026',
-  'Primary_2024',
-  'Primary_2022',
-  'Primary_2020',
+// ENG-10696), turnout propensity, and vote history. `EXCLUDABLE_VOTER_COLUMNS`
+// already enumerates exactly that set and is type-pinned to real
+// `DOWNLOAD_COLUMNS` entries, so this reads it rather than restating it. A
+// hand-maintained copy silently omitted every column added to the download
+// after ENG-10830 (DATA-2281).
+const SERVE_EXCLUDED_DOWNLOAD_COLUMNS: ExcludableVoterColumn[] = [
+  ...EXCLUDABLE_VOTER_COLUMNS,
 ]
 
 // What the shared filter resolution actually consumes: the request DTO, a
@@ -292,6 +308,29 @@ export class ContactsService {
     if (this.hasPartyFilterForElectedOffice(organization, filters)) {
       throw new BadRequestException(
         'Political party filtering is not available for this organization',
+      )
+    }
+  }
+
+  // The recommended-list dimensions are a Win product surface: affinity and
+  // ideology both describe how someone votes in a contested election, which
+  // has no meaning for an office holder who serves everyone in the district.
+  // Gated the same way party is — both keys reach the converted
+  // FilterObject, so the key check mirrors the party one exactly. This is a
+  // permanent PRODUCT rule, independent of which webapp surfaces render the
+  // groups at all. hasAnyPhone is deliberately NOT here —
+  // plain contactability, and Serve runs phone banking and robocall too.
+  private assertNoRecommendedListFilterForElectedOffice(
+    organization: Organization,
+    filters: FilterObject,
+  ): void {
+    if (!this.hasElectedOfficeAccess(organization)) return
+    const blocked = WIN_ONLY_RECOMMENDED_FILTER_KEYS.find(
+      (key) => key in filters,
+    )
+    if (blocked) {
+      throw new BadRequestException(
+        `${RECOMMENDED_FILTER_LABELS[blocked]} filtering is not available for this organization`,
       )
     }
   }
@@ -407,6 +446,10 @@ export class ContactsService {
   ): Promise<{ filters: FilterObject; idOverrides?: IdOverrides }> {
     const baseFilters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+    this.assertNoRecommendedListFilterForElectedOffice(
+      organization,
+      baseFilters,
+    )
     this.assertNoContactsMadeFilterForElectedOffice(organization, filterInput)
     return this.resolveVoterLikelihoodFilter(organization, baseFilters)
   }
@@ -529,7 +572,7 @@ export class ContactsService {
   // off an individual person but, unlike findPerson, never call people-api.
   async assertProAccess(organization: Organization): Promise<void> {
     if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException(
+      throw new ForbiddenException(
         'This feature is only available for pro campaigns',
       )
     }
@@ -619,7 +662,7 @@ export class ContactsService {
       !!search || (segment !== undefined && segment !== ALL_CONTACTS_SEGMENT)
     const isPro = proAccess ?? (await this.isProAccess(organization))
     if (wantsProOnlyView && !isPro) {
-      throw new BadRequestException(
+      throw new ForbiddenException(
         'Search and segments are only available for pro campaigns',
       )
     }
@@ -668,6 +711,7 @@ export class ContactsService {
     const { filters, empty, idOverrides, contactsMadeIdOverrides } =
       await this.segmentToFilters(segment, organization)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     // A list saved from a search result set persists its search term. When the
     // request itself carries no live search, re-apply the saved list's stored
@@ -718,12 +762,27 @@ export class ContactsService {
   // saved segment would and reads only the people-api total — resultsPerPage: 1
   // so no real rows are loaded. Pro-gated like search/named segments: a non-pro
   // requester only ever sees the base-list preview, never an arbitrary count.
+  // Available to Win and Serve alike. Precinct is an administrative
+  // subdivision of the same district an official already serves, not a
+  // campaign-only construct: a councilmember organizing a constituent
+  // mailing by precinct is doing ordinary district work, and every other
+  // list-building surface offers it.
+  async getPrecincts(
+    organization: Organization,
+  ): Promise<PeoplePrecinctsResponse> {
+    await this.assertProAccess(organization)
+
+    return this.withOrgDistrictResolution(organization, ({ districtId }) =>
+      this.voterQueryService.findPrecincts(districtId),
+    )
+  }
+
   async countContacts(
     filterInput: CountContactsDTO,
     organization: Organization,
   ): Promise<{ count: number }> {
     if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
 
     const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
@@ -775,7 +834,7 @@ export class ContactsService {
     organization: Organization,
   ): Promise<{ count: number }> {
     if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
 
     const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
@@ -823,8 +882,10 @@ export class ContactsService {
   // activity-condition/support-status parts resolve to a person-id set
   // exactly as the live count does, so activity-based saved lists
   // participate correctly. Capped at the org's most-recently-saved
-  // MAX_OVERLAP_SAVED_FILTER_SETS lists (small N per org — the lists index is
-  // an accepted N+1 today); truncation is logged, never a silent cap. A
+  // MAX_OVERLAP_SAVED_FILTER_SETS lists (small N per org — do NOT justify that
+  // premise with the lists index: its per-row N+1 was a real defect that 504'd
+  // prod and is now capped client-side); truncation is logged, never a silent
+  // cap. A
   // saved list whose resolution is empty (matches nobody, e.g. a
   // now-orphaned activity condition) contributes nothing to the OR, so it's
   // dropped rather than sent as a meaningless filter set.
@@ -944,7 +1005,7 @@ export class ContactsService {
     excludePersonIds?: Set<string>,
   ): Promise<PeopleListResponse> {
     if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
 
     const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
@@ -994,15 +1055,14 @@ export class ContactsService {
   // Demographics + reachable-by-channel counts + outreach history for a
   // saved list's detail page (ENG-10706). Unlike countContacts (an unsaved,
   // in-progress filter set), segment here is always a persisted
-  // VoterFileFilter id, so a cross-org/unknown id 404s instead of silently
-  // falling back to "no filter" the way the segmentToFilters seam does for
-  // the list/count/download paths.
+  // VoterFileFilter id, so a cross-org/unknown id 404s — the same way
+  // resolveCustomSegment now does for the list/download paths.
   async getListDetail(
     { segment }: ListDetailContactsDTO,
     organization: Organization,
   ): Promise<ListDetailContactsResponse> {
     if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
 
     // No segment = the universe row's detail (ENG-10778): the whole
@@ -1065,11 +1125,9 @@ export class ContactsService {
 
   // Demographics + reachable-by-channel aggregates shared by a saved list's
   // detail and the universe detail (ENG-10778 made the latter a second
-  // caller): one base count plus three channel-restricted counts. The four
-  // calls settle independently (ENG-10806) — a saved list's demographics and
-  // most reachability tiles shouldn't all flip to "Unavailable" because one
-  // aggregate query failed. Only the base call is load-bearing: there's
-  // nothing to show without it, so its rejection still fails the whole route.
+  // caller). One call, and on Databricks one statement: the channel counts
+  // are conditional aggregates over the same scan as the demographics, so
+  // this endpoint no longer fans out five statements per request.
   private async fetchListDetailAggregates(
     organization: Organization,
     baseFilters: FilterObject,
@@ -1078,105 +1136,40 @@ export class ContactsService {
   ): Promise<
     Pick<ListDetailContactsResponse, 'demographics' | 'reachability'>
   > {
-    const [base, cellphone, landline, address] =
-      await this.withOrgDistrictResolution(
-        organization,
-        async (districtParams) => {
-          // Resolve the load-bearing base tile FIRST, before firing the three
-          // channel scans. All four aggregates run the same DistrictVoter->Voter
-          // membership scan (they differ only by an extra has-phone/has-address
-          // predicate), and only `base` is load-bearing — a rejected base throws
-          // below regardless. Under the people-db statement-timeout incidents a
-          // failing list-detail otherwise launches 4 concurrent scans (x2 with
-          // the fenced retry), 3 of which are pure collateral load the moment
-          // base fails and can't render anything. Gating the channels on base
-          // keeps a failing request to a single scan family instead of amplifying
-          // the exact overload that's tripping the timeout. Healthy path is
-          // unchanged: base resolves fast, then the three channels still settle
-          // INDEPENDENTLY (ENG-10806) so one slow channel can't blank the others.
-          const [baseResult] = await Promise.allSettled([
-            this.fetchPeopleAggregates(
-              districtParams,
-              baseFilters,
-              idOverrides,
-              contactsMadeIdOverrides,
-            ),
-          ])
-          if (baseResult.status === 'rejected') {
-            // Reuse the rejected base as the channel placeholders: the route
-            // throws on base below before any channel value is read.
-            return [baseResult, baseResult, baseResult, baseResult] as const
-          }
-          const channels = await Promise.allSettled([
-            this.fetchPeopleAggregates(
-              districtParams,
-              { ...baseFilters, hasCellPhone: true },
-              idOverrides,
-              contactsMadeIdOverrides,
-            ),
-            // phoneBanking mirrors the built-in channel map
-            // (segmentsToFiltersMap.const.ts): it dials landlines, not cell
-            // phones — the legacy raw-SQL export's phoneBanking population is
-            // landline-only.
-            this.fetchPeopleAggregates(
-              districtParams,
-              { ...baseFilters, hasLandline: true },
-              idOverrides,
-              contactsMadeIdOverrides,
-            ),
-            this.fetchPeopleAggregates(
-              districtParams,
-              { ...baseFilters, hasAddress: true },
-              idOverrides,
-              contactsMadeIdOverrides,
-            ),
-          ])
-          return [baseResult, ...channels] as const
-        },
-      )
-
-    if (base.status === 'rejected') {
-      throw base.reason
-    }
-    const cellphoneValue =
-      cellphone.status === 'fulfilled' ? cellphone.value : null
-    const landlineValue =
-      landline.status === 'fulfilled' ? landline.value : null
-    const addressValue = address.status === 'fulfilled' ? address.value : null
+    const aggregates = await this.withOrgDistrictResolution(
+      organization,
+      (districtParams) =>
+        this.voterQueryService.getListDetailAggregates(
+          AggregatesDTO.create({
+            ...districtParams,
+            filters: baseFilters,
+            idOverrides,
+            contactsMadeIdOverrides,
+          }),
+        ),
+    )
 
     return {
       demographics: {
-        people: base.value.count,
-        avgAge: base.value.avgAge,
-        avgIncome: base.value.avgIncome,
+        people: aggregates.count,
+        avgAge: aggregates.avgAge,
+        avgIncome: aggregates.avgIncome,
       },
       reachability: {
-        sms: cellphoneValue?.count ?? null,
+        sms: aggregates.sms,
         // Robocall/telemarketing reach landlines, not cell phones (mirrors
         // TYPE_OVERRIDES in voterFilePeopleFilter.util.ts).
-        robocall: landlineValue?.count ?? null,
-        phoneBanking: landlineValue?.count ?? null,
-        doorKnocking: addressValue?.count ?? null,
+        robocall: aggregates.robocall,
+        // phoneBanking (ENG-10914): reachable by any phone, cell or landline
+        // — the list builder freezes any phone, cell first, so this count
+        // must agree with the built list rather than the landline-only
+        // legacy raw-SQL export population.
+        phoneBanking: aggregates.phoneBanking,
+        doorKnocking: aggregates.doorKnocking,
         // Polls are delivered by text, so reachability mirrors sms 1:1.
-        polls: cellphoneValue?.count ?? null,
+        polls: aggregates.sms,
       },
     }
-  }
-
-  private fetchPeopleAggregates(
-    districtParams: { districtId: string },
-    filters: FilterObject,
-    idOverrides?: IdOverrides,
-    contactsMadeIdOverrides?: IdOverrides,
-  ): Promise<PeopleAggregatesResponse> {
-    return this.voterQueryService.getAggregates(
-      AggregatesDTO.create({
-        ...districtParams,
-        filters,
-        idOverrides,
-        contactsMadeIdOverrides,
-      }),
-    )
   }
 
   async sampleContacts(dto: SampleContacts, organization: Organization) {
@@ -1220,7 +1213,7 @@ export class ContactsService {
     // search/segments so a direct call can't read real person detail without
     // pro.
     if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException(
+      throw new ForbiddenException(
         'Viewing contact details is only available for pro campaigns',
       )
     }
@@ -1386,12 +1379,13 @@ export class ContactsService {
     organization: Organization,
   ) {
     if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException('Campaign is not pro')
+      throw new ForbiddenException('Campaign is not pro')
     }
 
     const { filters, empty, idOverrides, contactsMadeIdOverrides } =
       await this.segmentToFilters(segment, organization)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     const excludeColumns = this.hasElectedOfficeAccess(organization)
       ? SERVE_EXCLUDED_DOWNLOAD_COLUMNS
@@ -1417,7 +1411,7 @@ export class ContactsService {
     idOverrides: IdOverrides | undefined,
     contactsMadeIdOverrides: IdOverrides | undefined,
     groupByHousehold: boolean,
-    excludeColumns: string[] | undefined,
+    excludeColumns: ExcludableVoterColumn[] | undefined,
     res: FastifyReply,
   ): Promise<void> {
     const gpDownloadCookie =
@@ -1454,6 +1448,7 @@ export class ContactsService {
   ): Promise<number> {
     const filters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
 
     return this.withOrgDistrictResolution(
       organization,
@@ -1480,6 +1475,7 @@ export class ContactsService {
   ): Promise<void> {
     const filters = convertVoterFileFilterToFilters(filterInput)
     this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
 
     return this.withOrgDistrictResolution(organization, (params) =>
       this.streamPeopleDownload(
@@ -1549,7 +1545,22 @@ export class ContactsService {
   }
 
   async fetchStatsByDistrictId(districtId: string): Promise<StatsResponse> {
-    return this.peopleStatsService.getStats(StatsDTO.create({ districtId }))
+    const stats = await this.peopleStatsService.findStats(
+      StatsDTO.create({ districtId }),
+    )
+
+    // A district with no stats row is the same user-facing state as an org
+    // that can't resolve a district at all: we have no constituent data for
+    // this office. Callers branch on the error code, so both must carry it —
+    // a bare 404 here read as "unknown route" and fell through every gate.
+    if (!stats) {
+      throw new BadRequestException({
+        message: `District stats not available for districtId=${districtId}`,
+        errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE,
+      })
+    }
+
+    return stats
   }
 
   // Built-in segments never carry activity conditions or a support-status
@@ -1570,12 +1581,10 @@ export class ContactsService {
     const builtInFilters = this.resolveBuiltInSegment(resolvedSegment)
     if (builtInFilters) return { filters: builtInFilters, empty: false }
 
-    const customSegment =
-      await this.voterFileFilterService.findByIdAndOrganizationSlug(
-        parseInt(resolvedSegment),
-        organization.slug,
-      )
-    if (!customSegment) return { filters: {}, empty: false }
+    const customSegment = await this.resolveCustomSegment(
+      resolvedSegment,
+      organization,
+    )
     this.assertNoContactsMadeFilterForElectedOffice(organization, customSegment)
 
     const { filters: baseFilters, idOverrides } =
@@ -1666,13 +1675,38 @@ export class ContactsService {
     const resolvedSegment = segment || ALL_CONTACTS_SEGMENT
     if (this.resolveBuiltInSegment(resolvedSegment)) return undefined
 
-    const customSegment =
-      await this.voterFileFilterService.findByIdAndOrganizationSlug(
-        parseInt(resolvedSegment),
-        organization.slug,
-      )
+    const customSegment = await this.resolveCustomSegment(
+      resolvedSegment,
+      organization,
+    )
 
-    return customSegment?.search ?? undefined
+    return customSegment.search ?? undefined
+  }
+
+  // A segment that is neither a built-in name nor a saved list this org owns is
+  // a bad reference, not "no filter". Resolving it to an empty FilterObject
+  // meant a typo'd, deleted or cross-org id served — and let the CSV export
+  // stream — the org's entire district, with a 200. getListDetail has always
+  // thrown here; the list/download paths now agree with it.
+  //
+  // Number() rather than parseInt(): parseInt('12abc') is 12, so a malformed
+  // segment used to resolve whichever list carried that numeric prefix.
+  private async resolveCustomSegment(
+    resolvedSegment: string,
+    organization: Organization,
+  ): Promise<VoterFileFilter> {
+    const segmentId = Number(resolvedSegment)
+    const customSegment = Number.isInteger(segmentId)
+      ? await this.voterFileFilterService.findByIdAndOrganizationSlug(
+          segmentId,
+          organization.slug,
+        )
+      : null
+
+    if (!customSegment) {
+      throw new NotFoundException('List not found')
+    }
+    return customSegment
   }
 
   // Only the built-in door-knocking channel de-dupes by household; custom and

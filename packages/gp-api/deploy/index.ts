@@ -7,6 +7,7 @@ import { createAssetsRouter } from './components/assets-router'
 import { createGrafanaResources } from './components/grafana'
 import { createMeetingPipelineBucket } from './components/meeting-pipeline-bucket'
 import { createPreviewSharedCluster } from './components/preview-shared-cluster'
+import { createRobocallAudioBucket } from './components/robocall-audio-bucket'
 import { createService } from './components/service'
 import { createVpc } from './components/vpc'
 
@@ -131,17 +132,25 @@ export = async () => {
       ? 'campaign-plan-shares-dev'
       : createCampaignPlanSharesBucket({ environment }).bucket.bucket
 
+  // Private bucket for recorded/uploaded robocall audio. Browser uploads via
+  // presigned POST; gp-api task role reads back for delivery. Preview shares
+  // the dev bucket — no per-PR bucket.
+  const robocallAudioBucketName =
+    environment === 'preview'
+      ? 'robocall-audio-dev'
+      : createRobocallAudioBucket({ environment }).bucket.bucket
+
   // Private bucket for user-supplied inputs to agent experiment runs (first
   // use: agenda packets uploaded from /briefings). Browser PUTs via presigned
   // URL; the broker reads on the runner's behalf via /inputs/read. Created
-  // and owned by gp-ai-projects Terraform (modules/agent-run-inputs); gp-api
+  // and owned by gp-ai Terraform (modules/agent-run-inputs); gp-api
   // references by name only. Preview environments share the dev bucket.
   const agentRunInputsBucketName = `gp-agent-run-inputs-${
     environment === 'preview' ? 'dev' : environment
   }`
 
   // Agent experiment RESULT artifacts. Written by the external agent runner
-  // (gp-ai-projects); gp-api reads them back in
+  // (gp-ai); gp-api reads them back in
   // CampaignStrategyService.onExperimentRunCompleted (e.g. the campaign
   // tracker's dynamic tasks) via s3.getFile. gp-api references by name only;
   // preview shares the dev bucket. Without the read grant below the SQS
@@ -369,6 +378,7 @@ export = async () => {
     zipToAreaCodeBucket.bucket,
     annotationAttachmentsBucketName,
     campaignPlanSharesBucketName,
+    robocallAudioBucketName,
     agentRunInputsBucketName,
     meetingPipelineBucketName,
     serveAnalysisBucketName,
@@ -385,7 +395,7 @@ export = async () => {
 
   // Buckets gp-api only reads (externally written), granted GetObject/ListBucket
   // but not write/delete. The agent-artifacts bucket is written by the agent
-  // runner (gp-ai-projects); gp-api only reads results in
+  // runner (gp-ai); gp-api only reads results in
   // onExperimentRunCompleted.
   const taskRoleReadOnlyBucketNames: pulumi.Input<string>[] = [
     agentArtifactsBucketName,
@@ -508,6 +518,7 @@ export = async () => {
       ZIP_TO_AREA_CODE_BUCKET: zipToAreaCodeBucket.bucket,
       ANNOTATION_ATTACHMENTS_BUCKET: annotationAttachmentsBucketName,
       CAMPAIGN_PLAN_SHARES_BUCKET: campaignPlanSharesBucketName,
+      ROBOCALL_AUDIO_BUCKET: robocallAudioBucketName,
       API_PUBLIC_ROOT_URL: `https://${domain}`,
       AGENT_RUN_INPUTS_BUCKET: agentRunInputsBucketName,
       PEOPLE_DB_SSM_PARAM: peopleDbParameterName,
@@ -586,6 +597,18 @@ export = async () => {
           'ssmmessages:OpenControlChannel',
           'ssmmessages:CreateDataChannel',
           'ssmmessages:CreateControlChannel',
+        ],
+        Resource: ['*'],
+      },
+      {
+        // Robocall compliance transcribes the recorded audio (batch Transcribe
+        // reads the clip from + writes the transcript to ROBOCALL_AUDIO_BUCKET,
+        // already covered by the S3 statements above). Transcribe job actions
+        // don't support resource scoping, so they're account-wide.
+        Effect: 'Allow',
+        Action: [
+          'transcribe:StartTranscriptionJob',
+          'transcribe:GetTranscriptionJob',
         ],
         Resource: ['*'],
       },

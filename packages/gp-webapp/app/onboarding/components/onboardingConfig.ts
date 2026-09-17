@@ -1,3 +1,4 @@
+import { BallotReadyPositionLevelSchema } from '@goodparty_org/contracts'
 import type { OnboardingStepConfig, NonEmptyArray } from './onboardingTypes'
 
 // Shared "Why we ask" aside copy for all three story steps (rendered in the
@@ -61,7 +62,11 @@ export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
           f.city &&
           f.officeTermLength &&
           validTermLengths.includes(f.officeTermLength) &&
-          f.electionDate
+          f.electionDate &&
+          // details.ballotLevel is enum-validated server-side, and 10DLC
+          // compliance derives the office level from it (ENG-11043) — an
+          // unset level must block Continue, not persist as missing.
+          BallotReadyPositionLevelSchema.safeParse(f.level).success
         )
       ) {
         return false
@@ -118,6 +123,17 @@ export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
       'We use each priority to draft targeted outreach and shape your campaign plan. Add as many as matter to you. You can always edit or remove them later.',
     isValid: () => true,
   },
+  // The candidate's primary reason for signing up, asked last so it never
+  // stands between them and the plan. Skippable: Continue needs a selection,
+  // Skip is the way past it unanswered — see OnboardingFlow's advanceSignupGoal.
+  {
+    id: 'signup-goal',
+    title: 'What do you most want help with?',
+    description: 'Pick the one that matters most right now.',
+    whyThisMatters:
+      'We use this to decide what to put in front of you first, so your dashboard opens on the thing you came here for.',
+    isValid: ({ answers }) => Boolean(answers.signupGoal),
+  },
   {
     id: 'pledge',
     title: 'Take our pledge to get your campaign plan',
@@ -128,10 +144,10 @@ export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
 
 export const firstOnboardingStepId = ONBOARDING_STEPS[0].id
 
-// The three Campaign Story steps, in order. Grouped so the flag-gated injection,
-// the follow-on filter, and OnboardingFlow's per-step branching all agree on
-// what counts as a story step. `campaign-story-issues` is the final one (its
-// Continue persists all three answers).
+// The three Campaign Story steps, in order. Grouped so the follow-on filter
+// and OnboardingFlow's per-step branching all agree on what counts as a story
+// step. `campaign-story-issues` is the final one (its Continue persists all
+// three answers).
 export const STORY_STEP_IDS = [
   'campaign-story-why',
   'campaign-story-background',

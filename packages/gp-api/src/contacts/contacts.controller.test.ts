@@ -1,5 +1,6 @@
 import { useTestService } from '@/test-service'
 import { ContactsService } from '@/contacts/services/contacts.service'
+import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from '@/contacts/contacts.types'
 import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -222,5 +223,93 @@ describe('GET /v1/contacts authz', () => {
       expect.anything(),
       expect.objectContaining({ slug: WIN_SLUG }),
     )
+  })
+})
+
+describe('GET /v1/contacts/precincts', () => {
+  const PRECINCTS = {
+    options: [
+      { county: 'ORANGE', precinct: '711', voters: 1204 },
+      { county: 'ORANGE', precinct: '', voters: 37 },
+    ],
+    truncated: false,
+  }
+
+  it('returns the district option list for a pro Win campaign', async () => {
+    await seedOrgWithCampaign({
+      slug: 'campaign-precinct',
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    // Mocked at the service boundary like every other happy-path test here:
+    // the real getPrecincts resolves the org's district through election-api,
+    // which is not reachable from the harness. The gate tests below exercise
+    // the real service.
+    const spy = vi
+      .spyOn(service.app.get(ContactsService), 'getPrecincts')
+      .mockResolvedValue(PRECINCTS)
+
+    const result = await service.client.get('/v1/contacts/precincts', {
+      headers: { [ORG_SLUG_HEADER]: 'campaign-precinct' },
+    })
+    spy.mockRestore()
+
+    expect(result.status).toBe(200)
+    expect(result.data).toEqual(PRECINCTS)
+  })
+
+  // Nest matches routes in declaration order, so `precincts` has to be
+  // declared before `@Get(':id')` or the param route swallows it and the
+  // request 404s as a person lookup.
+  it('is not swallowed by the person-detail param route', async () => {
+    await seedOrgWithCampaign({
+      slug: 'campaign-precinct-order',
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    const spy = vi
+      .spyOn(service.app.get(ContactsService), 'getPrecincts')
+      .mockResolvedValue(PRECINCTS)
+
+    await service.client.get('/v1/contacts/precincts', {
+      headers: { [ORG_SLUG_HEADER]: 'campaign-precinct-order' },
+    })
+    const called = spy.mock.calls.length
+    spy.mockRestore()
+
+    expect(called).toBeGreaterThan(0)
+  })
+
+  // Precinct is offered to Serve as well as Win, so an `eo-` org must reach
+  // district resolution rather than being turned away for being one. Asserted
+  // on the district error code: a reinstated elected-office gate would refuse
+  // before that point and the code would be absent.
+  it('lets an elected-office org through to district resolution', async () => {
+    await service.prisma.organization.create({
+      data: { slug: 'eo-precinct', ownerId: service.user.id },
+    })
+
+    const result = await service.client.get('/v1/contacts/precincts', {
+      headers: { [ORG_SLUG_HEADER]: 'eo-precinct' },
+    })
+
+    expect(result.status).toBe(400)
+    expect((result.data as { errorCode?: string }).errorCode).toBe(
+      VOTER_DATA_UNAVAILABLE_ERROR_CODE,
+    )
+  })
+
+  it('rejects a non-pro Win campaign', async () => {
+    await seedOrgWithCampaign({
+      slug: 'campaign-precinct-free',
+      ownerId: service.user.id,
+      isPro: false,
+    })
+
+    const result = await service.client.get('/v1/contacts/precincts', {
+      headers: { [ORG_SLUG_HEADER]: 'campaign-precinct-free' },
+    })
+
+    expect(result.status).toBe(403)
   })
 })

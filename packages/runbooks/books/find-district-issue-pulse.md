@@ -14,7 +14,7 @@ This is the source runbook — it captures the human-runnable version of the wor
 The voter file lives at `goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq`. Three rules that bite people every time:
 
 1. `Voters_Active = 'A'` (string, not int)
-2. `hs_*` columns are CONTINUOUS 0-100 SCORES regardless of name suffix (`_yes`, `_treat`, `_oppose`, etc.). Threshold with `>= 50` (at or above the state median). Scores are within-state percentile ranks (mean ~50, SD ~29, verified on `int__l2_nationwide_uniform_w_haystaq` 2026-08-04): a voter scoring 60 is more aligned than ~60% of voters in their state, one scoring 50 sits at the state median, and one scoring 35 ranks below ~65% of the state. A score is not a percentage, not an observed survey answer, and not a comparison across states (each state is ranked within itself). A low score is a lean away from the labeled stance relative to the state, not evidence of the opposite stance — negative classes often mix opponents with unsure respondents, so use the `_oppose`-style twin where one exists. A district average near 50, or ~50% of voters clearing a `>= 50` threshold, means "typical for the state" — NOT a 50/50 opinion split and NOT absolute issue support. Report leans as deviation from the state average, never as "X% of voters support Y". Two exceptions: `hs_new_home_buyer`/`hs_any_home_buyer` are propensity models trained on actual 2024 buyers, not survey-stance ranks — they sit at a ~60 baseline in every state, the percentile reading and `>= 50`/`>= 70` thresholds do not apply, and leans read as deviation from 60 (a district average of 55 leans below the state; the experiment instruction excludes the pair from sentiment entirely); and ~106 columns exist in only some states (two vendor vintages: a 12-state set and a 39-state set) — they are null elsewhere, so an all-null or 0%-aligned result can mean no coverage in that state, not opposition.
+2. `hs_*` columns are CONTINUOUS 0-100 SCORES regardless of name suffix (`_yes`, `_treat`, `_oppose`, etc.). Threshold with `>= 50` (at or above the state median). Scores are within-state percentile ranks (mean ~50, SD ~29, verified on `int__l2_nationwide_uniform_w_haystaq` 2026-08-04, coverage re-verified 2026-08-14): a voter scoring 60 is more aligned than ~60% of voters in their state, one scoring 50 sits at the state median, and one scoring 35 ranks below ~65% of the state. A score is not a percentage, not an observed survey answer, and not a comparison across states (each state is ranked within itself). A low score is a lean away from the labeled stance relative to the state, not evidence of the opposite stance — negative classes often mix opponents with unsure respondents, so use the `_oppose`-style twin where one exists. A district average near 50, or ~50% of voters clearing a `>= 50` threshold, means "typical for the state" — NOT a 50/50 opinion split and NOT absolute issue support. Report leans as deviation from the state average, never as "X% of voters support Y". Two exceptions: `hs_new_home_buyer`/`hs_any_home_buyer` are propensity models trained on actual 2024 buyers, not survey-stance ranks — they sit at a ~60 baseline in every state, the percentile reading and `>= 50`/`>= 70` thresholds do not apply, and leans read as deviation from 60 (a district average of 55 leans below the state; the experiment instruction excludes the pair from sentiment entirely); and ~51 columns exist only in the 12-state December 2025 delivery — they are null elsewhere, so an all-null or 0%-aligned result can mean no coverage in that state, not opposition. Separately, even covered columns carry nulls: voters registered after the vendor's spring snapshot are unscored everywhere, and Texas (~72% scored) and Utah (~82%) trail every other state (90%+) on the nationwide columns (those outside the 12-state December 2025 set; vendor-side) — read nulls as unscored voters, not errors or opposition.
 3. The L2 district column is the VALUE of `PARAMS.l2DistrictType` (e.g. `City_Ward`), and the value to match is `PARAMS.l2DistrictName` (e.g. `FAYETTEVILLE CITY WARD 2`). Confirm the district exists in the canonical election-api table before you query — guessed names match zero rows and you measure the whole city by accident.
 
 ## Steps
@@ -71,8 +71,8 @@ cd scripts/python
 uv run python databricks_query.py "
 SELECT
   AVG(hs_dei_support) AS dei_avg, MAX(hs_dei_support) AS dei_max,
-  AVG(hs_violent_crime_very_worried) AS vc_avg, MAX(hs_violent_crime_very_worried) AS vc_max,
-  AVG(hs_min_wage_15_increase_support) AS mw_avg, MAX(hs_min_wage_15_increase_support) AS mw_max
+  AVG(hs_violent_crime_worried) AS vc_avg, MAX(hs_violent_crime_worried) AS vc_max,
+  AVG(hs_tax_cuts_support) AS tc_avg, MAX(hs_tax_cuts_support) AS tc_max
 FROM goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq
 WHERE Residence_Addresses_State = '$STATE'
   AND Residence_Addresses_City = '$CITY'
@@ -90,12 +90,7 @@ One query, all candidates at once. Replace the candidate list with whatever you 
 ```bash
 CANDIDATES=(
   hs_dei_support
-  hs_violent_crime_very_worried
-  hs_conspiracy_believer
-  hs_united_healthcare_at_fault
-  hs_min_wage_15_increase_support
-  hs_opioid_crisis_treat
-  hs_social_security_tax_increase_support
+  hs_right_wing_conspiracy_believer
   hs_infrastructure_funding_fund_more
   hs_police_trust_yes
   hs_trump_ukraine_policy_oppose
@@ -125,10 +120,10 @@ This returns one row: total active voters + per-issue counts. Sort the per-issue
 
 ### 5. Pull one news source per top issue
 
-For each of the top 5 columns, do a Google search and pick the most recent local news result. The `_oppose` and `_support` suffixes carry stance — strip them when forming the query (e.g. `hs_min_wage_15_increase_support` → "minimum wage 15 increase").
+For each of the top 5 columns, do a Google search and pick the most recent local news result. The `_oppose` and `_support` suffixes carry stance — strip them when forming the query (e.g. `hs_tax_cuts_support` → "tax cuts").
 
 ```bash
-for ISSUE in "Min Wage 15 Increase" "Violent Crime" "DEI"; do
+for ISSUE in "Tax Cuts" "Violent Crime" "DEI"; do
   echo "=== $ISSUE ==="
   curl -s "https://www.google.com/search?q=$(echo "$CITY $STATE $ISSUE 2026" | sed 's/ /+/g')" \
     -A "Mozilla/5.0" | grep -oE 'https?://[^"]+' | grep -v google | head -3

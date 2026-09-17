@@ -186,7 +186,10 @@ export const deriveComplianceStage = (
   domain: Pick<Domain, 'status' | 'registrantVerifiedAt' | 'createdAt'> | null,
   tcrCompliance: Pick<
     TcrCompliance,
-    'status' | 'internalTestingApprovedAt'
+    | 'status'
+    | 'internalTestingApprovedAt'
+    | 'peerlyIdentityId'
+    | 'cvValidationFailedAt'
   > | null,
 ): ComplianceStage => {
   if (!tcrCompliance) {
@@ -237,6 +240,20 @@ export const deriveComplianceStage = (
   }
   if (tcrCompliance.status === TcrComplianceStatus.pending) {
     return ComplianceStage.tcr_in_review
+  }
+
+  // Everything below is TCR status `submitted` with a live site. That covers
+  // both "not submitted to Peerly yet" and "submitted, PIN outstanding", which
+  // this function used to collapse into `awaiting_pin` — so a record the CV
+  // pre-submission gate is holding, or one whose agent run died before any
+  // Peerly call, reported an outstanding PIN that was never issued (ENG-11018).
+  // `peerlyIdentityId` is the discriminator: it is written only by a completed
+  // Peerly submission.
+  if (tcrCompliance.cvValidationFailedAt) {
+    return ComplianceStage.filing_review_hold
+  }
+  if (!tcrCompliance.peerlyIdentityId) {
+    return ComplianceStage.ready_to_submit
   }
 
   return ComplianceStage.awaiting_pin

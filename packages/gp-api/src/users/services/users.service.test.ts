@@ -1,4 +1,5 @@
 import { useTestService } from '@/test-service'
+import { randomUUID } from 'crypto'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { ClerkClient } from '@clerk/backend'
 import {
@@ -14,6 +15,7 @@ import {
 } from './users.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { CrmUsersService } from './crmUsers.service'
+import { UserAvatarService } from './userAvatar.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { UserRole } from '../../generated/prisma'
 import { subDays } from 'date-fns'
@@ -148,6 +150,66 @@ describe('UsersService', () => {
         'cs_new',
       )
       expect(swapped).toBe(false)
+    })
+  })
+
+  describe('setCustomerIdIfAbsent', () => {
+    it('sets the customerId when meta_data is null (COALESCE path)', async () => {
+      const user = await service.prisma.user.create({
+        data: { email: 'sci.null@example.com', firstName: 'S', lastName: 'N' },
+      })
+
+      const won = await usersService.setCustomerIdIfAbsent(user.id, 'cus_new')
+
+      expect(won).toBe(true)
+      const updated = await service.prisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(updated?.metaData?.customerId).toBe('cus_new')
+    })
+
+    it('sets the customerId when absent, preserving other meta_data keys', async () => {
+      const user = await service.prisma.user.create({
+        data: {
+          email: 'sci.absent@example.com',
+          firstName: 'S',
+          lastName: 'A',
+          metaData: { checkoutSessionId: 'cs_keep' },
+        },
+      })
+
+      const won = await usersService.setCustomerIdIfAbsent(user.id, 'cus_new')
+
+      expect(won).toBe(true)
+      const updated = await service.prisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(updated?.metaData?.customerId).toBe('cus_new')
+      expect(updated?.metaData?.checkoutSessionId).toBe('cs_keep')
+    })
+
+    it('refuses when a customerId is already stored, leaving it unchanged', async () => {
+      const user = await service.prisma.user.create({
+        data: {
+          email: 'sci.present@example.com',
+          firstName: 'S',
+          lastName: 'P',
+          metaData: { customerId: 'cus_existing' },
+        },
+      })
+
+      const won = await usersService.setCustomerIdIfAbsent(user.id, 'cus_new')
+
+      expect(won).toBe(false)
+      const unchanged = await service.prisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(unchanged?.metaData?.customerId).toBe('cus_existing')
+    })
+
+    it('returns false for a non-existent user', async () => {
+      const won = await usersService.setCustomerIdIfAbsent(999999999, 'cus_new')
+      expect(won).toBe(false)
     })
   })
 
@@ -864,6 +926,52 @@ describe('UsersService', () => {
       expect(signIn).not.toHaveBeenCalled()
     })
 
+    it('refuses an established Serve account that completed onboarding', async () => {
+      // A Serve (elected-official) account owns an Organization, not a
+      // Campaign, so the campaign gate alone lets it through. Once onboarding
+      // is complete the account is real and must not be reusable.
+      const suffix = uniqueSuffix()
+      const email = `eo-established-${suffix}@example.com`
+      const clerkId = `clerk_established_${suffix}`
+      const user = await service.prisma.user.create({
+        data: {
+          email,
+          firstName: 'Established',
+          lastName: 'Official',
+          name: 'Established Official',
+          clerkId,
+        },
+      })
+      const orgSlug = `org-established-${suffix}`
+      await service.prisma.organization.create({
+        data: { slug: orgSlug, ownerId: user.id },
+      })
+      await service.prisma.electedOffice.create({
+        data: {
+          userId: user.id,
+          organizationSlug: orgSlug,
+          onboardingCompletedAt: new Date(),
+        },
+      })
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [{ id: clerkId } as never],
+        totalCount: 1,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      vi.spyOn(clerkClient.users, 'getUser').mockResolvedValue({
+        passwordEnabled: false,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUser>>)
+      const signIn = vi.spyOn(clerkClient.signInTokens, 'createSignInToken')
+
+      await expect(
+        usersService.provisionMagicLinkUser({
+          email,
+          firstName: 'Established',
+          lastName: 'Official',
+        }),
+      ).rejects.toThrow(EXISTING_ACCOUNT_MAGIC_LINK_ERROR)
+      expect(signIn).not.toHaveBeenCalled()
+    })
+
     it('refuses a legacy campaign-owning local user with no Clerk identity', async () => {
       // The email matches a campaign-owning local row whose clerkId is null. The
       // gate must run on this pre-existing row BEFORE any Clerk identity is
@@ -1087,6 +1195,101 @@ describe('UsersService', () => {
     })
   })
 
+  describe('createSignInLink', () => {
+    let clerkClient: ClerkClient
+
+    beforeEach(() => {
+      clerkClient = service.app.get<ClerkClient>(CLERK_CLIENT_PROVIDER_TOKEN)
+    })
+
+    // clearMocks (not restoreMocks) leaves a spied implementation in place, so
+    // a mocked signInTokens would leak into later suites. Restore after each.
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('returns a sign-in token and an ISO expiry an hour out', async () => {
+      vi.spyOn(clerkClient.signInTokens, 'createSignInToken').mockResolvedValue(
+        {
+          token: 'signin_token_abc',
+        } as Awaited<
+          ReturnType<typeof clerkClient.signInTokens.createSignInToken>
+        >,
+      )
+
+      const before = Date.now()
+      const result = await usersService.createSignInLink(service.user.id)
+
+      expect(result.token).toBe('signin_token_abc')
+      expect(clerkClient.signInTokens.createSignInToken).toHaveBeenCalledWith({
+        userId: service.user.clerkId,
+        expiresInSeconds: 3600,
+      })
+      const expiresAt = new Date(result.expiresAt).getTime()
+      expect(result.expiresAt).toBe(new Date(expiresAt).toISOString())
+      expect(expiresAt).toBeGreaterThanOrEqual(before + 3600 * 1000)
+      expect(expiresAt).toBeLessThanOrEqual(Date.now() + 3600 * 1000)
+    })
+
+    it('does not embed an actor claim — this is not impersonation', async () => {
+      vi.spyOn(clerkClient.signInTokens, 'createSignInToken').mockResolvedValue(
+        {
+          token: 'signin_token_abc',
+        } as Awaited<
+          ReturnType<typeof clerkClient.signInTokens.createSignInToken>
+        >,
+      )
+
+      await usersService.createSignInLink(service.user.id)
+
+      expect(clerkClient.signInTokens.createSignInToken).toHaveBeenCalledWith(
+        expect.not.objectContaining({ actor: expect.anything() }),
+      )
+    })
+
+    it('throws BadRequestException when target user has no clerkId', async () => {
+      const userWithoutClerkId = await service.prisma.user.create({
+        data: {
+          email: 'noclerk-signin@example.com',
+          firstName: 'No',
+          lastName: 'Clerk',
+          clerkId: null,
+        },
+      })
+
+      await expect(
+        usersService.createSignInLink(userWithoutClerkId.id),
+      ).rejects.toThrow('User does not have an associated Clerk ID')
+    })
+
+    it('throws BadGatewayException when the Clerk call fails', async () => {
+      vi.spyOn(clerkClient.signInTokens, 'createSignInToken').mockRejectedValue(
+        new Error('Clerk API unavailable'),
+      )
+
+      await expect(
+        usersService.createSignInLink(service.user.id),
+      ).rejects.toThrow(BadGatewayException)
+      await expect(
+        usersService.createSignInLink(service.user.id),
+      ).rejects.toThrow('Failed to create sign-in link')
+    })
+
+    it('throws BadGatewayException when Clerk returns no token', async () => {
+      vi.spyOn(clerkClient.signInTokens, 'createSignInToken').mockResolvedValue(
+        {
+          token: null,
+        } as unknown as Awaited<
+          ReturnType<typeof clerkClient.signInTokens.createSignInToken>
+        >,
+      )
+
+      await expect(
+        usersService.createSignInLink(service.user.id),
+      ).rejects.toThrow(BadGatewayException)
+    })
+  })
+
   describe('findOrProvisionByClerk', () => {
     const provision = (
       clerkId: string,
@@ -1174,6 +1377,346 @@ describe('UsersService', () => {
       expect(result?.email).toBe('brand-new@test.goodparty.org')
     })
 
+    it('ingests the provider avatar when creating a new user', async () => {
+      const avatars = service.app.get(UserAvatarService)
+      const ingest = vi
+        .spyOn(avatars, 'ingestFromUrl')
+        .mockResolvedValue('https://assets.test/uploads/9/avatar.png')
+
+      const user = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_new_avatar',
+        email: 'new-avatar@goodparty.org',
+        firstName: 'New',
+        lastName: 'User',
+        avatarUrl: 'https://img.clerk.com/abc',
+      })
+
+      expect(ingest).toHaveBeenCalledWith(user?.id, 'https://img.clerk.com/abc')
+      expect(user?.avatar).toBe('https://assets.test/uploads/9/avatar.png')
+    })
+
+    it('creates the user without an avatar when ingestion fails', async () => {
+      const avatars = service.app.get(UserAvatarService)
+      vi.spyOn(avatars, 'ingestFromUrl').mockResolvedValue(null)
+
+      const user = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_new_no_avatar',
+        email: 'new-no-avatar@goodparty.org',
+        firstName: 'New',
+        lastName: 'User',
+        avatarUrl: 'https://img.clerk.com/abc',
+      })
+
+      expect(user?.avatar).toBe(null)
+    })
+
+    it('ingests the provider avatar when binding a legacy unlinked user', async () => {
+      const avatars = service.app.get(UserAvatarService)
+      const ingest = vi
+        .spyOn(avatars, 'ingestFromUrl')
+        .mockResolvedValue('https://assets.test/uploads/7/avatar.png')
+      const legacy = await createUser('bind-avatar@test.goodparty.org')
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_bind_avatar',
+        email: 'bind-avatar@test.goodparty.org',
+        firstName: 'Legacy',
+        lastName: 'User',
+        avatarUrl: 'https://img.clerk.com/bind',
+      })
+
+      expect(result?.id).toBe(legacy.id)
+      expect(ingest).toHaveBeenCalledWith(
+        legacy.id,
+        'https://img.clerk.com/bind',
+      )
+      expect(result?.avatar).toBe('https://assets.test/uploads/7/avatar.png')
+      const after = await service.prisma.user.findUnique({
+        where: { id: legacy.id },
+      })
+      expect(after?.clerkId).toBe('user_bind_avatar')
+      expect(after?.avatar).toBe('https://assets.test/uploads/7/avatar.png')
+    })
+
+    it('ingests the provider avatar for a user already linked to Clerk', async () => {
+      const avatars = service.app.get(UserAvatarService)
+      const ingest = vi
+        .spyOn(avatars, 'ingestFromUrl')
+        .mockResolvedValue('https://assets.test/uploads/15/avatar.png')
+      const existing = await createUser(
+        'fastpath-avatar@test.goodparty.org',
+        'user_fastpath_avatar',
+      )
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_fastpath_avatar',
+        email: 'fastpath-avatar@test.goodparty.org',
+        firstName: 'Fast',
+        lastName: 'Path',
+        avatarUrl: 'https://img.clerk.com/added-later',
+      })
+
+      expect(result?.id).toBe(existing.id)
+      expect(ingest).toHaveBeenCalledWith(
+        existing.id,
+        'https://img.clerk.com/added-later',
+      )
+      const after = await service.prisma.user.findUnique({
+        where: { id: existing.id },
+      })
+      expect(after?.avatar).toBe('https://assets.test/uploads/15/avatar.png')
+    })
+
+    it('does not re-ingest for a linked user who already has an avatar', async () => {
+      const avatars = service.app.get(UserAvatarService)
+      const ingest = vi.spyOn(avatars, 'ingestFromUrl')
+      const existing = await service.prisma.user.create({
+        data: {
+          email: 'fastpath-has-avatar@test.goodparty.org',
+          clerkId: 'user_fastpath_has_avatar',
+          avatar: 'https://assets.test/uploads/16/self-uploaded.png',
+        },
+      })
+
+      await usersService.findOrProvisionByClerk({
+        clerkId: 'user_fastpath_has_avatar',
+        email: 'fastpath-has-avatar@test.goodparty.org',
+        firstName: 'Fast',
+        lastName: 'Path',
+        avatarUrl: 'https://img.clerk.com/ignored',
+      })
+
+      expect(ingest).not.toHaveBeenCalled()
+      const after = await service.prisma.user.findUnique({
+        where: { id: existing.id },
+      })
+      expect(after?.avatar).toBe(
+        'https://assets.test/uploads/16/self-uploaded.png',
+      )
+    })
+
+    // The sign-in hot path: Clerk reports no image for the overwhelming
+    // majority of users, so the avatar helper must add no query of its own.
+    // Matched on the avatar projection because the path's own clerkId lookup
+    // is a findUnique too.
+    it('runs no avatar query when the provider has no image', async () => {
+      await createUser(
+        'fastpath-no-image@test.goodparty.org',
+        'user_fastpath_no_image',
+      )
+      const findUnique = vi.spyOn(service.prisma.user, 'findUnique')
+
+      await usersService.findOrProvisionByClerk({
+        clerkId: 'user_fastpath_no_image',
+        email: 'fastpath-no-image@test.goodparty.org',
+        firstName: 'Fast',
+        lastName: 'Path',
+      })
+
+      const avatarReads = findUnique.mock.calls.filter(
+        (call) => call[0]?.select?.avatar === true,
+      )
+      expect(avatarReads).toHaveLength(0)
+    })
+
+    it('ingests when a concurrent provision matched the same clerkId', async () => {
+      const avatars = service.app.get(UserAvatarService)
+      const ingest = vi
+        .spyOn(avatars, 'ingestFromUrl')
+        .mockResolvedValue('https://assets.test/uploads/17/avatar.png')
+      const existing = await createUser(
+        'concurrent-match@test.goodparty.org',
+        'user_concurrent_match',
+      )
+      // Simulates the row landing between the clerkId and email lookups.
+      vi.spyOn(usersService, 'findUser').mockResolvedValueOnce(null)
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_concurrent_match',
+        email: 'concurrent-match@test.goodparty.org',
+        firstName: 'Concurrent',
+        lastName: 'Match',
+        avatarUrl: 'https://img.clerk.com/concurrent',
+      })
+
+      expect(result?.id).toBe(existing.id)
+      expect(ingest).toHaveBeenCalledWith(
+        existing.id,
+        'https://img.clerk.com/concurrent',
+      )
+      const after = await service.prisma.user.findUnique({
+        where: { id: existing.id },
+      })
+      expect(after?.avatar).toBe('https://assets.test/uploads/17/avatar.png')
+    })
+
+    it('persists the ingested avatar over an empty-string avatar', async () => {
+      const avatars = service.app.get(UserAvatarService)
+      const ingest = vi
+        .spyOn(avatars, 'ingestFromUrl')
+        .mockResolvedValue('https://assets.test/uploads/11/avatar.png')
+      const legacy = await service.prisma.user.create({
+        data: {
+          email: 'bind-blank-avatar@test.goodparty.org',
+          clerkId: null,
+          avatar: '',
+        },
+      })
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_bind_blank_avatar',
+        email: 'bind-blank-avatar@test.goodparty.org',
+        firstName: 'Legacy',
+        lastName: 'User',
+        avatarUrl: 'https://img.clerk.com/bind',
+      })
+
+      expect(result?.id).toBe(legacy.id)
+      expect(ingest).toHaveBeenCalledWith(
+        legacy.id,
+        'https://img.clerk.com/bind',
+      )
+      expect(result?.avatar).toBe('https://assets.test/uploads/11/avatar.png')
+      const after = await service.prisma.user.findUnique({
+        where: { id: legacy.id },
+      })
+      expect(after?.avatar).toBe('https://assets.test/uploads/11/avatar.png')
+    })
+
+    it('stores the sign-up phone on the row it provisions', async () => {
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_phone_create',
+        email: 'phone-create@test.goodparty.org',
+        firstName: 'Phone',
+        lastName: 'Create',
+        phone: '5551234567',
+      })
+
+      expect(result?.phone).toBe('5551234567')
+    })
+
+    it('backfills the phone onto an existing row that has none', async () => {
+      const existing = await createUser(
+        'phone-backfill@test.goodparty.org',
+        'user_phone_backfill',
+      )
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_phone_backfill',
+        email: 'phone-backfill@test.goodparty.org',
+        firstName: 'Phone',
+        lastName: 'Backfill',
+        phone: '5559876543',
+      })
+
+      expect(result?.id).toBe(existing.id)
+      expect(result?.phone).toBe('5559876543')
+      const after = await service.prisma.user.findUnique({
+        where: { id: existing.id },
+      })
+      expect(after?.phone).toBe('5559876543')
+    })
+
+    it('backfills over a legacy empty-string phone, not just null', async () => {
+      const existing = await service.prisma.user.create({
+        data: {
+          email: 'phone-empty-string@test.goodparty.org',
+          clerkId: 'user_phone_empty_string',
+          phone: '',
+        },
+      })
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_phone_empty_string',
+        email: 'phone-empty-string@test.goodparty.org',
+        firstName: 'Phone',
+        lastName: 'Empty',
+        phone: '5554443333',
+      })
+
+      expect(result?.id).toBe(existing.id)
+      expect(result?.phone).toBe('5554443333')
+      const after = await service.prisma.user.findUnique({
+        where: { id: existing.id },
+      })
+      expect(after?.phone).toBe('5554443333')
+    })
+
+    it('never overwrites a phone the user already has', async () => {
+      const existing = await service.prisma.user.create({
+        data: {
+          email: 'phone-keep@test.goodparty.org',
+          clerkId: 'user_phone_keep',
+          phone: '5550001111',
+        },
+      })
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_phone_keep',
+        email: 'phone-keep@test.goodparty.org',
+        firstName: 'Phone',
+        lastName: 'Keep',
+        phone: '5552223333',
+      })
+
+      expect(result?.id).toBe(existing.id)
+      expect(result?.phone).toBe('5550001111')
+    })
+
+    it('keeps a self-uploaded avatar when binding a legacy unlinked user', async () => {
+      const avatars = service.app.get(UserAvatarService)
+      const ingest = vi
+        .spyOn(avatars, 'ingestFromUrl')
+        .mockResolvedValue('https://assets.test/uploads/8/avatar.png')
+      const legacy = await service.prisma.user.create({
+        data: {
+          email: 'bind-keeps-avatar@test.goodparty.org',
+          clerkId: null,
+          avatar: 'https://assets.test/uploads/8/self-uploaded.png',
+        },
+      })
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_bind_keeps_avatar',
+        email: 'bind-keeps-avatar@test.goodparty.org',
+        firstName: 'Legacy',
+        lastName: 'User',
+        avatarUrl: 'https://img.clerk.com/bind',
+      })
+
+      expect(result?.id).toBe(legacy.id)
+      expect(ingest).not.toHaveBeenCalled()
+      const after = await service.prisma.user.findUnique({
+        where: { id: legacy.id },
+      })
+      expect(after?.clerkId).toBe('user_bind_keeps_avatar')
+      expect(after?.avatar).toBe(
+        'https://assets.test/uploads/8/self-uploaded.png',
+      )
+    })
+
+    it('still binds the legacy user when avatar ingestion fails', async () => {
+      const avatars = service.app.get(UserAvatarService)
+      vi.spyOn(avatars, 'ingestFromUrl').mockResolvedValue(null)
+      const legacy = await createUser('bind-avatar-fail@test.goodparty.org')
+
+      const result = await usersService.findOrProvisionByClerk({
+        clerkId: 'user_bind_avatar_fail',
+        email: 'bind-avatar-fail@test.goodparty.org',
+        firstName: 'Legacy',
+        lastName: 'User',
+        avatarUrl: 'https://img.clerk.com/bind',
+      })
+
+      expect(result?.id).toBe(legacy.id)
+      expect(result?.clerkId).toBe('user_bind_avatar_fail')
+      expect(result?.avatar).toBe(null)
+      const after = await service.prisma.user.findUnique({
+        where: { id: legacy.id },
+      })
+      expect(after?.avatar).toBe(null)
+    })
+
     it('returns user when updateMany loses race to same clerkId', async () => {
       const legacy = await createUser('occ-same@test.goodparty.org')
       await service.prisma.user.update({
@@ -1186,11 +1729,17 @@ describe('UsersService', () => {
     })
 
     describe('resolveAfterP2002 (race recovery)', () => {
-      const resolveAfterP2002 = (clerkId: string, email: string) =>
+      const resolveAfterP2002 = (
+        clerkId: string,
+        email: string,
+        avatarUrl?: string,
+      ) =>
         // @ts-expect-error accessing private method for test coverage
-        usersService.resolveAfterP2002({ clerkId, email }) as Promise<
-          Awaited<ReturnType<typeof usersService.findUser>>
-        >
+        usersService.resolveAfterP2002({
+          clerkId,
+          email,
+          avatarUrl,
+        }) as Promise<Awaited<ReturnType<typeof usersService.findUser>>>
 
       it('returns the user found by clerkId (primary race recovery path)', async () => {
         const existing = await createUser(
@@ -1232,6 +1781,84 @@ describe('UsersService', () => {
           'p2002-ghost@test.goodparty.org',
         )
         expect(result).toBeNull()
+      })
+
+      it('ingests the provider avatar for the user found by clerkId', async () => {
+        const avatars = service.app.get(UserAvatarService)
+        const ingest = vi
+          .spyOn(avatars, 'ingestFromUrl')
+          .mockResolvedValue('https://assets.test/uploads/12/avatar.png')
+        const existing = await createUser(
+          'p2002-avatar@test.goodparty.org',
+          'user_p2002_avatar',
+        )
+
+        const result = await resolveAfterP2002(
+          'user_p2002_avatar',
+          'p2002-avatar@test.goodparty.org',
+          'https://img.clerk.com/race',
+        )
+
+        expect(result?.id).toBe(existing.id)
+        expect(ingest).toHaveBeenCalledWith(
+          existing.id,
+          'https://img.clerk.com/race',
+        )
+        const after = await service.prisma.user.findUnique({
+          where: { id: existing.id },
+        })
+        expect(after?.avatar).toBe('https://assets.test/uploads/12/avatar.png')
+      })
+
+      it('ingests the provider avatar when linking a legacy user', async () => {
+        const avatars = service.app.get(UserAvatarService)
+        vi.spyOn(avatars, 'ingestFromUrl').mockResolvedValue(
+          'https://assets.test/uploads/13/avatar.png',
+        )
+        const legacy = await createUser(
+          'p2002-legacy-avatar@test.goodparty.org',
+        )
+
+        const result = await resolveAfterP2002(
+          'user_p2002_legacy_avatar',
+          'p2002-legacy-avatar@test.goodparty.org',
+          'https://img.clerk.com/race',
+        )
+
+        expect(result?.id).toBe(legacy.id)
+        const after = await service.prisma.user.findUnique({
+          where: { id: legacy.id },
+        })
+        expect(after?.clerkId).toBe('user_p2002_legacy_avatar')
+        expect(after?.avatar).toBe('https://assets.test/uploads/13/avatar.png')
+      })
+
+      it('keeps a self-uploaded avatar on the race path', async () => {
+        const avatars = service.app.get(UserAvatarService)
+        const ingest = vi
+          .spyOn(avatars, 'ingestFromUrl')
+          .mockResolvedValue('https://assets.test/uploads/14/avatar.png')
+        const existing = await service.prisma.user.create({
+          data: {
+            email: 'p2002-keeps-avatar@test.goodparty.org',
+            clerkId: 'user_p2002_keeps',
+            avatar: 'https://assets.test/uploads/14/self-uploaded.png',
+          },
+        })
+
+        await resolveAfterP2002(
+          'user_p2002_keeps',
+          'p2002-keeps-avatar@test.goodparty.org',
+          'https://img.clerk.com/race',
+        )
+
+        expect(ingest).not.toHaveBeenCalled()
+        const after = await service.prisma.user.findUnique({
+          where: { id: existing.id },
+        })
+        expect(after?.avatar).toBe(
+          'https://assets.test/uploads/14/self-uploaded.png',
+        )
       })
     })
   })
@@ -1468,6 +2095,18 @@ describe('UsersService', () => {
           createdAt: subDays(new Date(), 2),
         },
       })
+      const oldFixture = await service.prisma.user.create({
+        data: {
+          email: `qa-${randomUUID()}@goodparty.org`,
+          createdAt: subDays(new Date(), 2),
+        },
+      })
+      const oldStaffAlias = await service.prisma.user.create({
+        data: {
+          email: `qa-team-${suffix}@goodparty.org`,
+          createdAt: subDays(new Date(), 2),
+        },
+      })
 
       await usersService.deleteTestUsers()
 
@@ -1475,10 +2114,18 @@ describe('UsersService', () => {
         await service.prisma.user.findUnique({ where: { id: oldTest.id } }),
       ).toBeNull()
       expect(
+        await service.prisma.user.findUnique({ where: { id: oldFixture.id } }),
+      ).toBeNull()
+      expect(
         await service.prisma.user.findUnique({ where: { id: recentTest.id } }),
       ).not.toBeNull()
       expect(
         await service.prisma.user.findUnique({ where: { id: oldReal.id } }),
+      ).not.toBeNull()
+      expect(
+        await service.prisma.user.findUnique({
+          where: { id: oldStaffAlias.id },
+        }),
       ).not.toBeNull()
     })
 
@@ -1498,11 +2145,24 @@ describe('UsersService', () => {
           createdAt: oldCreatedAt,
           emailAddresses: [{ emailAddress: `r${i}@example.com` }],
         }) as never
+      const fixtureUser = (i: number) =>
+        ({
+          id: `clerk_fixture_${i}`,
+          createdAt: oldCreatedAt,
+          emailAddresses: [
+            { emailAddress: `qa-${randomUUID()}@goodparty.org` },
+          ],
+        }) as never
+      const staffAlias = {
+        id: 'clerk_staff_alias',
+        createdAt: oldCreatedAt,
+        emailAddresses: [{ emailAddress: 'qa-team@goodparty.org' }],
+      } as never
 
-      // Page 1 (full): 3 test users + 497 non-test.
+      // Page 1 (full): 2 test users + 1 fixture user + 497 non-test.
       const pageOne = [
         testUser(1),
-        testUser(2),
+        fixtureUser(2),
         testUser(3),
         ...Array.from({ length: 497 }, (_, i) => realUser(i)),
       ]
@@ -1511,8 +2171,8 @@ describe('UsersService', () => {
         testUser(4),
         ...Array.from({ length: 499 }, (_, i) => realUser(500 + i)),
       ]
-      // Page 3 (short): 1 test user + 1 non-test -> loop stops.
-      const pageThree = [testUser(5), realUser(9999)]
+      // Page 3 (short): 1 test user + 1 staff qa- alias (kept) -> loop stops.
+      const pageThree = [testUser(5), staffAlias]
 
       const getUserList = vi
         .spyOn(clerkClient.users, 'getUserList')
@@ -1529,7 +2189,7 @@ describe('UsersService', () => {
 
       expect(deleteUser.mock.calls.map((c) => c[0])).toEqual([
         'clerk_test_1',
-        'clerk_test_2',
+        'clerk_fixture_2',
         'clerk_test_3',
         'clerk_test_4',
         'clerk_test_5',
@@ -1544,6 +2204,23 @@ describe('UsersService', () => {
       // page 1 leaves 497, page 2 leaves 499 -> cumulative 996.
       expect(getUserList.mock.calls[1]?.[0]).toMatchObject({ offset: 497 })
       expect(getUserList.mock.calls[2]?.[0]).toMatchObject({ offset: 996 })
+    })
+  })
+
+  describe('reads are not enriched', () => {
+    it('returns the Postgres avatar unchanged', async () => {
+      const created = await usersService.model.create({
+        data: {
+          email: `raw-read-${randomUUID()}@goodparty.org`,
+          firstName: 'Raw',
+          lastName: 'Row',
+          avatar: 'https://assets.goodparty.org/uploads/1/a.png',
+        },
+      })
+
+      const found = await usersService.findUser({ id: created.id })
+
+      expect(found?.avatar).toBe('https://assets.goodparty.org/uploads/1/a.png')
     })
   })
 })

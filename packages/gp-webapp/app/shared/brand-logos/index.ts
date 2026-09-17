@@ -1,4 +1,7 @@
 export { default as InstagramLogo } from './InstagramLogo'
 export { default as FacebookLogo } from './FacebookLogo'
 export { default as TwitterLogo } from './TwitterLogo'
+export { default as XLogo } from './XLogo'
 export { default as NextdoorLogo } from './NextdoorLogo'
+export { default as TiktokLogo } from './TiktokLogo'
+export { default as YoutubeLogo } from './YoutubeLogo'

@@ -1,0 +1,271 @@
+'use client'
+
+import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { ChannelCard } from '@styleguide'
+import { useCampaign } from '@shared/hooks/useCampaign'
+import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
+import {
+  OUTREACH_OPTIONS,
+  OUTREACH_TYPES,
+} from 'app/dashboard/outreach/constants'
+import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
+import { useNativeDoorKnockingFlag } from '@shared/experiments/nativeDoorKnockingFlag'
+import { useElectedOffice } from '@shared/hooks/useElectedOffice'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import type { TcrCompliance } from 'helpers/types'
+import type { OutreachType } from 'gpApi/types/outreach.types'
+import { voterPackQueryOptions } from 'app/dashboard/door-knocking/native/useVoterPack'
+import { quotaQueryOptions } from 'app/dashboard/door-knocking/native/turfQueries'
+import { DoorKnockingDailyLimitDialog } from 'app/dashboard/door-knocking/native/DoorKnockingDailyLimitDialog'
+import { CHANNEL_META } from './channelMeta'
+
+interface ChannelTileGridProps {
+  tcrCompliance?: TcrCompliance
+  preselectedListId?: number
+  onCreateSocial: () => void
+  onCreateSms: () => void
+  onCreateRobocall: () => void
+  onCreatePhoneBanking: (preselectedListId?: number) => void
+}
+
+// Hub tile order: social first (unlocked for everyone), then the Pro-locked
+// channels. Pricing sub-copy comes from OUTREACH_OPTIONS until phase 2 moves
+// pricing server-side.
+const TILE_ORDER: OutreachType[] = [
+  OUTREACH_TYPES.socialMedia,
+  OUTREACH_TYPES.text,
+  OUTREACH_TYPES.robocall,
+  OUTREACH_TYPES.phoneBanking,
+  OUTREACH_TYPES.doorKnocking,
+]
+
+export const ChannelTileGrid = ({
+  tcrCompliance,
+  preselectedListId,
+  onCreateSocial,
+  onCreateSms,
+  onCreateRobocall,
+  onCreatePhoneBanking,
+}: ChannelTileGridProps) => {
+  const router = useRouter()
+  const queryClient = useQueryClient()
+  const [campaign] = useCampaign()
+  const { isPro } = campaign || {}
+  const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
+  const { runTextGate, gateModals } = useTextOutreachGate(tcrCompliance)
+  // Read only to decide whether the district download below is worth starting.
+  // The door-knocking page gate is the treatment surface, so no exposure here.
+  const nativeDoorKnocking = useNativeDoorKnockingFlag(false)
+  // Prefetch the per-day quota alongside the pack (small, cached) so a click
+  // on the door-knocking tile can be intercepted here when the allowance is
+  // spent, instead of navigating to /dashboard/door-knocking just to raise
+  // the refusal dialog. Same enabled scope as the pack prefetch: control-arm
+  // campaigns never reach the native page, so there is nothing to gate for
+  // them. A failed or in-flight read lets the click through — the destination
+  // page carries the same dialog as the safety net.
+  const quotaQuery = useQuery({
+    ...quotaQueryOptions,
+    enabled: nativeDoorKnocking.enabled,
+  })
+  const [refusedCampaignLimit, setRefusedCampaignLimit] = useState<
+    number | null
+  >(null)
+  // Own equivalent of ContactsTableProvider's canUseProFeatures — not
+  // imported from there (contacts-scoped, would force an organization
+  // provider onto every tile-grid test). A pending elected-office query must
+  // NOT read as a refusal, or a Serve org's first render redirects to
+  // pro-upgrade before its own entitlement resolves. Backs the phone-banking
+  // tile's upgrade-at-entry: a non-Pro click redirects straight to
+  // /dashboard/pro-upgrade (ENG-10920) instead of the legacy Pro modal.
+  const { data: electedOffice, isPending: electedOfficePending } =
+    useElectedOffice()
+  const canUseProFeatures = !!isPro || !!electedOffice
+
+  // Consume-once preselected list (ENG-10762 conventions): the deep-link
+  // strip's router.replace re-runs the force-dynamic page's server render
+  // without ?listId, reverting the prop to undefined — state on this
+  // instance survives that pass. Cleared as soon as a consuming channel has
+  // taken it, so a later-opened flow starts clean: on hand-off for phone
+  // banking, on navigation for door knocking, which applies it on the page
+  // it goes to. The two channels that apply a preselect are the only ones
+  // that spend it. The ref tracks the last PROP value already pulled in so
+  // clearing can't get re-synced back from an unchanged prop.
+  const [pendingPreselectedListId, setPendingPreselectedListId] =
+    useState(preselectedListId)
+  const lastSyncedPropListIdRef = useRef(preselectedListId)
+  useEffect(() => {
+    if (
+      preselectedListId !== undefined &&
+      preselectedListId !== lastSyncedPropListIdRef.current
+    ) {
+      lastSyncedPropListIdRef.current = preselectedListId
+      setPendingPreselectedListId(preselectedListId)
+    }
+  }, [preselectedListId])
+
+  const handleTileClick = (type: OutreachType, requiresPro?: boolean) => {
+    trackEvent(EVENTS.Outreach.ClickCreate, { type })
+
+    if (type === OUTREACH_TYPES.socialMedia) {
+      onCreateSocial()
+      return
+    }
+    if (type === OUTREACH_TYPES.text) {
+      // Upgrade-at-entry (2026-08-28): a non-Pro click goes straight to the
+      // Pro upgrade wizard instead of the legacy marketing modal, the same
+      // pattern the phone-banking tile set. Pro candidates with an
+      // unfinished registration run through the gate's status-aware
+      // ComplianceModal below (legacy semantics: approved passes).
+      if (!isPro) {
+        trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, { type })
+        router.push('/dashboard/pro-upgrade')
+        return
+      }
+      if (!runTextGate()) return
+      onCreateSms()
+      return
+    }
+    if (type === OUTREACH_TYPES.phoneBanking) {
+      // A pending elected-office query is not a refusal — wait for it to
+      // settle rather than redirecting a Serve org that will resolve true.
+      if (!canUseProFeatures && !electedOfficePending) {
+        trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, { type })
+        router.push('/dashboard/pro-upgrade')
+        return
+      }
+      // Consumed on hand-off, like door knocking: PhoneBankingFlow is
+      // mounted by the hub, not here, so the id travels through the open
+      // callback — and clearing it now is what keeps a later SMS/robocall
+      // tile click from inheriting a list chosen for phone banking. The
+      // Pro-redirect above deliberately does NOT spend it: the candidate
+      // never entered the flow, so the deep-linked list must survive for
+      // whichever tile they press after coming back.
+      const phoneBankingListId = pendingPreselectedListId
+      setPendingPreselectedListId(undefined)
+      lastSyncedPropListIdRef.current = undefined
+      onCreatePhoneBanking(phoneBankingListId)
+      return
+    }
+
+    if (requiresPro && !isPro) {
+      trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceStarted, {
+        source: 'outreach_page',
+      })
+      setShowProUpgradeModal(true)
+      return
+    }
+    if (type === OUTREACH_TYPES.robocall) {
+      onCreateRobocall()
+      return
+    }
+    if (type === OUTREACH_TYPES.doorKnocking) {
+      // Intercept a spent allowance here rather than making the candidate
+      // load the door-knocking page just to see the refusal. The dialog on
+      // the destination page stays as the safety net for direct-URL entry
+      // and for a race between this click and the quota refetch. Only fires
+      // on a settled read that reports zero — an in-flight or failed read
+      // lets the click through and the destination-page assert is the
+      // authority, same as the destination's own beginCreateFlow policy.
+      const quota = quotaQuery.data
+      if (quota && quota.campaignsRemaining === 0) {
+        setRefusedCampaignLimit(quota.campaignLimit)
+        return
+      }
+      // The one tile that navigates instead of opening a flow here, so the
+      // preselected list travels as `?listId=` — the same param the CRM's
+      // "Send outreach" links already use to reach this hub. The
+      // door-knocking page parses it with the same positive-integer rule and
+      // ignores anything else, so a stale id costs the preselection and
+      // nothing more.
+      //
+      // `?create=1` because this tile asks to START a walk, not to look at
+      // the map. Landing on the rail and making the candidate find Create
+      // list was a step the other channels don't charge — pressing Email
+      // opens the email flow, so pressing Door knocking opens this one.
+      //
+      // Consumed on the way out, exactly as the flows that close do it: this
+      // channel is now one of the ones that APPLIES the preselect, and the
+      // instance can outlive the navigation in the App Router's soft-nav
+      // cache. Left set, a Back to this hub would hand the same id to
+      // whichever tile was pressed next — a text campaign silently aimed at a
+      // list the candidate chose for a walk.
+      const listId = pendingPreselectedListId
+      setPendingPreselectedListId(undefined)
+      lastSyncedPropListIdRef.current = undefined
+      // Start the district download here rather than on the far side of the
+      // navigation. The pack is the slowest read the product has (p50 4.5s,
+      // p95 33.6s in prod) and everything the create flow counts is derived
+      // from it, so every millisecond it can be given ahead of the first step
+      // is a millisecond the candidate does not spend on a dead Continue. The
+      // route transition and the map chunk are that head start; the flow's own
+      // purpose and who steps are the rest of it.
+      //
+      // Prefetch and not fetch: a district this org cannot resolve answers 400
+      // and the page's own `isUnresolvable` branch already speaks for that
+      // case, so a rejection here must not surface as anything.
+      //
+      // Only for the arm that lands on the native page. A control-arm campaign
+      // gets the eCanvasser dashboard, which has no pack in it, and tens of
+      // megabytes of district for a map they will never be shown is a worse
+      // deal than the dead Continue this exists to avoid. The flag is read
+      // without exposure here — pressing a tile is not the treatment.
+      if (nativeDoorKnocking.enabled) {
+        void queryClient.prefetchQuery(voterPackQueryOptions)
+      }
+      router.push(
+        listId === undefined
+          ? '/dashboard/door-knocking?create=1'
+          : `/dashboard/door-knocking?create=1&listId=${listId}`,
+      )
+      return
+    }
+  }
+
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-lg font-semibold text-foreground">
+          Create an outreach campaign
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Pick a channel to draft and send a new campaign.
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        {TILE_ORDER.map((type) => {
+          const option = OUTREACH_OPTIONS.find((o) => o.type === type)
+          const meta = CHANNEL_META[type]
+          return (
+            <ChannelCard
+              key={type}
+              icon={meta.icon}
+              iconClassName={meta.iconTint}
+              label={meta.label}
+              locked={Boolean(
+                option?.requiresPro &&
+                (type === OUTREACH_TYPES.phoneBanking
+                  ? !canUseProFeatures && !electedOfficePending
+                  : !isPro),
+              )}
+              onClick={() => handleTileClick(type, option?.requiresPro)}
+            />
+          )
+        })}
+      </div>
+      <ProUpgradeModal
+        {...{
+          variant: VARIANTS.Second_NonViable,
+          open: showProUpgradeModal,
+          onClose: () => setShowProUpgradeModal(false),
+        }}
+      />
+      {gateModals}
+      <DoorKnockingDailyLimitDialog
+        limit={refusedCampaignLimit}
+        onDismiss={() => setRefusedCampaignLimit(null)}
+      />
+    </section>
+  )
+}

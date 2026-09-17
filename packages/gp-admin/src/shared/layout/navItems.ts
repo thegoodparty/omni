@@ -5,6 +5,8 @@ import {
   HiGlobeAlt,
   HiLightningBolt,
   HiClipboardList,
+  HiChatAlt2,
+  HiEyeOff,
 } from 'react-icons/hi'
 import { PERMISSIONS, Permission } from '@/lib/permissions'
 import { IconType } from 'react-icons'
@@ -42,10 +44,22 @@ export const navItems: NavItem[] = [
     permission: PERMISSIONS.READ_AGENT_RUNS,
   },
   {
+    title: 'SMS Outreach',
+    href: '/dashboard/sms-outreach',
+    icon: HiChatAlt2,
+    permission: PERMISSIONS.READ_CAMPAIGNS,
+  },
+  {
     title: 'Briefings',
     href: '/dashboard/briefings',
     icon: HiClipboardList,
     permission: PERMISSIONS.REVIEW_BRIEFINGS,
+  },
+  {
+    title: 'Profile Removals',
+    href: '/dashboard/person-removals',
+    icon: HiEyeOff,
+    permission: PERMISSIONS.MANAGE_PERSON_REMOVALS,
   },
   {
     title: 'Settings',

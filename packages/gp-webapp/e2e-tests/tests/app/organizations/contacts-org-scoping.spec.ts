@@ -9,7 +9,6 @@ import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import {
   closePersonPanel,
   crmSheet,
-  enableCrmFlags,
   fetchListMembers,
   fullPersonName,
   gotoCrmContacts,
@@ -29,7 +28,6 @@ import {
 test.describe('Contacts Organization Scoping', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
-    await enableCrmFlags(page)
   })
 
   test('hides Political Party field for elected office org', async ({

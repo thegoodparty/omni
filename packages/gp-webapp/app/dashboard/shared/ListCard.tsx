@@ -1,0 +1,129 @@
+'use client'
+
+import type { ReactNode } from 'react'
+import { Card, cn } from '@styleguide'
+
+export interface ListCardMetaItem {
+  key: string
+  icon: ReactNode
+  value: ReactNode
+  // The visible figure leaves its noun to the icon and the column layout, and a
+  // screen reader has neither — so every item names its own quantity.
+  label: string
+}
+
+export interface ListCardProps {
+  // The list's own colour, drawn as a bar down the leading edge. Optional
+  // because not every surface that reuses this card colours its rows.
+  accentColor?: string
+  // The overline above the title: a lifecycle badge, a progress line, whatever
+  // the surface's vocabulary is. This card never invents one.
+  overline?: ReactNode
+  title: string
+  // Selecting is a real button on the title rather than a click handler on the
+  // card, because the card carries other controls: a clickable container around
+  // them needs stopPropagation on every one and reads to a screen reader as a
+  // button holding five buttons.
+  onSelect?: () => void
+  selected?: boolean
+  // Top-right cluster — the controls that act on the row rather than on the
+  // thing it names (visibility, delete).
+  controls?: ReactNode
+  meta?: ListCardMetaItem[]
+  // The footer row, right-aligned. The primary CTA goes last.
+  actions?: ReactNode
+  // Quieter presentation for a row the surface is de-emphasising (an archived
+  // list) without removing any of its affordances.
+  dimmed?: boolean
+  'data-testid'?: string
+}
+
+export function ListCard({
+  accentColor,
+  overline,
+  title,
+  onSelect,
+  selected = false,
+  controls,
+  meta,
+  actions,
+  dimmed = false,
+  'data-testid': testId,
+}: ListCardProps) {
+  return (
+    <Card
+      data-testid={testId}
+      className={cn(
+        // `shrink-0` because every rail that stacks these is a column flex
+        // scroller: without it the cards divide the visible height between
+        // them instead of overflowing it, and `overflow-hidden` — which is
+        // what keeps the accent bar inside the rounded corner — then clips
+        // whatever fell off the bottom. On a phone that took the Details and
+        // Knock buttons off two cards out of three, silently.
+        'relative shrink-0 gap-0 overflow-hidden p-4',
+        accentColor && 'pl-5',
+        // Selection is drawn as a 1px border plus a 1px INSET RING rather than
+        // a 2px border. The canvas thickens its border on select, which grows
+        // the card and nudges every card under it down the rail on each toggle;
+        // a ring is a box-shadow and costs no layout, so the resting card keeps
+        // the canvas's 1px edge and the selected one still reads as 2px.
+        'border border-border',
+        selected && 'border-primary ring-1 ring-inset ring-primary',
+        dimmed && 'opacity-70',
+      )}
+    >
+      {accentColor && (
+        <span
+          aria-hidden="true"
+          className="absolute inset-y-0 left-0 w-1.5"
+          style={{ backgroundColor: accentColor }}
+        />
+      )}
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          {overline}
+          {onSelect ? (
+            <button
+              type="button"
+              aria-pressed={selected}
+              className="block w-full truncate text-left text-sm font-semibold hover:underline"
+              onClick={onSelect}
+            >
+              {title}
+            </button>
+          ) : (
+            <h3 className="truncate text-sm font-semibold">{title}</h3>
+          )}
+        </div>
+        {controls && (
+          // Pulled back into the card's own padding so the cluster sits in the
+          // corner rather than a full pad-width inside it. Negative margin
+          // rather than absolute positioning: these stay in flow, so they still
+          // reserve their width and can never end up on top of a long overline.
+          <div className="-mr-2.5 -mt-2.5 flex shrink-0 items-center gap-0.5">
+            {controls}
+          </div>
+        )}
+      </div>
+      {meta && meta.length > 0 && (
+        <ul className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums text-muted-foreground">
+          {meta.map((item) => (
+            <li key={item.key} className="inline-flex items-center gap-1.5">
+              <span aria-hidden="true" className="inline-flex">
+                {item.icon}
+              </span>
+              <span>
+                {item.value} <span className="sr-only">{item.label}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {actions && (
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+          {actions}
+        </div>
+      )}
+    </Card>
+  )
+}

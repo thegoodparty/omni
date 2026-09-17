@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from datetime import date
 
+import pytest
+
 import digest_triage as dt
 
 
@@ -136,8 +138,9 @@ class _FakeBlock:
 
 
 class _FakeResp:
-    def __init__(self, results):
+    def __init__(self, results, stop_reason="tool_use"):
         self.content = [_FakeBlock(results)]
+        self.stop_reason = stop_reason
 
 
 class _FakeMessages:
@@ -157,6 +160,31 @@ class _FakeClient:
 
 def _verdict(id, tier, headline="h", action="a", reason="r"):
     return {"id": id, "tier": tier, "headline": headline, "action": action, "reason": reason}
+
+
+def test_judge_raises_named_error_on_truncation():
+    """Same defect class as the gap judge: a max_tokens stop must be reported as
+    truncation, not left to surface as a pydantic schema complaint. The payload here is
+    well-formed on purpose — the guard keys on stop_reason, so it cannot pass by accident."""
+    client = _FakeClient([])
+    client.messages.create = lambda **kw: _FakeResp([], stop_reason="max_tokens")
+    with pytest.raises(RuntimeError, match="truncated"):
+        dt._judge_items([{"id": "/a"}], "RUBRIC", client=client, model="m")
+
+
+def test_triage_max_tokens_scales_with_batch_size():
+    assert dt.triage_max_tokens(1) < dt.triage_max_tokens(25)
+    assert dt.triage_max_tokens(25) >= 10_000
+
+
+def test_triage_max_tokens_is_bounded():
+    assert dt.triage_max_tokens(10_000) <= 32_000
+
+
+def test_judge_items_sends_the_derived_budget():
+    client = _FakeClient([_verdict("/a", "fyi")])
+    dt._judge_items([{"id": "/a"}], "RUBRIC", client=client, model="m")
+    assert client.messages.calls[0]["max_tokens"] == dt.triage_max_tokens(1)
 
 
 def _okr_item():

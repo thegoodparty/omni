@@ -15,10 +15,10 @@ export type Website = {
   campaignId: number
   status: string
   vanityPath: string
+  legacyTitleOverride: string | null
   content: {
     main: {
       image: string
-      title: string
       tagline: string
     }
     logo: string
@@ -63,8 +63,8 @@ export type Website = {
       priorElectionDates: string[]
     }
     user: {
-      firstName: string
-      lastName: string
+      firstName: string | null
+      lastName: string | null
     }
   }
 }

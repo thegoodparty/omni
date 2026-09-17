@@ -1,3 +1,205 @@
+## 2026-09-17
+
+### Potential instrumentation gaps
+
+Coverage: 36 tracked — 17 new, 0 open, 12 accepted, 7 dismissed.
+
+| rank | surface | type | rubric rule | dashboard question | location |
+| --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx#wizard_stage | wizard_stage | multi-step-flow-URL-stable | At which step of the outreach flow (robocall/sms/social) do users drop off, and does the Viewed/Completed pattern fire per stage? | packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx#wizard_stage | wizard_stage | multi-step-flow-URL-stable | What is the per-stage drop-off (purpose, audience, review, pay) for the robocall outreach flow? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit | form_submit | payment-outcome | How many robocall campaign payments succeed vs. fail at the authorize step? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx#wizard_stage | wizard_stage | multi-step-flow-URL-stable | What is the per-stage drop-off across the SMS outreach wizard (audience, review, pay/schedule)? | packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx#wizard_stage | wizard_stage | multi-step-flow-URL-stable | What is the per-stage drop-off across the social outreach flow (purpose, compose, share) and how many complete the flow vs. reach the success screen? | packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/purchase/components/CheckoutForm.tsx#form_submit | form_submit | payment-confirmation-backend | How many checkout submissions result in successful payment/subscription confirmation vs failure? | packages/gp-webapp/app/dashboard/purchase/components/CheckoutForm.tsx |
+| 1 | packages/gp-webapp/app/dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx#form_submit | form_submit | ai-chat-engagement | How many users who open the Chief of Staff chat actually send a message (open-to-send drop-off)? | packages/gp-webapp/app/dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx |
+| 1 | packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts#wizard_stage | wizard_stage | multi-step flow stage | Where do users drop off in the door-knocking create flow (purpose/who/draw/confirm/route)? | packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts |
+| 1 | packages/gp-webapp/app/dashboard/ordinances/components/DraftChat.tsx#form_submit | form_submit | ai-chat-engagement | How many users who open the ordinance draft chat send a message, and what is the open-to-send drop-off? | packages/gp-webapp/app/dashboard/ordinances/components/DraftChat.tsx |
+| 1 | packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx#form_submit | form_submit | primary-cta | How many users submit the new-ordinance form (the primary action this screen exists to drive)? | packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx |
+
+(7 more new gaps — see the state file.)
+
+## 2026-09-14
+
+### Potential instrumentation gaps
+
+Coverage: 36 tracked — 17 new, 0 open, 12 accepted, 7 dismissed.
+
+| rank | surface | type | rubric rule | dashboard question | location |
+| --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx#wizard_stage | wizard_stage | multi-step flow stage | Where do users drop off across the generalized outreach channel flow's steps? | packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx#wizard_stage | wizard_stage | multi-step-flow-stage | At which step of the Robocall outreach flow do users drop off (purpose, audience, review, pay)? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit | form_submit | payment-confirmation-backend | How many robocall payment authorizations succeed vs fail? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx#wizard_stage | wizard_stage | multi-step-flow-stage | At which step of the SMS outreach flow do users drop off (audience, review, schedule/send)? | packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx#wizard_stage | wizard_stage | multi-step-flow-stage | At which step of the Social outreach flow do users drop off (purpose, compose, share)? | packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/pro-upgrade/components/CandidateProfileStep.tsx#form_submit | form_submit | multi-step-flow-stage | How many users complete the Candidate Profile step of the Pro upgrade flow? | packages/gp-webapp/app/dashboard/pro-upgrade/components/CandidateProfileStep.tsx |
+| 0 | packages/gp-webapp/app/dashboard/purchase/components/CheckoutForm.tsx#form_submit | form_submit | payment-confirmation-backend | How many checkout submissions result in successful payment/subscription confirmation vs failure? | packages/gp-webapp/app/dashboard/purchase/components/CheckoutForm.tsx |
+| 1 | packages/gp-webapp/app/dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx#form_submit | form_submit | ai-chat-message-sent | How many chat sessions result in a message being sent (open-to-send drop-off)? | packages/gp-webapp/app/dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx |
+| 1 | packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts#wizard_stage | wizard_stage | multi-step flow stage | Where do users drop off in the door-knocking create flow (purpose/who/draw/confirm/route)? | packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts |
+| 1 | packages/gp-webapp/app/dashboard/ordinances/components/DraftChat.tsx#form_submit | form_submit | ai-chat-message-sent | How many ordinance draft chat sessions result in a message being sent? | packages/gp-webapp/app/dashboard/ordinances/components/DraftChat.tsx |
+
+(7 more new gaps — see the state file.)
+
+## 2026-09-10
+
+### Potential instrumentation gaps
+
+Coverage: 33 tracked — 14 new, 0 open, 12 accepted, 7 dismissed.
+
+| rank | surface | type | rubric rule | dashboard question | location |
+| --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx#wizard_stage | wizard_stage | multi-step flow stage | Where do users drop off across the generalized outreach channel flow's steps? | packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx#wizard_stage | wizard_stage | multi-step flow stage | At which step (purpose, audience, review, pay) do users abandon the robocall outreach flow? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx#form_submit | form_submit | outcome/payment | How many robocall payment authorizations succeed vs fail, and where do users encounter payment errors? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallPayStep.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx#wizard_stage | wizard_stage | multi-step flow stage | At which step of the SMS outreach wizard do users drop off, and how many complete vs schedule? | packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx#wizard_stage | wizard_stage | multi-step flow stage / outcome | At which step of the social outreach flow do users drop off, and how many complete (save) a social campaign? | packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/purchase/components/CheckoutForm.tsx#form_submit | form_submit | outcome/payment | How many checkout submissions succeed vs error, and at what step does payment fail? | packages/gp-webapp/app/dashboard/purchase/components/CheckoutForm.tsx |
+| 1 | packages/gp-webapp/app/dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx#form_submit | form_submit | AI chat engagement exception | How many users send a message in the Chief of Staff chat, and what is the open-to-send drop-off? | packages/gp-webapp/app/dashboard/chief-of-staff/components/chat/ChiefOfStaffChatBody.tsx |
+| 1 | packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts#wizard_stage | wizard_stage | multi-step flow stage | Where do users drop off in the door-knocking create flow (purpose/who/draw/confirm/route)? | packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts |
+| 1 | packages/gp-webapp/app/dashboard/ordinances/components/DraftChat.tsx#form_submit | form_submit | AI chat engagement exception | How many users send a message in the ordinance draft chat, and what is the open-to-send drop-off? | packages/gp-webapp/app/dashboard/ordinances/components/DraftChat.tsx |
+| 1 | packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx#form_submit | form_submit | primary CTA / form submit | How many users submit the New Ordinance form to start drafting an ordinance? | packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx |
+
+(4 more new gaps — see the state file.)
+
+## 2026-09-09
+
+### Potential instrumentation gaps
+
+Coverage: 28 tracked — 9 new, 0 open, 12 accepted, 7 dismissed.
+
+| rank | surface | type | rubric rule | dashboard question | location |
+| --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the robocall flow steps (purpose, audience, review, pay)? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the SMS outreach flow steps (compose, review, schedule)? | packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the social outreach flow steps (purpose, compose, share)? | packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx |
+| 1 | packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the create-list flow stages (purpose/who/draw/confirm)? | packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts |
+| 1 | packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx#form_submit | form_submit | primary CTA / outcome | How many users submit a new ordinance draft request and does it succeed? | packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx |
+| 1 | packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the generalized outreach channel flow steps? | packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx |
+| 1 | packages/gp-webapp/app/dashboard/pro-upgrade/components/CandidateProfileStep.tsx#form_submit | form_submit | multi-step flow stage completion | How many users complete the candidate profile step of the pro-upgrade flow, and where do they drop off? | packages/gp-webapp/app/dashboard/pro-upgrade/components/CandidateProfileStep.tsx |
+| 1 | packages/gp-webapp/app/dashboard/profile/texting-compliance/candidate-profile/components/CandidateProfile.tsx#form_submit | form_submit | primary CTA / outcome | How many candidates successfully submit their candidate profile for texting compliance? | packages/gp-webapp/app/dashboard/profile/texting-compliance/candidate-profile/components/CandidateProfile.tsx |
+| 1 | packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx#form_submit | form_submit | primary CTA / blocker | How many users successfully submit their PIN verification and how many fail? | packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx |
+
+Judgment unavailable this run (failed: 1 validation error for JudgeBatch
+results
+  Field required [type=missing, input_value={}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing); 25 candidate(s) pending, not yet judged.
+
+## 2026-09-07
+
+### Potential instrumentation gaps
+
+Coverage: 28 tracked — 9 new, 0 open, 12 accepted, 7 dismissed.
+
+| rank | surface | type | rubric rule | dashboard question | location |
+| --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the robocall flow steps (purpose, audience, review, pay)? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the SMS outreach flow steps (compose, review, schedule)? | packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the social outreach flow steps (purpose, compose, share)? | packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx |
+| 1 | packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the create-list flow stages (purpose/who/draw/confirm)? | packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts |
+| 1 | packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx#form_submit | form_submit | primary CTA / outcome | How many users submit a new ordinance draft request and does it succeed? | packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx |
+| 1 | packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the generalized outreach channel flow steps? | packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx |
+| 1 | packages/gp-webapp/app/dashboard/pro-upgrade/components/CandidateProfileStep.tsx#form_submit | form_submit | multi-step flow stage completion | How many users complete the candidate profile step of the pro-upgrade flow, and where do they drop off? | packages/gp-webapp/app/dashboard/pro-upgrade/components/CandidateProfileStep.tsx |
+| 1 | packages/gp-webapp/app/dashboard/profile/texting-compliance/candidate-profile/components/CandidateProfile.tsx#form_submit | form_submit | primary CTA / outcome | How many candidates successfully submit their candidate profile for texting compliance? | packages/gp-webapp/app/dashboard/profile/texting-compliance/candidate-profile/components/CandidateProfile.tsx |
+| 1 | packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx#form_submit | form_submit | primary CTA / blocker | How many users successfully submit their PIN verification and how many fail? | packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx |
+
+Judgment unavailable this run (failed: 1 validation error for JudgeBatch
+results
+  Field required [type=missing, input_value={}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing); 25 candidate(s) pending, not yet judged.
+
+## 2026-09-03
+
+### Potential instrumentation gaps
+
+Coverage: 28 tracked — 9 new, 0 open, 12 accepted, 7 dismissed.
+
+| rank | surface | type | rubric rule | dashboard question | location |
+| --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the robocall flow steps (purpose, audience, review, pay)? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the SMS outreach flow steps (compose, review, schedule)? | packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the social outreach flow steps (purpose, compose, share)? | packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx |
+| 1 | packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the create-list flow stages (purpose/who/draw/confirm)? | packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts |
+| 1 | packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx#form_submit | form_submit | primary CTA / outcome | How many users submit a new ordinance draft request and does it succeed? | packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx |
+| 1 | packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the generalized outreach channel flow steps? | packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx |
+| 1 | packages/gp-webapp/app/dashboard/pro-upgrade/components/CandidateProfileStep.tsx#form_submit | form_submit | multi-step flow stage completion | How many users complete the candidate profile step of the pro-upgrade flow, and where do they drop off? | packages/gp-webapp/app/dashboard/pro-upgrade/components/CandidateProfileStep.tsx |
+| 1 | packages/gp-webapp/app/dashboard/profile/texting-compliance/candidate-profile/components/CandidateProfile.tsx#form_submit | form_submit | primary CTA / outcome | How many candidates successfully submit their candidate profile for texting compliance? | packages/gp-webapp/app/dashboard/profile/texting-compliance/candidate-profile/components/CandidateProfile.tsx |
+| 1 | packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx#form_submit | form_submit | primary CTA / blocker | How many users successfully submit their PIN verification and how many fail? | packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx |
+
+Judgment unavailable this run (failed: 1 validation error for JudgeBatch
+results
+  Field required [type=missing, input_value={}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing); 25 candidate(s) pending, not yet judged.
+
+## 2026-08-31
+
+### Potential instrumentation gaps
+
+Coverage: 28 tracked — 9 new, 0 open, 12 accepted, 7 dismissed.
+
+| rank | surface | type | rubric rule | dashboard question | location |
+| --- | --- | --- | --- | --- | --- |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the robocall flow steps (purpose, audience, review, pay)? | packages/gp-webapp/app/dashboard/outreach/v2/robocall/RobocallFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the SMS outreach flow steps (compose, review, schedule)? | packages/gp-webapp/app/dashboard/outreach/v2/sms/SmsFlow.tsx |
+| 0 | packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the social outreach flow steps (purpose, compose, share)? | packages/gp-webapp/app/dashboard/outreach/v2/social/SocialFlow.tsx |
+| 1 | packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the create-list flow stages (purpose/who/draw/confirm)? | packages/gp-webapp/app/dashboard/door-knocking/native/createFlow/createFlowSteps.ts |
+| 1 | packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx#form_submit | form_submit | primary CTA / outcome | How many users submit a new ordinance draft request and does it succeed? | packages/gp-webapp/app/dashboard/ordinances/components/NewOrdinanceForm.tsx |
+| 1 | packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx#wizard_stage | wizard_stage | multi-step flow staircase | Where do users drop off across the generalized outreach channel flow steps? | packages/gp-webapp/app/dashboard/outreach/v2/OutreachFlowShell.tsx |
+| 1 | packages/gp-webapp/app/dashboard/pro-upgrade/components/CandidateProfileStep.tsx#form_submit | form_submit | multi-step flow stage completion | How many users complete the candidate profile step of the pro-upgrade flow, and where do they drop off? | packages/gp-webapp/app/dashboard/pro-upgrade/components/CandidateProfileStep.tsx |
+| 1 | packages/gp-webapp/app/dashboard/profile/texting-compliance/candidate-profile/components/CandidateProfile.tsx#form_submit | form_submit | primary CTA / outcome | How many candidates successfully submit their candidate profile for texting compliance? | packages/gp-webapp/app/dashboard/profile/texting-compliance/candidate-profile/components/CandidateProfile.tsx |
+| 1 | packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx#form_submit | form_submit | primary CTA / blocker | How many users successfully submit their PIN verification and how many fail? | packages/gp-webapp/app/dashboard/profile/texting-compliance/shared/PinForm.tsx |
+
+## 2026-08-27
+
+### Potential instrumentation gaps
+
+Coverage: 19 tracked — 0 new, 0 open, 12 accepted, 7 dismissed.
+
+No new gaps.
+
+Judgment unavailable this run (failed: 1 validation error for JudgeBatch
+results
+  Field required [type=missing, input_value={}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing); 25 candidate(s) pending, not yet judged.
+
+## 2026-08-24
+
+### Potential instrumentation gaps
+
+Coverage: 19 tracked — 0 new, 0 open, 12 accepted, 7 dismissed.
+
+No new gaps.
+
+Judgment unavailable this run (failed: 1 validation error for JudgeBatch
+results
+  Field required [type=missing, input_value={}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing); 25 candidate(s) pending, not yet judged.
+
+## 2026-08-20
+
+### Potential instrumentation gaps
+
+Coverage: 19 tracked — 0 new, 0 open, 12 accepted, 7 dismissed.
+
+No new gaps.
+
+Judgment unavailable this run (failed: 1 validation error for JudgeBatch
+results
+  Field required [type=missing, input_value={}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing); 25 candidate(s) pending, not yet judged.
+
+## 2026-08-17
+
+### Potential instrumentation gaps
+
+Coverage: 19 tracked — 0 new, 0 open, 12 accepted, 7 dismissed.
+
+No new gaps.
+
+Judgment unavailable this run (failed: 1 validation error for JudgeBatch
+results
+  Field required [type=missing, input_value={'verdicts': {'results': ...Completed tracking.'}]}}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing); 25 candidate(s) pending, not yet judged.
+
 ## 2026-08-13
 
 ### Potential instrumentation gaps

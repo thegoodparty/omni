@@ -119,7 +119,7 @@ npx vitest run --testNamePattern "case-insensitive" # by name
 npm run verify                                      # lint + tsc + tests
 ```
 
-`useTestService()` tests need Docker running locally. The first run pulls `postgres:16-alpine`; subsequent runs reuse the container.
+`useTestService()` tests need Docker running locally. The first run pulls `postgres:16-alpine`; subsequent runs reuse the container. On OrbStack, non-interactive shells need `PATH`/`DOCKER_HOST` exported or docker hangs rather than failing — see `docs/testing.md` § Docker for testcontainers (repo root).
 
 ## Anti-patterns
 

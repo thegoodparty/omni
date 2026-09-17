@@ -66,7 +66,11 @@ export const useCandidateProfileForm = ({
 }: UseCandidateProfileFormArgs): CandidateProfileForm => {
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
-  const { data: website, isSuccess } = useQuery<Website | null>({
+  const {
+    data: website,
+    isSuccess,
+    isError: isWebsiteError,
+  } = useQuery<Website | null>({
     queryKey: USER_WEBSITE_QUERY_KEY,
     queryFn: getUserWebsite,
   })
@@ -95,7 +99,12 @@ export const useCandidateProfileForm = ({
     // `website` would leave `initialBio` null forever and the bio editor would
     // never mount — the field would be completely absent. Seed from an empty
     // bio in that case so the editor renders and they can fill it in.
-    if (seededRef.current || !isSuccess) return
+    // A failed read counts as settled too. `getUserWebsite` throws on a non-ok
+    // response, so gating on `isSuccess` alone would leave `initialBio` null
+    // forever and the editor would never mount — a blank, unusable form. The
+    // empty seed can't blank a stored bio: the 200-char validator blocks
+    // submit, and saveAboutFields refuses to write when its own read fails.
+    if (seededRef.current || (!isSuccess && !isWebsiteError)) return
     const initialBioValue = website?.content?.about?.bio ?? ''
     setBio(initialBioValue)
     // Seed length up-front so Submit doesn't show a false "add your bio" error
@@ -104,7 +113,7 @@ export const useCandidateProfileForm = ({
     setInitialBio(initialBioValue)
     setIssues(normalizeIssues(website?.content?.about?.issues))
     seededRef.current = true
-  }, [isSuccess, website])
+  }, [isSuccess, isWebsiteError, website])
 
   // Funnel "viewed" event for the agentic compliance flow (ENG-10294). The
   // matching "submitted" signal is the existing SubmitSuccess event below.

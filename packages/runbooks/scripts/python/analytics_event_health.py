@@ -141,19 +141,44 @@ def to_date(value: Any) -> date | None:
     return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
 
 
+def _prose(text: str) -> str | None:
+    """Collapse a run of description prose to one line; None when it holds no words.
+
+    Truncates at the first ``<!--`` so a malformed/unclosed gp-meta marker (or a second,
+    duplicate block) never leaks its raw markup into the purpose — worst case degrades to
+    the pre-DATA-2426 blank cell, not a garbled one.
+    """
+    return " ".join(text.split("<!--", 1)[0].split()) or None
+
+
+def _strip_sep(value: str) -> str:
+    """Drop the trailing ' |' gp-meta line separator from a field value."""
+    return value.rstrip().removesuffix("|").rstrip()
+
+
 def parse_gpmeta(description: str | None) -> dict | None:
     """Parse the ``<!-- gp-meta -->`` block from a Govern description.
 
     Returns ``{"intent": "in_use"|"not_in_use"|None, "intent_date": str|None,
-    "supersession": str|None, "purpose": str|None}`` (``intent_date`` is the YYYY-MM-DD on
-    the in-use / not-in-use status line) or ``None`` when no block is present. Sparse today; the logic is ready for when the
-    instrument-analytics-event / event-metadata skills start writing it.
+    "supersession": str|None, "purpose": str|None, "fires_on": str|None, "url": str|None}``
+    (``intent_date`` is the YYYY-MM-DD on the in-use / not-in-use status line), or ``None``
+    only when there is no description at all. A description with no block still yields a
+    record whose ``purpose`` is the prose itself: most events pre-date the block, and
+    dropping their description on the floor is what left the sheet's description column
+    reading half-empty (DATA-2426).
     """
-    if not description:
+    if not description or not description.strip():
         return None
     match = GPMETA.search(description)
     if not match:
-        return None
+        return {
+            "intent": None,
+            "intent_date": None,
+            "supersession": None,
+            "purpose": _prose(description),
+            "fires_on": None,
+            "url": None,
+        }
     block = match.group(1)
     intent = None
     status_line = re.search(r"^\s*not in use[^\n]*", block, re.IGNORECASE | re.MULTILINE)
@@ -167,7 +192,9 @@ def parse_gpmeta(description: str | None) -> dict | None:
     if status_line:
         d = re.search(r"\d{4}-\d{2}-\d{2}", status_line.group(0))
         intent_date = d.group(0) if d else None
-    sup = re.search(r"supersession:\s*(.+)", block, re.IGNORECASE)
+    sup = re.search(r"^\s*supersession\s*:\s*(.+)$", block, re.IGNORECASE | re.MULTILINE)
+    fires_on = re.search(r"^\s*fires_on\s*:\s*(.+)$", block, re.IGNORECASE | re.MULTILINE)
+    url = re.search(r"^\s*url\s*:\s*(.+)$", block, re.IGNORECASE | re.MULTILINE)
     # Purpose: the first content line that is neither a known field nor an in/out-of-use
     # status line. Trailing " |" (the gp-meta line separator) is stripped.
     purpose = None
@@ -177,13 +204,19 @@ def parse_gpmeta(description: str | None) -> dict | None:
             continue
         if re.match(r"^(supersession|in use|not in use|change-set)\b", line, re.IGNORECASE):
             continue
+        if re.match(r"^(fires_on|url)\s*:", line, re.IGNORECASE):
+            continue
         purpose = line.rstrip().removesuffix("|").rstrip()
         break
+    if purpose is None:
+        purpose = _prose(description[: match.start()] + " " + description[match.end() :])
     return {
         "intent": intent,
         "intent_date": intent_date,
-        "supersession": sup.group(1).rstrip().removesuffix("|").rstrip() if sup else None,
+        "supersession": _strip_sep(sup.group(1)) if sup else None,
         "purpose": purpose,
+        "fires_on": _strip_sep(fires_on.group(1)) if fires_on else None,
+        "url": _strip_sep(url.group(1)) if url else None,
     }
 
 
@@ -294,6 +327,25 @@ def divergence(
     return None
 
 
+def call_site_removal_straddles_window(record: Mapping[str, Any]) -> bool:
+    """True when a zero call-site count reflects a removal INSIDE the 30-day window.
+
+    The rank-0 canary reads "firing with zero call sites" as a blind counter, on the premise
+    that a client event cannot fire while nothing calls it. A window straddling the removal
+    breaks that premise: the traffic is all pre-removal, so the zero is a genuine retirement
+    (DATA-2427). Same trap DATA-2140 fixed for ``orphaned_firing``, one column over.
+
+    A missing removal date means nothing to straddle, and a missing ``last_seen`` (Databricks
+    catalog gap) is ambiguous -- both fall back to False so a real blind spot is never hidden
+    behind a null date.
+    """
+    removed = to_date(record.get("call_site_retired_date"))
+    last_seen = to_date(record.get("last_seen_date"))
+    if removed is None or last_seen is None:
+        return False
+    return last_seen <= removed + timedelta(days=ORPHAN_GRACE_DAYS)
+
+
 def rank_record(record: Mapping[str, Any]) -> int:
     """Digest severity rank (0 = highest). 99 = not flagged."""
     status, elevated, anomaly = record["status"], record["elevated"], record["anomaly"]
@@ -304,7 +356,12 @@ def rank_record(record: Mapping[str, Any]) -> int:
     # event dead: a tooling alert, never the rank-2 retirement path. An anomaly drop
     # alongside the zero is instead the signature of a genuine recent removal (counts
     # draining after the call site went away) and falls through to rank 2 below.
-    if record.get("call_site_count") == 0 and status == "active" and not anomaly:
+    if (
+        record.get("call_site_count") == 0
+        and status == "active"
+        and not anomaly
+        and not call_site_removal_straddles_window(record)
+    ):
         return 0
     if status == "orphaned_firing" or div.endswith("still firing"):
         return 1
@@ -316,7 +373,7 @@ def rank_record(record: Mapping[str, Any]) -> int:
     if (
         record.get("call_site_count") == 0
         and status in ("active", "dormant")
-        and (status == "dormant" or anomaly)
+        and (status == "dormant" or anomaly or call_site_removal_straddles_window(record))
     ):
         return 2
     if anomaly and status == "active" and elevated:
@@ -699,6 +756,11 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
 # --- IO + CLI -----------------------------------------------------------------
 
 
+def _render_okr(okr: Any) -> str:
+    """List values render as one comma-joined display string."""
+    return ", ".join(str(v) for v in okr) if isinstance(okr, list) else str(okr)
+
+
 def load_watchlist(
     path: Path = WATCHLIST,
 ) -> tuple[list[str], list[str], list[str], dict[str, str]]:
@@ -714,11 +776,37 @@ def load_watchlist(
     rows = [row for row in (doc.get("events", []) or []) if row.get("event")]
     events = [row["event"] for row in rows]
     dismissed = [row["event"] for row in (doc.get("dismissed", []) or []) if row.get("event")]
-    okr_by_event = {
-        row["event"]: (", ".join(str(v) for v in row["okr"])
-                       if isinstance(row["okr"], list) else str(row["okr"]))
-        for row in rows if row.get("okr")
-    }
+    okr_by_event = {row["event"]: _render_okr(row["okr"]) for row in rows if row.get("okr")}
+    return families, events, dismissed, okr_by_event
+
+
+def load_monitored_events(
+    path: Path = WATCHLIST,
+) -> tuple[list[str], list[str], list[str], dict[str, str]]:
+    """The monitor's view of the file: ``load_watchlist`` widened with every event a
+    behavior declares as an instrument (DATA-2290).
+
+    Behaviors are the successor surface (DATA-2316) and rule 8 forces an event off
+    ``events:`` the moment it migrates, so a monitor reading only ``events:`` goes blind to
+    exactly the events the registry cares most about. ``load_watchlist`` stays the literal
+    reader because ``behavior_registry`` feeds it straight into that rule; widening it in
+    place would make rule 8 fire on every behavior in the file. A behavior's ``okr:``
+    anchors each of its instruments; an authored ``events:`` row wins any collision.
+    """
+    families, events, dismissed, okr_by_event = load_watchlist(path)
+    if not path.exists():
+        return families, events, dismissed, okr_by_event
+    doc = yaml.safe_load(path.read_text()) or {}
+    for behavior in doc.get("behaviors", []) or []:
+        okr = _render_okr(behavior["okr"]) if behavior.get("okr") else None
+        for surface in behavior.get("surfaces", []) or []:
+            name = surface.get("instrumented_by")
+            if not name:
+                continue  # explicit null = a declared gap, nothing to monitor yet
+            if name not in events:
+                events.append(name)
+            if okr:
+                okr_by_event.setdefault(name, okr)
     return families, events, dismissed, okr_by_event
 
 
@@ -788,7 +876,7 @@ def run_monitor(
     catalog = fetch_catalog(run_query)
     weekly = fetch_weekly(run_query)
     code = load_code_axis(csv_path)
-    watched_families, watchlist_events, dismissed_events, okr_by_event = load_watchlist(
+    watched_families, watchlist_events, dismissed_events, okr_by_event = load_monitored_events(
         watchlist_path
     )
     result = reconcile(

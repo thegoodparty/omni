@@ -1,4 +1,8 @@
-import { BadRequestException, ConflictException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common'
 import { z } from 'zod'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import type { Organization } from '../../../generated/prisma'
@@ -11,6 +15,7 @@ import {
   type VoterFileFilterService,
 } from '@/voters/services/voterFileFilter.service'
 import { voterFilterBaseSchema } from '@/shared/schemas/voterFilterBase.schema'
+import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 
 // Mirrors the webapp wizard's MAX_SEGMENT_NAME_LENGTH (client-enforced there);
 // enforced here because the tool description promises the cap.
@@ -22,12 +27,17 @@ export const MAX_SAVED_FILTER_NAME_LENGTH = 40
 // fields are enforced in execute below. The filter fields are the SAME Zod
 // shape the voter-file filter routes consume (Create/UpdateVoterFileFilterSchema
 // wrap voterFilterBaseSchema), so per-channel activity-outcome validity is
-// inherited at parse time, never re-implemented.
-const crudSavedFiltersInputSchema = voterFilterBaseSchema.extend({
-  action: z.enum(['list', 'create', 'update', 'delete']),
-  id: z.number().int().positive().optional(),
-  name: z.string().min(1).max(MAX_SAVED_FILTER_NAME_LENGTH).optional(),
-})
+// inherited at parse time, never re-implemented. The two legacy registration
+// keys are omitted and unknown keys rejected, as in count_contacts: the
+// filter engine silently ignores them.
+const crudSavedFiltersInputSchema = voterFilterBaseSchema
+  .omit({ registeredVoterTrue: true, registeredVoterFalse: true })
+  .extend({
+    action: z.enum(['list', 'create', 'update', 'delete']),
+    id: z.number().int().positive().optional(),
+    name: z.string().min(1).max(MAX_SAVED_FILTER_NAME_LENGTH).optional(),
+  })
+  .strict()
 
 type SavedFilterRef = { id: number; name: string | null }
 
@@ -42,11 +52,63 @@ const LOCKED_FILTER_ERROR =
   'be edited or deleted, only duplicated into a new list. Explain this to ' +
   'the user instead of retrying.'
 
+// Silent, last-resort backstop: the prompt is what should stop this case
+// (it tells the model to disclose a missing filter before saving), but
+// this catches it anyway if that guidance doesn't hold, the same way the
+// Pro-access and locked-list checks below are never explained to the model
+// in advance either. The word list is short and case-insensitive on
+// purpose, not a place-name dictionary: a false positive only costs the
+// assistant one rename, and the resulting name is still accurate.
+// Exported so voterFilterBase.schema.test.ts can assert no schema field
+// ever represents one of these as a real, named-vocabulary narrowing
+// without this list (and isUnfilteredPlaceName's precincts-only
+// assumption) being revisited in the same change.
+export const PLACE_WORDS = [
+  'county',
+  'counties',
+  'city',
+  'cities',
+  'town',
+  'towns',
+  'township',
+  'townships',
+  'village',
+  'villages',
+  'borough',
+  'boroughs',
+  'parish',
+  'parishes',
+  'zip',
+  'zips',
+  'ward',
+  'wards',
+  'neighborhood',
+  'neighborhoods',
+]
+const PLACE_WORD_PATTERN = new RegExp(`\\b(${PLACE_WORDS.join('|')})\\b`, 'i')
+
+const UNFILTERED_PLACE_NAME_ERROR =
+  'This name includes a place, but the filter has no precinct narrowing, ' +
+  'so it actually covers the whole district: rename it without the ' +
+  'place word and tell the user that. If they want real geographic ' +
+  'narrowing, precincts are the one filter that provides it.'
+
+// True only when the name claims a geographic narrowing the filter didn't
+// apply. Precincts is the one real geographic filter key (county/city/zip
+// don't exist in the data), so its presence is what makes a place name
+// honest.
+const isUnfilteredPlaceName = (name: string, precincts: string[]): boolean =>
+  PLACE_WORD_PATTERN.test(name) && precincts.length === 0
+
 // Business-rule rejections (pro gate, incomplete-outreach activity condition,
 // Serve party rejection) come back as structured tool errors the model can
 // relay; anything else (people-api outages -> BadGatewayException) propagates
-// to the LLM layer's tool-failure handling like every other tool.
-const toToolError = (error: BadRequestException): { error: string } =>
+// to the LLM layer's tool-failure handling like every other tool. Both classes
+// are needed: both pro gates reached from here (filterAccessCheck and
+// countContacts) are 403 ForbiddenExceptions, the rest are 400s.
+const toToolError = (
+  error: BadRequestException | ForbiddenException,
+): { error: string } =>
   error.message === PRO_FILTERING_REQUIRED_MESSAGE ||
   error.message === FILTER_PRO_REQUIRED_MESSAGE
     ? {
@@ -85,7 +147,9 @@ export const buildCrudSavedFiltersTool = (deps: {
     'locked: update and delete return an error explaining it must be ' +
     'duplicated to change it. Returns ids, names, and counts only, never ' +
     'individual records, and returns a structured error when the ' +
-    'organization cannot manage lists (e.g. a Win campaign without Pro).',
+    'organization cannot manage lists (e.g. a Win campaign without Pro).' +
+    '\n\n' +
+    DATA_SOURCE_ROUTING_RULES,
   inputSchema: crudSavedFiltersInputSchema,
   execute: async (input): Promise<CrudSavedFiltersOutput> => {
     const { voterFileFilters, contacts, organization } = deps
@@ -100,6 +164,9 @@ export const buildCrudSavedFiltersTool = (deps: {
       await voterFileFilters.filterAccessCheck(organization.slug)
       if (action === 'create') {
         if (!name) return { error: 'create requires name' }
+        if (isUnfilteredPlaceName(name, filter.precincts ?? [])) {
+          return { error: UNFILTERED_PLACE_NAME_ERROR }
+        }
         // Count before creating so a filter the org cannot count (non-Pro,
         // Serve party rejection, people-api outage) never leaves an orphan
         // list behind; the count is the same live number the route path
@@ -122,6 +189,29 @@ export const buildCrudSavedFiltersTool = (deps: {
         }
       }
       if (action === 'update') {
+        // Only check the place-name invariant when this call touches the
+        // fields that could break it: a name change or a precincts change.
+        // Checked against the resulting name/precincts pair, not just the
+        // incoming fields: clearing precincts without renaming would
+        // otherwise leave an already-named list's place claim stale and
+        // unflagged. `??`, not `||`: an explicit `precincts: []` in this
+        // call must override a non-empty existing value (clearing the
+        // narrowing is a real edit), while an absent key falls back to
+        // what's persisted.
+        const nameIsBeingTouched = name !== undefined
+        const precinctsAreBeingTouched = filter.precincts !== undefined
+        if (nameIsBeingTouched || precinctsAreBeingTouched) {
+          const effectiveName = name ?? existing.name
+          if (
+            effectiveName !== null &&
+            isUnfilteredPlaceName(
+              effectiveName,
+              filter.precincts ?? existing.precincts ?? [],
+            )
+          ) {
+            return { error: UNFILTERED_PLACE_NAME_ERROR }
+          }
+        }
         const payload = { ...filter, ...(name !== undefined && { name }) }
         if (Object.keys(payload).length === 0) {
           return {
@@ -145,7 +235,10 @@ export const buildCrudSavedFiltersTool = (deps: {
       if (error instanceof ConflictException) {
         return { error: LOCKED_FILTER_ERROR }
       }
-      if (error instanceof BadRequestException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof ForbiddenException
+      ) {
         return toToolError(error)
       }
       throw error

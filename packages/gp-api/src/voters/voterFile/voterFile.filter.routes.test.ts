@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { FeaturesService } from '@/features/services/features.service'
@@ -94,6 +96,39 @@ const seedCompletedOutreach = (
       status: OutreachStatus.completed,
     },
   })
+
+// A completed nativePhoneBanking envelope with a real linked
+// PhoneBankingList — the shape `phoneBankingList.service.ts` actually
+// writes at list creation (outreachType nativePhoneBanking,
+// phoneBankingListId set), which a phoneBanking activity condition must
+// accept via the channel equivalence.
+const seedCompletedNativePhoneBankingOutreach = async (
+  campaignId: number,
+  organizationSlug: string,
+) => {
+  const filter = await service.prisma.voterFileFilter.create({
+    data: { organizationSlug, name: 'PB seed audience' },
+  })
+  const list = await service.prisma.phoneBankingList.create({
+    data: {
+      organizationSlug,
+      voterFileFilterId: filter.id,
+      name: 'PB seed list',
+      script: 'Hi, this is a volunteer calling about the election.',
+      sheetCount: 1,
+      purpose: 'introduce_myself',
+    },
+  })
+  return service.prisma.outreach.create({
+    data: {
+      campaignId,
+      organizationSlug,
+      outreachType: OutreachType.nativePhoneBanking,
+      status: OutreachStatus.completed,
+      phoneBankingListId: list.id,
+    },
+  })
+}
 
 // A Win segment that names a political party plus a couple of other criteria.
 const partySegmentBody = {
@@ -204,7 +239,7 @@ describe('voter-file segment CRUD for a campaign org', () => {
       { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
     )
 
-    expect(created.status).toBe(400)
+    expect(created.status).toBe(403)
     expect(await service.prisma.voterFileFilter.count()).toBe(0)
   })
 })
@@ -311,12 +346,35 @@ describe('activity conditions and supportStatus on a segment', () => {
       '/v1/voters/voter-file/filter',
       {
         name: 'Bad channel',
-        activityConditions: [{ outreachType: 'phoneBanking', actions: [] }],
+        activityConditions: [{ outreachType: 'socialMedia', actions: [] }],
       },
       { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
     )
 
     expect(result.status).toBe(400)
+  })
+
+  it('accepts a phone-banking activity condition', async () => {
+    await seedWinCampaign()
+
+    const result = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Phone banked',
+        activityConditions: [
+          { outreachType: 'phoneBanking', actions: ['answered', 'no_answer'] },
+        ],
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    expect(result.data.activityConditions).toEqual([
+      expect.objectContaining({
+        outreachType: 'phoneBanking',
+        actions: ['answered', 'no_answer'],
+      }),
+    ])
   })
 
   it('rejects a specific outreachId that has not completed', async () => {
@@ -428,6 +486,85 @@ describe('activity conditions and supportStatus on a segment', () => {
           {
             outreachType: 'doorKnocking',
             outreachId: outreach.id,
+            actions: ['answered'],
+          },
+        ],
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(400)
+  })
+
+  it('accepts a phoneBanking condition pinned to a completed campaign', async () => {
+    const campaign = await seedWinCampaign()
+    const outreach = await seedCompletedNativePhoneBankingOutreach(
+      campaign.id,
+      WIN_SLUG,
+    )
+
+    const result = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Phone banked specific',
+        activityConditions: [
+          {
+            outreachType: 'phoneBanking',
+            outreachId: outreach.id,
+            actions: ['answered'],
+          },
+        ],
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    expect(result.data.activityConditions).toHaveLength(1)
+    expect(result.data.activityConditions[0].outreachId).toBe(outreach.id)
+  })
+
+  it('accepts a phoneBanking condition pinned to a nativePhoneBanking envelope', async () => {
+    const campaign = await seedWinCampaign()
+    const outreach = await seedCompletedNativePhoneBankingOutreach(
+      campaign.id,
+      WIN_SLUG,
+    )
+    expect(outreach.outreachType).toBe(OutreachType.nativePhoneBanking)
+
+    const result = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Native phone banked specific',
+        activityConditions: [
+          {
+            outreachType: 'phoneBanking',
+            outreachId: outreach.id,
+            actions: ['support_yes'],
+          },
+        ],
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+  })
+
+  it('rejects a legacy phoneBanking outreach with no phoneBankingListId', async () => {
+    const campaign = await seedWinCampaign()
+    const legacyPhoneBankingOutreach = await seedCompletedOutreach(
+      campaign.id,
+      WIN_SLUG,
+      OutreachType.phoneBanking,
+    )
+
+    const result = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Legacy phone banking specific',
+        activityConditions: [
+          {
+            outreachType: 'phoneBanking',
+            outreachId: legacyPhoneBankingOutreach.id,
             actions: ['answered'],
           },
         ],
@@ -559,7 +696,6 @@ describe('resolution engine: list/count/download honor conditions + supportStatu
         state: 'CA',
         L2DistrictType: 'County',
         L2DistrictName: 'Test County',
-        projectedTurnout: null,
       })
 
   // People data resolves through the in-process people-db services now
@@ -940,7 +1076,6 @@ describe('count + download for a saved segment', () => {
         state: 'CA',
         L2DistrictType: 'County',
         L2DistrictName: 'Test County',
-        projectedTurnout: null,
       })
 
   it('counts a saved segment scoped to the campaign district incl. party', async () => {
@@ -1019,6 +1154,241 @@ describe('count + download for a saved segment', () => {
     expect(dto).toMatchObject({ districtId: DISTRICT_ID })
     expect(reconstructFilters(dto!.filters)).toMatchObject({
       politicalParty: { eq: 'Independent' },
+    })
+  })
+})
+
+describe('recommended-list provenance on create', () => {
+  // The recommendation's own unsaved filter shape (RecommendedListFilter),
+  // as the webapp receives it from GET /campaigns/mine/recommended-lists
+  // and would forward verbatim on an unmodified accept.
+  const RECOMMENDED_FILTER = {
+    voterStatus: ['Super', 'Likely'],
+    independentAffinity: true,
+    hasCellPhone: true,
+  }
+
+  it('persists provenance; recommendedModified is false unedited', async () => {
+    await seedWinCampaign()
+
+    const created = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Persuadable independents',
+        recommendedVariant: 'persuadeAffinity',
+        recommendedChannel: 'sms',
+        recommendedIntent: 'persuade',
+        recommendedFilter: RECOMMENDED_FILTER,
+        ...RECOMMENDED_FILTER,
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(created.status).toBe(201)
+    expect(created.data).toMatchObject({
+      recommendedVariant: 'persuadeAffinity',
+      recommendedChannel: 'sms',
+      recommendedIntent: 'persuade',
+      recommendedModified: false,
+    })
+
+    const persisted = await service.prisma.voterFileFilter.findUnique({
+      where: { id: created.data.id as number },
+    })
+    expect(persisted).toMatchObject({
+      recommendedVariant: 'persuadeAffinity',
+      recommendedChannel: 'sms',
+      recommendedIntent: 'persuade',
+      recommendedModified: false,
+      voterStatus: ['Super', 'Likely'],
+      independentAffinity: true,
+      hasCellPhone: true,
+    })
+  })
+
+  it('recommendedModified true once the filter is edited', async () => {
+    await seedWinCampaign()
+
+    const created = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Persuadable independents, edited',
+        recommendedVariant: 'persuadeAffinity',
+        recommendedChannel: 'sms',
+        recommendedIntent: 'persuade',
+        recommendedFilter: RECOMMENDED_FILTER,
+        ...RECOMMENDED_FILTER,
+        partyDemocrat: true,
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(created.status).toBe(201)
+    expect(created.data.recommendedModified).toBe(true)
+  })
+
+  // What the webapp ACTUALLY posts on an unedited accept. Its builder draft
+  // is boolean option keys — `builderFiltersFromRecommendation` turns
+  // voterStatus ['Super','Likely'] into audienceSuperVoters /
+  // audienceLikelyVoters, and the transform emits those — while
+  // `recommendedFilter` carries the array form verbatim. The diff runs on
+  // the CONVERTED payload for exactly this reason: compared raw, every
+  // unmodified accept in production would report modified.
+  it('reads the boolean spelling of a recommendation as unmodified', async () => {
+    await seedWinCampaign()
+
+    const created = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Persuadable independents',
+        recommendedVariant: 'persuadeAffinity',
+        recommendedChannel: 'sms',
+        recommendedIntent: 'persuade',
+        recommendedFilter: RECOMMENDED_FILTER,
+        audienceSuperVoters: true,
+        audienceLikelyVoters: true,
+        independentAffinity: true,
+        hasCellPhone: true,
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(created.status).toBe(201)
+    expect(created.data.recommendedModified).toBe(false)
+  })
+
+  // The same spelling with one band added is still an edit — the join must
+  // not be so loose that it stops seeing a real change.
+  it('still reads an edited boolean spelling as modified', async () => {
+    await seedWinCampaign()
+
+    const created = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Persuadable independents, widened',
+        recommendedVariant: 'persuadeAffinity',
+        recommendedChannel: 'sms',
+        recommendedIntent: 'persuade',
+        recommendedFilter: RECOMMENDED_FILTER,
+        audienceSuperVoters: true,
+        audienceLikelyVoters: true,
+        audienceUnreliableVoters: true,
+        independentAffinity: true,
+        hasCellPhone: true,
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(created.status).toBe(201)
+    expect(created.data.recommendedModified).toBe(true)
+  })
+
+  it('leaves all four columns null on a hand-built list', async () => {
+    await seedWinCampaign()
+
+    const created = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      { name: 'Hand built', partyDemocrat: true },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(created.status).toBe(201)
+    expect(created.data).toMatchObject({
+      recommendedVariant: null,
+      recommendedChannel: null,
+      recommendedIntent: null,
+      recommendedModified: null,
+    })
+  })
+
+  // Reproduces the duplicate-to-edit repost path (useDuplicateList.ts):
+  // GET /filters returns every list's provenance columns as explicit
+  // `null` (not absent), and a duplicate reposts the segment's own fields.
+  // Before the fix these enum fields were `.optional()`, not `.nullable()`,
+  // so a known key carrying `null` 400'd instead of being silently
+  // stripped — unlike an absent key, which the plain z.object() shape
+  // already tolerates.
+  it('accepts null on the three enum fields (duplicate repost)', async () => {
+    await seedWinCampaign()
+
+    const created = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Persuadable independents (copy)',
+        partyDemocrat: true,
+        recommendedVariant: null,
+        recommendedChannel: null,
+        recommendedIntent: null,
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(created.status).toBe(201)
+    expect(created.data).toMatchObject({
+      recommendedVariant: null,
+      recommendedChannel: null,
+      recommendedIntent: null,
+      recommendedModified: null,
+    })
+  })
+})
+
+// Task 8 (gp-webapp's useOutreachAudience.ts) builds the create-filter body
+// with these exact keys, and gp-api's create schema is a plain z.object()
+// (not .strict()), so it silently drops any key it doesn't recognize — a
+// rename on either side loses this feature's only usage signal with no
+// error anywhere. RECOMMENDATION_BODY_KEYS is the one list both checks
+// below read from, so a rename on either side breaks one of them:
+// gp-api renaming its schema/column still accepts a POST (schema fields
+// are all optional) but the persisted row no longer carries the value,
+// failing the persistence check; the webapp renaming its literal key
+// fails the source-text check.
+describe('webapp create-body keys pinned to what gp-api persists', () => {
+  const RECOMMENDATION_BODY_KEYS = [
+    'recommendedVariant',
+    'recommendedChannel',
+    'recommendedIntent',
+    'recommendedFilter',
+  ] as const
+
+  it('the webapp still sends every provenance key by this exact name', () => {
+    const webappSource = readFileSync(
+      join(
+        __dirname,
+        '../../../../gp-webapp/app/dashboard/outreach/v2/audience/useOutreachAudience.ts',
+      ),
+      'utf-8',
+    )
+    for (const key of RECOMMENDATION_BODY_KEYS) {
+      expect(webappSource, key).toContain(`${key}:`)
+    }
+  })
+
+  it('gp-api persists every provenance key under this exact name', async () => {
+    await seedWinCampaign()
+
+    const created = await service.client.post(
+      '/v1/voters/voter-file/filter',
+      {
+        name: 'Pin test',
+        independentAffinity: true,
+        recommendedVariant: 'persuadeAffinity',
+        recommendedChannel: 'sms',
+        recommendedIntent: 'persuade',
+        recommendedFilter: { independentAffinity: true },
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(created.status).toBe(201)
+    expect(created.data).toMatchObject({
+      recommendedVariant: 'persuadeAffinity',
+      recommendedChannel: 'sms',
+      recommendedIntent: 'persuade',
+      // Submitted filter matches recommendedFilter exactly — proves
+      // recommendedFilter round-tripped under this exact key and was
+      // actually read by the diff, not just accepted and ignored.
+      recommendedModified: false,
     })
   })
 })

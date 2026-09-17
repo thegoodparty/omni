@@ -36,9 +36,9 @@ describe('useListWizardCount — debounce', () => {
     })
 
     const qc = newClient()
-    // The initial payload fires immediately (mirrors FiltersSheet's identical
-    // useState(payload) seed — no artificial delay on first mount). The two
-    // rapid rerenders that follow, within the same debounce window, must
+    // The initial payload fires immediately: `debouncedPayload` is seeded
+    // with `useState(payload)`, so first mount has no artificial delay. The
+    // two rapid rerenders that follow, within the same debounce window, must
     // coalesce into exactly one more request for the final value.
     const { rerender } = renderHook(
       ({ payload }) => useListWizardCount(payload, true),
@@ -96,7 +96,7 @@ describe('useListWizardCount — isStale', () => {
     )
 
     // Let the mount's own debounce settle so we start from a clean, non-stale
-    // baseline (the seed payload fires immediately, same as FiltersSheet).
+    // baseline (the seed payload fires immediately).
     await waitFor(() => expect(result.current.isStale).toBe(false))
 
     // A fresh selection re-opens the debounce window synchronously: the count

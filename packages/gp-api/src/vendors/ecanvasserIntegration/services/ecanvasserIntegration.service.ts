@@ -23,7 +23,6 @@ import { EcanvasserService } from './ecanvasser.service'
 // so this file carries no runtime import of the attribution service, which would
 // otherwise close a module-eval cycle (see ecanvasserIntegration.types.ts).
 import type { EcanvasserAttributionService } from './ecanvasserAttribution.service'
-import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
 
 @Injectable()
 export class EcanvasserIntegrationService extends createPrismaBase(
@@ -36,7 +35,6 @@ export class EcanvasserIntegrationService extends createPrismaBase(
     @Inject(forwardRef(() => CrmCampaignsService))
     private readonly crm: WrapperType<CrmCampaignsService>,
     private slack: SlackService,
-    private readonly clerkEnricher: ClerkUserEnricherService,
     @Inject(ECANVASSER_ATTRIBUTION_SERVICE)
     private readonly attribution: EcanvasserAttributionService,
   ) {
@@ -425,20 +423,6 @@ export class EcanvasserIntegrationService extends createPrismaBase(
         interactions: true,
       },
     })
-
-    const users = ecanvassers
-      .map((e) => e.campaign?.user)
-      .filter((u): u is NonNullable<typeof u> => u != null)
-    const enriched = await this.clerkEnricher.enrichUsers(users)
-    let idx = 0
-    for (const ecanvasser of ecanvassers) {
-      if (ecanvasser.campaign?.user) {
-        const enrichedUser = enriched[idx++]
-        if (enrichedUser) {
-          ecanvasser.campaign.user = enrichedUser
-        }
-      }
-    }
 
     return ecanvassers.map((ecanvasser) => ({
       contacts: ecanvasser.contacts.length,

@@ -11,7 +11,7 @@ Usage: python3 make_ca_gated.py   (open /ca_gated.html)
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-LOCAL = os.path.join(LOCAL, "local")
+LOCAL = os.path.join(HERE, "local")
 os.makedirs(LOCAL, exist_ok=True)
 
 

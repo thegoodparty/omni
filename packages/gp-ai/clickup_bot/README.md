@@ -20,19 +20,71 @@ ClickUp comment OR GitHub PR
 
 | Tag | Label | Model | Result |
 |-----|-------|-------|--------|
-| `gpbot-analyze` | analyze | opus | Posts bug analysis as [GP-Bot] comment |
+| `gpbot-analyze` | analyze | opus | Posts bug analysis as [GP-Bot] comment, and may queue an implementation run — see "Analyze before implement" |
 | `gpbot-work` | implement | opus | Creates PR and posts link to ClickUp |
+| `gpbot-dev-test` | dev-test | opus | Diagnoses a failing `@dev-only` E2E spec. Read-only and escalates exactly like analyze — see "Dev-only test failures" |
+
+`gpbot-analyze` is the front door. `gpbot-work` is normally applied by an
+analysis that concluded there is a fix worth making, though applying it by hand
+still works and skips straight to the PR.
+
+`gpbot-dev-test` is applied by a workflow and never by a person. The tag has to
+exist in the Engineering space before the first ticket can be filed — ClickUp
+only accepts tag names it already knows, and a task created without it is a
+ticket that looks filed and silently never starts a run.
+
+## Dev-only test failures
+
+Two Playwright specs in `packages/gp-webapp/e2e-tests` carry `@dev-only`. CI
+greps them **out** on pull requests (`--grep-invert @dev-only` in
+`gp-webapp.yml`) and **in** on the post-merge run against dev (`release.yml`).
+They are therefore the only tests whose first and only verdict arrives after the
+code has merged, on a run nobody authored — and a failure blocks every prod
+promotion job until somebody happens to look. `d961dc105` is one of those,
+diagnosed and fixed by hand.
+
+`.github/workflows/gpbot-dev-test-triage.yml` listens for a failed release run,
+pulls the merged Playwright report out of its artifacts, and hands it to
+`dev_test_triage.py`, which decides three things: which specs failed, which of
+those were `@dev-only`, and whether the suite ran at all.
+
+That third one is not a formality. A failed `Dev <service>` job **skips** the
+E2E shards while the run's red gate job is still named `E2E` — during the Sep
+2026 incident (ENG-11106/11107) that got a deploy-role IAM failure triaged as an
+e2e problem. A skipped shard produces an empty report rather than a failing one,
+so "no dev-only failures" and "the suite never ran" are the same shape unless
+something separates them.
+
+One ticket per distinct failing spec, in Platform > Bugs by default
+(`vars.CLICKUP_DEV_TEST_LIST_ID` overrides it). A spec that fails again while
+its ticket is still open gets a comment rather than a second ticket, and
+deliberately does **not** get re-tagged: the tag is what launches an agent run,
+and a spec failing on every release run for a day would otherwise buy an
+investigation per run into a question already being investigated.
+
+The disposition is posted to `#bot-urgent`, threaded under
+`release-failure-alert.yml`'s message for the same run where the Slack app can
+read channel history, so one place shows both what broke and what the bot did
+about it. It posts even when nothing was filed — a workflow that is silent on
+its quiet path cannot demonstrate that it is working.
 
 ## Flow
 
-1. User adds tag to a ClickUp task (e.g., `gpbot-analyze`)
-2. ClickUp sends `taskTagUpdated` webhook to Lambda
+1. A tag lands on a ClickUp task (e.g., `gpbot-analyze`) — applied by hand, by a
+   ClickUp Automation, or by the HubSpot integration as it files the ticket
+2. ClickUp sends a `taskTagUpdated` **or** `taskCreated` webhook to Lambda. Both
+   are subscribed, and the reason is a race — see "Why both events" below
 3. Webhook invocation (ClickUp's critical path — must answer in well under
    ClickUp's webhook response timeout):
    - Verify the signature, validate `task_id`, resolve the tag in `TAG_CONFIG`
    - Self-invoke the same Lambda asynchronously with
      `{"gpbot_async": true, "task_id": ..., "matched_tag": ...}` and return
      `200 {"status": "accepted"}` immediately — zero ClickUp API calls in-path
+   - A `taskCreated` delivery with no tag delta cannot be resolved without a
+     ClickUp call, so the payload instead carries
+     `{"resolve_tag_from_task": true}` and the worker does the lookup. The flag
+     is explicit rather than a null `matched_tag` so the worker's fail-loud
+     check on an unknown tag keeps working
    - If the self-invoke is unavailable (missing IAM — the initial state until
      the follow-up terraform lands — or any invoke error), fall back to running
      the worker steps inline, exactly the pre-fast-ack behavior
@@ -40,17 +92,30 @@ ClickUp comment OR GitHub PR
    by a top-level `gpbot_async` key with no ALB envelope keys, which an
    internet request cannot produce — an ALB-wrapped body stays a string inside
    `event["body"]`):
-   - Scope guard (`implement` only): `GET /task/{id}` and skip when the task is
-     not omni code work. See "Scope guard" below.
+   - Tag resolution (`taskCreated` without a tag delta only): `GET /task/{id}`
+     and read the tag off the task itself, preferring `gpbot-analyze` when both
+     tags are present. No recognizable tag → skip quietly, which is the common
+     case since `taskCreated` fires for every task created in the workspace.
+     The fetched task is reused by the scope guard below, so this path costs one
+     `GET /task`, not two.
+   - `GET /task/{id}` — needed for EVERY label now, because the ticket's list
+     decides which repo the run is about. See "More than one repo" below.
+   - Scope guard (`implement` only): skip when the task is not code work, and
+     skip when it routes to a repo that is still analyze-only. See "Scope
+     guard" and "More than one repo" below.
    - Dedup check: does the task already have a **recent** `[GP-Bot] Processing
      started` comment **for the same label**? → Skip. Analyze and implement
      dedup independently. See "Dedup semantics" below.
    - Atomic dedup claim: conditional DynamoDB write on `{task_id}#{label}` —
      exactly one concurrent worker wins; losers skip quietly. See "Dedup
      semantics" below.
-   - Triggers Fargate, passing `CLICKUP_TASK_ID`, `INSTRUCTION`, and
-     `AGENT_MODEL` as container-override env vars (the instruction encodes the
-     analyze-vs-implement contract; there is no `OUTPUT_ACTION`)
+   - Triggers Fargate, passing `CLICKUP_TASK_ID`, `INSTRUCTION`, `AGENT_MODEL`,
+     `AGENT_LABEL` and `TARGET_REPO` as container-override env vars (the
+     instruction encodes the analyze-vs-implement contract; there is no
+     `OUTPUT_ACTION`). `AGENT_LABEL` is what the agent gates escalation on — see
+     "Analyze before implement" — and both it and `TARGET_REPO` are passed as
+     values so a prompt edit cannot silently change whether a run may open a PR,
+     or which repo it opens one in
    - Posts the `[GP-Bot] Processing started (...)` comment — which also tells
      the user the re-tag cooldown — only after the Fargate task actually
      launched. In the async worker it is retried once on failure (this comment
@@ -63,6 +128,9 @@ ClickUp comment OR GitHub PR
      only fail-loud channel — no caller receives an HTTP error) and attempt a
      failure comment.
 5. engineer_agent executes based on action type
+6. After an **analyze** run succeeds, the agent parses its own `GPBOT-VERDICT`
+   line and, on `fix` only, tags the ticket `gpbot-work` — re-entering at step 2.
+   Off by default; see "Analyze before implement"
 
 There is no feature flag and no logging-only mode. A matched tag always attempts the
 Fargate trigger. If the trigger fails for any reason (missing `ECS_*` env vars, IAM
@@ -71,6 +139,562 @@ on the task and returns HTTP 500.
 
 To retry after a failure (e.g. once the config is fixed): remove and re-add the tag.
 Failure comments do not mark the task as processed, so the retry re-triggers.
+
+## The sweep (why webhooks are not enough)
+
+**Subscribing to events does not catch every bug, and no subscription can.**
+
+On 2026-08-17, after `taskCreated` went live, 53 tasks were created workspace-wide.
+52 produced a webhook delivery. The one that did not was `DATA-2336` — the only
+HubSpot-filed ticket in the set, carrying `gpbot-analyze` from the moment it was
+created. It emitted **nothing all day**: no `taskCreated`, no `taskTagUpdated`, no
+delivery of any kind reached the Lambda.
+
+| | Tasks created | Delivered | Missed |
+|---|---|---|---|
+| Created in ClickUp by a human | 52 | 52 | 0 |
+| Filed by the HubSpot integration | 1 | 0 | **1** |
+
+That disproves the assumption behind "Why both events" below. When the tag arrives
+inside the HubSpot create call, ClickUp emits no event we can subscribe to, so
+adding another event type cannot fix it. The fix is to stop relying on being told:
+
+`handle_sweep` runs on a schedule (every 15 minutes, invoked with
+`{"gpbot_sweep": true}`), lists tasks tagged `gpbot-analyze` updated in the last
+`SWEEP_LOOKBACK_HOURS`, and triggers the ones the bot has never spoken on.
+
+The schedule lives in **`.github/workflows/gpbot-sweep.yml`**, not in Terraform, and
+that is a workaround rather than a preference. The deploy role
+(`github-actions-pulumi-deploy`) grants `lambda:*` but no `events:` action at all, so
+`aws_cloudwatch_event_rule` fails `AccessDenied` and takes the entire
+`prod/clickup-bot` apply down with it — including the function code update that
+already succeeded, which is how the sweep code first reached production with nothing
+to trigger it. Invoking the Lambda directly needs no permission the deploy role
+lacks. The trade is that GitHub's cron is best-effort and can run late, which this
+job absorbs because it is a backstop with a 24-hour lookback. To move it into
+Terraform, add `events:PutRule`, `PutTargets`, `DeleteRule`, `RemoveTargets`,
+`DescribeRule`, `ListTargetsByRule` and `TagResource` to
+`GitHubActionsPulumiDeployPolicy`; the rule/target/permission trio is described in
+`infrastructure/modules/clickup-bot/main.tf`.
+
+### Why the sweep needs its own idempotency
+
+**Do not let the sweep rely on the ordinary dedup layers.** Both of them expire
+after ~15 minutes *on purpose* — their job is to absorb retry storms while
+leaving a deliberate human re-tag free to re-run hours later (see
+`DEFAULT_DEDUP_COMMENT_WINDOW_SECONDS`). A 15-minute schedule against a 24-hour
+window would therefore re-analyze every ticket in the window on nearly every
+pass: ~96 agent runs per ticket per day, at $1.73–$4.79 each.
+
+So the sweep asks a different question and needs a permanent answer:
+`has_any_bot_comment` — *has this bot ever spoken on this ticket?* Unwindowed, so
+a ticket analyzed a month ago still counts as handled. The 15-minute layers still
+run underneath as the concurrency guard.
+
+The two checks fail in opposite directions, deliberately:
+
+| Check | On an unreadable comment | Why |
+|---|---|---|
+| `has_processing_started_comment` | does **not** block | A drift must not permanently disable re-tag re-runs; the DynamoDB layer still guards duplicates |
+| `sweep_should_skip` | **skips** | Guessing "not yet analyzed" on a schedule turns one ClickUp blip into a recurring charge. The webhook is still the primary path and the next sweep retries in 15 minutes |
+
+This also covers the worst failure this system has had. A webhook ClickUp suspends
+stops delivering **silently**, as it did from 2026-07-31 to 2026-08-14 while every
+dashboard read healthy. A schedule cannot be unsubscribed, so that outage becomes
+"up to 15 minutes late" instead of "off for two weeks".
+
+| Guard | Why |
+|---|---|
+| `has_any_bot_comment` (permanent) | The load-bearing one. A ticket the bot has ever commented on is never swept again — see above |
+| `SWEEP_LOOKBACK_HOURS` (default 24) | ~170 tickets already carry this tag. Without a window the first sweep would re-analyze bugs closed months ago at ~$4 each |
+| `SWEEP_MAX_TRIGGERS` (default 5) | Bounds the spend of any single pass. Hitting it logs `ERROR` and defers the rest to the next sweep |
+| `include_closed=false` | Closed tickets are settled work |
+| Analyze only | `gpbot-work` opens a PR, and the gap does not apply to it — hand-tagging and the escalation's own API tag write both fire `taskTagUpdated` normally (verified on ENG-10890/10891). A sweep for it would be a second, less-scrutinised route to opening PRs |
+| Declines don't consume the cap | A window full of already-handled tickets must not starve the one that still needs a run |
+| One bad task never ends the pass | The next ticket may be the bug nobody has looked at |
+
+To turn it off, disable the `gpbot reconciliation sweep` workflow — but understand
+what that restores: bugs filed by HubSpot with the tag applied at creation will
+silently never be analyzed.
+
+## The intake pass (tickets that never got the tag)
+
+The sweep above rescues a ticket that **has** the tag. This covers the larger gap
+underneath it: a ticket that never got the tag at all, and so is invisible to
+every part of this system — the webhook listens for the tag being *applied*, and
+the sweep is itself a tag query.
+
+Measured on 2026-09-17, prompted by `ENG-11112` sitting untouched for 20 hours.
+Across the last 100 tickets in Win > Bugs the correlation is exact: **every**
+ticket carrying `gpbot-analyze` also carries `production-bug`, and **every**
+ticket without `production-bug` carries no `gpbot-analyze`. The ClickUp
+Automation on that list triggers on `production-bug`, which HubSpot applies to
+tickets it files — so a bug a GoodParty employee reports by hand in ClickUp
+reaches nobody.
+
+`ENG-11112` and `ENG-11113` are the control pair: filed 17 minutes apart into the
+same list, the HubSpot one was analyzed within seconds and the hand-filed one was
+never seen.
+
+| | Reaches the bot |
+|---|---|
+| Filed by HubSpot (gets `production-bug`) | yes, in seconds |
+| Filed by a colleague in ClickUp | **no — until this pass** |
+
+`run_intake_pass` runs **first** inside `handle_sweep`, so the tag query that
+follows it in the same invocation picks up what it just tagged: a new ticket is
+analyzed in that pass rather than waiting for the next one, and without leaning
+on a webhook this system already knows drops exactly this class of ticket.
+
+**It applies the tag rather than triggering a run.** That is what the missing
+Automation would have done, and it reuses one path instead of adding a second way
+to start a run — dedup, repo routing, the verdict, escalation and the coverage
+metric all key off the tag. It also leaves the reason visible on the ticket.
+
+| Guard | Why |
+|---|---|
+| `INTAKE_LIST_IDS` (bug lists only) | Serve > Backlog and Platform Backlog are deliberately absent: a backlog holds planned work nobody reported as broken, so tagging it buys an agent run per grooming decision |
+| List bound re-checked in code | ClickUp **ignores** a filter it does not recognize rather than erroring. If `list_ids[]` ever stopped being understood, the endpoint would answer with every recently created task in the workspace — and this pass *writes*, so the blast radius would be a tag, and an agent run, on every new task in the company |
+| `status.type == "open"` only | An allow-list, not a deny-list of finished states. `include_closed=false` does not cover `done` (a separate status type — `ENG-11089` sat at "done", fixed by hand and never tagged), and "in review"/"ready to ship" are type `custom`, indistinguishable by type from "blocked". Verified against all four intake lists on 2026-09-17 |
+| `has_any_bot_comment` (permanent) | Stops the re-tagging loop. Someone who removes the tag after the bot has answered is ending the conversation; without this the next pass would re-tag and re-run every 15 minutes, with no visible source |
+| `gpbot-skip` tag | The escape hatch for a ticket a human wants left alone *before* the bot has spoken. ClickUp tags are space-scoped, so it must exist in the space to appear in the dropdown |
+| `INTAKE_LOOKBACK_HOURS` (default 24) | Windowed on **creation**, not update: "was this ticket ever taken in" is asked once. Windowing on updates would re-ask it whenever anyone touched an old ticket, putting every untagged historical ticket permanently in range |
+| `INTAKE_MAX_TAGS` (default 3) | Lower than `SWEEP_MAX_TRIGGERS` because this is upstream of it. Every tag becomes an agent run, and on omni a `fix` verdict escalates to a PR — a bulk import into a bug list must not become a wave of pull requests before anyone notices |
+| A listing failure never fails the sweep | This pass is new and sits at the top of a function the bot has depended on for months. A ClickUp blip taking in new tickets must not also stop the rescue of tickets already tagged |
+
+## Why both events (`taskTagUpdated` and `taskCreated`)
+
+> **Read the sweep section above first.** `taskCreated` remains worth subscribing
+> to — it is the fast path, and it catches created-and-tagged tasks the moment
+> they appear rather than up to 15 minutes later. But it is *not* sufficient on
+> its own, and the measurement below overstated what it would fix.
+
+
+Subscribing to `taskTagUpdated` alone loses bugs, and it loses them silently.
+
+The tag that summons this bot is applied by the HubSpot integration as it files
+the ticket, and whether it lands **inside** the create call or as a **follow-up
+edit** is not deterministic. Measured over the five bugs reported 2026-08-14 to
+2026-08-17:
+
+| Ticket | Tag arrived as | `taskTagUpdated` fired? | Analyzed? |
+|--------|----------------|------------------------|-----------|
+| ENG-10889, ENG-10892, ENG-10893 | separate edit | yes | yes |
+| ENG-10890, ENG-10891 | inside the create call | **no** | **no** |
+
+Two of five — a 40% miss rate — sat tagged and un-analyzed until someone
+re-tagged them by hand. Nothing looked broken from the outside: the webhook was
+`active` with `fail_count: 0`, no delivery was dropped, and no error was logged,
+because from ClickUp's side there was simply never an event to send. The tell is
+`date_updated` sitting 0–1s after `date_created` (nothing ever edited the task)
+while the task plainly carries the tag.
+
+`taskCreated` closes it: a created task is judged on the tags it actually
+carries, so the trigger no longer depends on which path ClickUp happens to take.
+
+Two consequences worth knowing:
+
+- **Volume.** `taskCreated` fires for every task created anywhere in the
+  workspace, so most deliveries now cost one `GET /task` and skip. Cheap, but it
+  is the busiest path in the handler — keep it free of ClickUp writes.
+- **Widened secrets exposure.** A `taskCreated` delivery with no tag delta
+  cannot be classified without the API key, so it can no longer be filtered
+  *before* signature verification. During a Secrets Manager outage those
+  deliveries return **200 and are dropped** rather than 500ing, because 500ing
+  every created task is what drives ClickUp's consecutive-failure counter into
+  suspending the webhook — and a suspended webhook is a silent outage that ran
+  from Jul 31 to Aug 14 the last time it happened. A delivery we *know* is
+  tagged still 500s so ClickUp redelivers. The outage itself still alarms.
+
+**The lookup is not optional** (confirmed 2026-08-17 against a live delivery).
+A real `taskCreated` payload's `history_items` carries only `status` and
+`task_creation` entries — there is no `tag` field to read, even on a task created
+with tags:
+
+```json
+"history_items": [
+  {"field": "status",        "after": {"status": "to do", "type": "open"}},
+  {"field": "task_creation", "data": {"via": "api"}}
+]
+```
+
+`find_matched_tag` still runs first because it costs nothing and would catch a
+future payload change, but do not remove the `GET /task` fallback on the theory
+that the tag might be in the delta. It is not.
+
+## Analyze before implement
+
+Every reported bug gets an **analysis**. Only an analysis that concludes there is
+a real, bounded code defect queues an **implementation**.
+
+The reason is measured, not theoretical. The five bugs reported 2026-08-14..17
+analyzed out as:
+
+| Ticket | What it actually was |
+|--------|----------------------|
+| ENG-10892 | Real code bug: stale `did_win=false` fails `isActiveCampaign()` → `NO_ACTIVE_CAMPAIGN` on Pro checkout |
+| ENG-10890 | **The same bug as ENG-10892** |
+| ENG-10893 | Real code bug: Know Your Opponent silently drops opponents with zero collected sources |
+| ENG-10891 | Upstream L2 voter-file gap — nothing to fix in omni |
+| ENG-10889 | A feature request, not a bug |
+
+Pointing an implement agent at all five produces two PRs that should never have
+been written, plus a duplicate of a third. Two of five reported "bugs" not being
+code bugs at all is the normal state of an inbox fed by support tickets, so the
+filter has to exist somewhere — and the only thing cheap enough to run on
+everything, and informed enough to tell a vendor data gap from a defect, is a
+read-only agent with the codebase in front of it.
+
+**How it works.** The analyze prompt requires a final line:
+
+```
+GPBOT-VERDICT: fix | no-code-change | needs-human
+```
+
+After a successful analyze run, `engineer_agent/agent/escalation.py` parses that
+line and, on `fix` only, adds `gpbot-work` to the ticket. That re-enters through
+the ordinary webhook path — the same route a human tagging by hand takes — so the
+scope guard, both dedup layers, and the PR triage workflow all still apply. The
+judgement is the model's; the action is deterministic code, which is where the
+guard rails live:
+
+| Guard | Why |
+|---|---|
+| Only from an `analyze` run (`AGENT_LABEL`) | An implement run cannot queue another implement run |
+| Only on `status: success` | A budget-capped or deadline-killed run can leave a confident-looking partial analysis |
+| Only on a recognized `fix` verdict | Missing, malformed or unknown → leave the ticket alone |
+| Skipped if `gpbot-work` is already present | Re-adding an existing tag emits no webhook anyway |
+| Skipped if the ticket is out of scope | A mirror of the Lambda's scope guard, checked before the tag write — see below |
+| Never raises | It runs after the analysis is already posted; failing here would turn a useful run into a task-failure alarm |
+
+The verdict is read from the **last** match in the response, because a model
+routinely restates the instructions it was given before answering.
+
+**Why escalation checks scope too.** The Lambda's scope guard is still the thing
+that protects the repository, and it runs whatever escalation decides. But
+tagging a ticket that guard will refuse is not free, and the bill arrived on
+2026-09-01. `DATA-2393` was filed twice from HubSpot, analyzed twice, and both
+analyses returned `fix`. Both escalations tagged it and recorded `escalated`. The
+guard then correctly refused both implement runs, because the ticket is
+`DATA-`-prefixed and sits in Data Backlog. What that left was two `fix` verdicts,
+two escalations reported as successful, no implement run, and no PR — which is
+indistinguishable from a broken pipeline, and took a full investigation to read
+as the guard working perfectly.
+
+So escalation now applies the same rule to the task it **already fetches** for the
+`gpbot-work` check, at no extra API call. An out-of-scope ticket is left untagged
+and the outcome reads `out of scope (custom_id DATA-2393 is not code work)`,
+which is the sentence that would have answered the question in a minute.
+
+The rule exists twice because it has to. Terraform zips the Lambda as a single
+named file, so `handler.py` can import nothing from this repository, and the
+agent runs in a different image. `clickup_bot/tests/test_scope_is_mirrored.py`
+runs both copies over the same cases — including malformed ones — and fails if
+they ever disagree. The dangerous direction of drift is the mirror becoming
+**narrower** than the guard: that silently stops real bugs escalating, and looks
+exactly like the bot having no opinion.
+
+One trap is pinned by its own test. `ClickUpTask` aliases the API's `list` onto a
+field named `list_id`, so a plain `model_dump()` drops the `list` key and the
+list check matches nothing. The dump is taken `by_alias=True`. Without it,
+Growth-Bugs tickets pass — they carry an `ENG-` custom ID and no data tag, so the
+list is the only thing that identifies them.
+
+**Ramp switch / kill switch.** `GPBOT_ESCALATE_TO_WORK` on the engineer-agent task
+definition (`escalate_analysis_to_work` in `environments/prod/engineer-agent-fargate`).
+The module still defaults to **false**, so a new environment stays closed until
+someone opts in; prod has been **on since 2026-08-17**.
+
+To stop the bot opening PRs, set it back to `false` and apply. Prefer that over
+reverting code: it is one variable, it does not wait on a release train, and the
+analyze half keeps working while you decide. While it is off the agent still logs
+the verdict it *would* have acted on — grep `escalation disabled` to see the queue
+that would have formed.
+
+Turning it on has two hard prerequisites, both now met: `vars.GPBOT_PR_CHANNEL_ID`
+must be set (bot PRs otherwise arrive as a bare GitHub review request with no
+Slack context), and `secrets.GPBOT_SLACK_BOT_TOKEN` must carry an app that can
+actually post to that channel. Slack answers `not_in_channel` unless the app is a
+member or holds `chat:write.public`, so the app and the channel are one decision,
+not two — see "Slack wiring" below.
+
+The team also needs to know bot PRs are coming, that a bot approval does **not**
+merge them, and that closing a weak one is the expected outcome.
+
+## Slack wiring
+
+| Setting | Value | Why |
+|---|---|---|
+| `vars.GPBOT_PR_CHANNEL_ID` | `C022VR6PRQC` (`#bugs`) | Where the people who triage these bugs already are, and the home of the `@serve-bugs` / `@win-bugs` groups the message mentions |
+| `vars.GPBOT_DIGEST_CHANNEL_ID` | `#eng-prod-design` | The weekly digest only. It reports on whether the system is worth keeping rather than asking anyone to do something today, and that audience is not the bug rotation |
+| `secrets.GPBOT_SLACK_BOT_TOKEN` | `gp_ai_bot` | A member of both channels, with `chat:write` |
+
+`@serve-bugs` and `@win-bugs` are two-week on-call rotations holding one person
+at a time, so `gpbot-pr-triage.yml` reads the current holder out of the group
+with `usergroups.users.list` and requests *that* person's GitHub review — the
+rotation is honoured with nothing to hand-maintain but the Slack-email →
+GitHub-login map in `.github/gpbot-reviewers.json`.
+
+That call needs **`usergroups:read`**, which the token does not yet carry. Until
+a Slack app admin adds the scope and reinstalls the app, the lookup answers
+`missing_scope` and every bot PR announces to the group — still the right
+person — with no individual review requested. Reinstalling can issue a new bot
+token, so plan on updating both `secrets.GPBOT_SLACK_BOT_TOKEN` and
+`AI_SECRETS_PROD.SLACK_BOT_TOKEN` when it happens.
+
+It is deliberately **not** `secrets.SLACK_APP_BOT_TOKEN`. That is the analytics
+app, which is a member of `#product-analytics` only; pointing it at `#bugs` fails
+every post with `not_in_channel`. Every gpbot workflow carries the same app, so
+`gp_ai_bot` has to be invited to each channel any of them posts to — including
+`#eng-prod-design` for the digest.
+
+If you move the channel, check the new one against the app first — a token without
+`chat:write.public` can only post where it has been invited:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://slack.com/api/conversations.info?channel=<channel_id>" | jq '.channel.is_member'
+```
+
+**Cost.** A ticket that escalates pays for two runs, each capped independently at
+`AGENT_MAX_BUDGET_USD` (default $15). Observed analyze runs have cost $1.73–$4.79.
+The ceiling per escalated ticket is therefore $30, not $15 — budget for the
+two-phase flow, not the single run.
+
+## Driving the PR after it opens
+
+`IMPLEMENT_INSTRUCTION` ends at "Post the PR link to ClickUp when done", and the
+run exits there. If CI then failed, nothing happened. PR #1306 was opened
+2026-08-18, approved by `delegate-reviewer[bot]`, and sat for two days on a red
+`E2E` check because no one was watching. #1318 sat the same way.
+
+`.github/workflows/gpbot-ci-drive.yml` closes that gap. It fires when a CI
+workflow completes, waits until every check on a `[GP-Bot]` PR has resolved, and
+then acts on whichever of three things is outstanding: a branch that no longer
+merges, a red check, or a review finding nobody answered.
+
+**Triage comes before action, and that ordering is the whole design.** Most
+bot-PR check failures we have actually observed were infrastructure, not
+regressions. #1306's failing `E2E Shard (1)` never ran a test: it hung in
+`Install Playwright browsers` (an `apt-get` against azure.archive.ubuntu.com)
+for 29 minutes until the job's 30-minute timeout cancelled it, while shards 2-4
+passed. PR #1319 hit the identical signature twice consecutively. A mechanism
+that reflexively asks a model to "fix CI" would answer all of those by editing
+application code to satisfy a failure the diff never caused — strictly worse
+than leaving the PR alone.
+
+`clickup_bot/ci_triage.py` holds the judgement, as pure functions over JSON so
+it is unit-testable against real captured failures rather than in production:
+
+| Evidence | Class | Action |
+|---|---|---|
+| The same check is red on `main` | pre-existing | Report it. Never fixed, never re-run — it is not this PR's bug |
+| A conclusion that is not a verdict (`cancelled`, `timed_out`, `stale`, `startup_failure`, `action_required`), or a known infra signature in the log | infra | Re-run. **Never** escalates to an agent run |
+| Anything else | unknown | Re-run **once** first; only a failure that reproduced buys an agent run |
+
+Re-running an unattributable failure before paying for it is the cheap half of
+the trade: a flake clears for free, and a real regression comes back with
+evidence that it is deterministic. The taxonomy and the round caps are lifted
+from `.claude/skills/ship-pr/SKILL.md` "Phase 3" — this automates a judgement
+humans already make here rather than inventing a new one.
+
+### A branch that stops merging
+
+Green checks do not mean mergeable. `main` moves, the branch starts conflicting,
+and every signal the drive reads still says the PR is fine: checks passed,
+approval standing, no open findings. The only visible difference is a greyed-out
+merge button on a PR nobody is watching. Nothing reported that.
+
+So a conflicted branch is work too, and it is settled **before** checks and
+findings. A conflicted PR cannot land however green it is, so re-running its
+checks or answering its threads first spends CI minutes and model tokens to
+arrive at a PR that still cannot merge — and the merge that resolves the
+conflict re-runs the checks anyway.
+
+There is no cheap first move here, unlike a red check. A re-run is worth trying
+on a flake because it clears for free; "conflicting" is already git's answer to
+having tried. So the first move is the expensive one, drawn from the same fix-run
+budget.
+
+**Only an explicit `CONFLICTING` counts**, and this default runs opposite to the
+findings one. GitHub computes mergeability lazily and reports `UNKNOWN` until it
+has — asking is what triggers the computation, so the workflow asks up to three
+times before giving up and passing `UNKNOWN` through. Reading `UNKNOWN` as
+conflicted would point an agent at a branch that merges perfectly well: a wasted
+run and a pointless merge commit on a PR a human was about to merge. Erring the
+other way costs 30 minutes, and a real conflict does not clear on its own.
+
+**Being merely `BEHIND` `main` is not driven.** The `main` ruleset sets
+`strict_required_status_checks_policy` false, so an out-of-date branch still
+merges; updating one on every push to `main` would spend a full CI cycle per bot
+PR per merge to change nothing about whether it can land.
+
+There is no separate attempt ledger, unlike findings. A finding can stay open
+forever after a run that declined to act on it, so its ids have to be banked. A
+conflict cannot: a run that resolves it makes it disappear, and one that does not
+leaves the same conflict for the shared budget to bound.
+
+### Unanswered review findings
+
+The other half of what #1306 exposed. Cursor Bugbot posted a **correct**
+high-severity finding on it three minutes after the PR opened —
+`groupByOpponent` seeded roster opponents regardless of `collectionStatus`, and
+the page gates its "Collection failed / Try again" card on an empty
+`opponents[]`, so a failed collection lost its only retry path.
+`delegate-reviewer` approved two minutes later without accounting for it, a
+human approved two days after that, and nobody ever answered the thread. The PR
+merged, the regression reached `main`, and it was fixed separately in #1431.
+
+Nothing in the system treated that as work. Bugbot posts a `COMMENTED` review
+rather than `CHANGES_REQUESTED`, so it never blocks; one approval satisfies the
+ruleset; and the drive stopped as soon as the board was green.
+
+So once CI is green, an unresolved Bugbot thread buys a fix run of its own. Four
+things take a thread out of scope, and every default errs toward "still needs an
+answer", because silently dropping a real finding is the bug this exists to fix:
+
+| Out of scope | Why |
+|---|---|
+| Resolved | Someone dealt with it |
+| Outdated | The lines it points at have changed. This is the natural stop after a fix push: GitHub marks the thread outdated by itself |
+| A human has replied | A person owns the thread and the bot must not talk over them. Nobody had replied on #1306, which is why it qualified |
+| Raised by `delegate-reviewer` | It withholds approval until its blockers are fixed, which already gates the merge, and it runs a `delegate review` reply protocol a second automated actor would fight |
+
+**A finding gets one fix run and never a second.** The state comment banks the
+thread ids a run was pointed at, so a finding still open afterwards goes to a
+human. Without that the loop is unbounded in the expensive direction: the agent
+disagrees with a false positive, leaves the thread open, and every later pass
+reads it as fresh work.
+
+**Checks are settled before findings**, because a run that answers a finding
+pushes code that has to pass CI anyway.
+
+There is no severity filter, and that is affordable rather than careless: one
+run answers every open thread at once, so cost does not grow with how much
+Bugbot found. Parsing a severity string out of a comment body to decide what to
+ignore would fail in the direction that just cost us a production regression.
+
+### Caps, and where they live
+
+| Cap | Value | Why |
+|---|---|---|
+| Re-runs | 3 | Costs CI minutes and no model spend, so the number is set by observation rather than price: #1319 hit the same apt-get hang **twice in a row**, so 1 or 2 would have escalated a pure flake to a human |
+| Fix runs | 2 | Matches ship-pr Phase 3's "stop after 2 check-fix rounds". At $1.50-$5 a run this holds the feature to ~$10 per PR, on top of the ~$30 an escalated ticket may already have spent |
+
+The fix-run budget is **shared** between conflicts, failing checks and review
+findings, because what it bounds is money rather than any one activity. A PR
+that keeps colliding with `main` after spending it is one a human should look
+at, not one to keep paying to rebase.
+
+Both are **per-PR and cumulative for the life of the PR**, deliberately not
+per-commit. A fix run pushes a commit, and resetting on a new commit would let a
+fix run that failed re-trigger itself forever — the money-burning loop the caps
+exist to prevent.
+
+They survive across invocations in an upserted PR comment carrying
+`<!-- gpbot-ci-state: {...} -->` (the same device as delegate's
+`delegate-finding-id` markers). The workflow **writes the new counters before it
+takes the action**: a crash between the two costs the PR one attempt, where the
+reverse order would let a crash-looping drive spend the same round forever. An
+unreadable or hand-edited marker counts as exhausted, not fresh.
+
+The same comment records **when** a fix run was launched, because launching one
+changes nothing observable: no check goes pending until the agent actually
+pushes, so the 30-minute schedule would otherwise return to an identical red
+board, read it as "nothing has happened", and put a second agent on the same
+branch. Until an hour has passed — the agent's own 45-minute deadline plus room
+to start — the drive waits instead of acting. The Lambda's dedup claim does not
+cover this on its own: its TTL is 15 minutes, shorter than the run it guards.
+
+On exhaustion the drive stops and announces in `#bugs` through the same
+`vars.GPBOT_PR_CHANNEL_ID` / `secrets.GPBOT_SLACK_BOT_TOKEN` path as the other
+two gpbot workflows. Nothing the bot does clears an escalation; a human deletes
+the marker comment to hand it back.
+
+### Why `workflow_run` and not `check_suite`
+
+`check_suite` cannot work here at all. GitHub does not deliver it "if the check
+suite was created by GitHub Actions", and every check on an omni PR is created
+by GitHub Actions, so the workflow would simply never fire. `workflow_run` has
+no such restriction and additionally carries secrets and a write token, which
+the Slack post and the Lambda invoke both need.
+
+Neither could be replaced by making the agent run poll: `E2E` waits on a full
+gp-api preview deploy before its suite starts and routinely takes ~45 minutes,
+which is the agent's entire `DEFAULT_DEADLINE_SECONDS`. Polling would spend the
+whole run idling on Fargate with nothing left for the fix.
+
+A 30-minute `schedule` backs the event up, for the same reason the
+reconciliation sweep exists: subscribing does not catch everything. It covers
+three known gaps — GitHub suppresses events for actions taken with
+`GITHUB_TOKEN`, so a re-run this workflow requests may not emit `workflow_run`
+when it finishes; the concurrency group keeps only one queued run per group; and
+a workflow added later is not in the watched list.
+
+### The fix run
+
+A fix run is launched through this Lambda (`{"gpbot_ci_fix": true, ...}` →
+`handle_ci_fix`), not by a second path wired straight to ECS, so it reuses the
+one audited route to Fargate. `mode` picks the instruction:
+
+| `mode` | Label | Instruction |
+|---|---|---|
+| `checks` (the default when absent) | `ci-fix` | `CI_FIX_INSTRUCTION` |
+| `findings` | `findings-fix` | `FINDINGS_FIX_INSTRUCTION` |
+| `conflicts` | `conflicts-fix` | `CONFLICTS_FIX_INSTRUCTION` |
+
+An unrecognised mode is a 400, not a default — quietly running the CI
+instruction against a request that asked for something else points an agent at
+work nobody asked for. Neither label is `analyze`, which keeps both out of the
+analyze→implement escalation, and none is in `TAG_CONFIG`: a ClickUp tag must
+never be able to launch a run that pushes to an arbitrary PR. The dedup claim is
+keyed on `ci-fix` for **every** mode, because they all push to the same branch
+and a claim keyed per-mode could not see that collision.
+
+**Only the PR number, the ClickUp task id and that fixed enum cross the
+boundary** — an integer, a character-class-checked id, and one of three literals.
+Check names, step names, log text and review-comment bodies are all left out on
+purpose. The first three originate in CI output; the last is written by another
+model, in a thread anyone who can comment on the repo may add to. Interpolating
+any of them into a system prompt would make every failing build and every review
+comment a prompt-injection surface. The agent holds `gh` and fetches its own
+evidence.
+
+All three instructions forbid, in order of how much damage they do: weakening a
+test to make it pass (deleting, skipping, loosening an assertion, or adding a
+retry to hide a real failure), merging, opening a second PR, and working outside
+the thing they were sent for.
+
+`CI_FIX_INSTRUCTION` additionally tells the agent to check `main` and change
+nothing if the failure is infra or pre-existing — a second line of the same
+defence, because the signature list in `ci_triage.py` is not exhaustive.
+
+`FINDINGS_FIX_INSTRUCTION` **repeats the scope rules above**, and that
+duplication is load-bearing rather than sloppy: the run is pointed at the PR,
+not at one thread, so a run bought by one finding would otherwise go on to
+answer and resolve a thread a human is mid-conversation in. Resolving hides the
+discussion, which is the exact harm the triage filter exists to prevent.
+
+It treats a finding as a claim rather than a verdict:
+accept it and fix the cause with a test, reject it and say why in the thread, or
+say it could not be judged. Whichever it does, it replies and then resolves the
+thread — and it must **never resolve a thread it has not answered**, because
+resolving is the record that a finding was dealt with. An unanswered thread left
+open is a fine outcome; it goes to a human.
+
+`CONFLICTS_FIX_INSTRUCTION` says **merge `main`, never rebase**, because a
+rebase needs a force-push, and force-pushing a reviewed branch marks every
+review thread on it outdated — silently clearing the findings the section above
+exists to answer. Its real subject is the resolution itself: both sides of a
+conflict are somebody's intended change, and taking one side wholesale deletes
+work already on `main` while CI stays green, because nothing tests for the
+change that was dropped. So `--ours`/`--theirs` on a whole file is called out as
+almost never right, and a collision the agent cannot judge is a `git merge
+--abort` and a comment rather than a guess.
+
+**Nothing in this feature merges anything.** `gpbot-ci-drive.yml` carries the
+same header contract as `gpbot-pr-triage.yml`: the bot getting CI green is not
+the bot deciding what lands.
 
 ## Scope guard
 
@@ -88,10 +712,17 @@ An implement trigger is skipped (200, `{"skipped": "out of scope"}`) when any of
 
 | Signal | Value | Why |
 |---|---|---|
-| `custom_id` prefix | `DATA-` | Voter-file/district work, not an omni code change |
+| `custom_id` prefix | `DATA-` | Voter-file/district work, not a code change |
 | `list.id` | `901326391561` (Data Backlog) | Catches DATA-list tasks with no custom ID |
-| `list.id` | `901326170992` (Growth-Bugs) | Marketing-site work; does not live in omni |
 | tag | `bug: district-assignment` | The data team's marker, for data work sitting in an ENG list |
+
+Growth-Bugs (`901326170992`) was in this table until marketing tickets became
+routable, refused because "marketing-site work does not live in omni". It is now
+neither refused nor routed: it falls back to omni, which is where its contents
+turned out to belong. See "More than one repo" below. Routing never exempts a
+ticket from the rest of the table — a `DATA-` ticket in a routed list is still
+data work and still refused, and the scope guard runs first so that is the
+reason recorded.
 
 Two orderings are load-bearing. The guard runs **before the comments GET**, so a
 rejected task costs one ClickUp call rather than two — it now fires on every
@@ -99,9 +730,235 @@ data ticket in the workspace. And it runs **before the dedup claim**, because a
 claim written for a task we then refuse would outlive the delivery and suppress
 a legitimate re-tag for the whole TTL.
 
-If the lookup itself fails the guard **fails open** and the run proceeds, with
-an alarm-matching log line. One wasted run costs a few dollars and a closeable
-PR; refusing every bug during a ClickUp blip is a silent outage.
+If the lookup itself fails, the two labels answer differently and the asymmetry
+is deliberate. Both log an alarm-matching line.
+
+**Analyze fails open** and the run proceeds. It writes nothing: the bad case is
+a run that reads omni for a marketing ticket, finds nothing and says so on the
+ticket — visible, recoverable, and far cheaper than stopping every analysis in
+the workspace during a ClickUp blip.
+
+**Implement fails closed** (500, and on the async path a failure comment
+carrying the "remove and re-add the tag" retry). This reversed when routing
+landed. Failing open was right while omni was the only repo — one wasted run
+against the codebase the ticket was going to be about anyway. Now no task means
+no list, no list means no repo, and the omni default is always writable, so a
+marketing ticket would slip past the ramp and open a PR in the wrong codebase.
+A wasted run is cheap; a wrong one is not.
+
+This rule is mirrored in `engineer_agent/agent/escalation.py`, which applies it
+before tagging so a refused ticket is never tagged in the first place. **This
+guard remains the authority** — it runs on the task it fetches itself, whatever
+the agent decided earlier. A change here needs the same change there, and
+`clickup_bot/tests/test_scope_is_mirrored.py` fails if it does not get one. See
+"Why escalation checks scope too" above.
+
+## More than one repo
+
+Bugs in the marketing website do not live in omni. They live in
+`thegoodparty/gp-marketing`, and until 2026-09-02 the bot refused them outright
+because it knew exactly one repo — as a paragraph of English in the agent's
+system prompt, not as configuration.
+
+### Who decides what
+
+Two questions, two places, and they do not overlap:
+
+| Question | Answered in | Keyed on |
+|---|---|---|
+| WHICH repo is this ticket about? | `REPO_BY_LIST_ID` in `lambda/handler.py` | the ticket's ClickUp list |
+| HOW do I work in that repo? | `REPO_PROFILES` in `engineer_agent/agent/repos.py` | the repo's full name |
+
+The Lambda resolves the repo and passes it as a `TARGET_REPO` container
+override, next to `AGENT_LABEL` and for the same reason: a value the launcher
+decided, never something the agent infers from ticket prose. The agent selects
+one briefing from it and puts **only that one** in the system prompt. Handing
+the model every repo and trusting it to choose is the single-repo prompt with
+extra steps.
+
+Nothing is duplicated between the two tables, so neither has to be kept in step
+with the other. A new repo needs one entry in each. An entry in the Lambda with
+no matching profile raises `UnknownRepoError` and **fails the run** rather than
+falling back to omni — a marketing bug analyzed against the monorepo produces a
+fluent, confident answer about a codebase the bug is not in, which is the
+failure mode hardest to spot because it looks like work.
+
+**The list is the routing key** because it is the only signal already reliable:
+set when the ticket is filed, never dependent on anyone remembering, and the
+same field the scope guard reads. Ticket text is not a routing key — "the site
+is broken" appears in both. Anything unrouted is omni, which is where every
+ticket went before this existed, so a new list or a typo'd id lands somewhere
+known rather than somewhere nobody chose.
+
+### A routing key has to mean exactly one thing
+
+Routing first pointed Growth-Bugs at gp-marketing, and that was wrong within a
+day. Growth-Bugs is fed by HubSpot and collects every kind of growth bug, so the
+one real ticket in it was *"Marketing Emails Have Bad Formatting and Incorrect
+Dates"* — a weekly digest email, which is gp-api code, in omni. One ticket, one
+mis-route.
+
+The answer was a list that means one thing (`Marketing Site Bugs`, filed via the
+bug form), not a cleverer way to read a list that means several. Growth-Bugs
+falls back to omni. **Before adding a list here, ask what else is in it**: a
+list that collects several products' bugs cannot be a routing key, however
+obvious its name looks.
+
+Even a clean list is a record of where a human filed a ticket, not of where the
+code is. So the guess is allowed to be wrong, and the run corrects it.
+
+### Correcting the guess
+
+The agent used to be told to stop at the repo boundary: if the cause was
+somewhere else, say `needs-human` and hand it back. That was safe and not very
+useful. It stopped on exactly the tickets where working out *where* the bug
+lived was the whole job, and a human then restarted the investigation from
+nothing — which is what happened to the marketing ticket above.
+
+The boundary now applies to **writes, not reads**:
+
+- Every run is given every repo's briefing, with one marked as the repo it was
+  routed to. It may read any of them — clone, grep, read the docs — to find the
+  cause. Reading gp-marketing knowing a green build proves nothing there is very
+  different from reading it not knowing that, which is why it gets the briefing
+  and not just the name.
+- It may open a PR in **one** repo: the one the run is for. A confident fix in
+  the wrong codebase is still the most expensive thing it can produce.
+- When the cause is elsewhere, it says so on a machine-read line,
+  `GPBOT-REPO: owner/name`, next to the verdict.
+
+That line has to survive a process boundary, which is the fiddly part. An
+implement run is launched by a ClickUp tag; a tag cannot carry a repo; and the
+analyze run that worked out the answer has exited by then. So `maybe_escalate`
+writes the answer onto the ticket as a comment, **before** adding the tag — the
+tag is what fires the webhook, so a marker written afterwards can lose the race
+and the run starts against the list's guess. `repo_named_by_bot` reads it back,
+and a redirect outranks `REPO_BY_LIST_ID`.
+
+Three things keep that safe. The model's string is **allowlisted twice** —
+resolved against `REPO_PROFILES` before it is written, and checked against
+`BASE_BRANCH_BY_REPO` when read — so only a repo the agent has a briefing for
+can ever be named, and the text written to the ticket comes from the profile
+rather than from the model. The **ramp is applied to the repo the fix is in**,
+not the one that was read; otherwise a marketing bug filed into an omni list
+would be waved through by omni's ramp and open a PR in a repo still marked
+analyze-only. And **deleting the comment undoes the redirect**, which is why it
+is a comment rather than something only the bot can see.
+
+A fix that genuinely needs coordinated changes in two repos is still
+`needs-human`. One run opens one PR, so that is not something this pipeline can
+deliver, and pretending otherwise would produce half a fix.
+
+`needs-human` rather than a new verdict token, deliberately: `parse_verdict`
+drops anything outside `KNOWN_VERDICTS`, so an invented one reads as no verdict
+at all — silence, at exactly the moment the agent was trying to raise a hand.
+`needs-human` also blocks escalation, so a mis-routed ticket cannot become a PR
+in the wrong codebase.
+
+This is worth watching during the ramp. A repo whose verdicts are mostly "this
+belongs somewhere else" has an intake problem, not a bot problem.
+
+Routing costs the analyze path **one `GET /task` it did not previously pay**:
+the list is not in the webhook delta, and defaulting to omni whenever the fetch
+is inconvenient is the confident-wrong-codebase failure above. Analyze fires on
+tagged bugs only — tens per quarter — so the call is affordable at the volume
+this actually runs at.
+
+### A new repo is read-only first
+
+Learning to read a repo is not the same as earning the right to open PRs in it.
+omni logged verdicts for weeks before `GPBOT_ESCALATE_TO_WORK` was flipped, and
+a new repo ramps the same way instead of inheriting that trust.
+
+Two switches, and **both must be widened to turn a repo on**:
+
+| Switch | Where | Stops |
+|---|---|---|
+| `GPBOT_IMPLEMENT_REPOS` | the Lambda | launching an implement run at all |
+| `GPBOT_ESCALATE_REPOS` | the agent | an analysis *tagging* a ticket for one |
+
+Both default to omni alone, so a repo added to `REPO_BY_LIST_ID` starts
+analyze-only with no second decision required. The safe direction to be wrong
+in: the cost of this default is a missing PR, and the cost of the other is an
+unrequested PR in a repo nobody agreed to.
+
+The Lambda's is the **enforcement** — escalation is not the only route to an
+implement run, and a hand-applied `gpbot-work` must not be able to put an
+unowned PR into a repo with no PR triage and no CI drive watching it. The
+agent's exists so the analysis does not *tag* a ticket the Lambda would then
+refuse: that combination (tag applied, no run, no PR) is exactly what read as a
+broken pipeline on 2026-09-01 and cost an investigation to explain.
+
+An empty value for either means "not configured" and falls back to the default.
+It never means "no repo", which would turn a Terraform typo into a silent total
+outage of the implement half of the bot.
+
+While a repo is analyze-only, a `fix` verdict there records the outcome
+`analyze-only repo (<repo>)`, and the Lambda records `repo is analyze-only`.
+
+**Both run after their scope guard**, and in both places that ordering is about
+measurement rather than correctness — either check refuses the ticket, so only
+the recorded reason changes. The count answers exactly one question, *how many
+PRs would this repo have opened if it were on?*, and that is the number the flip
+decision rests on. A data ticket refused for being data work would never have
+become a PR either way, so putting it in this bucket would pad the answer. The
+cheaper check running second is deliberate.
+
+### What the marketing briefing carries
+
+Beyond the clone URL and the base branch (`develop`, not `main`), the
+`gp-marketing` profile warns about the things that repo does differently, and
+`engineer_agent/tests/test_repos.py` pins each of them:
+
+- **Bun, pinned to 1.2.23**, matching the repo's `packageManager`. Installed in
+  the agent image; a test fails if the briefing names a version the Dockerfile
+  does not ship.
+- **A green build proves little.** A broken block renders as nothing — unknown
+  block types render empty and an error boundary swallows render errors — so a
+  half-wired component passes every check and shows up only as a missing section
+  on the live site. The briefing tells the agent to name the page a human should
+  open in the Vercel preview rather than claim CI verified it.
+- **`next build` is not runnable** without Sanity and Vercel secrets, and it
+  type-checks route and layout types that `bun run typecheck` does not.
+- **The bug may not be code at all.** Copy, images and ordering are Sanity CMS
+  content; candidate data belongs to election-api. Writing code for those is the
+  most expensive wrong answer available, because the PR looks reasonable.
+- **Never read or regenerate `sanity.types.ts`** — a committed, generated 15 MB
+  file.
+
+### Driving a PR in another repo
+
+The CI-fix instructions used to name `thegoodparty/omni` by hand, and that was
+right at the time: their only caller was omni's own `gpbot-ci-drive.yml`,
+triggered by omni's own workflow runs, so a PR reaching them was an omni PR by
+construction. A copy of that drive in a second repo ends the argument, so the
+repo now crosses the Lambda boundary in the `gpbot_ci_fix` payload.
+
+Three things are interpolated into those templates, and each is checked first:
+the PR number as an integer, and the **repo and its base branch taken from a
+fixed allowlist**. `repo` only ever selects a key in `BASE_BRANCH_BY_REPO` — the
+payload's own string never reaches the instruction, so a caller cannot name a
+repo with no briefing or smuggle text into a system prompt. That is the same
+boundary that keeps check names, step names and log text out: they come from CI
+output or from another model. An unrecognised repo is **refused, not defaulted**
+to omni, because these runs push commits and the wrong default pushes them to a
+branch nobody asked the bot to touch. An absent repo still means omni, so omni's
+drive keeps working without being changed.
+
+The base branch is needed because gp-marketing merges into `develop`. An assumed
+`main` would have a fix run comparing its PR against a branch the PR does not
+merge into, and then "fixing" the difference. `BASE_BRANCH_BY_REPO` is a second
+copy of `repos.py`'s `base_branch` — this Lambda imports nothing from the
+repository, being packaged and deployed alone — and
+`clickup_bot/tests/test_scope_is_mirrored.py` fails if the two drift.
+
+**Both workflows still need a copy in `gp-marketing` before
+`GPBOT_IMPLEMENT_REPOS` is widened.** `gpbot-pr-triage.yml` is an
+`on: pull_request` workflow and can never see a PR in another repo; the drive
+needs a copy for the same reason. Without them, marketing bot PRs open with no
+reviewer, no Slack announcement and nothing driving them to green — the
+unowned-bot-PR failure the triage workflow was built to prevent. The Lambda side
+is ready for them; the workflows are not written yet.
 
 ## Dedup semantics
 
@@ -244,7 +1101,8 @@ are sparse) as the only thing that will tell you the bot has gone quiet.
 
 During a Secrets Manager outage the Lambda cannot verify signatures for gpbot-tagged
 deliveries and returns 500 for them (irrelevant deliveries are filtered before
-signature verification and still return 200). A rotated or mismatched
+signature verification and still return 200; unclassifiable `taskCreated`
+deliveries also return 200 — see "Why both events"). A rotated or mismatched
 `CLICKUP_WEBHOOK_SECRET` behaves the same way with 401s. ClickUp tracks consecutive
 delivery failures per webhook and auto-suspends the webhook after sustained failures.
 A suspended webhook stays suspended after the outage is fixed: the bot receives
@@ -267,11 +1125,248 @@ curl -s -H "Authorization: $CLICKUP_API_KEY" "https://api.clickup.com/api/v2/tea
 curl -s -H "Authorization: $CLICKUP_API_KEY" \
   "https://api.clickup.com/api/v2/team/<team_id>/webhook" | jq '.webhooks[] | {id, endpoint, health}'
 
-# re-enable a suspended webhook
+# re-enable a suspended webhook. Both events are required — dropping
+# taskCreated here silently reopens the tag-in-create-call race and the bot
+# starts missing ~40% of reported bugs with nothing in the logs.
 curl -s -X PUT -H "Authorization: $CLICKUP_API_KEY" -H "Content-Type: application/json" \
-  -d '{"endpoint": "https://ai.goodparty.org/clickup/webhook", "events": ["taskTagUpdated"], "status": "active"}' \
+  -d '{"endpoint": "https://ai.goodparty.org/clickup/webhook", "events": ["taskTagUpdated", "taskCreated"], "status": "active"}' \
   "https://api.clickup.com/api/v2/webhook/<webhook_id>"
+
+# confirm the subscription still covers both events (a PUT replaces the list)
+curl -s -H "Authorization: $CLICKUP_API_KEY" \
+  "https://api.clickup.com/api/v2/team/<team_id>/webhook" | jq '.webhooks[].events'
 ```
+
+## The weekly digest
+
+The section above ends on the failure the error alarm cannot see. This is the
+answer to it: `.github/workflows/gpbot-weekly-digest.yml` posts one message to
+`#eng-prod-design` every Monday at 15:00 UTC summarising the completed
+Monday–Sunday week.
+
+**Not `#bugs`, where the other gpbot workflows post.** Those are working
+messages for whoever is on bugs that day — a PR to review, a stale PR to chase.
+This one reports on whether the system is worth keeping, and its audience is the
+people who decide that. A monthly-interest message in a daily-interest feed is a
+message nobody reads. The channel is `vars.GPBOT_DIGEST_CHANNEL_ID`, separate
+from `vars.GPBOT_PR_CHANNEL_ID` so it can be moved without a deploy and so an
+unset value fails loudly rather than falling back to `#bugs`.
+
+```
+gpbot — week of Aug 17–23
+Coverage: 6 of 7 tagged bugs analyzed — 1 missed: DATA-2336
+Median time to analysis: 7.3 min
+Verdicts: 3 fix · 3 no-code-change · 1 needs-human → 3 tickets kept off the eng queue
+PRs: 3 opened · 1 merged · 0 closed unmerged · ⚠️ 1 open past 48h with no human review: #1306
+Cost: $38.00 this week · $3.71 median per analysis
+```
+
+**Coverage leads, not merges.** "How many bugs did the bot fix" is the wrong
+headline twice over. It misprices a triage system whose main output is a written
+root cause — of the seven verdicts recorded after escalation went live, three
+concluded there was no code fix to make — and it invites gaming, because "PRs
+merged" is a number you improve by opening PRs against tickets that are not code
+bugs, which is the exact thing `escalation.py` exists to prevent. Coverage is
+also where this system has actually failed, and failed silently.
+
+**It posts on a quiet week**, unlike `gpbot-stale-pr-alert.yml`, which stays
+silent when it finds nothing. That is right for a nag and wrong here: a missing
+digest is indistinguishable from a broken digest, and the Jul 31 – Aug 14 outage
+is what "everything looks fine" looks like.
+
+**Raw counts, never percentages.** Three genuinely autonomous bug-fix PRs is not
+a base anyone can compute a rate on, and a percentage that reaches Slack reaches
+a board deck by Thursday.
+
+**No engineering-time-saved estimate.** The arithmetic needs a per-ticket human
+diagnosis time and nothing records one (`time_estimate` and `time_spent` are
+empty on all 180 gpbot-touched tasks), so the honest range spans 4x. A weekly
+message that restarts an argument about its own inputs stops being read.
+
+### Where each line comes from
+
+| Source | Used for | Auth |
+|---|---|---|
+| ClickUp `GET /team/{id}/task?tags[]=gpbot-analyze` plus `/task/{id}/comment` | Coverage and latency | `secrets.CLICKUP_API_TOKEN` |
+| `gh pr list` | PRs opened / merged / closed unmerged, and open past 48h with no human review | `github.token` |
+| `aws logs filter-log-events --filter-pattern GPBOT_METRIC` | Verdicts, deflections and cost | OIDC via `vars.AWS_ROLE_ARN` |
+
+Tickets are bucketed by **creation** date, not by when they were analyzed —
+that is the only bucketing under which a ticket nobody looked at appears at all.
+The analysis itself is not required to fall inside the window, so a Sunday-night
+bug analyzed on Monday counts as covered rather than as a miss.
+
+Bot PRs are identified by title `[GP-Bot]` **or** head branch containing
+`/gp-bot_`, the same two signals as `gpbot-ci-drive.yml`. Both are applied to
+every open PR; the historical half of the query can only search on the title,
+because GitHub's `head:` qualifier matches whole branch names (`head:gp-bot`
+returns nothing) and a date-bounded scan of everything truncates silently — a
+seven-day `updated:>=` search hit the 200-result cap with the oldest hit three
+days old. The gap is therefore a *closed* PR carrying a bot branch and no bot
+title, which the implement instruction does not produce.
+
+### A source that failed says so — and so does a source that is merely empty
+
+**"0 missed" from a coverage check that never ran is worse than no message at
+all.** Every gather step writes `null` before it makes a call, so a step that
+dies leaves the source absent rather than empty, and the module renders that
+line as `unavailable`. The cost line never reads `$0` because CloudWatch was
+unreachable.
+
+**A healthy query that returns nothing needs the same care**, which the first
+production run of this digest proved the hard way. It reported *"Verdicts: no
+analyses recorded"* and *"Cost: no runs recorded this week"* for a week whose own
+coverage line, three rows above, said seven bugs had been analyzed. CloudWatch
+had not failed. It answered honestly, and the answer was zero because
+`GPBOT_METRIC` had not shipped yet — which is true of every week before the
+deploy, including the first one anybody sees.
+
+So a zero from CloudWatch is only reported as a quiet week when something
+independent agrees the week was quiet. ClickUp is that something: coverage
+counts analyses from the bot's own ticket comments, by a route that touches
+CloudWatch nowhere. Four states, not three:
+
+| CloudWatch | ClickUp | Cost line |
+|---|---|---|
+| Runs found | — | `$38.00 this week · $3.71 median per analysis` |
+| Nothing found | Nothing analyzed either | `no runs recorded this week` |
+| Nothing found | Analyses happened | `unavailable`, plus a note saying why |
+| Nothing found | Could not be read | `unavailable` — nothing to corroborate the zero against |
+| Query failed | — | `unavailable` |
+
+The note names the discriminator, because the symptom alone is not actionable —
+the same empty result is expected before the deploy and a real fault after it:
+
+> ⚠️ 7 tickets analyzed but no run metrics exist for this week, so verdicts and
+> cost are missing rather than zero. The agent has only recorded them since
+> GPBOT_METRIC shipped — an earlier week has none, and a later one means the
+> metric has stopped flowing.
+
+**A genuinely quiet week must still read as quiet.** Collapsing "nothing
+happened" into "something is broken" would make the digest cry wolf on the weeks
+it has least to say, and a warning that fires on a normal week is one people
+learn to skip.
+
+### ...and a source that answered for only part of the week
+
+The check above was all-or-nothing, and the next digest walked straight through
+the gap it left. On 2026-08-24 it posted:
+
+```
+Coverage: 8 of 8 tagged bugs analyzed
+Verdicts: 0 fix · 1 no-code-change · 0 needs-human → 1 ticket kept off the eng queue
+Cost: $4.02 this week · $0.66 median per analysis
+```
+
+Eight bugs analyzed, one verdict. `GPBOT_METRIC` shipped on the Friday of that
+week, so six of the eight analyses ran before anything recorded them. CloudWatch
+had not failed and had not returned nothing, so every availability check passed
+and a sixth of the week was printed in the shape of a whole one. **A partial
+sample presented as complete is worse than an absent line**: a reader cannot
+tell it from a week where the bot genuinely concluded almost nothing.
+
+So the two lines built on run metrics say which part of the week they cover:
+
+```
+Verdicts (partial): 0 fix · 1 no-code-change · 0 needs-human → 1 ticket kept off the eng queue
+Cost (partial): $4.02 this week · $0.66 median per analysis
+⚠️ 7 of 8 analyses left no run metric, so the verdicts and cost above describe
+part of the week rather than all of it. The agent has only recorded them since
+GPBOT_METRIC shipped — a week spanning that deploy is short by the runs that
+came before it, and a later one means the metric has stopped flowing.
+```
+
+The marker is on the **label** rather than appended to the numbers: whatever
+qualifier trails a line, the eye lands on the figures first and reads them as
+the week's.
+
+**Matched on ticket id, not by comparing two totals.** Each `GPBOT_METRIC` line
+carries its `task_id` and coverage knows which tickets it counted, so the
+question asked is "was this ticket's analysis recorded" rather than "do two
+numbers agree". Equal totals are the weaker claim and fail exactly when it
+matters: a week whose recorded runs all belong to the previous week's tickets
+tallies perfectly while every analysis in the report goes unrecorded.
+
+**It over-reports at the week boundary, deliberately.** Coverage buckets a
+ticket by when it was filed and counts an analysis that happened after the
+window closed; the metric query is bounded by when the run ran. So a bug filed
+late on Sunday can be marked unrecorded here when its metric line simply lands
+in the next week's query. That costs an occasional `1 of 8`. Staying quiet until
+a gap is provably not an edge effect is what let six missing analyses out of
+eight read as a normal week.
+
+Like the rollout gap, a partial week **does not turn the job red** — it is the
+same gap seen from the other side, and every week spanning the deploy has this
+shape.
+
+A comments fetch that fails takes the **whole** ClickUp source down rather than
+that one ticket, because a ticket with no comments reads as un-analyzed: a
+single dropped response would otherwise invent a miss and name an innocent
+ticket in Slack.
+
+The workflow posts a degraded digest **and then goes red** — the message is
+worth having, and so is somebody noticing the gap. The one exception is the
+rollout gap above: it is expected every Monday until `GPBOT_METRIC` has covered
+a full week, and a job that is expected to be red is a job whose redness stops
+meaning anything. It is reported in the message instead, where it will be read.
+
+**One line still has this shape and is not fixed.** If the `gpbot-analyze` tag
+stops being applied, the ClickUp query honestly returns nothing and coverage
+reads *"no bugs were tagged `gpbot-analyze` this week"*. That sentence is
+deliberately about the tagging rather than about the bot, so a reader who knows
+bugs were filed can see it is wrong — but nothing corroborates it. Doing so
+means counting bugs filed into the Bugs lists as a second denominator, which is
+a fourth query and a judgement about which lists count. Worth doing if tagging
+ever slips; it was ~100% across W31–W34.
+
+### `GPBOT_METRIC`, and why the agent emits it
+
+`engineer_agent/agent/metrics.py` logs one line at the end of every run:
+
+```
+GPBOT_METRIC {"task_id","label","verdict","status","cost_usd","duration_s","escalation","repo"}
+```
+
+Before it existed, the verdict and the cost had to be scraped out of prose
+across two log groups and joined on an 8-character run id, and rewording either
+log line would have broken every query silently. Now the whole query is one
+`filter-log-events` call — no Insights query to start and poll, and no join.
+Retention on `/ecs/engineer-agent-prod` is 400 days, so a digest that runs late
+still finds its week.
+
+Three things about the line are load-bearing:
+
+- **The verdict is `parse_verdict`'s**, the same function that gates escalation,
+  so the digest reports the verdicts the system actually acted on rather than a
+  second reading of the same text.
+- **`escalation` is the outcome string, not a boolean.** A `fix` verdict that
+  ended in `disabled`, `already queued` or `escalation failed` is a ticket the
+  bot decided to fix and then did not, which is invisible in ClickUp and in
+  GitHub alike.
+- **An unknown number is `null`, never `0`.** The digest sums costs; one absent
+  cost silently coerced to zero would understate the week with nothing anywhere
+  to say so.
+- **`repo` is null on a run nobody routed**, rather than backfilled to omni. A
+  run that chose omni and a run that was never asked are different facts. This
+  field is what stops the Monday message summing two repos into one set of
+  numbers, and it is how the question a ramp exists to answer — are this repo's
+  verdicts good enough to trust with a PR? — gets asked at all.
+
+The field names are a contract with `clickup_bot/weekly_digest.py`. Adding a
+field is free; renaming or removing one drops a line from the Monday message and
+nothing goes red.
+
+### Changing it
+
+The judgement lives in `clickup_bot/weekly_digest.py` as pure functions over
+JSON — no network, no clients — on the same contract as `ci_triage.py`: the
+workflow gathers facts and pipes one JSON blob in, the module decides what they
+mean. `clickup_bot/tests/test_weekly_digest.py` pins the whole message against
+the week of 2026-08-17 as recorded in the gpbot metrics report, so a change that
+alters a number has to say so in the diff.
+
+To try it without posting, run the workflow manually with `dry_run` checked and
+optionally a `week_start`; the rendered message goes to the job summary.
 
 ## Environment Variables
 
@@ -287,6 +1382,7 @@ Set by terraform (`infrastructure/environments/prod/clickup-bot/`), not by hand.
 | `DEDUP_COMMENT_WINDOW_SECONDS` | Optional (default 900): how long a `Processing started` comment blocks re-triggering — see "Dedup semantics" |
 | `DEDUP_TABLE_NAME` | DynamoDB table for atomic dedup claims (`clickup-bot-dedup-<env>`). Unset = quiet no-op, comment-based dedup only — see "Dedup semantics" |
 | `DEDUP_TTL_SECONDS` | Optional (default 900): lifetime of an atomic dedup claim — see "Dedup semantics" |
+| `GPBOT_IMPLEMENT_REPOS` | Optional (default `thegoodparty/omni`): comma-separated repos an implement run may launch against. The enforcement half of a repo's analyze-only ramp — see "More than one repo" |
 | `ENABLE_FARGATE` | Transition compatibility only: the current handler ignores it, but the previous handler silently no-ops without it. Remove from the module only after the fail-loud handler is confirmed live. |
 
 ## Adding New Tags
@@ -359,7 +1455,9 @@ terraform apply
 1. Go to ClickUp Settings → Integrations → Webhooks
 2. Create webhook with:
    - Endpoint: `https://ai.goodparty.org/clickup/webhook`
-   - Events: `taskTagUpdated`
+   - Events: `taskTagUpdated` **and** `taskCreated` — both, or the bot silently
+     misses every bug whose tag arrives inside the create call (see "Why both
+     events")
    - Scope: whole workspace (omit `space_id`). The handler filters non-target
      deliveries *before* signature verification precisely because it receives the
      entire workspace's tag updates — a space-scoped webhook would break the outage

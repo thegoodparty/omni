@@ -1,0 +1,596 @@
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
+import {
+  IdOverrides,
+  PHONE_BANKING_SHEET_SIZE,
+  PhoneBankingCreate,
+  PhoneBankingCreateResponse,
+  PhoneBankingInteraction,
+  PhoneBankingList as PhoneBankingListResponse,
+  PhoneBankingListEntry,
+  PhoneBankingListPerson,
+  Person,
+  ServePhoneBankingCreate,
+} from '@goodparty_org/contracts'
+import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import {
+  ContactsFilterResolutionInput,
+  ContactsService,
+} from '@/contacts/services/contacts.service'
+import { FilterObject } from '@/contacts/utils/voterFileFilter.utils'
+import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
+import { ListPeopleDTO } from '@/peopleDb/schemas/people.schema'
+import {
+  ContactStatusField,
+  NotAVoterStatus,
+  Organization,
+  OrganizationRole,
+  OutreachStatus,
+  OutreachType,
+  Prisma,
+} from '../../generated/prisma'
+import { PhoneBankingAccessService } from './phoneBankingAccess.service'
+
+// Mirrors p2pPhoneListUpload.service.ts's SEGMENT_PAGE_SIZE — the page size
+// the resolved audience is paged through during a build.
+const BUILD_PAGE_SIZE = 1000
+// Safety valve against a runaway loop on an audience that keeps resolving
+// pages with nobody usable (no name / no unsuppressed number) — the entry
+// cap is the real bound once any usable numbers exist. Same shape as
+// p2pPhoneListUpload.service.ts's MAX_PHONE_LIST_PAGES.
+const MAX_BUILD_PAGES = 101
+// No external call runs inside this transaction, but the nested
+// entries->persons create can be several thousand rows for a large sheet
+// count — well past Prisma's default 5s transaction timeout.
+const BUILD_TX_TIMEOUT_MS = 60_000
+
+const EMPTY_AUDIENCE_MESSAGE =
+  'No matching voters with a phone number — widen the filters'
+
+const EXHAUSTED_AUDIENCE_MESSAGE =
+  'Everyone reachable in this list is already in a previous phone banking ' +
+  'campaign — pick or build a different list'
+
+// Sibling of phoneBankingCall.service.ts's per-list lock namespace (25714),
+// keyed by voterFileFilterId instead: serializes batch CREATION per filter
+// so two concurrent creates can't both snapshot the prior-batch set before
+// either commits and freeze the same people. Audience paging stays OUTSIDE
+// the transaction (people-db/Databricks calls must never run inside it) —
+// the lock guards a cheap in-tx re-read that drops anyone a concurrent
+// create just froze.
+const PHONE_BANKING_FILTER_LOCK_NAMESPACE = 25715
+
+const CONCURRENT_CREATE_RETRY_MESSAGE =
+  'Another campaign was just created from this list and claimed these ' +
+  'contacts — try again to get the next batch'
+
+const LIST_WITH_ENTRIES_INCLUDE = {
+  entries: {
+    orderBy: { seq: Prisma.SortOrder.asc },
+    include: { persons: true },
+  },
+} as const satisfies Prisma.PhoneBankingListInclude
+
+type ListWithEntries = Prisma.PhoneBankingListGetPayload<{
+  include: typeof LIST_WITH_ENTRIES_INCLUDE
+}>
+
+type PersonName = { personId: string; name: string; firstName: string | null }
+
+// The history-envelope scope, mirroring OutreachSocialService's isolation
+// boundary (ENG-10976): the controller derives this from WHICH route was
+// called, never from whether a Campaign row happens to exist, so a dual-role
+// org (both a Campaign and an ElectedOffice) can't have its Serve create
+// mistaken for a Win one. Win passes { campaignId, organizationSlug } off its
+// own campaign; Serve passes { campaignId: null, organizationSlug } off the
+// ElectedOffice's org. A null scope (Win's continueIfNotFound case — no
+// Campaign row) writes no envelope at all, same as before this change.
+type PhoneBankingScope = {
+  campaignId: number | null
+  organizationSlug: string
+}
+
+const formatAddress = (address: Person['address']): string | null => {
+  const cityState = [address.city, address.state].filter(Boolean).join(', ')
+  const line2 = [cityState, address.zip].filter(Boolean).join(' ')
+  const parts = [address.line1, line2].filter(Boolean)
+  return parts.length ? parts.join(', ') : null
+}
+
+@Injectable()
+export class PhoneBankingListService extends createPrismaBase(
+  MODELS.PhoneBankingList,
+) {
+  constructor(
+    private readonly contacts: ContactsService,
+    private readonly contactStatus: ContactStatusService,
+    private readonly voterQuery: VoterQueryService,
+    private readonly access: PhoneBankingAccessService,
+  ) {
+    super()
+  }
+
+  async create(
+    organization: Organization,
+    scope: PhoneBankingScope | null,
+    input: PhoneBankingCreate | ServePhoneBankingCreate,
+  ): Promise<PhoneBankingCreateResponse> {
+    const districtId =
+      await this.contacts.resolveEligibleDistrictId(organization)
+
+    const filterInput = await this.loadPersistedFilter(
+      input.voterFileFilterId,
+      organization.slug,
+    )
+
+    const resolved = await this.contacts.resolveSavedFilterForQuery(
+      organization,
+      filterInput,
+    )
+    if (resolved.empty) {
+      throw new BadRequestException(EMPTY_AUDIENCE_MESSAGE)
+    }
+
+    const notAVoterIds = new Set(
+      await this.contactStatus.personIdsByFieldValue(
+        organization.slug,
+        ContactStatusField.not_a_voter,
+        [NotAVoterStatus.moved, NotAVoterStatus.deceased],
+      ),
+    )
+    const suppressedPhones = new Set(
+      (
+        await this.client.phoneBankingSuppressedPhone.findMany({
+          where: { organizationSlug: organization.slug },
+          select: { phone: true },
+        })
+      ).map((row) => row.phone),
+    )
+
+    // Batch continuation (ENG-10958): the audience pages in a deterministic
+    // ORDER BY id, so without this a second list built from the same saved
+    // filter would refreeze the exact same people. Excluding everyone frozen
+    // into an earlier batch of this filter makes a re-run pick up where the
+    // last one stopped. Scoped per filter, not org-wide — two different
+    // lists may legitimately share people.
+    // groupBy, not findMany: batches frozen before continuation shipped can
+    // overlap (that WAS the bug), so one person can hold a row in several
+    // lists of this filter — GROUP BY dedups in the database instead of
+    // shipping every duplicate row up to be Set-deduped in memory. (Prisma's
+    // findMany `distinct` is applied in memory, so it wouldn't help here.)
+    const priorBatchPersonIds = new Set(
+      (
+        await this.client.phoneBankingListEntryPerson.groupBy({
+          by: ['personId'],
+          where: {
+            entry: {
+              list: {
+                organizationSlug: organization.slug,
+                voterFileFilterId: input.voterFileFilterId,
+              },
+            },
+          },
+        })
+      ).map((row) => row.personId),
+    )
+
+    const maxEntries = input.sheetCount * PHONE_BANKING_SHEET_SIZE
+    const { grouped, hasMore, skippedPriorBatch } = await this.pageAudience({
+      districtId,
+      search: filterInput.search || undefined,
+      filters: resolved.filters,
+      idOverrides: resolved.idOverrides,
+      contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
+      notAVoterIds,
+      suppressedPhones,
+      priorBatchPersonIds,
+      maxEntries,
+    })
+    // Exhausted only when someone was actually skipped FOR being in a prior
+    // batch — a prior batch merely existing proves nothing (the filter may
+    // now match zero voters, or only phone-less ones, and "already in a
+    // previous campaign" would misdirect the user away from widening it).
+    if (grouped.size === 0) {
+      throw new BadRequestException(
+        skippedPriorBatch ? EXHAUSTED_AUDIENCE_MESSAGE : EMPTY_AUDIENCE_MESSAGE,
+      )
+    }
+
+    return this.freeze(organization, scope, input, grouped, hasMore)
+  }
+
+  async getForOrganization(
+    id: number,
+    organization: Organization,
+    role: OrganizationRole,
+    userId: number,
+  ): Promise<PhoneBankingListResponse> {
+    const list = await this.model.findFirst({
+      where: { id, organizationSlug: organization.slug },
+      include: LIST_WITH_ENTRIES_INCLUDE,
+    })
+    if (!list) {
+      throw new NotFoundException('Phone banking list not found')
+    }
+    await this.access.assertVolunteerAccess(id, role, userId)
+    return this.toResponse(list, organization)
+  }
+
+  async delete(id: number, organizationSlug: string): Promise<void> {
+    const list = await this.model.findFirst({
+      where: { id, organizationSlug },
+      select: { id: true },
+    })
+    if (!list) {
+      throw new NotFoundException('Phone banking list not found')
+    }
+    // The schema's onDelete: Cascade chain (entries -> persons, the
+    // interaction table's list FK, and the Outreach envelope's
+    // phoneBankingListId FK) does the rest of the cleanup in this one
+    // statement — nothing else needs deleting here. PhoneBankingSuppressedPhone
+    // has no relation to PhoneBankingList, so it's untouched by construction.
+    await this.model.delete({ where: { id } })
+  }
+
+  private async loadPersistedFilter(
+    voterFileFilterId: number,
+    organizationSlug: string,
+  ): Promise<ContactsFilterResolutionInput> {
+    const filter = await this.client.voterFileFilter.findFirst({
+      where: { id: voterFileFilterId, organizationSlug },
+      include: { activityConditions: true },
+    })
+    if (!filter) {
+      throw new NotFoundException('Voter file filter not found')
+    }
+    return filter
+  }
+
+  private async pageAudience(args: {
+    districtId: string
+    search?: string
+    filters: FilterObject
+    idOverrides?: IdOverrides
+    contactsMadeIdOverrides?: IdOverrides
+    notAVoterIds: Set<string>
+    suppressedPhones: Set<string>
+    priorBatchPersonIds: Set<string>
+    maxEntries: number
+  }): Promise<{
+    grouped: Map<string, PersonName[]>
+    hasMore: boolean
+    skippedPriorBatch: boolean
+  }> {
+    const {
+      districtId,
+      search,
+      filters,
+      idOverrides,
+      contactsMadeIdOverrides,
+      notAVoterIds,
+      suppressedPhones,
+      priorBatchPersonIds,
+      maxEntries,
+    } = args
+    const grouped = new Map<string, PersonName[]>()
+    // hasMore is claimable only when a usable person was actually seen and
+    // dropped at the entry cap. A cap hit exactly at a page boundary may
+    // under-report (unseen pages could still hold usable people), which at
+    // worst skips the next-batch hint — never a spurious one.
+    let droppedUsable = false
+    let skippedPriorBatch = false
+
+    let page = 1
+    while (true) {
+      // break, not throw: a deep prior-batch audience legitimately burns
+      // pages with nobody usable, and create()'s empty/exhausted handling
+      // owns the user-facing message — an internal pagination error would
+      // leak out as the 400 body otherwise.
+      if (page > MAX_BUILD_PAGES) break
+      const { people } = await this.voterQuery.findPeople(
+        ListPeopleDTO.create({
+          districtId,
+          filters,
+          idOverrides,
+          contactsMadeIdOverrides,
+          search,
+          resultsPerPage: BUILD_PAGE_SIZE,
+          page,
+          groupByHousehold: false,
+          skipCount: true,
+        }),
+      )
+
+      for (const person of people) {
+        if (notAVoterIds.has(person.id)) continue
+        const name = [person.firstName, person.lastName]
+          .filter(Boolean)
+          .join(' ')
+        if (!name) continue
+        const phone = this.pickDialNumber(person, suppressedPhones)
+        if (!phone) continue
+        // After the name/phone guards so the flag only fires for people the
+        // CURRENT batch could actually have used — a prior-batch person whose
+        // number has since been suppressed or dropped must read as
+        // unreachable, not as "already called". Before the grouping chain so
+        // an already-called household member can never ride onto a fresh
+        // entry through a shared phone. Deliberately no droppedUsable here,
+        // even at capacity: a prior-batch person is never usable by the NEXT
+        // batch either, so counting them would promise a continuation that
+        // can 400 as exhausted.
+        if (priorBatchPersonIds.has(person.id)) {
+          skippedPriorBatch = true
+          continue
+        }
+
+        const firstName = person.firstName ?? null
+        const existing = grouped.get(phone)
+        if (existing) {
+          existing.push({ personId: person.id, name, firstName })
+        } else if (grouped.size < maxEntries) {
+          grouped.set(phone, [{ personId: person.id, name, firstName }])
+        } else {
+          droppedUsable = true
+        }
+      }
+
+      if (grouped.size >= maxEntries) break
+      if (people.length < BUILD_PAGE_SIZE) break
+      page += 1
+    }
+
+    return { grouped, hasMore: droppedUsable, skippedPriorBatch }
+  }
+
+  private pickDialNumber(
+    person: Person,
+    suppressedPhones: Set<string>,
+  ): string | null {
+    if (person.cellPhone && !suppressedPhones.has(person.cellPhone)) {
+      return person.cellPhone
+    }
+    if (person.landline && !suppressedPhones.has(person.landline)) {
+      return person.landline
+    }
+    return null
+  }
+
+  private async freeze(
+    organization: Organization,
+    scope: PhoneBankingScope | null,
+    input: PhoneBankingCreate | ServePhoneBankingCreate,
+    grouped: Map<string, PersonName[]>,
+    hasMore: boolean,
+  ): Promise<PhoneBankingCreateResponse> {
+    return this.client.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PHONE_BANKING_FILTER_LOCK_NAMESPACE}::int, ${input.voterFileFilterId}::int)`
+
+        // Re-read under the lock: a concurrent create for this filter may
+        // have committed between the pre-paging snapshot and here, and
+        // anyone it froze must be dropped rather than duplicated.
+        const committedPriorIds = new Set(
+          (
+            await tx.phoneBankingListEntryPerson.groupBy({
+              by: ['personId'],
+              where: {
+                entry: {
+                  list: {
+                    organizationSlug: organization.slug,
+                    voterFileFilterId: input.voterFileFilterId,
+                  },
+                },
+              },
+            })
+          ).map((row) => row.personId),
+        )
+        const pagedPersonCount = [...grouped.values()].reduce(
+          (sum, persons) => sum + persons.length,
+          0,
+        )
+        const survivingEntries = [...grouped.entries()]
+          .map(
+            ([phone, persons]) =>
+              [
+                phone,
+                persons.filter(
+                  (person) => !committedPriorIds.has(person.personId),
+                ),
+              ] as const,
+          )
+          .filter(([, persons]) => persons.length > 0)
+        // hasMore true means usable people were dropped at the cap — a
+        // retry after this concurrent-create collision would succeed, so
+        // don't tell the user the whole audience is spent.
+        if (survivingEntries.length === 0) {
+          throw new BadRequestException(
+            hasMore
+              ? CONCURRENT_CREATE_RETRY_MESSAGE
+              : EXHAUSTED_AUDIENCE_MESSAGE,
+          )
+        }
+
+        const entriesData = survivingEntries.map(([phone, persons], index) => {
+          const seq = index + 1
+          return {
+            seq,
+            sheetIndex: Math.ceil(seq / PHONE_BANKING_SHEET_SIZE),
+            phone,
+            persons: {
+              create: persons.map((person) => ({
+                personId: person.personId,
+                name: person.name,
+                firstName: person.firstName,
+              })),
+            },
+          }
+        })
+        const personCount = survivingEntries.reduce(
+          (sum, [, persons]) => sum + persons.length,
+          0,
+        )
+
+        const list = await tx.phoneBankingList.create({
+          data: {
+            organizationSlug: organization.slug,
+            voterFileFilterId: input.voterFileFilterId,
+            name: input.name,
+            script: input.script,
+            sheetCount: input.sheetCount,
+            purpose: input.purpose,
+            entries: { create: entriesData },
+          },
+        })
+
+        // First outreach launch against this filter locks it from edits,
+        // same as door-knocking's knock and the CRM's own launch path.
+        await tx.voterFileFilter.updateMany({
+          where: {
+            id: input.voterFileFilterId,
+            firstUsedForOutreachAt: null,
+          },
+          data: { firstUsedForOutreachAt: new Date() },
+        })
+
+        let outreachId: number | null = null
+        if (scope) {
+          const outreach = await tx.outreach.create({
+            data: {
+              campaignId: scope.campaignId,
+              organizationSlug: scope.organizationSlug,
+              outreachType: OutreachType.nativePhoneBanking,
+              status: OutreachStatus.in_progress,
+              name: input.name,
+              voterFileFilterId: input.voterFileFilterId,
+              phoneBankingListId: list.id,
+              date: new Date(),
+            },
+          })
+          outreachId = outreach.id
+        }
+
+        return {
+          id: list.id,
+          name: list.name,
+          sheetCount: list.sheetCount,
+          entryCount: entriesData.length,
+          personCount,
+          outreachId,
+          // Any person the recheck removed means a concurrent create ran
+          // with a different exclusion set — it may have claimed the
+          // cap-dropped people too, so the next-batch promise is no longer
+          // safe to make. Person-level, not entry-level: an entry surviving
+          // with fewer household members is still a collision.
+          hasMore: hasMore && personCount === pagedPersonCount,
+        }
+      },
+      { timeout: BUILD_TX_TIMEOUT_MS },
+    )
+  }
+
+  private async toResponse(
+    list: ListWithEntries,
+    organization: Organization,
+  ): Promise<PhoneBankingListResponse> {
+    const personIds = [
+      ...new Set(
+        list.entries.flatMap((entry) =>
+          entry.persons.map((person) => person.personId),
+        ),
+      ),
+    ]
+
+    const [liveByPersonId, interactionByPersonId] = await Promise.all([
+      this.fetchLivePeople(personIds, organization),
+      this.fetchInteractions(list.id, personIds),
+    ])
+
+    const entries: PhoneBankingListEntry[] = list.entries.map((entry) => ({
+      id: entry.id,
+      seq: entry.seq,
+      sheetIndex: entry.sheetIndex,
+      phone: entry.phone,
+      persons: entry.persons.map((person): PhoneBankingListPerson => {
+        const live = liveByPersonId.get(person.personId) ?? null
+        return {
+          personId: person.personId,
+          name: person.name,
+          firstName: person.firstName,
+          age: live?.age ?? null,
+          party: organization.slug.startsWith('eo-')
+            ? null
+            : (live?.politicalParty ?? null),
+          address: live ? formatAddress(live.address) : null,
+          cellPhone: live?.cellPhone ?? null,
+          landline: live?.landline ?? null,
+          interaction: interactionByPersonId.get(person.personId) ?? null,
+        }
+      }),
+    }))
+
+    return {
+      id: list.id,
+      name: list.name,
+      script: list.script,
+      sheetCount: list.sheetCount,
+      purpose: list.purpose,
+      createdAt: list.createdAt,
+      entries,
+      // Same `eo-` prefix check as `party` above — the system-wide Win/Serve
+      // signal (src/contacts/AGENTS.md), not derived from the Outreach
+      // envelope: a Win list can exist with none at all (continueIfNotFound).
+      isServe: organization.slug.startsWith('eo-'),
+    }
+  }
+
+  // One batched IN query, never per-entry (people-db has hit 57014 statement
+  // timeouts on the per-entry query shape — see the p2p schedule-validation
+  // incident). A missing live row is not an error; the caller renders the
+  // frozen snapshot instead.
+  private async fetchLivePeople(
+    personIds: string[],
+    organization: Organization,
+  ): Promise<Map<string, Person>> {
+    if (personIds.length === 0) return new Map()
+
+    const districtId =
+      await this.contacts.resolveEligibleDistrictId(organization)
+    const { people } = await this.voterQuery.findPeople(
+      ListPeopleDTO.create({
+        districtId,
+        filters: { id: { in: personIds } },
+        resultsPerPage: personIds.length,
+        page: 1,
+        groupByHousehold: false,
+        skipCount: true,
+      }),
+    )
+    return new Map(people.map((person) => [person.id, person]))
+  }
+
+  private async fetchInteractions(
+    phoneBankingListId: number,
+    personIds: string[],
+  ): Promise<Map<string, PhoneBankingInteraction>> {
+    if (personIds.length === 0) return new Map()
+    const interactions =
+      await this.client.contactInteractionPhoneBanking.findMany({
+        where: { phoneBankingListId, personId: { in: personIds } },
+      })
+    return new Map(
+      interactions.map((interaction) => [
+        interaction.personId,
+        {
+          outcome: interaction.outcome,
+          supportAnswer: interaction.supportAnswer,
+          willVote: interaction.willVote,
+          occurredAt: interaction.occurredAt,
+        },
+      ]),
+    )
+  }
+}

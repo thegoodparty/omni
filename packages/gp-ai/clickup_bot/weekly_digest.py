@@ -1,0 +1,1230 @@
+"""Render the Monday message that says whether gpbot did its job last week.
+
+WHY THIS EXISTS: the worst thing this system has done was not a bad fix. It went
+silent from 2026-07-31 to 2026-08-14 — 26 tagged tickets, 3 analyzed — while
+every dashboard read healthy, because nothing was watching the one number that
+would have shown it. There is still no alarm for "the bot stopped looking at
+bugs"; the Lambda error alarm needs the Lambda to run, and a webhook ClickUp has
+suspended produces no logs to alarm on.
+
+So the headline is COVERAGE — every bug tagged `gpbot-analyze` last week versus
+the ones that actually got an analysis, with the misses named — and not merges.
+Leading with merges would misprice the product and invite gaming: the bot's main
+output is a written root cause, `escalation.py` deliberately opens a PR only on a
+`fix` verdict, and a merged-PR scorecard grades a correct week near zero.
+
+THREE THINGS THIS DELIBERATELY DOES NOT DO:
+
+It never computes a percentage. This system has produced three genuinely
+autonomous bug-fix PRs. A rate over that base is noise dressed as a measurement,
+and once a percentage is in a Slack message it gets quoted in meetings.
+
+It never estimates engineering time saved. The arithmetic needs a per-ticket
+human diagnosis time, which nobody records, and the resulting range spans 4x. A
+weekly message that restarts an argument about its own inputs is a message
+people stop reading.
+
+It never stays quiet. `gpbot-stale-pr-alert.yml` is silent when it finds nothing
+and that is right for a nag, but silence here would be indistinguishable from the
+job being broken — which is this system's signature failure mode. A quiet week
+posts and says it was quiet.
+
+A SOURCE THAT FAILED MUST SAY SO RATHER THAN READ ZERO. If CloudWatch is
+unreachable the cost line reads "unavailable"; it never reads "$0". "0 missed" on
+a coverage check that never ran is an actively false claim about the thing this
+message exists to report, and it is the one output that would be worse than not
+posting at all.
+
+Pure functions over JSON, no network and no clients, on the same contract as
+ci_triage.py: `.github/workflows/gpbot-weekly-digest.yml` gathers the facts from
+ClickUp, GitHub and CloudWatch, and every judgement about what they mean is made
+here where clickup_bot/tests/test_weekly_digest.py can pin it against captured
+response shapes.
+"""
+
+import json
+import statistics
+import sys
+import time
+from datetime import UTC, datetime
+from typing import Any
+
+# The tag that defines the denominator. A bug carrying it is a bug the system
+# promised to look at, which is why coverage is measured against this and not
+# against "bugs filed" — tagging is somebody else's job and is currently ~100%.
+ANALYZE_TAG = "gpbot-analyze"
+
+# How the bot signs everything it says on a ticket.
+BOT_PREFIX = "[GP-Bot]"
+
+# ...and the two things it says that are NOT an analysis. Counting either as
+# coverage would be self-certifying: `Processing started` is posted by the
+# Lambda the moment a Fargate task launches, so a run that then crashed, hit its
+# budget ceiling or was killed at its deadline would report as an analyzed
+# ticket, at a latency of a few seconds. That is precisely the failure the
+# coverage number exists to catch.
+NON_ANALYSIS_COMMENT_PREFIXES = (
+    f"{BOT_PREFIX} Processing started",
+    f"{BOT_PREFIX} Failed to start processing",
+)
+
+# The two signals that identify a bot PR, matched the same way as
+# gpbot-ci-drive.yml and gpbot-pr-triage.yml: the title comes from the agent's
+# `gh` call and the branch from its git commands, and either alone has been
+# wrong before.
+BOT_PR_TITLE_PREFIX = "[GP-Bot]"
+BOT_PR_BRANCH_MARKER = "/gp-bot_"
+
+# Reviews from these accounts are not human attention. delegate reviews every
+# bot PR automatically, so counting it would mean no PR is ever reported as
+# waiting on a human — the warning would be permanently absent, which reads
+# identical to everything being fine. Compared after lowercasing and stripping a
+# trailing "[bot]", because the same account is `cursor` over GraphQL and
+# `cursor[bot]` over REST.
+BOT_REVIEWERS = frozenset({"delegate-reviewer", "cursor"})
+
+# When an open bot PR starts counting as waiting on a human. Matches
+# gpbot-stale-pr-alert.yml's STALE_HOURS so the two cannot disagree in the same
+# channel about whether a PR is stale.
+STALE_HOURS = 48
+
+# How many missed tickets are named before the line is summarised. The point of
+# naming them is that somebody can go and re-tag one, which nobody does from a
+# wall of twenty-three links — and twenty-three is the real number this hit
+# during the outage. Past this the count still tells the truth and the ticket
+# list is a query away.
+MAX_NAMED_MISSES = 8
+
+# The run labels that appear in GPBOT_METRIC, named rather than spelled inline.
+#
+# WHY THIS MATTERS NOW AND DID NOT BEFORE: the verdict counts below were written
+# when `analyze` was the only kind of run that emitted a verdict, so they could
+# count every verdict they saw. `dev-test` runs emit the same verdict line from
+# the same shared contract, and left unscoped they would land in the Verdicts
+# line — which is about the bugs humans filed and reads as a measure of the
+# tagging inbox. A week where the release train broke five times would show as a
+# week where five more bugs were diagnosed.
+ANALYZE_LABEL = "analyze"
+DEV_TEST_LABEL = "dev-test"
+
+# Verdicts, in the order the analyze prompt offers them. Kept as a tuple rather
+# than derived from the data so a week with no `needs-human` still prints
+# `0 needs-human`: a verdict that silently stops appearing is a parser drifting
+# away from the prompt, and it would otherwise look like the bot simply never
+# reached that conclusion.
+VERDICTS = ("fix", "no-code-change", "needs-human")
+
+# The one verdict that means a human did not have to diagnose the ticket. This
+# is the closest thing to a direct value measurement the system produces, and it
+# is reported as a count of tickets rather than as a rate.
+#
+# `needs-human` was counted here too, and that was wrong for as long as this
+# module has shipped. It is an escalation, not a deflection: the analysis is
+# attached to the ticket, which is the whole point of it, but the diagnosis
+# still lands on a person and the ticket still reaches the eng queue. Counting
+# it inflated the one figure in the message nobody can check by eye. The
+# 2026-09-14 digest is the instance — "0 fix · 3 no-code-change · 3 needs-human
+# → *6 tickets kept off the eng queue*", when three of those six were on
+# somebody's plate that morning.
+DEFLECTING_VERDICTS = ("no-code-change",)
+
+# What a run's structured line looks like. Written by
+# engineer_agent/agent/metrics.py; see that module for why it exists at all.
+METRIC_PREFIX = "GPBOT_METRIC"
+
+# ...and what an ALERT decision's line looks like, written by
+# alert_filter/metrics.py. A separate token rather than a label on the first,
+# because `filter-log-events` matches a token as a bare substring: a shared
+# prefix would fold alert decisions into the verdict counts and the cost total
+# above. alert_filter/tests/test_metrics.py asserts neither contains the other.
+ALERT_METRIC_PREFIX = "GPALERT_METRIC"
+
+# How the filter's four outcomes are reported, in the order the alert section
+# prints them. A tuple rather than a set derived from the data, for the same
+# reason VERDICTS is one: an outcome that silently stops appearing is a parser
+# drifting from classify.py, and it would otherwise read as the filter simply
+# never reaching that conclusion.
+ALERT_OUTCOMES = ("urgent", "notify", "annotate", "suppress")
+
+# The outcome that hides an alert from a human. Everything about how the alert
+# section is written follows from this being the one number in the digest that
+# describes something nobody saw.
+SUPPRESS_OUTCOME = "suppress"
+
+# How a suppression says nothing is tracking the work, in the reason string
+# `alert_filter/classify.py` writes. A token rather than the whole sentence,
+# because the rest of that prose is for a human reading a Slack thread and will
+# be reworded; this part is the only thing the digest reads it for.
+#
+# THE COUPLING IS TO PROSE IN ANOTHER MODULE, which this file cannot import —
+# it runs as a standalone script in Actions against log lines, not beside the
+# filter. So the token is pinned from the other end instead:
+# clickup_bot/tests/test_weekly_digest.py derives the reason by calling
+# `classify` rather than transcribing it, which fails if the wording drifts.
+# Without that, a rename there would leave this matching nothing and the digest
+# would quietly stop naming suppressions that hide untracked bugs.
+UNTRACKED_REASON_TOKEN = "no ticket"
+
+# How many suppressed causes are named before the line is summarised. Same
+# reasoning as MAX_NAMED_MISSES: the point of naming them is that somebody can
+# go and check one, which nobody does from a wall of twenty.
+MAX_NAMED_CAUSES = 6
+
+# "This digest was not asked about the alert filter", which is a different state
+# from "the query failed".
+#
+# WHY THE DISTINCTION IS WORTH A CONSTANT: a digest that was not asked about the
+# alert filter must not report a source as unavailable and turn the job red. That
+# is the same mistake RUNS_GAP exists to avoid — a job expected to be red is a
+# job whose redness stops meaning anything — but it needs a different fix here,
+# because unlike the metric gap there is nothing worth SAYING about it: a reader
+# cannot act on "a feature has not shipped". So an absent key omits the line
+# entirely, while a key whose value is unreadable reports as unavailable and
+# goes red. The workflow either gathers this or it does not, so the two cannot
+# be confused for each other.
+#
+# WHAT LEAVES THE KEY ABSENT, now that the gather ships in the same change as
+# this section: a payload built without it. A workflow_dispatch of an older
+# revision of gpbot-weekly-digest.yml and a hand-fed re-run of a past week both
+# do, and both are reasons to read the digest rather than to page anyone. A
+# gather that RAN and failed writes the key as null and is reported, because by
+# then something really is broken — the alert section is the only record of what
+# the filter stopped showing people, so a week of it going missing quietly is the
+# one gap in this digest nobody could reconstruct afterwards.
+ALERTS_NOT_GATHERED = "not-gathered"
+
+# WHY A ZERO FROM CLOUDWATCH IS NOT SELF-EXPLANATORY, and the bug that put this
+# here: the first real run of this digest reported "Verdicts: no analyses
+# recorded" and "Cost: no runs recorded this week" for a week in which seven
+# tickets were demonstrably analyzed. The query had not failed. It succeeded and
+# honestly returned nothing, because GPBOT_METRIC did not exist yet — it ships in
+# the same change as this module, so every week before that deploy looks
+# identical to a week where the bot did nothing.
+#
+# An errored source was already handled. This is the case that slipped through:
+# a healthy source truthfully reporting an absence that is not the absence a
+# reader will infer. So a zero is only believed when something independent
+# agrees the week was quiet, and ClickUp is that something.
+RUNS_UNREACHABLE = "unreachable"
+RUNS_GAP = "gap"
+RUNS_UNCHECKABLE = "uncheckable"
+
+# ...AND WHY A NON-ZERO IS NOT SELF-EXPLANATORY EITHER, which is the same bug
+# one step along. The 2026-08-24 digest reported "Coverage: 8 of 8 tagged bugs
+# analyzed" and, three lines below it, "0 fix · 1 no-code-change · 0
+# needs-human" and "$4.02 this week". Both were computed from the two metric
+# lines that existed: GPBOT_METRIC shipped on the Friday of that week, so six of
+# the eight analyses ran before there was anything to record them. Nothing was
+# broken and nothing said so — the verdicts and the cost were simply a sixth of
+# the week, presented in the same shape as a whole one.
+#
+# `believable_zero` only ever caught the all-or-nothing case. A partial sample
+# reads as complete, which is worse than an absent line: a reader has no way to
+# tell it from a week where the bot really did conclude almost nothing.
+SHORTFALL_MARKER = "partial"
+
+UNAVAILABLE_REASONS = {
+    RUNS_UNREACHABLE: "could not read run metrics from CloudWatch",
+    RUNS_GAP: "no run metrics recorded for this week",
+    RUNS_UNCHECKABLE: "CloudWatch found no run metrics and coverage could not be read to corroborate that",
+}
+
+# Exit code for "the message is on stdout, but at least one source could not be
+# read". The workflow posts the message either way and then goes red, because a
+# digest assembled from two sources out of three is still worth having and the
+# gap still needs someone to look at it.
+EXIT_DEGRADED = 2
+
+
+def _epoch_from_clickup(value: Any) -> float | None:
+    """ClickUp's millisecond epoch, which it sends as a STRING."""
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return None
+    try:
+        return float(value) / 1000.0
+    except (TypeError, ValueError):
+        return None
+
+
+def _epoch_from_iso(value: Any) -> float | None:
+    """GitHub's ISO-8601, whose trailing `Z` datetime.fromisoformat rejected
+    until 3.11 and which still has to survive a null (an unmerged PR's
+    `mergedAt`)."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def comment_text(comment: Any) -> str:
+    """The text of one ClickUp comment, both ways ClickUp sends it.
+
+    SHAPE CONTRACT, and it has already cost us a production incident: the real
+    `GET /task/{id}/comment` response carries the full text in a top-level
+    `comment_text` field, while the `comment[]` items carry fragments with no
+    `type` key. A matcher that required `type == "text"` matched 0 of 13 real
+    comments in the 2026-07-14 incident and dedup never fired once.
+
+    Same rules as the handler's twin (`has_processing_started_comment`):
+    `comment_text` is trusted only when it is a non-empty string, and any
+    non-string fragment contributes "" rather than raising — ClickUp does ship
+    `"text": null`.
+    """
+    if not isinstance(comment, dict):
+        return ""
+    text = comment.get("comment_text")
+    if isinstance(text, str) and text:
+        return text
+    return "".join(
+        item["text"] if isinstance(item, dict) and isinstance(item.get("text"), str) else ""
+        for item in (comment.get("comment") if isinstance(comment.get("comment"), list) else [])
+    )
+
+
+def analysis_posted_at(comments: Any) -> float | None:
+    """When the bot posted an actual analysis on this ticket, if it ever did.
+
+    EARLIEST, not latest. A ticket can collect several bot comments — an
+    analysis, then a PR link, then a CI-drive note — and latency is measured to
+    the first thing a human could have read.
+    """
+    timestamps = []
+    for comment in comments if isinstance(comments, list) else []:
+        text = comment_text(comment).lstrip()
+        if not text.startswith(BOT_PREFIX):
+            continue
+        if text.startswith(NON_ANALYSIS_COMMENT_PREFIXES):
+            continue
+        posted = _epoch_from_clickup(comment.get("date") if isinstance(comment, dict) else None)
+        if posted is not None:
+            timestamps.append(posted)
+    return min(timestamps) if timestamps else None
+
+
+def _ticket_name(ticket: dict) -> str:
+    custom_id = ticket.get("custom_id")
+    if isinstance(custom_id, str) and custom_id:
+        return custom_id
+    task_id = ticket.get("id")
+    return task_id if isinstance(task_id, str) and task_id else "(unidentified ticket)"
+
+
+def coverage(tickets: Any) -> dict:
+    """Did every bug reported last week actually get looked at, and how fast.
+
+    The denominator is tickets CREATED in the window, which the workflow has
+    already filtered on. Bucketing by creation date rather than by analysis date
+    is what makes consecutive weeks comparable, and it is the only bucketing
+    under which a ticket nobody analyzed appears anywhere at all.
+
+    THE ANALYSIS IS NOT REQUIRED TO FALL INSIDE THE WINDOW. A Sunday-night bug
+    analyzed on Monday morning is covered, not missed: the question this number
+    answers is whether the bug was looked at, and a calendar boundary is not a
+    failure. It costs a small amount of accuracy at the edge of the week and
+    buys a number that never reports a working system as broken.
+
+    Anything other than a list means the ClickUp call did not happen, which is
+    reported as unavailable rather than as a clean sheet.
+    """
+    if not isinstance(tickets, list):
+        return {"available": False}
+
+    analyzed, analyzed_ids, missed, latencies = 0, [], [], []
+    for ticket in tickets:
+        if not isinstance(ticket, dict):
+            continue
+        posted = analysis_posted_at(ticket.get("comments"))
+        if posted is None:
+            missed.append({"name": _ticket_name(ticket), "url": ticket.get("url")})
+            continue
+        analyzed += 1
+        # The ids as well as the tally, so the run metrics can be checked ticket
+        # by ticket rather than by comparing two totals. Two totals agreeing is
+        # a weaker claim than every analysis having been recorded, and it is
+        # weakest exactly when the numbers matter: a week that analyzed eight
+        # tickets and recorded eight runs for other tickets would tally clean.
+        task_id = ticket.get("id")
+        if isinstance(task_id, str) and task_id:
+            analyzed_ids.append(task_id)
+        created = _epoch_from_clickup(ticket.get("date_created"))
+        # A negative latency is a clock disagreement between ClickUp's two
+        # timestamps, not a comment that predates its ticket. Dropping it keeps
+        # one impossible number out of the median rather than out of coverage.
+        if created is not None and posted >= created:
+            latencies.append((posted - created) / 60.0)
+
+    return {
+        "available": True,
+        "tagged": sum(1 for t in tickets if isinstance(t, dict)),
+        "analyzed": analyzed,
+        "analyzed_ids": analyzed_ids,
+        "missed": missed,
+        # None rather than 0 when nothing was analyzed: "median 0.0 min" is a
+        # claim of instant service on a week where the bot did nothing.
+        "median_latency_min": round(statistics.median(latencies), 1) if latencies else None,
+    }
+
+
+def _metric_records(runs: Any) -> list[dict]:
+    """The parsed GPBOT_METRIC lines, from whatever shape the query returned.
+
+    Accepts CloudWatch's own event objects and bare message strings, because
+    `filter-log-events` returns the first and `--query 'events[].message'`
+    returns the second, and which one the workflow hands over should not be able
+    to silently zero the cost line.
+
+    A line that does not parse is dropped rather than raised on: one malformed
+    message must not cost the whole week's runs. The count of what survived is
+    reported beside the numbers, so a systematic parse failure shows up as a run
+    count that disagrees with the analyses ClickUp can see.
+    """
+    records = []
+    for event in runs if isinstance(runs, list) else []:
+        message = event if isinstance(event, str) else event.get("message") if isinstance(event, dict) else None
+        if not isinstance(message, str):
+            continue
+        _, marker, body = message.partition(METRIC_PREFIX)
+        if not marker:
+            continue
+        try:
+            parsed = json.loads(body)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            records.append(parsed)
+    return records
+
+
+def verdicts(runs: Any) -> dict:
+    """What the analyses concluded, and how many tickets that kept off the queue.
+
+    `no_verdict` is counted and reported because it is alarm-worthy rather than
+    merely uninteresting: the analyze prompt requires the line, so a run that
+    produced none means the prompt and `escalation.py`'s parser have drifted
+    apart — and that failure silently stops every escalation while looking like
+    a week of quiet tickets.
+    """
+    if not isinstance(runs, list):
+        return {"available": False, "reason": RUNS_UNREACHABLE}
+
+    records = _metric_records(runs)
+    counts = dict.fromkeys(VERDICTS, 0)
+    no_verdict = 0
+    analyzed_ids = set()
+    for record in records:
+        # Scoped to analyze, which the verdict tally was NOT before dev-test
+        # runs existed. This line sits under Coverage and is read as "what came
+        # of the bugs that were tagged"; a dev-only test failure was filed by a
+        # workflow and belongs to its own line further down.
+        if record.get("label") != ANALYZE_LABEL:
+            continue
+        task_id = record.get("task_id")
+        if isinstance(task_id, str) and task_id:
+            analyzed_ids.add(task_id)
+        verdict = record.get("verdict")
+        if verdict in counts:
+            counts[verdict] += 1
+        elif record.get("status") == "success":
+            # Only a run that finished counts as a missing verdict. An errored or
+            # deadline-killed run has an obvious reason for having none, and
+            # lumping the two together would bury the case that needs looking at.
+            no_verdict += 1
+
+    return {
+        "available": True,
+        # How many lines the query actually yielded, which is a different
+        # question from what they said. `summarize` needs it to decide whether a
+        # zero here is a quiet week or a hole in the instrumentation.
+        "records": len(records),
+        # Which tickets these verdicts are actually about, for the shortfall
+        # check in `summarize`. A set of ids rather than a count, because the
+        # question is "was this ticket's analysis recorded", not "did two
+        # numbers match".
+        "analyzed_ids": sorted(analyzed_ids),
+        "counts": counts,
+        "deflected": sum(counts[verdict] for verdict in DEFLECTING_VERDICTS),
+        "no_verdict": no_verdict,
+    }
+
+
+def cost(runs: Any) -> dict:
+    """What the week cost, and what one analysis costs.
+
+    The median is per ANALYSIS rather than per run. Implement runs are several
+    times more expensive and there are far fewer of them, so a blended median
+    describes nothing that happens and moves with the escalation rate rather
+    than with the price of anything.
+
+    `unpriced` is reported because `cost_usd` is null when a run did not record
+    one, and a total silently summed around those understates the week with
+    nothing to say so.
+
+    THE TOTAL IS EVERY LABEL, dev-test runs included, and that is the one number
+    here that must stay unscoped: it is what the bot cost, which is the question
+    asked of it. The dev-test line reports the same dollars again as its own
+    slice — named there as part of this figure, not as a second budget — because
+    the alternative is a headline total that quietly omits a category of spend,
+    which is the same lie as summing around the unpriced runs.
+    """
+    if not isinstance(runs, list):
+        return {"available": False, "reason": RUNS_UNREACHABLE}
+
+    records = _metric_records(runs)
+    total, unpriced, analysis_costs = 0.0, 0, []
+    for record in records:
+        value = record.get("cost_usd")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            unpriced += 1
+            continue
+        total += float(value)
+        if record.get("label") == ANALYZE_LABEL:
+            analysis_costs.append(float(value))
+
+    return {
+        "available": True,
+        "records": len(records),
+        "total_usd": round(total, 2),
+        "median_analysis_usd": round(statistics.median(analysis_costs), 2) if analysis_costs else None,
+        "unpriced": unpriced,
+    }
+
+
+def dev_tests(runs: Any) -> dict:
+    """What the `@dev-only` E2E triage did this week, and what it cost.
+
+    ITS OWN LINE rather than folded into Verdicts and Cost, because it answers a
+    different question and moves for different reasons. Coverage and Verdicts
+    describe an inbox humans fill; this describes the release train, and the
+    interesting reading is the opposite one — a week with zero runs here is a
+    week the post-merge suite stayed green, which is good news rather than a
+    quiet inbox.
+
+    `distinct_specs` is reported beside the run count because they come apart in
+    exactly the case worth seeing: one spec that breaks and stays broken buys one
+    investigation (the workflow comments on the open ticket instead of filing a
+    second), so several runs against one spec means the bot was re-triaging a
+    failure it had already been asked about, and the ticket is not being closed.
+
+    No availability handling of its own: it reads the same CloudWatch query as
+    verdicts() and cost(), and `summarize` demotes all three together when that
+    source cannot be believed. Answering "0 dev-test runs" from a query that
+    returned nothing would be the same lie the rest of this module exists to
+    avoid.
+    """
+    if not isinstance(runs, list):
+        return {"available": False, "reason": RUNS_UNREACHABLE}
+
+    counts = dict.fromkeys(VERDICTS, 0)
+    total, runs_seen, identified_runs, no_verdict, specs = 0.0, 0, 0, 0, set()
+    for record in _metric_records(runs):
+        if record.get("label") != DEV_TEST_LABEL:
+            continue
+        runs_seen += 1
+        task_id = record.get("task_id")
+        if isinstance(task_id, str) and task_id:
+            identified_runs += 1
+            specs.add(task_id)
+        verdict = record.get("verdict")
+        if verdict in counts:
+            counts[verdict] += 1
+        elif record.get("status") == "success":
+            # Same alarm as verdicts(), for the same reason and on the same
+            # terms: a run that FINISHED and said nothing means the prompt and
+            # the parser have drifted, and every escalation from here is dead.
+            # An errored or deadline-killed run has an obvious reason for having
+            # no verdict and is not that.
+            no_verdict += 1
+        value = record.get("cost_usd")
+        if not isinstance(value, bool) and isinstance(value, (int, float)):
+            total += float(value)
+
+    return {
+        "available": True,
+        "runs": runs_seen,
+        # Only the runs that named a ticket can be compared against the count of
+        # distinct ones. A record with no `task_id` is not evidence of a repeat;
+        # it is evidence of nothing, and counting it as a run while it cannot
+        # count as a spec is what turns missing instrumentation into an alarm
+        # about a ticket nobody is closing.
+        "identified_runs": identified_runs,
+        "distinct_specs": len(specs),
+        "counts": counts,
+        "no_verdict": no_verdict,
+        "total_usd": round(total, 2),
+    }
+
+
+# A sentinel, because `payload.get("alerts")` cannot tell an absent key from an
+# explicit null — and those are the two states ALERTS_NOT_GATHERED exists to
+# separate. An explicit null is a gather that ran and produced nothing readable.
+_NOT_GATHERED = object()
+
+
+def _alert_records(alerts: Any) -> list[dict]:
+    """The parsed GPALERT_METRIC lines. Same tolerance as `_metric_records`.
+
+    A separate gather from the gpbot runs rather than a filter over one list,
+    because the two come from different log groups and either can be
+    independently unavailable — and a section that read zero because the OTHER
+    source failed would be the exact lie the rest of this module exists to
+    prevent.
+    """
+    records = []
+    for event in alerts if isinstance(alerts, list) else []:
+        message = event if isinstance(event, str) else event.get("message") if isinstance(event, dict) else None
+        if not isinstance(message, str):
+            continue
+        _, marker, body = message.partition(ALERT_METRIC_PREFIX)
+        if not marker:
+            continue
+        try:
+            parsed = json.loads(body)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            records.append(parsed)
+    return records
+
+
+def alert_filter(alerts: Any) -> dict:
+    """What the alert filter did to #dev-alerts last week.
+
+    THE QUESTION THIS SECTION EXISTS TO ANSWER is not "did the filter work". It
+    is "what did we stop showing people, and was that right" — and that is a
+    question only a human can answer, from a list. So the suppressions are
+    reported BY CAUSE with counts, named rather than totalled, because a line
+    reading "suppressed 34 alerts" is unreviewable and a line naming
+    `people-db-statement-timeout` 34 times is a decision somebody can agree or
+    disagree with.
+
+    TWO THINGS ARE CALLED OUT SPECIFICALLY.
+
+    A suppressing cause with no ticket, because that is how a known issue
+    becomes a permanently invisible one: the alert stops arriving and nothing is
+    left pointing at the work. The registry's own documentation says an entry
+    like that should be rare, and this is what makes "rare" checkable. The
+    filter reports it in each decision's reason, which is why it can be counted
+    here without a second source.
+
+    Degraded decisions, because a week of `notify` means one thing if the filter
+    chose them and something entirely different if it spent the week unable to
+    reach Loki. Both weeks look identical in #dev-alerts — busy — and without
+    this number the second one is undetectable.
+    """
+    if alerts is _NOT_GATHERED:
+        return {"available": False, "reason": ALERTS_NOT_GATHERED}
+    if not isinstance(alerts, list):
+        return {"available": False, "reason": RUNS_UNREACHABLE}
+
+    records = _alert_records(alerts)
+    counts = dict.fromkeys(ALERT_OUTCOMES, 0)
+    suppressed_by_cause: dict[str, int] = {}
+    untracked_causes = set()
+    degraded = 0
+    pinged = 0
+    total_cost = 0.0
+
+    for record in records:
+        outcome = record.get("outcome")
+        if outcome in counts:
+            counts[outcome] += 1
+        if record.get("degraded") is True:
+            degraded += 1
+        if record.get("mentioned") is True:
+            pinged += 1
+        value = record.get("cost_usd")
+        if not isinstance(value, bool) and isinstance(value, (int, float)):
+            total_cost += float(value)
+        if outcome == SUPPRESS_OUTCOME:
+            cause = record.get("cause_id")
+            cause = cause if isinstance(cause, str) and cause else "(unnamed cause)"
+            suppressed_by_cause[cause] = suppressed_by_cause.get(cause, 0) + 1
+            reason = record.get("reason")
+            if isinstance(reason, str) and UNTRACKED_REASON_TOKEN in reason:
+                untracked_causes.add(cause)
+
+    return {
+        "available": True,
+        "records": len(records),
+        "counts": counts,
+        # Descending, so the cause hiding the most alerts is the one a reader
+        # sees first — it is also the one most worth being wrong about.
+        "suppressed_by_cause": sorted(suppressed_by_cause.items(), key=lambda kv: (-kv[1], kv[0])),
+        "untracked_causes": sorted(untracked_causes),
+        "degraded": degraded,
+        "pinged": pinged,
+        "total_usd": round(total_cost, 4),
+    }
+
+
+def is_bot_pr(pr: Any) -> bool:
+    if not isinstance(pr, dict):
+        return False
+    title = pr.get("title")
+    branch = pr.get("headRefName")
+    return (isinstance(title, str) and title.startswith(BOT_PR_TITLE_PREFIX)) or (
+        isinstance(branch, str) and BOT_PR_BRANCH_MARKER in branch
+    )
+
+
+def has_human_review(pr: Any) -> bool:
+    """Whether a person has reviewed this PR.
+
+    A review whose author login is missing does NOT count as human attention.
+    GitHub reports a deleted account's login as null, and reading that as a
+    human would quietly drop the PR from the warning — the exact miss this line
+    exists to catch. gpbot-stale-pr-alert.yml's jq carries the same guard for
+    the same reason.
+    """
+    reviews = pr.get("reviews") if isinstance(pr, dict) else None
+    for review in reviews if isinstance(reviews, list) else []:
+        author = review.get("author") if isinstance(review, dict) else None
+        login = author.get("login") if isinstance(author, dict) else None
+        if not isinstance(login, str) or not login:
+            continue
+        if login.strip().lower().removesuffix("[bot]") not in BOT_REVIEWERS:
+            return True
+    return False
+
+
+def pull_requests(prs: Any, start: float, end: float, now: float) -> dict:
+    """What happened to the bot's PRs, as raw counts.
+
+    RAW COUNTS, NEVER A RATE. Three autonomous PRs is not a base anyone can
+    compute a merge rate on, and the archived gp-webapp repo — 22 bot PRs, 10 of
+    them still open and now dead — is the evidence that the constraint is human
+    review capacity rather than bot output. A percentage would describe the bot;
+    the counts describe the queue.
+
+    The stale warning is deliberately NOT windowed. A PR opened three weeks ago
+    that nobody has reviewed is the thing worth saying today, and confining it to
+    last week's PRs would drop it from the message on exactly the weeks it
+    matters most.
+    """
+    if not isinstance(prs, list):
+        return {"available": False}
+
+    bot_prs = [pr for pr in prs if is_bot_pr(pr)]
+    stale_cutoff = now - STALE_HOURS * 3600
+
+    def within(value: Any) -> bool:
+        moment = _epoch_from_iso(value)
+        return moment is not None and start <= moment < end
+
+    def old_enough_to_be_stale(pr: dict) -> bool:
+        # An unreadable createdAt counts as old, which is the same direction
+        # gpbot-stale-pr-alert.yml's jq takes (a null sorts below the cutoff
+        # string and stays in the alert). Naming a PR that turns out to be fresh
+        # costs a glance; dropping one because a date did not parse is the miss
+        # the warning exists to prevent.
+        created = _epoch_from_iso(pr.get("createdAt"))
+        return created is None or created <= stale_cutoff
+
+    # An unmerged close is counted as its own thing rather than folded into
+    # "closed": closing a weak bot PR is a perfectly good outcome and a decision
+    # somebody made, while a merge is a different claim entirely.
+    closed_unmerged = [
+        pr for pr in bot_prs if within(pr.get("closedAt")) and _epoch_from_iso(pr.get("mergedAt")) is None
+    ]
+    stale = [
+        pr
+        for pr in bot_prs
+        if str(pr.get("state", "")).upper() == "OPEN" and old_enough_to_be_stale(pr) and not has_human_review(pr)
+    ]
+
+    return {
+        "available": True,
+        "opened": sum(1 for pr in bot_prs if within(pr.get("createdAt"))),
+        "merged": sum(1 for pr in bot_prs if within(pr.get("mergedAt"))),
+        "closed_unmerged": len(closed_unmerged),
+        "stale": [{"number": pr.get("number"), "url": pr.get("url")} for pr in stale],
+    }
+
+
+def _window(payload: dict) -> tuple[float, float]:
+    """The half-open [start, end) instants the digest reports on.
+
+    RAISED ON RATHER THAN DEFAULTED. Every other bad input here degrades to
+    "unavailable", but a digest with a guessed window would silently report the
+    wrong seven days — and it would look completely normal, which is the one
+    thing worse than not posting.
+    """
+    window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
+    start = _epoch_from_iso(window.get("start"))
+    end = _epoch_from_iso(window.get("end"))
+    if start is None or end is None or end <= start:
+        raise ValueError("window.start and window.end must be ISO-8601 instants with end after start")
+    return start, end
+
+
+def believable_zero(coverage_facts: dict, runs_facts: dict) -> str | None:
+    """Whether "CloudWatch found no runs" may be reported as a quiet week.
+
+    Only ClickUp can settle this, and it is the whole fix for the bug in the
+    header comment on RUNS_GAP. A zero from a healthy query is ambiguous on its
+    own: it means either that nothing ran, or that runs happened and were not
+    recorded. Coverage already knows which — it counted the analyses from the
+    bot's own ticket comments, by a route that touches CloudWatch nowhere.
+
+    Returns None when the zero is believable, otherwise the reason it is not:
+
+        analyses > 0        -> RUNS_GAP, the metric was not being emitted
+        coverage unavailable-> RUNS_UNCHECKABLE, nothing to check the zero against
+        analyses == 0       -> believable; the week really was quiet
+
+    THE QUIET WEEK MUST SURVIVE THIS. Collapsing "nothing happened" into
+    "something is broken" would make the digest cry wolf on exactly the weeks it
+    has the least to say, and a warning that fires on a normal week is one
+    people learn to skip — which is how the message stops being read at all.
+    """
+    if not runs_facts.get("available") or runs_facts.get("records", 0) > 0:
+        return None
+    if not coverage_facts.get("available"):
+        return RUNS_UNCHECKABLE
+    return RUNS_GAP if coverage_facts.get("analyzed", 0) > 0 else None
+
+
+def instrumentation_shortfall(coverage_facts: dict, runs_facts: dict) -> dict | None:
+    """How many of the week's analyses left no run metric behind.
+
+    The same question `believable_zero` asks, asked of a partial answer instead
+    of an empty one, and settled the same way: ClickUp counted the analyses from
+    the bot's own ticket comments by a route that touches CloudWatch nowhere, so
+    it can say what the run metrics should have contained.
+
+    MATCHED ON TICKET ID rather than by comparing the two totals. Equal totals
+    are not the claim being made — a week whose recorded runs all belong to
+    tickets filed the week before would tally perfectly while every analysis in
+    the report went unrecorded.
+
+    KNOWN AND ACCEPTED IMPRECISION, in the direction of over-reporting: coverage
+    buckets a ticket by when it was FILED and deliberately counts an analysis
+    that happened after the window closed (a Sunday bug analyzed on Monday is
+    covered, not missed), while the metric query is bounded by when the run
+    RAN. So a bug at the very end of a week can be counted here as unrecorded
+    when its metric line exists and simply lands in the next week's query. That
+    costs an occasional "1 of 8" on a boundary week. The alternative — saying
+    nothing until the gap is provably not an edge effect — is what let six
+    missing analyses out of eight read as a normal week.
+    """
+    if not runs_facts.get("available") or not coverage_facts.get("available"):
+        return None
+    recorded = set(runs_facts.get("analyzed_ids") or [])
+    expected = [task_id for task_id in coverage_facts.get("analyzed_ids") or [] if task_id not in recorded]
+    if not expected:
+        return None
+    return {"missing": len(expected), "analyzed": coverage_facts.get("analyzed", 0)}
+
+
+def summarize(payload: Any, now: float | None = None) -> dict:
+    """Every fact the message states, with each source's availability attached.
+
+    `now` is injected so the staleness threshold is exercised at a fixed instant
+    by tests rather than by whatever the clock says when the suite runs.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("digest input must be a JSON object")
+    start, end = _window(payload)
+    now = time.time() if now is None else now
+
+    coverage_facts = coverage(payload.get("tickets"))
+    verdict_facts = verdicts(payload.get("runs"))
+    cost_facts = cost(payload.get("runs"))
+    dev_test_facts = dev_tests(payload.get("runs"))
+
+    # Both lines are demoted together, because they are one source and it is one
+    # question: if the runs are not there, neither the verdicts nor the money is
+    # knowable, and reporting either as a number would be the same false claim
+    # twice.
+    unbelievable = believable_zero(coverage_facts, verdict_facts)
+    if unbelievable:
+        verdict_facts = {"available": False, "reason": unbelievable}
+        cost_facts = {"available": False, "reason": unbelievable, "analyzed": coverage_facts.get("analyzed")}
+        # Demoted with the other two: one source, one question. A dev-test line
+        # reading "no spec failed this week" off a query that returned nothing
+        # would be the most reassuring of the three false claims.
+        dev_test_facts = {"available": False, "reason": unbelievable}
+    else:
+        # Marked rather than withheld. Unlike the all-or-nothing case there are
+        # real verdicts and real dollars here, and they are worth reading once a
+        # reader knows what fraction of the week they describe. Both lines carry
+        # it for the same reason they are demoted together: one source, one
+        # question.
+        shortfall = instrumentation_shortfall(coverage_facts, verdict_facts)
+        if shortfall:
+            verdict_facts = {**verdict_facts, "shortfall": shortfall}
+            cost_facts = {**cost_facts, "shortfall": shortfall}
+
+    return {
+        "start": start,
+        "end": end,
+        "coverage": coverage_facts,
+        "verdicts": verdict_facts,
+        "cost": cost_facts,
+        "dev_tests": dev_test_facts,
+        "prs": pull_requests(payload.get("prs"), start, end, now),
+        # Read from its own key, not from `runs`. The alert filter is a separate
+        # Lambda in a separate log group, and folding the two into one query
+        # would make either source's failure look like the other reporting a
+        # quiet week. `believable_zero` deliberately does NOT apply here: there
+        # is no independent count of alert firings to corroborate a zero
+        # against, so a zero is reported as what it literally is — see
+        # `_alert_line`.
+        "alerts": alert_filter(payload.get("alerts", _NOT_GATHERED)),
+    }
+
+
+def _plural(count: int, noun: str) -> str:
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def _analyses(count: int) -> str:
+    """`_plural` cannot reach this one: the plural of analysis is not analysiss."""
+    return f"{count} analysis" if count == 1 else f"{count} analyses"
+
+
+def _link(url: Any, label: str) -> str:
+    return f"<{url}|{label}>" if isinstance(url, str) and url else label
+
+
+def _coverage_line(facts: dict) -> str:
+    if not facts.get("available"):
+        # Named explicitly rather than left as a gap. This is the headline
+        # number, so a reader must be told it is absent instead of inferring it
+        # from a short message.
+        return "Coverage: *unavailable* — could not read tagged tickets from ClickUp."
+
+    tagged, analyzed = facts["tagged"], facts["analyzed"]
+    if tagged == 0:
+        # A quiet week still posts, and says which quiet it was. "0 of 0
+        # analyzed" reads like a broken query; "nothing was tagged" is a fact
+        # about the inbox, and if it is wrong the person reading knows it
+        # immediately.
+        return f"Coverage: no bugs were tagged `{ANALYZE_TAG}` this week."
+
+    line = f"Coverage: {analyzed} of {_plural(tagged, 'tagged bug')} analyzed"
+    missed = facts["missed"]
+    if not missed:
+        return line
+    named = ", ".join(_link(m["url"], m["name"]) for m in missed[:MAX_NAMED_MISSES])
+    overflow = "" if len(missed) <= MAX_NAMED_MISSES else f", +{len(missed) - MAX_NAMED_MISSES} more"
+    return f"{line} — *{len(missed)} missed*: {named}{overflow}"
+
+
+def _latency_line(facts: dict) -> str | None:
+    if not facts.get("available") or facts.get("median_latency_min") is None:
+        return None
+    # Median, not mean. Two tickets that hit the tag-in-create-call race sat for
+    # ~2.7 days and would drag a mean into meaninglessness; the median describes
+    # what a bug reported this morning can expect.
+    return f"Median time to analysis: {facts['median_latency_min']} min"
+
+
+def _unavailable(facts: dict) -> str:
+    return UNAVAILABLE_REASONS.get(facts.get("reason"), UNAVAILABLE_REASONS[RUNS_UNREACHABLE])
+
+
+def _label(name: str, facts: dict) -> str:
+    """The line's own name, saying whether it covers the whole week.
+
+    ON THE LABEL, not appended to the end of the numbers. Whatever qualifier
+    trails a line, the eye still lands on the figures first and reads them as
+    the week's; the only place a caveat cannot be skipped is in front of them.
+    """
+    return f"{name} ({SHORTFALL_MARKER})" if facts.get("shortfall") else name
+
+
+def _verdict_line(facts: dict) -> str:
+    if not facts.get("available"):
+        return f"Verdicts: *unavailable* — {_unavailable(facts)}."
+    counts = facts["counts"]
+    name = _label("Verdicts", facts)
+    if not any(counts.values()) and not facts["no_verdict"]:
+        return f"{name}: no analyses recorded."
+    listed = " · ".join(f"{counts[verdict]} {verdict}" for verdict in VERDICTS)
+    line = f"{name}: {listed} → *{_plural(facts['deflected'], 'ticket')} kept off the eng queue*"
+    if facts["no_verdict"]:
+        # Surfaced in the message rather than left to the logs: this is the
+        # shape of "escalation has silently stopped working".
+        line += f" · ⚠️ {_analyses(facts['no_verdict'])} produced no verdict"
+    return line
+
+
+def _pr_line(facts: dict) -> str:
+    if not facts.get("available"):
+        return "PRs: *unavailable* — could not read pull requests from GitHub."
+    line = f"PRs: {facts['opened']} opened · {facts['merged']} merged · {facts['closed_unmerged']} closed unmerged"
+    stale = facts["stale"]
+    if stale:
+        named = ", ".join(_link(pr["url"], f"#{pr['number']}") for pr in stale[:MAX_NAMED_MISSES])
+        line += f" · ⚠️ {len(stale)} open past {STALE_HOURS}h with no human review: {named}"
+    return line
+
+
+def _cost_line(facts: dict) -> str:
+    if not facts.get("available"):
+        # NEVER "$0". A zero here is a claim that the bot ran for free, which is
+        # the specific lie this whole availability distinction exists to prevent.
+        return f"Cost: *unavailable* — {_unavailable(facts)}."
+    name = _label("Cost", facts)
+    if facts["records"] == 0:
+        # Reached only once `believable_zero` has confirmed nothing was analyzed
+        # either. Before that check existed this line was how a fortnight of
+        # missing instrumentation would have read.
+        return f"{name}: no runs recorded this week."
+    if facts["records"] == facts["unpriced"]:
+        # The same lie by a different route. Runs happened and not one of them
+        # reported a price, so summing to $0.00 and appending a qualifier would
+        # still put a wrong number where a reader's eye goes first.
+        return f"{name}: unknown — {_plural(facts['records'], 'run')} recorded no cost."
+    line = f"{name}: ${facts['total_usd']:.2f} this week"
+    if facts["median_analysis_usd"] is not None:
+        line += f" · ${facts['median_analysis_usd']:.2f} median per analysis"
+    if facts["unpriced"]:
+        line += f" · {_plural(facts['unpriced'], 'run')} recorded no cost"
+    return line
+
+
+def _dev_test_line(facts: dict) -> str:
+    """The dev-only E2E line, which reads inverted from every other line here.
+
+    Zero is the good outcome and is stated as such, because "0 runs" next to
+    four lines where zero means trouble would be read as the feature being
+    broken. It has been off more often than the release train has been red.
+    """
+    if not facts.get("available"):
+        return f"Dev-only E2E: *unavailable* — {_unavailable(facts)}."
+    if facts["runs"] == 0:
+        return "Dev-only E2E: no `@dev-only` spec failed the release train this week."
+
+    line = f"Dev-only E2E: {_plural(facts['runs'], 'run')} on {_plural(facts['distinct_specs'], 'spec')}"
+    listed = " · ".join(f"{facts['counts'][verdict]} {verdict}" for verdict in VERDICTS)
+    line += f" — {listed}"
+    if facts["identified_runs"] > facts["distinct_specs"]:
+        # The re-triage case, called out because it is the one that means a
+        # ticket is open and nothing is happening to it.
+        line += " · ⚠️ a spec was triaged more than once, so an open ticket is not being closed"
+    if facts["no_verdict"]:
+        # The same drift alarm _verdict_line raises, repeated here because the
+        # two lines are scoped to different labels: a dev-test run that finished
+        # without a verdict is invisible to that one.
+        line += f" · ⚠️ {_plural(facts['no_verdict'], 'run')} produced no verdict"
+    if facts["total_usd"]:
+        # Named as a slice of the Cost line rather than printed bare. These
+        # dollars are inside that total — `cost()` sums every label on purpose —
+        # and two unqualified figures in one message read as two budgets.
+        line += f" · ${facts['total_usd']:.2f} of the week's spend"
+    return line
+
+
+def _alert_line(facts: dict) -> str | None:
+    """What the filter did to #dev-alerts, and what it hid.
+
+    A ZERO HERE IS REPORTED AS WHAT IT LITERALLY IS, which is a departure from
+    how `verdicts` and `cost` treat theirs. Those get corroborated against
+    ClickUp, because "no runs recorded" is ambiguous between a quiet week and
+    missing instrumentation. There is nothing to corroborate this against — no
+    independent count of how many alerts Grafana sent exists outside the filter
+    itself — so rather than imply a judgement it cannot support, the line says
+    the filter recorded no decisions and leaves the inference to a reader who
+    knows whether alerts fired last week. That reader is in the channel.
+    """
+    if facts.get("reason") == ALERTS_NOT_GATHERED:
+        # Omitted rather than reported. See ALERTS_NOT_GATHERED: a reader cannot
+        # act on "a feature has not shipped", and a permanent line saying so is
+        # a line people learn to skip past — which costs the section its
+        # attention on the week it finally has something to say.
+        return None
+    if not facts.get("available"):
+        return f"Alert filter: *unavailable* — {_unavailable(facts)}."
+
+    if facts["records"] == 0:
+        # Not "a quiet week". If #dev-alerts was busy and this says zero, the
+        # filter is not recording — and the person reading knows which it was.
+        return "Alert filter: no decisions recorded this week."
+
+    counts = facts["counts"]
+    listed = " · ".join(f"{counts[outcome]} {outcome}" for outcome in ALERT_OUTCOMES)
+    line = f"Alert filter: {listed} · *{_plural(facts['pinged'], 'ping')}*"
+
+    extra = []
+    if facts["suppressed_by_cause"]:
+        # Named, not totalled. "Suppressed 34 alerts" is unreviewable; naming
+        # the causes is a decision somebody can disagree with, which is the only
+        # form in which this number is worth reporting at all.
+        named = ", ".join(f"`{cause}` ×{count}" for cause, count in facts["suppressed_by_cause"][:MAX_NAMED_CAUSES])
+        overflow = (
+            ""
+            if len(facts["suppressed_by_cause"]) <= MAX_NAMED_CAUSES
+            else f", +{len(facts['suppressed_by_cause']) - MAX_NAMED_CAUSES} more"
+        )
+        extra.append(f"Suppressed by cause: {named}{overflow}")
+
+    if facts["untracked_causes"]:
+        # How a known issue becomes a permanently invisible one: the alert stops
+        # arriving and nothing is left pointing at the work.
+        causes = ", ".join(f"`{cause}`" for cause in facts["untracked_causes"][:MAX_NAMED_CAUSES])
+        extra.append(f"⚠️ Suppressing with no ticket to track the work: {causes}")
+
+    if facts["degraded"]:
+        # A week of `notify` because the filter chose them and a week of
+        # `notify` because it could not reach Loki look identical in the
+        # channel — busy — and without this number the second is undetectable.
+        extra.append(
+            f"⚠️ {facts['degraded']} of {_plural(facts['records'], 'decision')} were fallbacks rather than "
+            "judgements: the filter notified because it could not decide."
+        )
+
+    if facts["total_usd"]:
+        extra.append(f"Filter cost: ${facts['total_usd']:.2f} this week")
+
+    return "\n".join([line, *(f"  ↳ {item}" for item in extra)])
+
+
+def render(facts: dict) -> str:
+    """The Slack message, headline first.
+
+    Coverage leads and cost trails, which is the order of how much each one has
+    cost us. Every line is a raw count; there is not a percentage anywhere in
+    here and there must not be one.
+    """
+    start = datetime.fromtimestamp(facts["start"], tz=UTC)
+    # The window is inclusive of its last day, so the header names the Sunday
+    # rather than the Monday the window ends at. A reader has to be able to tell
+    # at a glance which week this is about, because that is how they tell a
+    # fresh digest from a repost.
+    last_day = datetime.fromtimestamp(facts["end"] - 1, tz=UTC)
+    span = (
+        f"{start:%b} {start.day}–{last_day.day}"
+        if start.month == last_day.month
+        else (f"{start:%b} {start.day}–{last_day:%b} {last_day.day}")
+    )
+    header = f"*gpbot — week of {span}*"
+
+    lines = [header, _coverage_line(facts["coverage"])]
+    latency = _latency_line(facts["coverage"])
+    if latency:
+        lines.append(latency)
+    lines += [
+        _verdict_line(facts["verdicts"]),
+        _pr_line(facts["prs"]),
+        _dev_test_line(facts["dev_tests"]),
+        _cost_line(facts["cost"]),
+    ]
+    # Last, below the bot's own numbers, because it is about a different system.
+    # Present on every digest rather than only when the filter did something:
+    # the whole reason this section exists is that a filter which has silently
+    # stopped filtering is invisible, and a line that appears only on weeks the
+    # filter was working could not report the week it was not.
+    alert_line = _alert_line(facts["alerts"])
+    if alert_line:
+        lines.append(alert_line)
+    note = _instrumentation_note(facts)
+    if note:
+        lines.append(note)
+    return "\n".join(lines)
+
+
+def _instrumentation_note(facts: dict) -> str | None:
+    """Why two lines are missing or short, said once, in terms a reader can act on.
+
+    Stated on its own rather than repeated into both lines, and it has to give
+    the reader the discriminator rather than just the symptom: the same message
+    means "expected, the metric had not shipped yet" before the deploy and "the
+    metric has stopped flowing" after it, and only a human knows which side of
+    that date the week falls on.
+
+    Two shapes of the one problem. Nothing recorded at all is the first; some of
+    the week recorded is the second, and it is the more dangerous of the two
+    because the lines above it still carry numbers.
+    """
+    if facts["verdicts"].get("reason") == RUNS_GAP:
+        analyzed = facts["coverage"].get("analyzed", 0)
+        return (
+            f"⚠️ {_plural(analyzed, 'ticket')} analyzed but no run metrics exist for this week, so verdicts and "
+            f"cost are missing rather than zero. The agent has only recorded them since {METRIC_PREFIX} shipped — "
+            "an earlier week has none, and a later one means the metric has stopped flowing."
+        )
+
+    shortfall = facts["verdicts"].get("shortfall")
+    if not shortfall:
+        return None
+    return (
+        f"⚠️ {shortfall['missing']} of {_analyses(shortfall['analyzed'])} left no run metric, so the verdicts and "
+        f"cost above describe part of the week rather than all of it. The agent has only recorded them since "
+        f"{METRIC_PREFIX} shipped — a week spanning that deploy is short by the runs that came before it, and a "
+        "later one means the metric has stopped flowing."
+    )
+
+
+def unavailable_sources(facts: dict) -> list[str]:
+    """Which missing lines should also turn the workflow red.
+
+    A KNOWN INSTRUMENTATION GAP DELIBERATELY DOES NOT. Every week before
+    GPBOT_METRIC shipped has this shape, so failing on it would put a red cross
+    on the digest every Monday for a fortnight over a state the message already
+    explains — and a job that is expected to be red is a job whose redness stops
+    meaning anything, which is the same argument that keeps the stale-PR alert
+    quiet on a clean day.
+
+    It is reported where it will actually be read: in the message, in the
+    channel, with the sentence that tells a reader how to tell the rollout from
+    a fault. Everything else here is the workflow failing to do its job and goes
+    red.
+
+    A PARTIAL WEEK DOES NOT GO RED EITHER, and for the same reason — it is the
+    same gap seen from the other side. Both lines are still `available`, so they
+    do not reach this list at all; the marker on each and the note below them
+    are what a reader gets.
+    """
+    # A SECTION THAT WAS NEVER GATHERED DOES NOT GO RED EITHER, for the same
+    # reason as RUNS_GAP one line below: the alert-filter gather ships after
+    # this section does, and failing on its absence would red-cross every digest
+    # in between over a state nobody can act on.
+    return [
+        name
+        for name in ("coverage", "verdicts", "prs", "cost", "alerts")
+        if not facts[name].get("available") and facts[name].get("reason") not in (RUNS_GAP, ALERTS_NOT_GATHERED)
+    ]
+
+
+def main() -> int:
+    """Read the gathered facts on stdin, write the Slack message on stdout.
+
+    A CLI rather than an importable-only module, for the same reason
+    ci_triage.py is one: the workflow stays a fact gatherer that shells out
+    here, and every judgement about what those facts mean is exercised by pytest
+    instead of by a Monday morning in production.
+
+    Exit codes are three-valued on purpose. 0 is a complete digest; EXIT_DEGRADED
+    means the message on stdout is real and postable but a source is missing, so
+    the workflow posts it AND goes red; 1 means there is no message at all.
+    Collapsing the middle case into either of the others loses something: into 0
+    and nobody investigates the missing source, into 1 and the week's message is
+    dropped over a partial failure.
+    """
+    try:
+        payload = json.load(sys.stdin)
+    except json.JSONDecodeError as e:
+        print(f"ERROR: unreadable digest input: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        facts = summarize(payload)
+    except ValueError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 1
+
+    sys.stdout.write(render(facts) + "\n")
+
+    missing = unavailable_sources(facts)
+    if missing:
+        print(f"ERROR: digest rendered without {', '.join(missing)}", file=sys.stderr)
+        return EXIT_DEGRADED
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

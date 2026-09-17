@@ -15,8 +15,8 @@ export enum QueueType {
   AGENTIC_COMPLIANCE_KICKOFF = 'agenticComplianceKickoff',
   OCR_ATTACHMENT = 'ocrAttachment',
   NIGHTLY_10DLC_REPORT = 'nightly10DlcReport',
+  CV_STATUS_POLL = 'cvStatusPoll',
   ORDINANCE_QUALITY_LOOP = 'ordinanceQualityLoop',
-  RECOMMENDED_LISTS_RECOMPUTE = 'recommendedListsRecompute',
 }
 
 export type QueueMessage =
@@ -60,12 +60,12 @@ export type QueueMessage =
       data: Nightly10DlcReportMessage
     }
   | {
-      type: QueueType.ORDINANCE_QUALITY_LOOP
-      data: OrdinanceQualityLoopMessage
+      type: QueueType.CV_STATUS_POLL
+      data: CvStatusPollMessage
     }
   | {
-      type: QueueType.RECOMMENDED_LISTS_RECOMPUTE
-      data: RecommendedListsRecomputeMessage
+      type: QueueType.ORDINANCE_QUALITY_LOOP
+      data: OrdinanceQualityLoopMessage
     }
 
 export type GenerateAiContentMessageData = {
@@ -175,6 +175,7 @@ export enum MessageGroup {
   weeklyTasksDigest = 'weeklyTasksDigest',
   agenticComplianceKickoff = 'agenticComplianceKickoff',
   nightly10DlcReport = 'nightly10DlcReport',
+  cvStatusPoll = 'cvStatusPoll',
 }
 
 const PollResponseJsonRowSchema = z.object({
@@ -225,6 +226,13 @@ export type Nightly10DlcReportMessage = z.infer<
   typeof Nightly10DlcReportMessageSchema
 >
 
+// scanKey is the ET date-hour slot the cron fired in (also the FIFO
+// deduplicationId suffix), carried for log correlation only.
+export const CvStatusPollMessageSchema = z.object({
+  scanKey: z.string(),
+})
+export type CvStatusPollMessage = z.infer<typeof CvStatusPollMessageSchema>
+
 // One step of the ordinance quality loop (QC or revise). `attempt` exists
 // only to vary the FIFO deduplicationId on retries — the handler reads the
 // authoritative attempt count from the iteration row, never the message.
@@ -238,19 +246,4 @@ export const OrdinanceQualityLoopMessageSchema = z.object({
 })
 export type OrdinanceQualityLoopMessage = z.infer<
   typeof OrdinanceQualityLoopMessageSchema
->
-
-// A single recompute of a campaign's recommended-lists snapshot. `attempt`
-// exists only to vary the FIFO deduplicationId on TTL re-enqueues — the handler
-// reads the authoritative attempt count and stale-guard state from the snapshot
-// row, never the message. `raceId` is the snapshot the recompute must match; a
-// mismatch means the campaign's race changed under an in-flight run and the
-// handler ack-drops it.
-export const RecommendedListsRecomputeMessageSchema = z.object({
-  campaignId: z.number().int(),
-  raceId: z.string().nullable(),
-  attempt: z.number().int(),
-})
-export type RecommendedListsRecomputeMessage = z.infer<
-  typeof RecommendedListsRecomputeMessageSchema
 >

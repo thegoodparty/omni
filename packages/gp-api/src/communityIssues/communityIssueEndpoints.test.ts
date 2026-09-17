@@ -468,13 +468,12 @@ describe('POST /v1/community-issues/:id/prioritize — archived', () => {
 })
 
 describe('POST /v1/community-issues/self-dispatch', () => {
-  const mockServeContext = (isServeIcp: boolean) =>
+  const mockServeContext = () =>
     vi
       .spyOn(service.app.get(OrganizationsService), 'resolveServeContext')
       .mockResolvedValue({
         state: 'TX',
         positionName: 'City Council',
-        isServeIcp,
       })
 
   const mockDispatchRun = () =>
@@ -482,8 +481,8 @@ describe('POST /v1/community-issues/self-dispatch', () => {
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
 
-  it('dispatches a single run for a serve-ICP org owned by a goodparty user', async () => {
-    const serveSpy = mockServeContext(true)
+  it('dispatches a single run for an org owned by a goodparty user', async () => {
+    const serveSpy = mockServeContext()
     const dispatchSpy = mockDispatchRun()
 
     const res = await service.client.post<{
@@ -531,8 +530,14 @@ describe('POST /v1/community-issues/self-dispatch', () => {
     expect(res.status).toBe(HttpStatus.NOT_FOUND)
   })
 
-  it('skips (does not dispatch) when the org is not serve-ICP', async () => {
-    const serveSpy = mockServeContext(false)
+  it('dispatches when the org position is not serve-ICP', async () => {
+    const serveSpy = vi
+      .spyOn(service.app.get(OrganizationsService), 'resolveServeContext')
+      .mockResolvedValue({
+        state: 'TX',
+        positionName: 'City Council',
+        isServeIcp: false,
+      })
     const dispatchSpy = mockDispatchRun()
 
     const res = await service.client.post<{
@@ -541,9 +546,11 @@ describe('POST /v1/community-issues/self-dispatch', () => {
     }>(`${BASE}/self-dispatch`, { type: 'trending_issues' }, eoHeaders())
 
     expect(res.status).toBe(HttpStatus.OK)
-    expect(res.data.dispatched).toBe(0)
-    expect(res.data.skipped).toBe(1)
-    expect(dispatchSpy).not.toHaveBeenCalled()
+    expect(res.data.dispatched).toBe(1)
+    expect(res.data.skipped).toBe(0)
+    expect(dispatchSpy.mock.calls.map((c) => c[0].type)).toEqual([
+      'trending_issues',
+    ])
 
     serveSpy.mockRestore()
     dispatchSpy.mockRestore()

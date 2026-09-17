@@ -29,6 +29,10 @@ const makeInput = (overrides: Partial<PlanInput> = {}): PlanInput => ({
   registeredVoters: null,
   uniqueCellphones: null,
   uniqueLandlines: null,
+  projectedTurnoutLower: null,
+  projectedTurnoutUpper: null,
+  winNumberLower: null,
+  winNumberUpper: null,
   raceCandidates: [],
   milestones: null,
   ...overrides,
@@ -128,6 +132,40 @@ describe('buildPlanData absentee-request deadline omission', () => {
         d.description.startsWith('Absentee ballot request deadline'),
       ),
     ).toBe(false)
+  })
+
+  it('also omits the absentee request-opens row for universal-VBM states (CA)', () => {
+    // The Bassett USD report: with no BR request_ballot milestone the
+    // "request opens" row fell back to E-45 (Sept 19 for a Nov 3 general)
+    // even though CA voters never request a ballot. Suppression has to
+    // cover both ends of the request window, not just the deadline.
+    const plan = buildPlanData(makeInput({ state: 'CA' }))
+
+    expect(
+      plan.timeline.some(
+        (row) => row.milestone === 'Absentee ballot request opens',
+      ),
+    ).toBe(false)
+    expect(
+      plan.keyDates.some((d) =>
+        d.description.startsWith('Absentee / mail ballot requests open'),
+      ),
+    ).toBe(false)
+  })
+
+  it('keeps the absentee request-opens row for a state that is not universal-VBM (AK)', () => {
+    const plan = buildPlanData(makeInput({ state: 'AK' }))
+
+    expect(
+      plan.timeline.some(
+        (row) => row.milestone === 'Absentee ballot request opens',
+      ),
+    ).toBe(true)
+    expect(
+      plan.keyDates.some((d) =>
+        d.description.startsWith('Absentee / mail ballot requests open'),
+      ),
+    ).toBe(true)
   })
 
   it('uses the curated CA voter registration date (Oct 19) and ignores a conflicting BR milestone (Nov 2)', () => {
@@ -329,5 +367,44 @@ describe('buildPlanData contact schedule', () => {
   it('is empty when there is no valid election date', () => {
     const plan = buildPlanData(makeInput({ electionDateIso: null }))
     expect(plan.contactSchedule).toEqual([])
+  })
+})
+
+describe('buildPlanData prediction intervals', () => {
+  const rangeFor = (estimate: string, plan: ReturnType<typeof buildPlanData>) =>
+    plan.confidenceEstimates.find((c) => c.estimate === estimate)?.range
+
+  it('renders the served interval for turnout and votes needed', () => {
+    const plan = buildPlanData(
+      makeInput({
+        projectedTurnout: 2000,
+        projectedTurnoutLower: 1600,
+        projectedTurnoutUpper: 2600,
+        winNumber: 1000,
+        winNumberLower: 801,
+        winNumberUpper: 1301,
+      }),
+    )
+
+    expect(rangeFor('Projected voter turnout', plan)).toBe('1,600–2,600')
+    expect(rangeFor('Projected votes needed to win', plan)).toBe('801–1,301')
+  })
+
+  it('shows no interval where the model supplies none', () => {
+    const plan = buildPlanData(makeInput())
+
+    expect(plan.confidenceEstimates.every((c) => c.range === '')).toBe(true)
+  })
+
+  it('never puts an interval on registered voters', () => {
+    const plan = buildPlanData(
+      makeInput({
+        registeredVoters: 9000,
+        projectedTurnoutLower: 1600,
+        projectedTurnoutUpper: 2600,
+      }),
+    )
+
+    expect(rangeFor('Registered voters', plan)).toBe('')
   })
 })

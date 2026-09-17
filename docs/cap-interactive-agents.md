@@ -41,8 +41,16 @@ calls `anthropicProvider.languageModel(model)`). DI tokens:
 
 - **Non-streaming** (`chatCompletion`, `toolCompletion`) use `generateText` from the
   `ai` SDK. `jsonCompletion` uses `generateObject` with a Zod schema.
-- **Streaming** (`streamChatCompletion`) uses `streamText` with
-  `stopWhen: stepCountIs(maxSteps)` (default 5) for multi-step tool loops.
+- **Streaming** (`streamChatCompletion`) uses `streamText` for multi-step tool
+  loops: `maxSteps` (default 5) tool steps, then one extra text-only step so a
+  turn that exhausts its tool budget still ends with a text answer instead of
+  an empty message. `prepareStep` blocks tools on that step and rewrites its
+  tool history as plain text (the Anthropic adapter drops the `tools` param on
+  `toolChoice: 'none'`, and tool blocks without it are not reliably accepted).
+  Rewritten results stay assistant-role (tool output is untrusted, so it must
+  not speak as the user), provider-run web-search payloads are omitted, and a
+  closing user-role note tells the model to answer from what it gathered or
+  fall back to a fixed could-not-find reply.
 
 Models come from env: `AI_MODELS` (comma-separated default chain, required — set to
 `claude-sonnet-4-6` in `deploy/index.ts`) plus an optional `AI_FALLBACK_MODEL`.
@@ -136,11 +144,11 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   for `eo-` orgs); `count` takes the same `voterFilterBaseSchema` shape as
   `POST /v1/contacts/count` and calls the same `ContactsService.countContacts`,
   inheriting the Win pro gate and the Serve party-filter rejection (surfaced as
-  structured tool errors). Registration is gated per handler on the org's CRM
-  flag (`win-crm` / `serve-crm`) via `FeaturesService`, and the prompt advertises
-  them only when registered.
+  structured tool errors). Registration is unconditional for both Campaign
+  Manager (Win) and Chief of Staff (Serve). The prompt advertises them only
+  when registered.
 - **`crud_saved_filters`** — saved-filter (contact list) **write** tool shared by
-  the same two handlers under the same CRM flag gates, mirroring
+  the same two handlers under the same registration rules, mirroring
   `crud_priorities`' single-tool-with-`action` shape (`list`/`create`/`update`/
   `delete`). It calls the same `VoterFileFilterService` paths as the
   `voters/voter-file` filter routes, so the Win Pro gate, completed-outreach
@@ -211,6 +219,23 @@ Two prompt sources:
   (`buildChiefOfStaffSystemPrompt` — "You are the user's Chief of Staff. The user is
   the elected official you serve, NOT you." plus injected `<office_context>`,
   `<priorities>`, optional `<anchored_issue>`).
+  Block order is load-bearing there: every tool rule block pulls toward more
+  detail, so `VOICE AND LENGTH` (with `PROACTIVITY` / `WRITING MECHANICS`) is
+  assembled last, as the final instruction read before the model writes.
+  `OFFICE STRUCTURE` and the first-conversation-only
+  `FIRST-RUN RESEARCH` block each have a no-`web_search` variant, because the
+  prompt must never advertise a tool that did not register.
+  `FIRST-RUN RESEARCH` is gated on `ctx.isFirstConversation`, a real count of
+  the holder's chief-of-staff conversations. The conversational home opens a new
+  conversation per session, so a model left to judge "is this a first message"
+  would redo the research on every visit. That same fresh-transcript-per-session
+  behavior is why the `INTRODUCTION` block has a returning variant that forbids
+  reintroducing: a returning holder arrives with nothing in context showing they
+  have met. Priorities are gated separately on `ctx.priorities` being empty, so
+  a returning holder who never set any is still asked. Those two blocks split
+  the work rather than compete: `PRIORITIES NOT ON FILE` states the outcome,
+  and on a first conversation `FIRST-RUN RESEARCH` states the method (propose
+  informed candidates instead of an open question).
 - **Campaign chat/content: prompts come from Contentful**, synced into the
   Postgres `Content` table (`ContentType.aiChatPrompt` etc.). `content.service.ts`
   selects the entry, then `src/ai/services/promptReplace.service.ts` substitutes

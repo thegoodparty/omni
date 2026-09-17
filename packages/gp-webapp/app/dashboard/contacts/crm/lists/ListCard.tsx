@@ -21,31 +21,35 @@ import { dateUsHelper } from 'helpers/dateHelper'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useShowContactProModal } from '../ContactProModal'
-import { useDuplicateList } from './useDuplicateList'
 import { useListRowDetail } from './useListRowDetail'
-import RenameListDialog from './RenameListDialog'
 import DeleteListDialog from './DeleteListDialog'
+import DuplicateListDialog from './DuplicateListDialog'
 
 interface ListCardProps {
   segment: SegmentResponse
 }
 
 // One full-width row in the lists index (ENG-10725 Lovable parity: rows in
-// the 560px column, not a card grid). Rename/Duplicate/Delete live behind
-// the kebab menu; the dialogs and mutation hooks (RenameListDialog,
-// DeleteListDialog, useDuplicateList) stay shared with ListDetailSheet.
+// the 560px column, not a card grid). Edit/Duplicate/Delete live behind
+// the kebab menu; Edit reopens the list wizard seeded from this list, and
+// the dialogs and mutation hooks (DeleteListDialog, useDuplicateList) stay
+// shared with ListDetailSheet.
 // "Details" opens the list-detail sheet via the provider's shallow
 // selectList navigation — not a router.push — so the index stays mounted
 // underneath.
 export default function ListCard({ segment }: ListCardProps) {
-  const { selectList, isWinContext, isWinContextReady, canUseProFeatures } =
-    useContactsTable()
+  const {
+    selectList,
+    editList,
+    isWinContext,
+    isWinContextReady,
+    canUseProFeatures,
+  } = useContactsTable()
   const showProUpgradeModal = useShowContactProModal()
   const { peopleCount, lastOutreach, isLoading, isError, isGated } =
     useListRowDetail(segment.id, canUseProFeatures)
-  const duplicateMutation = useDuplicateList()
-  const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [duplicateOpen, setDuplicateOpen] = useState(false)
   const isLocked = Boolean(segment.firstUsedForOutreachAt)
 
   // Mirrors AllContactsCard's gate — getListDetail is pro-gated, so a non-pro
@@ -77,23 +81,17 @@ export default function ListCard({ segment }: ListCardProps) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {isLocked ? (
-              <DropdownMenuItem
-                disabled={duplicateMutation.isPending}
-                onClick={() => duplicateMutation.mutate(segment)}
-              >
+              <DropdownMenuItem onClick={() => setDuplicateOpen(true)}>
                 <LockIcon />
                 Duplicate to edit
               </DropdownMenuItem>
             ) : (
               <>
-                <DropdownMenuItem onClick={() => setRenameOpen(true)}>
+                <DropdownMenuItem onClick={() => editList(segment)}>
                   <PencilIcon />
-                  Rename
+                  Edit
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={duplicateMutation.isPending}
-                  onClick={() => duplicateMutation.mutate(segment)}
-                >
+                <DropdownMenuItem onClick={() => setDuplicateOpen(true)}>
                   <CopyIcon />
                   Duplicate
                 </DropdownMenuItem>
@@ -172,15 +170,15 @@ export default function ListCard({ segment }: ListCardProps) {
         </div>
       </div>
 
-      <RenameListDialog
-        segment={segment}
-        open={renameOpen}
-        onOpenChange={setRenameOpen}
-      />
       <DeleteListDialog
         segment={segment}
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
+      />
+      <DuplicateListDialog
+        segment={segment}
+        open={duplicateOpen}
+        onOpenChange={setDuplicateOpen}
       />
     </Card>
   )

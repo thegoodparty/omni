@@ -2,21 +2,32 @@
 
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
 import { Button, Card } from '@styleguide'
 import { MessageSquareIcon } from '@styleguide/components/ui/icons'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import {
-  COMPLIANCE_STATE_QUERY_KEY,
   TCR_COMPLIANCE_QUERY_KEY,
   TCR_COMPLIANCE_STATUS,
-  getComplianceState,
   getTcrCompliance,
 } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
+import {
+  CV_PIN_GATE,
+  useCvPinGate,
+} from 'app/dashboard/profile/texting-compliance/shared/useCvPinGate'
 import ComplianceCardArt from './ComplianceCardArt'
 import ProUpgrade3PinEntry from './ProUpgrade3PinEntry'
 import TextingComplianceApproved from './TextingComplianceApproved'
 import TextingComplianceDenied from './TextingComplianceDenied'
 import TextingComplianceInReview from './TextingComplianceInReview'
+
+// The dashboard approved-state card advertises "up to 5,000 free texts", but
+// the free-texts discount at checkout is gated separately on the campaign's
+// `hasFreeTextsOffer` column (see `checkFreeTextsEligibility` in
+// `campaigns.service.ts`). A candidate without the offer used to see the
+// promise on the dashboard and then get charged full price — gate the copy on
+// the same column so the two surfaces can never disagree (ENG-10440).
+const FREE_TEXTS_APPROVED_DESCRIPTION =
+  'Claim up to 5,000 free texts in your first campaign. Schedule your introduction text message today.'
 
 // Post-payment compliance surface for the Pro-upgrade flow. The agent
 // provisions the domain/site and submits TCR to Peerly after payment; this
@@ -38,17 +49,10 @@ export default function ProUpgrade3Compliance(): React.JSX.Element {
     queryKey: TCR_COMPLIANCE_QUERY_KEY,
     queryFn: getTcrCompliance,
   })
+  const [campaign] = useCampaign()
+  const hasFreeTextsOffer = Boolean(campaign?.hasFreeTextsOffer)
 
-  const isSubmitted = tcrCompliance?.status === TCR_COMPLIANCE_STATUS.SUBMITTED
-
-  // Only the `submitted` (awaiting-PIN) state gates on the live Peerly CV
-  // status, so fetch compliance-state only then — this keeps the extra Peerly
-  // read (and its cost) off every other Pro candidate's dashboard load.
-  const { data: complianceState, isPending: isCvStatePending } = useQuery({
-    queryKey: COMPLIANCE_STATE_QUERY_KEY,
-    queryFn: getComplianceState,
-    enabled: isSubmitted,
-  })
+  const pinGate = useCvPinGate(tcrCompliance, { isTcrPending: isPending })
 
   // Hold a placeholder shell while loading so we don't flash the neutral
   // fallback to a candidate who is actually awaiting-PIN / in review / etc.
@@ -59,22 +63,15 @@ export default function ProUpgrade3Compliance(): React.JSX.Element {
   if (tcrCompliance) {
     switch (tcrCompliance.status) {
       case TCR_COMPLIANCE_STATUS.SUBMITTED: {
-        // Peerly issues the PIN only once CampaignVerify reaches APPROVED. Show
-        // the PIN box only then; before that (REQUESTED/IN_REVIEW, or no CV
-        // request yet) show an in-progress state so we don't ask a candidate to
-        // enter a PIN that was never sent. While the CV status is still loading,
-        // hold the shell rather than flash the wrong surface.
-        if (isCvStatePending) {
+        // While the CV status is still loading, hold the shell rather than
+        // flash the wrong surface.
+        if (pinGate.state === CV_PIN_GATE.LOADING) {
           return <LoadingShell />
         }
-        const cvStatus = complianceState?.peerlyCvStatus ?? null
-        const pinReady =
-          cvStatus === PeerlyCvVerificationStatus.APPROVED ||
-          cvStatus === PeerlyCvVerificationStatus.VERIFIED
-        return pinReady ? (
+        return pinGate.state === CV_PIN_GATE.READY ? (
           <ProUpgrade3PinEntry
             tcrCompliance={tcrCompliance}
-            pinDelivery={complianceState?.pinDelivery ?? null}
+            pinDelivery={pinGate.pinDelivery}
           />
         ) : (
           <TextingComplianceInReview
@@ -92,7 +89,12 @@ export default function ProUpgrade3Compliance(): React.JSX.Element {
         )
       case TCR_COMPLIANCE_STATUS.APPROVED:
         return (
-          <TextingComplianceApproved title="Your profile has been approved!" />
+          <TextingComplianceApproved
+            title="Your profile has been approved!"
+            description={
+              hasFreeTextsOffer ? FREE_TEXTS_APPROVED_DESCRIPTION : undefined
+            }
+          />
         )
       case TCR_COMPLIANCE_STATUS.REJECTED:
         return <TextingComplianceDenied />

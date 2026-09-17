@@ -1,6 +1,6 @@
 'use client'
 
-import type { UseDictationAppendResult } from './useDictationAppend'
+import type { UseDictationAppendResult } from '../../shared/dictation/useDictationAppend'
 
 type Props = {
   dictation: UseDictationAppendResult

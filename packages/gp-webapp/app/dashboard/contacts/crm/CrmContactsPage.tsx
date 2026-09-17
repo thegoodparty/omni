@@ -32,16 +32,18 @@ export const CrmContactsPage = () => {
     canUseProFeatures,
     currentlySelectedListId,
     selectList,
+    editingSegment,
+    closeEditList,
     voterDataUnavailable,
   } = useContactsTable()
   const organization = useOrganization()
   const labels = getContactsLabels(isWinContext)
 
-  // ENG-10767: same event the pre-CRM ContactsPage fires (parity — flag-on
-  // users vanished from the Contacts Viewed chart), distinguished by
-  // surface: 'crm' (absent = legacy page). Same ready-gate + ref latch as
-  // that page: isWinContext reads false until the elected-office query
-  // settles, and a later toggle must not re-fire.
+  // ENG-10767 parity: this page's users had vanished from the Contacts
+  // Viewed chart, so it fires the same event tagged surface: 'crm' — rows
+  // without that tag predate the fix. isWinContext reads false until the
+  // elected-office query settles, and a later toggle must not re-fire, hence
+  // the ready gate plus the ref latch.
   const hasFiredViewedRef = useRef(false)
   useEffect(() => {
     if (!isWinContextReady || hasFiredViewedRef.current) return
@@ -70,6 +72,7 @@ export const CrmContactsPage = () => {
       setShowProModal(true)
       return
     }
+    closeEditList()
     setWizardOpen(true)
   }
 
@@ -165,6 +168,7 @@ export const CrmContactsPage = () => {
                   <DistrictStatCard
                     className="mt-4"
                     label={labels.districtTotalLabel}
+                    populationLabel={labels.districtPopulationLabel}
                     additionalRows={universeMetricRows}
                   />
                 </div>
@@ -182,7 +186,18 @@ export const CrmContactsPage = () => {
         {!voterDataUnavailable && (
           <>
             <PersonOverlay />
-            <CreateListWizard open={wizardOpen} onOpenChange={setWizardOpen} />
+            {/* One instance serves both flows: `editingSegment` switches it
+                into the edit sheet, so a list's Edit and the page's "Create
+                new list" can never render two stacked drawers. */}
+            <CreateListWizard
+              open={wizardOpen || editingSegment !== null}
+              onOpenChange={(open) => {
+                if (open) return
+                setWizardOpen(false)
+                closeEditList()
+              }}
+              editingSegment={editingSegment}
+            />
             <ListDetailSheet
               listId={currentlySelectedListId}
               onClose={() => selectList(null)}

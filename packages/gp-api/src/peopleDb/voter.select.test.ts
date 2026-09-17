@@ -23,6 +23,22 @@ describe('DOWNLOAD_COLUMNS', () => {
       expect(columns.has(excludable)).toBe(true)
     }
   })
+
+  // A Serve download excludes exactly EXCLUDABLE_VOTER_COLUMNS, so a party,
+  // turnout-propensity, or vote-history column added to the CSV without a
+  // matching entry there leaks a Win-only field into an `eo-` org's export.
+  // That is invisible in every other test: the column is simply present.
+  it('marks every party, turnout, and vote-history column excludable', () => {
+    const excludable = new Set<string>(EXCLUDABLE_VOTER_COLUMNS)
+    const isRestricted = (column: string) =>
+      /Parties|VotingPerformance/.test(column) ||
+      /^(General|Primary|PresidentialPrimary)_\d{4}$/.test(column) ||
+      /^(AnyElection|OtherElection)_\d{4}$/.test(column)
+    const leaked = DOWNLOAD_COLUMNS.filter(
+      ({ column }) => isRestricted(column) && !excludable.has(column),
+    ).map(({ column }) => column)
+    expect(leaked).toEqual([])
+  })
 })
 
 describe('excludeColumns filtering (mirrors peopleDownload.service usage)', () => {

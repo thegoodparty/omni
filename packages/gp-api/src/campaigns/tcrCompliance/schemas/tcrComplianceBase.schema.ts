@@ -53,6 +53,11 @@ export const formatManualFilingAddress = (
 
 export const tcrComplianceBaseShape = {
   ein: EinSchema,
+  // The candidate's own name — distinct from the account holder's, since a
+  // campaign manager often signs up under their own name. Sent to Peerly's
+  // Campaign Verify request so CV can reconcile against the election filing,
+  // which names the candidate, not whoever created the account.
+  candidateName: z.string().trim().min(1, 'A candidate name is required'),
   // A resolved address is a hard precondition: the Peerly submission derives
   // the candidate's postal address from placeId (or the manual components
   // above), so starting compliance with a blank address only fails several

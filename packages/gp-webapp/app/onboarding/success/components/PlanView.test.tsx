@@ -55,6 +55,10 @@ const makeInput = (): PlanInput => ({
   registeredVoters: null,
   uniqueCellphones: null,
   uniqueLandlines: null,
+  projectedTurnoutLower: null,
+  projectedTurnoutUpper: null,
+  winNumberLower: null,
+  winNumberUpper: null,
   raceCandidates: [],
   milestones: null,
 })
@@ -67,7 +71,6 @@ const planViewProps = (plan = buildPlanData(makeInput())) =>
     planReady: true,
     state: 'CA',
     strategyState: sectionState,
-    eventsState: sectionState,
     pressOutletsState: sectionState,
     voterInsightsContext: {},
     onDownload: vi.fn(),

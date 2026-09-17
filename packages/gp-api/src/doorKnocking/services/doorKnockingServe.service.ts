@@ -1,31 +1,48 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import {
+  DoorKnockingDemographicsShape,
   DoorKnockingResidentsResponse,
   DoorKnockingRoutePayload,
   DoorKnockStatus,
+  NotAVoterReason,
   RoutePayloadAddress,
+  RoutePayloadRepresenting,
+  RoutePayloadTarget,
+  RoutePayloadTargetNotes,
+  RouteTargetActivity,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
-import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
+import { OrganizationsService } from '@/organizations/services/organizations.service'
 import {
-  ContactStatusField,
   DoorKnockingStopTarget,
   Organization,
+  OrganizationRole,
   Prisma,
 } from '../../generated/prisma'
+import { assertVolunteerAssignedToOutreach } from '../utils/doorKnockingAccess.util'
+import { DoorKnockingActivityService } from './doorKnockingActivity.service'
+import { DoorKnockingNotesService } from './doorKnockingNotes.service'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
+import { DoorKnockingStatusService } from './doorKnockingStatus.service'
 import {
-  deriveKnockStatus,
-  overrideToKnockStatus,
-  rollupStopStatus,
-} from '../utils/knockStatus.util'
+  renderDoorAddress,
+  splitUnitAddress,
+  streetLineOfStop,
+} from '../utils/unitAddress.util'
+import { activeTurfScope } from '../utils/turfScope.util'
 
 const ROUTE_INCLUDE = {
   stops: {
     orderBy: { seq: Prisma.SortOrder.asc },
     include: { targets: true },
   },
+  // The id resolves a volunteer's OutreachAssignment (ENG-11051); `script`
+  // is the talking-points card the candidate froze with the list. Every route
+  // has exactly one envelope (the 1:1:1 invariant), so neither costs a query
+  // and neither can arrive twice.
+  outreach: { select: { id: true, script: true } },
 } as const satisfies Prisma.DoorKnockingRouteInclude
 
 type LiveAddress = DoorKnockingResidentsResponse['addresses'][number]
@@ -37,18 +54,32 @@ const composeName = (
     ? [person.firstName, person.lastName].filter(Boolean).join(' ') || null
     : null
 
-// The frozen unit key renders back to a human address line: street parts
-// joined in display order, apartment suffixed. Old line-format keys (a
-// single AddressLine first segment) degrade gracefully to that segment.
-const renderUnitAddress = (addressKey: string): string => {
-  const parts = addressKey.split('|')
-  if (parts.length < 7) return parts[0] ?? addressKey
-  const [house, prefixDir, street, designator, suffixDir, apartment] = parts
-  const line = [house, prefixDir, street, designator, suffixDir]
-    .filter((part) => part && part.length > 0)
-    .join(' ')
-  return apartment && apartment.length > 0 ? `${line} Apt ${apartment}` : line
-}
+type LiveTarget = LiveAddress['targets'][number]
+
+// The eleven attributes people-api resolved for a live target, copied onto the
+// route payload one for one. Every one is null for a target with no live row
+// (`mayHaveMoved`), like age, party and the phone numbers beside them.
+//
+// Hand-written rather than a spread of `livePerson` so the two contracts stay
+// two decisions: the residents response is an internal S2S shape and the route
+// payload is what reaches a canvasser's phone, and a field added to the former
+// should not arrive on the latter without anyone choosing it. The explicit
+// `Pick` is what makes forgetting one a type error instead of a hole.
+const demographicsOf = (
+  livePerson: LiveTarget | undefined,
+): Pick<RoutePayloadTarget, keyof typeof DoorKnockingDemographicsShape> => ({
+  registeredVoter: livePerson?.registeredVoter ?? null,
+  turnoutLikelihood: livePerson?.turnoutLikelihood ?? null,
+  maritalStatus: livePerson?.maritalStatus ?? null,
+  hasChildrenUnder18: livePerson?.hasChildrenUnder18 ?? null,
+  veteranStatus: livePerson?.veteranStatus ?? null,
+  homeowner: livePerson?.homeowner ?? null,
+  businessOwner: livePerson?.businessOwner ?? null,
+  levelOfEducation: livePerson?.levelOfEducation ?? null,
+  estimatedIncomeAmount: livePerson?.estimatedIncomeAmount ?? null,
+  language: livePerson?.language ?? null,
+  ethnicityGroup: livePerson?.ethnicityGroup ?? null,
+})
 
 @Injectable()
 export class DoorKnockingServeService extends createPrismaBase(
@@ -57,7 +88,18 @@ export class DoorKnockingServeService extends createPrismaBase(
   constructor(
     private readonly peopleApi: DoorKnockingPeopleApiService,
     private readonly contacts: ContactsService,
-    private readonly contactStatus: ContactStatusService,
+    // The same derivation the rail's per-list counts read. Shared rather than
+    // duplicated: the sheet quoting this payload and the row above it must
+    // report one list identically.
+    private readonly status: DoorKnockingStatusService,
+    private readonly activity: DoorKnockingActivityService,
+    private readonly notes: DoorKnockingNotesService,
+    // For the position name behind the door script's opener. Injected rather
+    // than reached through `moduleRef` like the assignment check below:
+    // OrganizationsModule is a plain import of this module with no cycle
+    // through it, so there is nothing here for a lazy lookup to break.
+    private readonly organizations: OrganizationsService,
+    private readonly moduleRef: ModuleRef,
   ) {
     super()
   }
@@ -69,12 +111,11 @@ export class DoorKnockingServeService extends createPrismaBase(
   async serve(
     turfId: number,
     organization: Organization,
+    userId: number,
+    role: OrganizationRole | undefined,
   ): Promise<DoorKnockingRoutePayload> {
     const turf = await this.client.doorKnockingTurf.findFirst({
-      where: {
-        id: turfId,
-        voterFileFilter: { organizationSlug: organization.slug },
-      },
+      where: { id: turfId, ...activeTurfScope(organization.slug) },
       include: { route: { include: ROUTE_INCLUDE } },
     })
     if (!turf) {
@@ -84,6 +125,19 @@ export class DoorKnockingServeService extends createPrismaBase(
       throw new NotFoundException('This turf has not been knocked yet')
     }
     const route = turf.route
+    if (!route.outreach) {
+      throw new Error(
+        `Door-knocking route ${route.id} has no outreach envelope; every ` +
+          'route is created with one in the same transaction',
+      )
+    }
+    await assertVolunteerAssignedToOutreach(
+      this.moduleRef,
+      role,
+      route.outreach.id,
+      userId,
+      'Turf not found',
+    )
 
     const targets = route.stops.flatMap((stop) => stop.targets)
     const addressKeys = [...new Set(targets.map((t) => t.addressKey))]
@@ -103,11 +157,29 @@ export class DoorKnockingServeService extends createPrismaBase(
     const liveByAddressKey = new Map<string, LiveAddress>(
       residents.addresses.map((address) => [address.addressKey, address]),
     )
+    // The system-wide Win/Serve signal — the `eo-` slug prefix and nothing
+    // else (src/contacts/AGENTS.md), the same check `phoneBankingList.service`
+    // makes. It answers two questions here: what the payload declares itself
+    // to be, and whether party may appear on it at all.
+    const isServe = organization.slug.startsWith('eo-')
 
-    const statusByPersonId = await this.latestKnockStatuses(
-      organization.slug,
-      targetPersonIds,
-    )
+    const [
+      statusByPersonId,
+      doNotKnockPersonIds,
+      notAVoterReasons,
+      historyByPersonId,
+      notesByPersonId,
+      representing,
+    ] = await Promise.all([
+      this.status.latestKnockStatuses(organization.slug, targetPersonIds),
+      this.status.doNotKnockPersonIds(organization.slug, targetPersonIds),
+      this.status.notAVoterReasons(organization.slug, targetPersonIds),
+      this.activity.historyByPersonId(organization.slug, targetPersonIds),
+      // Every target's notes in one query, alongside the other live reads
+      // rather than per target inside the map below — see ADR 0011.
+      this.notes.notesByPersonId(organization.slug, targetPersonIds),
+      this.resolveRepresenting(organization),
+    ])
 
     return {
       route: {
@@ -122,36 +194,97 @@ export class DoorKnockingServeService extends createPrismaBase(
       },
       pathGeometry: route.pathGeometry ?? null,
       stops: route.stops.map((stop) => {
+        // The building's own line, with whichever door's unit the frozen
+        // column happened to capture taken back off. Computed once and used
+        // for both the stop's name and the full address of every door under
+        // it, so the two cannot disagree about which house this is.
+        const streetLine = streetLineOfStop(
+          stop.displayAddress,
+          stop.targets.map((target) => target.addressKey),
+        )
         const addresses = this.buildAddresses(
           stop.targets,
-          stop.displayAddress,
+          streetLine,
           liveByAddressKey,
           statusByPersonId,
+          doNotKnockPersonIds,
+          notAVoterReasons,
+          historyByPersonId,
+          notesByPersonId,
+          isServe,
         )
         return {
           id: stop.id,
           seq: stop.seq,
           lat: stop.lat,
           lng: stop.lng,
-          displayAddress: stop.displayAddress,
+          displayAddress: streetLine,
           legSeconds: stop.legSeconds,
           legMeters: stop.legMeters,
-          knockStatus: rollupStopStatus(
-            addresses.flatMap((address) =>
-              address.targets.map((target) => target.knockStatus),
-            ),
-          ),
           addresses,
         }
       }),
+      isServe,
+      representing,
+      // Omitted rather than sent as '' when the envelope has no script, which
+      // is every list created before the wizard's points step shipped and
+      // every list whose candidate skipped it. The client falls back to the
+      // static card on both, so absent and empty must not be distinguishable
+      // — see the field's note on the payload schema.
+      ...(route.outreach.script
+        ? { talkingPoints: route.outreach.script }
+        : {}),
+    }
+  }
+
+  // Whose campaign or office this walk is for. The owner is the candidate on
+  // Win and the office holder on Serve — the same person `useUser()` resolves
+  // to on the dashboard walk, which is why a candidate knocking their own turf
+  // reads the identical opener whether it came from here or from their session.
+  //
+  // Best-effort by design: `resolvePositionNameByOrganizationSlug` calls
+  // election-api when the org carries a `positionId`, and a canvasser standing
+  // on a porch should not lose their walk because that call failed. A thrown
+  // error or a missing name yields `undefined`, which the contract documents as
+  // "fall back to the pre-ship opener" rather than an error state.
+  private async resolveRepresenting(
+    organization: Organization,
+  ): Promise<RoutePayloadRepresenting | undefined> {
+    try {
+      const [owner, office] = await Promise.all([
+        this.client.user.findUnique({
+          where: { id: organization.ownerId },
+          select: { firstName: true, lastName: true, name: true },
+        }),
+        this.organizations.resolvePositionNameByOrganizationSlug(
+          organization.slug,
+        ),
+      ])
+      const name =
+        [owner?.firstName, owner?.lastName].filter(Boolean).join(' ').trim() ||
+        (owner?.name ?? '').trim()
+      // The name is what makes this key worth sending. An office without one
+      // cannot be said out loud — "a volunteer for , your City Council
+      // Member" — so `buildVolunteerIntro` drops the whole clause and falls
+      // back to the bare "Hi, I'm {volunteer}" this feature exists to fix.
+      // Sending it anyway would look like a resolution that worked.
+      if (!name) return undefined
+      return { name, office: office ?? '' }
+    } catch {
+      return undefined
     }
   }
 
   private buildAddresses(
     targets: DoorKnockingStopTarget[],
-    stopDisplayAddress: string,
+    streetLine: string,
     liveByAddressKey: Map<string, LiveAddress>,
     statusByPersonId: Map<string, DoorKnockStatus>,
+    doNotKnockPersonIds: Set<string>,
+    notAVoterReasons: Map<string, NotAVoterReason>,
+    historyByPersonId: Map<string, RouteTargetActivity[]>,
+    notesByPersonId: Map<string, RoutePayloadTargetNotes>,
+    isServe: boolean,
   ): RoutePayloadAddress[] {
     const byAddressKey = new Map<string, DoorKnockingStopTarget[]>()
     for (const target of targets) {
@@ -165,15 +298,19 @@ export class DoorKnockingServeService extends createPrismaBase(
       const liveTargetsById = new Map(
         (live?.targets ?? []).map((person) => [person.personId, person]),
       )
+      // Frozen at the lock: read from the key's own segments — never
+      // re-derived from live data, so the walk view matches what was routed.
+      // The unit key is ADDRESSLINE|APT|ZIP
+      // (DOOR_KNOCKING_UNIT_KEY_COLUMNS order); `splitUnitAddress` also
+      // handles the component-composed keys older routes froze.
+      const { line2 } = splitUnitAddress(addressKey)
       return {
         addressKey,
-        // Frozen at the lock: rendered from the key's own components —
-        // never re-derived from live data, so the walk view matches what
-        // was routed. The unit key is HOUSE|PREFIXDIR|STREET|DESIGNATOR|
-        // SUFFIXDIR|APT|ZIP (DOOR_KNOCKING_UNIT_KEY_COLUMNS order).
-        // An all-NULL-components key renders to '' — fall back to the
-        // stop's frozen display line rather than serving a blank address.
-        address: renderUnitAddress(addressKey) || stopDisplayAddress,
+        // The whole address, cased after the stop it hangs under so one house
+        // is not announced as "205 Benton Dr" by the stop and "205 BENTON DR"
+        // by the door directly beneath it.
+        address: renderDoorAddress(addressKey, streetLine),
+        unit: line2,
         targets: group.map((target) => {
           const livePerson = liveTargetsById.get(target.personId)
           return {
@@ -183,13 +320,52 @@ export class DoorKnockingServeService extends createPrismaBase(
             // name renders for movers.
             name: composeName(livePerson) ?? target.name,
             age: livePerson?.age ?? null,
-            politicalParty: livePerson?.politicalParty ?? null,
+            // Never for Serve. A party value in any `eo-` response is a bug
+            // (src/contacts/AGENTS.md) — this is the last door-knocking
+            // surface that leaked one, and it leaked to four at once, since
+            // the walk, the person sheet, the printed sheet and the PDF all
+            // read this field.
+            //
+            // Nulled here rather than filtered out of the people-api read,
+            // because the residents response is shared with the pack's own
+            // district-scoped party dim; the choke point is the payload that
+            // reaches a canvasser's phone.
+            politicalParty: isServe
+              ? null
+              : (livePerson?.politicalParty ?? null),
             // Live-only, so a mover carries no number: livePerson is what
             // mayHaveMoved is derived from.
             cellPhone: livePerson?.cellPhone ?? null,
             landline: livePerson?.landline ?? null,
+            // The demographic profile, live-only for the same reason: a target
+            // who no longer appears at the frozen addressKey carries nulls
+            // rather than the profile of whoever lives there now. Spelled out
+            // field by field rather than spread, so the payload can never pick
+            // up a key the residents response grows later without someone
+            // deciding it belongs at the door.
+            ...demographicsOf(livePerson),
             knockStatus: statusByPersonId.get(target.personId) ?? 'unknown',
+            // mayHaveMoved is the voter file disagreeing with the frozen
+            // snapshot; notAVoterReason is a person at the door saying so.
+            // They are independent on purpose — the file lags, and a mover's
+            // live row is still where phone numbers come from.
             mayHaveMoved: !livePerson,
+            doNotKnock: doNotKnockPersonIds.has(target.personId),
+            notAVoterReason: notAVoterReasons.get(target.personId),
+            // ADR 0009. Keyed by personId, so it is this resident's history
+            // and not the household's — the two people behind one door often
+            // answered differently, and merging them at the door attributes a
+            // neighbor's refusal to whoever opens it.
+            history: historyByPersonId.get(target.personId) ?? [],
+            // ADR 0011. Per-resident like the feed above, and always present
+            // even when empty: a resident nobody has written anything about is
+            // a fact the sheet states, and it has to read differently from a
+            // payload snapshotted before this field existed, where the key is
+            // missing and nothing is being claimed at all.
+            notes: notesByPersonId.get(target.personId) ?? {
+              entries: [],
+              total: 0,
+            },
           }
         }),
         otherResidents: (live?.otherResidents ?? []).map((person) => ({
@@ -197,68 +373,5 @@ export class DoorKnockingServeService extends createPrismaBase(
         })),
       }
     })
-  }
-
-  // Effective status per person, org-wide: a manual override wins, otherwise
-  // the interaction history derives one. Both halves follow
-  // SupportStatusService's rules so a person reads the same at the door as in
-  // Contacts — the two used to disagree, and a candidate looking at one while
-  // holding the other has no way to tell which is lying.
-  //
-  // Served by the CRM table's (organizationSlug, personId, occurredAt) index;
-  // rows per person are bounded by real knock history, so the reduce stays
-  // cheap.
-  private async latestKnockStatuses(
-    organizationSlug: string,
-    personIds: string[],
-  ): Promise<Map<string, DoorKnockStatus>> {
-    const [interactions, overrides] = await Promise.all([
-      this.client.contactInteractionDoorKnock.findMany({
-        where: { organizationSlug, personId: { in: personIds } },
-        orderBy: [
-          { occurredAt: Prisma.SortOrder.desc },
-          { id: Prisma.SortOrder.desc },
-        ],
-        select: { personId: true, outcome: true, supportAnswer: true },
-      }),
-      this.contactStatus.currentStatusForPeople(
-        organizationSlug,
-        ContactStatusField.support_status,
-        personIds,
-      ),
-    ])
-
-    // Rows arrive newest-first, so the first row per person is the latest and
-    // the first answer-bearing one is the latest answer. Preferring the answer
-    // mirrors derivedStatusSql's `(support_answer IS NOT NULL) DESC` ordering:
-    // a later "not home" is a failed re-attempt, not a retraction of the
-    // support they already told us about.
-    const latest = new Map<string, (typeof interactions)[number]>()
-    const latestAnswered = new Map<string, (typeof interactions)[number]>()
-    for (const interaction of interactions) {
-      if (!latest.has(interaction.personId)) {
-        latest.set(interaction.personId, interaction)
-      }
-      if (
-        interaction.supportAnswer !== null &&
-        !latestAnswered.has(interaction.personId)
-      ) {
-        latestAnswered.set(interaction.personId, interaction)
-      }
-    }
-
-    const statusByPersonId = new Map<string, DoorKnockStatus>()
-    for (const personId of new Set(personIds)) {
-      const overridden = overrideToKnockStatus(overrides.get(personId))
-      if (overridden) {
-        statusByPersonId.set(personId, overridden)
-        continue
-      }
-      const interaction = latestAnswered.get(personId) ?? latest.get(personId)
-      if (interaction) {
-        statusByPersonId.set(personId, deriveKnockStatus(interaction))
-      }
-    }
-    return statusByPersonId
   }
 }

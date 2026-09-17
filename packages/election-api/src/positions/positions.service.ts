@@ -1,17 +1,6 @@
-import {
-  BadRequestException,
-  Injectable,
-  InternalServerErrorException,
-  NotFoundException,
-} from '@nestjs/common'
-import {
-  District,
-  Position,
-  Prisma,
-  ProjectedTurnout,
-} from '../generated/prisma'
+import { Injectable, NotFoundException } from '@nestjs/common'
+import { District, Position, Prisma } from '../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { ProjectedTurnoutService } from 'src/projectedTurnout/projectedTurnout.service'
 import { PositionWithOptionalDistrict } from './positions.types'
 import { extractFilingFee, FilingFeeResult } from './util/filingFee.util'
 import { pickRelevantRace } from './util/pickRelevantRace.util'
@@ -19,7 +8,6 @@ import { pickNextUpcomingRace } from './util/pickNextUpcomingRace.util'
 
 type PositionLookupOptions = {
   includeDistrict?: boolean
-  includeTurnout?: boolean
   includeFilingFee?: boolean
   electionDate?: string
 }
@@ -29,7 +17,7 @@ type FindPositionWithOptionsParams = PositionLookupOptions & {
   notFoundMessage: string
 }
 
-type PositionWithOptionalDistrictAndTurnouts = {
+type PositionWithOptionalDistrictRow = {
   id: Position['id']
   brPositionId: Position['brPositionId']
   brDatabaseId: Position['brDatabaseId']
@@ -40,24 +28,21 @@ type PositionWithOptionalDistrictAndTurnouts = {
   isServeIcp: Position['isServeIcp']
   district?: {
     id: District['id']
+    state: District['state']
     L2DistrictType: District['L2DistrictType']
     L2DistrictName: District['L2DistrictName']
-    ProjectedTurnouts?: ProjectedTurnout[]
   } | null
 }
 
 @Injectable()
 export class PositionsService extends createPrismaBase(MODELS.Position) {
-  constructor(
-    private readonly projectedTurnoutService: ProjectedTurnoutService,
-  ) {
+  constructor() {
     super()
   }
 
   async getPositionById(params: {
     id: string
     includeDistrict?: boolean
-    includeTurnout?: boolean
     includeFilingFee?: boolean
     electionDate?: string
   }): Promise<PositionWithOptionalDistrict> {
@@ -72,7 +57,6 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
   async getPositionByBallotReadyId(params: {
     brPositionId: string
     includeDistrict?: boolean
-    includeTurnout?: boolean
     includeFilingFee?: boolean
     electionDate?: string
   }): Promise<PositionWithOptionalDistrict> {
@@ -84,23 +68,6 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
     })
   }
 
-  private validateOptions({
-    includeDistrict,
-    includeTurnout,
-    electionDate,
-  }: PositionLookupOptions): void {
-    if (includeTurnout && !electionDate) {
-      throw new BadRequestException(
-        'If includeTurnout is true, you must pass an electionDate',
-      )
-    }
-    if (includeTurnout && !includeDistrict) {
-      throw new BadRequestException(
-        'A district must be included in the response to return a turnout',
-      )
-    }
-  }
-
   private async findPositionWithOptions(
     params: FindPositionWithOptionsParams,
   ): Promise<PositionWithOptionalDistrict> {
@@ -108,11 +75,9 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
       where,
       notFoundMessage,
       includeDistrict,
-      includeTurnout,
       includeFilingFee,
       electionDate,
     } = params
-    this.validateOptions({ includeDistrict, includeTurnout, electionDate })
 
     const baseSelect: Prisma.PositionSelect = {
       id: true,
@@ -125,61 +90,20 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
       isServeIcp: true,
     }
 
-    if (!includeDistrict) {
-      const position: PositionWithOptionalDistrictAndTurnouts | null =
-        await this.model.findUnique({ where, select: baseSelect })
-      if (!position) {
-        throw new NotFoundException(notFoundMessage)
-      }
-      const filingFee = includeFilingFee
-        ? await this.lookupFilingFee(position, electionDate)
-        : undefined
-      return this.shapePositionResponse(position, undefined, filingFee)
-    }
-
-    if (!includeTurnout) {
-      const position: PositionWithOptionalDistrictAndTurnouts | null =
-        await this.model.findUnique({
-          where,
-          include: { district: true },
-        })
-      if (!position) {
-        throw new NotFoundException(notFoundMessage)
-      }
-      const filingFee = includeFilingFee
-        ? await this.lookupFilingFee(position, electionDate)
-        : undefined
-      return this.shapePositionResponse(position, undefined, filingFee)
-    }
-
-    const position: PositionWithOptionalDistrictAndTurnouts | null =
-      await this.model.findUnique({
-        where,
-        include: {
-          district: {
-            include: {
-              ProjectedTurnouts: true,
-            },
-          },
-        },
-      })
+    const position: PositionWithOptionalDistrictRow | null = includeDistrict
+      ? await this.model.findUnique({ where, include: { district: true } })
+      : await this.model.findUnique({ where, select: baseSelect })
     if (!position) {
       throw new NotFoundException(notFoundMessage)
-    }
-    if (!electionDate) {
-      throw new InternalServerErrorException(
-        'It should be impossible to get to this line without electionDate defined',
-      )
     }
     const filingFee = includeFilingFee
       ? await this.lookupFilingFee(position, electionDate)
       : undefined
-    return this.shapePositionResponse(position, electionDate, filingFee)
+    return this.shapePositionResponse(position, filingFee)
   }
 
   private shapePositionResponse(
-    position: PositionWithOptionalDistrictAndTurnouts,
-    electionDate?: string,
+    position: PositionWithOptionalDistrictRow,
     filingFee?: FilingFeeResult,
   ): PositionWithOptionalDistrict {
     const {
@@ -204,66 +128,7 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
         }
       : {}
 
-    if (!district) {
-      return {
-        id,
-        brPositionId,
-        brDatabaseId,
-        state,
-        name,
-        level,
-        isWinIcp,
-        isServeIcp,
-        ...filingFeeFields,
-      }
-    }
-
-    const {
-      id: districtId,
-      L2DistrictType,
-      L2DistrictName,
-      ProjectedTurnouts,
-    } = district
-    const districtResponse = {
-      id: districtId,
-      L2DistrictType,
-      L2DistrictName,
-      projectedTurnout: null as ProjectedTurnout | null,
-    }
-
-    if (!electionDate || !ProjectedTurnouts) {
-      return {
-        id,
-        brPositionId,
-        brDatabaseId,
-        state,
-        name,
-        district: districtResponse,
-        level,
-        isWinIcp,
-        isServeIcp,
-        ...filingFeeFields,
-      }
-    }
-
-    const electionCode = this.projectedTurnoutService.determineElectionCode(
-      electionDate,
-      state,
-    )
-    const electionYear = new Date(electionDate).getFullYear()
-    const filteredTurnout = ProjectedTurnouts.filter(
-      (turnout) =>
-        turnout.electionYear === electionYear &&
-        turnout.electionCode === electionCode,
-    )
-    const [projectedTurnout] = filteredTurnout
-
-    if (filteredTurnout.length > 1) {
-      throw new InternalServerErrorException(
-        'Error: Data integrity issue - duplicate turnouts found for a given electionYear and electionCode',
-      )
-    }
-    return {
+    const base = {
       id,
       brPositionId,
       brDatabaseId,
@@ -272,11 +137,24 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
       level,
       isWinIcp,
       isServeIcp,
-      district: {
-        ...districtResponse,
-        projectedTurnout: projectedTurnout ?? null,
-      },
       ...filingFeeFields,
+    }
+    if (!district) return base
+
+    const {
+      id: districtId,
+      state: districtState,
+      L2DistrictType,
+      L2DistrictName,
+    } = district
+    return {
+      ...base,
+      district: {
+        id: districtId,
+        state: districtState,
+        L2DistrictType,
+        L2DistrictName,
+      },
     }
   }
 
@@ -318,7 +196,7 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
    * its filingRequirements yields nothing.
    */
   private async lookupFilingFee(
-    position: PositionWithOptionalDistrictAndTurnouts,
+    position: PositionWithOptionalDistrictRow,
     electionDate?: string,
   ): Promise<FilingFeeResult> {
     const empty: FilingFeeResult = {

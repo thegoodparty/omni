@@ -12,6 +12,7 @@ import {
   Campaign,
   ElectedOffice,
   Organization,
+  OrganizationRole,
   Prisma,
 } from '../../generated/prisma'
 import pmap from 'p-map'
@@ -23,12 +24,17 @@ import {
 } from '../schemas/organization.schema'
 
 import { OrgDistrict } from '../organizations.types'
-import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
+import { getUserFullName } from '@/users/util/users.util'
+import { isHeldOffice } from '@/campaigns/util/eligibility.util'
 
 export type FriendlyOrganization = {
   slug: string
   hasDistrictOverride: boolean
   customPositionName: string | null
+  // Carried through rather than derived to a boolean like hasDistrictOverride:
+  // the admin routes that surface it need the number itself, since "is there
+  // an override" and "what is it" are the same question for a spend limit.
+  overrideDoorKnockingCampaignLimit: number | null
   position: {
     id: string
     name: string
@@ -40,14 +46,73 @@ export type FriendlyOrganization = {
   electedOffice: ElectedOffice | null
 }
 
+/**
+ * Puts an office the user currently holds at the head of their org list.
+ *
+ * The order of this list is the answer to "which organization am I in" for a
+ * user who has not picked one: the webapp selects the first entry, the org
+ * switcher lists them in this order, and the post-login redirect seeds the
+ * org-slug cookie from it. Somebody who holds office should land in Serve, so
+ * that rule lives here — one ordering, at the source — rather than as a second
+ * opinion in the client, where it could disagree with the order the picker
+ * actually displays.
+ *
+ * Only an office that has BEGUN and not yet ended leads:
+ *
+ * - Not ended: `isHeldOffice`, the same term-date predicate behind the `status`
+ *   the picker greys out as "Past", so this can never promote a seat the picker
+ *   is calling over, and a former office holder running again is not stranded
+ *   in a dashboard for an office they no longer hold. An office with no term
+ *   dates yet is not held by that same rule.
+ * - Begun: `isHeldOffice` derives from `termEndDate` alone and does not look at
+ *   `termStartDate` (see `deriveIsActive`), so an office whose term starts in
+ *   the future already reads as held — its end date is years out. That is not
+ *   hypothetical: `selectPreferredOfficeHolder` deliberately prefers a term
+ *   starting within the next FUTURE_OFFICEHOLDER_WINDOW_MONTHS when prefilling
+ *   a provisioned office, and nothing downstream filters it. Leading with it
+ *   would drop someone into the Serve dashboard weeks before they take office,
+ *   so the start bound is checked here.
+ *
+ * The start check is deliberately local to this ordering rather than folded
+ * into `deriveIsActive`: that predicate also produces the `isActive` field on
+ * every elected-office response and the `status` on every org list, so teaching
+ * it about start dates would change what a not-yet-sworn-in official sees
+ * across the app. That is a product decision, and a separate change. This one
+ * only declines to promote such an office, which changes nothing else about it.
+ *
+ * Everything else keeps the query's order, so this is a no-op for the many
+ * users who hold no office at all, and it never reorders one campaign against
+ * another. A user's own pick always outranks it: the webapp only consults this
+ * order when the org-slug cookie names nothing that user can see.
+ */
+export const sortOrganizations = <
+  T extends { electedOffice: ElectedOffice | null },
+>(
+  organizations: T[],
+  now: Date,
+): T[] => {
+  // A null termStartDate is "no start bound", not "starts now": it preserves
+  // today's behavior for the offices that simply lack term data.
+  const hasBegun = (office: ElectedOffice) =>
+    office.termStartDate === null ||
+    office.termStartDate.getTime() <= now.getTime()
+  const rank = (org: T) =>
+    org.electedOffice &&
+    isHeldOffice(org.electedOffice, now) &&
+    hasBegun(org.electedOffice)
+      ? 0
+      : 1
+  // toSorted, not sort: the input is Prisma's own result array, and reordering
+  // it in place is a side effect no caller asked for. Both are stable, so
+  // same-rank orgs keep the query's ordering.
+  return organizations.toSorted((a, b) => rank(a) - rank(b))
+}
+
 @Injectable()
 export class OrganizationsService extends createPrismaBase(
   MODELS.Organization,
 ) {
-  constructor(
-    private readonly electionsService: ElectionsService,
-    private readonly clerkEnricher: ClerkUserEnricherService,
-  ) {
+  constructor(private readonly electionsService: ElectionsService) {
     super()
   }
 
@@ -83,10 +148,55 @@ export class OrganizationsService extends createPrismaBase(
 
   async listOrganizations(userId: number) {
     const orgs = await this.model.findMany({
-      where: { ownerId: userId },
-      include: { campaign: true, electedOffice: true },
+      where: {
+        OR: [{ ownerId: userId }, { memberships: { some: { userId } } }],
+      },
+      // Oldest first, slug (the @id, so unique) to break exact-timestamp ties.
+      // Without an explicit order Postgres may return these rows in any order,
+      // and heap order moves — an UPDATE can relocate a row — so the list
+      // silently reshuffled over a user's lifetime, taking the default org and
+      // the picker's order with it. See `sortOrganizations` for why the order
+      // of this list is load-bearing.
+      orderBy: [{ createdAt: 'asc' }, { slug: 'asc' }],
+      include: {
+        campaign: true,
+        electedOffice: true,
+        owner: true,
+        // Scoped to this viewer: an owner-owned org has none, a member org
+        // has exactly one (the unique [organizationSlug, userId] index).
+        memberships: { where: { userId } },
+      },
     })
-    return await Promise.all(orgs.map((org) => this.makeFriendly(org)))
+    return await Promise.all(
+      sortOrganizations(orgs, new Date()).map(async (org) => {
+        const friendly = await this.makeFriendly(org)
+        return {
+          ...friendly,
+          role: this.viewerRole(org, userId),
+          ownerName: getUserFullName(org.owner) || null,
+        }
+      }),
+    )
+  }
+
+  // The `memberships` relation on `org` is already scoped to `userId` by the
+  // include `where` above, so a non-owner match from the OR filter is
+  // guaranteed to have exactly one row here — surfaced loudly rather than
+  // read as `[0]` if that invariant is ever wrong.
+  private viewerRole(
+    org: Organization & { memberships: { role: OrganizationRole }[] },
+    userId: number,
+  ): OrganizationRole {
+    if (org.ownerId === userId) {
+      return OrganizationRole.owner
+    }
+    const membership = org.memberships[0]
+    if (!membership) {
+      throw new InternalServerErrorException(
+        'Organization matched the owned-or-member filter but has no membership row',
+      )
+    }
+    return membership.role
   }
 
   async getOrganization(userId: number, slug: string) {
@@ -122,12 +232,26 @@ export class OrganizationsService extends createPrismaBase(
     return this.applyPatch(org, updates)
   }
 
+  // Reports the pre-patch campaign override alongside the updated row, because
+  // the controller's audit line is the only durable record that someone moved
+  // an organization's Geoapify spending limit and it has to name the value this
+  // patch actually replaced. Read here, off the very row `applyPatch` computes
+  // its write from, rather than by a second lookup in the controller: a
+  // concurrent admin PATCH landing between that lookup and this one would make
+  // the line name a previous value that was never overwritten, and — worse —
+  // when the two happened to agree it would suppress the line for a change that
+  // did happen.
   async adminPatchOrganization(
     slug: string,
     updates: AdminPatchOrganizationDto,
   ) {
     const org = await this.adminGetOrganization(slug)
-    return this.applyPatch(org, updates)
+    const previousLimit = org.overrideDoorKnockingCampaignLimit
+
+    return {
+      organization: await this.applyPatch(org, updates),
+      previousLimit,
+    }
   }
 
   private async applyPatch(
@@ -164,6 +288,8 @@ export class OrganizationsService extends createPrismaBase(
       data: {
         positionId: position?.id ?? null,
         overrideDistrictId: updates.overrideDistrictId,
+        overrideDoorKnockingCampaignLimit:
+          updates.overrideDoorKnockingCampaignLimit,
         customPositionName: clearsStaleCustomName
           ? null
           : updates.customPositionName,
@@ -189,20 +315,6 @@ export class OrganizationsService extends createPrismaBase(
       // This is important to prevent the query from scanning the whole table.
       take: 25,
     })
-
-    const owners = organizations
-      .map((o) => o.owner)
-      .filter((o): o is NonNullable<typeof o> => o != null)
-    const enrichedOwners = await this.clerkEnricher.enrichUsers(owners)
-    let idx = 0
-    for (const org of organizations) {
-      if (org.owner) {
-        const enrichedOwner = enrichedOwners[idx++]
-        if (enrichedOwner) {
-          org.owner = enrichedOwner
-        }
-      }
-    }
 
     return pmap(
       organizations,
@@ -670,6 +782,7 @@ export class OrganizationsService extends createPrismaBase(
       slug: org.slug,
       hasDistrictOverride: !!org.overrideDistrictId,
       customPositionName: org.customPositionName,
+      overrideDoorKnockingCampaignLimit: org.overrideDoorKnockingCampaignLimit,
       position: position
         ? {
             id: position.id,

@@ -5,9 +5,7 @@ import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import {
   buildDescribeConstituentDataTool,
   buildQueryConstituentDataTool,
-  CONSTITUENT_DATA_TOOL_FLAG,
 } from '@/llm/tools/queryConstituentData.tool'
-import { FeaturesService } from '@/features/services/features.service'
 import {
   ChatScopeHandler,
   ResolveConversationParams,
@@ -42,6 +40,8 @@ import { buildDescribeFilterDimensionsTool } from '../crm-tools/describeFilterDi
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
+import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
 
 // Sensitive scope: tool outputs (briefings, priorities, search results) flow
 // back into the model context, so this scope runs Anthropic-only. The registry
@@ -59,18 +59,6 @@ export const CONSTITUENT_DATA_PROVIDER = 'CONSTITUENT_DATA_PROVIDER'
 // Token for the app-layer table/dimension allowlist (lever 1). Injected so prod
 // uses the in-code CONSTITUENT_TABLES const while tests can supply a fixture.
 export const CONSTITUENT_TABLES_CONFIG = 'CONSTITUENT_TABLES_CONFIG'
-
-// Enablement requires ALL of: the shared DATABRICKS_* credential, an approved
-// table in CONSTITUENT_TABLES, the user's district resolving to server-bound
-// filters, AND the per-user cos-constituent-data-tool Amplitude flag being on.
-// The flag is the rollout control while the tool runs against the shared (broad)
-// key: it stays off for everyone until explicitly enabled per internal tester.
-export { CONSTITUENT_DATA_TOOL_FLAG }
-
-// Serve's CRM rollout flag (same key the webapp's contacts page reads). It
-// gates the contact describe/count tools so the assistant capability ramps
-// with the same cohorts as the CRM UI.
-export const SERVE_CRM_FLAG = 'serve-crm'
 
 @Injectable()
 export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext> {
@@ -92,14 +80,14 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     @Optional()
     private readonly districtResolver?: DistrictResolverService,
     @Optional()
-    private readonly features?: FeaturesService,
-    @Optional()
     @Inject(COMMUNITY_ISSUE_READ_PORT)
     private readonly communityIssueRead?: CommunityIssueReadPort,
     @Optional()
     private readonly contacts?: ContactsService,
     @Optional()
     private readonly voterFileFilters?: VoterFileFilterService,
+    @Optional()
+    private readonly helpCenter?: HelpCenterSearchService,
   ) {}
 
   async resolveConversation(
@@ -132,41 +120,18 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       userId,
       this.priorities,
     )
-    // Resolved independently of district resolution: the contact tools go
-    // through ContactsService, which does its own district lookup. Only hit
-    // Amplitude when the tools could otherwise register (service injected).
-    const crmToolsEnabled =
-      !!this.contacts && (await this.isFlagOn(userId, SERVE_CRM_FLAG))
     const resolved = await this.districtResolver?.resolveByUserId(userId)
-    if (!resolved) return { ...ctx, crmToolsEnabled }
+    if (!resolved) return ctx
     const districtFilters = this.districtResolver
       ? this.districtResolver.toMandatoryFilters(resolved)
       : null
-    // Resolve the per-user flag only when the tool could otherwise register
-    // (provider + an approved table present), so we don't hit Amplitude for
-    // users who can't use it anyway.
     const constituentToolEnabled =
-      !!this.constituentProvider &&
-      this.constituentTables.length > 0 &&
-      (await this.isFlagOn(userId, CONSTITUENT_DATA_TOOL_FLAG))
+      !!this.constituentProvider && this.constituentTables.length > 0
     return {
       ...ctx,
       jurisdiction: `${resolved.l2DistrictName}, ${resolved.state}`,
       districtFilters,
       constituentToolEnabled,
-      crmToolsEnabled,
-    }
-  }
-
-  // FeaturesService.isFeatureEnabled throws if Amplitude fails to return a
-  // value. Resolving a flag is on the critical path of every CoS message, so
-  // a flag-service outage must degrade to "tool off", never take down the chat.
-  private async isFlagOn(userId: number, feature: string): Promise<boolean> {
-    if (!this.features) return false
-    try {
-      return await this.features.isFeatureEnabled({ user: userId, feature })
-    } catch {
-      return false
     }
   }
 
@@ -214,9 +179,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
 
     // Aggregate-only constituent data. Registers ONLY when all of: the provider
     // is configured (shared DATABRICKS_* present), the user's district resolved
-    // into server-bound filters, an approved table is in the in-code allowlist,
-    // AND the per-user cos-constituent-data-tool flag is on. Any one missing
-    // keeps the tool off.
+    // into server-bound filters, and an approved table is in the in-code
+    // allowlist. Any one missing keeps the tool off.
     if (
       this.constituentProvider &&
       ctx.districtFilters &&
@@ -237,6 +201,14 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       }
     }
 
+    // Our own published support articles. Needs no credential and no org
+    // context, so it registers whenever the service is provided.
+    if (this.helpCenter) {
+      tools.search_help_center = buildSearchHelpCenterTool({
+        helpCenter: this.helpCenter,
+      })
+    }
+
     if (this.communityIssueRead) {
       tools.read_community_issues = buildReadCommunityIssuesTool({
         port: this.communityIssueRead,
@@ -245,11 +217,11 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       })
     }
 
-    // Aggregate-only CRM reads (describe dimensions + count), gated on the
-    // serve-crm flag so the assistant capability ramps with the CRM UI. The
-    // org is bound from the resolved context; ContactsService enforces the
-    // Serve party rejection and every other filter rule.
-    if (this.contacts && ctx.crmToolsEnabled) {
+    // Aggregate-only CRM reads (describe dimensions + count), unconditional
+    // for Serve once the contacts service resolves. The org is bound from
+    // the resolved context; ContactsService enforces the Serve party
+    // rejection and every other filter rule.
+    if (this.contacts) {
       tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
         contacts: this.contacts,
         organization: ctx.organization,
@@ -260,8 +232,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
       })
       // Saved-filter CRUD goes through the same VoterFileFilterService paths
       // as the voter-file routes (completed-outreach validation, org scoping,
-      // locked-filter conflict all inherited). Registered under the same
-      // serve-crm gate; the prompt rules key off the registered tool name.
+      // locked-filter conflict all inherited). The prompt rules key off the
+      // registered tool name.
       if (this.voterFileFilters) {
         tools.crud_saved_filters = buildCrudSavedFiltersTool({
           voterFileFilters: this.voterFileFilters,

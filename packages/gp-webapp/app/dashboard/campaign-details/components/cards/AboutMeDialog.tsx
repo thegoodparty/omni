@@ -101,6 +101,14 @@ export default function AboutMeDialog({
     // builder and the public profile render. Party is stored on the elected
     // office for officeholders (with occupation/website omitted) and on the
     // campaign for candidates — each path writes only to the record it owns.
+    // Only write the bio when it actually changed. `form` is seeded from the
+    // website query, so a field that merely looks empty may be a bio this
+    // client never loaded (query still pending, or failed) — echoing that back
+    // is what blanked a live bio in prod (campaign 296539).
+    const saveBio = () =>
+      form.bio === data.bio
+        ? Promise.resolve(true)
+        : saveAboutFields({ bio: form.bio })
     let ok = false
     try {
       if (isElectedOffice) {
@@ -111,7 +119,7 @@ export default function AboutMeDialog({
                 party: form.party || null,
               })
             : Promise.resolve({ ok: false }),
-          saveAboutFields({ bio: form.bio }),
+          saveBio(),
         ])
         ok = officeRes.ok && bioOk
         await queryClient.invalidateQueries({
@@ -124,7 +132,7 @@ export default function AboutMeDialog({
             { key: 'details.occupation', value: form.occupation },
             { key: 'details.website', value: form.website },
           ]),
-          saveAboutFields({ bio: form.bio }),
+          saveBio(),
         ])
         ok = campaignRes !== false && bioOk
       }

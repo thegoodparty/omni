@@ -9,15 +9,16 @@ import { Website, WebsiteTheme } from '../types/website.type'
 interface SmsTermsModalProps {
   open: boolean
   content: Website['content']
+  campaignName: string
   activeTheme: WebsiteTheme
 }
 
 export default function SmsTermsModal({
   open,
   content,
+  campaignName,
   activeTheme,
 }: SmsTermsModalProps) {
-  const campaignName = content?.main?.title || ''
   const currentDate = new Date().toLocaleDateString('en-US', {
     month: 'long',
     day: 'numeric',

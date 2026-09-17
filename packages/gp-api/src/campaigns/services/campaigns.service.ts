@@ -42,17 +42,22 @@ import { buildSlug } from 'src/shared/util/slug.util'
 import { getUserFullName } from 'src/users/util/users.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { AiContentInputValues } from '../ai/content/aiContent.types'
+import { BallotStatusSchema } from '../schemas/ballotStatus.schema'
 import {
   CampaignPlanVersionData,
   UpdateCampaignFieldsInput,
 } from '../campaigns.types'
 import { CreateFollowOnCampaignBody } from '../schemas/updateCampaign.schema'
 import { FOLLOW_ON_CAMPAIGN_ADVISORY_LOCK_KEY } from '../campaigns.consts'
-import { isActiveCampaign } from '../util/eligibility.util'
+import {
+  isActiveCampaign,
+  isUpcomingElectionDate,
+} from '../util/eligibility.util'
 import { toCampaignGroupTraits } from '../util/campaignGroupTraits.util'
 import { CampaignPlanVersionsService } from './campaignPlanVersions.service'
 import { CrmCampaignsService } from './crmCampaigns.service'
 import { CampaignTasksService } from '../tasks/services/campaignTasks.service'
+import { CampaignTrackerTasksService } from '../campaignTracker/services/campaignTrackerTasks.service'
 
 enum CandidateVerification {
   yes = 'YES',
@@ -72,6 +77,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     private readonly organizations: OrganizationsService,
     @Inject(forwardRef(() => CampaignTasksService))
     private readonly campaignTasks: WrapperType<CampaignTasksService>,
+    private readonly trackerTasks: CampaignTrackerTasksService,
   ) {
     super()
   }
@@ -513,6 +519,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     trackCampaign: boolean = true,
     scalarFields?: Prisma.CampaignUpdateInput,
     outerTx?: Prisma.TransactionClient,
+    opts: { resetStaleElectionResults?: boolean } = {},
   ) {
     const {
       data,
@@ -523,7 +530,11 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       canDownloadFederal,
       overrideDistrictId,
       primaryResult,
+      ballotStatus,
+      signupGoal,
     } = body
+
+    let ballotStatusChanged = false
 
     const runUpdate = async (tx: Prisma.TransactionClient) => {
       this.logger.debug({ id, body }, 'Updating campaign json fields')
@@ -533,8 +544,26 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
 
       if (!campaign) return false
 
+      // A re-running candidate reuses their campaign, so a didWin /
+      // primaryResult / details.wonGeneral recorded for the PREVIOUS race
+      // would permanently fail isActiveCampaign (and block Pro) on the new
+      // one (ENG-10954). When the caller is a user-driven details update
+      // that moves electionDate to a different upcoming date, clear that
+      // stale result state. Detected here, inside the transaction, against
+      // the freshly-read row.
+      const newElectionDate = details?.electionDate
+      const resetStaleResults = Boolean(
+        opts.resetStaleElectionResults &&
+        typeof newElectionDate === 'string' &&
+        newElectionDate !== campaign.details?.electionDate &&
+        isUpcomingElectionDate(newElectionDate, new Date()),
+      )
+
       const campaignUpdateData: Prisma.CampaignUpdateInput = {
         ...scalarFields,
+      }
+      if (resetStaleResults) {
+        campaignUpdateData.didWin = null
       }
       if (data) {
         campaignUpdateData.data = deepMerge(campaign.data as object, data)
@@ -548,8 +577,33 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       if (canDownloadFederal !== undefined) {
         campaignUpdateData.canDownloadFederal = canDownloadFederal
       }
-      if (primaryResult !== undefined) {
+      // The reset outranks a caller-supplied primaryResult: when the
+      // election date just moved to a new upcoming race, any result in the
+      // same request describes a race that hasn't happened yet — persisting
+      // it would re-create the dead-campaign state the reset removes.
+      if (resetStaleResults) {
+        campaignUpdateData.primaryResult = null
+      } else if (primaryResult !== undefined) {
         campaignUpdateData.primaryResult = primaryResult
+      }
+      // The column is the source of truth. details.ballotStatus is only still
+      // read here so a pre-cutover frontend's write isn't lost during a
+      // deploy; it is stripped from the merged details below either way, so
+      // an existing row's stale copy disappears on its next update.
+      const legacyBallotStatus = BallotStatusSchema.safeParse(
+        details?.ballotStatus,
+      ).data
+      if (ballotStatus !== undefined) {
+        campaignUpdateData.ballotStatus = ballotStatus
+      } else if (legacyBallotStatus !== undefined) {
+        campaignUpdateData.ballotStatus = legacyBallotStatus
+      }
+      ballotStatusChanged =
+        campaignUpdateData.ballotStatus !== undefined &&
+        campaignUpdateData.ballotStatus !== campaign.ballotStatus
+      // No legacy details fallback: signupGoal has only ever been a column.
+      if (signupGoal !== undefined) {
+        campaignUpdateData.signupGoal = signupGoal
       }
       if (details) {
         const mergedDetails = deepMerge(
@@ -571,6 +625,19 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
             description: string
           }>
         }
+        // Delete (not null out) the prior race's keys — the details schema
+        // types them non-nullable, and a stale passed primaryElectionDate
+        // re-opens the primary-result modal. A value supplied by this update
+        // (the newly picked office's own dates) is kept.
+        if (resetStaleResults) {
+          if (details.wonGeneral === undefined) {
+            delete mergedDetails.wonGeneral
+          }
+          if (details.primaryElectionDate === undefined) {
+            delete mergedDetails.primaryElectionDate
+          }
+        }
+        Reflect.deleteProperty(mergedDetails, 'ballotStatus')
         campaignUpdateData.details = mergedDetails
       }
       if (objectNotEmpty(aiContent)) {
@@ -604,6 +671,21 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
 
     if (!updatedCampaign) {
       throw new InternalServerErrorException(`Failed to update campaign ${id}`)
+    }
+
+    // The tracker's ballot-access rows are otherwise reconciled only by the
+    // weekly generation, so a candidate who reports filing would keep seeing
+    // the signature tasks until the next Thursday. Best-effort: the campaign
+    // row is already committed, and the weekly run repairs a miss.
+    if (ballotStatusChanged) {
+      await this.trackerTasks
+        .reconcileBallotAccessTasks(updatedCampaign)
+        .catch((err: unknown) =>
+          this.logger.error(
+            { err, campaignId: id },
+            'ballot-access reconcile after status change failed',
+          ),
+        )
     }
 
     if (trackCampaign) {
@@ -708,10 +790,17 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     )
 
-    // Must be in serial so as to not overwrite campaign details w/ concurrent queries
-    await this.patchCampaignDetails(campaignId, {
-      isProUpdatedAt: formatISO(new Date()),
-    })
+    // `isProUpdatedAt` is what the CRM sync publishes as HubSpot's
+    // `pro_upgrade_date`, so only a genuine non-Pro -> Pro transition may stamp
+    // it. Stamping unconditionally overwrote the real upgrade date with the
+    // cancellation date on every downgrade, and re-stamped it on no-op rewrites
+    // from at-least-once Stripe webhook deliveries.
+    if (isBecomingProFirstTime) {
+      // Must be in serial so as to not overwrite campaign details w/ concurrent queries
+      await this.patchCampaignDetails(campaignId, {
+        isProUpdatedAt: formatISO(new Date()),
+      })
+    }
 
     if (isBecomingProFirstTime) {
       void this.campaignTasks.notifySlackOnProUpgrade(campaignId)
@@ -847,7 +936,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     return this.model.deleteMany(args)
   }
 
-  async launch(campaign: Campaign) {
+  async launch(campaign: Campaign, opts?: { trackCampaign?: boolean }) {
     const { id, organizationSlug, data: campaignData, isActive } = campaign
 
     if (
@@ -879,7 +968,9 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       },
     })
 
-    await this.crm.trackCampaign(id)
+    if (opts?.trackCampaign !== false) {
+      await this.crm.trackCampaign(id)
+    }
 
     return true
   }
@@ -1061,8 +1152,10 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     // candidates, dates), filing fee, and BR campaign-timeline milestones.
     // Milestones come straight from BR GraphQL — election-api doesn't
     // store or expose them. All three return null on failure, letting us
-    // degrade gracefully to the position-based path below.
-    const [contextResult, filingFeeFromRaceHash, milestones] =
+    // degrade gracefully to the position-based path below. The fourth is
+    // district-keyed, not race-keyed: it only runs when the org carries a
+    // district override, and it wins over anything district-derived below.
+    const [contextResult, filingFeeFromRaceHash, milestones, overrideMetrics] =
       await Promise.all([
         raceId
           ? this.elections.fetchCampaignStrategyContext(raceId)
@@ -1073,35 +1166,52 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         raceId
           ? this.ballotReady.fetchMilestones(raceId)
           : Promise.resolve(null),
+        org?.overrideDistrictId
+          ? this.resolveOverrideDistrictMetrics(
+              org.overrideDistrictId,
+              electionDate,
+            )
+          : Promise.resolve(null),
       ])
 
     if (contextResult) {
-      return this.mapContextToRaceTargetMetrics(
+      const contextMetrics = this.mapContextToRaceTargetMetrics(
         contextResult,
         filingFeeFromRaceHash,
         milestones,
       )
+      if (!org?.overrideDistrictId) return contextMetrics
+
+      // An override exists precisely because the race's own district is
+      // wrong for this candidate, so every district-derived number on the
+      // context was computed against the wrong electorate. Keep the
+      // race-level facts (candidates, dates, filing, milestones) and
+      // recompute the district-derived ones from the override. Returning
+      // null when the override can't be resolved is deliberate: serving
+      // the context's numbers here is the bug (DATA-2226).
+      if (!overrideMetrics) return null
+      return {
+        ...contextMetrics,
+        ...overrideMetrics,
+        // Same for the prediction interval: it brackets the race district's
+        // projection, so carrying it over would print a range that does not
+        // contain the override district's point values.
+        projectedTurnoutLower: null,
+        projectedTurnoutUpper: null,
+        winNumberLower: null,
+        winNumberUpper: null,
+      }
     }
 
     // Fallback path: no raceId, or the context endpoint failed. Use the
     // legacy position / district-based metrics. New fields default to null
     // because the legacy path doesn't surface them.
     if (org?.overrideDistrictId) {
-      const result = await this.elections
-        .buildRaceTargetDetails({
-          districtId: org.overrideDistrictId,
-          electionDate,
-        })
-        .catch(() => null)
-
-      const { projectedTurnout, winNumber, voterContactGoal } = result ?? {}
-      if (!projectedTurnout || projectedTurnout <= 0) return null
+      if (!overrideMetrics) return null
 
       return {
         ...emptyContextFields(),
-        projectedTurnout,
-        winNumber: winNumber ?? 0,
-        voterContactGoal: voterContactGoal ?? 0,
+        ...overrideMetrics,
         filingFee: filingFeeFromRaceHash?.filingFee ?? null,
         filingRequirementsText:
           filingFeeFromRaceHash?.filingRequirementsText ?? null,
@@ -1155,6 +1265,52 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     }
   }
 
+  /**
+   * Every field of `RaceTargetMetrics` that is derived from the campaign's
+   * district rather than from its race, recomputed against the org's
+   * `overrideDistrictId`. Returns null when the override district yields no
+   * trustworthy electorate — callers must then return null rather than fall
+   * back to numbers computed against the race's own (wrong) district.
+   */
+  private async resolveOverrideDistrictMetrics(
+    districtId: string,
+    electionDate: string,
+  ): Promise<Pick<
+    RaceTargetMetrics,
+    | 'winNumber'
+    | 'projectedTurnout'
+    | 'voterContactGoal'
+    | 'registeredVoters'
+    | 'uniqueCellphones'
+    | 'uniqueLandlines'
+  > | null> {
+    const [details, district] = await Promise.all([
+      this.elections
+        .buildRaceTargetDetails({ districtId, electionDate })
+        .catch(() => null),
+      this.elections.getDistrict(districtId).catch(() => null),
+    ])
+
+    const { projectedTurnout, winNumber, voterContactGoal } = details ?? {}
+    if (!projectedTurnout || projectedTurnout <= 0) return null
+
+    // A district twin with no constituents can still carry a projected
+    // turnout, which renders a confident win number for an electorate that
+    // doesn't exist. Only an explicit zero disqualifies: `null` means the L2
+    // aggregate was never computed for this district type (84 prod campaigns
+    // sit on such districts today), not that the district is empty.
+    if (district?.registeredVoters === 0) return null
+
+    return {
+      projectedTurnout,
+      winNumber: winNumber ?? 0,
+      voterContactGoal: voterContactGoal ?? 0,
+      registeredVoters: district?.registeredVoters ?? null,
+      uniqueCellphones: district?.uniqueCellphones ?? null,
+      uniqueLandlines: district?.uniqueLandlines ?? null,
+    }
+  }
+
   private mapContextToRaceTargetMetrics(
     context: CampaignStrategyContextResponse,
     filingFeeFromRaceHash: FilingFeeByBrHashResult | null,
@@ -1181,7 +1337,10 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       registeredVoters: context.registered_voters,
       uniqueCellphones: context.unique_cellphones,
       uniqueLandlines: context.unique_landlines,
-      projectedVoterTurnout: context.projected_voter_turnout,
+      projectedTurnoutLower: context.projected_turnout_lower ?? null,
+      projectedTurnoutUpper: context.projected_turnout_upper ?? null,
+      winNumberLower: context.win_number_lower ?? null,
+      winNumberUpper: context.win_number_upper ?? null,
       candidates: context.candidates.map((c) => ({
         gpCandidateId: c.gp_candidate_id,
         firstName: c.first_name,
@@ -1264,7 +1423,10 @@ const emptyContextFields = (): Omit<
   registeredVoters: null,
   uniqueCellphones: null,
   uniqueLandlines: null,
-  projectedVoterTurnout: null,
+  projectedTurnoutLower: null,
+  projectedTurnoutUpper: null,
+  winNumberLower: null,
+  winNumberUpper: null,
   candidates: [],
   generalElectionDate: null,
   primaryElectionDate: null,

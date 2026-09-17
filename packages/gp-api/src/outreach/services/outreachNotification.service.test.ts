@@ -504,4 +504,88 @@ describe('OutreachNotificationService', () => {
       expect(JSON.stringify(blocks)).toContain('Not provided')
     })
   })
+
+  describe('robocall notices', () => {
+    const robocallOutreach = {
+      ...baseOutreach,
+      outreachType: OutreachType.robocall,
+      script: 'This is Jane, candidate for City Council. Call 555 111 2222.',
+      projectId: null,
+      campaignPlanDueDate: '2026-10-06',
+    } as unknown as OutreachWithVoterFileFilter
+
+    it('notifyRobocallScheduled posts the schedule block for a robocall', async () => {
+      mockVoterFileFilterToAudience.mockResolvedValueOnce({
+        audience_superVoters: true,
+      })
+
+      await service.notifyRobocallScheduled(
+        mockUser,
+        baseCampaign,
+        robocallOutreach,
+      )
+
+      expect(mockSlackMessage).toHaveBeenCalledTimes(1)
+      const [message, channel] = firstOrThrow(mockSlackMessage.mock.calls)
+      const blob = JSON.stringify(message)
+      expect(blob).toContain('Campaign Schedule Request')
+      expect(blob).toContain('robocall')
+      expect(blob).toContain('Jane')
+      expect(blob).toContain('jane@example.com')
+      expect(blob).toContain('2026-10-06')
+      expect([SlackChannel.botPolitics, SlackChannel.botDev]).toContain(channel)
+      // Robocall is not a text campaign, so it must not bump textCampaignCount.
+      expect(mockCampaignsUpdate).not.toHaveBeenCalled()
+    })
+
+    it('notifyRobocallScheduled skips a non-robocall outreach', async () => {
+      await service.notifyRobocallScheduled(
+        mockUser,
+        baseCampaign,
+        baseOutreach,
+      )
+      expect(mockSlackMessage).not.toHaveBeenCalled()
+    })
+
+    it('notifyRobocallScheduled swallows a Slack failure', async () => {
+      mockSlackMessage.mockRejectedValueOnce(new Error('slack 5xx'))
+      await expect(
+        service.notifyRobocallScheduled(
+          mockUser,
+          baseCampaign,
+          robocallOutreach,
+        ),
+      ).resolves.toBeUndefined()
+    })
+
+    it('notifyRobocallDialing posts a short now-dialing line', async () => {
+      await service.notifyRobocallDialing('jane-doe', 42, 1500)
+
+      expect(mockSlackMessage).toHaveBeenCalledTimes(1)
+      const [message, channel] = firstOrThrow(mockSlackMessage.mock.calls)
+      const blob = JSON.stringify(message)
+      expect(blob).toContain('dialing')
+      expect(blob).toContain('jane-doe')
+      expect(blob).toContain('1500')
+      expect(blob).toContain('#42')
+      expect([SlackChannel.botPolitics, SlackChannel.botDev]).toContain(channel)
+    })
+
+    it('notifyRobocallCompleted posts a short completed line with the amount', async () => {
+      await service.notifyRobocallCompleted('jane-doe', 42, 1500, 45000)
+
+      const [message] = firstOrThrow(mockSlackMessage.mock.calls)
+      const blob = JSON.stringify(message)
+      expect(blob).toContain('completed')
+      expect(blob).toContain('$450.00')
+      expect(blob).toContain('#42')
+    })
+
+    it('a short-notice Slack failure is swallowed', async () => {
+      mockSlackMessage.mockRejectedValueOnce(new Error('slack down'))
+      await expect(
+        service.notifyRobocallDialing('x', 1, 1),
+      ).resolves.toBeUndefined()
+    })
+  })
 })

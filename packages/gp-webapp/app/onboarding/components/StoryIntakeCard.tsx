@@ -1,7 +1,7 @@
 'use client'
 
 import { Card, Textarea } from '@styleguide'
-import { useDictationAppend } from 'app/dashboard/briefings/shared/useDictationAppend'
+import { useDictationAppend } from 'app/dashboard/shared/dictation/useDictationAppend'
 import {
   useStoryRewrite,
   type StoryRewriteField,

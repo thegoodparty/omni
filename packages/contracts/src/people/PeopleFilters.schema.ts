@@ -10,7 +10,10 @@ import { z } from 'zod'
  * Example JSON structure:
  * {
  *   "hasCellPhone": true,                          // Boolean filter (true = IS NOT NULL)
+ *   "hasAnyPhone": true,                           // Boolean filter (cell OR landline non-null)
  *   "hasAddress": true,                            // Boolean filter (true = IS NOT NULL)
+ *   "independentAffinity": { "eq": "Yes" },        // Enum filter over a BOOLEAN column
+ *   "ideology": { "in": ["Conservative", "Unknown"] }, // Enum filter with 'in' operator
  *   "id": { "in": ["<uuid>"] },                    // Id filter with 'in' operator
  *   "id": { "notIn": ["<uuid>"] },                 // Id filter with 'notIn' operator
  *   "voterStatus": { "in": ["Super", "Likely"] }, // Enum filter with 'in' operator
@@ -28,10 +31,11 @@ import { z } from 'zod'
  * }
  *
  * Filter Types:
- * - Boolean filters: hasCellPhone, hasLandline, hasAddress (true = IS NOT NULL, false = IS NULL)
+ * - Boolean filters: hasCellPhone, hasLandline, hasAnyPhone, hasAddress (true = IS NOT NULL, false = IS NULL)
  * - Id filter: id — Operators: { in: string[] }, { notIn: string[] } (exactly one, each 1-100000 uuids)
  * - Enum filters: voterStatus, politicalParty, maritalStatus, veteranStatus, educationLevel,
- *   ethnicity, businessOwner, presenceOfChildren, homeowner, gender, language
+ *   ethnicity, businessOwner, presenceOfChildren, homeowner, gender, language, ideology,
+ *   independentAffinity
  *   Operators: { in: string[] }, { eq: string }, { is: "not_null" | "null" }
  * - Numeric filters: ageInt, estimatedIncomeAmountInt
  *   Operators: { in: number[] }, { eq: number }, { gte: number }, { lte: number }, { is: "not_null" | "null" }
@@ -92,7 +96,17 @@ export const PEOPLE_FILTER_VALUE_ENUMS = {
   presenceOfChildren: ['Yes', 'No', 'Unknown'] as const,
   homeowner: ['Yes', 'Likely', 'No', 'Unknown'] as const,
   gender: ['M', 'F', 'Unknown'] as const,
-  language: ['English', 'Spanish', 'Other'] as const,
+  // 'Other' and 'Unknown' are separate for the same reason `ethnicity` keeps
+  // them apart: `Language_Code` is nullable with no sentinel, so "speaks
+  // something else" and "we were never told" are distinguishable facts about
+  // a person. 'Other' used to mean both, which reported roughly 60% of a
+  // district as Other-language speakers.
+  language: ['English', 'Spanish', 'Other', 'Unknown'] as const,
+  ideology: ['Conservative', 'Liberal', 'Moderate', 'Unknown'] as const,
+  // An enum vocabulary rather than a boolean wire filter because the backing
+  // column (`Voter_Independent_Affinity`) is a non-nullable BOOLEAN: a
+  // presence check would match every row, silently un-filtering the request.
+  independentAffinity: ['Yes', 'No'] as const,
 } as const
 
 export const createEnumFilterSchema = <T extends readonly string[]>(
@@ -155,6 +169,54 @@ export const IdOverridesSchema = z.object({
 })
 export type IdOverrides = z.infer<typeof IdOverridesSchema>
 
+// Precinct is the one filter whose vocabulary is not fixed: it is enumerated
+// per district (GET /v1/contacts/precincts) rather than declared here. A
+// precinct number is only unique within its county — a bare "045" exists in
+// 52 different Colorado counties, and one Texas precinct string appears in 72
+// — so the pair is the identity, and it travels as one encoded scalar.
+//
+// A scalar rather than a {county, precinct} object because the server-side
+// `transformFilters` maps every `in` array through String(); an object would
+// arrive as "[object Object]". Encoding it once here keeps the producer, the
+// two SQL builders, and the saved `VoterFileFilter.precincts` column on one
+// representation.
+//
+// `|` is safe as the delimiter: verified 2026-08-25 that no County or
+// Precinct value in the voter file contains one.
+export const PRECINCT_PAIR_DELIMITER = '|'
+
+export const encodePrecinctPair = (county: string, precinct: string): string =>
+  `${county}${PRECINCT_PAIR_DELIMITER}${precinct}`
+
+// Splits on the FIRST delimiter only. Precinct values are the longer, more
+// varied side (up to 83 chars, and full of punctuation); should one ever gain
+// a `|`, the county still resolves correctly and the precinct keeps its
+// remainder rather than being silently truncated.
+export const decodePrecinctPair = (
+  encoded: string,
+): { county: string; precinct: string } => {
+  const at = encoded.indexOf(PRECINCT_PAIR_DELIMITER)
+  if (at === -1) return { county: encoded, precinct: '' }
+  return {
+    county: encoded.slice(0, at),
+    precinct: encoded.slice(at + PRECINCT_PAIR_DELIMITER.length),
+  }
+}
+
+// An empty precinct side is meaningful, not a bug: it is the "Unknown" bucket
+// the UI offers whenever a district contains voters with no precinct on file
+// (0.7% nationally, and all 1,086,506 New Hampshire voters). Selecting it must
+// resolve to `Precinct IS NULL`, never be dropped.
+const MAX_PRECINCT_FILTER_VALUES = 5_000
+
+export const createPrecinctFilterSchema = () =>
+  z.object({
+    in: z
+      .array(z.string().min(1).max(200))
+      .min(1)
+      .max(MAX_PRECINCT_FILTER_VALUES),
+  })
+
 export const createNumericFilterSchema = () => {
   return z
     .object({
@@ -188,6 +250,7 @@ export const createNumericFilterSchema = () => {
 export const PeopleFiltersSchema = z.object({
   hasCellPhone: z.boolean().optional(),
   hasLandline: z.boolean().optional(),
+  hasAnyPhone: z.boolean().optional(),
   hasAddress: z.boolean().optional(),
   id: createIdFilterSchema().optional(),
   maritalStatus: createEnumFilterSchema(
@@ -221,8 +284,15 @@ export const PeopleFiltersSchema = z.object({
   language: createEnumFilterSchema(
     PEOPLE_FILTER_VALUE_ENUMS.language,
   ).optional(),
+  ideology: createEnumFilterSchema(
+    PEOPLE_FILTER_VALUE_ENUMS.ideology,
+  ).optional(),
+  independentAffinity: createEnumFilterSchema(
+    PEOPLE_FILTER_VALUE_ENUMS.independentAffinity,
+  ).optional(),
   estimatedIncomeAmountInt: createNumericFilterSchema().optional(),
   ageInt: createNumericFilterSchema().optional(),
+  precinct: createPrecinctFilterSchema().optional(),
 })
 
 export type PeopleFilters = z.infer<typeof PeopleFiltersSchema>

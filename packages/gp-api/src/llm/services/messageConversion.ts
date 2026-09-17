@@ -1,5 +1,6 @@
 import {
   type AssistantModelMessage,
+  type FilePart,
   type ModelMessage,
   type SystemModelMessage,
   type TextPart,
@@ -61,11 +62,18 @@ const convertUserMessage = (m: LlmUserMessage): UserModelMessage => {
   if (typeof m.content === 'string') {
     return { role: 'user', content: m.content }
   }
-  const parts: TextPart[] = []
+  const parts: Array<TextPart | FilePart> = []
   for (const part of m.content) {
     switch (part.type) {
       case 'text':
         parts.push({ type: 'text', text: part.text })
+        break
+      case 'file':
+        parts.push({
+          type: 'file',
+          data: part.data,
+          mediaType: part.mediaType,
+        })
         break
       case 'image_url':
         break

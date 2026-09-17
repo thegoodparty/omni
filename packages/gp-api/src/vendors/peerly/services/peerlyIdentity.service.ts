@@ -72,7 +72,23 @@ import {
   isPeerlyCvRejection,
   PeerlyCvRejectionException,
 } from '../utils/peerlyCvRejection.util'
+import { isPeerlyCvPinRejection } from '../utils/peerlyCvPinRejection.util'
 import { PinoLogger } from 'nestjs-pino'
+
+// Slack truncates long blocks silently; pretty-printing roughly doubles a
+// body's line count, so cut it here with a visible marker instead.
+const SLACK_RESPONSE_BODY_MAX_CHARS = 1500
+
+// Peerly's error bodies are the `Error`/`status_code` envelope the sibling
+// rejection utils read, except on gateway failures, which return an HTML or
+// plain-text string instead.
+type PeerlyErrorResponseBody =
+  | string
+  | {
+      Error?: string
+      status_code?: number
+      details?: string | null
+    }
 
 @Injectable()
 export class PeerlyIdentityService extends PeerlyBaseConfig {
@@ -556,6 +572,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       officeLevel,
       fecCommitteeId,
       committeeType,
+      candidateName,
       filingAddressLine1,
       filingAddressLine2,
       filingCity,
@@ -580,6 +597,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           | 'filingCity'
           | 'filingState'
           | 'filingZip'
+          | 'candidateName'
         >
       >,
     user: User,
@@ -655,10 +673,15 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       }
     }
 
+    // candidateName is the candidate's own name, collected on the
+    // registration form — distinct from the account holder's name, since a
+    // campaign manager often signs up under their own name and CV can't
+    // reconcile that against the election filing. Records created before
+    // this field existed have none, so fall back to the account holder's
+    // name as before.
+    const submissionName = candidateName ?? getUserFullName(user)
     const submitCVData = {
-      name: this.isTestEnvironment
-        ? `TEST-${getUserFullName(user)}`
-        : getUserFullName(user),
+      name: this.isTestEnvironment ? `TEST-${submissionName}` : submissionName,
       general_campaign_email: email,
       verification_type: verificationType,
       filing_url: ensureUrlHasProtocol(filingUrl),
@@ -841,6 +864,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
   async retrieveCampaignVerifyDetails(
     peerlyIdentityId: string,
     campaign: Campaign,
+    options?: { suppressSlackAlert?: boolean },
   ): Promise<{
     status: PeerlyCvVerificationStatus | null
     pinDelivery: DerivedPinDelivery | null
@@ -864,7 +888,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           return { status: null, pinDelivery: null }
         }
       }
-      return await this.handleApiError(e, { campaign, peerlyIdentityId })
+      return await this.handleApiError(e, {
+        campaign,
+        peerlyIdentityId,
+        suppressSlackAlert: options?.suppressSlackAlert,
+      })
     }
   }
 
@@ -893,6 +921,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           campaign,
           peerlyIdentityId,
           httpExceptionClass: UnprocessableEntityException,
+          suppressSlackAlert: isPeerlyCvPinRejection(e),
         })
       } else {
         return await this.handleApiError(e, { campaign, peerlyIdentityId })
@@ -912,7 +941,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         `/v2/tdlc/${peerlyIdentityId}/resend_pin`,
       )
     } catch (e) {
-      await this.handleApiError(e, { campaign, peerlyIdentityId })
+      await this.handleApiError(e, {
+        campaign,
+        peerlyIdentityId,
+        suppressSlackAlert: isPeerlyCvPinRejection(e),
+      })
     }
   }
 
@@ -943,9 +976,8 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     if (context.campaign && !context.suppressSlackAlert) {
       const user = await this.usersService.findByCampaign(context.campaign)
       if (user) {
-        const formattedError = (isAxiosError(error) && format(error)) || error
         await this.sendSlackErrorNotification(
-          formattedError,
+          error,
           user,
           context.peerlyIdentityId,
         )
@@ -958,22 +990,73 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     })
   }
 
+  // Only the request line and Peerly's parsed response body reach Slack. The
+  // serialized Axios error carries config.headers.Authorization (a live Peerly
+  // bearer token) and the request body (the candidate's CV PIN in cleartext),
+  // and #bot-10dlc-compliance is broadly readable — never widen this payload.
   private async sendSlackErrorNotification(
-    formattedError: unknown,
+    error: unknown,
     user: User,
     peerlyIdentityId?: string,
   ) {
-    const errorString =
-      typeof formattedError === 'string'
-        ? formattedError
-        : JSON.stringify(formattedError)
+    const axiosError = isAxiosError<PeerlyErrorResponseBody>(error)
+      ? error
+      : null
+    const status = axiosError?.response?.status ?? axiosError?.status
+    const requestLine = [
+      axiosError?.config?.method?.toUpperCase(),
+      axiosError?.config?.url,
+    ]
+      .filter(Boolean)
+      .join(' ')
+    const responseData = axiosError?.response?.data
+    // Axios reports an empty response body as '', which would render as an
+    // empty block — Slack rejects the whole message on those.
+    const hasResponseData =
+      responseData !== undefined && responseData !== null && responseData !== ''
+    const fallbackMessage = error instanceof Error ? error.message : ''
 
     const blocks = buildPeerlySlackErrorMessage({
       user,
-      formattedError: errorString,
+      requestSummary: axiosError
+        ? [requestLine || 'Peerly request', status].filter(Boolean).join(' → ')
+        : undefined,
+      responseData: hasResponseData
+        ? this.formatSlackResponseBody(responseData)
+        : undefined,
+      errorMessage: hasResponseData
+        ? undefined
+        : fallbackMessage || 'Unknown Peerly API error',
       peerlyIdentityId,
     })
 
     await this.slackService.message({ blocks }, SlackChannel.bot10DlcCompliance)
+  }
+
+  // Peerly's error bodies are small JSON objects, so pretty-printing them is
+  // what makes the alert readable. Gateway errors arrive as HTML/text strings
+  // instead — those pass through untouched rather than becoming an escaped,
+  // quote-wrapped blob.
+  private formatSlackResponseBody(responseData: PeerlyErrorResponseBody) {
+    if (typeof responseData === 'string') {
+      return this.truncateSlackResponseBody(responseData)
+    }
+    let serialized: string | undefined
+    try {
+      serialized = JSON.stringify(responseData, null, 2)
+    } catch {
+      // A circular or otherwise unserializable body must not throw here — that
+      // would take down the alert along with it.
+      serialized = undefined
+    }
+    return this.truncateSlackResponseBody(
+      serialized ?? '<unserializable response body>',
+    )
+  }
+
+  private truncateSlackResponseBody(body: string): string {
+    return body.length > SLACK_RESPONSE_BODY_MAX_CHARS
+      ? `${body.slice(0, SLACK_RESPONSE_BODY_MAX_CHARS)}\n… (truncated)`
+      : body
   }
 }

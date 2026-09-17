@@ -1,10 +1,15 @@
-import { BadGatewayException, BadRequestException } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { Organization } from '../../../generated/prisma'
 import {
   PRO_FILTERING_REQUIRED_MESSAGE,
   type ContactsService,
 } from '@/contacts/services/contacts.service'
+import { DATA_SOURCE_ROUTING_RULES } from '@/llm/tools/dataSourceRouting'
 import { buildCountContactsTool } from './countContacts.tool'
 
 const ORGANIZATION = { slug: 'win-campaign' } as Organization
@@ -25,6 +30,16 @@ describe('buildCountContactsTool', () => {
     expect(result).toEqual({ count: 1234 })
   })
 
+  it('rejects the legacy registration keys the filter engine ignores', () => {
+    const tool = buildTool(vi.fn(() => Promise.resolve({ count: 0 })))
+    expect(
+      tool.inputSchema.safeParse({ registeredVoterTrue: true }).success,
+    ).toBe(false)
+    expect(
+      tool.inputSchema.safeParse({ registeredVoterFalse: true }).success,
+    ).toBe(false)
+  })
+
   it('rejects a malformed filter at the input schema', () => {
     const tool = buildTool(vi.fn(() => Promise.resolve({ count: 0 })))
     expect(tool.inputSchema.safeParse({ age18_25: 'yes' }).success).toBe(false)
@@ -40,7 +55,7 @@ describe('buildCountContactsTool', () => {
 
   it('surfaces the inherited non-Pro rejection as a Pro-upgrade tool error', async () => {
     const countContacts = vi.fn(() =>
-      Promise.reject(new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)),
+      Promise.reject(new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)),
     )
     const result = await buildTool(countContacts).execute({})
     expect(result).toEqual({
@@ -66,5 +81,10 @@ describe('buildCountContactsTool', () => {
     const outage = new BadGatewayException('Failed to count from people API')
     const countContacts = vi.fn(() => Promise.reject(outage))
     await expect(buildTool(countContacts).execute({})).rejects.toBe(outage)
+  })
+
+  it('carries the cross-catalog routing rules in its description', () => {
+    const tool = buildTool(vi.fn(() => Promise.resolve({ count: 0 })))
+    expect(tool.description).toContain(DATA_SOURCE_ROUTING_RULES)
   })
 })

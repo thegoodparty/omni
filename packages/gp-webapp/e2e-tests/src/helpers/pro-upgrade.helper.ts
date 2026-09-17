@@ -53,6 +53,7 @@ export const seedFilingComplete = async (
     placeId: 'ChIJ-seed-place-id',
     formattedAddress: '123 Capitol Ave, Cheyenne, WY 82001, USA',
     committeeName: 'Jane for Council',
+    candidateName: 'Jane Smith',
     // tcrComplianceBaseShape requires a filing URL that includes a path.
     filingUrl: 'https://sos.wyo.gov/filing/jane-for-council',
     email,
@@ -143,6 +144,12 @@ export const upgradeCampaignToProViaStripe = async (
     .fill(format(addYears(new Date(), 2), 'MMyy'))
   await page.waitForTimeout(500)
   await stripeFrame.locator('#payment-cvcInput').fill('123')
+  await page.waitForTimeout(500)
+  // Stripe geolocates the billing country from the client IP, and the card
+  // form renders a ZIP field only for countries that collect one. CI runners
+  // are sometimes geolocated outside the US (observed: Mexico, 2026-09-04),
+  // which drops #payment-postalCodeInput entirely - pin the country first.
+  await stripeFrame.locator('#payment-countryInput').selectOption('US')
   await page.waitForTimeout(500)
   await stripeFrame.locator('#payment-postalCodeInput').fill('82001')
   await page.waitForTimeout(500)

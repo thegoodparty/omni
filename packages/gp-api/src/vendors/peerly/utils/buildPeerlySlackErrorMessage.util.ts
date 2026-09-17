@@ -2,15 +2,48 @@ import { User } from '../../../generated/prisma'
 import { getUserFullName } from '../../../users/util/users.util'
 import { SlackMessageType } from '../../slack/slackService.types'
 
+// Deliberately narrow fields instead of a stringified error: the full Axios
+// error carries config.headers.Authorization (a live Peerly bearer token) and
+// the request body (a Campaign Verify PIN in cleartext), and this message goes
+// to a broadly-readable Slack channel.
 interface BuildPeerlySlackErrorMessageParams {
   user: User
-  formattedError: string
+  requestSummary?: string
+  responseData?: string
+  errorMessage?: string
   peerlyIdentityId?: string
+}
+
+// An empty rich_text_list makes Slack reject the whole message, so the list is
+// omitted rather than emitted empty.
+const buildErrorBullets = (...lines: (string | undefined)[]) => {
+  const bullets = lines
+    .filter((line): line is string => Boolean(line))
+    .map((line) => ({
+      type: SlackMessageType.RICH_TEXT_SECTION,
+      elements: [
+        {
+          type: SlackMessageType.TEXT,
+          text: line,
+        },
+      ],
+    }))
+  return bullets.length
+    ? [
+        {
+          type: SlackMessageType.RICH_TEXT_LIST,
+          style: 'bullet',
+          elements: bullets,
+        },
+      ]
+    : []
 }
 
 export const buildPeerlySlackErrorMessage = ({
   user,
-  formattedError,
+  requestSummary,
+  responseData,
+  errorMessage,
   peerlyIdentityId,
 }: BuildPeerlySlackErrorMessageParams) => [
   {
@@ -134,21 +167,23 @@ export const buildPeerlySlackErrorMessage = ({
           },
         ],
       },
-      {
-        type: SlackMessageType.RICH_TEXT_LIST,
-        style: 'bullet',
-        elements: [
-          {
-            type: SlackMessageType.RICH_TEXT_SECTION,
-            elements: [
-              {
-                type: SlackMessageType.TEXT,
-                text: String(formattedError),
-              },
-            ],
-          },
-        ].filter((elem) => elem !== undefined),
-      },
+      ...buildErrorBullets(requestSummary, errorMessage),
+      // Slack only preserves the pretty-printed body's whitespace inside a
+      // preformatted element, and rich_text_list accepts rich_text_section
+      // children only — so the body is a sibling of the bullets, not one.
+      ...(responseData
+        ? [
+            {
+              type: SlackMessageType.RICH_TEXT_PREFORMATTED,
+              elements: [
+                {
+                  type: SlackMessageType.TEXT,
+                  text: responseData,
+                },
+              ],
+            },
+          ]
+        : []),
     ],
   },
 ]

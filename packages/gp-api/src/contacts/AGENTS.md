@@ -22,11 +22,10 @@ fixes track under ENG-10744.
 
 ## The mental model — read this before touching anything
 
-- **There is no Contact table.** A "contact" is a people-db `Voter` row
-  (200M+ L2 records, partitioned Postgres, read-mostly), served live
-  through `PeopleQueryModule` (`src/peopleDb/`, direct in-process access —
-  the sole path; the legacy people-api HTTP client and its S2S JWT machinery
-  are gone). `personId` everywhere is that Voter row's `id` — a stable hash
+- **There is no Contact table.** A "contact" is a voter row (hundreds of
+  millions of L2 records, read-mostly), served live through
+  `PeopleQueryModule` (`src/peopleDb/`) from the `mart_gp_api` schema in
+  Databricks. `personId` everywhere is that voter row's `id` — a stable hash
   of `LALVOTERID` (~97% month-over-month stability; orphaned enhancement
   rows from L2 churn are accepted).
 - **Enhancements live in gp-api Postgres**, keyed
@@ -41,15 +40,20 @@ fixes track under ENG-10744.
   changes. The static list only comes into existence at outreach launch,
   materialized as one interaction row per person — those rows are the
   audit truth. There is no `ContactList` model.
-- **Support status is derived, with an optional manual override.** Latest
-  interaction carrying a non-null `supportAnswer` wins; `unsure` and no-data
-  both roll up to `unknown` — the derivation itself is single-sourced via the
-  `SUPPORT_ANSWER_ROLLUP` constant in
+- **Support status is derived, with an optional manual override.** The
+  FIRMEST interaction wins, not the latest: `supporter` and `non_supporter`
+  outrank `unsure`, which outranks a row with no answer, and recency only
+  settles ties between equally firm answers — so a re-canvass that captured
+  "unsure" cannot erase a supporter recorded last month. `unsure` rolls up to
+  `undecided`, and `unknown` means no support answer was ever captured (never
+  contacted, or contacted with no answer recorded) — both the rollup and the
+  ranking are single-sourced, via the `SUPPORT_ANSWER_ROLLUP` and
+  `SUPPORT_ANSWER_FIRMNESS` constants in
   `src/contactInteraction/contactInteraction.types.ts`. A person can also
   carry a manual `support_status` override (`ContactStatusService`,
   `contact_current_status` table) to any of the five `SupportStatusRollup`
-  values — `undecided`/`refused` exist _only_ as overrides, nothing derives
-  them. Effective status = override ?? derived everywhere: display
+  values — `refused` exists _only_ as an override, nothing derives it.
+  Effective status = override ?? derived everywhere: display
   (`ContactsService.effectiveStatus`) and filter resolution/counts
   (`SupportStatusService.personIdsByEffectiveStatus`, ENG-10837) both compose
   the two sources the same way, so a manual change is never masked by a
@@ -59,7 +63,19 @@ fixes track under ENG-10744.
   condition, conditions AND across. Empty `actions` = membership in that
   outreach ("everyone it reached").
 - **Win vs Serve is the `eo-` org-slug prefix**, nothing else. Serve never
-  receives `politicalParty` (server-stripped) and party filters 400.
+  receives `politicalParty` (server-stripped) and party filters 400. Precinct
+  is NOT in that set — it is offered to both, because a precinct is an
+  administrative subdivision of the district an official already serves.
+- **Precinct is the one filter with no fixed vocabulary.** Every other
+  dimension declares its values in `filterDimensions.catalog.ts`; precinct's
+  are enumerated per district, so it is deliberately absent from that catalog
+  (the assistant would otherwise invent precinct names). The identity is the
+  `(county, precinct)` PAIR — a bare precinct number repeats across counties
+  (one Texas string appears in 72 of them) — encoded as one `county|precinct`
+  scalar by `encodePrecinctPair` in contracts, which is also what
+  `VoterFileFilter.precincts` persists. An empty precinct side is the real
+  "no precinct on file" bucket and must resolve to `IS NULL`, never to a
+  comparison against `''`.
 - **Interactions are an interface, not a generic table.** One Prisma
   model per channel; the convention (core fields, source FK, idempotency
   unique, feed index, SQL resolvability) is documented and
@@ -71,18 +87,18 @@ fixes track under ENG-10744.
 
 ## Module map
 
-| Code                                         | Owns                                                                                                                                                                                                                                            |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/contacts/` (here)                       | Contacts surface: list/search/typeahead, person detail, stats, live count, list-detail, CSV download, notes + manual-interaction routes, direct people-db access (flag-gated) / legacy HTTP fallback, Pro/mode gates, filter-dimensions catalog |
-| `src/contactInteraction/`                    | Per-channel interaction services, activity-condition → person-id-set resolution, derived support status                                                                                                                                         |
-| `src/contactNote/`                           | `ContactNoteService` (CRUD; routes live here in contacts)                                                                                                                                                                                       |
-| `src/contactEngagement/`                     | Per-person unified activity feed (`GET /v1/contact-engagement/:id/activities`)                                                                                                                                                                  |
-| `src/voters/voterFile/`                      | Saved-filter CRUD (`/v1/voters/voter-file/filter*`), lock-on-outreach. See `src/voters/CLAUDE.md`                                                                                                                                               |
-| `src/outreach/`                              | Outreach CRUD + the CRM write paths: materialization, Peerly completion sweep, Peerly inbound sweep                                                                                                                                             |
-| `src/vendors/peerly/`                        | Peerly client, phone-list upload + capture (`PeerlyPhoneList[Recipient]`)                                                                                                                                                                       |
-| `src/chats/general/crm-tools/`               | The AI assistant's in-code tools (`count_contacts`, `describe_filter_dimensions`, `crud_saved_filters`)                                                                                                                                         |
-| `src/peopleDb/`                              | The voter engine, ported in-process: filter pipeline, `id in/notIn`, trigram search, stats/aggregates. See `src/peopleDb/CLAUDE.md`                                                                                                             |
-| `packages/gp-webapp/app/dashboard/contacts/` | All UI (own CLAUDE.md)                                                                                                                                                                                                                          |
+| Code                                         | Owns                                                                                                                                                                               |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/contacts/` (here)                       | Contacts surface: list/search/typeahead, person detail, stats, live count, list-detail, CSV download, notes + manual-interaction routes, Pro/mode gates, filter-dimensions catalog |
+| `src/contactInteraction/`                    | Per-channel interaction services, activity-condition → person-id-set resolution, derived support status                                                                            |
+| `src/contactNote/`                           | `ContactNoteService` (CRUD; routes live here in contacts)                                                                                                                          |
+| `src/contactEngagement/`                     | Per-person unified activity feed (`GET /v1/contact-engagement/:id/activities`)                                                                                                     |
+| `src/voters/voterFile/`                      | Saved-filter CRUD (`/v1/voters/voter-file/filter*`), lock-on-outreach. See `src/voters/CLAUDE.md`                                                                                  |
+| `src/outreach/`                              | Outreach CRUD + the CRM write paths: materialization, Peerly completion sweep, Peerly inbound sweep                                                                                |
+| `src/vendors/peerly/`                        | Peerly client, phone-list upload + capture (`PeerlyPhoneList[Recipient]`)                                                                                                          |
+| `src/chats/general/crm-tools/`               | The AI assistant's in-code tools (`count_contacts`, `describe_filter_dimensions`, `crud_saved_filters`)                                                                            |
+| `src/peopleDb/`                              | The voter engine: filter pipeline, `id in/notIn`, name search, stats/aggregates, read from Databricks. See `src/peopleDb/CLAUDE.md`                                                |
+| `packages/gp-webapp/app/dashboard/contacts/` | All UI (own CLAUDE.md)                                                                                                                                                             |
 
 Not this feature: `src/crm/` is the HubSpot **company** sync. `WebsiteContact`
 and `EcanvasserContact` are unrelated models.
@@ -95,14 +111,15 @@ gating is per-action inside the services (see Access control).
 
 | Route                                                                              | What                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /v1/contacts`                                                                 | List/search. Small page doubles as the typeahead backend (trigram-backed)                                                                                                                                                                                                                                                                                                                                                                                  |
+| `GET /v1/contacts`                                                                 | List/search. Small page doubles as the typeahead backend                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `GET /v1/contacts/:id`                                                             | Person detail (+ derived `supportStatus`, `optedOutAt`)                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `GET /v1/contacts/stats`                                                           | District aggregates (stat cards; open to non-Pro)                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `POST /v1/contacts/count`                                                          | Live count for an unsaved filter (wizard running total; assistant `count_contacts` parity)                                                                                                                                                                                                                                                                                                                                                                 |
+| `GET /v1/contacts/precincts`                                                       | The Precinct filter's option list: distinct `(County, Precinct)` in the org's district with a voter count each, capped at 5,000 with a `truncated` flag. Pro-gated, served to Win and Serve alike, and deliberately UNFILTERED — the list is the dimension's vocabulary, so it must not shrink as other filters narrow and strand an already-picked precinct                                                                                       |
 | `POST /v1/contacts/overlap-count`                                                  | Saved-list overlap for the wizard's "N (P%) voters already exist in lists you've saved" strip (ENG-10840): the in-progress selection AND'd with the union of the org's saved lists (capped at the 25 most recent, truncation logged). Same in-progress payload and Pro gate as `count`                                                                                                                                                                     |
 | `GET /v1/contacts/list-detail`                                                     | Saved-segment detail (`segment` param): demographics, reachable-by-channel (sms/robocall/phoneBanking/doorKnocking/polls), outreach history. Omitting `segment` returns the universe row's detail instead — the whole unfiltered district, `outreachHistory` always `[]` (ENG-10778). History excludes `doorKnocking` rows (the door-knock tool writes its own interaction rows) and orders null `date`s last with `createdAt` fallback fields (ENG-10776) |
-| `GET /v1/contacts/download`                                                        | CSV COPY stream: a curated ~54-column subset with friendly headers (`DOWNLOAD_COLUMNS`, ENG-10766), not the raw L2 columns. Serve downloads drop party, turnout propensity, and vote history **columns** entirely via projection (`SERVE_EXCLUDED_DOWNLOAD_COLUMNS`, ENG-10830) since a stream can't be post-processed                                                                                                                                     |
-| `GET/POST /v1/contacts/:personId/notes`, `PATCH/DELETE /v1/contacts/notes/:noteId` | Notes CRUD, org-scoped (cross-org id = 404)                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `GET /v1/contacts/download`                                                        | Streaming CSV export: a curated ~76-column subset with friendly headers (`DOWNLOAD_COLUMNS`, ENG-10766, widened in DATA-2281), not the raw L2 columns. Serve downloads drop party, turnout propensity, and vote history **columns** entirely via projection (`SERVE_EXCLUDED_DOWNLOAD_COLUMNS`, which is `EXCLUDABLE_VOTER_COLUMNS` verbatim, ENG-10830) since a stream can't be post-processed                                                            |
+| `GET/POST /v1/contacts/:personId/notes`, `PATCH/DELETE /v1/contacts/notes/:noteId` | Notes CRUD, org-scoped (cross-org id = 404). `@AllowVolunteer()` (ENG-11057) — a volunteer gets full CRUD, but only on people reachable through an assigned outreach envelope; see Access control                                                                                                                                                                                                                                                          |
 | `POST /v1/contacts/:personId/interactions`                                         | Manual interaction log. **No webapp caller** (UI removed in ENG-10711); the API stays                                                                                                                                                                                                                                                                                                                                                                      |
 | `GET /v1/contact-engagement/:id/activities`                                        | Unified feed: interactions + polls + legacy outreach rows. Notes are deliberately excluded (ENG-10780) — they live only in the dedicated Notes section, never the feed                                                                                                                                                                                                                                                                                     |
 | `POST /v1/voters/voter-file/filter`, `GET /filters`, `GET/PUT/DELETE /filter/:id`  | Saved-filter CRUD; PUT/DELETE 409 once locked                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -118,22 +135,53 @@ id-list filter can't enumerate outside the org's district.
 
 ## Data model
 
-| Model (table)                                  | Role / key facts                                                                                                                                                                                               |
-| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VoterFileFilter`                              | The saved filter (UI "list"). ~60 demographic columns, `search`, `supportStatus`, `firstUsedForOutreachAt` (the lock), org FK cascade                                                                          |
-| `VoterFileFilterActivityCondition`             | Owned condition rows: `outreachType` + `outreachId?` (null = any campaign of that channel) + `actions[]` (`ActivityConditionAction` enum; per-channel validity is Zod-enforced at the boundary, 400 otherwise) |
-| `ContactInteractionText`                       | Per-recipient send truth: `outreachId` FK, `respondedAt`, `optedOutAt`, `sourceEventId`, `manual`. Unique `[outreachId, personId]`                                                                             |
-| `ContactInteractionRobocall`                   | Same shape for robocall (`answeredAt` / `voicemailLeftAt`)                                                                                                                                                     |
-| `ContactInteractionDoorKnock`                  | `outcome`, three-way `supportAnswer`, `note`, `manual`, `sourceId`. Unique `[organizationSlug, sourceId]`. Written by the in-house door-knocking tool, never by outreach launch                                |
-| `ContactNote`                                  | Org-authored per-person notes (body ≤ 10k)                                                                                                                                                                     |
-| `PeerlyPhoneList` / `PeerlyPhoneListRecipient` | Capture tables: which people (and which phone per person) actually landed on a Peerly phone list. The phone↔person mapping the inbound sweep depends on                                                        |
-| `Outreach`                                     | Carries `organizationSlug` on new writes (legacy rows resolve org via campaign join), `voterFileFilterId?`, `phoneListId?`, `status`                                                                           |
-| `VoterOutreachActivity`                        | **Deprecated.** Read-only legacy feed rows; only remaining writer is the eCanvasser door-knock path (own removal workstream). No new writes                                                                    |
+| Model (table)                                  | Role / key facts                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VoterFileFilter`                              | The saved filter (UI "list"). ~60 demographic columns, `search`, `supportStatus`, `firstUsedForOutreachAt` (the lock), org FK cascade, plus `recommendedVariant` / `recommendedChannel` / `recommendedIntent` / `recommendedModified` — provenance stamped at create when the list came from a recommended-list card, never a filter criterion (`docs/features/recommended-lists.md`) |
+| `VoterFileFilterActivityCondition`             | Owned condition rows: `outreachType` + `outreachId?` (null = any campaign of that channel) + `actions[]` (`ActivityConditionAction` enum; per-channel validity is Zod-enforced at the boundary, 400 otherwise)                                                                                                                                                                        |
+| `ContactInteractionText`                       | Per-recipient send truth: `outreachId` FK, `respondedAt`, `optedOutAt`, `sourceEventId`, `manual`. Unique `[outreachId, personId]`                                                                                                                                                                                                                                                    |
+| `ContactInteractionRobocall`                   | Same shape for robocall (`answeredAt` / `voicemailLeftAt`, `sourceCallId`) — but **the outcome columns are only ever written by the manual log**; campaign-materialized rows have them null forever (ADR 0013)                                                                                                                                                                        |
+| `ContactInteractionDoorKnock`                  | `outcome`, three-way `supportAnswer`, `note`, `manual`, `sourceId`, `actorUserId`. Unique `[organizationSlug, sourceId]`. Written by the in-house door-knocking tool, never by outreach launch                                                                                                                                                                                        |
+| `ContactNote`                                  | Org-authored per-person notes (body ≤ 10k)                                                                                                                                                                                                                                                                                                                                            |
+| `PeerlyPhoneList` / `PeerlyPhoneListRecipient` | Capture tables: which people (and which phone per person) actually landed on a Peerly phone list. The phone↔person mapping the inbound sweep depends on                                                                                                                                                                                                                               |
+| `Outreach`                                     | Carries `organizationSlug` on new writes (legacy rows resolve org via campaign join), `voterFileFilterId?`, `phoneListId?`, `status`                                                                                                                                                                                                                                                  |
+| `VoterOutreachActivity`                        | **Deprecated.** Read-only legacy feed rows; only remaining writer is the eCanvasser door-knock path (own removal workstream). No new writes                                                                                                                                                                                                                                           |
 
 Outcome→column mapping used by filter resolution: SMS `responded` =
 `respondedAt` not null, `no_response` = null, `opted_out` = `optedOutAt`
 not null; robocall `answered`/`voicemail_left` from their timestamps,
 `no_answer` = both null; door knock from `outcome` and `supportAnswer`.
+
+**The three robocall actions do not mean what they read as (ADR 0013).** No
+robocall vendor is integrated, so campaign-materialized rows never get either
+timestamp: pinned to a campaign, `answered`/`voicemail_left` match zero people
+always and `no_answer` matches every recipient of that campaign. Only manual
+(`manual = true`, `outreachId` null) rows carry a real robocall outcome, and
+`resolveRobocall` does not consult `manual` — so unpinned conditions blend
+hand-logged observations with never-observed sends. Do not build reporting or
+a follow-up audience on these until the sweep in ADR 0013 exists.
+
+**Actor stamping (who-logged-it).** `ContactInteractionPhoneBanking`,
+`ContactNote`, `ContactStatus`, and `ContactInteractionDoorKnock` (ENG-10824)
+all carry the same `actorUserId Int? @map("actor_user_id")` +
+`actor User? @relation(..., onDelete: SetNull)` shape: nullable so existing
+rows render authorless (no backfill), and `SetNull` because attribution
+history must survive user deletion — unlike `Organization.owner`, which
+cascades. The manual/CRM write path stamps `request.user.id` via `@ReqUser()`
+(the pattern `phoneBanking.controller.ts` `recordCall` and
+`contactNotes.controller.ts` `createNote` set first); under impersonation
+`request.user` **is** the impersonated member, so attribution lands on the
+member, not the impersonating admin (`request.actorUser`). Door knock's
+second write path — the door-knocking tool's `recordIdempotent` sync — stamps
+the canvasser's id on `create` only; the `update` branch deliberately omits
+`actorUserId` so a re-sync of the same `sourceId` never clears or overwrites
+an existing stamp. The one exception: `emitLikelihoodEvent`'s derived
+`voter_likelihood` `ContactStatusEvent` always writes `actorUserId: null` — a
+canvass answer isn't attributed to a staff user, only the interaction row
+that produced it is. The activity feed surfaces the stamp as
+`actorName`/`actorUserId` (`ContactEngagementService`, `*_ACTOR_INCLUDE`
+constants), nullable in the contract so a legacy null row renders without
+an author instead of 500ing the feed.
 
 ## The flows
 
@@ -147,14 +195,16 @@ filters (`convertVoterFileFilterToFilters` in
 with a small page; person detail adds derived `supportStatus` and
 `optedOutAt` (`ContactInteractionTextService.latestOptOutAt`). The count
 endpoint runs the identical translation with `resultsPerPage: 1` and
-returns `{ count, fenced }` — `fenced` (ENG-10804) mirrors
-`pagination.fenced`: true when the people-db query layer's statement-timeout guard
-floored the total at `FENCE_LIMIT` (10k), a lower bound rather than an
-exact figure. `GET /v1/contacts`'s own `pagination.fenced` carries the
-same signal for the list total. The webapp renders a fenced count via
-`formatFencedCount` ("10,000+") and never persists it as an exact
-`voterCount`; the assistant's `count_contacts` tool reports it as "at
-least N".
+returns `{ count }`. A voter read that exceeds the warehouse's timeout fails
+loudly as a `GatewayTimeoutException` (504) rather than degrading into a
+floored or partial count — see `src/peopleDb/CLAUDE.md`.
+
+A `segment` is either a built-in name (`segmentsToFiltersMap.const.ts`) or a
+`VoterFileFilter` id this org owns. Anything else — malformed, deleted,
+cross-org — is a **404** (`resolveCustomSegment`), never "no filter". Widening
+an unresolvable segment to the whole district is the most expensive possible
+default: it served, and let `GET /v1/contacts/download` stream, every voter in
+the district with a 200.
 
 ### Activity-condition + support-status resolution
 
@@ -232,10 +282,10 @@ follow-up, not a one-line change.
 
 The wizard's "Prior contacts made" pill row (0/1/2/3/4/5+, Win-only — hidden for
 Serve like Political Party) counts every logged interaction ROW across
-`contact_interaction_text`/`_robocall`/`_door_knock`, regardless of outcome —
-a 3-attempt door-knock sync that logs 3 rows counts as 3. Six booleans on
-`VoterFileFilter` (`contactsMade0`…`contactsMade4`, `contactsMade5Plus`,
-5Plus meaning ≥5), added additively (migration
+`contact_interaction_text`/`_robocall`/`_door_knock`/`_phone_banking`,
+regardless of outcome — a 3-attempt door-knock sync that logs 3 rows counts
+as 3. Six booleans on `VoterFileFilter` (`contactsMade0`…`contactsMade4`,
+`contactsMade5Plus`, 5Plus meaning ≥5), added additively (migration
 `20260729042120_add_contacts_made_filter_columns`) and excluded from
 `convertVoterFileFilterToFilters`'s generic loop (`fieldsHandledSeparately`,
 same treatment as the `audience*` booleans) since they resolve through
@@ -244,7 +294,7 @@ same treatment as the `audience*` booleans) since they resolve through
 
 Resolution (`ContactsMadeResolutionService`, contactInteraction) runs one
 grouped SQL query per request — `SELECT person_id, COUNT(*) FROM (UNION ALL
-of the three tables) GROUP BY person_id HAVING <bucket predicate>` — never
+of the four tables) GROUP BY person_id HAVING <bucket predicate>` — never
 six per-bucket queries. Selection `S ⊆ {0,1,2,3,4,5}` maps to one of three
 shapes:
 
@@ -292,6 +342,91 @@ two legacy voter-file endpoints (`countVoterFilePeople`,
 `downloadVoterFilePeople`) which skip activity/support resolution entirely
 and so skip contacts-made too, by the same existing precedent.
 
+### Recommended-list filter dimensions
+
+Three dimensions added as groundwork for recommended lists. All resolve
+against `mart_gp_api.gp_api_voters`, the same table every other voter filter
+hits, and all four are persisted `VoterFileFilter` columns
+(`20260903190310_add_affinity_ideology_address_phone_filters`) so a saved
+list can express them.
+
+| Dimension            | Persisted columns                                                                   | Mart column                  | Wire filter key                      |
+| -------------------- | ----------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------ |
+| Independent affinity | `independentAffinity`                                                               | `Voter_Independent_Affinity` | `independentAffinity: { eq: 'Yes' }` |
+| Ideology             | `ideologyConservative` / `ideologyLiberal` / `ideologyModerate` / `ideologyUnknown` | `hf_ideology_general`        | `ideology: { in \| eq }`             |
+| Any phone            | `hasAnyPhone`                                                                       | the two `VoterTelephones_*`  | `hasAnyPhone: true`                  |
+
+`hasAnyPhone` already existed as a people-db filter key and SQL case, and
+also backs the phone-banking reachability tile and the `phoneBanking`
+built-in segment. What it lacked was a persisted column, so
+`voterFilterBaseSchema` silently stripped it on save and a list built with it
+lost the filter. `CountContactsDTO` no longer extends the base schema with
+`hasAnyPhone`; it is a real column now.
+
+**There is deliberately no has-address filter.** A sizing eval found
+`Residence_Addresses_AddressLine` 100% populated — zero null or empty across
+30.6M voters in CA, MD and LA — so the filter would match every voter and
+could never narrow a list. A column was added by
+`20260903190310` and dropped again by `20260903200114_drop_has_address_filter`
+rather than edited out of the first, which had already been applied to the
+PR's preview database. `hasAddress` survives as a people-db **wire** filter
+and SQL case. Both pre-date this work and are untouched by it; only the
+persisted column and the user-facing dimension are gone. What they back is
+the **`doorKnocking` reachability tile** — `buildListDetailAggregatesSql`
+emits `COUNT_IF(addressPresentSql()) AS doorKnocking` — NOT the
+`doorKnocking` built-in segment, which carries `filters: []` and has never
+filtered on address. Since the column is 100% populated, that tile always
+equals the list's total count; it predates this change and is a separate
+ticket, not a bug introduced here.
+
+**`independentAffinity` is an enum on the wire, not a boolean.**
+`Voter_Independent_Affinity` is a non-nullable BOOLEAN (no Unknown bucket
+exists — the file classifies everyone), so the presence-check path every
+other has-\* filter takes would compile to `IS NOT NULL` and match all 219M
+rows, silently un-filtering the request. `buildIndependentAffinityFilter`
+compares against `TRUE`/`FALSE` instead, and selecting both values is no
+constraint at all so it emits nothing.
+
+**Ideology's Unknown bucket is ~40% of the file.** It resolves through
+`VALUE_MAPPERS.ideology` (identity for the three real values, `null` for
+Unknown), so `buildMappedFieldFilter` turns it into `IS NULL` on its own and
+`OR`s the null branch when Unknown is mixed with real values — the same
+mechanism education/marital/gender use. Dropping it would return the
+complement of what was asked for. The mart column's third value is
+`Liberal`; the product labels it **Progressive**. The persisted key, wire
+value, and `VALUE_MAPPERS` entry all follow the data; only the label differs
+(`filterDimensions.catalog.ts` and the wizard both show Progressive).
+
+**Win/Serve.** `independentAffinity` **and `ideology`** are Win-only like
+party: `assertNoRecommendedListFilterForElectedOffice` 400s either at all
+five choke points the party gate covers, and both carry `modes: 'win'` in
+the catalog. Unlike party this is not a licensing rule but a product one —
+both describe how someone votes in a contested election, which has no
+meaning for an office holder who serves everyone in the district.
+`hasAnyPhone` stays `both`: plain contactability, and Serve runs phone
+banking and robocall too.
+
+This Win gate and the webapp's own visibility prop are **two independent
+mechanisms** and both apply. The prop decides whether a surface renders the
+groups; the Win gate decides who may filter on them at all, permanently, and
+holds regardless of what any surface renders.
+
+**Phone interaction.** Three phone booleans now exist and they AND together.
+`hasAnyPhone` is the OR of the other two, so it cannot be expressed by
+combining them — hence its own option. Every phone value is presence-only,
+so a combination is **redundant, never contradictory** (`hasAnyPhone AND
+hasCellPhone` is just `hasCellPhone`): the resolver keeps plain AND
+semantics rather than 400ing or dropping a key, and the wizard is what makes
+the three mutually exclusive of the "any" option. A saved row carrying both
+still resolves the obvious way.
+
+**Visibility is a webapp concern only.** Which surfaces render the three
+groups is decided there (`VoterFileStep`'s `showRecommendedListFilters`); the
+columns, contract, translation, SQL and the dimensions catalog all ship
+unconditionally, so a saved list resolves whatever rendered it. The AI
+assistant therefore advertises these dimensions wherever the catalog reaches,
+independent of any UI.
+
 ### Door-knock willVote writes a voter_likelihood override (ENG-10841)
 
 The door-knocking tool's `willVote` answer (yes/no/unsure) is the one
@@ -337,8 +472,13 @@ not a speculative guard.
 ### Saved-filter lifecycle
 
 Create/edit via the wizard (or the assistant's `crud_saved_filters`) →
-`voters/voter-file` CRUD. At first outreach launch
-`stampFirstUsedForOutreach` claims the lock atomically
+`voters/voter-file` CRUD. The assistant is told to disclose when a
+candidate's ask has no real filter behind it (a county, city, or zip, for
+example) and to confirm with them before counting or saving under that
+wording. As a last-resort backstop, `crud_saved_filters` also silently
+refuses to create or rename a list under a name the filter cannot back up
+(a place word with no precinct narrowing behind it). At first outreach
+launch `stampFirstUsedForOutreach` claims the lock atomically
 (`updateMany WHERE first_used_for_outreach_at IS NULL`) — after that,
 PUT/DELETE 409 ("duplicate to edit"; the webapp reposts criteria as a
 copy). The stamp happens **before** the channel guard in materialization,
@@ -350,9 +490,11 @@ so channels without an interaction model still lock the filter.
 
 1. Stamp the filter lock (if a filter is attached — p2p can carry a phone
    list without one).
-2. Only `text | p2p | robocall` materialize. `doorKnocking` is permanently
-   excluded (the door-knock tool writes its own rows);
-   `phoneBanking`/`socialMedia` have no model yet.
+2. Only `text | p2p | robocall` materialize. `doorKnocking` and
+   `phoneBanking` are permanently excluded — each writes its own rows from
+   its own logging endpoint (the phone-banking call-outcome endpoint,
+   `src/phoneBanking/`, ENG-10915) rather than at launch; `socialMedia` has
+   no model yet.
 3. p2p/text with a captured Peerly phone list: rows come from
    `PeerlyPhoneListRecipient` — the actual SMS-reachable recipients — one
    `ContactInteractionText` per person (`createMany` +
@@ -412,8 +554,8 @@ has no signed webhook):
 
 Tools are **in-code functions with Zod schemas** (foreground CAP agent
 pattern — explicitly not MCP): `crm-tools/` builders registered in the
-campaign-manager handler (Win, gated `win-crm`) and chief-of-staff
-handler (Serve, gated `serve-crm`). Each tool calls the same services as
+campaign-manager handler (Win, unconditional) and chief-of-staff
+handler (Serve, unconditional). Each tool calls the same services as
 the UI routes in the user's org context, so mode rules, Pro gates, and
 free-tier rules are inherited, never re-implemented. **No tool returns an
 individual voter row** — aggregates, dimension metadata, and filter
@@ -440,34 +582,36 @@ scope.
 
 ## Access control and mode rules
 
-| Rule                              | Enforcement                                                                                                                                                                                                                                                                                                                                                                                    |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Win contacts access is default-on | The `win-voter-data` flag gate was removed 2026-07-20 (PRs #885–#887); `assertContactsAccess` is gone. Any Win campaign reaches the page                                                                                                                                                                                                                                                       |
-| Pro is per-action, not page-level | Non-Pro Win: real district aggregates + a **synthetic** preview (`utils/previewContacts.utils.ts` — fabricated rows, never real PII; `totalResults` is set to the real count so the stat card doesn't regress). `findContacts` rejects search/named segments; `findPerson`, `countContacts`, `downloadContacts`, notes, and interactions all reject non-Pro (`PRO_FILTERING_REQUIRED_MESSAGE`) |
-| Serve = `eo-` slug prefix         | `hasElectedOfficeAccess`; Serve orgs are license-equivalent to Pro                                                                                                                                                                                                                                                                                                                             |
-| Party never reaches Serve         | `stripPartyIfElectedOffice` (list + detail + typeahead), download drops party (plus turnout propensity + vote history, ENG-10830) via projection, party **filters** 400 (`assertNoPartyFilterForElectedOffice`), and the dimensions catalog hides party. A party value in any `eo-` response is a bug — there's a party-leak test suite                                                        |
-| CRM UI flags                      | `win-crm` / `serve-crm` (Amplitude) gate the CRM page (`useCrmEnabled`, mode-aware: serve-crm decides for Serve, win-crm for Win) and the assistant tools. Independent ramp cadences                                                                                                                                                                                                           |
-| Free tier / AI                    | District stats stay open to non-Pro; counts are Pro-gated like search (the assistant's `count_contacts` recognizes `PRO_FILTERING_REQUIRED_MESSAGE` and suggests the upgrade); assistant tools are aggregate-only by construction                                                                                                                                                              |
+| Rule                              | Enforcement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Win contacts access is default-on | The `win-voter-data` flag gate was removed 2026-07-20 (PRs #885–#887); `assertContactsAccess` is gone. Any Win campaign reaches the page                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Pro is per-action, not page-level | Non-Pro Win: real district aggregates + a **synthetic** preview (`utils/previewContacts.utils.ts` — fabricated rows, never real PII; `totalResults` is set to the real count so the stat card doesn't regress). `findContacts` rejects search/named segments; `findPerson`, `countContacts`, `downloadContacts`, notes, and interactions all reject non-Pro (`PRO_FILTERING_REQUIRED_MESSAGE`). **Every pro gate refuses with a `ForbiddenException` (403), never a `BadRequestException`** — a paywall refusal is an entitlement answer, not a malformed request. Alerting is why it changed (one free-tier user hitting the gate used to page the on-call, back when `EXCLUDED_STATUS_CODES` in `deploy/components/alerting/controller-alerts.ts` counted 400) but no longer why it holds: that list excludes 400 now too, and 403 stays because it is the honest status. The same rule holds for `FILTER_PRO_REQUIRED_MESSAGE` (`voters/services/voterFileFilter.service.ts`) and `assertProAccess`, which door knocking, phone banking, and outreach all call                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Serve = `eo-` slug prefix         | `hasElectedOfficeAccess`; Serve orgs are license-equivalent to Pro                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Affinity + ideology are Win-only  | `assertNoRecommendedListFilterForElectedOffice` 400s either at the same five choke points the party gate covers, and the dimensions catalog marks both `modes: 'win'`. Not a licensing rule like party — a permanent product rule, and a separate mechanism from the webapp's own visibility prop; see the recommended-list dimensions section                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Party never reaches Serve         | `stripPartyIfElectedOffice` (list + detail + typeahead), download drops party (plus turnout propensity + vote history, ENG-10830) via projection, party **filters** 400 (`assertNoPartyFilterForElectedOffice`), the door-knocking route payload nulls it per target (`doorKnockingServe.service.ts`, which also declares `isServe` so the two paper surfaces can read one field rather than re-derive the prefix), and the dimensions catalog hides party. A party value in any `eo-` response is a bug — there's a party-leak test suite, in `contacts.service.test.ts` and in `doorKnocking.routes.test.ts`                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Free tier / AI                    | District stats stay open to non-Pro; counts are Pro-gated like search (the assistant's `count_contacts` recognizes `PRO_FILTERING_REQUIRED_MESSAGE` and suggests the upgrade); assistant tools are aggregate-only by construction                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Team accounts (ENG-11025)         | `GET /v1/contact-engagement/:id/activities` (`UseEngagementContextGuard`) resolves org access via `OrganizationMembershipService.resolveRole` and now admits an org's `owner` or a `campaignAdmin` member, not just the owner; a `volunteer` membership row is denied. `eo-` (Serve) orgs stay owner-only regardless of role — Serve staff accounts are a Phase-1 non-goal. Voter-file download (`CanDownloadVoterFileGuard`) uses the same role resolution plus its own plan/eligibility check; `volunteer` is denied there too. **Carve-out (ENG-11057):** the four notes routes (`contactNotes.controller.ts`) carry `@AllowVolunteer()` and give a volunteer full CRUD scoped to people they can reach through an `OutreachAssignment` on a phone-banking or door-knocking envelope (`ContactNoteVolunteerAccessService`, `src/contactNote/`, mirroring the ENG-11050 phone-banking admission check — 404, not 403, on an unreachable person or note) — every other volunteer-denying surface in this table is unchanged |
 
 ## Debugging playbook
 
 First stop for prod issues: Grafana Loki
 `{service_name="gp-api", deployment_environment_name="prod"}`. Frontend errors: Sentry org `goodparty`.
 
-| Symptom                                                      | Where to look                                                                                                                                                                                                                                                          |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Count ≠ what outreach reached                                | Count is dynamic (filter re-resolved now); the send used the phone-list capture at launch. Compare `PeerlyPhoneListRecipient` rows vs a fresh `findContactsForFilter`. Also: channel reachability (SMS needs a cell phone) trims at phone-list build, not in the count |
-| Outcome filter matches nothing                               | Expected for pre-feature-5 sends (collect-forward, no backfill). Check the outreach's `ContactInteractionText` rows exist and sweeps ran                                                                                                                               |
-| responded/opted-out never appears                            | Inbound sweep: is the job in the sweep window (anchored on scheduled send date)? Do capture rows exist for the phone list (phone→person mapping)? Check `sourceEventId` idempotency collisions and Loki for sweep errors                                               |
-| "Specific campaign" missing from the wizard's campaign chips | Only **completed** outreaches qualify; the completion sweep infers from Peerly `end_date` — a stale/never-run job can sit `in_progress` (ENG-10739 fixed the predicate; ENG-10740 tracks CDR truth)                                                                    |
-| 409 on filter edit/delete                                    | `firstUsedForOutreachAt` is stamped — by design (duplicate to edit). A filter `updatedAt` newer than its stamp would be a real bug                                                                                                                                     |
-| Party visible to a Serve org                                 | The choke points are `stripPartyIfElectedOffice` + the download projection. Treat as a sev bug (license)                                                                                                                                                               |
-| Non-Pro sees real voter rows                                 | Must be impossible — `previewContacts.utils.ts` fabricates rows. Check nothing bypasses `findContacts`'s pro branch                                                                                                                                                    |
-| Empty contacts page on dev                                   | Dev people-db genuinely lacks person rows for many districts (district-specific, not dev-wide). Stats can exist while rows don't — warned on since ENG-10745. Cheyenne WY 82001 has dev rows                                                                           |
-| Typeahead empty / slow                                       | pg_trgm GIN indexes on `lower(FirstName)`/`lower(LastName)` per state partition. They are rebuilt by the data platform's cluster-rebuild loader — a manual index not registered with the loader vanishes at the next ETL rebuild (see `src/peopleDb/CLAUDE.md`)        |
-| Filter 400 "too many ids"                                    | The 100k id-set cap in `src/peopleDb`'s filter pipeline — an activity/support condition resolved to more people than the transport allows. Logged; the projection fallback is the designed escape                                                                      |
-| Assistant refuses / weird tool behavior                      | Flags `win-crm`/`serve-crm` for the user (server-evaluated); locked-filter 409 surfaces as an explanation. Note gp-api-dev evaluates flags against the PROD Amplitude project                                                                                          |
-| Feed missing legacy Win outreach rows                        | Legacy `VoterOutreachActivity` rows render only during the sunset and only for Win; new channels need a feed-mapping branch in `ContactEngagementService` + a `ConstituentActivity` variant                                                                            |
+| Symptom                                                        | Where to look                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Count ≠ what outreach reached                                  | Count is dynamic (filter re-resolved now); the send used the phone-list capture at launch. Compare `PeerlyPhoneListRecipient` rows vs a fresh `findContactsForFilter`. Also: channel reachability (SMS needs a cell phone) trims at phone-list build, not in the count                                                                                                                                                                                                                                                                                                |
+| Outcome filter matches nothing                                 | Expected for pre-feature-5 sends (collect-forward, no backfill). Check the outreach's `ContactInteractionText` rows exist and sweeps ran                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| responded/opted-out never appears                              | Inbound sweep: is the job in the sweep window (anchored on scheduled send date)? Do capture rows exist for the phone list (phone→person mapping)? Check `sourceEventId` idempotency collisions and Loki for sweep errors                                                                                                                                                                                                                                                                                                                                              |
+| "Specific campaign" missing from the wizard's campaign chips   | Only **completed** outreaches qualify; the completion sweep infers from Peerly `end_date` — a stale/never-run job can sit `in_progress` (ENG-10739 fixed the predicate; ENG-10740 tracks CDR truth)                                                                                                                                                                                                                                                                                                                                                                   |
+| 409 on filter edit/delete                                      | `firstUsedForOutreachAt` is stamped — by design (duplicate to edit). A filter `updatedAt` newer than its stamp would be a real bug                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Party visible to a Serve org                                   | The choke points are `stripPartyIfElectedOffice` + the download projection. Treat as a sev bug (license)                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Non-Pro sees real voter rows                                   | Must be impossible — `previewContacts.utils.ts` fabricates rows. Check nothing bypasses `findContacts`'s pro branch                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Empty contacts page on dev                                     | The dev voter mart genuinely lacks person rows for many districts (district-specific, not dev-wide). Stats can exist while rows don't — warned on since ENG-10745. Cheyenne WY 82001 has dev rows                                                                                                                                                                                                                                                                                                                                                                     |
+| `VOTER_DATA_UNAVAILABLE` on an org that clearly has a district | Two different failures share that error code: `resolveDistrictInfoFromOrg` found no district at all, **or** the district resolved but has no `DistrictStats` row (`fetchStatsByDistrictId`, and the sample read on the poll-send path). Deliberate — they're the same user-facing state, and callers gate on the code, not the cause. The code lives in `shared/constants/voterData.consts.ts` rather than here, because `peopleDb/` raises it too and must not depend on contacts. Check `gp_api_district_stats` for the resolved `districtId` to tell the two apart |
+| Typeahead empty / slow                                         | Name search is `lower(col) LIKE` over the mart (`buildSearchSql`), with a 3-character minimum on substring tokens. A slow one is warehouse queue/startup time — check the `people-db voter read` log line's `dbxMs` and `statementIds` against Databricks query history (see `src/peopleDb/CLAUDE.md`)                                                                                                                                                                                                                                                                |
+| Filter 400 "too many ids"                                      | The 100k id-set cap in `src/peopleDb`'s filter pipeline — an activity/support condition resolved to more people than the transport allows. Logged; the projection fallback is the designed escape                                                                                                                                                                                                                                                                                                                                                                     |
+| Assistant refuses / weird tool behavior                        | Tools register whenever `contacts` + the organization resolve — no flag, for either mode. Locked-filter 409 surfaces as an explanation                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Feed missing legacy Win outreach rows                          | Legacy `VoterOutreachActivity` rows render only during the sunset and only for Win; new channels need a feed-mapping branch in `ContactEngagementService` + a `ConstituentActivity` variant                                                                                                                                                                                                                                                                                                                                                                           |
 
 Useful SQL truths: derived support status =
 `DISTINCT ON (organization_slug, person_id) … ORDER BY occurred_at DESC`
@@ -480,21 +624,34 @@ over interaction rows with a non-null `support_answer`; a "list" =
   join); never assume it's set.
 - `ContactInteractionText.unsubscribedAt` was dropped before anything
   wrote it (SMS "unsubscribed" folded into `opted_out`, 2026-07-16).
-- Support answers are captured by door knocking only (for now); the
-  filter buckets exist in **both** modes.
+- Support answers are captured by door knocking and phone banking
+  (`SupportStatusService.derivedStatusSql` UNIONs both
+  `contact_interaction_door_knock` and `contact_interaction_phone_banking`,
+  ENG-10915); the filter buckets exist in **both** modes.
 - No paginated member browsing anywhere, by locked design — the list
   detail never shows people; individuals are reached via typeahead only.
   Don't add a member table.
 - Reachability has five channels: sms, robocall, phoneBanking, doorKnocking,
   polls. `email`/`metaAds` were removed (ENG-10783, no data source ever
   existed for them); `polls` mirrors the sms (has-cell-phone) count 1:1.
-- `fetchListDetailAggregates`'s four people-db aggregate calls (base, cellphone,
-  landline, address) settle independently (ENG-10806, `Promise.allSettled`):
-  a failed cellphone/landline/address call nulls only the reachability
-  channels it backs (`ListDetailReachabilitySchema`'s channels are
-  nullable) — the route still 200s and the other tiles render real numbers.
-  Only a failed base call still 502s (`BadGatewayException`); there's
-  nothing to show without it.
+  `phoneBanking` is reachable-by-any-phone (cell OR landline non-null,
+  ENG-10914) — it used to mirror `robocall`'s landline-only count, but the
+  list builder freezes any phone (cell first), so the tile now agrees with
+  the built list. `robocall` stays landline-only. The `hasAnyPhone`
+  filter key (`src/peopleDb/databricks/databricksVoterSql.util.ts`) backs
+  the tile, the `phoneBanking` entry in `segmentsToFiltersMap.const.ts`
+  (the built-in CRM segment/CSV export), AND the persisted filter column of
+  the same name — one predicate, so a tile and a list built from it agree.
+- `fetchListDetailAggregates` makes ONE people-db call
+  (`VoterQueryService.getListDetailAggregates`) and the whole payload is
+  all-or-nothing: the demographics and every channel come from a single
+  conditional-aggregate statement, so a failure 502s the route rather than
+  degrading a tile. Five statements per request was itself the problem — it
+  was ~half of prod's Databricks statement volume and pushed a serverless
+  X-Small warehouse past the ~10-in-flight point where it provisions new
+  compute and bills a flat 3-5s wait. `ListDetailReachabilitySchema`'s
+  channels stay nullable for the webapp's "Unavailable" tile, but nothing
+  emits null any more.
 - Age filter ranges are mutually exclusive since ENG-10752/10753; the
   catalog + `voterFilterBase.schema.ts` own the vocabulary.
 - Download does not re-apply a stored `search` (the download path has no
@@ -513,7 +670,9 @@ over interaction rows with a non-null `support_answer`; a "list" =
   `tests/contactsOptedOutChip.routes.test.ts`,
   `tests/contactsAgeFilters.routes.test.ts`,
   `tests/contactsVoterLikelihoodOverride.routes.test.ts`,
-  `tests/contactsMade.routes.test.ts`, `contacts.e2e.ts`.
+  `tests/contactsMade.routes.test.ts`,
+  `tests/contactsAffinityIdeologyFilters.routes.test.ts`,
+  `contacts.e2e.ts`.
   Assistant/UI parity: `chats/general/crm-tools/countContactsParity.routes.test.ts`.
 - Resolution + derivation: `src/contactInteraction/tests/`, including
   `contactsMadeResolution.service.test.ts` (the bucket SQL + the
@@ -524,8 +683,9 @@ voter_likelihood override events` describe block in
   `src/doorKnocking/tests/doorKnocking.routes.test.ts` (mapping,
   re-sync/correction no-op, eo- skip); the feed rendering in
   `src/contactEngagement/tests/contactEngagement.routes.test.ts`.
-- `src/peopleDb` SQL builders: `filters.sql.util.test.ts` pattern (assert
-  SQL string + params; mock-based, no live DB — see `src/peopleDb/CLAUDE.md`).
+- `src/peopleDb` SQL builders: `databricksVoterSql.util.test.ts` pattern
+  (assert SQL string + params; mock-based, no live warehouse — see
+  `src/peopleDb/CLAUDE.md`).
 - Webapp e2e (hard merge gate): `e2e-tests/tests/app/contacts/*.spec.ts`
   — flags forced via the override cookie; the assistant spec stubs the
   whole chat round trip (and blocks service workers so stubs intercept).

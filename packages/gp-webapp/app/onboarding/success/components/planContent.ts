@@ -1,9 +1,6 @@
 import { VOTER_CONTACT_SCHEDULE } from '@goodparty_org/contracts'
 import { dateUsHelper } from 'helpers/dateHelper'
-import type {
-  CommunityEventsData,
-  StrategicLandscapeData,
-} from 'gpApi/api-endpoints'
+import type { StrategicLandscapeData } from 'gpApi/api-endpoints'
 import type { RaceCandidate, RaceMilestones } from 'helpers/types'
 import {
   computeBudget,
@@ -85,6 +82,10 @@ export interface PlanInput {
   registeredVoters: number | null
   uniqueCellphones: number | null
   uniqueLandlines: number | null
+  projectedTurnoutLower: number | null
+  projectedTurnoutUpper: number | null
+  winNumberLower: number | null
+  winNumberUpper: number | null
   raceCandidates: RaceCandidate[]
   // Per-category BR milestone windows. Null when election-api couldn't
   // fetch them; individual category nullable when BR has no data for it.
@@ -96,16 +97,9 @@ export interface PlanInput {
   // raceCandidates + the legacy runningAgainst + hubspotIncumbent fallback
   // for opponents and is the only source for opportunities + challenges.
   strategicLandscape?: StrategicLandscapeData
-  // Community events from /campaignStrategy/mine/community-events.
-  // Undefined while polling or on error; when present overrides the
-  // templated `buildCivicEvents` fallback rows. An empty events array is
-  // a meaningful "ready, found nothing" state — the section renders an
-  // empty state without falling back to templates.
-  communityEvents?: CommunityEventsData
-  // Press outlets from GET /v1/onboarding/local-news. Same semantics as
-  // communityEvents — undefined while polling or on error, real array
-  // (possibly empty) when ready. Falls back to `buildPressOutlets`
-  // templated rows when undefined.
+  // Press outlets from GET /v1/onboarding/local-news. Undefined while polling
+  // or on error, real array (possibly empty) when ready. Falls back to
+  // `buildPressOutlets` templated rows when undefined.
   pressOutletsFromApi?: ApiPressOutlet[]
   // Top voter issues from GET /v1/onboarding/voter-issues. Already fetched
   // in an earlier onboarding step (TopVoterIssuesSection), so we read it
@@ -175,13 +169,6 @@ export interface FundraisingRow {
   share: string
 }
 
-export interface CivicEvent {
-  event: string
-  address: string
-  date: string
-  why: string
-}
-
 export interface PressOutlet {
   outlet: string
   type: string
@@ -242,21 +229,14 @@ export interface PlanData {
   contactWindowStart: string
 
   winNumber: number
-  winNumberLow: number
-  winNumberHigh: number
   projectedTurnout: number
-  projectedTurnoutLow: number
-  projectedTurnoutHigh: number
   registeredVoters: number
-  registeredVotersLow: number
-  registeredVotersHigh: number
   voterContactGoal: number
 
   opponentCount: number
   volunteerHourTarget: number
   totalBudget: number
   averageTouchesPerVoter: number
-  eventCount: number
   mediaCount: number
 
   weeksRemaining: number
@@ -284,7 +264,6 @@ export interface PlanData {
   totalCampaignHours: number
   fundraisingMix: FundraisingRow[]
 
-  civicEvents: CivicEvent[]
   pressOutlets: PressOutlet[]
 
   contactSchedule: ContactSend[]
@@ -305,7 +284,6 @@ const buildTimeline = (
   filingDateStart: Date | null,
   filingDateEnd: Date | null,
   milestones: RaceMilestones | null,
-  eventCount: number,
   stateCode: string,
 ): {
   timeline: TimelineRow[]
@@ -419,9 +397,11 @@ const buildTimeline = (
       ? `${NO_DEADLINE_COPY} Local pre-registration: ${voterRegTierNote}.`
       : NO_DEADLINE_COPY
 
-  // Universal VBM states (CA, CO, etc.) have no real request deadline —
-  // ballots auto-mail to all active voters. Drop the milestone entirely
-  // for those rather than render a misleading row.
+  // Universal VBM states (CA, CO, etc.) have no request window at all —
+  // ballots auto-mail to all active voters. Drop both the request-opens
+  // and request-deadline milestones for those rather than render a
+  // misleading row (the opens row otherwise falls back to E-45, which put
+  // a Sept 19 "absentee" date on a CA November plan).
   const absenteeOmitted = curated?.absentee.isUniversalVbm === true
   const requestBallotEnd =
     parseDateIso(curated?.absentee.date ?? null) ??
@@ -478,14 +458,18 @@ const buildTimeline = (
           'Last day for in-person early voting in most jurisdictions.',
         ),
       },
-      {
-        date: requestBallotStart,
-        milestone: 'Absentee ballot request opens',
-        notes: sourceNote(
-          requestBallotStartIsReal,
-          'Plan introduction text and robocall campaigns to land before this date.',
-        ),
-      },
+      ...(absenteeOmitted
+        ? []
+        : [
+            {
+              date: requestBallotStart,
+              milestone: 'Absentee ballot request opens',
+              notes: sourceNote(
+                requestBallotStartIsReal,
+                'Plan introduction text and robocall campaigns to land before this date.',
+              ),
+            },
+          ]),
       // REGISTRATION.OPEN is the only row with no good E-offset fallback —
       // registration is year-round in most states. Show only when BR has a
       // real date so we don't render an invented one.
@@ -547,19 +531,19 @@ const buildTimeline = (
       date: filing,
       description: 'Nomination papers filed with Town Clerk.',
     },
-    {
-      date: requestBallotStart,
-      description:
-        'Absentee / mail ballot requests open. First voter contact must land by this date.',
-    },
+    ...(absenteeOmitted
+      ? []
+      : [
+          {
+            date: requestBallotStart,
+            description:
+              'Absentee / mail ballot requests open. First voter contact must land by this date.',
+          },
+        ]),
     {
       date: addDays(electionDate, -20),
       description:
-        eventCount > 0
-          ? `${eventCount} community event${
-              eventCount === 1 ? '' : 's'
-            } that you should personally attend.`
-          : 'Identify community events in your area to attend in person.',
+        'Identify community events in your area to attend in person.',
     },
     voterRegHasNoDeadline
       ? {
@@ -607,23 +591,6 @@ const buildContactSchedule = (electionDate: Date | null): ContactSend[] => {
   }))
 }
 
-const buildCivicEvents = (
-  communityEvents: CommunityEventsData | undefined,
-): CivicEvent[] => {
-  // Only renders real LLM-sourced events. If the endpoint hasn't resolved
-  // or errored, returns []; the renderer shows an empty/skeleton state
-  // rather than templated rows with invented event names and dates.
-  // `address` is the venue's physical street address from BR/search,
-  // null when the search data had no address.
-  if (!communityEvents) return []
-  return communityEvents.events.map((e) => ({
-    event: e.title,
-    address: e.address ?? '',
-    date: dateUsHelper(e.date),
-    why: e.description,
-  }))
-}
-
 const OUTLET_TYPE_LABEL: Record<ApiPressOutlet['type'], string> = {
   TV: 'Television',
   print: 'Print',
@@ -639,7 +606,7 @@ const formatOutletContact = (outlet: ApiPressOutlet): string =>
 
 // Returns empty when the local-news endpoint hasn't resolved yet — the
 // renderer shows a skeleton on the empty + generating combination so the
-// user never sees stale templated rows. Mirrors the civicEvents handling.
+// user never sees stale templated rows.
 const buildPressOutlets = (
   outletsFromApi: ApiPressOutlet[] | undefined,
 ): PressOutlet[] => {
@@ -825,9 +792,9 @@ const GLOSSARY: GlossaryRow[] = [
       'The share of records in a voter file that are successfully appended with a phone number from a commercial data vendor.',
   },
   {
-    term: 'Standard Error / 95% CI',
+    term: '70% prediction interval',
     definition:
-      'A range around an estimate such that, under the modeling assumptions, the true value is expected to fall within the range 95% of the time.',
+      "A range around a projection, measured from how far the model's past projections landed from actual results. The true value is expected to fall inside it about 70% of the time.",
   },
   {
     term: 'GOTV',
@@ -840,7 +807,6 @@ const buildPlanAtAGlance = (
   projectedTurnout: number,
   contactWindowStart: string,
   electionDate: string,
-  eventCount: number,
 ): { title: string; body: string }[] => [
   {
     title: 'Voter turnout is the ball game.',
@@ -856,12 +822,7 @@ const buildPlanAtAGlance = (
   },
   {
     title: 'Show up in person.',
-    body:
-      eventCount > 0
-        ? `${eventCount} high-density community event${
-            eventCount === 1 ? '' : 's'
-          } during your campaign carry more weight per hour than any paid channel.`
-        : 'Attending community events in person carries more weight per hour than any paid channel.',
+    body: 'Attending community events in person carries more weight per hour than any paid channel.',
   },
   {
     title: 'Message discipline.',
@@ -1012,39 +973,37 @@ const DATA_SOURCES: DataSourceRow[] = [
   },
 ]
 
+// The model supplies an interval for turnout and, through the win-number
+// math, for votes needed. It has none for registered voters, which is a count
+// rather than a projection, so that row shows no range at all.
+const formatRange = (low: number | null, high: number | null): string =>
+  low !== null && high !== null
+    ? `${low.toLocaleString('en-US')}–${high.toLocaleString('en-US')}`
+    : ''
+
 const buildConfidenceEstimates = (
   registeredVoters: number,
-  registeredVotersLow: number,
-  registeredVotersHigh: number,
   projectedTurnout: number,
-  projectedTurnoutLow: number,
-  projectedTurnoutHigh: number,
+  projectedTurnoutRange: string,
   winNumber: number,
-  winNumberLow: number,
-  winNumberHigh: number,
+  winNumberRange: string,
 ): ConfidenceRow[] => [
   {
     estimate: 'Registered voters',
     pointValue: registeredVoters.toLocaleString('en-US'),
-    range: `${registeredVotersLow.toLocaleString(
-      'en-US',
-    )}–${registeredVotersHigh.toLocaleString('en-US')}`,
+    range: '',
     notes: 'Based on the latest voter file for your district.',
   },
   {
     estimate: 'Projected voter turnout',
     pointValue: projectedTurnout.toLocaleString('en-US'),
-    range: `${projectedTurnoutLow.toLocaleString(
-      'en-US',
-    )}–${projectedTurnoutHigh.toLocaleString('en-US')}`,
+    range: projectedTurnoutRange,
     notes: 'Based on 3-cycle turnout average.',
   },
   {
     estimate: 'Projected votes needed to win',
     pointValue: winNumber.toLocaleString('en-US'),
-    range: `${winNumberLow.toLocaleString(
-      'en-US',
-    )}–${winNumberHigh.toLocaleString('en-US')}`,
+    range: winNumberRange,
     notes: 'Moves with the targeted voters.',
   },
 ]
@@ -1081,11 +1040,6 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     winNumber,
   )
 
-  const winNumberLow = Math.max(0, Math.round(winNumber * 0.9))
-  const winNumberHigh = Math.round(winNumber * 1.1)
-  const projectedTurnoutLow = Math.max(0, Math.round(projectedTurnout * 0.9))
-  const projectedTurnoutHigh = Math.round(projectedTurnout * 1.1)
-
   // Prefer the real registered-voter count from election-api when present.
   // Falls back to the ~22%-turnout heuristic on projectedTurnout when the
   // race hash didn't resolve or upstream data is sparse.
@@ -1095,8 +1049,6 @@ export const buildPlanData = (input: PlanInput): PlanData => {
       : projectedTurnout > 0
         ? Math.round(projectedTurnout / 0.22)
         : 0
-  const registeredVotersLow = Math.max(0, Math.round(registeredVoters * 0.9))
-  const registeredVotersHigh = Math.round(registeredVoters * 1.1)
 
   const averageTouchesPerVoter =
     projectedTurnout > 0
@@ -1121,13 +1073,7 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     : []
   const totalCampaignHours = campaignHours.totalHours
 
-  // civicEvents must be computed before buildTimeline so the Section 6
-  // keyDates entry can substitute the actual event count instead of a
-  // raw `{N}` placeholder. pressOutlets has no such dependency but is
-  // grouped here with civicEvents for clarity.
-  const civicEvents = buildCivicEvents(input.communityEvents)
   const pressOutlets = buildPressOutlets(input.pressOutletsFromApi)
-  const eventCount = civicEvents.length
   const mediaCount = pressOutlets.length
 
   const { timeline, keyDates } = buildTimeline(
@@ -1135,27 +1081,21 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     filingDateStart,
     filingDateEnd,
     input.milestones,
-    eventCount,
     input.state,
   )
   const contactSchedule = buildContactSchedule(electionDateValid)
 
   const confidenceEstimates = buildConfidenceEstimates(
     registeredVoters,
-    registeredVotersLow,
-    registeredVotersHigh,
     projectedTurnout,
-    projectedTurnoutLow,
-    projectedTurnoutHigh,
+    formatRange(input.projectedTurnoutLower, input.projectedTurnoutUpper),
     winNumber,
-    winNumberLow,
-    winNumberHigh,
+    formatRange(input.winNumberLower, input.winNumberUpper),
   )
   const planAtAGlance = buildPlanAtAGlance(
     projectedTurnout,
     contactWindowStart,
     electionDate,
-    eventCount,
   )
 
   const opponents = buildOpponents(
@@ -1246,20 +1186,13 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     planGenerationDate,
     contactWindowStart,
     winNumber,
-    winNumberLow,
-    winNumberHigh,
     projectedTurnout,
-    projectedTurnoutLow,
-    projectedTurnoutHigh,
     registeredVoters,
-    registeredVotersLow,
-    registeredVotersHigh,
     voterContactGoal,
     opponentCount,
     volunteerHourTarget,
     totalBudget,
     averageTouchesPerVoter,
-    eventCount,
     mediaCount,
     weeksRemaining,
     filingDateStart: formatDateMaybe(input.filingDateStartIso),
@@ -1281,7 +1214,6 @@ export const buildPlanData = (input: PlanInput): PlanData => {
     timeBreakdown,
     totalCampaignHours,
     fundraisingMix: FUNDRAISING_MIX,
-    civicEvents,
     pressOutlets,
     contactSchedule,
     dataSources: DATA_SOURCES,

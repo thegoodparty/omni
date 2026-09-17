@@ -26,6 +26,8 @@ const sampleCampaign = {
   isDemo: false,
   didWin: null,
   primaryResult: null,
+  ballotStatus: null,
+  signupGoal: null,
   dateVerified: null,
   tier: null,
   formattedAddress: null,
@@ -56,14 +58,12 @@ describe('CampaignStrategyController', () => {
   let controller: CampaignStrategyController
   let service: {
     getOrGenerateStrategicLandscape: ReturnType<typeof vi.fn>
-    getOrGenerateCommunityEvents: ReturnType<typeof vi.fn>
     existsForCampaign: ReturnType<typeof vi.fn>
   }
 
   beforeEach(() => {
     service = {
       getOrGenerateStrategicLandscape: vi.fn(),
-      getOrGenerateCommunityEvents: vi.fn(),
       existsForCampaign: vi.fn(),
     }
     controller = new CampaignStrategyController(
@@ -139,52 +139,5 @@ describe('CampaignStrategyController', () => {
     await expect(
       controller.generateStrategicLandscape(sampleCampaign, reply),
     ).rejects.toThrow('gemini exploded')
-  })
-
-  describe('generateCommunityEvents', () => {
-    it('returns the ready body and leaves default 200 status when cached', async () => {
-      const data = {
-        events: [
-          {
-            title: 'Town Hall',
-            description: 'Why',
-            date: '2026-10-15',
-            address: null,
-            url: null,
-          },
-        ],
-      }
-      service.getOrGenerateCommunityEvents.mockResolvedValueOnce({
-        status: 'ready',
-        data,
-      })
-      const { reply, status } = buildReply()
-
-      const result = await controller.generateCommunityEvents(
-        sampleCampaign,
-        reply,
-      )
-
-      expect(service.getOrGenerateCommunityEvents).toHaveBeenCalledWith(
-        sampleCampaign,
-      )
-      expect(result).toEqual({ status: 'ready', data })
-      expect(status).not.toHaveBeenCalled()
-    })
-
-    it('returns 202 ACCEPTED + generating body while a background run is in flight', async () => {
-      service.getOrGenerateCommunityEvents.mockResolvedValueOnce({
-        status: 'generating',
-      })
-      const { reply, status } = buildReply()
-
-      const result = await controller.generateCommunityEvents(
-        sampleCampaign,
-        reply,
-      )
-
-      expect(result).toEqual({ status: 'generating' })
-      expect(status).toHaveBeenCalledWith(HttpStatus.ACCEPTED)
-    })
   })
 })

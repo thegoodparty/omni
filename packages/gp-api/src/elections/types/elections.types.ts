@@ -48,6 +48,11 @@ export enum ElectionCode {
   General = 'General',
   LocalOrMunicipal = 'LocalOrMunicipal',
   ConsolidatedGeneral = 'ConsolidatedGeneral',
+  // Added to close a drift: the election-api enum has carried `Primary`
+  // since the primary-day model shipped, and any consumer that parses an
+  // election code off the wire fails on it while this enum is short a
+  // member.
+  Primary = 'Primary',
 }
 
 export type ProjectedTurnout = {
@@ -84,18 +89,6 @@ export type VoterIssue = {
 }
 
 export type VoterIssueLevel = 'local' | 'regional' | 'state' | 'federal'
-
-export enum ProjectedTurnoutSourceColumns {
-  id = 'id',
-  createdAt = 'createdAt',
-  updatedAt = 'updatedAt',
-  electionYear = 'electionYear',
-  electionCode = 'electionCode',
-  projectedTurnout = 'projectedTurnout',
-  inferenceAt = 'inferenceAt',
-  modelVersion = 'modelVersion',
-  districtId = 'districtId',
-}
 
 export enum DistrictSourceColumns {
   id = 'id',
@@ -146,7 +139,14 @@ export type District = {
   state: string
   L2DistrictType: string
   L2DistrictName: string
-  projectedTurnout: SourceProjectedTurnout | null
+  // L2-derived voter aggregates. Only `GET /districts/:id` returns the whole
+  // District row; the position lookup hand-shapes a district response without
+  // them, hence optional. `null` means the aggregate hasn't been computed for
+  // this district type (common for school districts) — it is not evidence of
+  // an empty electorate.
+  registeredVoters?: number | null
+  uniqueCellphones?: number | null
+  uniqueLandlines?: number | null
 }
 
 export type PositionWithOptionalDistrict = {
@@ -214,6 +214,12 @@ export type CampaignStrategyContextResponse = {
   candidates: CampaignStrategyContextCandidate[]
   civics_win_number: number | null
   contacts_needed_estimate: number | null
+  // The electorate `projected_turnout` was drawn for. Nothing on this path
+  // reads it yet — `RaceContextFromApi` is where the recommended-lists
+  // engine picks it up — but it is on the response, and an untyped field is
+  // how the next reader concludes it isn't. Optional for the same reason as
+  // the prediction bounds below: an older election-api omits it.
+  election_code?: ElectionCode | null
   general_election_date: string | null
   number_of_seats: number | null
   office_level: string | null
@@ -226,7 +232,13 @@ export type CampaignStrategyContextResponse = {
   partisan_type?: string | null
   primary_election_date: string | null
   projected_turnout: number | null
-  projected_voter_turnout: number | null
+  // Prediction bounds, and the same interval carried through the win-number
+  // math below. Optional because the two services deploy in parallel: mid
+  // rollout an older election-api omits them, and the mapper has to turn that
+  // absence into null — an undefined fails the contract's response schema and
+  // 500s the campaign read.
+  projected_turnout_lower?: number | null
+  projected_turnout_upper?: number | null
   registered_voters: number | null
   unique_cellphones: number | null
   unique_landlines: number | null
@@ -234,16 +246,6 @@ export type CampaignStrategyContextResponse = {
   state: string | null
   win_number_effective: number | null
   win_number_estimate: number | null
-}
-
-type SourceProjectedTurnout = {
-  id: string
-  createdAt: Date
-  updatedAt: Date
-  electionYear: number
-  electionCode: ElectionCode
-  projectedTurnout: number
-  inferenceAt: Date
-  modelVersion: string
-  districtId: string
+  win_number_lower?: number | null
+  win_number_upper?: number | null
 }

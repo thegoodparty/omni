@@ -3,6 +3,7 @@ import { PinoLogger } from 'nestjs-pino'
 import {
   BadGatewayException,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
@@ -22,6 +23,7 @@ import { GooglePlacesService } from 'src/vendors/google/services/google-places.s
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
+import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import type {
   CampaignGeographyInput,
   ResolveP2pJobGeographyServices,
@@ -39,6 +41,7 @@ const mockOutreachFindUniqueOrThrow = vi.fn()
 const mockGetFileBytes = vi.fn()
 
 const mockTcrFindFirstOrThrow = vi.fn()
+const mockTcrFindFirst = vi.fn()
 const mockPeerlyCreateJob = vi.fn()
 const mockResolveP2pJobGeography = vi.fn()
 const mockNotifySuccess = vi.fn()
@@ -82,7 +85,11 @@ describe('OutreachService', () => {
   const p2pCreateDto: CreateOutreachSchema = {
     ...baseCreateDto,
     outreachType: OutreachType.p2p,
-    script: 'smsKey',
+    // p2p create enforces the CAS compliance list on the resolved script, so
+    // a p2p DTO here has to carry a message that actually passes it.
+    script:
+      'Hello {first_name}, this is Jane Doe. Vote for me. ' +
+      'Paid for by Friends of Jane. Reply STOP to opt out.',
     phoneListId: 100,
     title: 'P2P Title',
   }
@@ -101,6 +108,11 @@ describe('OutreachService', () => {
     mockOutreachFindUniqueOrThrow.mockReset()
     mockGetFileBytes.mockReset()
     mockTcrFindFirstOrThrow.mockReset()
+    mockTcrFindFirst.mockReset()
+    mockTcrFindFirst.mockResolvedValue({
+      candidateName: 'Jane Doe',
+      committeeName: 'Friends of Jane',
+    })
     mockPeerlyCreateJob.mockReset()
     mockResolveP2pJobGeography.mockReset()
     mockNotifySuccess.mockReset()
@@ -123,6 +135,9 @@ describe('OutreachService', () => {
         updateMany: mockOutreachUpdateMany,
         update: mockOutreachUpdate,
       },
+      // requireCompliantScript reads the campaign owner's name as one of the
+      // candidate-name candidates; the TCR record above supplies the other.
+      user: { findUnique: vi.fn().mockResolvedValue(null) },
     }
 
     const module: TestingModule = await Test.createTestingModule({
@@ -133,7 +148,10 @@ describe('OutreachService', () => {
         { provide: AreaCodeFromZipService, useValue: {} },
         {
           provide: CampaignTcrComplianceService,
-          useValue: { findFirstOrThrow: mockTcrFindFirstOrThrow },
+          useValue: {
+            findFirstOrThrow: mockTcrFindFirstOrThrow,
+            findFirst: mockTcrFindFirst,
+          },
         },
         {
           provide: PeerlyP2pJobService,
@@ -161,6 +179,10 @@ describe('OutreachService', () => {
         {
           provide: S3Service,
           useValue: { getFileBytesWithContentType: mockGetFileBytes },
+        },
+        {
+          provide: StripeService,
+          useValue: {},
         },
         OutreachService,
       ],
@@ -534,7 +556,7 @@ describe('OutreachService', () => {
         service.create(
           mockUser,
           campaignWithLongScript,
-          p2pCreateDto,
+          { ...p2pCreateDto, script: 'smsKey' },
           'https://cdn.example.com/p2p.png',
           p2pImage,
         ),
@@ -653,18 +675,18 @@ describe('OutreachService', () => {
       expect(mockOutreachCreate).not.toHaveBeenCalled()
     })
 
-    it('throws BadRequest when filterAccessCheck rejects a non-pro campaign', async () => {
+    it('throws Forbidden when filterAccessCheck rejects a non-pro campaign', async () => {
       const dto: CreateOutreachSchema = {
         ...baseCreateDto,
         voterFileFilterId: 42,
       }
       mockFilterAccessCheck.mockRejectedValue(
-        new BadRequestException('Campaign is not pro'),
+        new ForbiddenException('Campaign is not pro'),
       )
 
       await expect(
         service.create(mockUser, mockCampaign, dto, undefined, undefined),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toThrow(ForbiddenException)
       await expect(
         service.create(mockUser, mockCampaign, dto, undefined, undefined),
       ).rejects.toThrow(/Campaign is not pro/)

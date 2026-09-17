@@ -1,10 +1,12 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
 } from '@nestjs/common'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
+import { findEquivalentFilter } from '@/recommendedLists/recommendedListsDedupe.util'
 import {
   OutreachStatus,
   OutreachType,
@@ -16,7 +18,8 @@ import { UpdateVoterFileFilterSchema } from '../schemas/UpdateVoterFileFilterSch
 
 // Exported so the assistant's saved-filter tool can recognize this exact
 // business-rule rejection (and suggest the Pro upgrade) without duplicating
-// the string.
+// the string. Thrown as a ForbiddenException (403) like every other pro gate
+// — see PRO_FILTERING_REQUIRED_MESSAGE in contacts.service.ts.
 export const FILTER_PRO_REQUIRED_MESSAGE = 'Campaign is not pro'
 
 const ACTIVITY_CONDITIONS_INCLUDE = {
@@ -74,12 +77,35 @@ export class VoterFileFilterService extends createPrismaBase(
           `outreachId ${condition.outreachId} was not found for this organization`,
         )
       }
-      if (outreach.outreachType !== condition.outreachType) {
+
+      // Native phone-banking envelopes are written with outreachType
+      // nativePhoneBanking (phoneBankingList.service.ts), but a phoneBanking
+      // condition is the single CRM-facing channel for both — accept either.
+      const channelMatches =
+        outreach.outreachType === condition.outreachType ||
+        (condition.outreachType === OutreachType.phoneBanking &&
+          outreach.outreachType === OutreachType.nativePhoneBanking)
+      if (!channelMatches) {
         throw new BadRequestException(
           `outreachId ${condition.outreachId} is a ${outreach.outreachType} ` +
             `campaign, not ${condition.outreachType}`,
         )
       }
+
+      // Legacy phoneBanking TaskFlow rows carry no phoneBankingListId, so
+      // resolvePhoneBanking's subquery would scope to nobody — reject them
+      // outright rather than silently returning an empty result.
+      if (
+        condition.outreachType === OutreachType.phoneBanking &&
+        outreach.phoneBankingListId == null
+      ) {
+        throw new BadRequestException(
+          `outreachId ${condition.outreachId} has no linked phone banking ` +
+            'list (legacy phoneBanking campaigns cannot be resolved by ' +
+            'this filter) — pick a different campaign or omit outreachId.',
+        )
+      }
+
       if (outreach.status !== OutreachStatus.completed) {
         throw new BadRequestException(
           `outreachId ${condition.outreachId} has not completed (status: ` +
@@ -109,7 +135,7 @@ export class VoterFileFilterService extends createPrismaBase(
     organizationSlug: string,
     data: CreateVoterFileFilterSchema,
   ): Promise<VoterFileFilterWithConditions> {
-    const { activityConditions, ...rest } = data
+    const { activityConditions, recommendedFilter, ...rest } = data
 
     if (activityConditions?.length) {
       await this.validateActivityConditions(
@@ -118,10 +144,21 @@ export class VoterFileFilterService extends createPrismaBase(
       )
     }
 
+    // Only meaningful when this list came from a recommendation; a
+    // hand-built list (no recommendedVariant) leaves it null. Reuses the
+    // same payload comparison the recommendation dedupe check uses
+    // (findEquivalentFilter) rather than a second notion of filter
+    // equality — treat the recommended filter as a one-row "saved filters"
+    // list and check whether the submitted filter still matches it.
+    const recommendedModified = rest.recommendedVariant
+      ? findEquivalentFilter(rest, [{ ...recommendedFilter, id: -1 }]) === null
+      : null
+
     return this.model.create({
       data: {
         organizationSlug,
         ...rest,
+        recommendedModified,
         ...(activityConditions
           ? {
               activityConditions: {
@@ -374,7 +411,7 @@ export class VoterFileFilterService extends createPrismaBase(
       })
 
       if (!campaign?.isPro) {
-        throw new BadRequestException(FILTER_PRO_REQUIRED_MESSAGE)
+        throw new ForbiddenException(FILTER_PRO_REQUIRED_MESSAGE)
       }
     }
   }

@@ -113,7 +113,11 @@ tippecanoe -e local/tiles -l dots -Z7 -z16 --drop-densest-as-needed \
 ## Costs
 
 Databricks: a handful of flat scans (seconds of warehouse time). Geoapify:
-map tiles are ~0.25 credits/tile and a route optimization is ~10
-credits/stop — the free tier (3,000 credits/day) comfortably covers demo
-usage. The only heavier click is "Optimize walking order" on a large turf
-(~1,500 credits for 150 stops).
+map tiles are ~0.25 credits/tile, and a route optimization costs 10 credits
+per location — stops plus the agent's anchors — or the square of the location
+count when there are fewer than ten of them, so small turfs are cheaper than
+a flat per-stop rate suggests. The free tier (3,000 credits/day) comfortably
+covers demo usage. The only heavier click is "Optimize walking order" on a
+large turf: ~1,500 credits for 150 stops here, ~1,649 in the product, which
+follows every optimization with a Routing request for the road-following
+path this POC draws as straight lines.

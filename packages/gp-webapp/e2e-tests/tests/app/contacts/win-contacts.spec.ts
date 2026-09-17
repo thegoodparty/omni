@@ -3,7 +3,6 @@ import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import {
   closePersonPanel,
   crmSheet,
-  enableCrmFlags,
   fetchListMembers,
   fullPersonName,
   gotoCrmContacts,
@@ -17,6 +16,19 @@ import {
 } from 'src/helpers/crm-contacts-e2e'
 import { setupProCampaignUser } from 'src/helpers/organizations'
 
+// The canonical Voter Likelihood option order (most → least likely), read
+// from filters.config.ts ("Voter Likelihood" field): Super, Likely,
+// Unreliable, Unlikely, Unknown. Ported from the retired
+// segment-builder-count-order.spec.ts — this is the order the wizard's pill
+// group must render.
+const VOTER_LIKELY_ORDER = [
+  'Super',
+  'Likely',
+  'Unreliable',
+  'Unlikely',
+  'Unknown',
+]
+
 // Exercises the Win Contacts surface for a pro campaign org. setupProCampaignUser
 // provisions Pro via the test-only endpoint (no Stripe webhook), and a per-PR
 // preview's gp-api serves the same real district voter data as dev — so this
@@ -29,7 +41,6 @@ import { setupProCampaignUser } from 'src/helpers/organizations'
 test.describe('Win Contacts', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
-    await enableCrmFlags(page)
   })
 
   test('universe, branch step, party list, download, and person record', async ({
@@ -48,6 +59,9 @@ test.describe('Win Contacts', () => {
     await expect(page.getByRole('heading', { name: 'Voter Data' })).toBeVisible(
       { timeout: 20_000 },
     )
+    // The rebuilt page has no member table by design, and this spec sets no
+    // flag override — so a zero-override Win load must land on it.
+    await expect(page.locator('table')).toHaveCount(0)
     await expect(
       page.getByRole('heading', { name: 'Your Voter Universe' }),
     ).toBeVisible({ timeout: 20_000 })
@@ -72,7 +86,14 @@ test.describe('Win Contacts', () => {
     await expect(
       wizard.getByText('How do you want to build this list?'),
     ).toBeVisible({ timeout: 10_000 })
-    await expect(wizard.getByText('Step 1 of 3')).toBeVisible()
+    await expect(wizard.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuenow',
+      '1',
+    )
+    await expect(wizard.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuemax',
+      '3',
+    )
     await expect(
       wizard.getByText('Build a list from previous campaign activity'),
     ).toBeVisible()
@@ -98,10 +119,14 @@ test.describe('Win Contacts', () => {
       timeout: 10_000,
     })
     // Voter Likelihood is Win-only the same way; the Serve spec asserts its
-    // absence, so this is the paired positive.
-    await expect(wizardPillGroup(wizard, 'Voter Likelihood')).toBeVisible({
-      timeout: 10_000,
-    })
+    // absence, so this is the paired positive. Also assert the exact
+    // most-→-least-likely render order.
+    const voterLikelihoodGroup = wizardPillGroup(wizard, 'Voter Likelihood')
+    await expect(voterLikelihoodGroup).toBeVisible({ timeout: 10_000 })
+    const voterLikelihoodLabels = (
+      await voterLikelihoodGroup.getByRole('button').allTextContents()
+    ).map((label) => label.trim())
+    expect(voterLikelihoodLabels).toEqual(VOTER_LIKELY_ORDER)
 
     const unfiltered = await readSettledWizardCount(page)
     expect(unfiltered).toBeGreaterThan(0)
@@ -168,6 +193,15 @@ test.describe('Win Contacts', () => {
     await expect(
       panel.getByText('Political Party', { exact: true }),
     ).toBeVisible({ timeout: 10_000 })
+
+    // StatusRow and NotesSection are mounted unconditionally for Win — no
+    // flag gates them, and this spec sets no override.
+    await expect(
+      panel.getByText('Voter Likelihood', { exact: true }),
+    ).toBeVisible({ timeout: 10_000 })
+    await expect(panel.getByRole('button', { name: 'Add a note' })).toBeVisible(
+      { timeout: 10_000 },
+    )
 
     // Win context renders the outreach Activity Feed section (ENG-10432).
     // The section header proves the Win timeline is wired for this org; a

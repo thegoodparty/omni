@@ -1,8 +1,6 @@
 import { BadGatewayException } from '@nestjs/common'
-import { addDays, format, subDays } from 'date-fns'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
-import { DateFormats } from '@/shared/util/date.util'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import { PeerlyJob, PeerlyJobStatus } from '@/vendors/peerly/peerly.types'
 import {
@@ -19,25 +17,34 @@ const getJob = vi.fn<(jobId: string) => Promise<PeerlyJob>>()
 
 const DEFAULT_PROJECT_ID = 'peerly-job'
 
-// The completion predicate compares a job's `end_date` against the real
-// wall-clock date (`sweepOutreachCompletions` sources `now` itself), so these
-// fixtures are relative to today rather than fixed calendar dates.
-const PAST_END_DATE = format(subDays(new Date(), 1), DateFormats.isoDate)
-const TODAY_END_DATE = format(new Date(), DateFormats.isoDate)
-const FUTURE_END_DATE = format(addDays(new Date(), 1), DateFormats.isoDate)
+// `sweepOutreachCompletions` samples its own `now`, and the completion
+// predicate reads both sides of the comparison as UTC (`parseIsoDateAsUTC`
+// against `getMidnightForDate`). Deriving these fixtures from a second,
+// separately-sampled `new Date()` gets that wrong twice: a local `format`
+// puts "today" a day behind UTC for anyone west of Greenwich after 7pm, and
+// even in UTC the two samples straddle midnight for the last second of any
+// day. Pinning the clock removes both — `end_date` is a bare calendar date,
+// so the fixtures can just BE calendar dates.
+const NOW = new Date('2026-06-15T12:00:00Z')
+const PAST_END_DATE = '2026-06-14'
+const TODAY_END_DATE = '2026-06-15'
+const FUTURE_END_DATE = '2026-06-16'
+const PAST_START_DATE = '2026-06-12'
+const FUTURE_START_DATE = '2026-06-29'
 
 let campaign: Campaign
 let completionService: OutreachCompletionService
 
 const buildJob = (
   overrides: Partial<
-    Pick<PeerlyJob, 'status' | 'leads_remaining' | 'end_date'>
+    Pick<PeerlyJob, 'status' | 'leads_remaining' | 'start_date' | 'end_date'>
   >,
 ): PeerlyJob =>
   ({
     id: DEFAULT_PROJECT_ID,
     status: PeerlyJobStatus.ACTIVE,
     leads_remaining: 10,
+    start_date: PAST_START_DATE,
     end_date: FUTURE_END_DATE,
     ...overrides,
   }) as PeerlyJob
@@ -57,6 +64,9 @@ const findOutreach = (id: number) =>
   service.prisma.outreach.findUniqueOrThrow({ where: { id } })
 
 beforeEach(async () => {
+  // `shouldAdvanceTime` so the real database I/O below still resolves.
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  vi.setSystemTime(NOW)
   getJob.mockReset()
   const peerlySvc = service.app.get(PeerlyP2pJobService)
   vi.spyOn(peerlySvc, 'getJob').mockImplementation(getJob)
@@ -78,6 +88,10 @@ beforeEach(async () => {
       slug: 'jane-doe',
     },
   })
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('OutreachCompletionService.sweepOutreachCompletions', () => {
@@ -153,6 +167,27 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
       expect(updated.status).toBe(OutreachStatus.in_progress)
     },
   )
+
+  // A future-scheduled job reads PAUSED in Peerly (verified against a real
+  // dev job), and must stay pending until its start day — flipping it to
+  // in_progress early lies in the history UI and strips the pending-only
+  // cancel window.
+  it('keeps a PAUSED job with a future start_date pending', async () => {
+    const outreach = await createOutreach({ status: OutreachStatus.pending })
+    getJob.mockResolvedValue(
+      buildJob({
+        status: PeerlyJobStatus.PAUSED,
+        leads_remaining: 0,
+        start_date: FUTURE_START_DATE,
+        end_date: FUTURE_START_DATE,
+      }),
+    )
+
+    await completionService.sweepOutreachCompletions()
+
+    const updated = await findOutreach(outreach.id)
+    expect(updated.status).toBe(OutreachStatus.pending)
+  })
 
   it('does not ratchet a pending outreach to completed when the job is still pending, even past its end_date', async () => {
     // Reproduces the pre-fix ratchet bug: a fresh job can be polled while

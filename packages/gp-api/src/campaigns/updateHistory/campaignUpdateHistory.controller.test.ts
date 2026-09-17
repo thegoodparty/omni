@@ -1,17 +1,9 @@
 import { useTestService } from '@/test-service'
-import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 const service = useTestService()
 
 describe('GET /v1/campaigns/mine/update-history', () => {
-  beforeEach(() => {
-    // User enrichment hits Clerk and is incidental to which campaign the
-    // endpoint resolves, so pass the rows through untouched.
-    const enricher = service.app.get(ClerkUserEnricherService)
-    vi.spyOn(enricher, 'enrichUsers').mockImplementation(async (users) => users)
-  })
-
   const seedCampaign = async (
     slug: string,
     details: { electionDate: string },
@@ -78,5 +70,59 @@ describe('GET /v1/campaigns/mine/update-history', () => {
     const result = await service.client.get('/v1/campaigns/mine/update-history')
 
     expect(result.status).toBe(404)
+  })
+
+  it('names each entry author, not the requesting user', async () => {
+    const campaign = await seedCampaign(
+      'campaign-5',
+      { electionDate: '2099-11-03' },
+      null,
+    )
+    const coworker = await service.prisma.user.create({
+      data: {
+        email: 'coworker@goodparty.org',
+        firstName: 'Dana',
+        lastName: 'Okafor',
+      },
+    })
+    await service.prisma.campaignUpdateHistory.create({
+      data: {
+        campaignId: campaign.id,
+        userId: coworker.id,
+        type: 'calls',
+        quantity: 3,
+      },
+    })
+
+    const result = await service.client.get('/v1/campaigns/mine/update-history')
+
+    expect(result.status).toBe(200)
+    expect(result.data).toHaveLength(1)
+    expect(result.data[0].user.name).toBe('Dana Okafor')
+  })
+
+  it('nulls an empty-string avatar rather than passing it through', async () => {
+    const campaign = await seedCampaign(
+      'campaign-4',
+      { electionDate: '2099-11-03' },
+      null,
+    )
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { avatar: '' },
+    })
+    await service.prisma.campaignUpdateHistory.create({
+      data: {
+        campaignId: campaign.id,
+        userId: service.user.id,
+        type: 'calls',
+        quantity: 1,
+      },
+    })
+
+    const result = await service.client.get('/v1/campaigns/mine/update-history')
+
+    expect(result.status).toBe(200)
+    expect(result.data[0].user.avatar).toBeNull()
   })
 })

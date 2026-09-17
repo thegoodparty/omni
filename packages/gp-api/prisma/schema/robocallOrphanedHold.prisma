@@ -1,0 +1,29 @@
+// A work queue of Stripe authorization-hold PaymentIntents whose best-effort
+// void may not have landed, recorded so a sweep can confirm and re-void them —
+// releasing the candidate's reserved money rather than waiting out the ~7-day
+// auth expiry. Every best-effort `voidHold` site records here: the hold-service
+// window-fit and lost-commit voids (whose intent id is never persisted on the
+// row — the commit that would store it never ran), the capture zero-billable
+// void, and the webhook cancel-before-send void. Recording is best-effort (a
+// reserved hold is not a charge, so a lost record only delays release to the
+// auth expiry) and idempotent (upsert by intent id). Only intent ids recorded
+// at a real void site are ever re-voided — never an account-wide scan — so an
+// ACTIVE hold a live run still needs can never be voided.
+model RobocallOrphanedHold {
+  id              Int       @id @default(autoincrement())
+  createdAt       DateTime  @default(now()) @map("created_at")
+  // The authorization-hold PaymentIntent to confirm-and-void. Unique so
+  // re-recording the same hold upserts to one row.
+  paymentIntentId String    @unique @map("payment_intent_id")
+  // The run the hold was placed for, for debugging.
+  outreachId      Int?      @map("outreach_id")
+  // Which best-effort void site recorded it (window_fit | lost_commit |
+  // zero_billable | cancel_before_send).
+  reason          String
+  // Stamped once the sweep has confirmed the hold canceled at Stripe (it voided
+  // it, or found it already canceled/captured/expired). A null row is still
+  // pending; the sweep selects on null and retries until it sticks.
+  voidedAt        DateTime? @map("voided_at")
+
+  @@map("robocall_orphaned_hold")
+}

@@ -15,9 +15,10 @@ import os
 import pickle
 import shutil
 import sys
+import time
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import event_state_assembler as esa
 
@@ -43,9 +44,42 @@ TOKEN_PATH = _default_token_path()
 SHEET_TAB = "events"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]   # read/write (not the readonly default)
 # Reuse the existing GoogleSheets OAuth client registration by default (same env names the
-# gp-ai-projects client uses); override with GP_SHEETS_GOOGLE_* if a dedicated client is set up.
+# gp-ai client uses); override with GP_SHEETS_GOOGLE_* if a dedicated client is set up.
 CLIENT_ID_ENVS = ("GP_SHEETS_GOOGLE_CLIENT_ID", "DDHQ_MATCHER_GOOGLE_CLIENT_ID")
 CLIENT_SECRET_ENVS = ("GP_SHEETS_GOOGLE_CLIENT_SECRET", "DDHQ_MATCHER_GOOGLE_CLIENT_SECRET")
+
+_SHEETS_ATTEMPTS = 4                                    # initial call + 3 retries, ~7s worst case
+_SHEETS_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+
+
+def _execute(request: Any, *, sleep: Callable[[float], None] | None = None) -> Any:
+    """Run one Sheets API request, retrying transient failures with exponential backoff.
+
+    A 503 on `events!A1` killed the 2026-09-07 scheduled run; the step is `set -euo pipefail`,
+    so refresh-gaps, refresh-questions and the ClickUp write-back never ran.
+
+    Retrying is safe because every write here is an idempotent full overwrite of a fixed range:
+    replaying an update or a clear that already landed changes nothing. That is not obvious at
+    the call sites, which is why it is said once here.
+
+    The status is duck-typed off `exc.resp.status` (googleapiclient.errors.HttpError's shape)
+    rather than caught by type, because this module imports its google dependencies lazily so it
+    still imports when they are absent. An exception with no status is never retried, and neither
+    is a standing condition like a 403 — retrying that only wastes the run and buries the cause.
+
+    Past the cap it re-raises. A sustained outage has to fail the step, or the Slack failure
+    notification and the dead man's switch stop being truthful. This is a retry, not a swallow.
+    """
+    # Resolved per call, not as a default argument, so tests can patch time.sleep on the module.
+    sleep = sleep or time.sleep
+    for attempt in range(1, _SHEETS_ATTEMPTS + 1):
+        try:
+            return request.execute()
+        except Exception as exc:
+            status = getattr(getattr(exc, "resp", None), "status", None)
+            if status not in _SHEETS_RETRY_STATUSES or attempt == _SHEETS_ATTEMPTS:
+                raise
+            sleep(2 ** (attempt - 1))
 
 
 def build_values(rows: list[dict]) -> list[list[str]]:
@@ -103,13 +137,15 @@ def write_gaps_sheet(state: dict, *, service: Any, spreadsheet_id: str, tab: str
     Same write-then-clear order as write_sheet: a failed update never leaves an empty tab."""
     values = build_gap_values(state)
     sheets = service.spreadsheets()
-    sheets.values().update(
+    _execute(sheets.values().update(
         spreadsheetId=spreadsheet_id,
         range=f"{tab}!A1",
         valueInputOption="RAW",
         body={"values": values},
-    ).execute()
-    sheets.values().clear(spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ").execute()
+    ))
+    _execute(sheets.values().clear(
+        spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ"
+    ))
     return len(values) - 1
 
 
@@ -144,12 +180,134 @@ def write_meta_sheet(
     as write_sheet/write_gaps_sheet so a failed update never leaves an empty tab."""
     values = build_meta_values(meta, clickup_url=clickup_url)
     sheets = service.spreadsheets()
-    sheets.values().update(
+    _execute(sheets.values().update(
         spreadsheetId=spreadsheet_id, range=f"{tab}!A1",
         valueInputOption="RAW", body={"values": values},
-    ).execute()
-    sheets.values().clear(spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ").execute()
+    ))
+    _execute(sheets.values().clear(
+        spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ"
+    ))
     return len(values) - 1
+
+
+ANCHORS_COLUMNS = [
+    "event", "fires_on", "url", "confidence", "flag_reason", "evidence",
+    "disposition", "reason", "first_seen", "last_seen", "written_date",
+]
+# The tab column "event" is the entry key; every other column is a direct state key.
+_ANCHOR_COL_KEY = {"event": "_id"}
+
+
+def build_anchor_values(state: dict) -> list[list[str]]:
+    """ANCHORS_COLUMNS header + one stringified row per anchor, sorted by event id.
+    Mirrors build_values: every cell a string, None/missing -> "" for a RAW write."""
+    matrix: list[list[str]] = [list(ANCHORS_COLUMNS)]
+    for event_id in sorted(state):
+        entry = {**state[event_id], "_id": event_id}
+        matrix.append([
+            "" if entry.get(_ANCHOR_COL_KEY.get(c, c)) is None
+            else str(entry.get(_ANCHOR_COL_KEY.get(c, c), ""))
+            for c in ANCHORS_COLUMNS
+        ])
+    return matrix
+
+
+ANCHORS_TAB = "anchors"
+
+
+def load_anchors_state(path: Path) -> dict | None:
+    """Read the committed disposition state for the anchors tab. Missing -> {} (nothing to
+    show yet). Unreadable or non-dict -> None so the caller skips the anchors write with a
+    warning rather than crashing the sheet refresh — a bad hand-edit must never take the
+    whole refresh down. Mirrors load_gaps_state."""
+    path = Path(path)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def write_anchors_sheet(state: dict, *, service: Any, spreadsheet_id: str,
+                        tab: str = ANCHORS_TAB) -> int:
+    """Full-overwrite `tab` with the anchor rows; returns the data-row count (excl. header).
+    Same write-then-clear order as write_gaps_sheet: a failed update never leaves an empty
+    tab."""
+    values = build_anchor_values(state)
+    sheets = service.spreadsheets()
+    _execute(sheets.values().update(
+        spreadsheetId=spreadsheet_id,
+        range=f"{tab}!A1",
+        valueInputOption="RAW",
+        body={"values": values},
+    ))
+    _execute(sheets.values().clear(
+        spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ"
+    ))
+    return len(values) - 1
+
+
+QUESTIONS_TAB = "questions"
+QUESTIONS_COLUMNS = [
+    "question", "state", "asked_by", "behaviors", "answering_events",
+    "uninstrumented_surfaces", "caveats", "clickup_task",
+]
+_QUESTION_COL_KEY = {
+    "answering_events": "events",
+    "uninstrumented_surfaces": "gaps",
+    "clickup_task": "question_ref",
+}
+
+
+def build_question_values(rows: list[dict]) -> list[list[str]]:
+    """QUESTIONS_COLUMNS header + one row per question. List cells render as a comma list so
+    the tab is readable without a formula. answering_events is regenerated from live coverage
+    every run, which is what makes supersession maintain itself instead of rotting."""
+    matrix: list[list[str]] = [list(QUESTIONS_COLUMNS)]
+    for row in rows:
+        line = []
+        for col in QUESTIONS_COLUMNS:
+            val = row.get(_QUESTION_COL_KEY.get(col, col))
+            if isinstance(val, (list, tuple)):
+                val = ", ".join(str(v) for v in val)
+            line.append("" if val is None else str(val))
+        matrix.append(line)
+    return matrix
+
+
+def write_questions_sheet(
+    rows: list[dict], *, service: Any, spreadsheet_id: str, tab: str = QUESTIONS_TAB
+) -> int:
+    """Full-overwrite `tab`; returns the data-row count. Same write-then-clear order as
+    write_sheet so a failed update never leaves an empty tab."""
+    values = build_question_values(rows)
+    sheets = service.spreadsheets()
+    _execute(sheets.values().update(
+        spreadsheetId=spreadsheet_id, range=f"{tab}!A1",
+        valueInputOption="RAW", body={"values": values},
+    ))
+    _execute(sheets.values().clear(
+        spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ"
+    ))
+    return len(values) - 1
+
+
+def question_rows_for_refresh() -> list[dict]:
+    """Shared by the refresh-questions command and the ClickUp write-back so each derives state
+    the same way from one Databricks read of its own. They are separate CLI invocations, so
+    their reads are minutes apart and can briefly disagree; handing one command's rows to the
+    other is the DATA-2302 cleanup. assemble()'s rows already carry event_type and status, which
+    is everything coverage reads; re-running reconcile would be a second round trip within the
+    command for the same answer."""
+    import analytics_event_health as aeh
+    import behavior_questions as bqs
+    import behavior_registry as brg
+
+    result = esa.assemble(date.today())
+    by_type = {r["event_type"]: r for r in result["rows"]}
+    return bqs.question_rows(brg.load_validated_behaviors(aeh.WATCHLIST), by_type)
 
 
 def write_sheet(rows: list[dict], *, service: Any, spreadsheet_id: str, tab: str = SHEET_TAB) -> int:
@@ -161,13 +319,15 @@ def write_sheet(rows: list[dict], *, service: Any, spreadsheet_id: str, tab: str
     contents intact on a failed update and never produces an empty window."""
     values = build_values(rows)
     sheets = service.spreadsheets()
-    sheets.values().update(
+    _execute(sheets.values().update(
         spreadsheetId=spreadsheet_id,
         range=f"{tab}!A1",
         valueInputOption="RAW",
         body={"values": values},
-    ).execute()
-    sheets.values().clear(spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ").execute()
+    ))
+    _execute(sheets.values().clear(
+        spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ"
+    ))
     return len(values) - 1
 
 
@@ -232,7 +392,11 @@ def get_sheets_service(token_path: Path = TOKEN_PATH, client_secrets_file: str |
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Write the event-state table to a Google Sheet.")
-    parser.add_argument("command", choices=["refresh", "refresh-gaps"])
+    parser.add_argument(
+        "command",
+        choices=["refresh", "refresh-gaps", "refresh-questions", "refresh-anchors",
+                "writeback-questions"],
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -242,6 +406,11 @@ def main(argv: list[str] | None = None) -> int:
         "--state",
         default=str(DATA_DIR / "instrumentation_gaps.json"),
         help="disposition state JSON for refresh-gaps (default: instrumentation_data/)",
+    )
+    parser.add_argument(
+        "--anchors-state",
+        default=str(DATA_DIR / "event_anchors.json"),
+        help="disposition state JSON for refresh-anchors (default: instrumentation_data/)",
     )
     parser.add_argument(
         "--spreadsheet-id",
@@ -262,6 +431,55 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    if args.command == "writeback-questions":
+        import question_writeback as qwb
+        import questions_clickup as qc
+
+        # The ids default from code (they are pointers, not secrets), so the token is the
+        # only thing that can be missing. An env var of the same name still wins.
+        api_key = os.environ.get("CLICKUP_API_KEY")
+        list_id = os.environ.get("GP_QUESTIONS_LIST_ID") or qc.LIST_ID
+        state_field = os.environ.get("GP_QUESTIONS_STATE_FIELD_ID") or qc.STATE_FIELD_ID
+        checked_field = os.environ.get("GP_QUESTIONS_CHECKED_FIELD_ID") or qc.CHECKED_FIELD_ID
+        options = {
+            key: os.environ.get(env_name) or qc.OPTION_IDS[key]
+            for key, env_name in (
+                ("answerable", "GP_QUESTIONS_OPT_ANSWERABLE"),
+                ("partially_answerable", "GP_QUESTIONS_OPT_PARTIAL"),
+                ("not_answerable", "GP_QUESTIONS_OPT_NOT"),
+            )
+        }
+        if not api_key:
+            print("ClickUp write-back needs CLICKUP_API_KEY", file=sys.stderr)
+            return 2
+        rows = question_rows_for_refresh()
+        current = qwb.fetch_current_state(api_key, list_id)
+        if args.dry_run:
+            print(f"{len(qwb.changed_rows(rows, current))} of {len(rows)} questions changed")
+            return 0
+        n = qwb.write_answer_state(
+            api_key, rows, state_field_id=state_field, checked_field_id=checked_field,
+            option_ids=options, today=date.today(), current=current,
+        )
+        print(f"updated answer state on {n} question tasks")
+        return 0
+
+    if args.command == "refresh-questions":
+        rows = question_rows_for_refresh()
+        if args.dry_run:
+            values = build_question_values(rows)
+            print(f"{len(values)} rows x {len(values[0])} cols (incl. header); "
+                  f"{len(rows)} questions")
+            return 0
+        if not args.spreadsheet_id:
+            print("--spreadsheet-id or GP_EVENT_STATE_SHEET_ID required for a live write",
+                  file=sys.stderr)
+            return 2
+        service = get_sheets_service(client_secrets_file=args.client_secrets)
+        count = write_questions_sheet(rows, service=service, spreadsheet_id=args.spreadsheet_id)
+        print(f"wrote {count} questions to sheet {args.spreadsheet_id} (tab {QUESTIONS_TAB})")
+        return 0
+
     if args.command == "refresh-gaps":
         state = load_gaps_state(Path(args.state))
         if state is None:
@@ -278,6 +496,26 @@ def main(argv: list[str] | None = None) -> int:
         service = get_sheets_service(client_secrets_file=args.client_secrets)
         count = write_gaps_sheet(state, service=service, spreadsheet_id=args.spreadsheet_id)
         print(f"wrote {count} gaps to sheet {args.spreadsheet_id} (tab {GAPS_TAB})")
+        return 0
+
+    if args.command == "refresh-anchors":
+        state = load_anchors_state(Path(args.anchors_state))
+        if state is None:
+            print(f"anchors state at {args.anchors_state} is unreadable; skipping the "
+                  f"anchors tab refresh.", file=sys.stderr)
+            return 0
+        if args.dry_run:
+            values = build_anchor_values(state)
+            print(f"{len(values)} rows x {len(values[0])} cols (incl. header); "
+                  f"{len(state)} anchors")
+            return 0
+        if not args.spreadsheet_id:
+            print("--spreadsheet-id or GP_EVENT_STATE_SHEET_ID required for a live write",
+                  file=sys.stderr)
+            return 2
+        service = get_sheets_service(client_secrets_file=args.client_secrets)
+        count = write_anchors_sheet(state, service=service, spreadsheet_id=args.spreadsheet_id)
+        print(f"wrote {count} anchors to sheet {args.spreadsheet_id} (tab {ANCHORS_TAB})")
         return 0
 
     # Dry-run previews the real output dimensions, so it still runs the (read-only)

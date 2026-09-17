@@ -72,11 +72,11 @@ describe('AgentJobsPanel briefing row', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('offers an enabled override when the gate skips a non-ICP office', async () => {
-    mockGetPreview.mockResolvedValue({ ...basePreview, isServeIcp: false })
+  it('offers an enabled override when the gate skips for no known schedule', async () => {
+    mockGetPreview.mockResolvedValue({ ...basePreview, scheduleKnown: false })
     renderPanel()
     await waitFor(() =>
-      expect(screen.getByText(/not serve-ICP/)).toBeInTheDocument()
+      expect(screen.getByText(/no meeting schedule known/)).toBeInTheDocument()
     )
     expect(
       screen.getByRole('button', { name: 'Dispatch anyway' })

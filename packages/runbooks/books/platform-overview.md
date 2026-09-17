@@ -29,7 +29,7 @@ Most product code now lives in a single npm-workspaces monorepo: **omni** (`theg
 | Package             | Stack                                   | Local Port | Prod URL                                                            | Deploy                              |
 | ------------------- | --------------------------------------- | ---------- | ------------------------------------------------------------------- | ----------------------------------- |
 | **gp-api**          | NestJS 11/Fastify, Prisma, PG           | 3000       | `api.goodparty.org`                                                 | Docker → ECR → Pulumi → ECS Fargate |
-| **gp-webapp**       | Next.js 15, React 19, Tailwind, MUI     | 4000       | `goodparty.org` (product app)                                       | Vercel (CLI)                        |
+| **gp-webapp**       | Next.js 16, React 19, Tailwind          | 4000       | `goodparty.org` (product app)                                       | Vercel (CLI)                        |
 | **election-api**    | NestJS/Fastify, Prisma, PG              | 3001       | `election-api.goodparty.org`                                        | Docker → ECR → Pulumi → ECS Fargate |
 | **gp-admin**        | Next.js 16, React 19                    | 3500       | Vercel (single deploy fronts dev/prod)                              | Vercel (CLI)                        |
 | **candidate-sites** | Next.js, React, Tailwind                | 4001       | Vercel                                                              | Vercel (CLI)                        |
@@ -72,7 +72,7 @@ gp-api (53 controllers, 20+ Prisma models)
   │     findPerson (single voter lookup)
   │
   ├── HTTP + Clerk JWT M2M → election-api
-  │     GET /v1/positions/by-ballotready-id/:id  (gold flow: BR position → district → turnout)
+  │     GET /v1/positions/by-ballotready-id/:id  (gold flow: BR position → district)
   │     GET /v1/projectedTurnout                 (direct turnout lookup)
   │     GET /v1/districts/types                  (valid district types by state)
   │     GET /v1/districts/names                  (valid district names by type)
@@ -121,7 +121,7 @@ gp-data-platform (external — dbt + Databricks)
 | gp-marketing → election-api   | Clerk M2M (JWT)     | Server-only; mints JWT-format M2M token with `GP_MARKETING_MACHINE_SECRET` (`tokenFormat: 'jwt'`, cached), sends `Authorization: Bearer eyJ...`                                                                                               |
 | M2M caller → gp-api           | Bearer `mt_*` token | `ClerkM2MAuthGuard`                                                                                                                                                                                                                           |
 | gp-api guards                 | —                   | Three global guards in order: `ClerkM2MAuthGuard` → `SessionGuard` → `RolesGuard`                                                                                                                                                             |
-| election-api                  | —                   | Global `M2MAuthGuard` (default-deny), verifies JWT-format M2M tokens against `ELECTION_API_MACHINE_SECRET` (networkless); only `/v1/health` is `@PublicAccess`. Enforcement gated by `ELECTION_API_AUTH_ENFORCED` (observe-only until `true`) |
+| election-api                  | —                   | Global `M2MAuthGuard` (default-deny), verifies JWT-format M2M tokens against `ELECTION_API_MACHINE_SECRET` (networkless); only `/v1/health` is `@PublicAccess` |
 | Admin impersonation           | —                   | `impersonateToken`/`impersonateUser` cookies override normal auth                                                                                                                                                                             |
 
 Guard detail and decorators: `gp-api/src/authentication/CLAUDE.md`.
@@ -212,15 +212,15 @@ decommissioned. Environments: `dev`/`prod` only. Aurora PG prod:
 
 **Purpose**: Read-only API over BallotReady election data. All data written by gp-data-platform dbt models. Secured by default with Clerk JWT-format M2M tokens — every route except `GET /v1/health` requires a valid token (see Auth Between Services). Callers: gp-api and gp-marketing (both server-side).
 
-**Auth**: global `M2MAuthGuard` (`src/authentication/`) registered as `APP_GUARD` — default-deny, verifies Clerk JWT-format M2M tokens against `ELECTION_API_MACHINE_SECRET` networkless (no per-request Clerk API call). Routes opt out with `@PublicAccess()` (only the health check). `ELECTION_API_AUTH_ENFORCED` toggles enforcement: while `!= 'true'` the guard runs in observe-only mode (verify + log, never reject) for safe rollout; set to `true` to start returning `401`. Swagger `/api` is only mounted outside production.
+**Auth**: global `M2MAuthGuard` (`src/authentication/`) registered as `APP_GUARD` — default-deny, verifies Clerk JWT-format M2M tokens against `ELECTION_API_MACHINE_SECRET` networkless (no per-request Clerk API call). Routes opt out with `@PublicAccess()` (only the health check); everything else gets a `401` without a valid token, in every environment.
 
 **7 controllers**, all prefixed `/v1`:
 
 | Route                                        | Purpose                                                           |
 | -------------------------------------------- | ----------------------------------------------------------------- |
-| `GET /v1/positions/by-ballotready-id/:id`    | Gold flow: BallotReady position → district → projected turnout    |
+| `GET /v1/positions/by-ballotready-id/:id`    | Gold flow: BallotReady position → district (turnout is a separate call) |
 | `GET /v1/projectedTurnout`                   | Direct turnout lookup by state + district + election date         |
-| `GET /v1/districts/list`, `/types`, `/names` | District queries with optional turnout join                       |
+| `GET /v1/districts/list`, `/types`, `/names` | District queries; `excludeInvalid` keeps the turnout existence filter |
 | `GET /v1/races`                              | Filter races by state, date range, position level, primary/runoff |
 | `GET /v1/candidacies`                        | Filter candidacies by state, slug, race slug; include stances     |
 | `GET /v1/places`                             | Place hierarchy (counties → districts), children categorization   |
@@ -239,7 +239,7 @@ District (state + L2 type/name, unique constraint)
   └── Position (BallotReady position ID → district link — key for gold flow)
 ```
 
-**Election code logic**: `determineElectionCode(date, state)` classifies election dates — General (even year, first Tues after first Mon in Nov), ConsolidatedGeneral (LA/MS/NJ/VA odd years, KS 4-year cycle), everything else LocalOrMunicipal.
+**Election code logic**: `determineElectionCode(date)` classifies election dates in UTC — General (even year, first Tues after first Mon in Nov), everything else LocalOrMunicipal. It does not depend on state: the retrained turnout model dropped the ConsolidatedGeneral category the odd-November states used to read, and primary days arrive pre-tagged on the race row from the warehouse calendar.
 
 **Deploy**: Docker → ECR → Pulumi → ECS Fargate (`packages/election-api/deploy/`). Local port 3001. Aurora Serverless v2. Not part of the full-stack PR-preview pairing — gp-webapp doesn't call it directly (election data is proxied through gp-api), and there is no per-PR election-api stack; PR previews use the shared dev election-api.
 
@@ -434,8 +434,8 @@ Other election-api marts: `m_election_api__place`, `m_election_api__race`, `m_el
 ### Gold Flow (preferred, higher confidence)
 
 1. Campaign onboarding captures a BallotReady position ID
-2. gp-api calls `election-api GET /v1/positions/by-ballotready-id/:brPositionId` with `includeDistrict=true&includeTurnout=true`
-3. election-api resolves the chain: `Position` (matched by Gemini LLM, confidence >= 90/95%) → `District` (L2 district type/name) → `ProjectedTurnout` (ML model prediction, filtered by election year + code)
+2. gp-api calls `election-api GET /v1/positions/by-ballotready-id/:brPositionId` with `includeDistrict=true` to resolve the district, then `GET /v1/projectedTurnout` with that `districtId` and the election date
+3. election-api resolves the chain: `Position` (matched by Gemini LLM, confidence >= 90/95%) → `District` (L2 district type/name); the turnout lookup is a separate district-keyed call, bound to the election code and year derived from the date
 4. gp-api calculates: `winNumber = ceil(projectedTurnout * 0.5) + 1`, `voterContactGoal = winNumber * 5`
 5. If turnout unavailable, returns sentinel values (-1) — partial match, district known but turnout not predicted
 6. The matched `district.L2DistrictType` and `district.L2DistrictName` are stored in the campaign's `PathToVictory` record — these are the same keys used to scope voter contacts in people-db

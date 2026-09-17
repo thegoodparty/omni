@@ -3,15 +3,6 @@
 import { useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import ManagerPromptCard from './ManagerPromptCard'
-import {
-  CalendarDaysIcon,
-  CalendarIcon,
-  MapPinIcon,
-  MessageSquareIcon,
-  PhoneIcon,
-  SparklesIcon,
-} from '@styleguide/components/ui/icons'
-import type { LucideIcon } from 'lucide-react'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import {
   isVoterContactFlowType,
@@ -19,12 +10,13 @@ import {
   useTrackerTasks,
 } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import TaskCard from '../chief-of-staff/components/TaskCard'
+import GetOnBallotCard from './GetOnBallotCard'
 import PersonalizeStoryCard from './PersonalizeStoryCard'
 import StoryReadyCard from './StoryReadyCard'
 import {
+  composeOutreachHref,
   type ComposeFlowType,
-  useOutreachComposeFlow,
-} from 'app/dashboard/outreach/hooks/useOutreachComposeFlow'
+} from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import CountModal from '../components/tasks/CountModal'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
 
@@ -37,7 +29,7 @@ const TRACKER_HREF = '/dashboard/campaign-plan'
 const taskLink = (task: { link: string | null }): string | null =>
   task.link?.trim() ? task.link : null
 
-// Text/robocall tasks open the outreach flow in place with the due date bound
+// Text/robocall tasks link into the outreach hub with the due date bound
 // (mirrors the tracker rows); everything else falls back to the tracker page.
 const composeFlowType = (task: {
   link: string | null
@@ -50,32 +42,33 @@ const composeFlowType = (task: {
 }
 
 // Each card links to the task's own action, falling back to the tracker page.
-// Compose (text/robocall) tasks return undefined: their CTA opens the outreach
-// flow in place via onCta instead of navigating.
+// Compose (text/robocall) tasks link into the outreach hub, which opens the
+// channel's flow behind its own gate.
 const taskHref = (task: {
   link: string | null
   flowType: string | null
+  date: string | null
 }): string | undefined => {
   const own = taskLink(task)
   if (own) return own
-  return composeFlowType(task) ? undefined : TRACKER_HREF
+  const composeType = composeFlowType(task)
+  return composeType
+    ? composeOutreachHref(composeType, 'campaign_manager', task.date)
+    : TRACKER_HREF
 }
 
-// Eyebrow label + icon per tracker flowType (same set buildTrackerStrategy maps
-// to channels). Unknown/static rows fall back to a generic priority label.
-const FLOW_TYPE_META: Record<string, { label: string; Icon: LucideIcon }> = {
-  text: { label: 'Messaging', Icon: MessageSquareIcon },
-  robocall: { label: 'Robocall', Icon: PhoneIcon },
-  phoneBanking: { label: 'Phone banking', Icon: PhoneIcon },
-  doorKnocking: { label: 'Door knocking', Icon: MapPinIcon },
-  events: { label: 'Event', Icon: CalendarIcon },
-  awareness: { label: 'Awareness', Icon: CalendarDaysIcon },
+// Overline label per tracker flowType (same set buildTrackerStrategy maps to
+// channels). Unknown/static rows fall back to a generic priority label.
+const FLOW_TYPE_LABELS: Record<string, string> = {
+  text: 'Messaging',
+  robocall: 'Robocall',
+  phoneBanking: 'Phone banking',
+  doorKnocking: 'Door knocking',
+  events: 'Event',
+  awareness: 'Awareness',
 }
-const DEFAULT_META = { label: 'Priority', Icon: SparklesIcon }
-const taskMeta = (
-  flowType: string | null,
-): { label: string; Icon: LucideIcon } =>
-  (flowType && FLOW_TYPE_META[flowType]) || DEFAULT_META
+const taskLabel = (flowType: string | null): string =>
+  (flowType && FLOW_TYPE_LABELS[flowType]) || 'Priority'
 
 // Tracker dates arrive as UTC-midnight ISO; slice to the date portion so the
 // local render does not land on the previous day in US timezones.
@@ -91,6 +84,7 @@ interface Props {
   // Dismisses the meet card without opening the manager (the card's ⋮ Skip).
   onSkipMeet: () => void
   onPersonalize: () => void
+  onGetOnBallot: () => void
 }
 
 export default function CampaignManagerTasks({
@@ -98,13 +92,12 @@ export default function CampaignManagerTasks({
   onMeetManager,
   onSkipMeet,
   onPersonalize,
+  onGetOnBallot,
 }: Props): React.JSX.Element {
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
   const top = selectTopDynamicTasks(tasks)
 
   const toggleComplete = useToggleTrackerTaskComplete()
-  const { open: openOutreachFlow, flowNode: outreachFlowNode } =
-    useOutreachComposeFlow('campaign_manager')
   // A count-flowType task pending its voter-contact count in the modal.
   const [countTask, setCountTask] = useState<CampaignTrackerTask | null>(null)
 
@@ -139,6 +132,10 @@ export default function CampaignManagerTasks({
         />
       )}
 
+      {/* Only for the candidate who said they have not filed yet; getting on
+          the ballot outranks personalizing, so it sits above the story cards. */}
+      <GetOnBallotCard onGetOnBallot={onGetOnBallot} />
+
       {/* Mutually exclusive: PersonalizeStoryCard shows while the story is
           incomplete, StoryReadyCard once it's complete. */}
       <PersonalizeStoryCard onPersonalize={onPersonalize} />
@@ -167,13 +164,11 @@ export default function CampaignManagerTasks({
         ) : (
           <div className="flex flex-col gap-4">
             {top.map((task, index) => {
-              const { label, Icon } = taskMeta(task.flowType)
               const composeType = composeFlowType(task)
               return (
                 <TaskCard
                   key={task.id}
-                  eyebrowLabel={label}
-                  EyebrowIcon={Icon}
+                  overlineLabel={taskLabel(task.flowType)}
                   title={task.title}
                   meta={[formatDue(task.date)]}
                   summary={task.description || undefined}
@@ -189,11 +184,6 @@ export default function CampaignManagerTasks({
                         : 'See details')
                   }
                   ctaHref={taskHref(task)}
-                  onCta={
-                    composeType
-                      ? () => openOutreachFlow(composeType, task.date)
-                      : undefined
-                  }
                   onComplete={() => onComplete(task)}
                   completeDisabled={toggleComplete.isPending}
                   // Only the top priority card gets the subtle gradient.
@@ -204,8 +194,6 @@ export default function CampaignManagerTasks({
           </div>
         )}
       </div>
-
-      {outreachFlowNode}
 
       {countTask && (
         <CountModal

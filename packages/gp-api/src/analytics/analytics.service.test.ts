@@ -5,7 +5,8 @@ import { SegmentService } from 'src/vendors/segment/segment.service'
 import { UsersService } from 'src/users/services/users.service'
 import { PinoLogger } from 'nestjs-pino'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-import { runWithImpersonation } from './impersonation-context'
+import { runWithActorContext } from './impersonation-context'
+import { OrganizationRole } from '../generated/prisma'
 
 const mockUser = {
   id: 7,
@@ -42,11 +43,14 @@ describe('AnalyticsService', () => {
     mockUsersService.findFirst.mockResolvedValue(mockUser)
   })
 
-  describe('track - impersonation via AsyncLocalStorage', () => {
+  describe('track - actor context via AsyncLocalStorage', () => {
     it('includes impersonation: true when context is impersonating', async () => {
-      await runWithImpersonation(true, async () => {
-        await service.track(7, 'Test Event', { source: 'test' })
-      })
+      await runWithActorContext(
+        { isImpersonating: true, actorUserId: 7, actorRole: null },
+        async () => {
+          await service.track(7, 'Test Event', { source: 'test' })
+        },
+      )
 
       expect(mockSegment.trackEvent).toHaveBeenCalledWith(
         7,
@@ -55,15 +59,21 @@ describe('AnalyticsService', () => {
           email: 'test@example.com',
           source: 'test',
           impersonation: true,
+          actorUserId: 7,
+          actorRole: null,
         },
         { email: 'test@example.com', hubspotId: 'hs-123' },
+        undefined,
       )
     })
 
     it('includes impersonation: false when context is not impersonating', async () => {
-      await runWithImpersonation(false, async () => {
-        await service.track(7, 'Test Event', { source: 'test' })
-      })
+      await runWithActorContext(
+        { isImpersonating: false, actorUserId: 7, actorRole: null },
+        async () => {
+          await service.track(7, 'Test Event', { source: 'test' })
+        },
+      )
 
       expect(mockSegment.trackEvent).toHaveBeenCalledWith(
         7,
@@ -72,12 +82,42 @@ describe('AnalyticsService', () => {
           email: 'test@example.com',
           source: 'test',
           impersonation: false,
+          actorUserId: 7,
+          actorRole: null,
         },
         { email: 'test@example.com', hubspotId: 'hs-123' },
+        undefined,
       )
     })
 
-    it('omits impersonation when no context is set', async () => {
+    it('includes actorUserId and actorRole when the request was org-scoped', async () => {
+      await runWithActorContext(
+        {
+          isImpersonating: false,
+          actorUserId: 7,
+          actorRole: OrganizationRole.owner,
+        },
+        async () => {
+          await service.track(7, 'Test Event', { source: 'test' })
+        },
+      )
+
+      expect(mockSegment.trackEvent).toHaveBeenCalledWith(
+        7,
+        'Test Event',
+        {
+          email: 'test@example.com',
+          source: 'test',
+          impersonation: false,
+          actorUserId: 7,
+          actorRole: OrganizationRole.owner,
+        },
+        { email: 'test@example.com', hubspotId: 'hs-123' },
+        undefined,
+      )
+    })
+
+    it('omits impersonation/actor fields when no context is set', async () => {
       await service.track(7, 'Test Event', { source: 'test' })
 
       expect(mockSegment.trackEvent).toHaveBeenCalledWith(
@@ -88,19 +128,24 @@ describe('AnalyticsService', () => {
           source: 'test',
         },
         { email: 'test@example.com', hubspotId: 'hs-123' },
+        undefined,
       )
     })
 
     it('passes user context from UsersService to segment', async () => {
-      await runWithImpersonation(true, async () => {
-        await service.track(7, 'Test Event', { source: 'test' })
-      })
+      await runWithActorContext(
+        { isImpersonating: true, actorUserId: 7, actorRole: null },
+        async () => {
+          await service.track(7, 'Test Event', { source: 'test' })
+        },
+      )
 
       expect(mockSegment.trackEvent).toHaveBeenCalledWith(
         7,
         'Test Event',
         expect.any(Object),
         { email: 'test@example.com', hubspotId: 'hs-123' },
+        undefined,
       )
     })
 
@@ -129,6 +174,7 @@ describe('AnalyticsService', () => {
         'Test Event',
         { email: 'pre-fetched@example.com', source: 'test' },
         providedContext,
+        undefined,
       )
     })
   })

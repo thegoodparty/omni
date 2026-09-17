@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { FetchError } from 'ofetch'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import {
   Button,
+  CheckCircleIcon,
   Dialog,
   DialogContent,
   DialogFooter,
@@ -20,17 +20,18 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import {
   MAX_TURF_NAME_LENGTH,
   TURF_COLORS,
-  turfsQueryOptions,
+  turfColorLabel,
+  turfColorTick,
+  TURFS_QUERY_KEY,
 } from './turfQueries'
 
-// Name and color are the only editable fields even though PUT
-// /v1/door-knocking/turfs/:id accepts geoPoly too: the polygon is what the
-// frozen route was computed from, so gp-api's update runs assertNotLocked and a
-// knocked turf 409s. TurfDetailsSheet hides the trigger for a locked turf; this
-// still handles the 409, because a teammate can knock it while the dialog is
-// open.
-const LOCKED_TURF_MESSAGE =
-  'This list has already been knocked, so its route is frozen and it can no longer be edited.'
+// Name and color are the only editable fields, and now that is the endpoint's
+// own shape rather than a restraint this dialog shows: PUT
+// /v1/door-knocking/turfs/:id no longer accepts `geoPoly` at all, because the
+// polygon is what the frozen route was computed from and every list is routed
+// from creation. So there is no lock left to trip and no 409 to handle — the
+// trigger is live at every stage, which is what makes a list renameable for
+// its whole life instead of only before its first knock.
 
 interface EditTurfDialogProps {
   turf: DoorKnockingTurf
@@ -71,22 +72,11 @@ export default function EditTurfDialog({
       })
       successSnackbar('List updated')
       await queryClient.invalidateQueries({
-        queryKey: turfsQueryOptions.queryKey,
+        queryKey: TURFS_QUERY_KEY,
       })
       onOpenChange(false)
     },
-    onError: async (error: unknown) => {
-      if (error instanceof FetchError && error.status === 409) {
-        // Permanent, not retryable: close rather than leaving an enabled Save
-        // that can only 409 again. The refetch then flips `locked` and the
-        // sheet's trigger retires itself.
-        errorSnackbar(LOCKED_TURF_MESSAGE, { autoHideDuration: 6000 })
-        await queryClient.invalidateQueries({
-          queryKey: turfsQueryOptions.queryKey,
-        })
-        onOpenChange(false)
-        return
-      }
+    onError: () => {
       errorSnackbar('The list could not be updated. Try again.')
     },
   })
@@ -121,16 +111,26 @@ export default function EditTurfDialog({
                 <button
                   key={option}
                   type="button"
-                  aria-label={`Turf color ${option}`}
+                  aria-label={turfColorLabel(option)}
                   aria-pressed={color === option}
-                  className={`h-8 w-8 rounded-full border-2 ${
+                  className={`flex h-8 w-8 items-center justify-center rounded-full border-2 ${
                     color === option
                       ? 'border-foreground'
                       : 'border-transparent'
                   }`}
                   style={{ backgroundColor: option }}
                   onClick={() => setColor(option)}
-                />
+                >
+                  {/* Inverts with the swatch, same rule as the walk list's
+                      stop numeral — a white tick vanishes on green and amber. */}
+                  {color === option && (
+                    <CheckCircleIcon
+                      size={16}
+                      aria-hidden="true"
+                      style={{ color: turfColorTick(option) }}
+                    />
+                  )}
+                </button>
               ))}
             </div>
             <p className="text-xs text-muted-foreground">

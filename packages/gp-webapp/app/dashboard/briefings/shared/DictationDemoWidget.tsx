@@ -1,6 +1,6 @@
 'use client'
 import { Mic, MicOff } from 'lucide-react'
-import { useDictation } from './useDictation'
+import { useDictation } from '../../shared/dictation/useDictation'
 
 const FEATURE_FLAG_ENABLED =
   process.env.NEXT_PUBLIC_DICTATION_DEMO_ENABLED === 'true'

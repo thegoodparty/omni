@@ -4,11 +4,15 @@ import { MAX_CONSTITUENTS_PER_RUN, PRICE_PER_POLL_TEXT } from './constants'
 import { formatCurrency, numberFormatter } from 'helpers/numberHelper'
 import clsx from 'clsx'
 import { useQuery } from '@tanstack/react-query'
-import { districtStatsQueryOptions } from './queries'
+import {
+  districtStatsQueryOptions,
+  districtStatsUnavailableReason,
+  pollsGateRetry,
+} from './queries'
 import { useDistrictResolution } from 'app/dashboard/shared/useDistrictResolution'
 
-// Polls is Serve-only and Serve has no Pro gate, so the district predicate is the
-// only protection. `isUnavailable` is returned explicitly because consumers branch
+// Polls is Serve-only and Serve has no Pro gate, so this gate is the only
+// protection. `isUnavailable` is returned explicitly because consumers branch
 // on `status !== 'success'` to render a spinner — a disabled query is neither
 // success nor error, so without this flag they would spin forever.
 export const useTotalConstituentsWithCellPhone = () => {
@@ -16,12 +20,18 @@ export const useTotalConstituentsWithCellPhone = () => {
   const query = useQuery({
     ...districtStatsQueryOptions,
     enabled: !isUnresolvable,
+    retry: pollsGateRetry,
     select: (data) => ({
       totalConstituents: data.totalConstituentsWithCellPhone,
     }),
   })
 
-  return { ...query, isUnavailable: isUnresolvable }
+  const unavailableReason = districtStatsUnavailableReason(
+    isUnresolvable,
+    query.error,
+  )
+
+  return { ...query, isUnavailable: !!unavailableReason, unavailableReason }
 }
 
 export const calculateRecommendedPollSize = (params: {

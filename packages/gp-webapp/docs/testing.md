@@ -61,6 +61,19 @@ If the route does not exist in `APIEndpoints` yet, add it (see `.claude/skills/a
 - `userEvent.setup()` once per test, not per interaction.
 - Don't reach for `vi.spyOn(global, 'fetch')` — use `api.mock` instead.
 
+## Async deadlines
+
+Both defaults are raised repo-wide, because the library defaults are bets on
+machine speed rather than statements about the code: `testTimeout` is 20s
+(`vitest.config.ts`) and Testing Library's `asyncUtilTimeout` is 5s
+(`vitest.setup.ts`). Suites that poll for a debounced count or a streamed
+response cleared the stock 5s/1s deadlines on an idle CI runner and blew them on
+a developer machine running other work.
+
+A per-call `{ timeout }` still wins for a wait you know is slow, but it must
+stay under `testTimeout` — a longer one is silently truncated by the enclosing
+test timeout and the test dies before its own tolerance applies.
+
 ## Gold-standard examples
 
 - `app/dashboard/polls/` — typed-request + MSW + tests, end-to-end.

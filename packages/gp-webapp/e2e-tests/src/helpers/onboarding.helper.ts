@@ -2,10 +2,8 @@ import { expect, type Page } from '@playwright/test'
 import { wait } from 'tests/utils/eventually'
 
 // Shared drive through the onboarding steps up to (but not including) the
-// pledge step. Both the generic onboarding smoke test and the campaign-story
-// routing test need to reach the pledge; the pledge ending itself differs by
-// the campaign-story flag (button copy + post-pledge destination), so callers
-// own that last step.
+// pledge step. Callers own the pledge step itself (its button copy and
+// post-pledge destination vary by scenario).
 
 const continueButton = (page: Page) =>
   page.getByRole('button', { name: /continue/i }).first()
@@ -75,10 +73,10 @@ const completePathToVictoryStep = async (page: Page): Promise<void> => {
 
 // The campaign story is three individually-skippable steps (why → background →
 // issues). Skip advances one step at a time, so skipping the whole story means
-// clicking Skip on each step until the pledge appears. This helper's only caller
-// runs with the campaign-story flag on and asserts routing/pledge behavior, not
-// story authoring. Wait on each step's page heading (always rendered) rather
-// than the card, whose render waits on the story fetch.
+// clicking Skip on each step until the pledge appears. Callers assert
+// routing/pledge behavior, not story authoring. Wait on each step's page
+// heading (always rendered) rather than the card, whose render waits on the
+// story fetch.
 const skipCampaignStoryStep = async (page: Page): Promise<void> => {
   const stepHeadings = [
     /why are you running/i,
@@ -93,6 +91,16 @@ const skipCampaignStoryStep = async (page: Page): Promise<void> => {
   }
 }
 
+// The story block's successor: a single-select "what do you most want help
+// with?" that sits between it and the pledge. Skipped here for the same reason
+// the story is — callers assert routing/pledge behavior, not this answer.
+const skipSignupGoalStep = async (page: Page): Promise<void> => {
+  await expect(
+    page.getByRole('heading', { level: 1, name: /most want help with/i }),
+  ).toBeVisible({ timeout: 30000 })
+  await page.getByRole('button', { name: /^skip$/i }).click()
+}
+
 export const completeOnboardingUpToPledge = async (
   page: Page,
 ): Promise<void> => {
@@ -102,6 +110,7 @@ export const completeOnboardingUpToPledge = async (
   await completeOfficeSelectionStep(page)
   await completePathToVictoryStep(page)
   await skipCampaignStoryStep(page)
+  await skipSignupGoalStep(page)
   await expect(
     page.getByRole('heading', { level: 1, name: /take our pledge/i }),
   ).toBeVisible()

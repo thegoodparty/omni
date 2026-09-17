@@ -17,7 +17,7 @@ const ORG_SLUG_HEADER = 'X-Organization-Slug'
 // resolution, Pro gate, ContactStatusService reads) with a real Postgres
 // database; only the in-process people-db list query itself is stubbed — the
 // actual SQL composition (the OR scoped to voterStatus only) is unit-tested
-// directly in filters.sql.util.test.ts.
+// directly in databricksVoterSql.util.test.ts.
 describe('POST /v1/contacts/count — Voter Likelihood override resolution', () => {
   // Win (non-`eo-`) Pro org. assertVoterDataEligibility resolves the
   // district via election-api (a real HttpService.get) — stub it with L2 data

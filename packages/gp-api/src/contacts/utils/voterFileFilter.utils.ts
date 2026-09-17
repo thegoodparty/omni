@@ -1,5 +1,24 @@
-import { INCOME_RANGE_MAPPING } from '@goodparty_org/contracts'
+import {
+  AGE_FILTER_KEY_RANGES,
+  type AgeFilterKey,
+  INCOME_RANGE_MAPPING,
+} from '@goodparty_org/contracts'
 import { VoterFileFilter } from '../../generated/prisma'
+
+// Both generations of age key, listed once so a segment can be read for them
+// without indexing it by a computed string. The bounds are NOT here — see the
+// age block below, and contracts' PackAgeBuckets.ts, which owns them.
+const AGE_FILTER_KEYS = [
+  'age18_25',
+  'age25_35',
+  'age35_50',
+  'age50Plus',
+  'age18_24',
+  'age25_34',
+  'age35_49',
+  'age50_64',
+  'age65Plus',
+] as const satisfies readonly AgeFilterKey[]
 
 type RangeCondition = {
   gte?: number
@@ -102,6 +121,9 @@ export const LANGUAGE_CODE_TO_LABEL: Record<string, string> = {
   en: 'English',
   es: 'Spanish',
   other: 'Other',
+  // Language_Code IS NULL. Split out of 'other', which carried both and so
+  // matched most of a district.
+  unknown: 'Unknown',
 }
 
 // The only incomeRanges strings the conversion below understands; anything
@@ -136,6 +158,14 @@ export const convertVoterFileFilterToFilters = (
     // a meaningless FilterObject entry.
     'activityConditions',
     'supportStatus',
+    // Provenance metadata (Task 7, recommended lists), not filter criteria.
+    // recommendedModified is a plain boolean and would otherwise fall into
+    // the generic boolean branch below and pollute the query payload for
+    // every list ever created from a recommendation.
+    'recommendedVariant',
+    'recommendedChannel',
+    'recommendedIntent',
+    'recommendedModified',
   ])
 
   const fieldsHandledSeparately = new Set([
@@ -153,15 +183,7 @@ export const convertVoterFileFilterToFilters = (
     'genderMale',
     'genderFemale',
     'genderUnknown',
-    'age18_25',
-    'age25_35',
-    'age35_50',
-    'age50Plus',
-    'age18_24',
-    'age25_34',
-    'age35_49',
-    'age50_64',
-    'age65Plus',
+    ...AGE_FILTER_KEYS,
     'ageUnknown',
     'likelyMarried',
     'likelySingle',
@@ -199,6 +221,11 @@ export const convertVoterFileFilterToFilters = (
     'contactsMade3',
     'contactsMade4',
     'contactsMade5Plus',
+    'independentAffinity',
+    'ideologyConservative',
+    'ideologyLiberal',
+    'ideologyModerate',
+    'ideologyUnknown',
   ])
 
   for (const [key, value] of Object.entries(segment)) {
@@ -224,6 +251,14 @@ export const convertVoterFileFilterToFilters = (
         const values = value.map(String)
         filters['voterStatus'] =
           values.length === 1 ? { eq: values[0] } : { in: values }
+      } else if (key === 'precincts') {
+        // Explicit rather than falling through to the generic array branch:
+        // the persisted column is `precincts` but the filter key is
+        // `precinct`, and the filter accepts only `in` — the generic branch
+        // would emit `{ eq }` for a single selection, which
+        // PeopleFiltersSchema strips, silently widening the audience to the
+        // whole district.
+        filters['precinct'] = { in: value.map(String) }
       } else if (key === 'incomeRanges') {
         // Income ranges are handled separately after the loop
         // to allow combining with incomeUnknown using _includeNull
@@ -266,18 +301,16 @@ export const convertVoterFileFilterToFilters = (
       genderValues.length === 1 ? { eq: genderValues[0] } : { in: genderValues }
   }
 
-  const ageRanges: Array<{ min: number; max: number | null }> = []
   // Retired keys keep the exact bounds they were saved with (ENG-10752) —
   // reinterpreting them would silently change existing lists' membership.
-  if (segment.age18_25) ageRanges.push({ min: 18, max: 25 })
-  if (segment.age25_35) ageRanges.push({ min: 25, max: 35 })
-  if (segment.age35_50) ageRanges.push({ min: 35, max: 50 })
-  if (segment.age50Plus) ageRanges.push({ min: 50, max: null })
-  if (segment.age18_24) ageRanges.push({ min: 18, max: 24 })
-  if (segment.age25_34) ageRanges.push({ min: 25, max: 34 })
-  if (segment.age35_49) ageRanges.push({ min: 35, max: 49 })
-  if (segment.age50_64) ageRanges.push({ min: 50, max: 64 })
-  if (segment.age65Plus) ageRanges.push({ min: 65, max: null })
+  // The bounds themselves live in contracts because the door-knocking pack
+  // cuts its age buckets from these same numbers (PackAgeBuckets.ts): the map
+  // shades what the buckets say and knock time serves what this builds, so a
+  // second copy of them is a second answer waiting to happen.
+  // Order is irrelevant — processNumericRanges sorts.
+  const ageRanges: NumericRange[] = AGE_FILTER_KEYS.filter(
+    (key) => segment[key],
+  ).map((key) => ({ ...AGE_FILTER_KEY_RANGES[key] }))
 
   if (ageRanges.length > 0) {
     const ageFilter = processNumericRanges(ageRanges)
@@ -399,6 +432,27 @@ export const convertVoterFileFilterToFilters = (
 
   if (segment.hasLandline) {
     filters['hasLandline'] = true
+  }
+
+  const ideologyValues: string[] = []
+  if (segment.ideologyConservative) ideologyValues.push('Conservative')
+  // The wire vocabulary follows the mart column, which says Liberal; the
+  // product labels it "Progressive" and only the label differs.
+  if (segment.ideologyLiberal) ideologyValues.push('Liberal')
+  if (segment.ideologyModerate) ideologyValues.push('Moderate')
+  if (segment.ideologyUnknown) ideologyValues.push('Unknown')
+  if (ideologyValues.length > 0) {
+    filters['ideology'] =
+      ideologyValues.length === 1
+        ? { eq: ideologyValues[0] }
+        : { in: ideologyValues }
+  }
+
+  // Voter_Independent_Affinity is a non-nullable BOOLEAN, so this travels as
+  // an enum value rather than the presence check every other has-* boolean
+  // uses — `IS NOT NULL` on that column matches the whole file.
+  if (segment.independentAffinity) {
+    filters['independentAffinity'] = { eq: 'Yes' }
   }
   return filters
 }

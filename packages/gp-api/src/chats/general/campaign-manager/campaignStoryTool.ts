@@ -2,6 +2,7 @@ import { ForbiddenException } from '@nestjs/common'
 import { z } from 'zod'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import type { RewriteCampaignStoryInput } from '@/campaignStory/schemas/rewriteCampaignStory.schema'
+import type { StrategicLandscapeFailedReason } from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import {
   CampaignStoryIntakeService,
   StoryState,
@@ -33,7 +34,7 @@ export type CampaignStoryToolOutput =
   | { story: StoryState }
   | { rewrite: string }
   | { saved: 'why' | 'background' | 'positions' }
-  | { generation: { status: string } }
+  | { generation: { status: string; reason?: StrategicLandscapeFailedReason } }
   | { error: string }
 
 export const buildCampaignStoryTool = (deps: {
@@ -47,11 +48,13 @@ export const buildCampaignStoryTool = (deps: {
     "(why, background, positions); 'elaborate' expands a rough answer via the " +
     "same 'Help me rewrite' AI the Story page uses (field 'why'|'background', " +
     "or 'issue' with a title for one policy; returns a suggestion to show the " +
-    "candidate — do not save it without their OK); 'save' persists a " +
-    "candidate-confirmed answer (field 'why'|'background' with text, or " +
-    "'positions' with a positions array); 'generate' kicks off the campaign " +
-    'plan + tracker once all three answers are saved. Only ever save or ' +
-    'generate after the candidate confirms.',
+    "candidate — do not save it without their OK); 'save' persists one answer " +
+    "(field 'why'|'background' with text, or 'positions' with a positions " +
+    'array) and replaces whatever that field held, so call it as soon as the ' +
+    'candidate gives an answer in their own words, then again with a rewrite ' +
+    "once they approve one; 'generate' kicks off the campaign plan + tracker " +
+    'once all three answers are saved. Never save a rewrite the candidate has ' +
+    'not approved, and only generate after they confirm.',
   inputSchema: campaignStoryToolInputSchema,
   execute: async (input): Promise<CampaignStoryToolOutput> => {
     const { intake, campaignId, candidateName } = deps

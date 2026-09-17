@@ -1,12 +1,28 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import {
+  DoorKnockStatus,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionResponse,
+  SetDoNotKnock,
+  SetDoNotKnockResponse,
+  SetNotAVoter,
+  SetNotAVoterResponse,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ContactInteractionDoorKnockService } from '@/contactInteraction/services/contactInteractionDoorKnock.service'
-import { Organization } from '../../generated/prisma'
+import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
+import {
+  ContactStatusField,
+  ContactStatusSource,
+  DoNotKnockStatus,
+  NotAVoterStatus,
+  Organization,
+  OrganizationRole,
+} from '../../generated/prisma'
+import { assertVolunteerAssignedToOutreach } from '../utils/doorKnockingAccess.util'
 import { deriveKnockStatus } from '../utils/knockStatus.util'
+import { DoorKnockingStatusService } from './doorKnockingStatus.service'
 
 @Injectable()
 export class DoorKnockingInteractionService extends createPrismaBase(
@@ -14,6 +30,9 @@ export class DoorKnockingInteractionService extends createPrismaBase(
 ) {
   constructor(
     private readonly doorKnockInteractions: ContactInteractionDoorKnockService,
+    private readonly contactStatus: ContactStatusService,
+    private readonly knockStatuses: DoorKnockingStatusService,
+    private readonly moduleRef: ModuleRef,
   ) {
     super()
   }
@@ -25,40 +44,203 @@ export class DoorKnockingInteractionService extends createPrismaBase(
   // the DB): a replayed clientKey re-syncs the same row — never a duplicate.
   async record(
     organization: Organization,
+    actorUserId: number,
     input: RecordDoorKnockInteraction,
+    role: OrganizationRole | undefined,
   ): Promise<RecordDoorKnockInteractionResponse> {
-    const target = await this.findFirst({
-      where: {
-        id: input.stopTargetId,
-        stop: {
-          route: {
-            turf: {
-              voterFileFilter: { organizationSlug: organization.slug },
-            },
-          },
-        },
-      },
-      select: { personId: true },
-    })
-    if (!target) {
-      throw new NotFoundException('Stop target not found')
-    }
+    const { personId, outreachId } = await this.resolveTargetForOrg(
+      organization.slug,
+      input.stopTargetId,
+    )
+    await assertVolunteerAssignedToOutreach(
+      this.moduleRef,
+      role,
+      outreachId,
+      actorUserId,
+      'Stop target not found',
+    )
 
     const interaction = await this.doorKnockInteractions.recordIdempotent({
       organizationSlug: organization.slug,
-      personId: target.personId,
+      personId,
       occurredAt: new Date(),
       outcome: input.outcome,
       supportAnswer: input.supportAnswer ?? null,
       willVote: input.willVote ?? null,
+      followUp: input.followUp ?? null,
       note: input.note ?? null,
       sourceId: input.clientKey,
       manual: false,
+      actorUserId,
     })
+
+    // The status of the PERSON, not of the row just written. The walk view
+    // recolors the dot from this without re-fetching the route, so deriving it
+    // from the new row alone made this the one surface that still answered by
+    // recency: logging an `unsure` on a known supporter greyed the dot on the
+    // phone, and only a refresh — reading the same history through
+    // `firmestAnswerPerPerson` — turned it green again. That flicker is the
+    // reported bug, and this endpoint is where a canvasser would see it first.
+    // Reading back through the status service also picks up a manual override,
+    // which deriving from the row could never see.
+    //
+    // The knock is already committed by this point, and this read exists only
+    // to colour a dot the client re-fetches with the route anyway — so a
+    // failure here degrades to the row's own status rather than 500ing a write
+    // that succeeded. A 500 would send the phone into an idempotent replay of
+    // a knock that was never in doubt.
+    const statuses = await this.knockStatuses
+      .latestKnockStatuses(organization.slug, [personId])
+      .catch((err: unknown) => {
+        this.logger.error(
+          { err, organizationSlug: organization.slug, personId },
+          'knock recorded, status read-back failed; falling back to the new row',
+        )
+        return new Map<string, DoorKnockStatus>()
+      })
 
     return {
       personId: interaction.personId,
-      knockStatus: deriveKnockStatus(interaction),
+      knockStatus: statuses.get(personId) ?? deriveKnockStatus(interaction),
     }
+  }
+
+  // ADR 0007. Its own endpoint rather than a field on the knock payload: a
+  // do-not-knock is recordable when there is no outcome worth logging, and it
+  // has to be reversible on its own.
+  //
+  // No sourceId, even though the source is door_knock — that key exists for
+  // replayed activity syncs, and changeStatus already no-ops when the value is
+  // unchanged, so a double-tap costs nothing while a real reversal earns its
+  // own row in the log.
+  async setDoNotKnock(
+    organization: Organization,
+    actorUserId: number,
+    input: SetDoNotKnock,
+    role: OrganizationRole | undefined,
+  ): Promise<SetDoNotKnockResponse> {
+    const { personId, outreachId } = await this.resolveTargetForOrg(
+      organization.slug,
+      input.stopTargetId,
+    )
+    await assertVolunteerAssignedToOutreach(
+      this.moduleRef,
+      role,
+      outreachId,
+      actorUserId,
+      'Stop target not found',
+    )
+
+    await this.contactStatus.changeStatus({
+      organizationSlug: organization.slug,
+      personId,
+      field: ContactStatusField.do_not_knock,
+      toValue: input.value,
+      source: ContactStatusSource.door_knock,
+      actorUserId,
+      // Nobody is born do-not-knock, so the seed is always `cleared`. Passing
+      // it rather than null keeps a clear-on-an-unflagged-person a no-op
+      // instead of logging a `null -> cleared` transition that never happened.
+      fallbackFromValue: DoNotKnockStatus.cleared,
+    })
+
+    return {
+      personId,
+      doNotKnock: input.value === DoNotKnockStatus.active,
+    }
+  }
+
+  // ADR 0008. The answer to "What happened?" behind a `not_a_voter` outcome.
+  // Recorded, never acted on destructively: no person is deleted, no address
+  // is unlinked, and nothing is written back to the L2-derived voter data. The
+  // consequence is suppression from future turf evaluation, which the knock
+  // path applies from the projection this writes.
+  //
+  // No sourceId, for the same reason do-not-knock has none: this is a person
+  // pressing a button, not a replayed sync, and a correction made on a later
+  // visit has to be able to reach the value a first visit set.
+  async setNotAVoter(
+    organization: Organization,
+    actorUserId: number,
+    input: SetNotAVoter,
+    role: OrganizationRole | undefined,
+  ): Promise<SetNotAVoterResponse> {
+    const { personId, outreachId } = await this.resolveTargetForOrg(
+      organization.slug,
+      input.stopTargetId,
+    )
+    await assertVolunteerAssignedToOutreach(
+      this.moduleRef,
+      role,
+      outreachId,
+      actorUserId,
+      'Stop target not found',
+    )
+
+    await this.contactStatus.changeStatus({
+      organizationSlug: organization.slug,
+      personId,
+      field: ContactStatusField.not_a_voter,
+      toValue: input.value,
+      source: ContactStatusSource.door_knock,
+      actorUserId,
+      // Nobody is born flagged, so the seed is `cleared` — same as
+      // do-not-knock, and it keeps clearing an unflagged person a no-op rather
+      // than a logged transition that never happened.
+      fallbackFromValue: NotAVoterStatus.cleared,
+    })
+
+    // `cleared` is the absence of a reason, so it echoes back as an absent
+    // key — the same shape the route payload marks this person with.
+    return input.value === NotAVoterStatus.cleared
+      ? { personId }
+      : { personId, notAVoterReason: input.value }
+  }
+
+  // Resolving through the route -> turf -> filter chain is the authorization:
+  // holding a stopTargetId proves nothing on its own, but a target that
+  // resolves under the caller's org is one the caller was routed to. The
+  // outreach id rides the same query (route -> outreach is the envelope, one
+  // hop) so a volunteer's assignment check costs no second round trip.
+  //
+  // Deliberately does NOT filter `deletedAt: null` the way `activeTurfScope`
+  // does. The phone snapshots the route and syncs knocks later, so a list
+  // deleted mid-walk would turn every queued write into a 404 and discard work
+  // a canvasser actually did — and these rows hang off the organization, not
+  // the turf, so they outlive the list by design. The org scope still holds,
+  // so this resolves nothing across a tenant; it simply does not require the
+  // list to have survived the walk. Contrast the knock freeze, which does
+  // filter: that one bills a Geoapify route.
+  private async resolveTargetForOrg(
+    organizationSlug: string,
+    stopTargetId: number,
+  ): Promise<{ personId: string; outreachId: number }> {
+    const target = await this.findFirst({
+      where: {
+        id: stopTargetId,
+        stop: {
+          route: {
+            turf: { voterFileFilter: { organizationSlug } },
+          },
+        },
+      },
+      select: {
+        personId: true,
+        stop: {
+          select: { route: { select: { outreach: { select: { id: true } } } } },
+        },
+      },
+    })
+    if (!target) {
+      throw new NotFoundException('Stop target not found')
+    }
+    const outreachId = target.stop.route.outreach?.id
+    if (outreachId === undefined) {
+      throw new Error(
+        `Door-knocking route for stop target ${stopTargetId} has no ` +
+          'outreach envelope; every route is created with one',
+      )
+    }
+    return { personId: target.personId, outreachId }
   }
 }

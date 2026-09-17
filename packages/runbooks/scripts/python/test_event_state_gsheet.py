@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 import event_state_gsheet as gs
 import event_state_assembler as esa
 
@@ -34,6 +36,112 @@ class _FakeService:
 
     def spreadsheets(self):
         return _FakeSheets(self.log)
+
+
+# --- transient-error retry (the 2026-09-07 Sheets 503) ------------------------
+
+class _Resp:
+    """Mirrors httplib2's response object: googleapiclient.errors.HttpError carries the
+    status on .resp.status, which is what the retry predicate reads."""
+    def __init__(self, status):
+        self.status = status
+
+
+class _HttpErrorLike(Exception):
+    def __init__(self, status):
+        super().__init__(f"HTTP {status}")
+        self.resp = _Resp(status)
+
+
+class _FlakyRequest:
+    """Raises `errors` in order, one per execute() call, then returns a result."""
+    def __init__(self, errors, result="ok"):
+        self._errors = list(errors)
+        self._result = result
+        self.attempts = 0
+
+    def execute(self):
+        self.attempts += 1
+        if self._errors:
+            raise self._errors.pop(0)
+        return self._result
+
+
+def test_execute_retries_transient_503_then_succeeds():
+    """The 503 that failed the 2026-09-07 governance run: Google was briefly unavailable,
+    and a single retry would have carried the write through."""
+    req = _FlakyRequest([_HttpErrorLike(503)])
+    slept = []
+    assert gs._execute(req, sleep=slept.append) == "ok"
+    assert req.attempts == 2
+    assert slept  # backed off rather than hammering
+
+
+def test_execute_does_not_retry_a_permission_error():
+    """A 403 is a standing condition — retrying it wastes the run's time and buries the
+    real cause. Only transient statuses earn a retry."""
+    req = _FlakyRequest([_HttpErrorLike(403)])
+    with pytest.raises(_HttpErrorLike):
+        gs._execute(req, sleep=lambda _: None)
+    assert req.attempts == 1
+
+
+def test_execute_gives_up_and_reraises_after_the_cap():
+    """A sustained outage must still fail the step, so the digest's failure notification
+    and the dead man's switch stay truthful."""
+    req = _FlakyRequest([_HttpErrorLike(503) for _ in range(20)])
+    with pytest.raises(_HttpErrorLike):
+        gs._execute(req, sleep=lambda _: None)
+    assert req.attempts == gs._SHEETS_ATTEMPTS
+
+
+def test_execute_does_not_retry_a_non_http_error():
+    """An exception with no HTTP status (a bug, a KeyboardInterrupt path) is not transient."""
+    req = _FlakyRequest([ValueError("boom")])
+    with pytest.raises(ValueError):
+        gs._execute(req, sleep=lambda _: None)
+    assert req.attempts == 1
+
+
+class _FlakyValues:
+    """Fails the first update() execute with a 503, then behaves. Mirrors _FakeValues."""
+    def __init__(self, log):
+        self._log = log
+        self._failed = False
+
+    def clear(self, **kw):
+        self._log.append(("clear", kw))
+        return self
+
+    def update(self, **kw):
+        self._log.append(("update", kw))
+        return self
+
+    def execute(self):
+        if not self._failed:
+            self._failed = True
+            raise _HttpErrorLike(503)
+        return {}
+
+
+class _FlakyService:
+    def __init__(self):
+        self.log = []
+        self._values = _FlakyValues(self.log)
+
+    def spreadsheets(self):
+        return self
+
+    def values(self):
+        return self._values
+
+
+def test_write_sheet_survives_a_transient_503(monkeypatch):
+    """End to end: the exact production failure no longer fails the write."""
+    monkeypatch.setattr(gs.time, "sleep", lambda _: None)
+    svc = _FlakyService()
+    rows = [{c: "" for c in esa.COLUMNS}]
+    assert gs.write_sheet(rows, service=svc, spreadsheet_id="sid") == 1
 
 
 SAMPLE = [
@@ -192,6 +300,178 @@ def test_main_refresh_gaps_skips_on_corrupt_state(monkeypatch, tmp_path, capsys)
     assert "skipping" in capsys.readouterr().err.lower()
 
 
+_WRITEBACK_ENV = {
+    "CLICKUP_API_KEY": "k", "GP_QUESTIONS_LIST_ID": "L",
+    "GP_QUESTIONS_STATE_FIELD_ID": "f-state", "GP_QUESTIONS_CHECKED_FIELD_ID": "f-date",
+    "GP_QUESTIONS_OPT_ANSWERABLE": "opt-a", "GP_QUESTIONS_OPT_PARTIAL": "opt-p",
+    "GP_QUESTIONS_OPT_NOT": "opt-n",
+}
+
+
+def test_build_anchor_values_leads_with_the_event_and_its_anchor():
+    state = {
+        "B Event": {"fires_on": "Plan page, Generate.", "url": "/dashboard/campaign-plan",
+                    "confidence": "high", "flag_reason": "", "evidence": "a.tsx:3",
+                    "disposition": "new", "reason": "", "first_seen": "2026-09-10",
+                    "last_seen": "2026-09-10", "written_date": ""},
+        "A Event": {"fires_on": "Left nav.", "url": "n/a (global nav)",
+                    "confidence": "low", "flag_reason": "global_chrome",
+                    "evidence": "nav.tsx:1", "disposition": "accepted", "reason": "ok",
+                    "first_seen": "2026-09-10", "last_seen": "2026-09-10",
+                    "written_date": ""},
+    }
+    values = gs.build_anchor_values(state)
+    assert values[0] == list(gs.ANCHORS_COLUMNS)
+    assert gs.ANCHORS_COLUMNS[:4] == ["event", "fires_on", "url", "confidence"]
+    assert values[1][0] == "A Event"          # sorted by event id
+    assert len(values) == 3
+    assert all(isinstance(c, str) for row in values for c in row)
+
+
+def test_build_anchor_values_missing_cell_becomes_blank():
+    state = {"E": {"fires_on": "x"}}   # most fields absent
+    values = gs.build_anchor_values(state)
+    row = values[1]
+    assert row[gs.ANCHORS_COLUMNS.index("event")] == "E"
+    assert row[gs.ANCHORS_COLUMNS.index("url")] == ""
+
+
+def test_write_anchors_sheet_updates_then_clears_and_returns_count():
+    svc = _FakeService()
+    state = {"A": {"fires_on": "x"}, "B": {"fires_on": "y"}}
+    n = gs.write_anchors_sheet(state, service=svc, spreadsheet_id="SID", tab="anchors")
+    assert n == 2  # excludes header
+    kinds = [k for k, _ in svc.log]
+    assert kinds == ["update", "clear"]
+    update_kw = svc.log[0][1]
+    clear_kw = svc.log[1][1]
+    assert update_kw["spreadsheetId"] == "SID"
+    assert update_kw["range"] == "anchors!A1"
+    assert update_kw["body"]["values"][0] == list(gs.ANCHORS_COLUMNS)
+    assert len(update_kw["body"]["values"]) == 3     # header + 2 data rows
+    assert clear_kw["spreadsheetId"] == "SID" and clear_kw["range"] == "anchors!A4:ZZ"
+
+
+def test_write_anchors_sheet_default_tab_is_ANCHORS_TAB():
+    svc = _FakeService()
+    gs.write_anchors_sheet({}, service=svc, spreadsheet_id="SID")
+    assert svc.log[0][1]["range"] == f"{gs.ANCHORS_TAB}!A1"
+
+
+def test_load_anchors_state_missing_is_empty_and_corrupt_is_none(tmp_path):
+    assert gs.load_anchors_state(tmp_path / "nope.json") == {}
+    bad = tmp_path / "bad.json"
+    bad.write_text("{ not json")
+    assert gs.load_anchors_state(bad) is None
+    notdict = tmp_path / "arr.json"
+    notdict.write_text("[]")
+    assert gs.load_anchors_state(notdict) is None
+
+
+def test_load_anchors_state_reads_valid_dict(tmp_path):
+    good = tmp_path / "state.json"
+    good.write_text(json.dumps({"E": {"fires_on": "x"}}))
+    assert gs.load_anchors_state(good) == {"E": {"fires_on": "x"}}
+
+
+def test_main_refresh_anchors_writes_state_rows(monkeypatch, tmp_path, capsys):
+    state = {"E": {"fires_on": "x", "disposition": "new"}}
+    state_file = tmp_path / "event_anchors.json"
+    state_file.write_text(json.dumps(state))
+    svc = _FakeService()
+    monkeypatch.setattr(gs, "get_sheets_service", lambda **kw: svc)
+    rc = gs.main(["refresh-anchors", "--spreadsheet-id", "SID",
+                 "--anchors-state", str(state_file)])
+    assert rc == 0
+    assert any(c[0] == "update" for c in svc.log)
+
+
+def test_main_refresh_anchors_skips_on_corrupt_state(monkeypatch, tmp_path, capsys):
+    state_file = tmp_path / "event_anchors.json"
+    state_file.write_text("{ broken")
+    monkeypatch.setattr(gs, "get_sheets_service",
+                        lambda **kw: (_ for _ in ()).throw(AssertionError("must not auth")))
+    rc = gs.main(["refresh-anchors", "--spreadsheet-id", "SID",
+                 "--anchors-state", str(state_file)])
+    assert rc == 0
+    assert "skipping" in capsys.readouterr().err.lower()
+
+
+def test_main_writeback_questions_exits_2_without_the_token(monkeypatch, capsys):
+    monkeypatch.delenv("CLICKUP_API_KEY", raising=False)
+    rc = gs.main(["writeback-questions"])
+    assert rc == 2
+    assert "CLICKUP_API_KEY" in capsys.readouterr().err
+
+
+def test_main_writeback_questions_falls_back_to_the_code_owned_ids(monkeypatch, capsys):
+    # The ids are pointers, not config: only the token is required, so a run with nothing
+    # but CLICKUP_API_KEY set must still address the real list.
+    import question_writeback as qwb
+    import questions_clickup as qc
+
+    for name in _WRITEBACK_ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("CLICKUP_API_KEY", "k")
+    monkeypatch.setattr(gs, "question_rows_for_refresh",
+                        lambda: [{"question": "Q1", "state": "answerable",
+                                  "question_ref": "t1"}])
+    seen = {}
+    def fake_fetch(api_key, list_id, **kwargs):
+        seen["list_id"] = list_id
+        return {}
+    monkeypatch.setattr(qwb, "fetch_current_state", fake_fetch)
+    def fake_write(api_key, rows, **kwargs):
+        seen.update(kwargs)
+        return 1
+    monkeypatch.setattr(qwb, "write_answer_state", fake_write)
+    assert gs.main(["writeback-questions"]) == 0
+    assert seen["list_id"] == qc.LIST_ID
+    assert seen["state_field_id"] == qc.STATE_FIELD_ID
+    assert seen["checked_field_id"] == qc.CHECKED_FIELD_ID
+    assert seen["option_ids"] == qc.OPTION_IDS
+
+
+def test_main_writeback_questions_dry_run_reports_changed_count(monkeypatch, capsys):
+    import question_writeback as qwb
+
+    for name, value in _WRITEBACK_ENV.items():
+        monkeypatch.setenv(name, value)
+    rows = [
+        {"question": "Q1", "state": "answerable", "question_ref": "t1"},
+        {"question": "Q2", "state": "not_answerable", "question_ref": "t2"},
+    ]
+    monkeypatch.setattr(gs, "question_rows_for_refresh", lambda: rows)
+    monkeypatch.setattr(qwb, "fetch_current_state", lambda *a, **k: {"t1": "answerable"})
+    monkeypatch.setattr(qwb, "write_answer_state",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("dry run wrote")))
+    rc = gs.main(["writeback-questions", "--dry-run"])
+    assert rc == 0
+    assert "1 of 2 questions changed" in capsys.readouterr().out
+
+
+def test_main_writeback_questions_writes_through_the_module(monkeypatch, capsys):
+    import question_writeback as qwb
+
+    for name, value in _WRITEBACK_ENV.items():
+        monkeypatch.setenv(name, value)
+    rows = [{"question": "Q1", "state": "answerable", "question_ref": "t1"}]
+    monkeypatch.setattr(gs, "question_rows_for_refresh", lambda: rows)
+    monkeypatch.setattr(qwb, "fetch_current_state", lambda *a, **k: {})
+    seen = {}
+    def fake_write(api_key, got_rows, **kwargs):
+        seen.update(kwargs, api_key=api_key, rows=got_rows)
+        return 1
+    monkeypatch.setattr(qwb, "write_answer_state", fake_write)
+    rc = gs.main(["writeback-questions"])
+    assert rc == 0
+    assert seen["rows"] == rows
+    assert seen["state_field_id"] == "f-state"
+    assert seen["option_ids"] == {"answerable": "opt-a", "partially_answerable": "opt-p",
+                                  "not_answerable": "opt-n"}
+    assert "updated answer state on 1" in capsys.readouterr().out
+
+
 def test_build_meta_values_includes_refresh_and_clickup():
     meta = {"refreshed_at": "2026-08-03T12:00:00", "event_count": 472,
             "provenance_path": "/x/prov.csv"}
@@ -237,3 +517,87 @@ def test_write_meta_sheet_default_tab_is_META_TAB():
     svc = _FakeService()
     gs.write_meta_sheet({"refreshed_at": "x"}, service=svc, spreadsheet_id="s")
     assert svc.log[0][1]["range"] == f"{gs.META_TAB}!A1"
+
+
+QUESTION_ROWS = [
+    {"question": "Are people exporting voter files?", "state": "partially_answerable",
+     "asked_by": "nate@goodparty.org", "question_ref": "86ak1111",
+     "behaviors": ["voter_file_exported"], "events": ["Voter Data - List Exported"],
+     "gaps": ["DownloadStep.tsx"], "caveats": []},
+    {"question": "Are people creating lists?", "state": "answerable", "asked_by": "",
+     "question_ref": "", "behaviors": ["voter_file_created"],
+     "events": ["Voter Data - List Created"], "gaps": [],
+     "caveats": ["one list per abandoned attempt (DATA-2308)"]},
+]
+
+
+def test_build_question_values_header_then_rows():
+    matrix = gs.build_question_values(QUESTION_ROWS)
+    assert matrix[0] == gs.QUESTIONS_COLUMNS
+    assert len(matrix) == 3
+    assert all(isinstance(cell, str) for row in matrix for cell in row)
+
+
+def test_build_question_values_joins_list_cells():
+    matrix = gs.build_question_values(QUESTION_ROWS)
+    gaps_idx = gs.QUESTIONS_COLUMNS.index("uninstrumented_surfaces")
+    assert matrix[1][gaps_idx] == "DownloadStep.tsx"
+    caveat_idx = gs.QUESTIONS_COLUMNS.index("caveats")
+    assert matrix[2][caveat_idx] == "one list per abandoned attempt (DATA-2308)"
+
+
+def test_build_question_values_maps_renamed_columns_to_row_keys():
+    # answering_events/clickup_task read row keys events/question_ref; without the
+    # _QUESTION_COL_KEY remap each column silently renders blank.
+    matrix = gs.build_question_values(QUESTION_ROWS)
+    events_idx = gs.QUESTIONS_COLUMNS.index("answering_events")
+    assert matrix[1][events_idx] == "Voter Data - List Exported"
+    task_idx = gs.QUESTIONS_COLUMNS.index("clickup_task")
+    assert matrix[1][task_idx] == "86ak1111"
+
+
+def test_build_question_values_blank_for_missing_keys():
+    matrix = gs.build_question_values([{"question": "Q"}])
+    assert matrix[1][gs.QUESTIONS_COLUMNS.index("state")] == ""
+
+
+def test_write_questions_sheet_updates_then_clears():
+    svc = _FakeService()
+    n = gs.write_questions_sheet(QUESTION_ROWS, service=svc, spreadsheet_id="s1")
+    assert n == 2
+    assert [k for k, _ in svc.log] == ["update", "clear"]
+    assert svc.log[0][1]["range"] == f"{gs.QUESTIONS_TAB}!A1"
+
+
+_DUP_ID_REGISTRY = """events: []
+behaviors:
+  - id: dup
+    question: "Q one?"
+    product: win
+    surfaces:
+      - {path: "a.tsx", label: "a", instrumented_by: null}
+    review: {last_reviewed: 2026-08-01, reviewed_by: t, interval_days: 90}
+  - id: dup
+    question: "Q two?"
+    product: win
+    surfaces:
+      - {path: "b.tsx", label: "b", instrumented_by: null}
+    review: {last_reviewed: 2026-08-01, reviewed_by: t, interval_days: 90}
+"""
+
+
+def test_question_rows_for_refresh_raises_on_an_invalid_registry(monkeypatch, tmp_path):
+    # The registry's rules only bind the scheduled loop if a live caller runs them.
+    import analytics_event_health as aeh
+
+    mon = tmp_path / "mon.yaml"
+    mon.write_text(_DUP_ID_REGISTRY)
+    monkeypatch.setattr(aeh, "WATCHLIST", mon)
+    monkeypatch.setattr(gs.esa, "assemble", lambda *a, **k: {"rows": [], "meta": {}})
+    with pytest.raises(ValueError, match="duplicate id"):
+        gs.question_rows_for_refresh()
+
+
+def test_question_rows_for_refresh_accepts_the_committed_registry(monkeypatch):
+    monkeypatch.setattr(gs.esa, "assemble", lambda *a, **k: {"rows": [], "meta": {}})
+    assert gs.question_rows_for_refresh()

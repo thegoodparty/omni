@@ -12,6 +12,7 @@ import {
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   CENTRAL_TIMEZONE,
+  isDateTodayOrFuture,
   mondayOfWeekUtc,
   nextMondayUtcMidnight,
   parseIsoDateAsUTC,
@@ -35,8 +36,11 @@ import {
 } from '../../campaigns.consts'
 import { CompleteTaskBodySchema } from '../../tasks/schemas/completeTaskBody.schema'
 import {
+  BALLOT_ACCESS_TASK_TITLES,
+  buildBallotAccessTrackerTaskRows,
   buildOutreachTrackerTaskRows,
   buildStaticTrackerTaskRows,
+  needsBallotAccessTasks,
 } from './staticTrackerTasks.util'
 import {
   CAMPAIGN_TRACKER_EXPERIMENT_TYPE,
@@ -117,7 +121,14 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       const start = nextMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE)
       const electionDate = this.resolveElectionDate(campaign)
       const rows = [
-        ...buildStaticTrackerTaskRows(campaign.id, start, electionDate),
+        // Ballot access is skipped outright for a candidate who told us in
+        // onboarding they are already on the ballot.
+        ...buildStaticTrackerTaskRows(
+          campaign.id,
+          start,
+          electionDate,
+          needsBallotAccessTasks(campaign),
+        ),
         // The plan's 7 text/robocall sends are deterministic, not agent-picked.
         // Suppressed entirely if the candidate lost their primary.
         ...buildOutreachTrackerTaskRows(
@@ -128,6 +139,59 @@ export class CampaignTrackerTasksService extends createPrismaBase(
         ),
       ]
       const { count } = await tx.campaignTrackerTask.createMany({ data: rows })
+      return count
+    })
+  }
+
+  // Bring the ballot-access rows in line with the candidate's CURRENT ballot
+  // status. The static rows are materialized once, so without this a candidate
+  // who tells us after onboarding that they have not actually filed never gets
+  // the steps, and one who has since filed keeps being told to collect
+  // signatures. Called on every generation (initial, weekly cron, manual) and
+  // as soon as a campaign update changes ballotStatus, under the same advisory
+  // lock as materializeStaticTasks so a reconcile racing the bootstrap cannot
+  // double-insert.
+  async reconcileBallotAccessTasks(campaign: Campaign): Promise<number> {
+    return this.client.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY}::integer, ${campaign.id}::integer)`
+
+      // Nothing to reconcile before the static rows exist — materialization
+      // owns the first decision, and adding rows here would strand a campaign
+      // with ballot access and nothing else.
+      const bootstrapped = await tx.campaignTrackerTask.count({
+        where: { campaignId: campaign.id, isDefaultTask: true },
+      })
+      if (bootstrapped === 0) return 0
+
+      const where = {
+        campaignId: campaign.id,
+        isDefaultTask: true,
+        title: { in: BALLOT_ACCESS_TASK_TITLES },
+      }
+
+      if (!needsBallotAccessTasks(campaign)) {
+        const { count } = await tx.campaignTrackerTask.deleteMany({ where })
+        return count
+      }
+
+      const existing = await tx.campaignTrackerTask.findMany({
+        where,
+        select: { title: true },
+      })
+      const present = new Set(existing.map((row) => row.title))
+      // Re-added rows anchor to the upcoming Monday (their catalog timing is
+      // jurisdiction-kind, so it has no date of its own), which is right: the
+      // work became relevant now, not at bootstrap.
+      const missing = buildBallotAccessTrackerTaskRows(
+        campaign.id,
+        nextMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE),
+        this.resolveElectionDate(campaign),
+      ).filter((row) => !present.has(row.title))
+      if (missing.length === 0) return 0
+
+      const { count } = await tx.campaignTrackerTask.createMany({
+        data: missing,
+      })
       return count
     })
   }
@@ -149,7 +213,14 @@ export class CampaignTrackerTasksService extends createPrismaBase(
 
   private resolveElectionDate(campaign: Campaign): Date | null {
     const { electionDate, primaryElectionDate } = campaign.details ?? {}
-    const chosen = electionDate ?? primaryElectionDate
+    // A past date anchors nothing: a returning candidate's campaign row keeps
+    // last cycle's election until they update their race, and outreach dated
+    // off it would post a finished schedule to CAS. General first, primary as
+    // the fallback, skipping whichever has passed (mirrors the legacy task
+    // generator's hasFutureDate).
+    const chosen = [electionDate, primaryElectionDate].find((date) =>
+      isDateTodayOrFuture(date),
+    )
     // Parse as UTC midnight, not local: date-only strings via parseIsoDateString
     // land on local midnight, which on a server east of UTC shifts the date back
     // a UTC day. The GOTV gate then diverges from the digest's UTC-only SQL
@@ -164,6 +235,10 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     campaign: CampaignWith<'user'>,
     mode: 'initial' | 'weekly',
   ): Promise<void> {
+    // Before the missing-params bail-out: the ballot-access rows are ours to
+    // fix regardless of whether this campaign can dispatch a CAP run.
+    await this.reconcileBallotAccessTasks(campaign)
+
     const raceId = campaign.details?.raceId
     const clerkUserId = campaign.user?.clerkId
     const fullName = campaign.user ? getUserFullName(campaign.user) : ''

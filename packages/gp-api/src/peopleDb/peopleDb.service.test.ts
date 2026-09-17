@@ -137,6 +137,34 @@ describe('PeopleDbService', () => {
     expect(url.searchParams.get('socket_timeout')).toBe('60')
   })
 
+  it('forces a custom plan on every execution', async () => {
+    // Without this, Postgres switches these prepared statements to a generic
+    // plan on the 6th execution and a range-filtered aggregate goes from
+    // ~140ms to ~17.7s (see the comment in buildClient).
+    const { provider } = mockUrlProvider('postgresql://u:p@h:5432/a')
+    const service = new PeopleDbService(provider)
+
+    await service.onModuleInit()
+
+    expect(builtUrl(0).searchParams.get('options')).toBe(
+      '-c plan_cache_mode=force_custom_plan',
+    )
+  })
+
+  it('percent-encodes the options space rather than using +', async () => {
+    // URLSearchParams would serialize the space as '+', which libpq does not
+    // decode back to a space — the option would be silently ignored and the
+    // 6th-execution cliff would return with nothing to show it.
+    const { provider } = mockUrlProvider('postgresql://u:p@h:5432/a')
+    const service = new PeopleDbService(provider)
+
+    await service.onModuleInit()
+
+    const raw = builtUrl(0).toString()
+    expect(raw).toContain('options=-c%20plan_cache_mode%3Dforce_custom_plan')
+    expect(raw).not.toContain('options=-c+')
+  })
+
   it('rebuilds the client when the url provider reports a change', async () => {
     const { provider, emitChange } = mockUrlProvider(
       'postgresql://u:p@h:5432/a',

@@ -217,3 +217,87 @@ describe('buildFilterSummary — mixed filters', () => {
     )
   })
 })
+
+describe('buildFilterSummary — precinct clause', () => {
+  it('names the selected precincts with their county', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ precincts: ['ORANGE|711', 'DADE|2'] } as never),
+      false,
+    )
+    expect(summary).toContain('in precincts Orange 711 or Dade 2')
+  })
+
+  it('reads the unknown bucket as a county with no precinct', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ precincts: ['HILLSBOROUGH|'] } as never),
+      false,
+    )
+    expect(summary).toContain('in precinct Hillsborough (no precinct)')
+  })
+
+  it('collapses to a count past five so the sentence stays one line', () => {
+    const summary = buildFilterSummary(
+      baseSegment({
+        precincts: [
+          'ORANGE|1',
+          'ORANGE|2',
+          'ORANGE|3',
+          'ORANGE|4',
+          'ORANGE|5',
+          'ORANGE|6',
+        ],
+      } as never),
+      false,
+    )
+    expect(summary).toContain('in 6 precincts')
+  })
+
+  // Writable on the Serve side too, so it must be described there — unlike
+  // political_party / contacts_made / voter_likely, which are stripped from
+  // both sides. A Serve list that narrows by precinct and does not say so is
+  // a list nobody can tell what it holds.
+  it('names the precincts for an elected official too', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ precincts: ['ORANGE|711'] } as never),
+      true,
+    )
+    expect(summary).toContain('in precinct Orange 711')
+  })
+})
+
+// The read side describes every dimension the wizard can write, including
+// the recommended-list groups the outreach builders never render — otherwise
+// the person who saved a list can no longer tell what it holds.
+describe('buildFilterSummary — recommended-list dimensions', () => {
+  it('names the affinity and any-phone selections', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ independentAffinity: true, hasAnyPhone: true }),
+      false,
+    )
+    expect(summary).toBe(
+      'Independent affinity Open to Independents and Phone Has Any Phone.',
+    )
+  })
+
+  it('labels the Liberal key Progressive and keeps Unknown reportable', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ ideologyLiberal: true, ideologyUnknown: true }),
+      false,
+    )
+    expect(summary).toBe('Ideology Progressive or Unknown.')
+  })
+
+  // Both are Win-only, so a Serve list describes itself with neither — even
+  // one saved before the exclusion, or written by the AI assistant.
+  it('excludes affinity and ideology for an elected official', () => {
+    const summary = buildFilterSummary(
+      baseSegment({
+        independentAffinity: true,
+        ideologyModerate: true,
+        hasAnyPhone: true,
+      }),
+      true,
+    )
+    expect(summary).toBe('Phone Has Any Phone.')
+  })
+})

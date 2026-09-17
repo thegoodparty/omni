@@ -1,3 +1,4 @@
+import { RaceTargetMetricsSchema } from '@goodparty_org/contracts'
 import { BallotReadyService } from '@/elections/services/ballotReady.service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -28,6 +29,7 @@ import { CampaignPlanVersionsService } from './campaignPlanVersions.service'
 import { CampaignsService } from './campaigns.service'
 import { CrmCampaignsService } from './crmCampaigns.service'
 import { CampaignTasksService } from '../tasks/services/campaignTasks.service'
+import { CampaignTrackerTasksService } from '../campaignTracker/services/campaignTrackerTasks.service'
 
 const GP_POSITION_ID = 'gp-position-uuid-123'
 const BR_POSITION_ID = 'br-position-456'
@@ -43,7 +45,10 @@ const EMPTY_RACE_CONTEXT_FIELDS = {
   registeredVoters: null,
   uniqueCellphones: null,
   uniqueLandlines: null,
-  projectedVoterTurnout: null,
+  projectedTurnoutLower: null,
+  projectedTurnoutUpper: null,
+  winNumberLower: null,
+  winNumberUpper: null,
   candidates: [],
   generalElectionDate: null,
   primaryElectionDate: null,
@@ -108,6 +113,7 @@ const buildOrgSyncModule = async (overrides?: {
 
   const mockTrackCampaign = vi.fn()
   const mockIdentify = vi.fn()
+  const mockReconcileBallotAccess = vi.fn().mockResolvedValue(0)
 
   const mockPrismaService = {
     $transaction: mockTransaction,
@@ -147,6 +153,10 @@ const buildOrgSyncModule = async (overrides?: {
         provide: CampaignTasksService,
         useValue: { notifySlackOnProUpgrade: vi.fn() },
       },
+      {
+        provide: CampaignTrackerTasksService,
+        useValue: { reconcileBallotAccessTasks: mockReconcileBallotAccess },
+      },
       { provide: PinoLogger, useValue: createMockLogger() },
       CampaignsService,
     ],
@@ -175,6 +185,7 @@ const buildOrgSyncModule = async (overrides?: {
     mockCampaignUpdate,
     mockTrackCampaign,
     mockIdentify,
+    mockReconcileBallotAccess,
   }
 }
 
@@ -403,6 +414,70 @@ describe('CampaignsService - Organization positionId sync', () => {
 
       expect(mockOrgUpdate).not.toHaveBeenCalled()
     })
+
+    // The tracker's ballot-access rows are otherwise only reconciled by the
+    // weekly generation, so a candidate who reports filing kept seeing the
+    // signature tasks until the next Thursday.
+    it('reconciles ballot-access tracker tasks when ballotStatus changes', async () => {
+      const {
+        service,
+        mockCampaignFindFirst,
+        mockCampaignUpdate,
+        mockReconcileBallotAccess,
+      } = await buildOrgSyncModule()
+      mockCampaignFindFirst.mockResolvedValue({
+        ...baseCampaign,
+        ballotStatus: 'qualified-not-filed',
+      })
+      const updated = { ...baseCampaign, ballotStatus: 'on-ballot' }
+      mockCampaignUpdate.mockResolvedValue(updated)
+
+      await service.updateJsonFields(10, { ballotStatus: 'on-ballot' })
+
+      expect(mockReconcileBallotAccess).toHaveBeenCalledWith(updated)
+    })
+
+    it('still resolves with the updated campaign when the reconcile rejects', async () => {
+      const {
+        service,
+        mockCampaignFindFirst,
+        mockCampaignUpdate,
+        mockReconcileBallotAccess,
+      } = await buildOrgSyncModule()
+      mockCampaignFindFirst.mockResolvedValue({
+        ...baseCampaign,
+        ballotStatus: 'qualified-not-filed',
+      })
+      const updated = { ...baseCampaign, ballotStatus: 'on-ballot' }
+      mockCampaignUpdate.mockResolvedValue(updated)
+      mockReconcileBallotAccess.mockRejectedValue(new Error('tracker down'))
+
+      await expect(
+        service.updateJsonFields(10, { ballotStatus: 'on-ballot' }),
+      ).resolves.toEqual(updated)
+    })
+
+    it('does not reconcile when ballotStatus is unchanged', async () => {
+      const {
+        service,
+        mockCampaignFindFirst,
+        mockCampaignUpdate,
+        mockReconcileBallotAccess,
+      } = await buildOrgSyncModule()
+      mockCampaignFindFirst.mockResolvedValue({
+        ...baseCampaign,
+        ballotStatus: 'on-ballot',
+      })
+      mockCampaignUpdate.mockResolvedValue({
+        ...baseCampaign,
+        ballotStatus: 'on-ballot',
+      })
+
+      await service.updateJsonFields(10, { ballotStatus: 'on-ballot' })
+      await service.updateJsonFields(10, { data: { someField: 'value' } })
+
+      expect(mockReconcileBallotAccess).not.toHaveBeenCalled()
+    })
   })
 })
 
@@ -531,6 +606,10 @@ describe('CampaignsService - redeemFreeTexts', () => {
         {
           provide: CampaignTasksService,
           useValue: { notifySlackOnProUpgrade: vi.fn() },
+        },
+        {
+          provide: CampaignTrackerTasksService,
+          useValue: { reconcileBallotAccessTasks: vi.fn() },
         },
         // Provide CampaignsService LAST - all dependencies are now available
         { provide: PinoLogger, useValue: createMockLogger() },
@@ -895,6 +974,7 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
   const mockElections: Partial<ElectionsService> = {
     getPositionMatchedRaceTargetDetails: vi.fn(),
     buildRaceTargetDetails: vi.fn(),
+    getDistrict: vi.fn().mockResolvedValue(null),
     fetchFilingFeeByRaceHash: vi.fn(),
     fetchCampaignStrategyContext: vi.fn().mockResolvedValue(null),
   }
@@ -916,6 +996,9 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
       mockBallotReady as BallotReadyService,
       mockOrganizations as OrganizationsService,
       { notifySlackOnProUpgrade: vi.fn() } as unknown as CampaignTasksService,
+      {
+        reconcileBallotAccessTasks: vi.fn(),
+      } as unknown as CampaignTrackerTasksService,
     )
   })
 
@@ -938,7 +1021,6 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
         state: 'CA',
         L2DistrictType: 'State_Senate',
         L2DistrictName: 'STATE SENATE 001',
-        projectedTurnout: null,
       },
       projectedTurnout: 10000,
       winNumber: 5001,
@@ -1030,7 +1112,6 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
         state: 'CA',
         L2DistrictType: 'State_Senate',
         L2DistrictName: 'STATE SENATE 001',
-        projectedTurnout: null,
       },
       projectedTurnout: -1,
       winNumber: -1,
@@ -1133,7 +1214,6 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
           state: 'CA',
           L2DistrictType: 'State_Senate',
           L2DistrictName: 'STATE SENATE 001',
-          projectedTurnout: null,
         },
         projectedTurnout: 10000,
         winNumber: 5001,
@@ -1302,7 +1382,6 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
         official_office_name: 'City Council Seat 5',
         primary_election_date: '2026-08-04',
         projected_turnout: 1200,
-        projected_voter_turnout: 1200,
         registered_voters: 5500,
         unique_cellphones: 3300,
         unique_landlines: 1800,
@@ -1340,7 +1419,10 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
         registeredVoters: 5500,
         uniqueCellphones: 3300,
         uniqueLandlines: 1800,
-        projectedVoterTurnout: 1200,
+        projectedTurnoutLower: null,
+        projectedTurnoutUpper: null,
+        winNumberLower: null,
+        winNumberUpper: null,
         candidates: [
           {
             gpCandidateId: 'gp-1',
@@ -1367,10 +1449,58 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
         },
       })
 
+      // The context fixture above omits the bound fields, which is what an
+      // older election-api sends mid-rollout — the two services deploy in
+      // parallel. Undefined there fails the response schema and 500s the
+      // campaign read, so the mapper has to land null.
+      expect(RaceTargetMetricsSchema.safeParse(result).success).toBe(true)
+
       // The legacy position-based path must not fire when context wins.
       expect(
         mockElections.getPositionMatchedRaceTargetDetails,
       ).not.toHaveBeenCalled()
+    })
+
+    it('maps the prediction bounds onto their camelCase counterparts', async () => {
+      vi.mocked(mockElections.fetchCampaignStrategyContext!).mockResolvedValue({
+        candidate_count: 0,
+        candidate_office: 'City Council',
+        candidates: [],
+        civics_win_number: null,
+        contacts_needed_estimate: 3000,
+        general_election_date: '2026-11-03',
+        number_of_seats: 1,
+        office_level: 'CITY',
+        office_type: 'COUNCIL',
+        official_office_name: 'City Council Seat 5',
+        primary_election_date: '2026-08-04',
+        projected_turnout: 1200,
+        projected_turnout_lower: 900,
+        projected_turnout_upper: 1500,
+        registered_voters: 5500,
+        unique_cellphones: 3300,
+        unique_landlines: 1800,
+        relevant_election_date: '2026-11-03',
+        state: 'CA',
+        win_number_effective: 601,
+        win_number_estimate: 601,
+        win_number_lower: 451,
+        win_number_upper: 751,
+      })
+      vi.mocked(mockElections.fetchFilingFeeByRaceHash!).mockResolvedValue(null)
+      vi.mocked(mockBallotReady.fetchMilestones!).mockResolvedValue(null)
+
+      const result =
+        await service.fetchLiveRaceTargetMetrics(campaignWithRaceId)
+
+      expect(result).toMatchObject({
+        projectedTurnout: 1200,
+        projectedTurnoutLower: 900,
+        projectedTurnoutUpper: 1500,
+        winNumber: 601,
+        winNumberLower: 451,
+        winNumberUpper: 751,
+      })
     })
 
     it('falls back to position-based path when context returns null', async () => {
@@ -1386,7 +1516,6 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
           state: 'CA',
           L2DistrictType: 'State_Senate',
           L2DistrictName: 'STATE SENATE 001',
-          projectedTurnout: null,
         },
         projectedTurnout: 8000,
         winNumber: 4001,
@@ -1430,7 +1559,6 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
           state: 'CA',
           L2DistrictType: 'State_Senate',
           L2DistrictName: 'STATE SENATE 001',
-          projectedTurnout: null,
         },
         projectedTurnout: 8000,
         winNumber: 4001,
@@ -1473,7 +1601,6 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
         official_office_name: null,
         primary_election_date: null,
         projected_turnout: 200,
-        projected_voter_turnout: 200,
         registered_voters: 900,
         unique_cellphones: 500,
         unique_landlines: 300,
@@ -1533,5 +1660,194 @@ describe('CampaignsService - findActiveByUserId', () => {
     const result = await service.findActiveByUserId(7)
 
     expect(result).toBeNull()
+  })
+})
+
+const buildSetIsProModule = async () => {
+  const mockCampaignUpdate = vi.fn(
+    async ({ data }: { data: Record<string, unknown> }) => ({
+      id: 1,
+      userId: 7,
+      isPro: data.isPro ?? true,
+      details: {},
+    }),
+  )
+  const mockTxCampaignFindUnique = vi.fn()
+  const mockCampaignFindFirst = vi.fn()
+  const mockTransaction = vi.fn(
+    async (callback: Parameters<PrismaClient['$transaction']>[0]) => {
+      const tx = {
+        campaign: {
+          findUnique: mockTxCampaignFindUnique,
+          update: mockCampaignUpdate,
+        },
+      }
+      return callback(
+        tx as unknown as Parameters<
+          Parameters<PrismaClient['$transaction']>[0]
+        >[0],
+      )
+    },
+  ) as MockedFunction<PrismaClient['$transaction']>
+
+  const mockPrismaService = {
+    $transaction: mockTransaction,
+    campaign: {
+      findFirst: mockCampaignFindFirst,
+      findUnique: vi.fn(),
+    },
+  }
+
+  const module: TestingModule = await Test.createTestingModule({
+    providers: [
+      { provide: PrismaService, useValue: mockPrismaService },
+      { provide: UsersService, useValue: {} },
+      { provide: CrmCampaignsService, useValue: { trackCampaign: vi.fn() } },
+      { provide: SegmentService, useValue: {} },
+      {
+        provide: AnalyticsService,
+        useValue: { track: vi.fn(), identify: vi.fn() },
+      },
+      { provide: CampaignPlanVersionsService, useValue: {} },
+      { provide: StripeService, useValue: {} },
+      { provide: GooglePlacesService, useValue: {} },
+      { provide: ElectionsService, useValue: {} },
+      { provide: BallotReadyService, useValue: {} },
+      { provide: OrganizationsService, useValue: {} },
+      { provide: SlackService, useValue: {} },
+      {
+        provide: CampaignTasksService,
+        useValue: { notifySlackOnProUpgrade: vi.fn() },
+      },
+      {
+        provide: CampaignTrackerTasksService,
+        useValue: { reconcileBallotAccessTasks: vi.fn() },
+      },
+      { provide: PinoLogger, useValue: createMockLogger() },
+      CampaignsService,
+    ],
+  }).compile()
+
+  const service = module.get<CampaignsService>(CampaignsService)
+
+  Object.defineProperty(service, '_prisma', {
+    get: () => mockPrismaService,
+    configurable: true,
+  })
+  Object.defineProperty(service, 'logger', {
+    get: () => createMockLogger(),
+    configurable: true,
+  })
+
+  // Every `campaign.update` that carries a `details` payload — i.e. the writes
+  // routed through patchCampaignDetails, not the isPro scalar flip.
+  const detailsWrites = () =>
+    mockCampaignUpdate.mock.calls
+      .map(([args]) => args.data)
+      .filter(
+        (data): data is { details: PrismaJson.CampaignDetails } =>
+          'details' in data,
+      )
+
+  return {
+    service,
+    mockTxCampaignFindUnique,
+    mockCampaignFindFirst,
+    detailsWrites,
+  }
+}
+
+describe('CampaignsService - setIsPro / isProUpdatedAt', () => {
+  const PRIOR_UPGRADE_DATE = '2026-01-15T00:00:00Z'
+
+  it('stamps isProUpdatedAt when a campaign transitions to Pro', async () => {
+    const {
+      service,
+      mockTxCampaignFindUnique,
+      mockCampaignFindFirst,
+      detailsWrites,
+    } = await buildSetIsProModule()
+    mockTxCampaignFindUnique.mockResolvedValue({
+      isPro: false,
+      hasFreeTextsOffer: false,
+      freeTextsOfferRedeemedAt: null,
+    })
+    mockCampaignFindFirst.mockResolvedValue({ id: 1, details: {} })
+
+    await service.setIsPro(1, true, false)
+
+    const writes = detailsWrites()
+    expect(writes).toHaveLength(1)
+    expect(firstOrThrow(writes).details.isProUpdatedAt).toBeDefined()
+  })
+
+  it('leaves isProUpdatedAt untouched when a Pro campaign is downgraded', async () => {
+    const {
+      service,
+      mockTxCampaignFindUnique,
+      mockCampaignFindFirst,
+      detailsWrites,
+    } = await buildSetIsProModule()
+    mockTxCampaignFindUnique.mockResolvedValue({
+      isPro: true,
+      hasFreeTextsOffer: false,
+      freeTextsOfferRedeemedAt: null,
+    })
+    mockCampaignFindFirst.mockResolvedValue({
+      id: 1,
+      details: { isProUpdatedAt: PRIOR_UPGRADE_DATE },
+    })
+
+    await service.setIsPro(1, false, false)
+
+    expect(detailsWrites()).toHaveLength(0)
+  })
+
+  it('leaves isProUpdatedAt untouched when an already-Pro campaign is re-written', async () => {
+    const {
+      service,
+      mockTxCampaignFindUnique,
+      mockCampaignFindFirst,
+      detailsWrites,
+    } = await buildSetIsProModule()
+    mockTxCampaignFindUnique.mockResolvedValue({
+      isPro: true,
+      hasFreeTextsOffer: true,
+      freeTextsOfferRedeemedAt: null,
+    })
+    mockCampaignFindFirst.mockResolvedValue({
+      id: 1,
+      details: { isProUpdatedAt: PRIOR_UPGRADE_DATE },
+    })
+
+    await service.setIsPro(1, true, false)
+
+    expect(detailsWrites()).toHaveLength(0)
+  })
+
+  it('re-stamps isProUpdatedAt when a cancelled campaign upgrades again', async () => {
+    const {
+      service,
+      mockTxCampaignFindUnique,
+      mockCampaignFindFirst,
+      detailsWrites,
+    } = await buildSetIsProModule()
+    mockTxCampaignFindUnique.mockResolvedValue({
+      isPro: false,
+      hasFreeTextsOffer: true,
+      freeTextsOfferRedeemedAt: new Date(),
+    })
+    mockCampaignFindFirst.mockResolvedValue({
+      id: 1,
+      details: { isProUpdatedAt: PRIOR_UPGRADE_DATE },
+    })
+
+    await service.setIsPro(1, true, false)
+
+    const writes = detailsWrites()
+    expect(writes).toHaveLength(1)
+    expect(firstOrThrow(writes).details.isProUpdatedAt).not.toBe(
+      PRIOR_UPGRADE_DATE,
+    )
   })
 })

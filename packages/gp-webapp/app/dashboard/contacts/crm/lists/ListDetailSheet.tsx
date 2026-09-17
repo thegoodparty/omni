@@ -43,9 +43,8 @@ import { OUTREACH_CHANNEL_NOUNS } from '../shared/outreachChannelLabels'
 import CrmSheet from '../shared/CrmSheet'
 import ListFilterSummary from './ListFilterSummary'
 import ReachabilityGrid from './ReachabilityGrid'
-import RenameListDialog from './RenameListDialog'
 import DeleteListDialog from './DeleteListDialog'
-import { useDuplicateList } from './useDuplicateList'
+import DuplicateListDialog from './DuplicateListDialog'
 import { SectionLabel, StatTile } from './ListDetailSection'
 
 interface ListDetailSheetProps {
@@ -78,10 +77,11 @@ export default function ListDetailSheet({
     isWinContext,
     isWinContextReady,
     voterDataUnavailable,
+    editList,
   } = useContactsTable()
 
-  const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [duplicateOpen, setDuplicateOpen] = useState(false)
 
   const isUniverse = listId === ALL_SEGMENTS
 
@@ -127,8 +127,7 @@ export default function ListDetailSheet({
   })
 
   // A non-pro user reaching this URL directly has no upsell modal wired
-  // here — the download button communicates the lock via LockIcon,
-  // mirroring Download.tsx's existing icon-only affordance.
+  // here — the download button communicates the lock via LockIcon alone.
   const { download, isPreparing } = useContactsDownload({
     canUseProFeatures,
   })
@@ -166,8 +165,6 @@ export default function ListDetailSheet({
     })
   }, [listId, segment, isWinContextReady, isWinContext])
 
-  const duplicateMutation = useDuplicateList()
-
   const labels = getContactsLabels(isWinContext)
 
   const demographics = detailQuery.data?.demographics
@@ -191,7 +188,7 @@ export default function ListDetailSheet({
           isWinContext
             ? EVENTS.VoterData.ListExported
             : EVENTS.ConstituentData.ListExported,
-          { listSize },
+          { listSize, surface: 'listDetail' },
         )
       }
     })
@@ -228,8 +225,7 @@ export default function ListDetailSheet({
                     variant="ghost"
                     size="small"
                     className="gap-1.5 text-muted-foreground"
-                    onClick={() => duplicateMutation.mutate(segment)}
-                    loading={duplicateMutation.isPending}
+                    onClick={() => setDuplicateOpen(true)}
                   >
                     <LockIcon className="size-4" />
                     Duplicate to edit
@@ -238,9 +234,9 @@ export default function ListDetailSheet({
                   <Button
                     variant="ghost"
                     size="small"
-                    aria-label="Rename list"
+                    aria-label="Edit list"
                     className="size-8 p-0"
-                    onClick={() => setRenameOpen(true)}
+                    onClick={() => editList(segment)}
                   >
                     <PencilIcon className="size-4" />
                   </Button>
@@ -257,10 +253,7 @@ export default function ListDetailSheet({
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      disabled={duplicateMutation.isPending}
-                      onClick={() => duplicateMutation.mutate(segment)}
-                    >
+                    <DropdownMenuItem onClick={() => setDuplicateOpen(true)}>
                       <CopyIcon />
                       Duplicate
                     </DropdownMenuItem>
@@ -437,7 +430,9 @@ export default function ListDetailSheet({
               {/* h3 like the other section labels (valid heading order under
                   the DrawerTitle h2); the prototype styles this one as a
                   sentence-case heading, not an uppercase micro-label. */}
-              <h3 className="text-base font-semibold">Outreach history</h3>
+              <h3 className="text-base font-semibold">
+                Outreach campaign history
+              </h3>
               <p className="text-sm text-muted-foreground">
                 Every campaign you&apos;ve sent, most recent first.
               </p>
@@ -500,15 +495,15 @@ export default function ListDetailSheet({
 
       {segment && (
         <>
-          <RenameListDialog
-            segment={segment}
-            open={renameOpen}
-            onOpenChange={setRenameOpen}
-          />
           <DeleteListDialog
             segment={segment}
             open={deleteOpen}
             onOpenChange={setDeleteOpen}
+          />
+          <DuplicateListDialog
+            segment={segment}
+            open={duplicateOpen}
+            onOpenChange={setDuplicateOpen}
           />
         </>
       )}

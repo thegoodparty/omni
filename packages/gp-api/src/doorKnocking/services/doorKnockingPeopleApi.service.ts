@@ -36,6 +36,7 @@ export class DoorKnockingPeopleApiService {
     filters: FilterObject
     idOverrides?: IdOverrides
     contactsMadeIdOverrides?: IdOverrides
+    excludePersonIds?: string[]
   }): Promise<DoorKnockingEvaluateResponse> {
     return this.voterDoorKnocking.evaluate(
       DoorKnockingEvaluateDTO.create({
@@ -45,6 +46,12 @@ export class DoorKnockingPeopleApiService {
         idOverrides: args.idOverrides,
         contactsMadeIdOverrides: args.contactsMadeIdOverrides,
         maxPeople: EVALUATE_MAX_PEOPLE,
+        // Omitted rather than sent empty: the schema tolerates [], but keeping
+        // the key absent leaves the request byte-identical for an org that has
+        // flagged nobody.
+        ...(args.excludePersonIds?.length
+          ? { excludePersonIds: args.excludePersonIds }
+          : {}),
       }),
     )
   }
@@ -63,7 +70,10 @@ export class DoorKnockingPeopleApiService {
     )
   }
 
-  pack(request: DoorKnockingPackRequest): Promise<Buffer> {
-    return this.voterPack.build(request)
+  pack(
+    request: DoorKnockingPackRequest,
+    signal?: AbortSignal,
+  ): Promise<Buffer> {
+    return this.voterPack.build(request, signal)
   }
 }

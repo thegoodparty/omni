@@ -65,14 +65,18 @@ export async function updateWebsite(
 
 export const USER_WEBSITE_QUERY_KEY = ['user-website']
 
+// Throws on a failed read rather than degrading to null. gp-api answers 200
+// with a null body when the campaign genuinely has no website, so null is a
+// real state and a non-ok response is not: swallowing one handed callers a
+// website-shaped hole that reads as "no bio", and a save built on that hole
+// blanked a live bio in prod (campaign 296539). Throwing puts React Query into
+// an error state so consumers can tell the two apart.
 export async function getUserWebsite(): Promise<Website | null> {
-  try {
-    const resp = await clientFetch<Website>(apiRoutes.website.get)
-    return resp.ok ? resp.data : null
-  } catch (e) {
-    console.error('error', e)
-    return null
+  const resp = await clientFetch<Website>(apiRoutes.website.get)
+  if (!resp.ok) {
+    throw new Error(`Failed to load website: ${resp.status} ${resp.statusText}`)
   }
+  return resp.data
 }
 
 // Module-level promise chain that serializes overlapping `saveAboutFields`

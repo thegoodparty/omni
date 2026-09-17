@@ -1,10 +1,16 @@
 import {
+  AGE_DIM_KEY,
+  CONTACTS_MADE_BUCKETS,
+  CONTACTS_MADE_DIM_KEY,
   DOOR_KNOCK_STATUSES,
+  PACK_AGE_BUCKETS,
+  encodeAgeBucket,
   DoorKnockingPackManifest,
+  DoorKnockingPackRequest,
   INCOME_RANGE_MAPPING,
   PEOPLE_FILTER_VALUE_ENUMS,
 } from '@goodparty_org/contracts'
-import { VALUE_MAPPERS } from './filters.sql.util'
+import { VALUE_MAPPERS } from './valueMappers.util'
 import {
   classifyPoliticalParty,
   RULED_POLITICAL_PARTIES,
@@ -41,7 +47,7 @@ const UNKNOWN = 'Unknown'
 // corresponding list filter would match.
 const invertMapper = (
   filterKey: keyof typeof PEOPLE_FILTER_VALUE_ENUMS,
-  mapper: (value: string) => string | null,
+  mapper: (value: string) => string | string[] | null,
 ): { values: string[]; rawToByte: Map<string, number> } => {
   const values = [UNKNOWN]
   const rawToByte = new Map<string, number>()
@@ -49,8 +55,15 @@ const invertMapper = (
     if (value === UNKNOWN) continue
     const raw = mapper(value)
     if (raw === null) continue
+    // homeowner's 'Yes' maps to two raw values (ENG-10947's Homeowner/
+    // Probable Home Owner fold), but the pack encodes one byte per person —
+    // it can't represent an OR of two buckets under one wire value, so it
+    // keeps its pre-fold behavior and inverts only the first (see
+    // voterFilterPreview.ts's homeownerYes comment for the disclosed gap).
+    const rawForByte = Array.isArray(raw) ? raw[0] : raw
+    if (rawForByte === undefined) continue
     values.push(value)
-    rawToByte.set(raw, values.length - 1)
+    rawToByte.set(rawForByte, values.length - 1)
   }
   return { values, rawToByte }
 }
@@ -67,19 +80,6 @@ const MAPPED_DIMS = [
   readonly [string, keyof typeof VALUE_MAPPERS, keyof PackRow]
 >
 
-const AGE_VALUES = [UNKNOWN, '18_25', '25_35', '35_50', '50_plus']
-const encodeAge = (age: number | null): number => {
-  // Bucket bounds mirror gp-api's saved-filter age ranges (18-25, 25-35,
-  // 35-50, 50+ — shared inclusive edges resolve to the younger bucket).
-  // Under-18 rows (pre-registrants, bad data) read unknown: no age filter
-  // matches them, so no pack bucket may either.
-  if (age === null || age < 18) return 0
-  if (age <= 25) return 1
-  if (age <= 35) return 2
-  if (age <= 50) return 3
-  return 4
-}
-
 const INCOME_VALUES = [UNKNOWN, ...Object.keys(INCOME_RANGE_MAPPING)]
 const INCOME_RANGES = Object.values(INCOME_RANGE_MAPPING)
 const encodeIncome = (amount: number | null): number => {
@@ -91,11 +91,21 @@ const encodeIncome = (amount: number | null): number => {
   return index === -1 ? 0 : index + 1
 }
 
-// Language filtering treats NULL and every non-English/Spanish code as
-// 'Other' (buildLanguageFilter) — the pack has no separate unknown bucket.
-const LANGUAGE_VALUES = ['Other', 'English', 'Spanish']
+// Byte 0 used to be 'Other' AND the no-data slot at once, which is the pack's
+// copy of buildLanguageFilter's `OR ... IS NULL`: a person with no
+// Language_Code shaded as an Other-language speaker. 'Unknown' is its own
+// byte now, so the map and the filter agree about who is which.
+//
+// UNKNOWN stays at index 0 to match every other dim here — an unset byte is
+// "no data", not a real value.
+//
+// The comparison is exact, not case-folded, because buildLanguageFilter's SQL
+// is (`= 'English'`). Normalizing here would put the map back out of step with
+// the filter — a lowercase 'english' would shade English and still be filtered
+// as Other — which is the disagreement this dim just stopped having.
+const LANGUAGE_VALUES = [UNKNOWN, 'English', 'Spanish', 'Other']
 const encodeLanguage = (code: string | null): number =>
-  code === 'English' ? 1 : code === 'Spanish' ? 2 : 0
+  code === null ? 0 : code === 'English' ? 1 : code === 'Spanish' ? 2 : 3
 
 const VOTER_STATUS_VALUES = [
   UNKNOWN,
@@ -151,8 +161,33 @@ export const statusesToBytes = (
   )
 }
 
+// personId -> contacts-made bucket byte (index into CONTACTS_MADE_BUCKETS).
+// `null` is "gp-api could not answer", and the encoder omits the plane for it
+// — distinct from an empty map, which is an organization that has contacted
+// nobody and whose plane is a legitimate wall of bucket 0.
+export type PackContactsMade = Map<string, number> | null
+
+export const contactsMadeToBytes = (
+  entries: DoorKnockingPackRequest['contactsMade'],
+): PackContactsMade =>
+  entries === undefined
+    ? null
+    : new Map(entries.map(({ personId, bucket }) => [personId, bucket]))
+
 export class PackEncoder {
-  private readonly dotIndex = new Map<string, number>()
+  // Keyed lat -> lng -> dot rather than on a `${lat}|${lng}` string. Building
+  // that string was 261ms of a 628k-row build — the single most expensive
+  // thing the encoder did, more than every dimension plane put together —
+  // because it allocates a string per person to look up a number. Two numeric
+  // Map probes cost 85ms and dedupe identically: the coordinates are already
+  // parsed float8s, so equal coordinates are equal numbers.
+  //
+  // A single numeric key would be faster still, and is not available: packing
+  // two 1e6-scaled coordinates into one float64 needs ~56 bits of mantissa and
+  // there are 53, so the product silently collides — and a dot-key collision
+  // merges two unrelated rooftops into one door.
+  private readonly dotIndex = new Map<number, Map<number, number>>()
+  private dotCount = 0
   private readonly householdIndex = new Map<string, number>()
   private positions = new Float32Array(128 * 1024)
   private positionsLength = 0
@@ -161,7 +196,10 @@ export class PackEncoder {
   private peopleCount = 0
   private readonly dims: DimPlane[]
 
-  constructor(statusByPersonId: PackStatuses) {
+  constructor(
+    statusByPersonId: PackStatuses,
+    contactsMadeByPersonId: PackContactsMade = null,
+  ) {
     const mapped: DimPlane[] = MAPPED_DIMS.map(([key, mapperKey, column]) => {
       const { values, rawToByte } = invertMapper(
         mapperKey,
@@ -196,9 +234,14 @@ export class PackEncoder {
       party,
       ...mapped,
       {
-        key: 'age',
-        values: AGE_VALUES,
-        encode: (row) => encodeAge(row.Age_Int),
+        // The one dim whose vocabulary is derived rather than declared: its
+        // buckets are cut at every boundary either generation of saved-list
+        // age key uses, so every key is an exact union of them and none is
+        // approximated. See contracts' PackAgeBuckets.ts — changing that
+        // table re-cuts these and is a PACK_FORMAT_REVISION bump.
+        key: AGE_DIM_KEY,
+        values: [...PACK_AGE_BUCKETS],
+        encode: (row) => encodeAgeBucket(row.Age_Int),
         bytes: new GrowableU8(),
       },
       {
@@ -254,14 +297,36 @@ export class PackEncoder {
         bytes: new GrowableU8(),
       },
     ]
+    // The second campaign-specific plane, and the only conditional one. It is
+    // pushed after the district-scoped dims for the same reason canvassStatus
+    // is: everything above this line is a pure function of the district, so a
+    // cached shared build can be copied and only the tail rewritten.
+    //
+    // Omitted rather than zero-filled when gp-api has no answer — a plane of
+    // zeros claims every person has never been contacted, which is a stronger
+    // and more wrong statement than having no plane at all. Absent, the dim
+    // never reaches the manifest, and the client's own unpreviewable-filter
+    // machinery names the filter it cannot shade.
+    if (contactsMadeByPersonId) {
+      this.dims.push({
+        key: CONTACTS_MADE_DIM_KEY,
+        values: [...CONTACTS_MADE_BUCKETS],
+        encode: (row) => contactsMadeByPersonId.get(row.id) ?? 0,
+        bytes: new GrowableU8(),
+      })
+    }
   }
 
   add(row: PackRow): void {
-    const dotKey = `${row.lat}|${row.lng}`
-    let dot = this.dotIndex.get(dotKey)
+    let atLat = this.dotIndex.get(row.lat)
+    if (atLat === undefined) {
+      atLat = new Map<number, number>()
+      this.dotIndex.set(row.lat, atLat)
+    }
+    let dot = atLat.get(row.lng)
     if (dot === undefined) {
-      dot = this.dotIndex.size
-      this.dotIndex.set(dotKey, dot)
+      dot = this.dotCount++
+      atLat.set(row.lng, dot)
       if (this.positionsLength + 2 > this.positions.length) {
         const next = new Float32Array(this.positions.length * 2)
         next.set(this.positions)
@@ -301,7 +366,7 @@ export class PackEncoder {
     const counts = {
       people: this.peopleCount,
       households: this.householdIndex.size,
-      dots: this.dotIndex.size,
+      dots: this.dotCount,
     }
     const pad4 = (n: number) => Math.ceil(n / 4) * 4
 
@@ -328,6 +393,9 @@ export class PackEncoder {
         push(`dim:${dim.key}`, 'u8', counts.people)
       }
       const manifest: DoorKnockingPackManifest = {
+        // The byte FRAMING, unchanged by the language split: still one u8 per
+        // person per dim. What changed is that dim's vocabulary, which is
+        // PACK_FORMAT_REVISION's axis and travels in `dims[].values` below.
         version: 1,
         generatedAt,
         counts,

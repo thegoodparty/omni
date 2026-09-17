@@ -1,5 +1,6 @@
 import type { CampaignIssuePosition } from 'gpApi/api-endpoints'
 import type { Campaign, CustomIssue, User } from 'helpers/types'
+import { grammarizeOfficeName } from 'app/polls/onboarding/utils/grammarizeOfficeName'
 
 // The door script is deliberately static: the candidate's own issue stances,
 // assembled from what they already wrote elsewhere in the product. No AI, and
@@ -79,17 +80,104 @@ export const buildScriptIssues = (
 // returns the campaign row (plus positionName and live metrics) and there are
 // no name columns on it, so reading `campaign.firstName` here always resolved
 // to undefined and the door intro dropped the candidate's name entirely.
+const speakerName = (user: User | null): string =>
+  clean([user?.firstName, user?.lastName].filter(Boolean).join(' ')) ||
+  clean(user?.name)
+
 export const buildIntro = (
   user: User | null,
   campaign: Campaign | null,
 ): string => {
-  const name =
-    clean([user?.firstName, user?.lastName].filter(Boolean).join(' ')) ||
-    clean(user?.name)
+  const name = speakerName(user)
   const office = clean(campaign?.positionName ?? campaign?.office)
 
   if (name && office) return `Hi, I'm ${name}, running for ${office}.`
   if (name) return `Hi, I'm ${name}.`
   if (office) return `Hi, I'm running for ${office}.`
+  return ''
+}
+
+// "Hi, I'm Sam Reed, and I'm a volunteer with Jane Doe's campaign for City
+// Council."
+//
+// The opener a volunteer needs and did not have. `buildIntro` above is spoken
+// by the candidate about themselves, and a volunteer walking a route got it
+// anyway — with a null campaign, because `GET /v1/campaigns/mine` 403s them
+// (ENG-11072), so it collapsed to "Hi, I'm Sam Reed." under a heading reading
+// "Talking points". That sentence names no campaign, and under that heading it
+// reads as the candidate self-identifying to someone who has never met them.
+//
+// The wording is the product template's own (Door Knocking Script.docx, the
+// Introduction section's `[Affiliation]` slot): "I'm a volunteer with Victoria
+// Masika's campaign for Town Board of Commissioners."
+//
+// `subject` is the candidate or official, never the person at the door and
+// never the volunteer — it comes off the route payload's `representing`, which
+// is the only campaign context a volunteer's session can read.
+//
+// Same clause-dropping rule as the two builders around it: a missing office
+// shortens the sentence rather than printing a hole. A missing subject is the
+// one case that cannot be improved on — with no one to name, this degrades to
+// the volunteer's own name, which is what it said before.
+export const buildVolunteerIntro = (
+  user: User | null,
+  subject: { name: string; office: string } | null,
+  isServe: boolean,
+): string => {
+  const speaker = speakerName(user)
+  const subjectName = clean(subject?.name)
+  // "running for City Council" on Win; "your City Council Member" on Serve —
+  // the same distinction `buildServeIntro` exists to make, and for the same
+  // reason: "campaign for" is a claim about a ballot an elected official is
+  // not on.
+  const office = isServe
+    ? grammarizeOfficeName(clean(subject?.office))
+    : clean(subject?.office)
+
+  if (!subjectName) return speaker ? `Hi, I'm ${speaker}.` : ''
+
+  // No pronoun anywhere in either branch: nothing in the payload says which
+  // one an official uses, and guessing at a door is worse than a longer noun
+  // phrase.
+  const affiliation = isServe
+    ? office
+      ? `a volunteer for ${subjectName}, your ${office}`
+      : `a volunteer for ${subjectName}`
+    : office
+      ? `a volunteer with ${subjectName}'s campaign for ${office}`
+      : `a volunteer with ${subjectName}'s campaign`
+
+  return speaker
+    ? `Hi, I'm ${speaker}, and I'm ${affiliation}.`
+    : `Hi, I'm ${affiliation}.`
+}
+
+// "Hi, I'm Jane Doe, your City Council Member." Same shape as the Win intro
+// above and the same clause-dropping rule, but the office is one already held
+// rather than one being run for — which is the whole difference between the
+// two surfaces at a door, and the reason this cannot be the Win sentence with
+// a word swapped: "running for" is a claim about a ballot an elected official
+// is not on.
+//
+// The wording is the Serve product's own, not new here: `CreatePoll`'s
+// introduction options open "I'm {name}, your {office}" for the same speaker
+// addressing the same people.
+//
+// `grammarizeOfficeName` is what makes the possessive read: office names
+// arrive as the seat ("City Council"), and "your City Council" is not a person
+// — the helper turns the collective ones into the member of them, and leaves
+// "Mayor" alone. It is the same helper the polls intro uses, so an official
+// who has seen their title written by this product sees it written the same
+// way here.
+export const buildServeIntro = (
+  user: User | null,
+  officeName: string | null | undefined,
+): string => {
+  const name = speakerName(user)
+  const office = grammarizeOfficeName(clean(officeName))
+
+  if (name && office) return `Hi, I'm ${name}, your ${office}.`
+  if (name) return `Hi, I'm ${name}.`
+  if (office) return `Hi, I'm your ${office}.`
   return ''
 }

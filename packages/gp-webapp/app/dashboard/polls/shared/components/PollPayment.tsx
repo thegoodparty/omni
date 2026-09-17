@@ -9,7 +9,7 @@ import { completeCheckoutSession } from 'app/dashboard/purchase/utils/purchaseFe
 
 import { useCheckoutSession } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 
-import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
+import { Spinner } from '@styleguide'
 import PurchaseError from 'app/dashboard/purchase/components/PurchaseError'
 import CheckoutPayment from 'app/dashboard/purchase/components/CheckoutPayment'
 
@@ -33,7 +33,9 @@ const PurchaseContent: React.FC<{
       {error ? (
         <PurchaseError error={error} serverError={undefined} />
       ) : !checkoutSession ? (
-        <LoadingAnimation />
+        <div className="flex justify-center py-12">
+          <Spinner />
+        </div>
       ) : (
         <CheckoutPayment onPaymentSuccess={onPaymentSuccess} />
       )}

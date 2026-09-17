@@ -5,11 +5,14 @@ import {
   PeopleListResponseSchema,
   PersonSchema,
 } from '@goodparty_org/contracts'
+import { HttpStatus } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { Organization } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { ContactsService } from './contacts.service'
+import { VOTER_DATA_UNAVAILABLE_ERROR_CODE } from '../contacts.types'
+import { EXCLUDABLE_VOTER_COLUMNS } from '@/peopleDb/voter.select'
 import type { PeopleListResponse, PersonOutput } from '../schemas/person.schema'
 
 // Task 3.2 (superseded): people-db is now the SOLE contacts path — the
@@ -63,7 +66,7 @@ const FIXTURE_PERSON: PersonOutput = {
   maritalStatus: 'Married',
   hasChildrenUnder18: 'No',
   veteranStatus: null,
-  homeowner: 'Yes',
+  homeowner: 'Homeowner',
   businessOwner: null,
   levelOfEducation: 'College Degree',
   ethnicityGroup: 'European',
@@ -86,6 +89,10 @@ const FIXTURE_AGGREGATES = {
   count: 10,
   avgAge: 45,
   avgIncome: 60000,
+  sms: 8,
+  robocall: 4,
+  phoneBanking: 9,
+  doorKnocking: 7,
 }
 
 // The actual on-wire shape from this service's local StatsService.getStats
@@ -127,7 +134,7 @@ describe('ContactsService — people-db (sole path)', () => {
   }
   let mockVoterQueryService: {
     findPeople: ReturnType<typeof vi.fn>
-    getAggregates: ReturnType<typeof vi.fn>
+    getListDetailAggregates: ReturnType<typeof vi.fn>
     samplePeople: ReturnType<typeof vi.fn>
     findPerson: ReturnType<typeof vi.fn>
   }
@@ -135,7 +142,7 @@ describe('ContactsService — people-db (sole path)', () => {
     streamPeopleCsv: ReturnType<typeof vi.fn>
   }
   let mockStatsService: {
-    getStats: ReturnType<typeof vi.fn>
+    findStats: ReturnType<typeof vi.fn>
   }
 
   beforeEach(() => {
@@ -172,7 +179,7 @@ describe('ContactsService — people-db (sole path)', () => {
     }
     mockVoterQueryService = {
       findPeople: vi.fn(),
-      getAggregates: vi.fn(),
+      getListDetailAggregates: vi.fn(),
       samplePeople: vi.fn(),
       findPerson: vi.fn(),
     }
@@ -180,7 +187,7 @@ describe('ContactsService — people-db (sole path)', () => {
       streamPeopleCsv: vi.fn(),
     }
     mockStatsService = {
-      getStats: vi.fn(),
+      findStats: vi.fn(),
     }
     const mockContactStatusService = {
       currentStatusForPeople: vi.fn().mockResolvedValue(new Map()),
@@ -272,18 +279,24 @@ describe('ContactsService — people-db (sole path)', () => {
     })
   })
 
-  // fetchPeopleAggregates is private; drive it through getListDetail's
-  // universe-detail path (no segment), which fans out to it four times
-  // (base + cellphone + landline + address).
-  describe('list-detail aggregates (fetchPeopleAggregates)', () => {
-    it('calls VoterQueryService.getAggregates and validates ListDetailContactsResponse', async () => {
+  // fetchListDetailAggregates is private; drive it through getListDetail's
+  // universe-detail path (no segment). One people-db call backs the whole
+  // payload — demographics and every reachability channel together.
+  describe('list-detail aggregates (fetchListDetailAggregates)', () => {
+    it('calls VoterQueryService.getListDetailAggregates and validates ListDetailContactsResponse', async () => {
       const org = makeOrganization()
-      mockVoterQueryService.getAggregates.mockResolvedValue(FIXTURE_AGGREGATES)
+      mockVoterQueryService.getListDetailAggregates.mockResolvedValue(
+        FIXTURE_AGGREGATES,
+      )
 
       const result = await service.getListDetail({ segment: undefined }, org)
 
-      expect(mockVoterQueryService.getAggregates).toHaveBeenCalledTimes(4)
-      expect(mockVoterQueryService.getAggregates).toHaveBeenCalledWith(
+      expect(
+        mockVoterQueryService.getListDetailAggregates,
+      ).toHaveBeenCalledOnce()
+      expect(
+        mockVoterQueryService.getListDetailAggregates,
+      ).toHaveBeenCalledWith(
         expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
       )
       expect(ListDetailContactsResponseSchema.safeParse(result).success).toBe(
@@ -352,22 +365,7 @@ describe('ContactsService — people-db (sole path)', () => {
           groupByHousehold: false,
           // Serve (eo-) downloads drop party + turnout propensity + vote
           // history columns via projection (ENG-10830).
-          excludeColumns: [
-            'Parties_Description',
-            'Residence_HHParties_Description',
-            'VoterParties_Change_Changed_Party',
-            'VotingPerformanceEvenYearGeneral',
-            'VotingPerformanceEvenYearPrimary',
-            'VotingPerformanceEvenYearGeneralAndPrimary',
-            'General_2026',
-            'General_2024',
-            'General_2022',
-            'General_2020',
-            'Primary_2026',
-            'Primary_2024',
-            'Primary_2022',
-            'Primary_2020',
-          ],
+          excludeColumns: [...EXCLUDABLE_VOTER_COLUMNS],
         }),
         res,
         expect.objectContaining({
@@ -407,15 +405,26 @@ describe('ContactsService — people-db (sole path)', () => {
   })
 
   describe('fetchStatsByDistrictId', () => {
-    it('calls StatsService.getStats', async () => {
-      mockStatsService.getStats.mockResolvedValue(FIXTURE_STATS)
+    it('calls StatsService.findStats', async () => {
+      mockStatsService.findStats.mockResolvedValue(FIXTURE_STATS)
 
       const result = await service.fetchStatsByDistrictId(OVERRIDE_DISTRICT_ID)
 
-      expect(mockStatsService.getStats).toHaveBeenCalledWith(
+      expect(mockStatsService.findStats).toHaveBeenCalledWith(
         expect.objectContaining({ districtId: OVERRIDE_DISTRICT_ID }),
       )
       expect(result).toEqual(FIXTURE_STATS)
+    })
+
+    it('throws VOTER_DATA_UNAVAILABLE when the district has no stats row', async () => {
+      mockStatsService.findStats.mockResolvedValue(null)
+
+      await expect(
+        service.fetchStatsByDistrictId(OVERRIDE_DISTRICT_ID),
+      ).rejects.toMatchObject({
+        status: HttpStatus.BAD_REQUEST,
+        response: { errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE },
+      })
     })
   })
 })

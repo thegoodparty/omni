@@ -80,14 +80,6 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   { name: 'hs_age_limit_oppose', label: 'Age Limit Oppose' },
   { name: 'hs_age_limit_support', label: 'Age Limit Support' },
-  {
-    name: 'hs_aliens_governenment_disclosed_all',
-    label: 'Aliens Governenment Disclosed All',
-  },
-  {
-    name: 'hs_aliens_governenment_hiding_much',
-    label: 'Aliens Governenment Hiding Much',
-  },
   { name: 'hs_amazon_exploitative', label: 'Amazon Exploitative' },
   { name: 'hs_amazon_good_jobs', label: 'Amazon Good Jobs' },
   { name: 'hs_any_home_buyer', label: 'Any Home Buyer' },
@@ -98,11 +90,6 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     name: 'hs_artificial_intelligence_excited',
     label: 'Artificial Intelligence Excited',
   },
-  { name: 'hs_autonomous_vehicles_allow', label: 'Autonomous Vehicles Allow' },
-  {
-    name: 'hs_autonomous_vehicles_do_not_allow',
-    label: 'Autonomous Vehicles Do Not Allow',
-  },
   {
     name: 'hs_campaign_finance_reform_high_priority',
     label: 'campaign finance reform high priority',
@@ -110,14 +97,6 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_campaign_finance_reform_less_important',
     label: 'campaign finance reform less important',
-  },
-  {
-    name: 'hs_candidate_mail_do_not_read',
-    label: 'Candidate Mail Do Not Read',
-  },
-  {
-    name: 'hs_candidate_mail_read_carefully',
-    label: 'Candidate Mail Read Carefully',
   },
   {
     name: 'hs_candidate_mail_readership_do_not_read',
@@ -154,8 +133,6 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     name: 'hs_china_foreign_policy_work_with',
     label: 'China Foreign Policy Work With',
   },
-  { name: 'hs_civil_liberties_oppose', label: 'Civil Liberties Oppose' },
-  { name: 'hs_civil_liberties_support', label: 'Civil Liberties Support' },
   { name: 'hs_climate_change_believer', label: 'Climate Change Believer' },
   {
     name: 'hs_climate_change_nonbeliever',
@@ -169,14 +146,6 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     name: 'hs_college_admissions_do_not_consider_race',
     label: 'College Admissions Do Not Consider Race',
   },
-  {
-    name: 'hs_community_college_free_oppose',
-    label: 'Community College Free Oppose',
-  },
-  {
-    name: 'hs_community_college_free_support',
-    label: 'Community College Free Support',
-  },
   { name: 'hs_community_not_integrated', label: 'community not integrated' },
   { name: 'hs_community_very_integrated', label: 'community very integrated' },
   {
@@ -187,8 +156,6 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     name: 'hs_concerned_job_loss_due_to_ai_yes',
     label: 'concerned job loss due to ai yes',
   },
-  { name: 'hs_conspiracy_believer', label: 'Conspiracy Believer' },
-  { name: 'hs_conspiracy_nonbeliever', label: 'Conspiracy Nonbeliever' },
   {
     name: 'hs_consumer_value_brand_savings',
     label: 'Consumer Value Brand Savings',
@@ -225,9 +192,6 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   { name: 'hs_defense_spending_reduce', label: 'Defense Spending Reduce' },
   { name: 'hs_dei_oppose', label: 'Dei Oppose' },
   { name: 'hs_dei_support', label: 'Dei Support' },
-  { name: 'hs_despondency_ahead', label: 'Despondency Ahead' },
-  { name: 'hs_despondency_far_behind', label: 'Despondency Far Behind' },
-  { name: 'hs_despondency_on_pace', label: 'Despondency On Pace' },
   { name: 'hs_doge_oppose', label: 'Doge Oppose' },
   { name: 'hs_doge_support', label: 'Doge Support' },
   {
@@ -266,14 +230,6 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     name: 'hs_epstein_files_unimportant_or_hoax',
     label: 'epstein files unimportant or hoax',
   },
-  {
-    name: 'hs_family_medical_leave_oppose',
-    label: 'Family Medical Leave Oppose',
-  },
-  {
-    name: 'hs_family_medical_leave_support',
-    label: 'Family Medical Leave Support',
-  },
   { name: 'hs_felon_voting_oppose', label: 'Felon Voting Oppose' },
   { name: 'hs_felon_voting_support', label: 'Felon Voting Support' },
   { name: 'hs_gamer_no', label: 'gamer no' },
@@ -300,11 +256,6 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   { name: 'hs_illegal_imm_undesirable', label: 'Illegal Imm Undesirable' },
   {
-    name: 'hs_immigration_process_unfair',
-    label: 'Immigration Process Unfair',
-  },
-  { name: 'hs_immigration_undesirable', label: 'Immigration Undesirable' },
-  {
     name: 'hs_income_inequality_no_issue',
     label: 'Income Inequality No Issue',
   },
@@ -327,14 +278,6 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     label: 'Infrastructure Funding Fund More',
   },
   {
-    name: 'hs_insurance_of_last_resort_government_should_not_provide',
-    label: 'Insurance Of Last Resort Government Should Not Provide',
-  },
-  {
-    name: 'hs_insurance_of_last_resort_government_should_provide',
-    label: 'Insurance Of Last Resort Government Should Provide',
-  },
-  {
     name: 'hs_israel_committing_genocide_no',
     label: 'israel committing genocide no',
   },
@@ -355,11 +298,8 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   { name: 'hs_job_seeker_does_not_work', label: 'Job Seeker Does Not Work' },
   { name: 'hs_job_seeker_likely', label: 'Job Seeker Likely' },
   { name: 'hs_job_seeker_unlikely', label: 'Job Seeker Unlikely' },
-  { name: 'hs_jobs_guarantee_oppose', label: 'Jobs Guarantee Oppose' },
-  { name: 'hs_jobs_guarantee_support', label: 'Jobs Guarantee Support' },
   { name: 'hs_likely_ev', label: 'Likely Ev' },
   { name: 'hs_likely_mid_term_voter', label: 'Likely Mid Term Voter' },
-  { name: 'hs_likely_polling_turnout', label: 'Likely Polling Turnout' },
   { name: 'hs_likely_presidential_voter', label: 'Likely Presidential Voter' },
   { name: 'hs_likely_vbm', label: 'Likely Vbm' },
   { name: 'hs_listen_podcaster_carlson', label: 'listen podcaster carlson' },
@@ -376,8 +316,16 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   { name: 'hs_listen_podcaster_rogan', label: 'listen podcaster rogan' },
   { name: 'hs_marijuana_legal_oppose', label: 'Marijuana Legal Oppose' },
   { name: 'hs_marijuana_legal_support', label: 'Marijuana Legal Support' },
-  { name: 'hs_mass_deporations_oppose', label: 'Mass Deporations Oppose' },
-  { name: 'hs_mass_deporations_support', label: 'Mass Deporations Support' },
+  {
+    name: 'hs_mass_deportations_oppose',
+    label:
+      'Opposes mass deportations (limited coverage: data exists in only 12 states; null elsewhere)',
+  },
+  {
+    name: 'hs_mass_deportations_support',
+    label:
+      'Supports mass deportations (limited coverage: data exists in only 12 states; null elsewhere)',
+  },
   { name: 'hs_medicaid_expansion_oppose', label: 'Medicaid Expansion Oppose' },
   {
     name: 'hs_medicaid_expansion_support',
@@ -396,14 +344,6 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     label: 'Military Family Relationship Yes',
   },
   { name: 'hs_military_family_self', label: 'military family self' },
-  {
-    name: 'hs_min_wage_15_increase_oppose',
-    label: 'Min Wage 15 Increase Oppose',
-  },
-  {
-    name: 'hs_min_wage_15_increase_support',
-    label: 'Min Wage 15 Increase Support',
-  },
   {
     name: 'hs_most_important_policy_item_economics',
     label: 'Most Important Policy Item Economics',
@@ -434,8 +374,6 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     name: 'hs_online_gambling_more_legal',
     label: 'Online Gambling More Legal',
   },
-  { name: 'hs_opioid_crisis_enforce', label: 'Opioid Crisis Enforce' },
-  { name: 'hs_opioid_crisis_treat', label: 'Opioid Crisis Treat' },
   { name: 'hs_pipeline_fracking_oppose', label: 'Pipeline Fracking Oppose' },
   { name: 'hs_pipeline_fracking_support', label: 'Pipeline Fracking Support' },
   { name: 'hs_podcast_listener_no', label: 'Podcast Listener No' },
@@ -481,22 +419,8 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   { name: 'hs_school_choice_support', label: 'School Choice Support' },
   { name: 'hs_school_funding_less', label: 'School Funding Less' },
   { name: 'hs_school_funding_more', label: 'School Funding More' },
-  { name: 'hs_sell_federal_lands_oppose', label: 'Sell Federal Lands Oppose' },
-  {
-    name: 'hs_sell_federal_lands_support',
-    label: 'Sell Federal Lands Support',
-  },
   { name: 'hs_snap_not_important', label: 'snap not important' },
   { name: 'hs_snap_protect', label: 'snap protect' },
-  {
-    name: 'hs_social_media_truth_vs_speech_free_speech',
-    label: 'Social Media Truth Vs Speech Free Speech',
-  },
-  {
-    name: 'hs_social_media_truth_vs_speech_truth',
-    label: 'Social Media Truth Vs Speech Truth',
-  },
-  { name: 'hs_social_media_user', label: 'Social Media User' },
   {
     name: 'hs_social_media_user_frequent',
     label: 'social media user frequent',
@@ -504,14 +428,6 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   {
     name: 'hs_social_media_user_no_or_infrequent',
     label: 'Social Media User No Or Infrequent',
-  },
-  {
-    name: 'hs_social_security_tax_increase_oppose',
-    label: 'Social Security Tax Increase Oppose',
-  },
-  {
-    name: 'hs_social_security_tax_increase_support',
-    label: 'Social Security Tax Increase Support',
   },
   { name: 'hs_solar_panel_buyer_no', label: 'Solar Panel Buyer No' },
   { name: 'hs_solar_panel_buyer_yes', label: 'Solar Panel Buyer Yes' },
@@ -523,8 +439,6 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     name: 'hs_stadium_public_financing_disapprove',
     label: 'Stadium Public Financing Disapprove',
   },
-  { name: 'hs_state_level_fema_oppose', label: 'State Level Fema Oppose' },
-  { name: 'hs_state_level_fema_support', label: 'State Level Fema Support' },
   { name: 'hs_super_power_policy_oppose', label: 'super power policy oppose' },
   {
     name: 'hs_super_power_policy_support',
@@ -544,15 +458,6 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   { name: 'hs_trans_athlete_no', label: 'Trans Athlete No' },
   { name: 'hs_trans_athlete_yes', label: 'Trans Athlete Yes' },
-  { name: 'hs_tribalism_open_minded', label: 'Tribalism Open Minded' },
-  { name: 'hs_trust_science_always', label: 'Trust Science Always' },
-  { name: 'hs_trust_science_rarely', label: 'Trust Science Rarely' },
-  { name: 'hs_tv_most_trusted_news_cnn', label: 'Tv Most Trusted News Cnn' },
-  { name: 'hs_tv_most_trusted_news_fox', label: 'Tv Most Trusted News Fox' },
-  {
-    name: 'hs_tv_most_trusted_news_msnbc',
-    label: 'Tv Most Trusted News Msnbc',
-  },
   {
     name: 'hs_tv_news_source_most_trusted_cnn',
     label: 'tv news source most trusted cnn',
@@ -578,21 +483,9 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   },
   { name: 'hs_unions_beneficial', label: 'Unions Beneficial' },
   { name: 'hs_unions_not_beneficial', label: 'Unions Not Beneficial' },
-  {
-    name: 'hs_united_healthcare_at_fault',
-    label: 'United Healthcare At Fault',
-  },
-  {
-    name: 'hs_united_healthcare_no_fault',
-    label: 'United Healthcare No Fault',
-  },
   { name: 'hs_vaping_user_no', label: 'Vaping User No' },
   { name: 'hs_vaping_user_yes', label: 'Vaping User Yes' },
   { name: 'hs_violent_crime_not_worried', label: 'Violent Crime Not Worried' },
-  {
-    name: 'hs_violent_crime_very_worried',
-    label: 'Violent Crime Very Worried',
-  },
   { name: 'hs_violent_crime_worried', label: 'violent crime worried' },
   {
     name: 'hs_voting_fraud_concern_barriers',
@@ -602,15 +495,6 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     name: 'hs_voting_fraud_concern_fraud',
     label: 'Voting Fraud Concern Fraud',
   },
-  {
-    name: 'hs_voting_fraud_concern_oppression',
-    label: 'Voting Fraud Concern Oppression',
-  },
-  {
-    name: 'hs_wealth_acquired_advantages',
-    label: 'Wealth Acquired Advantages',
-  },
-  { name: 'hs_wealth_acquired_hardwork', label: 'Wealth Acquired Hardwork' },
   { name: 'Parties_Description', label: 'Party registration' },
   {
     name: 'Residence_HHParties_Description',
@@ -621,15 +505,15 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     label: 'Has changed party registration',
   },
   {
-    name: 'hs_ideology_overall_party_dem',
+    name: 'hs_ideology_partisanship_partisanship_overall_party_dem',
     label: 'Modeled Democratic partisanship (0-100)',
   },
   {
-    name: 'hs_ideology_overall_party_gop',
+    name: 'hs_ideology_partisanship_partisanship_overall_party_gop',
     label: 'Modeled Republican partisanship (0-100)',
   },
   {
-    name: 'hs_ideology_overall_party_indep',
+    name: 'hs_ideology_partisanship_partisanship_overall_party_indep',
     label: 'Modeled independent lean (0-100)',
   },
   {
@@ -645,7 +529,7 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
     label: 'Modeled moderate ideology (0-100)',
   },
   {
-    name: 'hs_ticket_splitter_yes',
+    name: 'hs_ticket_splitting_yes',
     label: 'Likely ticket splitter (0-100)',
   },
   {

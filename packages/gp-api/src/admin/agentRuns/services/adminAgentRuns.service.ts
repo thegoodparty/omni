@@ -13,8 +13,10 @@ import {
   AgentRunCandidateSummary,
   AgentRunListItem,
   AgentRunsListQuery,
+  ComplianceStage,
   PaginatedList,
 } from '@goodparty_org/contracts'
+import { ComplianceStateService } from '@/campaigns/tcrCompliance/services/complianceState.service'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
@@ -47,6 +49,12 @@ const deriveCandidate = (params: unknown): AgentRunCandidateSummary | null => {
     lastName,
     campaignId: typeof campaignId === 'number' ? campaignId : null,
   }
+}
+
+const campaignIdFromParams = (params: unknown): number | null => {
+  if (!isJsonObject(params)) return null
+  const campaignId = params['campaign_id']
+  return typeof campaignId === 'number' ? campaignId : null
 }
 
 // Retry re-dispatches as the run's candidate, so only experiments whose params
@@ -93,6 +101,7 @@ export class AdminAgentRunsService extends createPrismaBase(
   constructor(
     private readonly s3: S3Service,
     private readonly experimentRuns: ExperimentRunsService,
+    private readonly complianceState: ComplianceStateService,
   ) {
     super()
   }
@@ -168,6 +177,25 @@ export class AdminAgentRunsService extends createPrismaBase(
       throw new BadRequestException(
         'run params carry no clerk_user_id; cannot re-dispatch as the candidate',
       )
+    }
+
+    // The compliance_setup agent refuses to resubmit while the campaign carries
+    // an unresolved rejection (instruction.md, `tcr_rejected`), so a retry here
+    // queues a run that reads state, fails identically, and still bills. Gate on
+    // the DERIVED stage, not `status === 'rejected'`: `error` derives the same
+    // stage and is an equally guaranteed no-op, but its recovery differs
+    // (`kickoff_sent_at = NULL` rather than a status reset).
+    const campaignId = campaignIdFromParams(run.params)
+    if (campaignId !== null) {
+      const stage = await this.complianceState.getStageForCampaign(campaignId)
+      if (stage === ComplianceStage.tcr_rejected) {
+        throw new ConflictException(
+          'This campaign has an unresolved CampaignVerify rejection, so ' +
+            'retrying will not resubmit to Peerly. Correct the underlying ' +
+            'data and clear the rejection first — see ' +
+            'recover-rejected-10dlc-compliance.',
+        )
+      }
     }
 
     // params were validated against this experiment's Input at the original

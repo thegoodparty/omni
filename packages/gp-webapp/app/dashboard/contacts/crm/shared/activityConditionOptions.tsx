@@ -11,7 +11,7 @@ import { DoorOpenIcon, MessageSquareMoreIcon, PhoneIcon } from '@styleguide'
 // p2p shares text's model but isn't offered as its own channel here.
 export type ActivityConditionChannel = Extract<
   OutreachType,
-  'text' | 'doorKnocking' | 'robocall'
+  'text' | 'doorKnocking' | 'robocall' | 'phoneBanking'
 >
 
 // The exact shape gp-api's activityConditionSchema validates
@@ -47,7 +47,23 @@ export const ACTIVITY_CONDITION_CHANNELS: {
     anyLabel: 'Any robocall campaign',
     icon: <PhoneIcon size={16} />,
   },
+  {
+    value: 'phoneBanking',
+    label: 'Phone Banking',
+    anyLabel: 'Any phone banking campaign',
+    icon: <PhoneIcon size={16} />,
+  },
 ]
+
+// Channels the list-wizard actually offers as a selectable "Previous activity"
+// filter. Robocall is hidden here: under the new robocall billing model we no
+// longer record per-contact ContactInteractionRobocall rows, so a
+// "robocalled" activity filter would match nobody. It stays in
+// ACTIVITY_CONDITION_CHANNELS above so a list saved before this change still
+// describes itself (ListFilterSummary reads the full list). Restore robocall
+// to this set when per-contact robocall results return via the BigQuery route.
+export const SELECTABLE_ACTIVITY_CONDITION_CHANNELS =
+  ACTIVITY_CONDITION_CHANNELS.filter((channel) => channel.value !== 'robocall')
 
 // Per-channel outcome vocabulary. Mirrors gp-api's
 // ACTIVITY_CONDITION_CHANNEL_ACTIONS (src/shared/schemas/activityCondition.schema.ts)
@@ -68,6 +84,18 @@ export const ACTIVITY_CONDITION_CHANNEL_ACTIONS: Record<
     'support_no',
   ],
   robocall: ['answered', 'voicemail_left', 'no_answer'],
+  phoneBanking: [
+    'answered',
+    'no_answer',
+    'voicemail',
+    'wrong_number',
+    'refused',
+    'disconnected',
+    'hung_up',
+    'support_yes',
+    'support_unsure',
+    'support_no',
+  ],
 }
 
 export const ACTIVITY_CONDITION_ACTION_LABELS: Record<
@@ -85,20 +113,28 @@ export const ACTIVITY_CONDITION_ACTION_LABELS: Record<
   support_no: 'Support: No',
   voicemail_left: 'Voicemail Left',
   no_answer: 'No Answer',
+  voicemail: 'Voicemail',
+  wrong_number: 'Wrong Number',
+  refused: 'Refused',
+  disconnected: 'Disconnected',
+  hung_up: 'Hung Up',
 }
 
-// Door-knock interactions have no outreach linkage — gp-api rejects an
-// outreachId on a doorKnocking condition (voterFileFilter.service.ts's
+// Door-knock interactions carry no outreach linkage at all — gp-api rejects
+// an outreachId on a doorKnocking condition (voterFileFilter.service.ts's
 // validateActivityConditions), so the specific-campaign select never renders
-// for this channel.
+// for that channel. Phone banking DOES support a specific campaign
+// (ENG-10935): it resolves via a phoneBankingListId subquery instead of a
+// direct outreachId column, so it's no longer in this set.
 export const CHANNELS_WITHOUT_CAMPAIGN_PICKER =
   new Set<ActivityConditionChannel>(['doorKnocking'])
 
 // All five SupportStatusRollup values (ENG-10837 — product decision
-// 2026-07-28 to match the profile vocabulary). undecided/refused only ever
-// come from a manual override (gp-api's SupportStatusService.
-// personIdsByEffectiveStatus resolves overrides alongside derivation), so
-// filtering on them matches nobody until a person has been manually set.
+// 2026-07-28 to match the profile vocabulary). refused only ever comes from a
+// manual override (gp-api's SupportStatusService.personIdsByEffectiveStatus
+// resolves overrides alongside derivation), so filtering on it matches nobody
+// until a person has been manually set; undecided also derives from an
+// `unsure` answer at the door or on a call.
 // This is the single source for both the wizard's pills (VoterFileStep) and
 // the saved-list summary labels (ListFilterSummary) — don't duplicate.
 export const SUPPORT_STATUS_OPTIONS: {

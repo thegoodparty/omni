@@ -1,5 +1,6 @@
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common'
 import { verifyToken, ClerkClient } from '@clerk/backend'
+import { PhoneSchema } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
 import jwt from 'jsonwebtoken'
 import {
@@ -9,6 +10,7 @@ import {
 } from '@/authentication/interfaces/auth-provider.interface'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { M2M_TOKEN_PREFIX } from '@/vendors/clerk/clerk.consts'
+import { clerkCall } from '@/vendors/clerk/util/clerkCall.util'
 
 const {
   CLERK_SECRET_KEY,
@@ -44,6 +46,29 @@ function isActorClaim(
     'sub' in act &&
     typeof act.sub === 'string'
   )
+}
+
+// The sign-up form collects a phone before the Clerk instance has the phone
+// attribute (and its SMS verification) turned on, so it rides along in
+// unsafeMetadata. Prefer a real verified number if the instance ever starts
+// issuing one, and fall back to the metadata the form wrote.
+//
+// unsafeMetadata is writable by the user through Clerk's client SDK, and this
+// path bypasses the PhoneSchema check that guards the HTTP routes — so
+// whatever it holds is validated here before it can reach User.phone and,
+// from there, the HubSpot contact. The verified number skips that check
+// deliberately: Clerk returns E.164 (leading '+'), which PhoneSchema's
+// isMobilePhone rejects, and Clerk has already verified it.
+const phoneOf = (clerkUser: {
+  primaryPhoneNumber?: { phoneNumber?: string | null } | null
+  unsafeMetadata?: Record<string, unknown> | null
+}): string | undefined => {
+  const native = clerkUser.primaryPhoneNumber?.phoneNumber
+  if (native) return native
+  const fromMetadata = clerkUser.unsafeMetadata?.phone
+  if (typeof fromMetadata !== 'string') return undefined
+  const trimmed = fromMetadata.trim()
+  return PhoneSchema.safeParse(trimmed).success ? trimmed : undefined
 }
 
 @Injectable()
@@ -91,10 +116,12 @@ export class ClerkAuthService implements AuthProvider {
       }
     }
 
-    const payload = await verifyToken(token, {
-      secretKey: CLERK_SECRET_KEY,
-      authorizedParties,
-    }).catch(() => {
+    const payload = await clerkCall('verifyToken', {}, () =>
+      verifyToken(token, {
+        secretKey: CLERK_SECRET_KEY,
+        authorizedParties,
+      }),
+    ).catch(() => {
       throw new UnauthorizedException('Session token verification failed')
     })
 
@@ -111,10 +138,12 @@ export class ClerkAuthService implements AuthProvider {
 
   async verifyM2MToken(token: string): Promise<VerifiedM2MToken> {
     try {
-      const { id, subject } = await this.clerkClient.m2m.verify({
-        token,
-        machineSecretKey: GP_API_MACHINE_SECRET,
-      })
+      const { id, subject } = await clerkCall('m2m.verify', {}, () =>
+        this.clerkClient.m2m.verify({
+          token,
+          machineSecretKey: GP_API_MACHINE_SECRET,
+        }),
+      )
       return { id, subject }
     } catch (err) {
       // Never log the token or machine secret; pass the raw error so pino
@@ -132,9 +161,15 @@ export class ClerkAuthService implements AuthProvider {
     email?: string
     firstName?: string
     lastName?: string
+    avatarUrl?: string
+    phone?: string
   } | null> {
     try {
-      const clerkUser = await this.clerkClient.users.getUser(externalUserId)
+      const clerkUser = await clerkCall(
+        'users.getUser',
+        { 'clerk.user_id': externalUserId },
+        () => this.clerkClient.users.getUser(externalUserId),
+      )
       const email =
         clerkUser.primaryEmailAddress?.emailAddress ??
         clerkUser.emailAddresses?.[0]?.emailAddress
@@ -143,6 +178,10 @@ export class ClerkAuthService implements AuthProvider {
         email: email ?? undefined,
         firstName: clerkUser.firstName ?? undefined,
         lastName: clerkUser.lastName ?? undefined,
+        // hasImage is false while Clerk is serving a generated placeholder,
+        // which is not worth copying into our bucket.
+        avatarUrl: clerkUser.hasImage ? clerkUser.imageUrl : undefined,
+        phone: phoneOf(clerkUser),
       }
     } catch (err) {
       this.logger.error(

@@ -66,10 +66,10 @@ describe('describeBriefingPreview', () => {
     expect(view.overrideDisabledReason).toBeNull()
   })
 
-  it('explains a skip when the office is not serve-ICP', () => {
-    const view = describeBriefingPreview({ ...basePreview, isServeIcp: false })
+  it('explains a skip when the serve context is unavailable', () => {
+    const view = describeBriefingPreview({ ...basePreview, contextOk: false })
     expect(view.gateWouldDispatch).toBe(false)
-    expect(view.message).toContain('not serve-ICP')
+    expect(view.message).toContain('serve context is unavailable')
   })
 
   it('explains a skip when already covered by a briefing', () => {

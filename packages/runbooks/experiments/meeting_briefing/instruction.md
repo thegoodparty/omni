@@ -121,6 +121,15 @@ Every constituent-sentiment figure in a briefing comes from **GoodParty.org's mo
 
 This applies even when NO data maps to an item: if no constituent-sentiment topic fits, simply set `constituent_sentiment` to `null` and say nothing about it — do NOT explain the absence by naming the source (never write "no Haystaq column maps to this item" or similar in any candidate-facing field; the words "Haystaq"/"L2"/`hs_*` must not appear at all, present or absent).
 
+### Audience vocabulary — "constituents", never "voters"
+
+This briefing is read by a serving elected official, not a candidate. The people in their jurisdiction are **constituents** (or "residents", "people in your district", "the community"). **The word "voter"/"voters" must not appear in ANY reader-facing field** — `display.constituent_sentiment.summary` / `detail`, `talking_points`, item `summary`, `budget_impact_summary`, executive-summary overviews, `sources[].name`, and `retrieved_text_or_snapshot`. This holds even when the underlying data is a voter file: an official governs everyone in the district, including the people who did not vote, so framing them as an electorate is wrong for this product.
+
+- Good: "GoodParty.org's constituent data shows constituents in Woodfin lean strongly toward more infrastructure funding."
+- Bad: "Woodfin's active voters lean strongly toward..." / "modeled across 4,812 active voters" / "the average voter in your state".
+
+Rewrite every count and comparison in constituent terms: "active voters" → "active constituents", "voter count" → "the number of constituents modeled", "the average voter in your state" → "the average constituent in your state". The `voter_count` / `total_active_voters` / `district_voter_count` **schema field names stay exactly as they are** — this rule governs prose, not JSON keys, and those keys are never rendered to the official.
+
 ### Source discipline
 
 Every factual claim must be traceable to a source document provided in context. If a claim cannot be traced to a source, do not include it. If a claim requires inference beyond what the source states, label it explicitly to make it clear that the information is inferred or synthesized and do not present it as fact.
@@ -540,7 +549,7 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 
 `hs_new_home_buyer`/`hs_any_home_buyer` are deliberately excluded: ~60-baseline propensity models (recently/ever bought a home), not polarized sentiment — never select or cite them as constituent sentiment (see the score rule in CRITICAL RULES).
 
-**taxes** — Tax cuts, gas tax, social security tax, minimum wage, fiscal ideology
+**taxes** — Tax cuts, gas tax, fiscal ideology
 
 | Column                                    | Meaning                                |
 | ----------------------------------------- | -------------------------------------- |
@@ -548,11 +557,7 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 | `hs_tax_cuts_oppose`                      | opposes tax cuts                       |
 | `hs_gas_tax_support`                      | supports the gas tax                   |
 | `hs_gas_tax_oppose`                       | opposes the gas tax                    |
-| `hs_social_security_tax_increase_support` | supports raising social security taxes |
-| `hs_social_security_tax_increase_oppose`  | opposes raising social security taxes  |
-| `hs_min_wage_15_increase_support`         | supports raising min wage to $15       |
-| `hs_min_wage_15_increase_oppose`          | opposes raising min wage to $15        |
-| `hs_ideology_fiscal_conserv`              | fiscally conservative ideology         |
+| `hs_ideology_fiscal_conservative`              | fiscally conservative ideology         |
 | `hs_ideology_fiscal_liberal`              | fiscally liberal ideology              |
 
 **education** — School choice, school funding, charter schools, teachers union views
@@ -567,10 +572,8 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 | `hs_charter_schools_oppose`         | opposes charter schools          |
 | `hs_teachers_union_positive`        | positive view of teachers unions |
 | `hs_teachers_union_negative`        | negative view of teachers unions |
-| `hs_community_college_free_support` | supports free community college  |
-| `hs_community_college_free_oppose`  | opposes free community college   |
 
-**healthcare** — Medicaid expansion, Medicare for All, ACA, family medical leave, opioid policy
+**healthcare** — Medicaid expansion, Medicare for All, ACA
 
 | Column                            | Meaning                                         |
 | --------------------------------- | ----------------------------------------------- |
@@ -581,12 +584,8 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 | `hs_obamacare_aca_expand`         | supports expanding the ACA                      |
 | `hs_obamacare_aca_protect`        | supports protecting ACA                         |
 | `hs_obamacare_aca_oppose`         | opposes the ACA                                 |
-| `hs_family_medical_leave_support` | supports paid family/medical leave              |
-| `hs_family_medical_leave_oppose`  | opposes paid family/medical leave               |
-| `hs_opioid_crisis_treat`          | treats opioid crisis as a health issue          |
-| `hs_opioid_crisis_enforce`        | treats opioid crisis as a law-enforcement issue |
 
-**climate_energy** — Climate change belief, EVs, solar, fracking, federal lands, Green New Deal
+**climate_energy** — Climate change belief, EVs, solar, fracking, Green New Deal
 
 | Column                             | Meaning                                 |
 | ---------------------------------- | --------------------------------------- |
@@ -600,25 +599,23 @@ The catalog is grouped into 9 policy topics. Each entry pairs a column name with
 | `hs_pipeline_fracking_oppose`      | opposes pipelines/fracking              |
 | `hs_green_new_deal_support`        | supports the Green New Deal             |
 | `hs_green_new_deal_oppose`         | opposes the Green New Deal              |
-| `hs_sell_federal_lands_support`    | supports selling federal lands          |
-| `hs_sell_federal_lands_oppose`     | opposes selling federal lands           |
 
 **immigration** — Mass deportations, border wall, immigration policy views
 
 | Column                          | Meaning                                |
 | ------------------------------- | -------------------------------------- |
-| `hs_mass_deporations_support`   | supports mass deportations             |
-| `hs_mass_deporations_oppose`    | opposes mass deportations              |
+| `hs_mass_deportations_support`   | supports mass deportations             |
+| `hs_mass_deportations_oppose`    | opposes mass deportations              |
 | `hs_mexican_wall_support`       | supports a border wall                 |
 | `hs_mexican_wall_oppose`        | opposes a border wall                  |
-| `hs_immigration_process_unfair` | sees the immigration process as unfair |
-| `hs_immigration_undesirable`    | sees more immigration as undesirable   |
+| `hs_illegal_imm_process_unfair` | sees the immigration process as unfair |
+| `hs_illegal_imm_undesirable`    | sees more immigration as undesirable   |
 
 **crime_safety** — Violent crime concern, gun control, police trust, death penalty
 
 | Column                          | Meaning                          |
 | ------------------------------- | -------------------------------- |
-| `hs_violent_crime_very_worried` | very worried about violent crime |
+| `hs_violent_crime_worried`      | worried about violent crime      |
 | `hs_violent_crime_not_worried`  | not worried about violent crime  |
 | `hs_gun_control_support`        | supports gun control             |
 | `hs_gun_control_oppose`         | opposes gun control              |
@@ -949,7 +946,7 @@ The `url` for each remains `agendaPacketUrl` from PARAMS when present (the perma
 - **Agenda packet**: the verbatim extracted text of the relevant section(s), not the full document. Include enough surrounding context for a QA reader to verify the claim without re-fetching.
 - **News articles**: the article body text captured via `http.get()`, after `http.head()` confirmed the URL is live per the liveness rule above. If the page is paywalled or returns no usable body, note that and do not cite the article.
 - **Government websites**: the relevant paragraph(s) from the page body.
-- **GoodParty.org constituent data** (the modeled-sentiment source): set `source_type` to **`"haystaq"`** (the enum value for GoodParty.org modeled constituent data — the QA gate keys the strict framing check on this type). Set the source `name` to **`GoodParty.org modeled constituent sentiment — <topic> (<jurisdiction>)`** — never "Haystaq", "L2", "Databricks", or the `hs_*` column in the name (it renders as a citation pill the official sees). The `retrieved_text_or_snapshot` is a plain-English structured summary — the modeled position/topic, the mean score (0–100), the geographic scope (district or state), and the voter count in the denominator — attributed to GoodParty.org's data. Do not put the raw `hs_*` column name, the table name, or SQL in it.
+- **GoodParty.org constituent data** (the modeled-sentiment source): set `source_type` to **`"haystaq"`** (the enum value for GoodParty.org modeled constituent data — the QA gate keys the strict framing check on this type). Set the source `name` to **`GoodParty.org modeled constituent sentiment — <topic> (<jurisdiction>)`** — never "Haystaq", "L2", "Databricks", or the `hs_*` column in the name (it renders as a citation pill the official sees). The `retrieved_text_or_snapshot` is a plain-English structured summary — the modeled position/topic, the mean score (0–100), the geographic scope (district or state), and the number of constituents in the denominator (never "voters" — see Audience vocabulary) — attributed to GoodParty.org's data. Do not put the raw `hs_*` column name, the table name, or SQL in it.
 - **Campaign**: the verbatim passage from the campaign site.
 
 Do not truncate to a single sentence. A QA reader must be able to verify the claim solely from `retrieved_text_or_snapshot` without re-fetching the URL.
@@ -1073,7 +1070,7 @@ Fields:
 - `score_direction` — the column's `meaning` line from the inline catalog (e.g. for `hs_gun_control_support` use `"supports gun control"`).
 - `voter_count` — the `COUNT(*) AS voter_count` from Step 8 (district or state scope, matching `mean_score`).
 - `haystaq_column` — the picked column name from the inline catalog (e.g. `hs_gun_control_support`).
-- `haystaq_status` — `"ok"` when the Step 8 query returned a non-null mean; `"no_match"` when no defensible topic match (Step 6/6b returned null for this item) **or** when `l2DistrictType` was set but the value did not resolve in Step 7 (fell back to state scope); `"no_column"` when the picked column wasn't queryable or returned a NULL mean — a NULL `AVG` means the column has no coverage in this scope (~106 `hs_*` columns exist only in a 12- or 39-state vendor vintage and are null elsewhere); that is missing data, not an error — null the item's `constituent_sentiment` rather than re-querying or coercing to 0. The `"city_mismatch"` enum value is retained in the output schema for backward compatibility but is **deprecated** — do not emit it.
+- `haystaq_status` — `"ok"` when the Step 8 query returned a non-null mean; `"no_match"` when no defensible topic match (Step 6/6b returned null for this item) **or** when `l2DistrictType` was set but the value did not resolve in Step 7 (fell back to state scope); `"no_column"` when the picked column wasn't queryable or returned a NULL mean — a NULL `AVG` means the column has no coverage in this scope (~51 `hs_*` columns exist only in the 12-state December 2025 delivery and are null elsewhere); that is missing data, not an error — null the item's `constituent_sentiment` rather than re-querying or coercing to 0. The `"city_mismatch"` enum value is retained in the output schema for backward compatibility but is **deprecated** — do not emit it.
 - `district_note` — **deprecated**, always set to `null`. With city scope removed there is no within-jurisdiction baseline to compare district against.
 - `source_ids` — array of `id` values from the top-level `sources[]` list that back this section. For `haystaq_status: "ok"`, reference the Haystaq source entry you compiled in Step 14. Required-but-may-be-empty: emit `[]` only when no source defensibly backs the section (e.g. `haystaq_status` other than `"ok"`); do not fabricate citations. The UI renders these as inline source pills below the section.
 
@@ -1240,7 +1237,7 @@ Validator-passing JSON can still be garbage. Before declaring success, walk this
 | Broker logs `ScopeViolation: scope_predicate_override`                        | Agent added `WHERE Residence_Addresses_State = ?` or `WHERE Residence_Addresses_City = ?` on the L2 table                       | Remove the state clause (broker auto-injects state); never add a city clause (city is not in PARAMS, broker does not auto-inject one)      |
 | Broker 422 on `/databricks/query` repeatedly                                  | Positional `?`, Postgres `FILTER`, `Voters_Active = 1`, or unauthorized table                                                   | Use named placeholders, `SUM(CASE WHEN ...)`, `Voters_Active = 'A'`; check `allowed_tables`                                                |
 | Top sentiment scores all 0-5%                                                 | Treated `hs_*` as binary (`= 1`) instead of 0-100 score                                                                         | Use `AVG(CAST(\`{col}\` AS DOUBLE))`and threshold with`>= 50`                                                                              |
-| `mean_score` comes back NULL for a picked column                              | Column has no coverage in this state (~106 `hs_*` columns exist only in a 12- or 39-state vendor vintage)                       | Not an error: null the item's `constituent_sentiment` with `haystaq_status: "no_column"` (Step 16); never coerce to 0 or re-query          |
+| `mean_score` comes back NULL for a picked column                              | Column has no coverage in this state (~51 `hs_*` columns exist only in the 12-state December 2025 delivery)                       | Not an error: null the item's `constituent_sentiment` with `haystaq_status: "no_column"` (Step 16); never coerce to 0 or re-query          |
 | `total_active_voters` looks like the whole state when `l2DistrictType` is set | L2 district value didn't resolve in Step 7; agent silently fell back to state scope                                             | Verify the district via the L2 value-format discovery query in Step 6b/7; set `haystaq_status: "no_match"` if it genuinely doesn't resolve |
 | Runner: `No artifact files found in /workspace/output`                        | Agent ran out of turns or never wrote the file                                                                                  | Tighten the instruction; remove unnecessary discovery steps; check max_turns                                                               |
 | `contract_violation` callback after agent claimed success                     | The runner's schema validator caught a missing/wrong-typed field the agent didn't notice                                        | Run `python3 /workspace/validate_output.py` (schema-only shim) to catch shape errors BEFORE declaring success                              |

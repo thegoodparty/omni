@@ -1,14 +1,48 @@
+import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, within } from '@testing-library/react'
-import { RoutePayloadStop, RoutePayloadTarget } from '@goodparty_org/contracts'
+import {
+  cleanup,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import {
+  ContactNote,
+  DoorKnockOutcome,
+  DoorKnockStatus,
+  RoutePayloadStop,
+  RoutePayloadTarget,
+  RouteTargetActivity,
+} from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
+import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import PersonSheet from './PersonSheet'
+import { DoorKnockingSurfaceProvider } from './doorKnockingSurface'
+import {
+  DoorNoteList,
+  editServedNotes,
+  withCreatedNote,
+  withDeletedNote,
+  withUpdatedNote,
+} from './doorNotes'
 
 // The knock form owns the dictation stack and its own mutation; this file is
 // about what the sheet itself puts on screen.
 vi.mock('./RecordKnockForm', () => ({
   __esModule: true,
   default: () => <div data-testid="record-knock-form" />,
+}))
+
+// Same reason: the card's own content is the candidate's saved issues and is
+// covered in DoorScript.test.tsx. What belongs here is where the sheet puts it
+// and who it is withheld from.
+vi.mock('./DoorScript', () => ({
+  __esModule: true,
+  default: ({ isServe }: { isServe: boolean }) => (
+    <div data-testid="door-script" data-serve={String(isServe)} />
+  ),
 }))
 
 const target = (
@@ -23,10 +57,26 @@ const target = (
   landline: null,
   knockStatus: 'unknown',
   mayHaveMoved: false,
+  doNotKnock: false,
   ...overrides,
 })
 
-const stop = (targets: RoutePayloadTarget[]): RoutePayloadStop => ({
+// The door the sheet is opened at. `displayAddress` is the STREET LINE — a stop
+// is a coordinate and a block of flats is one coordinate with many doors, so it
+// never carries a unit — and the unit belongs to the address under it. The
+// default is a house, which is the one shape where the two are the same string
+// and there is no unit to put anywhere.
+//
+// `door` is a parameter rather than a second fixture because the panel reads all
+// three fields and reads them differently: the heading is the stop's line, the
+// subheading is the unit, and Contact information spells out the whole address.
+// A house and a flat are the same panel with one field filled in.
+const HOUSE_DOOR = { address: '105 Elm St', unit: '' }
+
+const stop = (
+  targets: RoutePayloadTarget[],
+  door: { address: string; unit: string } = HOUSE_DOOR,
+): RoutePayloadStop => ({
   id: 10,
   seq: 1,
   lat: 36.16,
@@ -34,31 +84,401 @@ const stop = (targets: RoutePayloadTarget[]): RoutePayloadStop => ({
   displayAddress: '105 Elm St',
   legSeconds: 0,
   legMeters: 0,
-  knockStatus: 'unknown',
   addresses: [
     {
       addressKey: '105|elm|st',
-      address: '105 Elm St',
+      address: door.address,
+      unit: door.unit,
       targets,
       otherResidents: [],
     },
   ],
 })
 
-const renderSheet = (targets: RoutePayloadTarget[]) =>
-  render(
+// Both of the sheet's controlled facts live in WalkView, so they live here too
+// or the sheet cannot be exercised at all: the selected resident, and — since
+// the notes list collapsed into the route cache — the targets themselves. This
+// harness is that half of the walk, standing in for `patchPerson`, so the
+// assertions below stay about what the sheet renders and reports.
+const Harness = ({
+  targets,
+  door,
+  isServe,
+}: {
+  targets: RoutePayloadTarget[]
+  door?: { address: string; unit: string }
+  isServe: boolean
+}) => {
+  const [residents, setResidents] = useState(targets)
+  const [selectedTargetId, setSelectedTargetId] = useState(
+    targets[0]!.stopTargetId,
+  )
+  const patchNotes = (
+    personId: string,
+    edit: (list: DoorNoteList) => DoorNoteList,
+  ) =>
+    setResidents((current) =>
+      current.map((candidate) =>
+        candidate.personId === personId
+          ? { ...candidate, notes: editServedNotes(candidate.notes, edit) }
+          : candidate,
+      ),
+    )
+  return (
     <PersonSheet
-      stop={stop(targets)}
-      initialTargetId={targets[0]!.stopTargetId}
+      stop={stop(residents, door)}
+      stopSeq={7}
+      isServe={isServe}
+      onOpenPreviousStop={null}
+      onOpenNextStop={null}
+      selectedTargetId={selectedTargetId}
+      onSelectTarget={setSelectedTargetId}
       statusFor={(candidate) => candidate.knockStatus}
       clientKeyFor={() => 'key'}
       onRecorded={vi.fn()}
+      onNoteCreated={(personId, created) =>
+        patchNotes(personId, (list) => withCreatedNote(list, created))
+      }
+      onNoteUpdated={(personId, updated) =>
+        patchNotes(personId, (list) => withUpdatedNote(list, updated))
+      }
+      onNoteDeleted={(personId, noteId) =>
+        patchNotes(personId, (list) => withDeletedNote(list, noteId))
+      }
+      onDoNotKnockChanged={vi.fn()}
+      onNotAVoterChanged={vi.fn()}
       onClose={vi.fn()}
-    />,
+    />
+  )
+}
+
+const renderSheet = (
+  targets: RoutePayloadTarget[],
+  door?: { address: string; unit: string },
+  serveMode = false,
+) =>
+  render(
+    // The two flags are one fact in production — a Serve org's route carries
+    // `isServe` and its surface context reads the same `eo-` prefix — so the
+    // harness refuses to let them disagree.
+    <DoorKnockingSurfaceProvider value={serveMode}>
+      <Harness targets={targets} door={door} isServe={serveMode} />
+    </DoorKnockingSurfaceProvider>,
   )
 
 const contactCard = () =>
   screen.getByRole('heading', { name: 'Contact information' }).parentElement!
+
+describe('PersonSheet header', () => {
+  // The canvas heads this panel with the DOOR (`v.address`) and leaves the
+  // names to the switcher below it. That is the right subject: the panel is
+  // opened from a pin and closed at a doorstep, and a household of four opened
+  // four panels titled four different ways under one knocker.
+  it('leads with the door rather than with whoever is selected behind it', () => {
+    renderSheet([target()])
+
+    const header = screen.getByRole('heading', { name: '105 Elm St' })
+      .parentElement!.parentElement!
+    expect(within(header).queryByText('Dorian Fen')).toBeNull()
+    expect(within(header).queryByText('31 years old')).toBeNull()
+  })
+
+  // Age and party are both voter-file attributes and both belong to the cards
+  // that hold the rest of the file, not to a header about a door.
+  it('leaves the age and the party to the cards below', () => {
+    renderSheet([target()])
+
+    const header = screen.getByRole('heading', { name: '105 Elm St' })
+      .parentElement!.parentElement!
+    expect(within(header).queryByText(/Independent/)).toBeNull()
+    expect(
+      within(
+        screen.getByRole('heading', { name: 'Voter demographics' })
+          .parentElement!,
+      ).getByText('Independent'),
+    ).toBeInTheDocument()
+    expect(
+      within(
+        screen.getByRole('heading', { name: 'Demographic information' })
+          .parentElement!,
+      ).getByText('31 years old'),
+    ).toBeInTheDocument()
+  })
+
+  // One resident means no switcher, and the switcher is where a household's
+  // statuses are read — so the canvas prints the one status on its own line.
+  it('states the lone resident’s last outcome, which the switcher would have carried', () => {
+    renderSheet([target({ knockStatus: 'supporter' })])
+
+    expect(screen.getByText('Last: Supporter')).toBeInTheDocument()
+  })
+})
+
+// One door, three readings of it, and this panel is the only surface that needs
+// all three at once: the heading is the building a canvasser is standing
+// outside, the line under it is which door of that building, and Contact
+// information spells the address out whole. The split is right for reading a
+// list at a doorstep and wrong for the field somebody copies into a CRM note or
+// reads down a phone, which is why the panel does both.
+describe('PersonSheet door address', () => {
+  // Kept on Elm St so the heading is the same string the rest of this file
+  // asserts on. The unit is the reporter's own — the flat whose number was
+  // being printed as the building's name.
+  const APARTMENT_DOOR = { address: '105 Elm St Apt 8309', unit: 'Apt 8309' }
+
+  // The stop's line, and only the stop's line. Naming the panel after one
+  // resident's flat is the reported bug: a stop is a coordinate, a block of
+  // flats is one coordinate, and whichever resident sorted first used to label
+  // the whole of it.
+  it('heads the panel with the street line rather than with the unit', () => {
+    renderSheet([target()], APARTMENT_DOOR)
+
+    expect(
+      screen.getByRole('heading', { name: '105 Elm St', level: 2 }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /Apt 8309/ })).toBeNull()
+  })
+
+  // Under the building, because that is the only thing saying which door of it
+  // this is — and conditioned on the unit rather than on the stop having
+  // sibling doors, so a lone apartment gets it too. Without that the one number
+  // a canvasser needs to find the door is nowhere on the panel opened at it.
+  it('names the door under the building for an apartment', () => {
+    renderSheet([target()], APARTMENT_DOOR)
+    const header = screen.getByRole('heading', {
+      name: '105 Elm St',
+    }).parentElement!
+
+    expect(within(header).getByText('Apt 8309')).toBeInTheDocument()
+    // Said once: the street is the heading above it, and repeating it here is
+    // what made every door of a building read as its own house.
+    expect(within(header).queryByText(/Elm St Apt/)).toBeNull()
+  })
+
+  // A house has no unit, so there is no second line to draw — an empty one is a
+  // subheading claiming a door number the file does not have.
+  it('leaves the door line off a house', () => {
+    renderSheet([target()])
+    const header = screen.getByRole('heading', {
+      name: '105 Elm St',
+    }).parentElement!
+
+    expect(header.querySelector('svg.lucide-door-closed')).toBeNull()
+    expect(within(header).queryByText(/Apt/)).toBeNull()
+  })
+
+  // `address` rather than the heading and the unit stuck back together: only the
+  // addressKey knows where the street line ends, so the server does that
+  // subtraction once and this field is the side of it a letter would be
+  // addressed to.
+  it('spells the whole address out in Contact information', () => {
+    renderSheet([target()], APARTMENT_DOOR)
+    const card = within(contactCard())
+
+    expect(card.getByText('Address')).toBeInTheDocument()
+    expect(card.getByText('105 Elm St Apt 8309')).toBeInTheDocument()
+  })
+
+  it('states a house’s address in the same field', () => {
+    renderSheet([target()])
+
+    expect(within(contactCard()).getByText('105 Elm St')).toBeInTheDocument()
+  })
+
+  // A stop is a coordinate, and two houses can geocode to one. Neither has a
+  // unit, so a subheading keyed on the unit alone would show nothing and the
+  // heading can only name one of the two — leaving a canvasser at the wrong
+  // door with nothing on the panel to say so. The door line falls back to the
+  // whole address, the same way the walk list's door rows do.
+  it('names a unitless door that is not the house the heading names', () => {
+    renderSheet([target()], { address: '102 Oak Ave', unit: '' })
+    const header = screen.getByRole('heading', {
+      name: '105 Elm St',
+    }).parentElement!
+
+    expect(within(header).getByText('102 Oak Ave')).toBeInTheDocument()
+  })
+})
+
+// The door sheet is the one surface used one-handed on a porch, so the two
+// layout facts below are behavior rather than styling: which shape it takes at
+// which width, and what stays on screen while the body scrolls.
+describe('PersonSheet layout', () => {
+  const panel = () =>
+    screen.getByRole('heading', { name: '105 Elm St' }).closest('div.fixed')!
+
+  it('is a bottom drawer below lg and a right-hand sheet at lg', () => {
+    renderSheet([target()])
+    const classes = panel().className.split(' ')
+
+    expect(classes).toEqual(
+      expect.arrayContaining([
+        'max-lg:inset-x-0',
+        'max-lg:bottom-0',
+        'max-lg:max-h-[85dvh]',
+        'lg:right-0',
+        'lg:top-0',
+        'lg:w-[430px]',
+      ]),
+    )
+    // One breakpoint for the whole feature — the landing rail becomes a sheet
+    // at `lg` as well, so a second breakpoint here would give the walk two
+    // layouts that change at different widths on the same phone.
+    expect(
+      classes.filter((name) => /^(max-)?(sm|md|xl|2xl):/.test(name)),
+    ).toEqual([])
+  })
+
+  // The form is pinned to the footer, so logging a door scrolls the body past
+  // anything sitting at the top of it. The switcher is the control a canvasser
+  // reaches for at exactly that moment — when the person who opened the door
+  // turns out to be the housemate — so it stays in the header, under the door
+  // it picks a resident of.
+  it('keeps the resident switcher in the header rather than in the scrolling body', () => {
+    renderSheet([
+      target(),
+      target({ stopTargetId: 22, personId: 'person-2', name: 'Marisol Vega' }),
+    ])
+    const switcher = screen.getByRole('button', { name: /Marisol Vega/ })
+
+    const body = screen
+      .getByRole('heading', { name: 'Contact information' })
+      .closest('div.overflow-y-auto')!
+    expect(body.contains(switcher)).toBe(false)
+    expect(
+      screen
+        .getByRole('heading', { name: '105 Elm St' })
+        .closest('div.border-b')!
+        .contains(switcher),
+    ).toBe(true)
+  })
+})
+
+describe('PersonSheet section headers', () => {
+  it('marks each card with a glyph for what it holds', () => {
+    renderSheet([target()])
+
+    for (const title of [
+      'Contact information',
+      'Household',
+      'Voter demographics',
+      'Demographic information',
+      'Notes',
+      'Activity Feed',
+    ]) {
+      const icon = screen
+        .getByRole('heading', { name: title })
+        .querySelector('svg')
+      expect(icon).toBeInTheDocument()
+      // Decorative: the heading is the accessible name, which is also what
+      // every other assertion in this file finds these cards by.
+      expect(icon).toHaveAttribute('aria-hidden', 'true')
+    }
+  })
+})
+
+// `renderPanel`'s card sequence, which is the whole shape of this panel:
+// Talking points, Contact information, Household, Voter demographics, Voter
+// support, Demographic information, Notes, Activity Feed. Talking points is
+// absent here because the fixture's campaign has no saved issues, and Voter
+// support because the default resident has never been knocked — both cards state
+// something and neither has anything to state, which is asserted in their own
+// blocks below.
+describe('PersonSheet card order', () => {
+  it('stacks the body cards the way the canvas does', () => {
+    renderSheet([target()])
+
+    const body = screen
+      .getByRole('heading', { name: 'Contact information' })
+      .closest('div.overflow-y-auto')!
+    const headings = [...body.querySelectorAll('h3')].map(
+      (heading) => heading.textContent,
+    )
+
+    expect(headings).toEqual([
+      'Contact information',
+      'Household',
+      'Voter demographics',
+      'Demographic information',
+      'Notes',
+      'Activity Feed',
+    ])
+  })
+
+  // Serve keeps the same seven cards in the same order. The script card leads
+  // on both surfaces now that it has a Serve sentence to say; what changes is
+  // what is inside it, which is DoorScript's own test.
+  it('keeps the card order in serve mode', () => {
+    renderSheet([target()], undefined, true)
+
+    const body = screen
+      .getByRole('heading', { name: 'Contact information' })
+      .closest('div.overflow-y-auto')!
+    const headings = [...body.querySelectorAll('h3')].map(
+      (heading) => heading.textContent,
+    )
+
+    expect(headings).toEqual([
+      'Contact information',
+      'Household',
+      'Constituent demographics',
+      'Demographic information',
+      'Notes',
+      'Activity Feed',
+    ])
+    expect(body.firstElementChild).toBe(screen.getByTestId('door-script'))
+  })
+})
+
+// `panelCard('Talking points','message-square', …)` is the canvas's first card
+// in the scrolling body. Ours was a collapsed disclosure pinned in the footer
+// above the form.
+describe('PersonSheet talking points', () => {
+  it('leads the scrolling body rather than sitting in the pinned footer', () => {
+    renderSheet([target()])
+
+    const body = screen
+      .getByRole('heading', { name: 'Contact information' })
+      .closest('div.overflow-y-auto')!
+    expect(body.firstElementChild).toBe(screen.getByTestId('door-script'))
+  })
+
+  // A flagged door has nothing to log and nothing to open with, so the talking
+  // points go the way the form does — one `flagControl` predicate for both, and
+  // for the support card, so the three cannot drift.
+  it.each<[string, Partial<RoutePayloadTarget>]>([
+    ['do-not-knock', { doNotKnock: true }],
+    ['not-a-voter', { notAVoterReason: 'moved' }],
+  ])('withholds them for a flagged %s resident', (_label, flag) => {
+    renderSheet([target(flag)])
+
+    expect(screen.queryByTestId('door-script')).toBeNull()
+    expect(screen.queryByTestId('record-knock-form')).toBeNull()
+  })
+
+  // It used to be withheld outright, on the reasoning that a Serve org has no
+  // campaign and no issue positions to script from — true of the bulleted
+  // stances, and not of the opener, which is the one line a canvasser at an
+  // official's door cannot invent. The surface reaches the card so it can head
+  // itself for what it holds.
+  it('renders in serve mode, told which surface it is', () => {
+    renderSheet([target()], undefined, true)
+
+    expect(screen.getByTestId('door-script')).toHaveAttribute(
+      'data-serve',
+      'true',
+    )
+  })
+
+  it('still renders in win mode', () => {
+    renderSheet([target()], undefined, false)
+
+    expect(screen.getByTestId('door-script')).toHaveAttribute(
+      'data-serve',
+      'false',
+    )
+  })
+})
 
 describe('PersonSheet phone numbers', () => {
   it('shows both numbers as tappable tel links', () => {
@@ -67,7 +487,10 @@ describe('PersonSheet phone numbers', () => {
     ])
     const card = within(contactCard())
 
-    expect(card.getByText('Cell phone')).toBeInTheDocument()
+    // The canvas's labels: `panelField('Cell phone number', …)` in knock mode,
+    // and `panelField('Landline', …)`.
+    expect(card.getByText('Cell phone number')).toBeInTheDocument()
+    expect(card.getByText('Landline')).toBeInTheDocument()
     // Formatting is preserved for reading, stripped for dialing.
     expect(card.getByRole('link', { name: '(615) 555-0142' })).toHaveAttribute(
       'href',
@@ -79,33 +502,57 @@ describe('PersonSheet phone numbers', () => {
     )
   })
 
-  it('omits the row for a number the file does not have', () => {
+  // The canvas draws both rows unconditionally and writes the empty one as a
+  // value rather than dropping it, which also means the card no longer needs a
+  // sentence of its own to say a number is missing.
+  it('keeps the row for a number the file does not have', () => {
     renderSheet([target({ cellPhone: '(615) 555-0142' })])
     const card = within(contactCard())
 
-    expect(card.getByText('Cell phone')).toBeInTheDocument()
-    expect(card.queryByText('Landline')).toBeNull()
+    expect(card.getByRole('link', { name: '(615) 555-0142' })).toBeVisible()
+    const landline = card.getByText('Landline').parentElement!
+    expect(within(landline).getByText('Not on file')).toBeInTheDocument()
     expect(card.queryByText('No phone number on file.')).toBeNull()
   })
 
   // Silence would leave the canvasser wondering whether the app failed to load
-  // the number or the voter file simply has none.
-  it('says so when the file has neither number', () => {
+  // the number or the voter file simply has none. One word for an absent
+  // column, shared with the two fact cards below — two vocabularies for absence
+  // a card apart would teach a reader that the boundary means something.
+  it('says Not on file when the record has neither number', () => {
     renderSheet([target()])
+    const card = within(contactCard())
 
-    expect(
-      within(contactCard()).getByText('No phone number on file.'),
-    ).toBeInTheDocument()
+    expect(card.getAllByText('Not on file')).toHaveLength(2)
+    expect(card.queryByRole('link', { name: /^\(/ })).toBeNull()
   })
 
-  // A mover has no live row at all, which is the same reason the numbers are
-  // absent — claiming the file has none would misread the cause, and the moved
-  // warning already explains it.
-  it('stays quiet about phones for someone who may have moved', () => {
+  // The stop's own coordinates, not its address text: the route was bought
+  // against them, and a geocoder handed the address string is exactly what puts
+  // a canvasser on the wrong rural driveway. Google's universal maps URL, so a
+  // phone hands off to the Maps app rather than opening a web map — and a new
+  // tab, because leaving this one unmounts the walk and its replay keys.
+  it('opens the stop in Google Maps at its frozen coordinates', () => {
+    renderSheet([target()])
+
+    const link = within(contactCard()).getByRole('link', {
+      name: 'Open in Maps',
+    })
+    expect(link).toHaveAttribute(
+      'href',
+      'https://www.google.com/maps/search/?api=1&query=36.16,-86.78',
+    )
+    expect(link).toHaveAttribute('target', '_blank')
+  })
+
+  // A mover has no live row at all, which is why the numbers and the whole
+  // demographic profile come through empty. The rows cannot say which of the two
+  // blanks this is, so the line above them does.
+  it('explains the blank rows for someone who may have moved', () => {
     renderSheet([target({ mayHaveMoved: true })])
     const card = within(contactCard())
 
-    expect(card.queryByText('No phone number on file.')).toBeNull()
+    expect(card.getAllByText('Not on file')).toHaveLength(2)
     expect(
       card.getByText('May have moved since this route was built.'),
     ).toBeInTheDocument()
@@ -132,6 +579,850 @@ describe('PersonSheet phone numbers', () => {
 
     expect(
       within(contactCard()).getByRole('link', { name: '(615) 555-0177' }),
+    ).toBeInTheDocument()
+  })
+})
+
+// The knock form, the not-a-voter follow-up and the do-not-knock control are
+// siblings that all key off the selected target so each resets when the
+// canvasser switches resident. Keyed on the bare id they collide, and React
+// reconciles same-key siblings as one child — it only says so through a console
+// warning, which a passing suite hides.
+describe('PersonSheet reconciliation', () => {
+  it('keys its three mutating children apart', () => {
+    const warn = vi.spyOn(console, 'error').mockImplementation(vi.fn())
+
+    // A logged not-a-voter door is the one state where all three render at
+    // once, so it is the only one that can surface the collision.
+    renderSheet([target({ knockStatus: 'not_a_voter' })])
+
+    expect(warn.mock.calls.flat().join(' ')).not.toMatch(
+      /two children with the same key/,
+    )
+    warn.mockRestore()
+  })
+})
+
+// ADR 0007 and 0008. A flagged resident reads "Do not knock" in the walk list
+// and used to read "Support unknown" here one tap later — two answers to the
+// same question about the same person. Both rosters replace the status with the
+// marker for the same reason the list does.
+describe('PersonSheet flagged residents', () => {
+  const household = () =>
+    screen.getByRole('heading', { name: 'Household' }).parentElement!
+
+  const switcher = (name: RegExp) => screen.getByRole('button', { name })
+
+  it('replaces the status with the marker in the household roster', () => {
+    renderSheet([
+      target({ doNotKnock: true }),
+      target({
+        stopTargetId: 22,
+        personId: 'person-2',
+        name: 'Marisol Vega',
+        notAVoterReason: 'deceased',
+      }),
+      target({
+        stopTargetId: 23,
+        personId: 'person-3',
+        name: 'Ruben Cole',
+        notAVoterReason: 'moved',
+      }),
+    ])
+    const roster = within(household())
+
+    expect(roster.getByText('Do not knock')).toBeInTheDocument()
+    expect(roster.getByText('Deceased')).toBeInTheDocument()
+    expect(roster.getByText('Moved away')).toBeInTheDocument()
+    expect(roster.queryByText('Support unknown')).toBeNull()
+  })
+
+  it('replaces the status dot with the marker in the resident switcher', () => {
+    renderSheet([
+      target(),
+      target({
+        stopTargetId: 22,
+        personId: 'person-2',
+        name: 'Marisol Vega',
+        notAVoterReason: 'deceased',
+      }),
+    ])
+
+    expect(switcher(/Marisol Vega/)).toHaveTextContent('Deceased')
+    // The knockable resident keeps their dot, so the marker reads as a
+    // difference rather than as how everyone is rendered.
+    expect(switcher(/Dorian Fen/).querySelector('span.h-2')).toBeTruthy()
+    expect(switcher(/Marisol Vega/).querySelector('span.h-2')).toBeNull()
+  })
+
+  // A flagged door has nothing to say and nothing to log, so the script and the
+  // form go rather than sitting there inert.
+  it('withholds the log form behind the reason marker', () => {
+    renderSheet([target({ notAVoterReason: 'moved' })])
+
+    expect(screen.queryByTestId('record-knock-form')).toBeNull()
+    expect(
+      screen.getByText(/no longer lives at this address/),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+  })
+
+  // Do-not-knock is an instruction about the door; a reason is a fact about one
+  // of the people behind it, so the instruction is what gets shown.
+  it('shows do-not-knock ahead of a reason when a person carries both', () => {
+    renderSheet([target({ doNotKnock: true, notAVoterReason: 'moved' })])
+
+    expect(
+      screen.getByText(/asked not to be visited again/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Moved away')).toBeNull()
+  })
+
+  // The door is logged by then; the question is a follow-up to it, and the form
+  // stays so a mis-tapped outcome is still correctable.
+  it('asks for a reason once a door is logged as not a voter', () => {
+    renderSheet([target({ knockStatus: 'not_a_voter' })])
+
+    expect(screen.getByText('Not a voter — what happened?')).toBeInTheDocument()
+    expect(screen.getByTestId('record-knock-form')).toBeInTheDocument()
+  })
+})
+
+// ADR 0009.
+describe('PersonSheet activity feed', () => {
+  const feed = () =>
+    screen.getByRole('heading', { name: 'Activity Feed' }).parentElement!
+
+  const knock = (
+    activityId: string,
+    date: string,
+    outcome: DoorKnockOutcome = 'answered',
+  ): RouteTargetActivity => ({
+    type: 'DOOR_KNOCK',
+    date,
+    data: {
+      activityId,
+      outcome,
+      supportAnswer: null,
+      note: null,
+      manual: false,
+      actorName: null,
+      actorUserId: null,
+    },
+  })
+
+  it('reports an untouched resident rather than leaving the card blank', () => {
+    renderSheet([target({ history: [] })])
+
+    expect(
+      within(feed()).getByText('No previous outreach to this resident.'),
+    ).toBeInTheDocument()
+  })
+
+  // The feed belongs to the person, not the door. Two people behind one door
+  // disagree, and a housemate's refusal attributed to whoever answered is
+  // worse than showing nothing at all.
+  it('follows the selected resident rather than the household', () => {
+    renderSheet([
+      target({ history: [knock('dk-1', '2026-08-10T15:00:00.000Z')] }),
+      target({
+        stopTargetId: 22,
+        personId: 'person-2',
+        name: 'Marisol Vega',
+        history: [
+          knock('dk-2', '2026-08-09T15:00:00.000Z', 'refused_to_engage'),
+        ],
+      }),
+    ])
+
+    expect(within(feed()).getByText('Door Knock: Answered')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Marisol Vega/ }))
+
+    const switched = within(feed())
+    expect(
+      switched.getByText('Door Knock: Refused to Engage'),
+    ).toBeInTheDocument()
+    expect(switched.queryByText('Door Knock: Answered')).toBeNull()
+  })
+
+  // Deliberate, and the opposite of the rule the footer follows. Withholding
+  // the form stops a knock; withholding the history would stop someone
+  // noticing that the flag was applied to the wrong resident — and the feed is
+  // the only surface at the door that carries the flag's own status-change row.
+  it('keeps the feed for a flagged resident whose form is withheld', () => {
+    renderSheet([
+      target({
+        doNotKnock: true,
+        history: [knock('dk-1', '2026-08-10T15:00:00.000Z')],
+      }),
+    ])
+
+    expect(screen.queryByTestId('record-knock-form')).toBeNull()
+    expect(within(feed()).getByText('Door Knock: Answered')).toBeInTheDocument()
+  })
+
+  // A data-quality hint about the file and a canvasser's firsthand report are
+  // separate observations that can land on the same person. The hint has no
+  // date and no author, so it stays a line in Contact information instead of
+  // becoming a second timeline row that reads like the same event logged
+  // twice.
+  it('leaves mayHaveMoved out of the timeline when both are present', () => {
+    renderSheet([
+      target({
+        mayHaveMoved: true,
+        notAVoterReason: 'moved',
+        history: [
+          {
+            type: 'STATUS_CHANGE',
+            date: '2026-08-11T15:00:00.000Z',
+            data: {
+              activityId: 'se-1',
+              field: 'not_a_voter',
+              fromLabel: null,
+              toLabel: 'Moved away',
+              actorName: 'Rosa Iyer',
+              actorUserId: 77,
+              source: 'manual',
+            },
+          },
+        ],
+      }),
+    ])
+
+    expect(
+      within(contactCard()).getByText(
+        'May have moved since this route was built.',
+      ),
+    ).toBeInTheDocument()
+    const timeline = within(feed())
+    expect(
+      timeline.getByText("Rosa Iyer set Not A Voter to 'Moved away'"),
+    ).toBeInTheDocument()
+    expect(
+      timeline.queryByText('May have moved since this route was built.'),
+    ).toBeNull()
+  })
+
+  // A route snapshotted by the service worker before this shipped has no
+  // history key at all, and it has to render on a phone that cannot refetch.
+  it('treats a payload with no history field as an empty feed', () => {
+    renderSheet([target()])
+
+    expect(
+      within(feed()).getByText('No previous outreach to this resident.'),
+    ).toBeInTheDocument()
+  })
+})
+
+// The canvas's "Voter support" card. What it states, and — the larger half of
+// this — every case where it states nothing at all, since a card is a claim and
+// most doors on a route have nothing behind them to claim.
+describe('PersonSheet voter support', () => {
+  const card = () =>
+    screen.queryByRole('heading', { name: 'Voter support' })?.parentElement ??
+    null
+
+  const supportKnock = (
+    activityId: string,
+    date: string,
+    supportAnswer: 'supporter' | 'unsure' | 'non_supporter' | null,
+  ): RouteTargetActivity => ({
+    type: 'DOOR_KNOCK',
+    date,
+    data: {
+      activityId,
+      outcome: 'answered',
+      supportAnswer,
+      note: null,
+      manual: false,
+      actorName: null,
+      actorUserId: null,
+    },
+  })
+
+  const supportOverride = (
+    activityId: string,
+    date: string,
+    toLabel: string,
+  ): RouteTargetActivity => ({
+    type: 'STATUS_CHANGE',
+    date,
+    data: {
+      activityId,
+      field: 'support_status',
+      fromLabel: null,
+      toLabel,
+      actorName: 'Rosa Iyer',
+      actorUserId: 77,
+      source: 'manual',
+    },
+  })
+
+  // The canvas's field: `panelField('Do they support you?', …)` with the value
+  // written through its Yes / No vocabulary — which is `SUPPORT_OPTIONS`, the
+  // same two strings the knock form offered when the answer was given.
+  it('states where the resident stands, and when they said it', () => {
+    renderSheet([
+      target({
+        knockStatus: 'supporter',
+        history: [
+          supportKnock('dk-1', '2026-08-10T15:00:00.000Z', 'supporter'),
+        ],
+      }),
+    ])
+
+    const support = within(card()!)
+    const row = support.getByText('Do they support you?').parentElement!
+    expect(within(row).getByText('Yes')).toBeInTheDocument()
+    expect(support.getByText('As of August 2026')).toBeInTheDocument()
+  })
+
+  it('answers the same question a non-supporter answered', () => {
+    renderSheet([target({ knockStatus: 'non_supporter' })])
+
+    const row = within(card()!).getByText('Do they support you?').parentElement!
+    expect(within(row).getByText('No')).toBeInTheDocument()
+  })
+
+  // The whole reason the card exists: the answer has to be readable at the
+  // moment the canvasser is deciding what to open with, not after scrolling the
+  // body down to the activity feed. The canvas puts it between the two profile
+  // cards — the registration facts, then where they stand, then who they are —
+  // and above the pinned log bar.
+  it('sits between the two profile cards, above the knock form', () => {
+    renderSheet([target({ knockStatus: 'supporter' })])
+
+    const body = screen
+      .getByRole('heading', { name: 'Contact information' })
+      .closest('div.overflow-y-auto')!
+    expect([...body.querySelectorAll('h3')].map((h) => h.textContent)).toEqual([
+      'Contact information',
+      'Household',
+      'Voter demographics',
+      'Voter support',
+      'Demographic information',
+      'Notes',
+      'Activity Feed',
+    ])
+
+    const heading = screen.getByRole('heading', { name: 'Voter support' })
+    expect(
+      heading.compareDocumentPosition(screen.getByTestId('record-knock-form')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  // Never knocked. `unknown` is the grey the rosters print beside other people
+  // because a row needs a value; a card does not, and "Support unknown" over a
+  // door nobody has ever been to states a finding where there is no
+  // observation.
+  it('says nothing about a resident nobody has knocked', () => {
+    renderSheet([target({ knockStatus: 'unknown' })])
+
+    expect(card()).toBeNull()
+    // The household roster below still prints the grey label, which is the
+    // distinction: a row in a list of people needs a value per person, and a
+    // card stating one fact can decline to make a claim.
+    expect(
+      within(
+        screen.getByRole('heading', { name: 'Household' }).parentElement!,
+      ).getByText('Support unknown'),
+    ).toBeInTheDocument()
+  })
+
+  // A door with no answer behind it is not a stance. `not_home` is the one a
+  // canvasser meets most often, and the rest of the outcome statuses are the
+  // same argument.
+  it.each<DoorKnockStatus>([
+    'not_home',
+    'inaccessible',
+    'refused',
+    'not_a_voter',
+  ])('says nothing about a %s door', (knockStatus) => {
+    renderSheet([target({ knockStatus })])
+
+    expect(card()).toBeNull()
+  })
+
+  // Will-vote is asked at the door and stored, but nothing derives it onto
+  // `knockStatus`, so the panel has no current value to state — recorded as
+  // open in AGENTS.md rather than approximated from the last knock. The
+  // assertion is here so building it becomes a deliberate act with a failing
+  // test beside it.
+  it('makes no claim about whether they will vote', () => {
+    renderSheet([target({ knockStatus: 'supporter' })])
+
+    expect(screen.queryByText(/will vote/i)).toBeNull()
+  })
+
+  // A stance with no dated row behind it is still worth stating; the date is
+  // what has to go missing rather than be invented. This is also the offline
+  // case — a route snapshotted before ADR 0009 shipped carries no history at
+  // all.
+  it('states the support without a date when nothing in the history says when', () => {
+    renderSheet([
+      target({
+        knockStatus: 'supporter',
+        history: [supportKnock('dk-1', '2026-08-10T15:00:00.000Z', null)],
+      }),
+    ])
+
+    const support = within(card()!)
+    const row = support.getByText('Do they support you?').parentElement!
+    expect(within(row).getByText('Yes')).toBeInTheDocument()
+    expect(support.queryByText(/As of/)).toBeNull()
+  })
+
+  // An override outranks the interaction history server-side, so the row that
+  // set it is the row that dates the card.
+  it('dates the card from a support-status override', () => {
+    renderSheet([
+      target({
+        knockStatus: 'supporter',
+        history: [
+          supportOverride('se-1', '2026-08-11T15:00:00.000Z', 'Supporter'),
+          supportKnock('dk-1', '2026-06-02T15:00:00.000Z', 'non_supporter'),
+        ],
+      }),
+    ])
+
+    expect(within(card()!).getByText('As of August 2026')).toBeInTheDocument()
+  })
+
+  // The newest row that speaks to support is the only one allowed to date the
+  // card. When it disagrees with the status on the payload — an override
+  // outside ADR 0009's five-row window is how that happens — the honest answer
+  // is no date, not the older row that happens to agree.
+  it('refuses to date the card from a superseded answer', () => {
+    renderSheet([
+      target({
+        knockStatus: 'supporter',
+        history: [
+          supportKnock('dk-2', '2026-08-12T15:00:00.000Z', 'unsure'),
+          supportKnock('dk-1', '2026-06-02T15:00:00.000Z', 'supporter'),
+        ],
+      }),
+    ])
+
+    const support = within(card()!)
+    const row = support.getByText('Do they support you?').parentElement!
+    expect(within(row).getByText('Yes')).toBeInTheDocument()
+    expect(support.queryByText(/As of/)).toBeNull()
+  })
+
+  // ADR 0007 and 0008, at panel scale: the marker replaces the status rather
+  // than sitting beside it. "Supporter" over a footer reading "asked not to be
+  // visited again" is the pair of answers to one question that `targetMarker`
+  // exists to prevent. The card now sits in the body rather than inside the
+  // footer's flag branch, so this pair is what holds the two halves together.
+  it.each<[string, Partial<RoutePayloadTarget>]>([
+    ['do-not-knock', { doNotKnock: true }],
+    ['not-a-voter', { notAVoterReason: 'moved' }],
+  ])('withholds the card for a flagged %s resident', (_label, flag) => {
+    renderSheet([target({ knockStatus: 'supporter', ...flag })])
+
+    expect(card()).toBeNull()
+    expect(screen.queryByTestId('record-knock-form')).toBeNull()
+  })
+
+  // Support is a fact about one person, and two people behind one door
+  // disagree — the same rule the notes and the activity feed follow.
+  it('follows the selected resident rather than the household', () => {
+    renderSheet([
+      target({ knockStatus: 'supporter' }),
+      target({
+        stopTargetId: 22,
+        personId: 'person-2',
+        name: 'Marisol Vega',
+        knockStatus: 'non_supporter',
+      }),
+    ])
+
+    const answer = () =>
+      within(within(card()!).getByText('Do they support you?').parentElement!)
+    expect(answer().getByText('Yes')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Marisol Vega/ }))
+
+    expect(answer().getByText('No')).toBeInTheDocument()
+  })
+})
+
+// The twelve attributes the door surfaces for a target, across the canvas's
+// two profile cards. Every one is a column already in `DOWNLOAD_COLUMNS` —
+// handed to candidates as a CSV today behind the same district access check and
+// the same Pro gate — so these are a new surface for existing disclosure rather
+// than new disclosure.
+describe('PersonSheet demographic information', () => {
+  const voterCard = () =>
+    screen.getByRole('heading', { name: 'Voter demographics' }).parentElement!
+
+  const demographicCard = () =>
+    screen.getByRole('heading', { name: 'Demographic information' })
+      .parentElement!
+
+  const fullTarget = (overrides: Partial<RoutePayloadTarget> = {}) =>
+    target({
+      registeredVoter: true,
+      turnoutLikelihood: 'Super',
+      maritalStatus: 'Likely Married',
+      hasChildrenUnder18: 'Yes',
+      veteranStatus: 'Yes',
+      homeowner: 'Renter',
+      businessOwner: 'Yes',
+      levelOfEducation: 'Graduate Degree',
+      estimatedIncomeAmount: 82000,
+      language: 'Spanish',
+      ethnicityGroup: 'Hispanic',
+      ...overrides,
+    })
+
+  const expectRows = (
+    card: HTMLElement,
+    rows: Array<[label: string, value: string]>,
+  ) => {
+    const scope = within(card)
+    for (const [label, value] of rows) {
+      const row = scope.getByText(label).parentElement!
+      expect(within(row).getByText(value)).toBeInTheDocument()
+    }
+  }
+
+  // The split is the point: registration facts are a different kind of claim
+  // from the personal profile, and one grid holding both put "is this person on
+  // the roll" in the cell beside "do they have children".
+  it('states the voter-file facts on their own card', () => {
+    renderSheet([fullTarget()])
+
+    expectRows(voterCard(), [
+      ['Registered voter', 'Yes'],
+      ['Turnout likelihood', 'Super'],
+      ['Political party', 'Independent'],
+    ])
+    // Nothing from the personal profile leaks across the boundary.
+    expect(within(voterCard()).queryByText('Marital status')).toBeNull()
+  })
+
+  it('states the personal profile on its own card', () => {
+    renderSheet([fullTarget()])
+
+    expectRows(demographicCard(), [
+      ['Marital status', 'Likely Married'],
+      ['Has children under 18', 'Yes'],
+      ['Veteran status', 'Yes'],
+      ['Homeowner', 'Renter'],
+      ['Business owner', 'Yes'],
+      ['Level of education', 'Graduate Degree'],
+      ['Estimated household income', '$75k - $100k'],
+      ['Language', 'Spanish'],
+      ['Ethnicity group', 'Hispanic'],
+    ])
+    expect(within(demographicCard()).queryByText('Registered voter')).toBeNull()
+  })
+
+  // Not the prototype's "Voter status", which means active-or-inactive
+  // registration. This column is turnout propensity, and the prototype's label
+  // would name it as something it isn't.
+  it('names the turnout column for what it holds', () => {
+    renderSheet([fullTarget()])
+
+    const card = within(voterCard())
+    expect(card.getByText('Turnout likelihood')).toBeInTheDocument()
+    expect(card.queryByText('Voter status')).toBeNull()
+  })
+
+  // Sparseness is the common case in this file, not the edge. The default
+  // fixture carries no demographic keys at all, which is also exactly what a
+  // route snapshotted offline before this shipped looks like on a phone that
+  // cannot refetch. Both cards say it the same way — two vocabularies for
+  // absence either side of a card boundary would teach a reader that the
+  // boundary means something.
+  it('renders every absent attribute as Not on file', () => {
+    renderSheet([target({ politicalParty: null })])
+
+    expect(within(voterCard()).getAllByText('Not on file')).toHaveLength(3)
+    expect(within(demographicCard()).getAllByText('Not on file')).toHaveLength(
+      9,
+    )
+  })
+
+  // The two presence-only columns hold a value meaning yes or nothing at all,
+  // so absence is indistinguishable from unknown. Printing "No" would tell a
+  // canvasser at the door that someone is not a veteran on no data at all.
+  it.each(['Veteran status', 'Business owner'])(
+    'says Not on file rather than No for an absent %s',
+    (label) => {
+      renderSheet([fullTarget({ veteranStatus: null, businessOwner: null })])
+
+      const row = within(demographicCard()).getByText(label).parentElement!
+      expect(within(row).getByText('Not on file')).toBeInTheDocument()
+      expect(within(row).queryByText('No')).toBeNull()
+    },
+  )
+
+  // `registeredVoter` is a real boolean off `StateVoterID IS NOT NULL`, so
+  // unlike the two above it does have an honest No — and it must still not
+  // print one when the key is simply missing.
+  it('distinguishes a known No from a missing registration answer', () => {
+    renderSheet([fullTarget({ registeredVoter: false })])
+    const known =
+      within(voterCard()).getByText('Registered voter').parentElement!
+    expect(within(known).getByText('No')).toBeInTheDocument()
+
+    cleanup()
+
+    renderSheet([fullTarget({ registeredVoter: null })])
+    const missing =
+      within(voterCard()).getByText('Registered voter').parentElement!
+    expect(within(missing).getByText('Not on file')).toBeInTheDocument()
+    expect(within(missing).queryByText('No')).toBeNull()
+  })
+
+  // There is deliberately no mover case here. A mover's profile is empty
+  // because `demographicsOf(livePerson)` and `mayHaveMoved: !livePerson` are
+  // computed from one variable in one object literal in the serve service, so
+  // the two cannot disagree and this component never reads the flag to decide
+  // what a fact row says. A test here could only re-assert the case above with
+  // `mayHaveMoved: true` added — passing on the fixture's own nulls rather than
+  // on anything this file does — and reading as coverage of a suppression that
+  // does not exist. See the AGENTS.md profile bullet.
+
+  // Household context is for the conversation, not a second profile: a
+  // non-target resident is not someone the candidate asked to contact.
+  it('leaves other residents name-only', () => {
+    render(
+      <PersonSheet
+        stop={{
+          ...stop([fullTarget()]),
+          addresses: [
+            {
+              addressKey: '105|elm|st',
+              address: '105 Elm St',
+              unit: '',
+              targets: [fullTarget()],
+              otherResidents: [{ name: 'Ruben Vega' }],
+            },
+          ],
+        }}
+        stopSeq={7}
+        isServe={false}
+        onOpenPreviousStop={null}
+        onOpenNextStop={null}
+        selectedTargetId={21}
+        onSelectTarget={vi.fn()}
+        statusFor={() => 'unknown'}
+        clientKeyFor={() => 'key'}
+        onRecorded={vi.fn()}
+        onNoteCreated={vi.fn()}
+        onNoteUpdated={vi.fn()}
+        onNoteDeleted={vi.fn()}
+        onDoNotKnockChanged={vi.fn()}
+        onNotAVoterChanged={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    )
+
+    const household = within(
+      screen.getByRole('heading', { name: 'Household' }).parentElement!,
+    )
+    expect(household.getByText('Ruben Vega')).toBeInTheDocument()
+    expect(household.getByText('Not targeted')).toBeInTheDocument()
+    // The neighbor's row carries a name and a status and nothing else — the
+    // profile above belongs to the target alone.
+    expect(household.queryByText('Likely Married')).toBeNull()
+    expect(household.queryByText('Graduate Degree')).toBeNull()
+  })
+})
+
+// ADR 0011. The card's own reads and writes are covered in
+// DoorNotesCard.test.tsx; what belongs here is where the sheet puts it, whose
+// notes it shows, and what survives.
+describe('PersonSheet notes', () => {
+  const notesCard = () =>
+    screen.getByRole('heading', { name: 'Notes' }).parentElement!
+
+  const note = (overrides: Partial<ContactNote> = {}): ContactNote => ({
+    id: 'note-1',
+    personId: 'person-1',
+    body: 'Dog in the front yard, use the side gate',
+    createdAt: '2026-07-01T15:00:00.000Z',
+    updatedAt: '2026-07-01T15:00:00.000Z',
+    actorName: null,
+    ...overrides,
+  })
+
+  it('renders the notes the route payload arrived with', () => {
+    renderSheet([target({ notes: { entries: [note()], total: 4 } })])
+
+    const card = within(notesCard())
+    expect(
+      card.getByText('Dog in the front yard, use the side gate'),
+    ).toBeInTheDocument()
+    expect(card.getByText(/Showing the 1 most recent of 4/)).toBeInTheDocument()
+  })
+
+  // The constraint the door sheet exists under: it opens onto a porch with no
+  // signal, so everything it renders comes off the payload the walk was frozen
+  // with. A note that only loads with four bars is a note the porch never sees.
+  it('asks the network for nothing when the sheet opens', async () => {
+    const requests: string[] = []
+    const record = ({ request }: { request: Request }) => {
+      requests.push(`${request.method} ${request.url}`)
+    }
+    mswServer.events.on('request:start', record)
+
+    renderSheet([target({ notes: { entries: [note()], total: 4 } })])
+    // A query started in a mount effect intercepts within a macrotask, so this
+    // has to be asserted after one rather than in the same tick.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    mswServer.events.removeListener('request:start', record)
+
+    expect(
+      within(notesCard()).getByText('Dog in the front yard, use the side gate'),
+    ).toBeInTheDocument()
+    expect(requests).toEqual([])
+  })
+
+  // Per-resident, never per-household — the same rule the activity feed
+  // follows, with worse material. Two registered voters behind one front door
+  // are two records, and free text somebody typed about one of them, read
+  // against the housemate who opened the door, is a mistake made out loud.
+  it('follows the selected resident rather than the household', () => {
+    renderSheet([
+      target({ notes: { entries: [note()], total: 1 } }),
+      target({
+        stopTargetId: 22,
+        personId: 'person-2',
+        name: 'Marisol Vega',
+        notes: {
+          entries: [
+            note({ id: 'note-2', personId: 'person-2', body: 'Works nights' }),
+          ],
+          total: 1,
+        },
+      }),
+    ])
+
+    expect(
+      within(notesCard()).getByText('Dog in the front yard, use the side gate'),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Marisol Vega/ }))
+
+    const switched = within(notesCard())
+    expect(switched.getByText('Works nights')).toBeInTheDocument()
+    expect(switched.queryByText(/Dog in the front yard/)).toBeNull()
+  })
+
+  // A note written at the door has to still be there when the canvasser flicks
+  // to the housemate to log them and comes back. The card itself remounts on
+  // the switch to drop the draft, so it cannot be what remembers: the write is
+  // reported up and lands on the target the sheet re-reads. Whose durability
+  // this really asserts is the walk's — `WalkView.test.tsx` carries the version
+  // that closes the sheet, which is where re-seeding from the frozen payload
+  // used to lose the note.
+  it('keeps a note written this session across a resident switch', async () => {
+    const user = userEvent.setup()
+    api.mock('POST /v1/contacts/:personId/notes', ({ body }) => ({
+      status: 200,
+      data: note({
+        id: 'note-new',
+        body: body.body,
+        createdAt: '2026-08-24T15:00:00.000Z',
+        updatedAt: '2026-08-24T15:00:00.000Z',
+      }),
+    }))
+
+    renderSheet([
+      target({ notes: { entries: [], total: 0 } }),
+      target({
+        stopTargetId: 22,
+        personId: 'person-2',
+        name: 'Marisol Vega',
+        notes: { entries: [], total: 0 },
+      }),
+    ])
+
+    await user.click(screen.getByRole('button', { name: 'Add a note' }))
+    await user.type(screen.getByLabelText('Add a note'), 'Wants a yard sign')
+    await user.click(screen.getByRole('button', { name: 'Save note' }))
+    await waitFor(() =>
+      expect(
+        within(notesCard()).getByText('Wants a yard sign'),
+      ).toBeInTheDocument(),
+    )
+
+    await user.click(screen.getByRole('button', { name: /Marisol Vega/ }))
+    expect(within(notesCard()).queryByText('Wants a yard sign')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: /Dorian Fen/ }))
+    expect(
+      within(notesCard()).getByText('Wants a yard sign'),
+    ).toBeInTheDocument()
+  })
+
+  // Deliberate, and the same split the activity feed makes: the footer is the
+  // acting half of the sheet and is withheld for a flagged resident, while the
+  // body describes the person and always renders. A note reading "this is the
+  // son, not the registered voter" is exactly what a mis-set flag looks like
+  // from the doorstep, and hiding it would make the flag unfalsifiable at the
+  // one place someone can check it.
+  it('keeps notes for a flagged resident whose form is withheld', () => {
+    renderSheet([
+      target({ doNotKnock: true, notes: { entries: [note()], total: 1 } }),
+    ])
+
+    expect(screen.queryByTestId('record-knock-form')).toBeNull()
+    expect(
+      within(notesCard()).getByText('Dog in the front yard, use the side gate'),
+    ).toBeInTheDocument()
+  })
+
+  it('sits in the scrolling body rather than the pinned footer', () => {
+    renderSheet([target({ notes: { entries: [note()], total: 1 } })])
+
+    const body = screen
+      .getByRole('heading', { name: 'Contact information' })
+      .closest('div.overflow-y-auto')!
+    expect(body.contains(screen.getByRole('heading', { name: 'Notes' }))).toBe(
+      true,
+    )
+  })
+
+  // Seventh, between the demographic profile and the activity feed, where the
+  // canvas draws Notes. ADR 0011 argued it second — above the profile, because
+  // it is the only card here read BEFORE the knock — and that argument is
+  // recorded in the component and in AGENTS.md rather than deleted; what
+  // overrules it is the design call that this panel's card order is the
+  // canvas's.
+  it('comes after the demographic profile, ahead of the activity feed', () => {
+    renderSheet([target({ notes: { entries: [note()], total: 1 } })])
+
+    const notes = screen.getByRole('heading', { name: 'Notes' })
+    const demographics = screen.getByRole('heading', {
+      name: 'Demographic information',
+    })
+    const feed = screen.getByRole('heading', { name: 'Activity Feed' })
+    expect(
+      demographics.compareDocumentPosition(notes) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      notes.compareDocumentPosition(feed) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  // A route the service worker snapshotted before ADR 0011 shipped has no
+  // `notes` key at all, and the phone holding it cannot refetch. The card still
+  // renders — it just says which of the two silences this is.
+  it('renders for a payload with no notes field', () => {
+    renderSheet([target()])
+
+    expect(
+      within(notesCard()).getByText(
+        /This walk was saved before notes rode the route/,
+      ),
     ).toBeInTheDocument()
   })
 })

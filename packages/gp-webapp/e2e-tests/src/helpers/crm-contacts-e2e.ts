@@ -1,26 +1,11 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 import type { AxiosInstance } from 'axios'
-import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import { NavigationHelper } from 'src/helpers/navigation.helper'
 import { personContactPanel } from 'src/helpers/contacts-e2e'
 
-// Helpers for the flag-on CRM contacts page (ENG-10756 port). The legacy
-// flag-off helpers stay in contacts-e2e.ts — the retained legacy smoke and the
-// not-yet-ported legacy specs still import them.
-
-// Force the CRM rebuild on for BOTH modes via the off-prod override cookie.
-// Call BEFORE auth/navigation so the first SSR render already sees it — flag
-// resolution is server-side and this cookie is the only deterministic lever
-// (e2e-tests/CLAUDE.md "Flag-gated surfaces").
-export const enableCrmFlags = async (page: Page): Promise<void> => {
-  await setFlagOverrides(page, { 'win-crm': 'on', 'serve-crm': 'on' })
-}
-
-// Pin the legacy flag-off page for the retained smoke, so it keeps testing the
-// old surface deterministically even after the CRM flags ramp in Amplitude.
-export const disableCrmFlags = async (page: Page): Promise<void> => {
-  await setFlagOverrides(page, { 'win-crm': 'off', 'serve-crm': 'off' })
-}
+// Helpers for the CRM contacts page (ENG-10756 port). Contacts is one
+// unconditional surface for both Win and Serve now — no flag override needed
+// to reach it.
 
 export const gotoCrmContacts = async (page: Page): Promise<void> => {
   await page.goto('/dashboard/contacts', { waitUntil: 'domcontentloaded' })
@@ -180,7 +165,7 @@ export type ContactsApiPerson = {
   nameSuffix: string | null
   age: number | null
   gender: 'Male' | 'Female' | null
-  homeowner: 'Yes' | 'Likely' | 'No' | null
+  homeowner: 'Homeowner' | 'Renter' | null
   cellPhone: string | null
 }
 

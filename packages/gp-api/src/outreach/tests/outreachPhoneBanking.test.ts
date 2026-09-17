@@ -1,0 +1,656 @@
+import { HttpStatus } from '@nestjs/common'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { RaceTargetMetrics } from '@goodparty_org/contracts'
+import { useTestService } from '@/test-service'
+import { CampaignsService } from '@/campaigns/services/campaigns.service'
+import { LlmService } from '@/llm/services/llm.service'
+import { Campaign } from '../../generated/prisma'
+import { WIN_PHONE_BANKING_VOICE } from '../services/outreachPhoneBankingGeneration.service'
+
+const service = useTestService()
+
+const jsonCompletion = vi.fn()
+
+let campaign: Campaign
+let orgSlug: string
+
+beforeEach(async () => {
+  const llmSvc = service.app.get(LlmService)
+  vi.spyOn(llmSvc, 'jsonCompletion').mockImplementation(jsonCompletion)
+
+  const campaignId = 998
+  orgSlug = `campaign-${campaignId}`
+
+  await service.prisma.organization.create({
+    data: { slug: orgSlug, ownerId: service.user.id, positionId: 'pos-1' },
+  })
+
+  campaign = await service.prisma.campaign.create({
+    data: {
+      id: campaignId,
+      organizationSlug: orgSlug,
+      userId: service.user.id,
+      slug: 'jane-doe',
+      isPro: true,
+      details: {
+        state: 'TX',
+        city: 'Georgetown',
+        zip: '78634',
+        normalizedOffice: 'City Council',
+      },
+      data: {},
+      aiContent: {},
+    },
+  })
+})
+
+const orgHeaders = () => ({ headers: { 'x-organization-slug': orgSlug } })
+
+const postDraft = (body: object) =>
+  service.client.post('/v1/outreach/phone-banking/draft', body, orgHeaders())
+
+const mockDraft = (draft: string) =>
+  jsonCompletion.mockResolvedValue({
+    object: { draft },
+    tokens: 50,
+    inputTokens: 25,
+    outputTokens: 25,
+    model: 'claude-test',
+  })
+
+describe('POST /v1/outreach/phone-banking/draft', () => {
+  it('returns the generated script grounded in office and campaign story', async () => {
+    mockDraft('Hi, my name is [your name], a volunteer for Jane Doe.')
+
+    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({
+      draft: 'Hi, my name is [your name], a volunteer for Jane Doe.',
+    })
+
+    expect(jsonCompletion).toHaveBeenCalledTimes(1)
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    expect(call.temperature).toBe(0.8)
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'introducing the candidate to a voter for the first time',
+    )
+    expect(userPrompt).toContain(
+      'This is an identification call, not a persuasion call',
+    )
+    expect(userPrompt).toContain('Format as alternating You:/Voter: lines')
+    expect(userPrompt).toContain('Warm:')
+    expect(userPrompt).toContain('City Council')
+    expect(userPrompt).toContain(
+      'Where the candidate is running: Georgetown, TX.',
+    )
+  })
+
+  it('feeds campaign story, issues, and plan sections into the prompt', async () => {
+    await service.prisma.campaignStory.create({
+      data: {
+        campaignId: campaign.id,
+        background: 'I grew up here and coach little league on weekends.',
+      },
+    })
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: {
+        details: {
+          ...campaign.details,
+          customIssues: [
+            { title: 'Housing', position: 'Build more affordable units' },
+          ],
+        },
+      },
+    })
+
+    mockDraft('A grounded script.')
+
+    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'I grew up here and coach little league on weekends.',
+    )
+    expect(userPrompt).toContain('Housing: Build more affordable units')
+  })
+
+  // **Phone banking reads ONE issue store, and that is deliberate.**
+  // Onboarding writes the candidate's issues to `website.content.about.issues`
+  // (`saveAboutFields({ issues })`), not to `details.customIssues`, so this
+  // prompt is missing them for most campaigns. That is a real gap and worth
+  // closing — but closing it here changes what a shipped channel generates
+  // for every campaign onboarded through the current flow, which is not a
+  // door-knocking feature's change to make. `buildCampaignContext` takes
+  // `includeWebsiteIssues`, and door knocking is the only caller that passes
+  // it. If you are widening that, this test is the one to delete, and the
+  // before/after review is the reason it exists.
+  it('does not read the website issue store', async () => {
+    await service.prisma.website.create({
+      data: {
+        campaignId: campaign.id,
+        vanityPath: `issues-${Date.now()}`,
+        content: {
+          about: {
+            issues: [{ title: 'Transit', description: 'Restore the bus.' }],
+          },
+        },
+      },
+    })
+
+    mockDraft('A grounded script.')
+
+    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).not.toContain('Transit')
+  })
+
+  it('includes the volunteer opener and compliance ban in the system prompt', async () => {
+    mockDraft('A script.')
+
+    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const systemPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'system',
+    )?.content
+    expect(systemPrompt).toContain(
+      'Hi, is this [voter name]? My name is [your name], and I am a ' +
+        'volunteer for',
+    )
+    expect(systemPrompt).toContain('no "Reply STOP"')
+    expect(systemPrompt).toContain('no "Paid for by"')
+    expect(systemPrompt).toContain('no callback phone number')
+  })
+
+  it('includes an open-ended issue question for the persuade purpose', async () => {
+    mockDraft('A script.')
+
+    const res = await postDraft({ purpose: 'persuade_voters', tone: 'direct' })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'what matters most to the voter in this election (not a yes/no ' +
+        'question)',
+    )
+    expect(userPrompt).toContain('favor listening over talking')
+  })
+
+  // ENG-10990: each purpose's prompt carries the product CSV copy
+  // verbatim (see WIN_PURPOSE_PROMPTS) — one representative sentence per
+  // purpose, not a full-string pin, so the assertion survives an
+  // unrelated word-level product tweak elsewhere in the block without
+  // going stale.
+  it.each([
+    ['event_invite', "briefly explain why it's worth attending"],
+    [
+      'early_voting',
+      "walk through a plan with them: ask when they're thinking of going",
+    ],
+    [
+      'election_day_turnout',
+      'Format as alternating You:/Voter: lines, no more than three ' +
+        'exchanges.',
+    ],
+  ])(
+    'carries the CSV copy verbatim for the %s purpose',
+    async (purpose, snippet) => {
+      mockDraft('A script.')
+
+      const res = await postDraft({ purpose, tone: 'warm' })
+      expect(res.status).toBe(HttpStatus.CREATED)
+
+      const call = jsonCompletion.mock.calls[0]?.[0]
+      const userPrompt = call.messages.find(
+        (m: { role: string }) => m.role === 'user',
+      )?.content
+      expect(userPrompt).toContain(snippet)
+    },
+  )
+
+  it.each(['early_voting', 'election_day_turnout'])(
+    'never instructs bracketed voting-logistics placeholders for %s',
+    async (purpose) => {
+      mockDraft('A script.')
+
+      const res = await postDraft({ purpose, tone: 'urgent' })
+      expect(res.status).toBe(HttpStatus.CREATED)
+
+      const call = jsonCompletion.mock.calls[0]?.[0]
+      const userPrompt = call.messages.find(
+        (m: { role: string }) => m.role === 'user',
+      )?.content
+      const systemPrompt = call.messages.find(
+        (m: { role: string }) => m.role === 'system',
+      )?.content
+      expect(userPrompt).not.toContain('bracketed')
+      expect(userPrompt).not.toContain('[early voting')
+      expect(userPrompt).not.toContain('[polling')
+      expect(systemPrompt).toContain(
+        'Never emit a bracketed placeholder anywhere in the script other ' +
+          'than "[your name]" and "[voter name]" in the volunteer opener.',
+      )
+    },
+  )
+
+  it('includes the election date for the election_day_turnout purpose', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { details: { ...campaign.details, electionDate: '2026-11-03' } },
+    })
+    mockDraft('A script.')
+
+    const res = await postDraft({
+      purpose: 'election_day_turnout',
+      tone: 'urgent',
+    })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain('Election day: November 3, 2026.')
+  })
+
+  it('omits a general election date that has already passed', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { details: { ...campaign.details, electionDate: '2020-11-03' } },
+    })
+    mockDraft('A script.')
+
+    const res = await postDraft({
+      purpose: 'election_day_turnout',
+      tone: 'urgent',
+    })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).not.toContain('Election day:')
+  })
+
+  it('includes the real early-voting window for the early_voting purpose', async () => {
+    const campaignsService = service.app.get(CampaignsService)
+    vi.spyOn(
+      campaignsService,
+      'fetchLiveRaceTargetMetrics',
+    ).mockResolvedValueOnce({
+      milestones: {
+        voter_registration: null,
+        early_voting: { start: '2026-10-19', end: '2026-11-01' },
+        request_ballot: null,
+      },
+    } as RaceTargetMetrics)
+    mockDraft('A script.')
+
+    const res = await postDraft({ purpose: 'early_voting', tone: 'urgent' })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'Early voting window: October 19, 2026 through November 1, 2026.',
+    )
+  })
+
+  it('does not fabricate an early-voting window when only an estimate would exist', async () => {
+    // gp-api never returns an estimated early-voting date from
+    // fetchLiveRaceTargetMetrics — a null milestone here is exactly what
+    // "only an estimate exists" looks like at this layer, and the prompt
+    // must not present anything as a real window in that case.
+    const campaignsService = service.app.get(CampaignsService)
+    vi.spyOn(
+      campaignsService,
+      'fetchLiveRaceTargetMetrics',
+    ).mockResolvedValueOnce({
+      milestones: {
+        voter_registration: null,
+        early_voting: null,
+        request_ballot: null,
+      },
+    } as RaceTargetMetrics)
+    mockDraft('A script.')
+
+    const res = await postDraft({ purpose: 'early_voting', tone: 'urgent' })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).not.toContain('Early voting')
+  })
+
+  it('polishes the given text instead of writing fresh when currentDraft is present', async () => {
+    mockDraft('A clearer version of my own words.')
+
+    const res = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'direct',
+      currentDraft: 'Hi, my name is Alex, a volunteer for Jane.',
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({ draft: 'A clearer version of my own words.' })
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const systemPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'system',
+    )?.content
+    expect(systemPrompt).toContain('polish')
+    expect(systemPrompt).toContain(
+      'Every concrete detail in the original MUST appear in your output',
+    )
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain('Hi, my name is Alex, a volunteer for Jane.')
+    expect(userPrompt).toContain('Polish the script.')
+    expect(userPrompt).not.toContain('Write the call script.')
+  })
+
+  it('instructs stripping voting-logistics brackets while preserving [your name] and [voter name]', async () => {
+    mockDraft('A clearer version of my own words.')
+
+    const res = await postDraft({
+      purpose: 'early_voting',
+      tone: 'direct',
+      currentDraft:
+        'Hi, is this [voter name]? My name is [your name]. Early voting ' +
+        'runs [early voting dates] at [early voting location].',
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const systemPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'system',
+    )?.content
+    expect(systemPrompt).toContain(
+      'The literal "[your name]" and "[voter name]" placeholders in',
+    )
+    expect(systemPrompt).toContain('Strip any other bracketed placeholder')
+    expect(systemPrompt).not.toContain(
+      'and any bracketed placeholder. Dropping one',
+    )
+  })
+
+  it('includes the candidate instructions in the prompt on a fresh generation, and never on an omitted request', async () => {
+    mockDraft('A script.')
+
+    const withInstructions = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      instructions: 'mention the school levy',
+    })
+    expect(withInstructions.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      "The candidate's own instructions for this draft",
+    )
+    expect(userPrompt).toContain('mention the school levy')
+
+    const withoutInstructions = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+    })
+    expect(withoutInstructions.status).toBe(HttpStatus.CREATED)
+
+    const call2 = jsonCompletion.mock.calls[1]?.[0]
+    const userPrompt2 = call2.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt2).not.toContain('own instructions')
+  })
+
+  it('includes the candidate instructions in the prompt on the improve (currentDraft) path too', async () => {
+    mockDraft('A polished script.')
+
+    const res = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      currentDraft: 'Hi, my name is Alex, a volunteer for Jane.',
+      instructions: 'keep it under a minute',
+    })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      "The candidate's own instructions for this draft",
+    )
+    expect(userPrompt).toContain('keep it under a minute')
+  })
+
+  it('feeds the rejected previousDraft and a variation instruction on a fresh generation only', async () => {
+    mockDraft('A different script.')
+
+    const res = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      previousDraft: 'Hi, this is the script the candidate rejected.',
+    })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'Hi, this is the script the candidate rejected.',
+    )
+    expect(userPrompt).toContain('The candidate rejected this draft')
+    expect(userPrompt).toContain('noticeably different')
+  })
+
+  it('near-cap improve returns 200 instead of 502 when the LLM result lands just over the cap', async () => {
+    const nearCapDraft = 'x'.repeat(1995)
+    // Simulates the LLM growing the text slightly beyond
+    // PHONE_BANKING_SCRIPT_MAX_LENGTH — exactly the case that 502'd before
+    // DraftSchema dropped its own max().
+    const overCapResult = 'y'.repeat(2010)
+    mockDraft(overCapResult)
+
+    const res = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      currentDraft: nearCapDraft,
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.draft).toHaveLength(2000)
+  })
+
+  it('allows improve mode for the custom purpose, adapting with scaffolding', async () => {
+    mockDraft('Polished custom words.')
+
+    const res = await postDraft({
+      purpose: 'custom',
+      tone: 'warm',
+      currentDraft: 'Entirely my words, roughly phrased.',
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({ draft: 'Polished custom words.' })
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const userPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content
+    expect(userPrompt).toContain(
+      'Preserve the substance and wording of the original message as ' +
+        'closely as possible',
+    )
+    expect(userPrompt).toContain(
+      'Flag rather than silently alter or remove anything in the ' +
+        'original message',
+    )
+    // The user-message framing must also drop the polish framing — it
+    // would otherwise recreate the same light-edit contradiction the
+    // system-prompt swap fixes.
+    expect(userPrompt).toContain('The message to adapt, as written:')
+    expect(userPrompt).toContain('Adapt the message into a call script.')
+    expect(userPrompt).not.toContain('The existing call script to polish:')
+    expect(userPrompt).not.toContain('Polish the script.')
+
+    // ENG-10990 blocker fix: custom's adapt-into-dialogue copy contradicts
+    // improveSystemPrompt's light-edit/same-length/format-already-there
+    // constraints, so custom improve borrows draftSystemPrompt instead.
+    const systemPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'system',
+    )?.content
+    expect(systemPrompt).toBe(WIN_PHONE_BANKING_VOICE.draftSystemPrompt)
+    expect(systemPrompt).not.toContain('light edit')
+    expect(systemPrompt).not.toContain(
+      'Preserve the You:/Voter: alternating dialogue format.',
+    )
+  })
+
+  it('keeps the light-edit system prompt for a non-custom improve', async () => {
+    mockDraft('A polished version.')
+
+    const res = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      currentDraft: 'You: hi. Voter: hi there.',
+    })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const call = jsonCompletion.mock.calls[0]?.[0]
+    const systemPrompt = call.messages.find(
+      (m: { role: string }) => m.role === 'system',
+    )?.content
+    expect(systemPrompt).toBe(WIN_PHONE_BANKING_VOICE.improveSystemPrompt)
+    expect(systemPrompt).toContain('light edit')
+  })
+
+  it('rejects fresh generation for the custom purpose without calling the LLM', async () => {
+    const res = await postDraft({ purpose: 'custom', tone: 'warm' })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(jsonCompletion).not.toHaveBeenCalled()
+  })
+
+  it('rejects invalid input without calling the LLM', async () => {
+    const badTone = await postDraft({
+      purpose: 'persuade_voters',
+      tone: 'sarcastic',
+    })
+    expect(badTone.status).toBe(HttpStatus.BAD_REQUEST)
+
+    const badPurpose = await postDraft({
+      purpose: 'world_domination',
+      tone: 'warm',
+    })
+    expect(badPurpose.status).toBe(HttpStatus.BAD_REQUEST)
+
+    expect(jsonCompletion).not.toHaveBeenCalled()
+  })
+
+  it('rejects an empty or oversized currentDraft without calling the LLM', async () => {
+    const empty = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      currentDraft: '',
+    })
+    expect(empty.status).toBe(HttpStatus.BAD_REQUEST)
+
+    const oversized = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      currentDraft: 'x'.repeat(2001),
+    })
+    expect(oversized.status).toBe(HttpStatus.BAD_REQUEST)
+
+    expect(jsonCompletion).not.toHaveBeenCalled()
+  })
+
+  it('rejects currentDraft and previousDraft together without calling the LLM', async () => {
+    const res = await postDraft({
+      purpose: 'introduce_myself',
+      tone: 'warm',
+      currentDraft: 'My own words.',
+      previousDraft: 'A script the candidate rejected.',
+    })
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(jsonCompletion).not.toHaveBeenCalled()
+  })
+
+  it('maps an LLM failure to 502', async () => {
+    jsonCompletion.mockRejectedValue(new Error('model unavailable'))
+
+    const res = await postDraft({ purpose: 'persuade_voters', tone: 'urgent' })
+
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+  })
+
+  it('rejects a non-Pro campaign with a 403', async () => {
+    await service.prisma.campaign.update({
+      where: { id: campaign.id },
+      data: { isPro: false },
+    })
+
+    const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
+
+    expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    expect(jsonCompletion).not.toHaveBeenCalled()
+  })
+
+  it('allows an eo- (Serve) org without isPro', async () => {
+    const eoSlug = 'eo-jane-doe'
+    await service.prisma.organization.create({
+      data: { slug: eoSlug, ownerId: service.user.id, positionId: 'pos-3' },
+    })
+    await service.prisma.campaign.create({
+      data: {
+        organizationSlug: eoSlug,
+        userId: service.user.id,
+        slug: 'jane-doe-eo',
+        isPro: false,
+        details: {},
+        data: {},
+        aiContent: {},
+      },
+    })
+    mockDraft('An elected-official script.')
+
+    const res = await service.client.post(
+      '/v1/outreach/phone-banking/draft',
+      { purpose: 'introduce_myself', tone: 'warm' },
+      { headers: { 'x-organization-slug': eoSlug } },
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+  })
+})

@@ -10,15 +10,12 @@ import {
   MdMessage,
   MdPeople,
   MdPoll,
-  MdSensorDoor,
 } from 'react-icons/md'
 import {
   Circle,
   CircleUserRound,
   ClipboardList,
-  DoorClosed,
   ExternalLink,
-  FileText,
   LogOut,
   Send,
   Settings,
@@ -35,10 +32,7 @@ import Image from 'next/image'
 import { useUser } from '@shared/hooks/useUser'
 import { useUser as useClerkUser } from '@clerk/nextjs'
 import { useCampaign } from '@shared/hooks/useCampaign'
-import { useCampaignStrategyExists } from './useCampaignStrategyExists'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
-import { useNativeDoorKnockingFlag } from 'app/shared/experiments/nativeDoorKnockingFlag'
-import { useDistrictResolution } from './useDistrictResolution'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
 // Labels and icons shared with each tab's page title bar (DashboardNavHeader),
 // so the left rail and the top of the page can never read differently.
@@ -63,14 +57,27 @@ import {
   SidebarSeparator,
   useSidebar,
 } from '@styleguide'
-import { FlagIcon, ScrollTextIcon } from '@styleguide/components/ui/icons'
+import {
+  FlagIcon,
+  LifeBuoyIcon,
+  MegaphoneIcon,
+  ScrollTextIcon,
+} from '@styleguide/components/ui/icons'
 import {
   OrganizationPicker,
   useOrganization,
+  useOrganizationRole,
 } from '@shared/organization-picker'
-import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
-import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
+import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
+import { openSupportChat } from '@shared/utils/supportWidget'
 
+// Adding, renaming or removing an item here also means updating the AI
+// assistants' product map, in
+// packages/gp-api/src/chats/general/product-knowledge/productMap.ts — the
+// Campaign Manager and Chief of Staff answer "where do I find X" from it, and
+// a tab missing from it is one they guess about or punt to support. `id` is
+// what the coverage check matches on, so keep it stable when you rename a
+// label. See docs/product-knowledge.md.
 interface MenuItem {
   id: string
   label: string
@@ -108,9 +115,9 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickDashboard),
   },
   {
-    label: 'Voter Outreach',
+    label: NAV_LABELS.voterOutreach,
     icon: <MdMessage />,
-    v2Icon: Send,
+    v2Icon: NAV_HEADER_ICONS.send,
     v2Category: 'campaign',
     link: '/dashboard/outreach',
     id: 'outreach-dashboard',
@@ -126,16 +133,6 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     id: 'campaign-details-dashboard',
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickMyProfile),
   },
-  {
-    label: 'Content Builder',
-    icon: <MdFileOpen />,
-    v2Icon: FileText,
-    v2Category: 'campaign',
-    link: '/dashboard/content',
-    id: 'my-content-dashboard',
-    onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickContentBuilder),
-  },
-
   {
     label: 'Community',
     icon: (
@@ -155,16 +152,6 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCommunity),
   },
 ]
-
-const DOOR_KNOCKING_MENU_ITEM: MenuItem = {
-  id: 'door-knocking-dashboard',
-  label: 'Door Knocking',
-  link: '/dashboard/door-knocking',
-  icon: <MdSensorDoor />,
-  v2Icon: DoorClosed,
-  v2Category: 'campaign',
-  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickDoorKnocking),
-}
 
 const CONTACTS_MENU_ITEM: MenuItem = {
   id: 'contacts-dashboard',
@@ -200,6 +187,17 @@ const POLLS_MENU_ITEM: MenuItem = {
   v2Icon: Send,
   v2Category: 'elected-office',
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickPolls),
+}
+
+const CONSTITUENT_OUTREACH_MENU_ITEM: MenuItem = {
+  id: 'constituent-outreach-dashboard',
+  label: NAV_LABELS.constituentOutreach,
+  link: '/dashboard/constituent-outreach',
+  icon: <MdMessage />,
+  v2Icon: MegaphoneIcon,
+  v2Category: 'elected-office',
+  onClick: () =>
+    trackEvent(EVENTS.Navigation.Dashboard.ClickConstituentOutreach),
 }
 
 const BRIEFINGS_MENU_ITEM: MenuItem = {
@@ -251,7 +249,7 @@ const ORDINANCES_MENU_ITEM: MenuItem = {
 
 const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   id: 'campaign-plan-dashboard',
-  label: NAV_LABELS.campaignPlan,
+  label: NAV_LABELS.campaignTracker,
   link: '/dashboard/campaign-plan',
   icon: <MdFileOpen />,
   v2Icon: NAV_HEADER_ICONS.scroll,
@@ -277,38 +275,19 @@ const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
   v2Category: 'campaign',
 }
 
-// Which of the two door-knocking products the candidate would actually land on.
-// `nativeEnabled` is the flag's settled value, so it matches what
-// DoorKnockingPageGate decides on the page itself.
-interface DoorKnockingNavGate {
-  ecanvasserConnected: boolean
-  nativeEnabled: boolean
-  districtResolvable: boolean
-}
-
 export const getDashboardMenuItems = (
-  serveAccessEnabled: boolean,
   isElectedOffice: boolean,
   isElectedOfficeLoading: boolean,
-  campaignStrategyExists: boolean,
-  campaignStoryEnabled: boolean,
-  communityIssuesEnabled: boolean,
-  ordinancesEnabled: boolean,
-  doorKnocking: DoorKnockingNavGate = {
-    ecanvasserConnected: false,
-    nativeEnabled: false,
-    districtResolvable: false,
-  },
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
-  // Community Issues nav is gated behind serve-community-issues-v1 so it can be
-  // dark-launched independently; the page route itself is serve-access gated.
-  const communityIssuesShown = isElectedOffice && communityIssuesEnabled
-  const ordinancesShown = isElectedOffice && ordinancesEnabled
+  // Community Issues nav mirrors page-level access (serveAccess.ts): both are
+  // elected-office existence alone.
+  const communityIssuesShown = isElectedOffice
+  const ordinancesShown = isElectedOffice
 
   const voterDataIndex = menuItems.indexOf(VOTER_DATA_UPGRADE_ITEM)
-  if (serveAccessEnabled && isElectedOffice) {
+  if (isElectedOffice) {
     menuItems[voterDataIndex] = CONTACTS_MENU_ITEM
   } else if (!isElectedOfficeLoading) {
     // Hold off until the elected-office query settles — until then a Serve
@@ -323,6 +302,7 @@ export const getDashboardMenuItems = (
   }
   if (isElectedOffice) {
     menuItems.splice(voterDataIndex, 0, POLLS_MENU_ITEM)
+    menuItems.splice(voterDataIndex + 1, 0, CONSTITUENT_OUTREACH_MENU_ITEM)
     menuItems.unshift(BRIEFINGS_MENU_ITEM)
     if (communityIssuesShown) {
       menuItems.splice(1, 0, COMMUNITY_ISSUES_MENU_ITEM)
@@ -335,17 +315,18 @@ export const getDashboardMenuItems = (
   }
 
   // Chief of Staff is the primary Serve tab (Serve home), so it sits above
-  // Briefing Assistant. Gated on the same serve-access + elected-office check.
-  const chiefOfStaffShown = serveAccessEnabled && isElectedOffice
+  // Briefing Assistant. Gated on the same elected-office check as the rest of
+  // the Serve rail.
+  const chiefOfStaffShown = isElectedOffice
   if (chiefOfStaffShown) {
     menuItems.unshift(CHIEF_OF_STAFF_MENU_ITEM)
   }
 
   // Campaign Manager (dashboard home) is index 0, pushed down by each item
-  // unshifted above it: BRIEFINGS for an elected office, COMMUNITY_ISSUES when
-  // its flag is on, then Chief of Staff when shown. Insert the Plan/Tracker
-  // item right after Campaign Manager to render the campaign-category nav as
-  // [Campaign Manager, Campaign Plan, …].
+  // unshifted above it: BRIEFINGS and COMMUNITY_ISSUES for an elected office,
+  // then Chief of Staff when shown. Insert the Plan/Tracker item right after
+  // Campaign Manager to render the campaign-category nav as [Campaign
+  // Manager, Campaign Plan, …].
   const afterCampaignManager =
     1 +
     (isElectedOffice ? 1 : 0) +
@@ -353,27 +334,10 @@ export const getDashboardMenuItems = (
     (ordinancesShown ? 1 : 0) +
     (chiefOfStaffShown ? 1 : 0)
 
-  // Gated on the dedicated existence endpoint, NOT campaign.hasCampaignStrategy
-  // — the cached campaign object gets overwritten by responses that lack that
-  // computed field (see useCampaignStrategyExists). Campaign-story users see
-  // the tab even before a plan exists: it hosts the "complete your story to
-  // generate a plan" gate.
-  if (campaignStrategyExists || campaignStoryEnabled) {
-    // The story cohort gets the campaign tracker on this page, so label it as
-    // such; the legacy (story-off) cohort still sees the plan content there.
-    menuItems.splice(afterCampaignManager, 0, {
-      ...CAMPAIGN_PLAN_MENU_ITEM,
-      label: campaignStoryEnabled
-        ? NAV_LABELS.campaignTracker
-        : CAMPAIGN_PLAN_MENU_ITEM.label,
-    })
-  }
-
-  // Story-cohort users get a "Your story" tab just above the tracker (the story
-  // is what the tracker + plan are generated from).
-  if (campaignStoryEnabled) {
-    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
-  }
+  // The campaign tracker tab, and the "Your Story" tab just above it (the
+  // story is what the tracker + plan are generated from).
+  menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
+  menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
 
   // Visible to non-Pro users too: the page renders a locked upgrade view
   // rather than the feature — the content is gated on isPro at the route.
@@ -388,19 +352,6 @@ export const getDashboardMenuItems = (
     v2Category: 'campaign',
   })
 
-  // Mirror DoorKnockingPageGate: with the flag on, the route renders the native
-  // voter map and an eCanvasser record is irrelevant; with it off (or
-  // unsettled) it renders the legacy eCanvasser dashboard, which is only worth
-  // linking to for an integrated org. Gating on eCanvasser alone hid the native
-  // pilot from every candidate who never integrated it. The native map also
-  // needs a resolvable district — every pack and turf read 400s without one.
-  const doorKnockingShown = doorKnocking.nativeEnabled
-    ? doorKnocking.districtResolvable
-    : doorKnocking.ecanvasserConnected
-  if (doorKnockingShown) {
-    menuItems.push(DOOR_KNOCKING_MENU_ITEM)
-  }
-
   return menuItems
 }
 
@@ -411,51 +362,14 @@ export default function DashboardMenu({
   const [ecanvasser] = useEcanvasser()
   const { data: electedOffice, isLoading: isElectedOfficeLoading } =
     useElectedOffice()
-  const { ready: _flagsReady, on: serveAccessEnabled } =
-    useFlagOn('serve-access')
-  // Menu isn't the treatment surface (the page's FeatureFlagGuard is), so
-  // don't track exposure here.
-  const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
-  // Nav-only gate for the Community Issues tab; mirrors the serve-access read.
-  const { on: communityIssuesEnabled } = useFlagOn('serve-community-issues-v1')
-  // Nav-only gate for the Ordinances tab; the page's FeatureFlagGuard is the
-  // treatment surface.
-  const { on: ordinancesEnabled } = useFlagOn('serve-ordinances')
-  // The page's gate is the treatment surface, so read without tracking exposure.
-  const { ready: nativeDoorKnockingReady, enabled: nativeDoorKnockingEnabled } =
-    useNativeDoorKnockingFlag(false)
-  const { isUnresolvable: isDistrictUnresolvable } = useDistrictResolution()
-  const campaignStrategyExists = useCampaignStrategyExists()
+  const organization = useOrganization()
+  // trackExposure=false: this is a render-decision read, not the experiment's
+  // treatment surface (the team page itself tracks exposure).
+  const { enabled: teamAccountsEnabled } = useTeamAccountsFlag(false)
 
   const menuItems = useMemo(
-    () =>
-      getDashboardMenuItems(
-        serveAccessEnabled,
-        !!electedOffice,
-        isElectedOfficeLoading,
-        campaignStrategyExists,
-        campaignStoryEnabled,
-        communityIssuesEnabled,
-        ordinancesEnabled,
-        {
-          ecanvasserConnected: !!ecanvasser,
-          nativeEnabled: nativeDoorKnockingReady && nativeDoorKnockingEnabled,
-          districtResolvable: !isDistrictUnresolvable,
-        },
-      ),
-    [
-      serveAccessEnabled,
-      ecanvasser,
-      electedOffice,
-      isElectedOfficeLoading,
-      campaignStrategyExists,
-      campaignStoryEnabled,
-      communityIssuesEnabled,
-      ordinancesEnabled,
-      nativeDoorKnockingReady,
-      nativeDoorKnockingEnabled,
-      isDistrictUnresolvable,
-    ],
+    () => getDashboardMenuItems(!!electedOffice, isElectedOfficeLoading),
+    [electedOffice, isElectedOfficeLoading],
   )
 
   useEffect(() => {
@@ -464,8 +378,52 @@ export default function DashboardMenu({
     }
   }, [campaign, ecanvasser])
 
-  return <NewNavMenu menuItems={menuItems} pathname={pathname} />
+  // win-team-accounts (ENG-10816/10827), moved from the primary nav into the
+  // account menu (ENG-11061 design correction). Win-only in Phase 1 (ENG-10816
+  // non-goal: Serve staff accounts are out of scope, so this never renders for
+  // an elected-office org — see gp-api's matching 400 on POST team/invites for
+  // an eo- org slug; delegate review, PR #1688).
+  //
+  // Gated on BOTH signals, not just useElectedOffice: that query is per-org
+  // slug and can still be mid-flight (or holding the previous org's result)
+  // right after the org picker switches the active org — organization
+  // (useOrganization) flips synchronously on that switch, so
+  // organization.electedOfficeId is what every other nav item's v2Category
+  // filter already relies on for the same distinction (bugbot review,
+  // ENG-11061). Belt-and-suspenders here only ever makes the item MORE
+  // restrictive, never less.
+  const showTeamAccountItem =
+    teamAccountsEnabled && !electedOffice && !organization?.electedOfficeId
+
+  return (
+    <NewNavMenu
+      menuItems={menuItems}
+      pathname={pathname}
+      showTeamAccountItem={showTeamAccountItem}
+    />
+  )
 }
+
+// The support chat has no URL to link to, so it is an action rather than an
+// AccountManagementItem. On desktop it sits at the end of the main nav, below
+// Public Profile, where it is visible without opening the account menu first.
+// On mobile the rail already carries the account items, so it stays with
+// Community Forum there rather than adding a row above the feature tabs.
+//
+// It renders in every environment, deliberately. Gating it on whether the
+// HubSpot script loads would hide it everywhere but production, including on
+// dev, while the assistants' product map goes on telling people support opens
+// from "Get help" at the bottom of this menu — pointing at an item that is not
+// there is the failure that map exists to prevent. Where the chat is not
+// loaded the click goes straight to email instead.
+const SUPPORT_MENU_ITEM = {
+  label: 'Get help',
+  icon: LifeBuoyIcon,
+  id: 'nav-dash-support',
+  onSelect: openSupportChat,
+}
+
+type AccountActionItem = typeof SUPPORT_MENU_ITEM
 
 type AccountManagementItem = {
   label: string
@@ -479,9 +437,11 @@ type AccountManagementItem = {
 const NewNavMenu = ({
   menuItems,
   pathname,
+  showTeamAccountItem,
 }: {
   menuItems: MenuItem[]
   pathname: string | null
+  showTeamAccountItem: boolean
 }) => {
   const [user] = useUser()
   const { user: clerkUser, isLoaded: isClerkUserLoaded } = useClerkUser()
@@ -493,6 +453,11 @@ const NewNavMenu = ({
     (isClerkUserLoaded && clerkUser?.lastName?.trim()) || user?.lastName || ''
 
   const organization = useOrganization()
+  const organizationRole = useOrganizationRole()
+  // ENG-10829: a manager (campaignAdmin) never sees billing/account-settings.
+  // Owner (including every current solo user, since role is undefined until
+  // teams exist) sees today's menu exactly.
+  const isManager = organizationRole === 'campaignAdmin'
 
   const handleMenuItemClick = (item: MenuItem) => {
     item?.onClick?.()
@@ -512,6 +477,16 @@ const NewNavMenu = ({
       icon: Settings,
       id: 'nav-dash-account',
       href: '/dashboard/account',
+    },
+    // ENG-11061 design correction: Team moves out of the primary nav and
+    // lives here instead, gated by showTeamAccountItem (win-team-accounts
+    // flag on, not an elected-office org).
+    team: {
+      label: 'Team',
+      icon: UsersRound,
+      id: 'nav-dash-team',
+      href: '/dashboard/team',
+      onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignTeam),
     },
     community: {
       label: 'Community Forum',
@@ -548,6 +523,22 @@ const NewNavMenu = ({
           <item.icon size={16} />
           <span>{item.label}</span>
         </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItemComponent>
+  )
+
+  const sidebarActionItem = (item: AccountActionItem) => (
+    <SidebarMenuItemComponent key={item.id}>
+      <SidebarMenuButton
+        id={item.id}
+        onClick={() => {
+          item.onSelect()
+          setOpenMobile(false)
+        }}
+        className="px-4 py-2.5 h-10 text-sm gap-2 rounded-md font-opensans"
+      >
+        <item.icon size={16} />
+        <span>{item.label}</span>
       </SidebarMenuButton>
     </SidebarMenuItemComponent>
   )
@@ -617,13 +608,18 @@ const NewNavMenu = ({
                     </SidebarMenuItemComponent>
                   )
                 })}
+              {!isMobile && sidebarActionItem(SUPPORT_MENU_ITEM)}
               {isMobile && (
                 <>
                   <SidebarSeparator />
+                  {sidebarActionItem(SUPPORT_MENU_ITEM)}
                   {sidebarItem(accountManagementMenuItems.community)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.profile)}
-                  {sidebarItem(accountManagementMenuItems.account)}
+                  {showTeamAccountItem &&
+                    sidebarItem(accountManagementMenuItems.team)}
+                  {!isManager &&
+                    sidebarItem(accountManagementMenuItems.account)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.logout)}
                   <SidebarSeparator />
@@ -664,7 +660,10 @@ const NewNavMenu = ({
                   sideOffset={4}
                 >
                   {dropDownItem(accountManagementMenuItems.profile)}
-                  {dropDownItem(accountManagementMenuItems.account)}
+                  {showTeamAccountItem &&
+                    dropDownItem(accountManagementMenuItems.team)}
+                  {!isManager &&
+                    dropDownItem(accountManagementMenuItems.account)}
                   <DropdownMenuSeparator />
                   {dropDownItem(accountManagementMenuItems.community)}
                   <DropdownMenuSeparator />

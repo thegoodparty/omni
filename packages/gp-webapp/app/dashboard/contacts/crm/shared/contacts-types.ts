@@ -18,6 +18,7 @@ import type {
   OutreachType,
   PeopleListResponse,
   Person,
+  PhoneBankingConstituentActivity,
   PollConstituentActivity,
   RobocallConstituentActivity,
   StatusChangeConstituentActivity,
@@ -45,6 +46,9 @@ export interface SegmentResponse {
   activityConditions?: ActivityConditionInput[]
   supportStatus?: SupportStatusRollup[]
   firstUsedForOutreachAt?: string | null
+  // Recommended-lists provenance (Task 7): null on a hand-built list, or
+  // when accepted, whether the candidate edited it before submitting.
+  recommendedModified?: boolean | null
   [key: string]: unknown
 }
 
@@ -90,6 +94,7 @@ export type {
   DoorKnockConstituentActivity,
   GetIndividualActivitiesResponse,
   OutreachConstituentActivity,
+  PhoneBankingConstituentActivity,
   PollConstituentActivity,
   RobocallConstituentActivity,
   StatusChangeConstituentActivity,

@@ -1,14 +1,13 @@
 import { useTestService } from '@/test-service'
-import { ClerkUserEnricherService } from '@/vendors/clerk/services/clerk-user-enricher.service'
 import { WebsiteStatus } from '../../generated/prisma'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 const service = useTestService()
 
 const MONICA_SLUG = 'monica-alponte'
 const MONICA_RACE = 'race-monica'
 const MONICA = { firstName: 'Monica', lastName: 'Alponte' }
-const MONICA_PHOTO = 'https://clerk.example/monica.jpg'
+const MONICA_PHOTO = 'https://assets.goodparty.org/uploads/1/monica.jpg'
 
 const seedCampaign = async (args: {
   id: number
@@ -20,6 +19,8 @@ const seedCampaign = async (args: {
     einNumber?: string
     subscriptionId?: string
     campaignCommittee?: string
+    officeTermLength?: string | number | null
+    customIssues?: Array<Record<string, string | number>>
   }
 }) => {
   const organizationSlug = `org-${args.id}`
@@ -33,7 +34,15 @@ const seedCampaign = async (args: {
       userId: service.user.id,
       slug: args.slug,
       isActive: args.isActive,
-      details: { raceId: args.raceId, ...args.details },
+      // PrismaJson.CampaignDetails declares officeTermLength as a string and
+      // customIssues as all-string records. It is a shadow type over a JSON
+      // column, not a constraint, and production disagrees with it on both
+      // counts — which is the whole reason these cases exist. Seed the shape
+      // the column actually holds.
+      details: {
+        raceId: args.raceId,
+        ...args.details,
+      } as PrismaJson.CampaignDetails,
     },
   })
 }
@@ -45,13 +54,6 @@ const find = (params: {
 }) => service.client.get('/v1/public-campaigns', { params })
 
 describe('GET /v1/public-campaigns', () => {
-  // The endpoint resolves the candidate's avatar through Clerk; by default
-  // pass the owner through untouched so the seeded (photo-less) state stands.
-  beforeEach(() => {
-    const enricher = service.app.get(ClerkUserEnricherService)
-    vi.spyOn(enricher, 'enrichUser').mockImplementation(async (user) => user)
-  })
-
   it('returns the active campaign matching raceId + candidate name', async () => {
     await seedCampaign({
       id: 1,
@@ -199,6 +201,79 @@ describe('GET /v1/public-campaigns', () => {
     expect(res.data.details.campaignCommittee).toBeUndefined()
   })
 
+  // Regression: `officeTermLength` is declared z.string(), but roughly half of
+  // all active campaigns store the legacy bare-number form. Every one of them
+  // failed response validation, so the endpoint 500d instead of answering.
+  it('serves a campaign whose officeTermLength is a legacy number', async () => {
+    await seedCampaign({
+      id: 20,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+      details: { officeTermLength: 4, einNumber: '12-3456789' },
+    })
+
+    const res = await find({ raceId: MONICA_RACE, ...MONICA })
+
+    expect(res.status).toBe(200)
+    expect(res.data.details.officeTermLength).toBe('4')
+    // Coercing the value must not weaken the whitelist around it.
+    expect(res.data.details.einNumber).toBeUndefined()
+  })
+
+  it('leaves the modern string officeTermLength untouched', async () => {
+    await seedCampaign({
+      id: 21,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+      details: { officeTermLength: '4 years' },
+    })
+
+    const res = await find({ raceId: MONICA_RACE, ...MONICA })
+
+    expect(res.status).toBe(200)
+    expect(res.data.details.officeTermLength).toBe('4 years')
+  })
+
+  // No row stores a null term length today, but `details` is free-form JSON
+  // that holds nulls in other keys, and coercing one to the string "null"
+  // would be worse than passing it through.
+  it('passes a null officeTermLength through as null', async () => {
+    await seedCampaign({
+      id: 23,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+      details: { officeTermLength: null },
+    })
+
+    const res = await find({ raceId: MONICA_RACE, ...MONICA })
+
+    expect(res.status).toBe(200)
+    expect(res.data.details.officeTermLength).toBeNull()
+  })
+
+  // Legacy customIssues entries carry a numeric `order` alongside the strings.
+  it('serves customIssues carrying a legacy numeric order', async () => {
+    await seedCampaign({
+      id: 22,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+      details: {
+        customIssues: [{ title: 'Roads', position: 'Fix them', order: 0 }],
+      },
+    })
+
+    const res = await find({ raceId: MONICA_RACE, ...MONICA })
+
+    expect(res.status).toBe(200)
+    expect(res.data.details.customIssues).toEqual([
+      { title: 'Roads', position: 'Fix them', order: 0 },
+    ])
+  })
+
   it('omits an unpublished (draft) website from the public response', async () => {
     await seedCampaign({
       id: 7,
@@ -259,12 +334,11 @@ describe('GET /v1/public-campaigns', () => {
     expect(res.status).toBe(400)
   })
 
-  it('returns the claimed candidate uploaded photo when Clerk has one', async () => {
-    const enricher = service.app.get(ClerkUserEnricherService)
-    vi.spyOn(enricher, 'enrichUser').mockImplementation(async (user) => ({
-      ...user,
-      avatar: MONICA_PHOTO,
-    }))
+  it('returns the claimed candidate uploaded photo from Postgres', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { avatar: MONICA_PHOTO },
+    })
     await seedCampaign({
       id: 7,
       slug: MONICA_SLUG,
@@ -279,13 +353,44 @@ describe('GET /v1/public-campaigns', () => {
   })
 
   it('returns a null avatar when the claimed candidate has no uploaded photo', async () => {
-    const enricher = service.app.get(ClerkUserEnricherService)
-    vi.spyOn(enricher, 'enrichUser').mockImplementation(async (user) => ({
-      ...user,
-      avatar: null,
-    }))
     await seedCampaign({
       id: 8,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+    })
+
+    const res = await find({ raceId: MONICA_RACE, ...MONICA })
+
+    expect(res.status).toBe(200)
+    expect(res.data.avatar).toBeNull()
+  })
+
+  it('returns a null avatar when the stored photo is an empty string', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { avatar: '' },
+    })
+    await seedCampaign({
+      id: 9,
+      slug: MONICA_SLUG,
+      raceId: MONICA_RACE,
+      isActive: true,
+    })
+
+    const res = await find({ raceId: MONICA_RACE, ...MONICA })
+
+    expect(res.status).toBe(200)
+    expect(res.data.avatar).toBeNull()
+  })
+
+  it('returns a null avatar when the stored photo is whitespace only', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { avatar: '   ' },
+    })
+    await seedCampaign({
+      id: 10,
       slug: MONICA_SLUG,
       raceId: MONICA_RACE,
       isActive: true,

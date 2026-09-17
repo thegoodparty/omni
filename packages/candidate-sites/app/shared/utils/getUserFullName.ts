@@ -1,7 +1,4 @@
-export const getUserFullName = (user: {
-  firstName: string
-  lastName: string
-}) =>
-  user?.firstName || user?.lastName
-    ? `${user.firstName} ${user.lastName}`.trim()
-    : ''
+export const getUserFullName = (user?: {
+  firstName: string | null
+  lastName: string | null
+}) => [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim()

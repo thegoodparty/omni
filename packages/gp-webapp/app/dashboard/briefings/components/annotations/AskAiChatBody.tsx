@@ -1,24 +1,25 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowDown, Search, Send, Sparkles } from 'lucide-react'
-import { Button, IconButton, Input, Textarea } from '@styleguide'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Button, Textarea } from '@styleguide'
+import { ChevronDownIcon, SparklesIcon } from '@styleguide/components/ui/icons'
 import {
-  ASSISTANT_BUBBLE,
-  ChatMarkdown,
+  AssistantRow,
+  InlineSegments,
+  ThinkingRow,
+  UserBubble,
 } from '../../../shared/agent-chat/chatUI'
-import {
-  friendlyError,
-  newClientMessageId,
-} from '../../../shared/agent-chat/chatHelpers'
-import { useDictationAppend } from '../../shared/useDictationAppend'
-import { DictationMicButton } from '../../shared/DictationMicButton'
+import { segmentsToLive } from '../../../shared/agent-chat/streaming'
+import { useStreamingTurn } from '../../../shared/agent-chat/useStreamingTurn'
+import { newClientMessageId } from '../../../shared/agent-chat/chatHelpers'
+import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
+import { useDictationAppend } from '../../../shared/dictation/useDictationAppend'
+import { DictationMicButton } from '../../../shared/dictation/DictationMicButton'
 import { DictationFeedback } from '../../shared/DictationFeedback'
 import { chatApi } from '@shared/briefings/chat-api'
 import { EMPTY_ANCHOR } from '@shared/briefings/anchorResolver'
 import { reportErrorToSentry } from '@shared/sentry'
-import type { AnnotationAnchor, ChatMessage } from '@shared/briefings/types'
-import type { ChatStreamEvent } from '@shared/briefings/chat-events'
+import type { AnnotationAnchor } from '@shared/briefings/types'
 import AskAiSuggestedPills from './AskAiSuggestedPills'
 
 type Props = {
@@ -41,8 +42,9 @@ type Props = {
    */
   bodyClassName?: string
   /**
-   * Active state — when the parent surface closes, set this to false. The
-   * body uses it to abort any in-flight stream. Defaults to true.
+   * Active state — when the parent surface closes, set this to false. Gates
+   * the override-load effect. The in-flight stream is aborted on unmount
+   * (the sheet is conditionally mounted, so closing unmounts this body).
    */
   active?: boolean
   /**
@@ -56,58 +58,24 @@ type Props = {
     conversationId: string
   }) => void
   /**
-   * Composer layout. `inline` (default) renders a single-line Input with a
-   * send IconButton for the popover. `block` renders a Textarea above an
-   * "Ask AI" Button, matching the notes/report sheet pattern. Sheet uses
-   * `block`; popover keeps `inline`.
-   */
-  composerVariant?: 'inline' | 'block'
-  /**
    * Fires when the chat's internal `sending || creating` flips. The host
    * surface uses this to disable destructive actions (e.g. Delete chat)
-   * while a stream or chat-creation request is in flight — preventing the
-   * annotation from being removed mid-network-call.
+   * while a stream or chat-creation request is in flight.
    */
   onSendingChange?: (sending: boolean) => void
   /**
    * Fires as soon as the deferred `createBriefingChat` resolves, well
-   * before the first stream completes (and before `onChatCreated`,
-   * which is intentionally deferred to stream success to avoid
-   * unmounting us mid-stream). The host surface uses this to render
-   * the Delete chat button against the freshly-minted annotation while
-   * the user is still in the empty-state composer.
+   * before the first stream completes (and before `onChatCreated`, which is
+   * intentionally deferred to stream success to avoid unmounting us
+   * mid-stream). The host surface uses this to render the Delete chat button
+   * against the freshly-minted annotation while still in the empty state.
    */
   onAnnotationIdReady?: (annotationId: string) => void
 }
 
-type StreamingMessage = {
-  role: 'assistant'
-  content: string
-  id?: string
-}
-
-type ErrorState = {
-  message: string
-  retryable: boolean
-  lastUserContent: string
-  lastClientMessageId: string
-  /**
-   * Optional kind tag used for retry routing. `init` means the chat
-   * never finished creating — the Retry button should re-run `initialize`
-   * instead of replaying a user turn.
-   */
-  kind?: 'init' | 'stream'
-}
-
-type ChatItem =
-  | { kind: 'user'; id: string; content: string }
-  | { kind: 'assistant'; id: string; content: string; toolsUsed?: string[] }
-  | { kind: 'interrupted'; id: string }
-
 // Mirrors CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER in gp-api's
-// chats/services/chatStream.service.ts. Server persists this exact
-// string as the assistant content when a stream was aborted before any
-// text was produced.
+// chats/services/chatStream.service.ts. Server persists this exact string as
+// the assistant content when a stream was aborted before any text was produced.
 const CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER =
   '__chat:interrupted_before_output__'
 
@@ -123,39 +91,15 @@ function toolDisplayName(toolName: string): string {
   return TOOL_DISPLAY_NAMES[toolName] ?? toolName
 }
 
-function messageToItem(msg: ChatMessage): ChatItem | null {
-  if (msg.role === 'user') {
-    return { kind: 'user', id: msg.id, content: msg.content }
-  }
-  if (msg.role === 'assistant') {
-    if (msg.content === CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER) {
-      return { kind: 'interrupted', id: msg.id }
-    }
-    return { kind: 'assistant', id: msg.id, content: msg.content }
-  }
-  return null
-}
-
 /**
- * Shared chat body — message list, composer, suggested pills, streaming
- * logic. Rendered inside `AskAiSheet` (the right-side drawer on desktop,
- * bottom drawer on mobile) for all three Ask AI entry points: top-level,
- * anchored selection, and reopening an existing chat annotation.
+ * Shared chat body — message list, composer, suggested pills. Streaming, smooth
+ * reveal, inline tool pills, and the persisted-history handoff come from the
+ * shared agent-chat kit (useStreamingTurn + chatUI); this component adds the
+ * briefing-specific chrome: deferred create against an annotation, the
+ * "interrupted" retry box, the jump-to-latest pill, and suggested pills.
  *
- * Lifecycle:
- *  1. On mount:
- *      - If `annotationIdOverride` is set, load its prior messages.
- *      - Otherwise, do nothing. We defer `createBriefingChat` until the
- *        user actually sends a first message — opening + dismissing the
- *        sheet without typing no longer leaves an empty chat row in the
- *        DB.
- *  2. Empty state shows the three suggested pills + composer. Composer
- *     is interactive even before any annotation exists.
- *  3. Sending: if we don't have an `annotationId` yet (deferred case),
- *     mint one via `chatApi.createBriefingChat`, then stream the user's
- *     first turn. Subsequent sends reuse the minted id.
- *  4. Errors render inline with a Retry button when retryable.
- *  5. When `active` flips to false, abort the in-flight stream.
+ * The briefing chat is annotation-keyed; a thin adapter maps the shared engine's
+ * `conversationId` onto the briefing client's `annotationId`.
  */
 export default function AskAiChatBody({
   meetingDate,
@@ -165,36 +109,32 @@ export default function AskAiChatBody({
   bodyClassName,
   active = true,
   onChatCreated,
-  composerVariant = 'inline',
   onSendingChange,
   onAnnotationIdReady,
 }: Props): React.JSX.Element {
   const [annotationId, setAnnotationId] = useState<string | null>(null)
-  const [history, setHistory] = useState<ChatItem[]>([])
-  const [streaming, setStreaming] = useState<StreamingMessage | null>(null)
   const [composer, setComposer] = useState('')
-  const [error, setError] = useState<ErrorState | null>(null)
-  const [creating, setCreating] = useState(false)
-  const [sending, setSending] = useState(false)
-  const [activeTools, setActiveTools] = useState<string[]>([])
+  const [loading, setLoading] = useState(false)
+  const [streamError, setStreamError] = useState<{
+    message: string
+    retryable: boolean
+  } | null>(null)
 
-  const inputRef = useRef<HTMLInputElement | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
-  // `loadRequestedRef` is the override-path latch: we kick off
-  // `loadExistingChat` once per mount and skip subsequent runs even if
-  // deps change. `creatingRef` is the deferred-create latch: it stops a
-  // double-tap from minting two chat rows back-to-back inside
-  // `ensureAnnotationId`. `pendingChatCreatedRef` stashes the create
-  // payload until the FIRST stream lands its `done` event — firing
-  // `onChatCreated` immediately would race the host surface's
-  // pending-anchor → cycler-focused swap and unmount us mid-stream.
   const loadRequestedRef = useRef(false)
   const creatingRef = useRef(false)
+  // Synchronous send latch: `busy` is render-time state, so two `deliver`
+  // calls in the same tick (a pill click racing an Enter submit) both read it
+  // stale and both push an optimistic bubble. This ref bails the second one.
+  const deliveringRef = useRef(false)
+  const lastUserContentRef = useRef('')
+  // The client-message id of the last user turn, replayed on retry so the
+  // server dedupes on (conversation_id, client_message_id) instead of inserting
+  // a duplicate turn.
+  const lastClientMessageIdRef = useRef('')
   const pendingChatCreatedRef = useRef<{
     annotationId: string
     conversationId: string
   } | null>(null)
-  const sendingRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const wasAtBottomRef = useRef(true)
   const [isAtBottom, setIsAtBottom] = useState(true)
@@ -205,23 +145,70 @@ export default function AskAiChatBody({
     onChange: setComposer,
   })
 
-  // Override path only — load prior messages for an existing chat
-  // annotation. New / deferred chats skip this entirely (they have no
-  // messages to load).
+  // Adapter: the shared engine speaks `conversationId`; the briefing client is
+  // keyed by `annotationId`. They carry the same message/stream shapes, so this
+  // is a pure key rename.
+  const streamingApi = useMemo<
+    Pick<AgentChatClient, 'streamMessage' | 'listMessages'>
+  >(
+    () => ({
+      streamMessage: ({ conversationId, content, clientMessageId, signal }) =>
+        chatApi.streamMessage({
+          annotationId: conversationId,
+          content,
+          clientMessageId,
+          signal,
+        }),
+      listMessages: (conversationId) => chatApi.listMessages(conversationId),
+    }),
+    [],
+  )
+
+  const toolLabel = useCallback(
+    (name: string): string => toolDisplayName(name),
+    [],
+  )
+
+  const { messages, setMessages, visibleSegments, sending, send, isStreaming } =
+    useStreamingTurn(streamingApi, {
+      toolLabel,
+      onTurnStart: () => {
+        setStreamError(null)
+      },
+      onError: (message, retryable) => {
+        setStreamError({ message, retryable })
+      },
+      // Fire the deferred create's cache-invalidation callback once the first
+      // stream lands cleanly (before the commit poll). Guarded by the pending
+      // ref so it runs only for the create turn, and never on an errored turn
+      // (the engine skips onTurnSuccess when the stream errors).
+      onTurnSuccess: () => {
+        const pending = pendingChatCreatedRef.current
+        if (pending) {
+          pendingChatCreatedRef.current = null
+          onChatCreated?.(pending)
+        }
+      },
+    })
+
+  const busy = sending || loading
+
+  // Notify the host whenever `sending || creating` flips, so it can gate
+  // destructive actions (Delete chat) on the active annotation.
+  useEffect(() => {
+    onSendingChange?.(busy)
+  }, [busy, onSendingChange])
+
+  // Override path — load prior messages for an existing chat annotation.
   const loadExistingChat = useCallback(async () => {
     if (!annotationIdOverride) return
     if (loadRequestedRef.current) return
     loadRequestedRef.current = true
-    setCreating(true)
+    setLoading(true)
+    setAnnotationId(annotationIdOverride)
     try {
-      setAnnotationId(annotationIdOverride)
       const msgs = await chatApi.listMessages(annotationIdOverride)
-      const items: ChatItem[] = []
-      for (const m of msgs) {
-        const it = messageToItem(m)
-        if (it) items.push(it)
-      }
-      setHistory(items)
+      setMessages(msgs)
     } catch (err) {
       reportErrorToSentry(err, {
         surface: 'briefing-ask-ai',
@@ -230,61 +217,44 @@ export default function AskAiChatBody({
         annotationIdOverride,
       })
       loadRequestedRef.current = false
-      setError({
+      setStreamError({
         message: 'Could not load this chat. Try again.',
         retryable: true,
-        lastUserContent: '',
-        lastClientMessageId: '',
-        kind: 'init',
       })
     } finally {
-      setCreating(false)
+      setLoading(false)
     }
-  }, [annotationIdOverride, meetingDate])
+  }, [annotationIdOverride, meetingDate, setMessages])
 
-  // Deferred create. Returns the existing annotationId if we already
-  // have one, otherwise mints a new chat row and returns its id. Null
-  // means "create failed" — the caller is responsible for surfacing the
-  // error with the right send context (last user content + client id).
+  useEffect(() => {
+    if (!active || !annotationIdOverride) return
+    void loadExistingChat()
+  }, [active, annotationIdOverride, loadExistingChat])
+
+  // Deferred create. Returns the existing annotationId, or mints a new chat row
+  // and returns its id (null on failure). State commits BEFORE the verification
+  // GET so a retry after a thrown GET does not re-create the row.
   const ensureAnnotationId = useCallback(async (): Promise<string | null> => {
     if (annotationId) return annotationId
     if (creatingRef.current) return null
     creatingRef.current = true
-    setCreating(true)
+    setLoading(true)
     try {
       const created = await chatApi.createBriefingChat({
         meetingDate,
         anchor: anchor ?? EMPTY_ANCHOR,
       })
-      // Commit state BEFORE the verification GET. If `listMessages`
-      // throws (server settling, transient 5xx, etc.), the chat row
-      // already exists server-side — a retry that re-runs this function
-      // must NOT call `createBriefingChat` again, or it'd produce a
-      // duplicate annotation. With `annotationId` set, the early-exit
-      // at the top of this function (`if (annotationId) return ...`)
-      // kicks in on retry and we go straight to `runStream`.
       setAnnotationId(created.annotationId)
-      // Tell the host the annotation now exists so it can render
-      // Delete chat against it. Distinct from `onChatCreated` (which
-      // triggers the overlay swap and is intentionally deferred to
-      // stream success). `onAnnotationIdReady` fires here so the
-      // delete affordance is visible the moment the chat is minted.
       onAnnotationIdReady?.(created.annotationId)
-      // Defer `onChatCreated` until the first stream lands `done` —
-      // firing it here triggers the host's pending-anchor → cycler-
-      // focused overlay swap, which unmounts this `AskAiChatBody`
-      // mid-stream and discards the in-flight assistant response.
+      // Defer onChatCreated until the first stream lands `done` — firing it here
+      // triggers the host's overlay swap, unmounting this body mid-stream.
       pendingChatCreatedRef.current = {
         annotationId: created.annotationId,
         conversationId: created.conversationId,
       }
-      // Issue a verification GET. The eager pre-refactor flow always
-      // did `listMessages` right after create; dropping it exposed a
-      // server-side settling window where the very next `POST /messages`
-      // would fail with the new annotation still not yet visible to its
-      // loadContext check. The GET both confirms readability and gives
-      // the server a beat to settle. Empty result for a freshly-minted
-      // chat is expected.
+      // Verification GET: confirms the freshly-minted chat is readable and gives
+      // the server a beat to settle before the first POST /messages, which
+      // otherwise raced a server-side visibility window (100% first-send fail).
       await chatApi.listMessages(created.annotationId)
       return created.annotationId
     } catch (err) {
@@ -296,51 +266,154 @@ export default function AskAiChatBody({
       return null
     } finally {
       creatingRef.current = false
-      setCreating(false)
+      setLoading(false)
     }
   }, [annotationId, anchor, meetingDate, onAnnotationIdReady])
 
-  useEffect(() => {
-    if (!active) return
-    if (!annotationIdOverride) return
-    if (loadRequestedRef.current) return
-    void loadExistingChat()
-  }, [active, annotationIdOverride, loadExistingChat])
-
-  // Notify the host surface whenever `sending || creating` flips, so it
-  // can gate destructive actions (Delete chat) on the active annotation.
-  useEffect(() => {
-    onSendingChange?.(sending || creating)
-  }, [sending, creating, onSendingChange])
-
-  // Abort any in-flight stream when the surface closes. State reset is
-  // unnecessary — AskAiSheet is conditionally mounted in AnnotationsScope,
-  // so the next open gets fresh state from a fresh mount.
-  useEffect(() => {
-    if (active) return
-    const ctrl = abortRef.current
-    if (ctrl && !ctrl.signal.aborted) {
-      ctrl.abort()
-    }
-    abortRef.current = null
-    sendingRef.current = false
-    setSending(false)
-  }, [active])
-
-  // Abort on unmount as a safety net.
-  useEffect(() => {
-    return () => {
-      const ctrl = abortRef.current
-      if (ctrl && !ctrl.signal.aborted) {
-        ctrl.abort()
+  // Resolve-or-create the annotation, then stream the turn. `hidden` skips the
+  // optimistic user bubble (a retry re-streams an existing turn). Fires the
+  // deferred onChatCreated once the turn completes without error.
+  const deliver = useCallback(
+    async (
+      content: string,
+      opts?: { hidden?: boolean; clientMessageId?: string },
+    ): Promise<boolean> => {
+      const trimmed = content.trim()
+      // `isStreaming()` (synchronous) drops a same-tick double-submit while a
+      // turn is actively streaming, but — unlike the render-time `busy` — lets
+      // a follow-up send through once the prior turn is only settling.
+      // `deliveringRef` covers the async create window before `send` is called.
+      if (!trimmed || isStreaming() || deliveringRef.current) return false
+      deliveringRef.current = true
+      try {
+        setStreamError(null)
+        // A retry replays the original id (so the server dedupes); a fresh send
+        // mints one and remembers it for its own retry.
+        const clientMessageId = opts?.clientMessageId ?? newClientMessageId()
+        if (!opts?.hidden) {
+          lastUserContentRef.current = trimmed
+          lastClientMessageIdRef.current = clientMessageId
+        }
+        // Push the optimistic bubble BEFORE the deferred create so it stays
+        // visible through the create round-trip and survives a create failure
+        // (the composer is already cleared, so this is the only copy of the
+        // user's message). A retry re-streams with `hidden`, so it is never
+        // duplicated.
+        if (!opts?.hidden) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `pending-${crypto.randomUUID()}`,
+              conversationId: annotationId ?? '',
+              role: 'user',
+              content: trimmed,
+              createdAt: new Date().toISOString(),
+            },
+          ])
+        }
+        let id = annotationId
+        if (!id) {
+          id = await ensureAnnotationId()
+          if (!id) {
+            setStreamError({
+              message: 'Could not start chat. Try again.',
+              retryable: true,
+            })
+            return false
+          }
+        }
+        // Fire-and-forget: `send` owns the turn from here (its own sendingRef
+        // guards it), and the onChatCreated handoff runs via onTurnSuccess.
+        // Awaiting would hold deliveringRef across the whole settle window and
+        // block a legitimate follow-up send.
+        void send(id, trimmed, { hidden: true, clientMessageId })
+        return true
+      } finally {
+        deliveringRef.current = false
       }
-      abortRef.current = null
-    }
-  }, [])
+    },
+    [isStreaming, annotationId, ensureAnnotationId, send, setMessages],
+  )
 
-  // Track whether the user is at (or near) the bottom of the conversation
-  // so we know whether to follow streaming text. Once they scroll up to
-  // read earlier content, we stop yanking them back down.
+  const onSend = useCallback((): void => {
+    const text = composer.trim()
+    if (!text || busy) return
+    if (dictation.active) void dictation.stop()
+    setComposer('')
+    void deliver(text, { hidden: false })
+  }, [composer, busy, dictation, deliver])
+
+  const onRetry = useCallback((): void => {
+    setStreamError(null)
+    const content = lastUserContentRef.current
+    if (content) {
+      // Re-stream through `deliver` (hidden — the optimistic bubble already
+      // exists) so a post-create retry still fires the deferred onChatCreated
+      // handoff, and a create-on-send failure re-attempts the create. Replay
+      // the original client-message id so the server dedupes the turn.
+      void deliver(content, {
+        hidden: true,
+        clientMessageId: lastClientMessageIdRef.current || undefined,
+      })
+      return
+    }
+    // No user turn to replay — a load error. Reload the conversation.
+    loadRequestedRef.current = false
+    void loadExistingChat()
+  }, [deliver, loadExistingChat])
+
+  // Re-stream an existing user turn (interrupted-box or bare-user retry).
+  // Replays the original client-message id when retrying the most-recent turn
+  // (so the server's (conversation_id, client_message_id) index dedupes it) and
+  // keeps the retry refs consistent, so the error-box `onRetry` never replays a
+  // stale id afterward. An older turn — whose id we can't recover, since
+  // ChatMessageDto carries none and the transcript doesn't return it — mints a
+  // fresh id (repeated retries of it still dedupe via the stored ref).
+  const resendUserTurn = useCallback(
+    (content: string): void => {
+      if (!annotationId) return
+      const trimmed = content.trim()
+      if (!trimmed) return
+      // Content-match, not per-message tracking: if two user turns share the
+      // exact text and the OLDER is retried, this replays the newer turn's id —
+      // acceptable, since same-text turns dedupe to an indistinguishable result.
+      const clientMessageId =
+        trimmed === lastUserContentRef.current && lastClientMessageIdRef.current
+          ? lastClientMessageIdRef.current
+          : newClientMessageId()
+      lastUserContentRef.current = trimmed
+      lastClientMessageIdRef.current = clientMessageId
+      void send(annotationId, trimmed, { hidden: true, clientMessageId })
+    },
+    [annotationId, send],
+  )
+
+  const onRetryInterrupted = useCallback(
+    (interruptedId: string): void => {
+      if (!annotationId || busy) return
+      const idx = messages.findIndex((m) => m.id === interruptedId)
+      if (idx <= 0) return
+      const prior = messages[idx - 1]
+      if (!prior || prior.role !== 'user') return
+      setMessages((prev) => prev.filter((m) => m.id !== interruptedId))
+      resendUserTurn(prior.content)
+    },
+    [annotationId, busy, messages, setMessages, resendUserTurn],
+  )
+
+  const onRetryLastUser = useCallback((): void => {
+    if (!annotationId || busy) return
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m && m.role === 'user') {
+        resendUserTurn(m.content)
+        return
+      }
+    }
+  }, [annotationId, busy, messages, resendUserTurn])
+
+  // Track whether the user is pinned to the bottom so we follow streaming text
+  // only while they haven't scrolled up to read earlier content.
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -354,9 +427,6 @@ export default function AskAiChatBody({
     return () => el.removeEventListener('scroll', onScroll)
   }, [])
 
-  // Follow streaming output and new messages, but only when the user is
-  // already pinned to the bottom. Also re-evaluate isAtBottom so the
-  // "new text below" pill flips on the moment content grows past view.
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -366,7 +436,7 @@ export default function AskAiChatBody({
       const distance = el.scrollHeight - el.scrollTop - el.clientHeight
       setIsAtBottom(distance < 80)
     }
-  }, [streaming?.content, history.length])
+  }, [visibleSegments, messages.length])
 
   const jumpToBottom = useCallback(() => {
     const el = scrollRef.current
@@ -376,286 +446,57 @@ export default function AskAiChatBody({
     setIsAtBottom(true)
   }, [])
 
-  // Keep the "new text below" pill visible for a moment after the stream
-  // ends so the user has time to notice and click — otherwise the pill
-  // vanishes the instant the last token lands.
+  // Keep the "new text below" pill visible briefly after the stream ends so the
+  // user has time to notice and click.
   const [pillLingering, setPillLingering] = useState(false)
   useEffect(() => {
-    const active = sending || streaming !== null
-    if (active) {
+    if (sending) {
       setPillLingering(true)
       return
     }
     if (!pillLingering) return
     const t = setTimeout(() => setPillLingering(false), 3000)
     return () => clearTimeout(t)
-  }, [sending, streaming, pillLingering])
+  }, [sending, pillLingering])
 
-  const runStream = useCallback(
-    async (
-      targetAnnotationId: string,
-      content: string,
-      clientMessageId: string,
-    ) => {
-      const controller = new AbortController()
-      abortRef.current = controller
-      sendingRef.current = true
-      setSending(true)
-      setStreaming({ role: 'assistant', content: '' })
-      setActiveTools([])
-      setError(null)
-
-      try {
-        const iter = chatApi.streamMessage({
-          annotationId: targetAnnotationId,
-          content,
-          clientMessageId,
-          signal: controller.signal,
-        })
-        let assembled = ''
-        let assistantId: string | undefined
-        let errored: ChatStreamEvent | null = null
-        const turnTools: string[] = []
-
-        for await (const ev of iter) {
-          if (ev.type === 'text') {
-            assembled += ev.delta
-            setStreaming({ role: 'assistant', content: assembled })
-          } else if (ev.type === 'tool_call') {
-            if (!turnTools.includes(ev.toolName)) {
-              turnTools.push(ev.toolName)
-              setActiveTools([...turnTools])
-            }
-          } else if (ev.type === 'done') {
-            assistantId = ev.assistantMessageId
-            break
-          } else if (ev.type === 'error') {
-            errored = ev
-            break
-          }
-        }
-
-        if (errored && errored.type === 'error') {
-          if (errored.code === 'aborted') {
-            setStreaming(null)
-          } else {
-            setError({
-              message: friendlyError(errored.code),
-              retryable: errored.retryable,
-              lastUserContent: content,
-              lastClientMessageId: clientMessageId,
-              kind: 'stream',
-            })
-            setStreaming(null)
-          }
-        } else {
-          setHistory((prev) => [
-            ...prev,
-            {
-              kind: 'assistant',
-              id: assistantId ?? `local_${clientMessageId}`,
-              content: assembled,
-              ...(turnTools.length > 0 && { toolsUsed: [...turnTools] }),
+  // Project the engine's transcript into render items, mapping the interrupted
+  // marker to its own kind and dropping stale markers (a retry that produced a
+  // successor supersedes it — keep one only if it's the last item).
+  const items = useMemo(() => {
+    const mapped = messages.map((m) =>
+      m.role !== 'user' && m.content === CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER
+        ? { kind: 'interrupted' as const, id: m.id }
+        : m.role === 'user'
+          ? { kind: 'user' as const, id: m.id, content: m.content }
+          : {
+              kind: 'assistant' as const,
+              id: m.id,
+              live: segmentsToLive(m.segments ?? [], m.content),
             },
-          ])
-          setStreaming(null)
-          // First successful stream for a deferred-create chat — the
-          // conversation is now durable on the server. Safe to notify
-          // the host so it can swap the overlay from pending-anchor
-          // preempt to the cycler-focused view (which mounts a fresh
-          // body keyed on the new annotation id).
-          const pending = pendingChatCreatedRef.current
-          if (pending) {
-            pendingChatCreatedRef.current = null
-            onChatCreated?.(pending)
-          }
-        }
-      } catch (err) {
-        reportErrorToSentry(err, {
-          surface: 'briefing-ask-ai',
-          phase: 'stream',
-          meetingDate,
-          annotationId: targetAnnotationId,
-        })
-        setError({
-          message: 'Stream interrupted. Try again.',
-          retryable: true,
-          lastUserContent: content,
-          lastClientMessageId: clientMessageId,
-          kind: 'stream',
-        })
-        setStreaming(null)
-      } finally {
-        sendingRef.current = false
-        setSending(false)
-        setActiveTools([])
-        abortRef.current = null
-      }
-    },
-    [meetingDate, onChatCreated],
-  )
+    )
+    return mapped.filter(
+      (it, i) => it.kind !== 'interrupted' || i === mapped.length - 1,
+    )
+  }, [messages])
 
-  // Stage 2 of a user turn — ensure we have an annotation id (lazy
-  // create when in deferred mode), then stream the message. Split from
-  // `sendContent` so the retry path can re-run this without re-adding
-  // the user's optimistic bubble to the history.
-  const executeUserTurn = useCallback(
-    async (content: string, clientMessageId: string) => {
-      // Show the "Thinking..." indicator immediately — covers the
-      // deferred-create gap (createBriefingChat + verification read)
-      // before runStream's own setStreaming kicks in. Without this the
-      // user sees their bubble, then ~1s of silence, then "Thinking..."
-      // pops in — which they read as jarring. runStream re-sets these
-      // to the same values, so this is purely a pre-flight signal.
-      setSending(true)
-      setStreaming({ role: 'assistant', content: '' })
-      let id = annotationId
-      if (!id) {
-        id = await ensureAnnotationId()
-        if (!id) {
-          setError({
-            message: 'Could not start chat. Try again.',
-            retryable: true,
-            lastUserContent: content,
-            lastClientMessageId: clientMessageId,
-            kind: 'init',
-          })
-          // Clear the pre-flight indicators so the user isn't stuck
-          // looking at "Thinking..." when the chat couldn't start.
-          setStreaming(null)
-          setSending(false)
-          sendingRef.current = false
-          return
-        }
-      }
-      await runStream(id, content, clientMessageId)
-    },
-    [annotationId, ensureAnnotationId, runStream],
-  )
-
-  const sendContent = useCallback(
-    async (content: string) => {
-      const trimmed = content.trim()
-      if (!trimmed) return false
-      if (sendingRef.current || creatingRef.current) return false
-      sendingRef.current = true
-      const clientMessageId = newClientMessageId()
-      setHistory((prev) => [
-        ...prev,
-        { kind: 'user', id: `local_${clientMessageId}`, content: trimmed },
-      ])
-      await executeUserTurn(trimmed, clientMessageId)
-      return true
-    },
-    [executeUserTurn],
-  )
-
-  const onSend = useCallback(async () => {
-    const content = composer
-    const sent = await sendContent(content)
-    if (sent) setComposer('')
-  }, [composer, sendContent])
-
-  const onRetry = useCallback(async () => {
-    if (!error) return
-    if (error.kind === 'init') {
-      // Two flavors of init failure:
-      //   - Override mode (no lastUserContent): the loader failed.
-      //     Re-run loadExistingChat.
-      //   - Deferred mode (lastUserContent set): create-on-send failed
-      //     AFTER we already pushed the user bubble onto history.
-      //     Re-run executeUserTurn so we don't duplicate the bubble.
-      setError(null)
-      if (!error.lastUserContent || !error.lastClientMessageId) {
-        loadRequestedRef.current = false
-        await loadExistingChat()
-        return
-      }
-      await executeUserTurn(error.lastUserContent, error.lastClientMessageId)
-      return
-    }
-    if (!annotationId) return
-    const { lastUserContent, lastClientMessageId } = error
-    if (!lastUserContent || !lastClientMessageId) return
-    await runStream(annotationId, lastUserContent, lastClientMessageId)
-  }, [annotationId, error, executeUserTurn, loadExistingChat, runStream])
-
-  const onRetryInterrupted = useCallback(
-    async (interruptedId: string) => {
-      if (!annotationId || sending) return
-      const idx = history.findIndex((it) => it.id === interruptedId)
-      if (idx <= 0) return
-      const prior = history[idx - 1]
-      if (!prior || prior.kind !== 'user') return
-      setHistory((prev) => prev.filter((it) => it.id !== interruptedId))
-      const clientMessageId = newClientMessageId()
-      await runStream(annotationId, prior.content, clientMessageId)
-    },
-    [annotationId, history, runStream, sending],
-  )
-
-  const onRetryLastUser = useCallback(async () => {
-    if (!annotationId || sending) return
-    for (let i = history.length - 1; i >= 0; i--) {
-      const it = history[i]
-      if (it && it.kind === 'user') {
-        const clientMessageId = newClientMessageId()
-        await runStream(annotationId, it.content, clientMessageId)
-        return
-      }
-    }
-  }, [annotationId, history, runStream, sending])
-
-  const onSelectSuggestion = useCallback(
-    (suggestion: string) => {
-      void sendContent(suggestion)
-    },
-    [sendContent],
-  )
-
-  const onComposerKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      // isComposing: don't send on the Enter that commits an IME candidate
-      // (CJK and other composed input) — it would fire a half-composed
-      // message and swallow the confirmation. The Textarea variant of this
-      // composer already guards this; keep the Input variant in step.
-      if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-        e.preventDefault()
-        void onSend()
-      }
-    },
-    [onSend],
-  )
-
-  // Drop stale interrupted markers — only keep one if it's the last
-  // item, since a retry that produced any successor message supersedes it.
-  const displayedHistory = history.filter(
-    (it, i) => it.kind !== 'interrupted' || i === history.length - 1,
-  )
-
-  // Cover the legacy / no-sentinel case too: if the last message is a
-  // bare user message and the stream is idle, surface the same Retry
-  // affordance. Conversations from before the server's sentinel-persist
-  // landed (and any future ones where persist itself failed) end up here.
-  const lastItem = displayedHistory[displayedHistory.length - 1]
+  // ThinkingRow shows while streaming, and also through the deferred-create
+  // gap (loading, with the optimistic user bubble already on screen) so the
+  // user isn't left staring at their message with no sign of progress. The
+  // `messages.length > 0` guard keeps it off the initial override-path load.
+  const working =
+    (sending || (loading && messages.length > 0)) &&
+    visibleSegments.length === 0
+  const lastItem = items[items.length - 1]
   const showBareUserRetry =
-    !streaming &&
-    !sending &&
-    !creating &&
-    !error &&
-    annotationId !== null &&
-    lastItem?.kind === 'user'
-
+    !sending && !loading && !streamError && lastItem?.kind === 'user'
   const showEmptyState =
-    !creating && displayedHistory.length === 0 && !streaming && !error
-
+    !loading && items.length === 0 && !sending && !streamError
   const showJumpPill = !isAtBottom && pillLingering
 
   return (
-    // vaul disables text selection on the drawer (user-select:none on fine
-    // pointers) and treats pointer-drags as drawer-drags. select-text restores
-    // selection and data-vaul-no-drag stops a select-drag from moving the
-    // sheet, so users can highlight and copy chat text.
+    // vaul disables text selection on the drawer and treats pointer-drags as
+    // drawer-drags. select-text restores selection; data-vaul-no-drag stops a
+    // select-drag from moving the sheet so users can highlight and copy.
     <div className="flex min-h-0 flex-1 flex-col select-text" data-vaul-no-drag>
       <div className="relative flex min-h-0 flex-1 flex-col">
         <div
@@ -666,28 +507,20 @@ export default function AskAiChatBody({
           }
           data-testid="ask-ai-conversation"
         >
-          {/* "Loading chat..." is for the override path (reopening an
-              existing chat while we fetch its message list). In the
-              deferred-create path the user has already pushed their own
-              bubble onto `history` synchronously inside `sendContent`,
-              so showing "Loading chat..." above their message would
-              read as confusing — the chat is already underway. Gate on
-              empty history so the text only shows when there's nothing
-              else to look at. */}
-          {creating && history.length === 0 && !streaming && (
+          {loading && items.length === 0 && !sending && (
             <div className="text-sm text-muted-foreground">Loading chat...</div>
           )}
 
           {showEmptyState && showInlineHeader ? (
             <div className="flex items-center gap-2">
               <span className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <Sparkles className="size-4" aria-hidden />
+                <SparklesIcon className="size-4" aria-hidden />
               </span>
               <span className="text-sm font-semibold">Briefing assistant</span>
             </div>
           ) : null}
 
-          {displayedHistory.map((item) => {
+          {items.map((item) => {
             if (item.kind === 'interrupted') {
               return (
                 <div
@@ -699,8 +532,8 @@ export default function AskAiChatBody({
                     type="button"
                     size="small"
                     variant="outline"
-                    onClick={() => void onRetryInterrupted(item.id)}
-                    disabled={sending}
+                    onClick={() => onRetryInterrupted(item.id)}
+                    disabled={busy}
                   >
                     Retry
                   </Button>
@@ -708,32 +541,12 @@ export default function AskAiChatBody({
               )
             }
             if (item.kind === 'user') {
-              return (
-                <div
-                  key={item.id}
-                  className="self-end rounded-2xl bg-primary px-3 py-2 text-sm text-primary-foreground"
-                >
-                  {item.content}
-                </div>
-              )
+              return <UserBubble key={item.id}>{item.content}</UserBubble>
             }
             return (
-              <div key={item.id} className={ASSISTANT_BUBBLE}>
-                {item.toolsUsed && item.toolsUsed.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {item.toolsUsed.map((t) => (
-                      <span
-                        key={t}
-                        className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                      >
-                        <Search className="size-3" aria-hidden />
-                        {toolDisplayName(t)}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <ChatMarkdown>{item.content}</ChatMarkdown>
-              </div>
+              <AssistantRow key={item.id}>
+                <InlineSegments segments={item.live} toolLabel={toolLabel} />
+              </AssistantRow>
             )
           })}
 
@@ -744,50 +557,38 @@ export default function AskAiChatBody({
                 type="button"
                 size="small"
                 variant="outline"
-                onClick={() => void onRetryLastUser()}
-                disabled={sending}
+                onClick={onRetryLastUser}
+                disabled={busy}
               >
                 Retry
               </Button>
             </div>
           )}
 
-          {streaming && (
-            <div className={ASSISTANT_BUBBLE}>
-              {activeTools.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {activeTools.map((t) => (
-                    <span
-                      key={t}
-                      className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                    >
-                      <Search className="size-3" aria-hidden />
-                      {toolDisplayName(t)}
-                    </span>
-                  ))}
-                </div>
-              )}
-              {streaming.content ? (
-                <ChatMarkdown>{streaming.content}</ChatMarkdown>
-              ) : activeTools.length === 0 ? (
-                <span className="text-muted-foreground">Thinking...</span>
-              ) : null}
-            </div>
-          )}
+          {visibleSegments.length > 0 ? (
+            <AssistantRow>
+              <InlineSegments
+                segments={visibleSegments}
+                toolLabel={toolLabel}
+              />
+            </AssistantRow>
+          ) : null}
 
-          {error && (
+          {working ? <ThinkingRow /> : null}
+
+          {streamError && (
             <div
               role="alert"
               className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
             >
-              <span>{error.message}</span>
-              {error.retryable && (
+              <span>{streamError.message}</span>
+              {streamError.retryable && (
                 <Button
                   type="button"
                   size="small"
                   variant="outline"
                   onClick={onRetry}
-                  disabled={sending}
+                  disabled={busy}
                 >
                   Retry
                 </Button>
@@ -803,90 +604,61 @@ export default function AskAiChatBody({
             aria-label="Jump to latest message"
             className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-foreground/85 px-3 py-1.5 text-xs font-medium text-background shadow-md backdrop-blur transition-colors hover:bg-foreground"
           >
-            <ArrowDown className="size-3.5" aria-hidden />
+            <ChevronDownIcon className="size-3.5" aria-hidden />
             <span>New text below</span>
           </button>
         )}
       </div>
 
-      {composerVariant === 'block' ? (
-        <div className="flex flex-col gap-3 border-t border-base-border bg-background pb-2 pt-4">
-          {showEmptyState && (
-            <AskAiSuggestedPills
-              onSelect={onSelectSuggestion}
-              disabled={sending}
-            />
-          )}
-          <div className="relative">
-            <Textarea
-              value={composer}
-              onChange={(e) => setComposer(e.target.value)}
-              onKeyDown={(e) => {
-                if (
-                  e.key !== 'Enter' ||
-                  e.shiftKey ||
-                  e.nativeEvent.isComposing
-                ) {
-                  return
-                }
-                if (composer.trim().length === 0) return
-                e.preventDefault()
-                void onSend()
-              }}
-              placeholder="Ask anything..."
-              disabled={sending || creating}
-              rows={3}
-              className="min-h-[96px] resize-none rounded-2xl pr-12"
-              aria-label="Ask Assistant message"
-            />
-            <DictationMicButton
-              dictation={dictation}
-              idleLabel="Dictate message"
-              recordingLabel="Stop dictation"
-              disabled={sending || creating}
-            />
-          </div>
-          <Button
-            type="button"
-            onClick={() => {
-              void onSend()
-            }}
-            disabled={composer.trim().length === 0 || sending || creating}
-            loading={sending || creating}
-            icon={<Sparkles className="size-4" aria-hidden />}
-            iconPosition="left"
-            className="w-full text-sm!"
-          >
-            Ask Assistant
-          </Button>
-          <DictationFeedback dictation={dictation} />
-        </div>
-      ) : (
-        <div className="flex items-center gap-2 border-t border-base-border px-3 py-3">
-          <Input
-            ref={inputRef}
+      <div className="flex flex-col gap-3 border-t border-base-border bg-background pb-2 pt-4">
+        {showEmptyState && (
+          <AskAiSuggestedPills
+            onSelect={(s) => void deliver(s, { hidden: false })}
+            disabled={busy}
+          />
+        )}
+        <div className="relative">
+          <Textarea
             value={composer}
             onChange={(e) => setComposer(e.target.value)}
-            onKeyDown={onComposerKeyDown}
-            placeholder="Ask anything about this briefing..."
-            disabled={sending || creating}
-            aria-label="Ask a question"
-          />
-          <IconButton
-            type="button"
-            size="large"
-            aria-label="Send"
-            className="aspect-square shrink-0"
-            onClick={() => {
-              void onSend()
+            onKeyDown={(e) => {
+              if (
+                e.key !== 'Enter' ||
+                e.shiftKey ||
+                e.nativeEvent.isComposing
+              ) {
+                return
+              }
+              if (composer.trim().length === 0) return
+              e.preventDefault()
+              onSend()
             }}
-            disabled={composer.trim().length === 0 || sending || creating}
-            loading={sending || creating}
-          >
-            <Send className="size-4" aria-hidden />
-          </IconButton>
+            placeholder="Ask anything..."
+            disabled={busy}
+            rows={3}
+            className="min-h-[96px] resize-none rounded-2xl pr-12"
+            aria-label="Ask Assistant message"
+          />
+          <DictationMicButton
+            dictation={dictation}
+            idleLabel="Dictate message"
+            recordingLabel="Stop dictation"
+            disabled={busy}
+          />
         </div>
-      )}
+        <Button
+          type="button"
+          onClick={onSend}
+          disabled={composer.trim().length === 0 || busy}
+          loading={busy}
+          icon={<SparklesIcon className="size-4" aria-hidden />}
+          iconPosition="left"
+          className="w-full text-sm!"
+        >
+          Ask Assistant
+        </Button>
+        <DictationFeedback dictation={dictation} />
+      </div>
     </div>
   )
 }

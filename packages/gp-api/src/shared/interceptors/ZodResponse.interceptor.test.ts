@@ -6,6 +6,7 @@ import { Reflector } from '@nestjs/core'
 import { InternalServerErrorException } from '@nestjs/common'
 import { of, lastValueFrom } from 'rxjs'
 import { z } from 'zod'
+import { PinoLogger } from 'nestjs-pino'
 import { createMockLogger } from '../test-utils/mockLogger.util'
 
 const UserSchema = z.object({
@@ -33,11 +34,13 @@ const createMockCallHandler = (data: unknown): CallHandler => ({
 describe('ZodResponseInterceptor', () => {
   let interceptor: ZodResponseInterceptor
   let reflector: Reflector
+  let logger: PinoLogger
 
   const setup = (schema: z.ZodSchema | undefined) => {
     reflector = new Reflector()
     vi.spyOn(reflector, 'get').mockReturnValue(schema)
-    interceptor = new ZodResponseInterceptor(reflector, createMockLogger())
+    logger = createMockLogger()
+    interceptor = new ZodResponseInterceptor(reflector, logger)
   }
 
   it('strips fields not defined in the schema', async () => {
@@ -81,6 +84,63 @@ describe('ZodResponseInterceptor', () => {
 
     await expect(lastValueFrom(result$)).rejects.toThrow(
       InternalServerErrorException,
+    )
+  })
+
+  // Regression: the log used to go through `error.flatten()`, which reports
+  // only top-level keys. A bad field nested under `details` logged as
+  // `{ details: ['Invalid input: expected string, received number'] }` — true
+  // of every field in that object, so the log could not identify the culprit.
+  it('logs the full path of a nested field that failed validation', async () => {
+    const NestedSchema = z.object({
+      id: z.number(),
+      details: z.object({
+        officeTermLength: z.string(),
+        district: z.string(),
+      }),
+    })
+    setup(NestedSchema)
+
+    const handler = createMockCallHandler({
+      id: 1,
+      details: { officeTermLength: 4, district: '3' },
+    })
+
+    await expect(
+      lastValueFrom(
+        interceptor.intercept(createMockExecutionContext(), handler),
+      ),
+    ).rejects.toThrow(InternalServerErrorException)
+
+    expect(logger.error).toHaveBeenCalledWith(
+      {
+        issues: [expect.objectContaining({ path: 'details.officeTermLength' })],
+      },
+      expect.any(String),
+    )
+  })
+
+  it('logs an array index in the path for a failure inside a list', async () => {
+    const ListSchema = z.object({
+      customIssues: z.array(z.object({ order: z.string() })),
+    })
+    setup(ListSchema)
+
+    const handler = createMockCallHandler({
+      customIssues: [{ order: 'first' }, { order: 2 }],
+    })
+
+    await expect(
+      lastValueFrom(
+        interceptor.intercept(createMockExecutionContext(), handler),
+      ),
+    ).rejects.toThrow(InternalServerErrorException)
+
+    expect(logger.error).toHaveBeenCalledWith(
+      {
+        issues: [expect.objectContaining({ path: 'customIssues.1.order' })],
+      },
+      expect.any(String),
     )
   })
 

@@ -48,4 +48,9 @@ module.exports = {
     return tasks
   },
   '*.{js,jsx,mjs,cjs}': (files) => `prettier --check ${quote(files)}`,
+  // The assistants' product map must keep describing the real dashboard. Keyed
+  // on both sides of that invariant, so editing either one re-checks the pair.
+  // Runs once for the whole commit, not per file, hence the ignored argument.
+  'packages/{gp-webapp/app/dashboard/shared/DashboardMenu.tsx,gp-api/src/chats/general/product-knowledge/productMap.ts}':
+    () => 'npm run product-map:check',
 }

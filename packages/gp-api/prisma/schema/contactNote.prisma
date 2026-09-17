@@ -8,6 +8,10 @@ model ContactNote {
   organization     Organization @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
   personId         String       @map("person_id")
   body             String
+  // ENG-10946: the author. Null on notes written before this column existed
+  // (no backfill) — the feed renders those authorless.
+  actorUserId      Int?         @map("actor_user_id")
+  actor            User?        @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@index([organizationSlug, personId, createdAt])
   @@map("contact_note")

@@ -1,14 +1,18 @@
 import { Test, TestingModule } from '@nestjs/testing'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PinoLogger } from 'nestjs-pino'
 import { PrismaService } from '@/prisma/prisma.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { CronLockService } from '@/cron/services/cronLock.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import {
   createMockCampaign,
   createMockUser,
 } from '@/shared/test-utils/mockData.util'
+import { Campaign, TcrCompliance, User } from '../../../generated/prisma'
+import { PeerlyCvVerificationStatus } from '../../../vendors/peerly/peerly.types'
+import { DerivedPinDelivery } from '../../../vendors/peerly/utils/peerlyPinDelivery.util'
 import { CampaignTcrComplianceService } from './campaignTcrCompliance.service'
 import { ComplianceStateService } from './complianceState.service'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
@@ -18,47 +22,60 @@ import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { SlackService } from '../../../vendors/slack/services/slack.service'
+import { CvPreSubmissionValidationService } from './cvPreSubmissionValidation.service'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 
-describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
+describe('CampaignTcrComplianceService - applyCvDetection', () => {
   const user = createMockUser({ id: 55 })
   const campaign = createMockCampaign({
     id: 900,
     userId: user.id,
     data: { hubspotId: 'company-1' },
   })
-  const campaignWithUser = { ...campaign, user }
+  const campaignWithUser = { ...campaign, user } as Campaign & { user: User }
   const record = {
     id: 'tcr-1',
     campaignId: campaign.id,
     peerlyIdentityId: '11540083',
-  }
+    pinDeliveryMethod: null,
+  } as unknown as TcrCompliance
 
   let service: CampaignTcrComplianceService
   let mockModel: {
-    findMany: ReturnType<typeof vi.fn>
     updateMany: ReturnType<typeof vi.fn>
   }
-  let mockPeerly: { retrieveCampaignVerifyDetails: ReturnType<typeof vi.fn> }
-  let mockCampaigns: { findUnique: ReturnType<typeof vi.fn> }
   let mockTrack: ReturnType<typeof vi.fn>
   let mockTrackCampaign: ReturnType<typeof vi.fn>
+  let mockSendSingleSend: ReturnType<typeof vi.fn>
+  let mockLogger: ReturnType<typeof createMockLogger>
+
+  const detect = (
+    rec: TcrCompliance,
+    details: {
+      status: PeerlyCvVerificationStatus | null
+      pinDelivery: DerivedPinDelivery | null
+    },
+  ) => service.applyCvDetection(rec, campaignWithUser, details)
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
 
   beforeEach(async () => {
     mockModel = {
-      findMany: vi.fn().mockResolvedValue([record]),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     }
-    mockPeerly = { retrieveCampaignVerifyDetails: vi.fn() }
-    mockCampaigns = { findUnique: vi.fn().mockResolvedValue(campaignWithUser) }
     mockTrack = vi.fn().mockResolvedValue(undefined)
     mockTrackCampaign = vi.fn().mockResolvedValue(undefined)
+    mockSendSingleSend = vi.fn().mockResolvedValue(undefined)
+    mockLogger = createMockLogger()
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         { provide: PrismaService, useValue: { tcrCompliance: mockModel } },
-        { provide: PeerlyIdentityService, useValue: mockPeerly },
+        { provide: PeerlyIdentityService, useValue: {} },
         { provide: WebsitesService, useValue: {} },
-        { provide: CampaignsService, useValue: mockCampaigns },
+        { provide: CampaignsService, useValue: {} },
         {
           provide: CrmCampaignsService,
           useValue: { trackCampaign: mockTrackCampaign },
@@ -71,7 +88,19 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
-        { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: PinoLogger, useValue: mockLogger },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
+        },
+        { provide: CvPreSubmissionValidationService, useValue: {} },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: mockSendSingleSend },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -80,12 +109,10 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
   })
 
   it('records the channel + destination and fires the PIN Sent event once', async () => {
-    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
-      status: 'APPROVED',
+    await detect(record, {
+      status: PeerlyCvVerificationStatus.APPROVED,
       pinDelivery: { method: 'text', destination: '3126851162' },
     })
-
-    await service.sweepPinDeliveryDetection()
 
     expect(mockModel.updateMany).toHaveBeenCalledWith({
       where: { id: 'tcr-1', pinSentDetectedAt: null },
@@ -110,37 +137,35 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
   })
 
   it('still succeeds when the post-event CRM company sync fails', async () => {
-    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
-      status: 'APPROVED',
-      pinDelivery: { method: 'text', destination: '3126851162' },
-    })
     mockTrackCampaign.mockRejectedValue(new Error('hubspot down'))
 
-    await expect(service.sweepPinDeliveryDetection()).resolves.not.toThrow()
+    await expect(
+      detect(record, {
+        status: PeerlyCvVerificationStatus.APPROVED,
+        pinDelivery: { method: 'text', destination: '3126851162' },
+      }),
+    ).resolves.not.toThrow()
 
     expect(mockTrack).toHaveBeenCalledTimes(1)
     expect(mockTrackCampaign).toHaveBeenCalledWith(campaignWithUser.id)
   })
 
   it('does not fire the event when another caller already claimed the record', async () => {
-    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
-      status: 'APPROVED',
-      pinDelivery: { method: 'email', destination: 'a@b.com' },
-    })
     mockModel.updateMany.mockResolvedValue({ count: 0 })
 
-    await service.sweepPinDeliveryDetection()
+    await detect(record, {
+      status: PeerlyCvVerificationStatus.APPROVED,
+      pinDelivery: { method: 'email', destination: 'a@b.com' },
+    })
 
     expect(mockTrack).not.toHaveBeenCalled()
   })
 
   it('marks the record rejected and fires the rejection event when CV is REJECTED', async () => {
-    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
-      status: 'REJECTED',
+    await detect(record, {
+      status: PeerlyCvVerificationStatus.REJECTED,
       pinDelivery: null,
     })
-
-    await service.sweepPinDeliveryDetection()
 
     expect(mockModel.updateMany).toHaveBeenCalledWith({
       where: { id: 'tcr-1', status: { not: 'rejected' } },
@@ -157,13 +182,11 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
     )
   })
 
-  it('marks the record rejected when CV is WITHDRAWN so the sweep set shrinks', async () => {
-    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
-      status: 'WITHDRAWN',
+  it('marks the record rejected when CV is WITHDRAWN so the poll set shrinks', async () => {
+    await detect(record, {
+      status: PeerlyCvVerificationStatus.WITHDRAWN,
       pinDelivery: { method: 'email', destination: 'a@b.com' },
     })
-
-    await service.sweepPinDeliveryDetection()
 
     expect(mockModel.updateMany).toHaveBeenCalledWith({
       where: { id: 'tcr-1', status: { not: 'rejected' } },
@@ -176,25 +199,58 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
     )
   })
 
-  it('does not re-fire the rejection event when the record is already rejected', async () => {
-    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
-      status: 'REJECTED',
-      pinDelivery: null,
+  // The scan's poll set is broader than the old sweep's `pinDeliveryMethod IS
+  // NULL` filter, so a delivered-PIN record can still observe a late REJECTED
+  // flip — the terminal status must stamp even though there is nothing left
+  // to detect for PIN delivery.
+  it('still marks a delivered-PIN record rejected on a late REJECTED flip', async () => {
+    const delivered = {
+      ...record,
+      pinDeliveryMethod: 'text',
+    } as TcrCompliance
+
+    await detect(delivered, {
+      status: PeerlyCvVerificationStatus.REJECTED,
+      pinDelivery: { method: 'text', destination: '3126851162' },
     })
+
+    expect(mockModel.updateMany).toHaveBeenCalledWith({
+      where: { id: 'tcr-1', status: { not: 'rejected' } },
+      data: { status: 'rejected' },
+    })
+  })
+
+  it('does not re-record a delivered-PIN record on a normal observation', async () => {
+    const delivered = {
+      ...record,
+      pinDeliveryMethod: 'text',
+    } as TcrCompliance
+
+    await detect(delivered, {
+      status: PeerlyCvVerificationStatus.APPROVED,
+      pinDelivery: { method: 'text', destination: '3126851162' },
+    })
+
+    expect(mockModel.updateMany).not.toHaveBeenCalled()
+    expect(mockTrack).not.toHaveBeenCalled()
+  })
+
+  it('does not re-fire the rejection event when the record is already rejected', async () => {
     mockModel.updateMany.mockResolvedValue({ count: 0 })
 
-    await service.sweepPinDeliveryDetection()
+    await detect(record, {
+      status: PeerlyCvVerificationStatus.REJECTED,
+      pinDelivery: null,
+    })
 
     expect(mockTrack).not.toHaveBeenCalled()
   })
 
   it('does nothing when the PIN has not been sent yet', async () => {
-    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
-      status: 'IN_REVIEW',
+    await detect(record, {
+      status: PeerlyCvVerificationStatus.IN_REVIEW,
       pinDelivery: null,
     })
-
-    await service.sweepPinDeliveryDetection()
 
     expect(mockModel.updateMany).not.toHaveBeenCalled()
     expect(mockTrack).not.toHaveBeenCalled()
@@ -204,36 +260,30 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
   // the CV is still in review — production always returns a pinDelivery here,
   // so presence alone must not count as "sent" (ENG-10785).
   it('does not record or fire when CV is IN_REVIEW despite an echoed delivery method', async () => {
-    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
-      status: 'IN_REVIEW',
+    await detect(record, {
+      status: PeerlyCvVerificationStatus.IN_REVIEW,
       pinDelivery: { method: 'email', destination: 'a@b.com' },
     })
-
-    await service.sweepPinDeliveryDetection()
 
     expect(mockModel.updateMany).not.toHaveBeenCalled()
     expect(mockTrack).not.toHaveBeenCalled()
   })
 
   it('does not record or fire when CV is REQUESTED despite an echoed delivery method', async () => {
-    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
-      status: 'REQUESTED',
+    await detect(record, {
+      status: PeerlyCvVerificationStatus.REQUESTED,
       pinDelivery: { method: 'email', destination: 'a@b.com' },
     })
-
-    await service.sweepPinDeliveryDetection()
 
     expect(mockModel.updateMany).not.toHaveBeenCalled()
     expect(mockTrack).not.toHaveBeenCalled()
   })
 
   it('records and fires for a VERIFIED CV (PIN already consumed)', async () => {
-    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
-      status: 'VERIFIED',
+    await detect(record, {
+      status: PeerlyCvVerificationStatus.VERIFIED,
       pinDelivery: { method: 'email', destination: 'a@b.com' },
     })
-
-    await service.sweepPinDeliveryDetection()
 
     expect(mockModel.updateMany).toHaveBeenCalledWith({
       where: { id: 'tcr-1', pinSentDetectedAt: null },
@@ -246,14 +296,17 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
     expect(mockTrack).toHaveBeenCalledTimes(1)
   })
 
-  it('rolls back the claim when the event fails so a later sweep retries', async () => {
-    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
-      status: 'APPROVED',
-      pinDelivery: { method: 'text', destination: '3126851162' },
-    })
+  // The scan wraps each record's detection in its own try/catch, so a failed
+  // event fire propagates out of applyCvDetection after the claim rollback.
+  it('rolls back the claim when the event fails so a later scan retries', async () => {
     mockTrack.mockRejectedValue(new Error('Segment down'))
 
-    await service.sweepPinDeliveryDetection()
+    await expect(
+      detect(record, {
+        status: PeerlyCvVerificationStatus.APPROVED,
+        pinDelivery: { method: 'text', destination: '3126851162' },
+      }),
+    ).rejects.toThrow('Segment down')
 
     // Claim, then rollback to null (scoped to the claim timestamp).
     expect(mockModel.updateMany).toHaveBeenCalledTimes(2)
@@ -267,37 +320,143 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
     })
   })
 
-  it('sweeps submitted, pending, and approved so a raced/pre-existing PIN is not dropped', async () => {
-    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
-      status: 'APPROVED',
-      pinDelivery: { method: 'email', destination: 'a@b.com' },
-    })
-
-    await service.sweepPinDeliveryDetection()
-
-    expect(mockModel.findMany).toHaveBeenCalledWith({
-      where: {
-        status: { in: ['submitted', 'pending', 'approved'] },
-        peerlyIdentityId: { not: null },
-        pinDeliveryMethod: null,
-      },
-    })
-  })
-
-  it('does not crash the sweep when the rollback also fails', async () => {
-    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
-      status: 'APPROVED',
-      pinDelivery: { method: 'text', destination: '3126851162' },
-    })
+  it('surfaces the original error when the rollback also fails', async () => {
     mockTrack.mockRejectedValue(new Error('Segment down'))
     mockModel.updateMany
       .mockResolvedValueOnce({ count: 1 }) // claim succeeds
       .mockRejectedValueOnce(new Error('DB down')) // rollback fails
 
-    await expect(service.sweepPinDeliveryDetection()).resolves.toBeUndefined()
+    await expect(
+      detect(record, {
+        status: PeerlyCvVerificationStatus.APPROVED,
+        pinDelivery: { method: 'text', destination: '3126851162' },
+      }),
+    ).rejects.toThrow('Segment down')
     // The rollback must have been attempted (claim + rollback = 2 calls); a
     // regression that skipped it would leave the record claimed-but-never-fired
-    // and permanently excluded by the pinDeliveryMethod IS NULL filter.
+    // and permanently excluded from PIN detection.
     expect(mockModel.updateMany).toHaveBeenCalledTimes(2)
+  })
+
+  describe('HubSpot single-send (ENG-11034)', () => {
+    it('does not call single-send when HUBSPOT_PIN_SENT_EMAIL_ID is unset', async () => {
+      await detect(record, {
+        status: PeerlyCvVerificationStatus.APPROVED,
+        pinDelivery: { method: 'text', destination: '3126851162' },
+      })
+
+      expect(mockSendSingleSend).not.toHaveBeenCalled()
+      // The Segment-event workflow email path is unaffected.
+      expect(mockTrack).toHaveBeenCalledTimes(1)
+    })
+
+    it('sends to the triggering account email with the PIN details as call properties', async () => {
+      vi.stubEnv('HUBSPOT_PIN_SENT_EMAIL_ID', '999888')
+
+      await detect(record, {
+        status: PeerlyCvVerificationStatus.APPROVED,
+        pinDelivery: { method: 'text', destination: '3126851162' },
+      })
+
+      expect(mockSendSingleSend).toHaveBeenCalledWith({
+        emailId: 999888,
+        to: user.email,
+        customProperties: {
+          pin_delivery_method: 'text',
+          pin_delivery_destination: '3126851162',
+          pin_sent_at: expect.any(String),
+        },
+      })
+    })
+
+    it('logs loudly and does not roll back the claim when single-send fails', async () => {
+      vi.stubEnv('HUBSPOT_PIN_SENT_EMAIL_ID', '999888')
+      mockSendSingleSend.mockRejectedValue(new Error('HubSpot down'))
+
+      await expect(
+        detect(record, {
+          status: PeerlyCvVerificationStatus.APPROVED,
+          pinDelivery: { method: 'text', destination: '3126851162' },
+        }),
+      ).resolves.not.toThrow()
+
+      // The Segment event already fired successfully, so the claim must
+      // stand — only the initial claim call, no rollback.
+      expect(mockModel.updateMany).toHaveBeenCalledTimes(1)
+      expect(mockTrack).toHaveBeenCalledTimes(1)
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          err: expect.any(Error),
+          campaignId: campaignWithUser.id,
+        }),
+        expect.stringContaining('HubSpot single-send failed for PIN Sent'),
+      )
+    })
+  })
+
+  describe('ComplianceRejected single-send (ENG-11035)', () => {
+    it('does not call single-send when HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID is unset', async () => {
+      await detect(record, {
+        status: PeerlyCvVerificationStatus.REJECTED,
+        pinDelivery: null,
+      })
+
+      expect(mockSendSingleSend).not.toHaveBeenCalled()
+      // The Segment-event workflow email path is unaffected.
+      expect(mockTrack).toHaveBeenCalledTimes(1)
+    })
+
+    it('sends to the triggering account email with the rejection details as call properties', async () => {
+      vi.stubEnv('HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID', '777666')
+
+      await detect(record, {
+        status: PeerlyCvVerificationStatus.REJECTED,
+        pinDelivery: null,
+      })
+
+      expect(mockSendSingleSend).toHaveBeenCalledWith({
+        emailId: 777666,
+        to: user.email,
+        customProperties: {
+          rejection_source: 'cv_status_check',
+          peerly_identity_id: '11540083',
+        },
+      })
+    })
+
+    it('does not send when another caller already claimed the rejection', async () => {
+      vi.stubEnv('HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID', '777666')
+      mockModel.updateMany.mockResolvedValue({ count: 0 })
+
+      await detect(record, {
+        status: PeerlyCvVerificationStatus.REJECTED,
+        pinDelivery: null,
+      })
+
+      expect(mockSendSingleSend).not.toHaveBeenCalled()
+    })
+
+    it('logs loudly and does not throw when single-send fails', async () => {
+      vi.stubEnv('HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID', '777666')
+      mockSendSingleSend.mockRejectedValue(new Error('HubSpot down'))
+
+      await expect(
+        detect(record, {
+          status: PeerlyCvVerificationStatus.REJECTED,
+          pinDelivery: null,
+        }),
+      ).resolves.not.toThrow()
+
+      expect(mockTrack).toHaveBeenCalledTimes(1)
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          err: expect.any(Error),
+          campaignId: campaignWithUser.id,
+        }),
+        expect.stringContaining(
+          'HubSpot single-send failed for Compliance Rejected',
+        ),
+      )
+    })
   })
 })

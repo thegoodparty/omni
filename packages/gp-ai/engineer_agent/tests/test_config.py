@@ -61,12 +61,16 @@ def test_capability_prompt_omits_people_api_from_live_packages():
 
 
 def test_capability_prompt_targets_omni_main_for_prs():
-    # `develop` was deleted in the single-trunk migration; a PR opened against
-    # it fails at the gh call after the agent has already done all the work.
-    # The negative assertion is the load-bearing half.
+    # `develop` was deleted from omni in the single-trunk migration; a PR opened
+    # against it fails at the gh call after all the work is done.
+    #
+    # The assertion used to be that the word `develop` appeared nowhere. It
+    # cannot be any more: gp-marketing's briefing is now included for reading
+    # and its default branch IS develop. So this pins the thing that actually
+    # matters — the branch stated for THIS run's PR.
     prompt = build_capability_prompt()
-    assert "`main`" in prompt
-    assert "develop" not in prompt
+    assert "against\nits `main` branch" in prompt
+    assert "`develop` branch" not in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -105,3 +109,19 @@ def test_unusable_ceiling_values_fall_back_to_the_default(monkeypatch, bad):
     monkeypatch.setenv("AGENT_MAX_BUDGET_USD", bad)
 
     assert AgentConfig.from_env().max_budget_usd == DEFAULT_MAX_BUDGET_USD
+
+
+def test_run_label_comes_from_the_environment(monkeypatch):
+    monkeypatch.setenv("AGENT_LABEL", "analyze")
+
+    assert AgentConfig.from_env().label == "analyze"
+
+
+def test_an_unset_run_label_is_empty_not_analyze(monkeypatch):
+    # Defaulting to "analyze" would let any run started without the ClickUp bot
+    # (a local invocation, an older task definition that predates AGENT_LABEL)
+    # queue implementation work off its own verdict. Unknown provenance has to
+    # leave the escalation path closed.
+    monkeypatch.delenv("AGENT_LABEL", raising=False)
+
+    assert AgentConfig.from_env().label == ""

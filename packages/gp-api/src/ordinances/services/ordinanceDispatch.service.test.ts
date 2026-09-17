@@ -55,7 +55,6 @@ describe('OrdinanceDispatchService.onElectedOfficeCreated', () => {
     mockResolveServeContext({
       state: 'MN',
       positionName: 'Ramsey City Council',
-      isServeIcp: true,
     })
     const dispatchSpy = mockDispatchRun()
 
@@ -83,7 +82,6 @@ describe('OrdinanceDispatchService.onElectedOfficeCreated', () => {
     mockResolveServeContext({
       state: ' mn ',
       positionName: 'City Council',
-      isServeIcp: true,
     })
     const dispatchSpy = mockDispatchRun()
 
@@ -105,7 +103,6 @@ describe('OrdinanceDispatchService.onElectedOfficeCreated', () => {
     mockResolveServeContext({
       state: 'Minnesota',
       positionName: 'City Council',
-      isServeIcp: true,
     })
     const dispatchSpy = mockDispatchRun()
 
@@ -123,7 +120,6 @@ describe('OrdinanceDispatchService.onElectedOfficeCreated', () => {
     mockResolveServeContext({
       state: 'MN',
       positionName: longPositionName,
-      isServeIcp: true,
     })
     const dispatchSpy = mockDispatchRun()
 
@@ -141,7 +137,7 @@ describe('OrdinanceDispatchService.onElectedOfficeCreated', () => {
     )
   })
 
-  it('skips an org that is not serve-ICP', async () => {
+  it('dispatches for an office whose position is not serve-ICP', async () => {
     const orgSlug = `ord-notidp-${Date.now()}`
     const office = await seedOrgWithOffice(orgSlug)
     mockResolveServeContext({
@@ -155,10 +151,13 @@ describe('OrdinanceDispatchService.onElectedOfficeCreated', () => {
       .get(OrdinanceDispatchService)
       .onElectedOfficeCreated(office)
 
-    expect(dispatchSpy).not.toHaveBeenCalled()
+    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationSlug: orgSlug }),
+    )
   })
 
-  it('fails closed when isServeIcp is absent', async () => {
+  it('dispatches when the serve context carries no ICP signal', async () => {
     const orgSlug = `ord-nullicp-${Date.now()}`
     const office = await seedOrgWithOffice(orgSlug)
     mockResolveServeContext({
@@ -171,7 +170,10 @@ describe('OrdinanceDispatchService.onElectedOfficeCreated', () => {
       .get(OrdinanceDispatchService)
       .onElectedOfficeCreated(office)
 
-    expect(dispatchSpy).not.toHaveBeenCalled()
+    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationSlug: orgSlug }),
+    )
   })
 
   it('skips when a live or completed run already exists (one-time semantic)', async () => {
@@ -187,7 +189,6 @@ describe('OrdinanceDispatchService.onElectedOfficeCreated', () => {
     mockResolveServeContext({
       state: 'MN',
       positionName: 'City Council',
-      isServeIcp: true,
     })
     const dispatchSpy = mockDispatchRun()
 
@@ -213,7 +214,6 @@ describe('OrdinanceDispatchService.onElectedOfficeCreated', () => {
       .mockResolvedValue({
         state: 'MN',
         positionName: 'City Council',
-        isServeIcp: true,
       })
     const dispatchSpy = mockDispatchRun()
 
@@ -242,7 +242,6 @@ describe('OrdinanceDispatchService.onElectedOfficeCreated', () => {
       return {
         state: 'MN',
         positionName: 'Ramsey City Council',
-        isServeIcp: true,
       }
     })
     const dispatchSpy = mockDispatchRun()
@@ -267,7 +266,6 @@ describe('OrdinanceDispatchService.onElectedOfficeCreated', () => {
     mockResolveServeContext({
       state: 'MN',
       positionName: 'City Council',
-      isServeIcp: true,
     })
     const dispatchSpy = mockDispatchRun()
 
@@ -331,7 +329,6 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
     mockResolveServeContext({
       state: 'MN',
       positionName: 'Ramsey City Council',
-      isServeIcp: true,
     })
   })
   afterEach(() => {
@@ -515,7 +512,7 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
       if (org.slug === failSlug) {
         throw new BadGatewayException('election-api unavailable')
       }
-      return { state: 'MN', positionName: 'City Council', isServeIcp: true }
+      return { state: 'MN', positionName: 'City Council' }
     })
 
     await expect(
@@ -534,7 +531,6 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
     mockResolveServeContext({
       state: 'MN',
       positionName: 'Ramsey City Council',
-      isServeIcp: true,
     })
     mockDispatchRun()
     mockCronLock(true)
@@ -613,7 +609,6 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
         : Promise.resolve({
             state: 'MN',
             positionName: 'Ramsey City Council',
-            isServeIcp: true,
           }),
     )
     const dispatchSpy = mockDispatchRun()
@@ -713,7 +708,6 @@ describe('clerkless elected-office users', () => {
     mockResolveServeContext({
       state: 'MN',
       positionName: 'Ramsey City Council',
-      isServeIcp: true,
     })
     const dispatchSpy = mockDispatchRun()
 

@@ -5,6 +5,7 @@ import type { ManualOfficeForm } from './onboardingTypes'
 
 const baseValue: ManualOfficeForm = {
   office: '',
+  level: '',
   state: '',
   city: '',
   district: '',
@@ -26,6 +27,7 @@ describe('ManualOfficeEntryStep', () => {
   it('renders the labels for every required field', () => {
     renderStep()
     expect(screen.getAllByText('Office Name').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Office Level').length).toBeGreaterThan(0)
     expect(screen.getAllByText('State').length).toBeGreaterThan(0)
     expect(screen.getAllByText('City, Town Or County').length).toBeGreaterThan(
       0,
@@ -45,6 +47,37 @@ describe('ManualOfficeEntryStep', () => {
     fireEvent.change(officeInput, { target: { value: 'City Council' } })
     expect(onChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ office: 'City Council', state: '' }),
+    )
+  })
+
+  it('emits the BallotReadyPositionLevel enum value when an office level is picked', () => {
+    // The persisted value must be the enum member ('FEDERAL'), not the UI
+    // label — details.ballotLevel is enum-validated server-side and 10DLC
+    // compliance derives the office level from it (ENG-11043).
+    const { onChange } = renderStep()
+    fireEvent.click(screen.getByRole('combobox', { name: /office level/i }))
+    fireEvent.click(screen.getByRole('option', { name: 'Federal' }))
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ level: 'FEDERAL' }),
+    )
+  })
+
+  it('renders a controlled office-level select for drafts saved before level existed', () => {
+    // Drafts persisted in data.onboarding before the field shipped come back
+    // without `level`; the component must normalize it to '' so the Radix
+    // Select stays controlled.
+    const { level: _level, ...legacyDraft } = { ...baseValue, office: 'Mayor' }
+    const onChange = vi.fn()
+    render(
+      <ManualOfficeEntryStep
+        value={legacyDraft as ManualOfficeForm}
+        onChange={onChange}
+      />,
+    )
+    fireEvent.click(screen.getByRole('combobox', { name: /office level/i }))
+    fireEvent.click(screen.getByRole('option', { name: 'State' }))
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ office: 'Mayor', level: 'STATE' }),
     )
   })
 

@@ -130,7 +130,10 @@ describe('YourDetailsCard — candidate (campaign) mode', () => {
       { key: 'details.occupation', value: 'Engineer' },
       { key: 'details.website', value: 'https://example.com' },
     ])
-    expect(saveAboutFields).toHaveBeenCalledWith({ bio: 'Original bio' })
+    // The bio was untouched, so it is not written back. Re-sending an
+    // unchanged bio blanked a live one in prod when the website read had
+    // silently failed and the field rendered empty.
+    expect(saveAboutFields).not.toHaveBeenCalled()
 
     // Independence: the elected-office endpoint is never called in campaign mode.
     expect(clientRequest).not.toHaveBeenCalled()
@@ -144,6 +147,24 @@ describe('YourDetailsCard — candidate (campaign) mode', () => {
 
     // The edited value is reflected in the read-only display.
     expect(await screen.findByText('Engineer')).toBeInTheDocument()
+  })
+
+  it('writes the bio when the candidate actually edits it', async () => {
+    const user = userEvent.setup()
+    render(<YourDetailsCard campaign={campaign({ party: 'Independent' })} />)
+    await screen.findByText('Original bio')
+
+    await user.click(screen.getByRole('button', { name: /edit details/i }))
+
+    const bio = await screen.findByLabelText('Bio')
+    await user.clear(bio)
+    await user.type(bio, 'A rewritten bio')
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(saveAboutFields).toHaveBeenCalledWith({ bio: 'A rewritten bio' }),
+    )
   })
 })
 

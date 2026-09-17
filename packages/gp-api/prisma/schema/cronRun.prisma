@@ -1,14 +1,19 @@
-/// A once-per-day claim row used as a durable, multi-instance lock for cron
+/// A once-per-slot claim row used as a durable, multi-instance lock for cron
 /// jobs. With multiple ECS replicas every replica fires its own @Cron, so a
-/// job that must run exactly once per day inserts a row keyed by
+/// job that must run exactly once per slot inserts a row keyed by
 /// (jobName, runDate). The unique constraint lets exactly one replica win the
 /// insert; the others get a unique-violation and skip. Unlike a session
 /// advisory lock this cannot leak across connection-pool churn.
 model CronRun {
   id String @id @default(uuid(7))
 
-  jobName String   @map("job_name")
-  runDate DateTime @map("run_date") @db.Date
+  jobName String @map("job_name")
+
+  // Start of the run slot the claim is for, always in UTC. Daily jobs pass UTC
+  // midnight; hourly jobs pass the UTC hour start. A plain timestamp (not
+  // @db.Date) so sub-day slots are representable — daily claims still land on
+  // exact midnight, so daily collapsing is unchanged.
+  runDate DateTime @map("run_date")
 
   // When the winning replica finished the job. A row that stays null past the
   // staleness window means the claimer crashed mid-run, so another replica may

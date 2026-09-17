@@ -14,7 +14,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useCrmEnabled } from '../../../shared/useCrmEnabled'
+import { useContactsTable } from '../ContactsTableProvider'
 import type {
   ContactStatuses,
   Person,
@@ -112,14 +112,15 @@ interface StatusRowProps {
 // editable dropdowns and a read-only Opt In Status pill. Replaces the Win
 // read-only Support Status Field and the name-adjacent OptedInChip. Mounted
 // unconditionally by PersonOverlay (same self-gating convention as
-// NotesSection) — self-gates on Win + CRM-on so Serve's page stays identical.
+// NotesSection) — self-gates on Win so Serve's page stays identical.
 export default function StatusRow({
   person,
   hidePoliticalParty,
 }: StatusRowProps): React.JSX.Element | null {
-  // trackExposure=false: this surface reads the flag to decide whether to
-  // render, it isn't the CRM treatment surface (ContactsPageGate is).
-  const { enabled, ready } = useCrmEnabled()
+  // hidePoliticalParty reads false while the elected-office query is still
+  // loading, so without this latch a Serve record would flash the Win-only
+  // dropdowns before settling.
+  const { isWinContextReady } = useContactsTable()
   const orgSlug = useOrganization()?.slug
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
@@ -239,7 +240,7 @@ export default function StatusRow({
     supportStatusMutation.mutate(value as SupportStatusRollup)
   }
 
-  if (!ready || !enabled || hidePoliticalParty) return null
+  if (!isWinContextReady || hidePoliticalParty) return null
 
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-6 mb-6">

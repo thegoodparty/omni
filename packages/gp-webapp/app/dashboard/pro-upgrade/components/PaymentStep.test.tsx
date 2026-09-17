@@ -182,4 +182,39 @@ describe('PaymentStep', () => {
     ).not.toBeInTheDocument()
     expect(goToStep).not.toHaveBeenCalled()
   })
+
+  it('explains a NO_ACTIVE_CAMPAIGN rejection instead of the generic error (ENG-10892)', async () => {
+    api.mock(CHECKOUT_SESSION_ROUTE, {
+      status: 400,
+      data: {
+        message: 'User does not have an active campaign',
+        errorCode: 'NO_ACTIVE_CAMPAIGN',
+      },
+    })
+
+    render(<PaymentStep />)
+
+    expect(
+      await screen.findByText(/your campaign is not currently active/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/campaignsuccess@goodparty\.org/i),
+    ).toBeInTheDocument()
+  })
+
+  it('explains an ALREADY_PRO rejection instead of the generic error', async () => {
+    api.mock(CHECKOUT_SESSION_ROUTE, {
+      status: 409,
+      data: {
+        message: 'Campaign already has an active Pro subscription',
+        errorCode: 'ALREADY_PRO',
+      },
+    })
+
+    render(<PaymentStep />)
+
+    expect(
+      await screen.findByText(/already have an active pro subscription/i),
+    ).toBeInTheDocument()
+  })
 })

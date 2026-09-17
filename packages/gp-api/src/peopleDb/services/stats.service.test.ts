@@ -1,101 +1,49 @@
-import { NotFoundException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { StatsService } from './stats.service'
-import type { PeopleDbService } from '../peopleDb.service'
+
+const DISTRICT_ID = '0e5bafca-93a9-86a5-2522-f373979720df'
 
 describe('StatsService', () => {
   let service: StatsService
-  let mockPrisma: {
-    districtStats: {
-      findUnique: ReturnType<typeof vi.fn>
-    }
-  }
+  let findStats: ReturnType<typeof vi.fn>
+  let measure: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
-    mockPrisma = {
-      districtStats: {
-        findUnique: vi.fn(),
-      },
-    }
-
-    service = new StatsService()
-    ;(service as unknown as { _peopleDb: PeopleDbService })._peopleDb = {
-      get instance() {
-        return mockPrisma
-      },
-    } as unknown as PeopleDbService
+    findStats = vi.fn().mockResolvedValue({
+      districtId: DISTRICT_ID,
+      totalConstituents: 42,
+    })
+    // measure() runs the real read, so the assertions below cover both the
+    // delegation and the op/districtId the read is logged under.
+    measure = vi.fn((args: { read: () => unknown }) => args.read())
+    service = new StatsService({ findStats } as never, { measure } as never)
   })
 
-  it('uses districtId directly', async () => {
-    mockPrisma.districtStats.findUnique.mockResolvedValue({
-      districtId: 'district-1',
-      totalConstituents: 100,
-    })
+  it('aggregates the district stats under the stats op', async () => {
+    const stats = await service.findStats({ districtId: DISTRICT_ID } as never)
 
-    const result = await service.getStats({
-      districtId: 'district-1',
-    } as never)
-
-    expect(mockPrisma.districtStats.findUnique).toHaveBeenCalledWith({
-      where: { districtId: 'district-1' },
-    })
-    expect(result.districtId).toBe('district-1')
-  })
-
-  it('throws NotFoundException when stats are missing', async () => {
-    mockPrisma.districtStats.findUnique.mockResolvedValue(null)
-
-    await expect(
-      service.getStats({ districtId: 'missing-district-id' } as never),
-    ).rejects.toThrow(NotFoundException)
-  })
-
-  it('returns total counts for a district', async () => {
-    mockPrisma.districtStats.findUnique.mockResolvedValue({
-      totalConstituents: 111,
-      totalConstituentsWithCellPhone: 55,
-    })
-
-    const counts = await service.getTotalCounts('district-1')
-
-    expect(mockPrisma.districtStats.findUnique).toHaveBeenCalledWith({
-      select: {
-        totalConstituents: true,
-        totalConstituentsWithCellPhone: true,
-      },
-      where: { districtId: 'district-1' },
-    })
-    expect(counts.totalConstituents).toBe(111)
-    expect(counts.totalConstituentsWithCellPhone).toBe(55)
-  })
-
-  it('returns totalConstituents without throwing when the stats row exists', async () => {
-    mockPrisma.districtStats.findUnique.mockResolvedValue({
-      totalConstituents: 39932,
-    })
-
-    await expect(service.findTotalConstituents('district-1')).resolves.toBe(
-      39932,
+    expect(findStats).toHaveBeenCalledWith(DISTRICT_ID)
+    expect(measure).toHaveBeenCalledWith(
+      expect.objectContaining({ op: 'stats', districtId: DISTRICT_ID }),
     )
-    expect(mockPrisma.districtStats.findUnique).toHaveBeenCalledWith({
-      select: { totalConstituents: true },
-      where: { districtId: 'district-1' },
-    })
+    expect(stats?.totalConstituents).toBe(42)
   })
 
-  it('returns null (not an exception) when findTotalConstituents finds no stats row', async () => {
-    mockPrisma.districtStats.findUnique.mockResolvedValue(null)
+  // Absence is load-bearing: a district with no constituents in scope has to
+  // read as "no stats" so the product can gate on it rather than render zeros.
+  it('returns null for a district with no constituents', async () => {
+    findStats.mockResolvedValue(null)
 
     await expect(
-      service.findTotalConstituents('missing-district-id'),
+      service.findStats({ districtId: DISTRICT_ID } as never),
     ).resolves.toBeNull()
   })
 
-  it('throws when total counts are missing', async () => {
-    mockPrisma.districtStats.findUnique.mockResolvedValue(null)
+  it('propagates a warehouse failure rather than serving null', async () => {
+    findStats.mockRejectedValue(new Error('warehouse down'))
 
-    await expect(service.getTotalCounts('missing-district-id')).rejects.toThrow(
-      NotFoundException,
-    )
+    await expect(
+      service.findStats({ districtId: DISTRICT_ID } as never),
+    ).rejects.toThrow('warehouse down')
   })
 })

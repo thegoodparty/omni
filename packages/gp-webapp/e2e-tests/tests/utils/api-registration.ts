@@ -78,6 +78,13 @@ type PlaywrightCookie = Parameters<BrowserContext['addCookies']>[0][0]
 // Global cache for shared users per worker
 let cachedUser: BootstrappedUser | null = null
 
+// Establish the browser's Clerk session. Deliberately the LAST step of
+// bootstrapping (see bootstrapTestUser): the moment a Clerk session exists in
+// the browser, the app fans out ~8 concurrent authenticated calls
+// (/v1/campaigns/mine, /v1/organizations, /v1/experiment/variants, …). For a
+// user gp-api has never seen, each of those independently asks Clerk's Backend
+// API to resolve the identity so it can JIT-provision the row, and Clerk's
+// per-instance budget answers 429 — which gp-api turns into a 401.
 async function signInUser(page: Page, email: string): Promise<void> {
   await setupClerkTestingToken({ page })
   await page.goto('/')
@@ -95,6 +102,12 @@ async function signInUser(page: Page, email: string): Promise<void> {
   )
 }
 
+// Ordering contract: everything gp-api needs (user row, campaign) is created
+// through the API client FIRST, and the browser is signed in LAST. Signing in
+// earlier leaves a window where the browser holds a Clerk session for a user
+// gp-api has never seen, and every request the app makes in that window races
+// to JIT-provision the same identity through Clerk's Backend API. Do not move
+// signInUser back up.
 const bootstrapTestUser = async (
   page: Page,
   options?: TestUserOptions,
@@ -117,7 +130,6 @@ const bootstrapTestUser = async (
     }),
   )
 
-  await signInUser(page, generated.email)
   const token = await mintApiToken(clerkUser.id)
 
   const client = axios.create({
@@ -127,8 +139,11 @@ const bootstrapTestUser = async (
     },
   })
 
-  // First authenticated gp-api call — doubles as the cold-stack readiness probe:
-  // retrying it warms the target so the writes below land on a healthy task.
+  // First authenticated gp-api call — this is what JIT-provisions the local user
+  // row, and it is deliberately the ONLY request that does so: it is serial and
+  // retried, where the browser's post-sign-in fan-out is neither. It also
+  // doubles as the cold-stack readiness probe: retrying it warms the target so
+  // the writes below land on a healthy task.
   const { data: apiUser } = await withGatewayRetry('GET /v1/users/me', () =>
     client.get<{
       id: number
@@ -159,6 +174,7 @@ const bootstrapTestUser = async (
   }
 
   if (options?.skipCampaignCreation) {
+    await signInUser(page, generated.email)
     if (!options?.isolated) {
       cachedUser = result
     }
@@ -242,6 +258,9 @@ const bootstrapTestUser = async (
   await withGatewayRetry('POST /v1/campaigns/launch', () =>
     client.post('/v1/campaigns/launch', {}),
   )
+
+  await signInUser(page, generated.email)
+
   return result
 }
 

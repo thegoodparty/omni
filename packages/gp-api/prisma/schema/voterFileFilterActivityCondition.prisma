@@ -15,14 +15,22 @@ enum ActivityConditionAction {
   responded // SMS
   no_response // SMS
   opted_out // SMS
-  answered // door knock, robocall
+  answered // door knock, robocall, phone banking
   not_home // door knock
   refused_to_engage // door knock
-  support_yes // door knock
-  support_unsure // door knock
-  support_no // door knock
+  support_yes // door knock, phone banking
+  support_unsure // door knock, phone banking
+  support_no // door knock, phone banking
   voicemail_left // robocall
-  no_answer // robocall
+  no_answer // robocall, phone banking
+  // Phone banking additions (ENG-10916): additive only, existing members are
+  // persisted inside saved filters (JSON) so they can never be renamed.
+  voicemail // phone banking
+  wrong_number // phone banking
+  refused // phone banking
+  // ENG-10945: phone banking's two new call dispositions.
+  disconnected // phone banking
+  hung_up // phone banking
 }
 
 model VoterFileFilterActivityCondition {

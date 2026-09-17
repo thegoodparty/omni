@@ -19,7 +19,7 @@ import { PaymentInterstitials } from 'app/dashboard/purchase/components/PaymentI
 import H1 from '@shared/typography/H1'
 import Paper from '@shared/utils/Paper'
 import CheckoutPayment from 'app/dashboard/purchase/components/CheckoutPayment'
-import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
+import { Spinner } from '@styleguide'
 import PurchaseError from 'app/dashboard/purchase/components/PurchaseError'
 
 interface PurchasePageProps {
@@ -117,7 +117,9 @@ export default function PurchasePage({
           {error ? (
             <PurchaseError error={error} serverError={undefined} />
           ) : !checkoutSession ? (
-            <LoadingAnimation />
+            <div className="flex justify-center py-12">
+              <Spinner />
+            </div>
           ) : (
             <CheckoutPayment
               onPaymentSuccess={handlePaymentSuccess}

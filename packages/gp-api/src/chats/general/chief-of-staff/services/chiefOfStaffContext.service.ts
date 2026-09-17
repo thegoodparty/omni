@@ -18,18 +18,26 @@ export interface ChiefOfStaffContext {
   officeTitle: string | null
   jurisdiction: string | null
   swornInDate: Date | null
+  party: string | null
+  electedDate: Date | null
+  termStartDate: Date | null
+  termEndDate: Date | null
   priorities: PriorityRecord[]
+  // True on the holder's very first chief-of-staff conversation, which gates the
+  // one-off first-run research block. Counted rather than inferred: the
+  // conversational home opens a new conversation per session, so a model asked
+  // to judge "does this look like a first message" would redo the research on
+  // every visit.
+  isFirstConversation: boolean
   anchor: ChatAnchor | null
   // Server-bound district predicate for constituent-data queries. The context
   // service leaves this null; the handler fills it from DistrictResolverService
   // (which also populates jurisdiction).
   districtFilters: MandatoryFilter[] | null
-  // Whether the per-user cos-constituent-data-tool flag is on. The context
-  // service defaults it false; the handler resolves it from FeaturesService.
+  // Whether the constituent-data tool can register (provider + an approved
+  // table configured). The context service defaults it false; the handler
+  // resolves the real value from the provider + table allowlist.
   constituentToolEnabled: boolean
-  // Whether the serve-crm flag enables the contact describe/count tools.
-  // Defaults false here; the handler resolves it from FeaturesService.
-  crmToolsEnabled: boolean
 }
 
 // Loads the static CoS context from the conversation's owning user + their
@@ -65,6 +73,26 @@ export class ChiefOfStaffContextService extends createPrismaBase(
 
     const priorities = await port.listActive(electedOffice.id)
 
+    // "First conversation" means they have never actually talked to their
+    // chief of staff, so this counts PRIOR conversations that hold at least
+    // one message. Excluding the current row keeps the check independent of
+    // whether it is already persisted, and requiring a message drops the
+    // empty rows a retried POST /chats leaves behind (createScopedConversation
+    // takes no idempotency key), which would otherwise make a genuinely
+    // first-time user look like a returning one.
+    const priorConversations = await this.count({
+      where: {
+        id: { not: conversationId },
+        ownerUserId: userId,
+        scope: ChatScope.chief_of_staff,
+        // Same coalesce as the electedOffice lookup above: a null slug would
+        // otherwise match every null-slug conversation instead of none.
+        organizationSlug: conversation.organizationSlug ?? '',
+        deletedAt: null,
+        messages: { some: {} },
+      },
+    })
+
     const rawAnchor = conversation.anchor
     const anchorParsed = rawAnchor
       ? ChatAnchorSchema.safeParse(rawAnchor)
@@ -89,11 +117,15 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       officeTitle: electedOffice.organization.customPositionName,
       jurisdiction: null,
       swornInDate: electedOffice.swornInDate,
+      party: electedOffice.party,
+      electedDate: electedOffice.electedDate,
+      termStartDate: electedOffice.termStartDate,
+      termEndDate: electedOffice.termEndDate,
       priorities,
+      isFirstConversation: priorConversations === 0,
       anchor,
       districtFilters: null,
       constituentToolEnabled: false,
-      crmToolsEnabled: false,
     }
   }
 }

@@ -187,18 +187,12 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
       'Processing weekly tasks digest',
     )
 
-    // Two mutually exclusive cohorts, one digest per campaign:
-    //  - tracker cohort: campaigns with campaign_tracker_tasks rows get the
-    //    Campaign Tracker v3 digest (latest generation only, GOTV window).
-    //  - legacy cohort: campaigns with NO tracker rows get the pre-v3
-    //    campaign_task digest, unchanged. Story-off campaigns never bootstrap
-    //    the tracker, so they stay here and behave exactly as before v3.
-    const [trackerRows, legacyRows] = await Promise.all([
-      this.fetchTrackerDigestRows(windowStart, windowEnd),
-      this.fetchLegacyDigestRows(windowStart, windowEnd),
-    ])
+    const trackerRows = await this.fetchTrackerDigestRows(
+      windowStart,
+      windowEnd,
+    )
 
-    const campaigns = groupByCampaign([...trackerRows, ...legacyRows])
+    const campaigns = groupByCampaign(trackerRows)
 
     let sent = 0
     let failed = 0
@@ -351,73 +345,6 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
               t.date ASC
           ) AS slot
         FROM visible t
-        JOIN eligible e ON e.id = t.campaign_id
-        WHERE t.completed = false
-          AND t.date >= ${windowStart}
-          AND t.date < ${windowEnd}
-      )
-      SELECT
-        e.id           AS campaign_id,
-        e.user_id,
-        e.completed_count,
-        e.incomplete_count,
-        rt.slot::int   AS slot,
-        rt.title,
-        rt.description,
-        rt.flow_type,
-        rt.date,
-        rt.week
-      FROM eligible e
-      JOIN ranked_tasks rt ON rt.campaign_id = e.id
-      WHERE rt.slot <= ${MAX_TASKS}
-      ORDER BY e.id, rt.slot
-    `
-  }
-
-  // Legacy (pre-v3) cohort: campaigns with NO campaign_tracker_tasks rows. The
-  // NOT EXISTS guard keeps the two cohorts mutually exclusive so a migrated
-  // campaign (which has tracker rows) is never double-counted here. Otherwise
-  // this is the unchanged pre-v3 digest over campaign_task.
-  private fetchLegacyDigestRows(
-    windowStart: Date,
-    windowEnd: Date,
-  ): Promise<DigestRow[]> {
-    return this.client.$queryRaw<DigestRow[]>`
-      WITH eligible AS (
-        SELECT
-          c.id,
-          c.user_id,
-          COUNT(*) FILTER (WHERE t.completed = true)::int  AS completed_count,
-          COUNT(*) FILTER (WHERE t.completed = false)::int AS incomplete_count
-        FROM campaign c
-        JOIN campaign_task t ON t.campaign_id = c.id
-        WHERE c.details->>'electionDate' ~ '^\\d{4}-\\d{2}-\\d{2}'
-          AND (c.details->>'electionDate')::date > NOW()::date
-          AND t.date >= ${windowStart}
-          AND t.date < ${windowEnd}
-          AND NOT EXISTS (
-            SELECT 1 FROM campaign_tracker_tasks ctt
-            WHERE ctt.campaign_id = c.id
-          )
-        GROUP BY c.id, c.user_id
-        HAVING COUNT(*) FILTER (WHERE t.completed = false) >= ${MIN_TASKS}
-      ),
-      ranked_tasks AS (
-        SELECT
-          t.campaign_id,
-          t.title,
-          t.description,
-          t.flow_type,
-          t.date,
-          t.week,
-          ROW_NUMBER() OVER (
-            PARTITION BY t.campaign_id
-            ORDER BY
-              CASE WHEN t.flow_type::text IN (${Prisma.join(OUTREACH_FLOW_TYPES)})
-                THEN 0 ELSE 1 END,
-              t.date ASC
-          ) AS slot
-        FROM campaign_task t
         JOIN eligible e ON e.id = t.campaign_id
         WHERE t.completed = false
           AND t.date >= ${windowStart}

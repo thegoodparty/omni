@@ -3,6 +3,7 @@ import {
   BadRequestException,
   Injectable,
 } from '@nestjs/common'
+import { isAxiosError } from 'axios'
 import { formatISO } from 'date-fns'
 import { Headers } from 'http-constants-ts'
 import { Readable } from 'stream'
@@ -19,7 +20,10 @@ import { PeerlyMediaService } from './peerlyMedia.service'
 import { PeerlyScheduleService } from './peerlySchedule.service'
 import {
   CreateJobResponseDto,
+  CreateTestJobResponseDto,
   GetJobResponseDto,
+  JobDetailedStatsResponseDto,
+  ListTestJobsResponseDto,
 } from '../schemas/peerlyP2pSms.schema'
 import { CreateJobParams, PeerlyJob } from '../peerly.types'
 
@@ -39,6 +43,19 @@ interface CreateP2pJobParams {
   didState?: string
   didNpaSubset?: string[]
   scheduledDate?: string
+}
+
+interface UpdateP2pJobParams {
+  jobId: string
+  campaignId: number
+  imageInfo: CreateP2pJobParams['imageInfo']
+  scriptText: string
+  identityId: string
+  name?: string
+  // Set only when the send date changed: Peerly has no schedule-update
+  // endpoint, so a reschedule mints a fresh schedule and repoints the job's
+  // schedule_id + start/end dates at it. Omitted, the job keeps its schedule.
+  rescheduleDate?: string
 }
 
 @Injectable()
@@ -126,6 +143,12 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
 
       return jobId
     } catch (error) {
+      // A BadRequestException carries a user-fixable Peerly content
+      // rejection (peerlyErrorHandling.service.ts) — don't bury it under
+      // the generic 502.
+      if (error instanceof BadRequestException) {
+        throw error
+      }
       const isListAssignmentFailure =
         error instanceof BadGatewayException &&
         error.message.includes(P2P_ERROR_MESSAGES.LIST_ASSIGNMENT_FAILED)
@@ -137,6 +160,83 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
         P2P_ERROR_MESSAGES.JOB_CREATION_FAILED,
       )
       throw new BadGatewayException(P2P_ERROR_MESSAGES.JOB_CREATION_FAILED)
+    }
+  }
+
+  // Edit-before-send. Templates are a destructive full-array overwrite on
+  // Peerly's side, so the caller always sends the complete script + image —
+  // media is re-created per edit (same orphan posture as a failed create).
+  async updatePeerlyP2pJob({
+    jobId,
+    campaignId,
+    imageInfo,
+    scriptText,
+    identityId,
+    name,
+    rescheduleDate,
+  }: UpdateP2pJobParams): Promise<void> {
+    if (scriptText.length > P2P_SCRIPT_MAX_LENGTH) {
+      throw new BadRequestException(P2P_ERROR_MESSAGES.SCRIPT_TOO_LONG)
+    }
+
+    try {
+      const mediaId = await this.peerlyMediaService.createMedia({
+        identityId,
+        fileStream: imageInfo.fileStream,
+        fileName: imageInfo.fileName,
+        mimeType: imageInfo.mimeType,
+        fileSize: imageInfo.fileSize,
+        title: imageInfo.title,
+      })
+
+      let scheduleId: number | undefined
+      if (rescheduleDate) {
+        const scheduleName = `GP P2P - Campaign ${campaignId} - ${rescheduleDate} - ${formatISO(new Date())}`
+        scheduleId =
+          await this.peerlyScheduleService.createSchedule(scheduleName)
+      }
+
+      const body = {
+        account_id: this.accountNumber,
+        ...(name && { name }),
+        templates: [
+          {
+            is_default: true,
+            title: P2P_JOB_DEFAULTS.TEMPLATE_TITLE,
+            text: scriptText,
+            media: {
+              media_type: 'IMAGE',
+              media_id: mediaId,
+              title: imageInfo.title || P2P_JOB_DEFAULTS.TEMPLATE_TITLE,
+            },
+          },
+        ],
+        can_use_mms: true,
+        ...(scheduleId && {
+          schedule_id: scheduleId,
+          start_date: rescheduleDate,
+          end_date: rescheduleDate,
+        }),
+      }
+
+      this.logger.debug({ body }, `Updating Peerly job ${jobId} with body:`)
+      try {
+        await this.peerlyHttpService.put(`/1to1/jobs/${jobId}`, body)
+      } catch (error) {
+        // Same parse as createJob: a Peerly content rejection
+        // (Errors.templates) surfaces as an actionable 400, not a blanket
+        // 502 (ENG-10981).
+        await this.peerlyErrorHandling.handleApiError({
+          error,
+          logger: this.logger,
+        })
+      }
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error
+      }
+      this.logger.error({ error }, P2P_ERROR_MESSAGES.JOB_UPDATE_FAILED)
+      throw new BadGatewayException(P2P_ERROR_MESSAGES.JOB_UPDATE_FAILED)
     }
   }
 
@@ -152,6 +252,321 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     } catch (error) {
       this.logger.error({ error }, P2P_ERROR_MESSAGES.RETRIEVE_JOBS_FAILED)
       throw new BadGatewayException(P2P_ERROR_MESSAGES.RETRIEVE_JOBS_FAILED)
+    }
+  }
+
+  // identity_id is an optional filter on GET /1to1/jobs (List Jobs docs);
+  // account scope returns every identity's jobs in one read, which is what
+  // the admin queue wants instead of a fan-out per identity.
+  async listAccountJobs(): Promise<PeerlyJob[]> {
+    try {
+      const response = await this.peerlyHttpService.get<PeerlyJob[]>(
+        `/1to1/jobs?account_id=${this.accountNumber}`,
+      )
+      return response.data
+    } catch (error) {
+      this.logger.error({ error }, P2P_ERROR_MESSAGES.RETRIEVE_JOBS_FAILED)
+      throw new BadGatewayException(P2P_ERROR_MESSAGES.RETRIEVE_JOBS_FAILED)
+    }
+  }
+
+  // Peerly has no DELETE verb for jobs: cancellation is a status write on
+  // DELETE /1to1/jobs/{id} (204). The endpoint is documented but missing
+  // from Peerly's llms.txt index
+  // (https://api-docs.peerly.com/reference/delete-1to1-sms-job). See
+  // scratch/voter-outreach/research/peerly-job-cancel.md.
+  async deleteJob(jobId: string): Promise<void> {
+    try {
+      this.logger.debug(`Deleting P2P job ${jobId}`)
+      await this.peerlyHttpService.delete(`/1to1/jobs/${jobId}`)
+    } catch (error) {
+      // Already-deleted is the desired state, not a failure: cancel retries
+      // after a refund failure re-run this delete, and treating the 404 as
+      // fatal would strand the row pending with the vendor job already gone.
+      if (isAxiosError(error) && error.response?.status === 404) {
+        this.logger.debug(`P2P job ${jobId} already deleted; treating as done`)
+        return
+      }
+      this.logger.error({ error }, P2P_ERROR_MESSAGES.DELETE_JOB_FAILED)
+      throw new BadGatewayException(P2P_ERROR_MESSAGES.DELETE_JOB_FAILED)
+    }
+  }
+
+  // The send trigger: books Peerly's paid canvassers for the job. Their
+  // team reviews the request; approval lands on the job as
+  // canvassers_schedule.approved. One open request per job — reschedules
+  // must clearCanvassers first.
+  // A booked job still sends nothing while its status is paused
+  // ("Inactive" in Peerly's UI), and Peerly never flips it — activation is
+  // an explicit update (update-job-details doc; learned live 2026-09-08
+  // when an approved prod job sat inactive). The update endpoint
+  // overwrites the WHOLE templates array with whatever is passed, so this
+  // re-reads the job and echoes its templates (media by reference) rather
+  // than risking a bare status write clearing the message.
+  async activateJob(jobId: string): Promise<void> {
+    const job = await this.getJob(jobId)
+    try {
+      await this.peerlyHttpService.put(`/1to1/jobs/${jobId}`, {
+        account_id: this.accountNumber,
+        status: 'active',
+        can_use_mms: job.can_use_mms,
+        templates: job.templates.map((template) => ({
+          is_default: template.is_default,
+          title: template.title,
+          text: template.text,
+          ...(template.media && {
+            media: {
+              media_type: template.media.media_type,
+              media_id: template.media.media_id,
+              title: template.media.title,
+            },
+          }),
+        })),
+      })
+    } catch (error) {
+      await this.peerlyErrorHandling.handleApiError({
+        error,
+        logger: this.logger,
+        context: {
+          customMessage: P2P_ERROR_MESSAGES.ACTIVATE_JOB_FAILED,
+        },
+      })
+    }
+  }
+
+  // Staff date edit: repoints the job's send window without touching the
+  // message. The update PUT overwrites the whole templates array, so the
+  // job is read first and its templates echoed by media_id — the
+  // activateJob pattern — while the reschedule mints a fresh schedule and
+  // sets start/end to the new local day, the same derivation the create
+  // path used for the original date.
+  async updateJobSchedule({
+    jobId,
+    campaignId,
+    date,
+  }: {
+    jobId: string
+    campaignId: number
+    date: string
+  }): Promise<void> {
+    const job = await this.getJob(jobId)
+    try {
+      const scheduleName = `GP P2P - Campaign ${campaignId} - ${date} - ${formatISO(new Date())}`
+      const scheduleId =
+        await this.peerlyScheduleService.createSchedule(scheduleName)
+      await this.peerlyHttpService.put(`/1to1/jobs/${jobId}`, {
+        account_id: this.accountNumber,
+        // Echoed like templates: this runs on approve-activated jobs, and
+        // a full-replace PUT that defaulted status back to paused would
+        // silently deactivate the send (the 2026-09-08 failure mode
+        // activateJob exists for).
+        status: job.status,
+        can_use_mms: job.can_use_mms,
+        templates: job.templates.map((template) => ({
+          is_default: template.is_default,
+          title: template.title,
+          text: template.text,
+          ...(template.media && {
+            media: {
+              media_type: template.media.media_type,
+              media_id: template.media.media_id,
+              title: template.media.title,
+            },
+          }),
+        })),
+        schedule_id: scheduleId,
+        start_date: date,
+        end_date: date,
+      })
+    } catch (error) {
+      await this.peerlyErrorHandling.handleApiError({
+        error,
+        logger: this.logger,
+        context: {
+          customMessage: P2P_ERROR_MESSAGES.JOB_UPDATE_FAILED,
+        },
+      })
+    }
+  }
+
+  async requestCanvassers(
+    jobId: string,
+    { date, startTime }: { date?: string; startTime?: string } = {},
+  ): Promise<void> {
+    try {
+      // Peerly validates requested_initials against the REQUESTING user —
+      // the API login this service authenticates as — not the human who
+      // clicked approve (whose initials it 400s as "invalid user
+      // initials"). So the initials are always derived from the
+      // authenticated Peerly user, never taken from a caller.
+      const user = await this.peerlyHttpService.getAuthenticatedUser()
+      const initials =
+        `${user.first_name.charAt(0)}${user.last_name.charAt(0)}`.toUpperCase()
+      // The send window opens at the candidate's chosen wall-clock time
+      // (design settled 2026-09-16) and always closes at the 9pm compliance
+      // cutoff, in each recipient's local timezone. Sent explicitly as a
+      // CUSTOM window rather than relying on the vendor's ANY_TIME default
+      // semantics; callers with no stored time keep the 9am open.
+      await this.peerlyHttpService.post(`/v2/p2p/${jobId}/request_canvassers`, {
+        requested_initials: initials,
+        ...(date && { requested_date: date }),
+        requested_timeframe: 'CUSTOM',
+        requested_start_time: `${startTime ?? '09:00'}:00`,
+        requested_end_time: '21:00:00',
+        requested_timezone: 'LOCAL',
+      })
+    } catch (error) {
+      // A 400 here is CAS-actionable (e.g. a request already open) — keep
+      // Peerly's own message via the shared parser instead of a blanket 502.
+      await this.peerlyErrorHandling.handleApiError({
+        error,
+        logger: this.logger,
+        context: {
+          customMessage: P2P_ERROR_MESSAGES.REQUEST_CANVASSERS_FAILED,
+        },
+      })
+    }
+  }
+
+  async clearCanvassers(jobId: string): Promise<void> {
+    try {
+      await this.peerlyHttpService.post(`/v2/p2p/${jobId}/clear_canvassers`)
+    } catch (error) {
+      // Nothing-to-clear is the desired state: a 404/400 for a job with no
+      // open request must not fail the caller (edit clears defensively).
+      if (
+        isAxiosError(error) &&
+        (error.response?.status === 404 || error.response?.status === 400)
+      ) {
+        this.logger.debug(
+          `No canvasser request to clear on job ${jobId}; treating as done`,
+        )
+        return
+      }
+      this.logger.error({ error }, P2P_ERROR_MESSAGES.CLEAR_CANVASSERS_FAILED)
+      throw new BadGatewayException(P2P_ERROR_MESSAGES.CLEAR_CANVASSERS_FAILED)
+    }
+  }
+
+  // Peerly's test jobs (P2P-TEST) hang off a real job and are what their
+  // platform's own "send test" button drives. Listing lets a repeat send
+  // reuse the job's existing test job instead of minting a vendor object
+  // per click.
+  async listTestJobIds(jobId: string): Promise<string[]> {
+    try {
+      const response = await this.peerlyHttpService.get(
+        `/v2/p2p/${jobId}/tests`,
+      )
+      const validated = this.peerlyHttpService.validateResponse(
+        response.data,
+        ListTestJobsResponseDto,
+        'list test jobs',
+      )
+      return validated.map((testJob) => testJob.p2p_id)
+    } catch (error) {
+      this.logger.error({ error }, P2P_ERROR_MESSAGES.LIST_TEST_JOBS_FAILED)
+      throw new BadGatewayException(P2P_ERROR_MESSAGES.LIST_TEST_JOBS_FAILED)
+    }
+  }
+
+  async createTestJob(jobId: string): Promise<string> {
+    try {
+      const response = await this.peerlyHttpService.post(
+        `/v2/p2p/${jobId}/tests`,
+      )
+      const validated = this.peerlyHttpService.validateResponse(
+        response.data,
+        CreateTestJobResponseDto,
+        'create test job',
+      )
+      return validated.id
+    } catch (error) {
+      // No customMessage: a Peerly 4xx here is CAS-actionable, so the
+      // shared parser keeps Peerly's own message.
+      return this.peerlyErrorHandling.handleApiError({
+        error,
+        logger: this.logger,
+      })
+    }
+  }
+
+  // Sends the test job's template to ONE explicitly supplied 10-digit
+  // phone — a real text to a real handset, so the number must always be
+  // operator-typed, never derived from campaign or contact data.
+  async sendTestMessage(testJobId: string, phone: string): Promise<void> {
+    try {
+      await this.peerlyHttpService.post(
+        `/1to1/jobs/${testJobId}/send_test_message`,
+        { test_contact_phone: phone },
+      )
+    } catch (error) {
+      return this.peerlyErrorHandling.handleApiError({
+        error,
+        logger: this.logger,
+      })
+    }
+  }
+
+  async getJobDetailedStats(
+    jobId: string,
+    range: { startDate: string; endDate: string },
+  ): Promise<{
+    sentTotal: number
+    receivedTotal: number
+    delivered: number
+    deliveryFailed: number
+    deliveryUnconfirmed: number
+    totalCost: number
+  }> {
+    try {
+      // date_range is required and Peerly scans the whole span server-side;
+      // Peerly retains ~90 days, so callers always pass the job's own
+      // lifetime as a CUSTOM window rather than a full-year scan.
+      const response = await this.peerlyHttpService.get(
+        `/v2/p2p/${jobId}/detailedstats`,
+        {
+          params: {
+            date_range: 'CUSTOM',
+            start_date: range.startDate,
+            end_date: range.endDate,
+          },
+        },
+      )
+      const stats = this.peerlyHttpService.validateResponse(
+        response.data,
+        JobDetailedStatsResponseDto,
+        'job detailed stats',
+      )
+      // Key names inside the count maps aren't documented (docs say
+      // "RX/TX SUCCESS/FAIL"), so counts sum by direction prefix.
+      const sumBy = (
+        record: Record<string, number> | undefined,
+        prefix: string,
+      ) =>
+        Object.entries(record ?? {})
+          .filter(([key]) => key.toUpperCase().startsWith(prefix))
+          .reduce((total, [, count]) => total + count, 0)
+      const receipts = {
+        ...(stats.delivery_receipts ?? {}),
+      }
+      for (const [key, count] of Object.entries(
+        stats.mms_delivery_receipts ?? {},
+      )) {
+        receipts[key] = (receipts[key] ?? 0) + count
+      }
+      return {
+        sentTotal:
+          sumBy(stats.messages, 'TX') + sumBy(stats.mms_messages, 'TX'),
+        receivedTotal:
+          sumBy(stats.messages, 'RX') + sumBy(stats.mms_messages, 'RX'),
+        delivered: receipts['Delivered'] ?? 0,
+        deliveryFailed: receipts['Delivery Failed'] ?? 0,
+        deliveryUnconfirmed: receipts['Delivery Unconfirmed'] ?? 0,
+        totalCost: stats.total_cost ?? 0,
+      }
+    } catch (error) {
+      this.logger.error({ error }, P2P_ERROR_MESSAGES.JOB_STATS_FAILED)
+      throw new BadGatewayException(P2P_ERROR_MESSAGES.JOB_STATS_FAILED)
     }
   }
 

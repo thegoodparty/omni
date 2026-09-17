@@ -14,7 +14,7 @@ Status: accepted
 
 Option 3. `packages/contracts` is an npm workspace package named `@goodparty_org/contracts`. It contains Zod schemas (which produce both runtime validators and TS types via `z.infer`) and re-exports generated Prisma enums.
 
-Builds via `tsup`. Auto-built as part of `npm run start:dev` and `npm run build` via `scripts/build-contracts.ts`.
+Builds via `tsup`. `dist/` is gitignored, and consumers resolve the package through `main`/`types`, which point into it — so a missing or stale `dist` surfaces as nonsense in the consumer rather than as a clear "build me first". `packages/contracts/scripts/ensure-built.ts` guards that: it rebuilds only when `dist` is older than the sources, and every consumer calls it from its build and typecheck scripts and from its vitest global setup.
 
 ## Process
 

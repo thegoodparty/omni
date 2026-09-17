@@ -1,11 +1,22 @@
 import type {
   CreateDoorKnockingTurf,
-  DoorKnockingKnockRequest,
-  DoorKnockingKnockResponse,
+  DoorKnockingAddressPreviewResponse,
+  DoorKnockingArchiveRequest,
+  DoorKnockingAudienceCheckResponse,
+  DoorKnockingQuotaResponse,
   DoorKnockingRoutePayload,
+  DoorKnockingTalkingPointsDraftResponse,
+  DoorKnockingTalkingPointsPurpose,
   DoorKnockingTurf,
+  GeoJsonPolygon,
+  ServeDoorKnockingTalkingPointsPurpose,
   RecordDoorKnockInteraction,
   RecordDoorKnockInteractionResponse,
+  SetDoNotKnock,
+  SetDoNotKnockResponse,
+  SetNotAVoter,
+  SetNotAVoterResponse,
+  PhoneBankingList,
   UpdateDoorKnockingTurf,
   CreateOrdinanceRequest,
   ExperimentVariantsResponse,
@@ -22,6 +33,49 @@ import type {
   RaceOpponentResearchStatus,
   RaceOpponentFindingKind,
   SummarySource,
+  CancelOutreachResponse,
+  OutreachArchiveRequest,
+  OutreachArchiveResponse,
+  OutreachDetail,
+  OutreachReceipt,
+  SmsOutreachResults,
+  SocialDraftRequest,
+  SocialDraftResponse,
+  SocialGenerateRequest,
+  SocialGenerateResponse,
+  SocialSaveRequest,
+  ServeSocialDraftRequest,
+  ServeSocialGenerateRequest,
+  ServeSocialSaveRequest,
+  RecordPhoneBankingCall,
+  RecordPhoneBankingCallResponse,
+  PhoneBankingScriptDraftRequest,
+  PhoneBankingScriptDraftResponse,
+  ServePhoneBankingScriptDraftRequest,
+  ServePhoneBankingCreate,
+  RobocallScriptDraftRequest,
+  RobocallScriptDraftResponse,
+  RobocallAudioPresignRequest,
+  RobocallAudioPresignResponse,
+  RobocallNumberResponse,
+  RobocallComplianceRequest,
+  RobocallComplianceVerdict,
+  RobocallDraftCreateRequest,
+  RobocallDraftCreateResponse,
+  RobocallSaveCardIntentResponse,
+  RobocallAuthorizeRequest,
+  RobocallAuthorizeResponse,
+  PhoneBankingCreate,
+  PhoneBankingCreateResponse,
+  PeoplePrecinctsResponse,
+  SmsDraftRequest,
+  SmsDraftResponse,
+  AcceptInviteResponse,
+  MyPendingInviteResponse,
+  RecommendedListChannel,
+  RecommendedListIntent,
+  RecommendedListsResponse,
+  MyAssignmentsResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -47,6 +101,8 @@ import type {
   CampaignStory,
   CampaignStoryRewrite,
   RaceOpponentThreatTier,
+  OrganizationRole,
+  SetChatMessageFeedbackRequest,
 } from '@goodparty_org/contracts'
 import type { ContactsStats } from 'app/dashboard/polls/shared/queries'
 import type { GetPollIssuesResponse } from 'app/dashboard/polls/shared/serverApiCalls'
@@ -223,6 +279,14 @@ export type APIEndpoints = {
     Response: User
   }
 
+  // Partial profile update. /sign-up/phone uses it to land the Google
+  // signup's phone on the user row before the registration form below
+  // submits, so HubSpot's contact carries it from the start.
+  'PUT /v1/users/me': {
+    Request: Partial<Pick<User, 'firstName' | 'lastName' | 'phone' | 'zip'>>
+    Response: User
+  }
+
   // Submits the HubSpot registration form with the visitor's hubspotutk so
   // the contact gets web/paid original-source attribution instead of the
   // "offline sources" Segment's server-side destination would assign.
@@ -236,6 +300,265 @@ export type APIEndpoints = {
   'GET /v1/outreach': {
     Request: {}
     Response: Outreach[]
+  }
+
+  // Row detail for the v2 history drawer: the spine row plus `social`
+  // (purpose, draft, per-platform assets) when the row is a social campaign.
+  // 404 when the row doesn't belong to the requester's campaign.
+  'GET /v1/outreach/:id': {
+    Request: {}
+    Response: OutreachDetail
+  }
+
+  // Archive/restore for the v2 history drawer footer. Org-scoped (not
+  // campaign-scoped) — 404 when the row doesn't belong to the requester's
+  // organization. Response reads from the persisted row.
+  'PATCH /v1/outreach/:id/archive': {
+    Request: OutreachArchiveRequest
+    Response: OutreachArchiveResponse
+  }
+
+  // Cancel-before-send (SMS): permanent — deletes the Peerly job and issues
+  // the automatic Stripe refund (refunded=false on free-texts campaigns).
+  // Campaign-scoped; only `pending` (scheduled) rows are cancelable.
+  'POST /v1/outreach/:id/cancel': {
+    Request: {}
+    Response: CancelOutreachResponse
+  }
+
+  // Live Stripe receipt for a paid SMS campaign (success screen + details
+  // drawer's "View receipt"). Amount is in DOLLARS. 404 on free-texts rows
+  // (no checkout session recorded); 502 when Stripe is unreachable.
+  'GET /v1/outreach/:id/receipt': {
+    Request: {}
+    Response: OutreachReceipt
+  }
+
+  // Candidate-facing text results for the details sheet's Statistics card:
+  // counts only, reply content never leaves the CRM.
+  'GET /v1/outreach/:id/results': {
+    Request: {}
+    Response: SmsOutreachResults
+  }
+
+  // Team-accounts assignments (ENG-11048/ENG-11056), org-scoped, manager+ by
+  // default (the volunteer-only `assignments/mine` sibling isn't consumed
+  // here — see app/volunteer/). The outreach drawer's Assignees section reads
+  // and writes these.
+  'GET /v1/outreach/:id/assignments': {
+    Request: {}
+    Response: OutreachAssigneesResponse
+  }
+
+  'POST /v1/outreach/:id/assignments': {
+    Request: {
+      assigneeUserId: number
+    }
+    Response: OutreachAssignee
+  }
+
+  'DELETE /v1/outreach/:id/assignments/:userId': {
+    Request: {}
+    Response: undefined
+  }
+
+  // Synchronous, stateless: one structured LLM call writes the compose-step
+  // draft from purpose + tone (candidate name/office come from the session).
+  // With currentDraft it polishes that text in place instead (Improve with
+  // AI) — the only generated path allowed for the custom purpose.
+  // 502 on model failure — the UI shows a retry, never a canned fallback.
+  'POST /v1/outreach/social/draft': {
+    Request: SocialDraftRequest
+    Response: SocialDraftResponse
+  }
+
+  // Synchronous, stateless: one structured LLM call adapts the confirmed
+  // draft into per-platform assets. Nothing persists until save. 502 when
+  // the model returns an incomplete set — retry, never render partial.
+  'POST /v1/outreach/social/generate': {
+    Request: SocialGenerateRequest
+    Response: SocialGenerateResponse
+  }
+
+  // SMS sibling of the social draft endpoint: writes/polishes only the
+  // message BODY — the flow wraps it in the system-owned identification
+  // intro and opt-out footer client-side before submission.
+  'POST /v1/outreach/sms/draft': {
+    Request: SmsDraftRequest
+    Response: SmsDraftResponse
+  }
+
+  // Persists the social campaign atomically (spine row + satellite +
+  // assets). Response is the created row so the hub updates without a
+  // refetch.
+  'POST /v1/outreach/social': {
+    Request: SocialSaveRequest
+    Response: OutreachDetail
+  }
+
+  // Serve siblings of the three social endpoints above (ENG-10970): same
+  // shapes with the purpose field swapped to ServeSocialPurpose, org-scoped
+  // rather than campaign-scoped. Not yet mounted by any flow config — the
+  // wiring ticket points SocialFlow's serve surface at these.
+  'POST /v1/outreach/serve/social/draft': {
+    Request: ServeSocialDraftRequest
+    Response: SocialDraftResponse
+  }
+
+  'POST /v1/outreach/serve/social/generate': {
+    Request: ServeSocialGenerateRequest
+    Response: SocialGenerateResponse
+  }
+
+  'POST /v1/outreach/serve/social': {
+    Request: ServeSocialSaveRequest
+    Response: OutreachDetail
+  }
+
+  // Serve's org-scoped list/detail reads (ENG-10970): siblings of
+  // `GET /v1/outreach` / `GET /v1/outreach/:id`, scoped by organizationSlug
+  // rather than campaignId. Empty array is a valid response (a fresh org has
+  // no history) — unlike the campaign-scoped list, this never 404s.
+  'GET /v1/outreach/serve': {
+    Request: {}
+    Response: Outreach[]
+  }
+
+  'GET /v1/outreach/serve/:id': {
+    Request: {}
+    Response: OutreachDetail
+  }
+
+  // Team-accounts (ENG-11048/ENG-11053): the caller's own assignment rows
+  // across every org they're assigned in (org-scoped via the header), each
+  // hydrated with the phoneBanking/doorKnocking channel-pointer + progress
+  // block for the two native channels only — every other outreachType
+  // carries neither. Manager+ callers can hit this too, not volunteer-only.
+  'GET /v1/outreach/assignments/mine': {
+    Request: {}
+    Response: MyAssignmentsResponse
+  }
+
+  // Stateless script draft/improve for the phone-banking create flow —
+  // mirrors the social draft endpoint (purpose + tone; currentDraft polishes
+  // in place instead of writing fresh). 502 on model failure.
+  'POST /v1/outreach/phone-banking/draft': {
+    Request: PhoneBankingScriptDraftRequest
+    Response: PhoneBankingScriptDraftResponse
+  }
+
+  // Serve sibling of the phone-banking draft endpoint above (ENG-10970): same
+  // shape with the purpose field swapped to ServePhoneBankingPurpose. Not yet
+  // mounted by any flow config — the wiring ticket points PhoneBankingFlow's
+  // serve surface at this.
+  'POST /v1/outreach/serve/phone-banking/draft': {
+    Request: ServePhoneBankingScriptDraftRequest
+    Response: PhoneBankingScriptDraftResponse
+  }
+
+  // Stateless talking-points draft/improve for the door-knocking create flow.
+  // Two things differ from the phone-banking pair above. There is no `tone`:
+  // the output is notes a canvasser paraphrases, not prose with a voice to
+  // pick. And the audience travels inline as `filters` rather than by id,
+  // because the wizard files its VoterFileFilter row inside the create
+  // mutation — at draft time a hand-cut audience has no id yet. That half is
+  // typed the way `POST /v1/door-knocking/address-preview` types the same
+  // unsaved-draft grammar, since the schema lives in gp-api; the response is
+  // a contracts schema. 502 on model failure.
+  'POST /v1/outreach/door-knocking/draft': {
+    Request: {
+      purpose: DoorKnockingTalkingPointsPurpose
+      filters: Record<string, unknown>
+      currentDraft?: string
+      previousDraft?: string
+      instructions?: string
+    }
+    Response: DoorKnockingTalkingPointsDraftResponse
+  }
+
+  'POST /v1/outreach/serve/door-knocking/draft': {
+    Request: {
+      purpose: ServeDoorKnockingTalkingPointsPurpose
+      filters: Record<string, unknown>
+      currentDraft?: string
+      previousDraft?: string
+      instructions?: string
+    }
+    Response: DoorKnockingTalkingPointsDraftResponse
+  }
+
+  // Robocall AI script draft — stateless, same shape as social/phone-banking
+  // (purpose + tone; currentDraft polishes in place). Pro-gated. 502 on model
+  // failure.
+  'POST /v1/outreach/robocall/draft': {
+    Request: RobocallScriptDraftRequest
+    Response: RobocallScriptDraftResponse
+  }
+
+  // Presigned S3 POST for the recorded robocall audio. The browser submits the
+  // returned form fields + file to `url`, then holds `key` for the send.
+  'POST /v1/outreach/robocall/audio/presign': {
+    Request: RobocallAudioPresignRequest
+    Response: RobocallAudioPresignResponse
+  }
+
+  // Rents a fresh CallHub caller-ID number for this robocall. The candidate
+  // reads the returned number aloud as the callback number, so it's rented
+  // before the disclosure draft. Pro-gated. Empty request body.
+  'POST /v1/outreach/robocall/number': {
+    Request: Record<string, never>
+    Response: RobocallNumberResponse
+  }
+
+  // Fail-closed compliance gate for the recorded audio: transcribes the clip
+  // and verifies the candidate self-ID, organization, and callback number are
+  // spoken. Returns the verdict (passed + per-check + issues). Pro-gated; 502
+  // on a transcription/LLM failure.
+  'POST /v1/outreach/robocall/compliance': {
+    Request: RobocallComplianceRequest
+    Response: RobocallComplianceVerdict
+  }
+
+  // Draft-first create: persists the pending_payment robocall draft and returns
+  // its outreachId plus the server-derived estimate (billable landline count +
+  // amount) the pay step displays. Idempotent on audioKey. Pro-gated.
+  'POST /v1/outreach/robocall': {
+    Request: RobocallDraftCreateRequest
+    Response: RobocallDraftCreateResponse
+  }
+
+  // Vaults the card off-session: returns a Stripe SetupIntent clientSecret the
+  // pay step mounts a Payment Element against, plus the Stripe customerId.
+  // Pro-gated. Empty request body.
+  'POST /v1/outreach/robocall/save-card-intent': {
+    Request: Record<string, never>
+    Response: RobocallSaveCardIntentResponse
+  }
+
+  // Places the manual-capture authorization hold on the vaulted card for the
+  // server-re-derived estimate. Returns authorized | deferred | hold_failed |
+  // noop with the settle state and (when authorized) the frozen amount.
+  'POST /v1/outreach/robocall/:outreachId/authorize': {
+    Request: RobocallAuthorizeRequest
+    Response: RobocallAuthorizeResponse
+  }
+
+  // Freezes the chosen script, sheet count, and audience (exactly one of
+  // voterFileFilterId or filters+filterName) into a phone-banking list.
+  // Pro-gated; 400 when the resolved audience is empty.
+  'POST /v1/phone-banking/lists': {
+    Request: PhoneBankingCreate
+    Response: PhoneBankingCreateResponse
+  }
+
+  // Serve sibling of the phone-banking create endpoint above (ENG-10970):
+  // same shape with the purpose field swapped to ServePhoneBankingPurpose,
+  // org-scoped rather than campaign-scoped. Not yet mounted by any flow
+  // config — the wiring ticket points PhoneBankingFlow's serve surface at
+  // this.
+  'POST /v1/phone-banking/serve/lists': {
+    Request: ServePhoneBankingCreate
+    Response: PhoneBankingCreateResponse
   }
 
   // Server-side flag resolution: gp-api evaluates Amplitude Experiment for the
@@ -258,6 +581,25 @@ export type APIEndpoints = {
     Response: Organization
   }
 
+  // Idempotent: a double-accept (revisit, double-click) reads back the
+  // membership the first accept created rather than erroring. gp-api reads
+  // the invite payload from the signed-in user's own Clerk publicMetadata —
+  // no body — and 404s when there's no pending invite left to accept.
+  'POST /v1/organizations/team/invites/accept': {
+    Request: {}
+    Response: AcceptInviteResponse
+  }
+
+  // The signed-in user's own pending invite, resolved server-side: the Clerk
+  // publicMetadata copy first, then gp-api's pending-invitation fallback by
+  // verified email (ENG-11027) — so it finds the invite even for an invitee
+  // who signed up organically instead of through the ticket. Ungated and
+  // session-only, like accept.
+  'GET /v1/organizations/team/invites/mine': {
+    Request: {}
+    Response: MyPendingInviteResponse
+  }
+
   'PATCH /v1/organizations/:slug': {
     Request: {
       ballotReadyPositionId?: string | null | undefined
@@ -265,6 +607,66 @@ export type APIEndpoints = {
       customPositionName?: string | null | undefined
     }
     Response: Organization
+  }
+
+  // Team accounts (win-team-accounts). Mirrors gp-api's TeamController
+  // (packages/gp-api/src/organizations/team.controller.ts) and the
+  // @goodparty_org/contracts Team schemas, but createdAt is typed as string
+  // (see TeamMember/PendingInvite below) — same ISO-over-JSON convention as
+  // SelfResearchRecord.
+  'GET /v1/organizations/team': {
+    Request: {}
+    Response: TeamResponse
+  }
+
+  // Per-current-member outreach counts (ENG-11076/ENG-11080), joined to
+  // GET /v1/organizations/team client-side by userId. Same ISO-over-JSON
+  // convention as TeamResponse above — lastActivityAt is typed as string,
+  // not Date (see TeamStatsResponse below).
+  'GET /v1/organizations/team/stats': {
+    Request: {}
+    Response: TeamStatsResponse
+  }
+
+  // Gated server-side by the win-team-accounts flag (404 while off) — the
+  // only route that can create a membership row, so gating just this one
+  // makes the whole feature inert at 0%. outreachId is optional: the
+  // outreach drawer's list-scoped volunteer invite (ENG-11049) still sends
+  // one, but a general volunteer invite from the team page's drawer
+  // (ENG-11058) legally omits it; a campaignAdmin invite must never carry
+  // one — gp-api's Zod refine enforces that direction. phone (ENG-11058) is
+  // optional on either role and only ever backfills a blank profile field.
+  'POST /v1/organizations/team/invites': {
+    Request: {
+      email: string
+      name: string
+      role: 'campaignAdmin' | 'volunteer'
+      outreachId?: number
+      phone?: string
+    }
+    Response: InviteMemberResponse
+  }
+
+  'DELETE /v1/organizations/team/invites/:id': {
+    Request: {}
+    Response: undefined
+  }
+
+  // Owner-only server-side (OwnerOnly guard); a manager's call 403s. Moves an
+  // existing member between Campaign Manager and Volunteer (ENG-11049) — a
+  // role change never creates or touches an OutreachAssignment.
+  'PATCH /v1/organizations/team/members/:userId': {
+    Request: {
+      role: 'campaignAdmin' | 'volunteer'
+    }
+    Response: TeamMember
+  }
+
+  // Owner-only server-side. Also rejects (400) when userId is the owner —
+  // ownership transfer isn't a thing this route does.
+  'DELETE /v1/organizations/team/members/:userId': {
+    Request: {}
+    Response: undefined
   }
 
   // Mirrors gp-api's GET /v1/eligibility (EligibilitySchema in
@@ -541,6 +943,30 @@ export type APIEndpoints = {
     Response: void
   }
 
+  // `scope` rides in the query string, not this body — see the override in
+  // agent-chat/chatClient.ts. The response is spelled out structurally rather
+  // than importing the contract's `ChatMessageFeedback`: that type is a
+  // zCoerceDate-bearing z.infer, and adding it here pushed APIEndpoints past a
+  // TS inference ceiling, silently degrading narrowing in every api.mock()
+  // handler in the app. Dates are strings on the wire regardless.
+  'PUT /v1/chats/:id/messages/:messageId/feedback': {
+    Request: SetChatMessageFeedbackRequest
+    Response: {
+      id: string
+      conversationId: string
+      messageId: string
+      feedback: 'positive' | 'negative'
+      comment: string | null
+      createdAt: string
+      updatedAt: string
+    }
+  }
+
+  'DELETE /v1/chats/:id/messages/:messageId/feedback': {
+    Request: { scope: ChatScope }
+    Response: void
+  }
+
   'GET /v1/ordinances': {
     Request: {}
     Response: OrdinanceListResponse
@@ -721,6 +1147,13 @@ export type APIEndpoints = {
     Request: {}
     Response: SegmentResponse[]
   }
+  'GET /v1/campaigns/mine/recommended-lists': {
+    Request: {
+      channel: RecommendedListChannel
+      intent?: RecommendedListIntent
+    }
+    Response: RecommendedListsResponse
+  }
   'DELETE /v1/voters/voter-file/filter/:id': {
     Request: {}
     Response: {}
@@ -767,14 +1200,57 @@ export type APIEndpoints = {
     Request: undefined
     Response: ArrayBuffer
   }
+  // The rail. Scoped by SURFACE as well as by org: it returns the lists whose
+  // outreach envelope carries this caller's campaign, so a dual-role org's Win
+  // and Serve rails cannot see each other's turfs (ENG-10976). Every other
+  // turf route is reached by id and needs only the org scope.
   'GET /v1/door-knocking/turfs': {
-    Request: { voterFileFilterId?: number }
+    Request: {}
     Response: DoorKnockingTurf[]
   }
+  // Serve sibling of the above. A separate route rather than a parameter
+  // because the whole point is that the scope is NOT derived from what the org
+  // happens to hold — choosing this endpoint is how a Serve caller says so.
+  'GET /v1/door-knocking/serve/turfs': {
+    Request: {}
+    Response: DoorKnockingTurf[]
+  }
+  // Both daily allowances, read before the create flow opens. Org-scoped and
+  // NOT surface-scoped, unlike the two rails above: an org has one campaign
+  // allowance and one stop allowance, shared across Win and Serve.
+  'GET /v1/door-knocking/quota': {
+    Request: {}
+    Response: DoorKnockingQuotaResponse
+  }
+  // Creating a list buys its Geoapify route in the same transaction, so this
+  // is the only paid call the feature makes and the request carries the walk
+  // settings (`mode`, `loop`) the route is optimized for. It can fail on
+  // vendor timeout or the daily campaign limit, which is why the flow keeps
+  // its state
+  // mounted rather than clearing on submit — nothing is persisted unless the
+  // whole chain commits.
   'POST /v1/door-knocking/turfs': {
     Request: CreateDoorKnockingTurf
     Response: DoorKnockingTurf
   }
+  // Serve sibling of the above, for an elected official. Same body; the
+  // envelope it writes is scoped by organization with no campaign.
+  'POST /v1/door-knocking/serve/turfs': {
+    Request: CreateDoorKnockingTurf
+    Response: DoorKnockingTurf
+  }
+  // One turf, org-scoped and NOT surface-scoped — which is what the two print
+  // surfaces need it for. They hold an id they already fetched a route with,
+  // so the rail's surface filter would only be able to hide a list they are
+  // demonstrably entitled to, and did: a Serve turf is absent from the Win
+  // rail, so both paper formats titled every elected official's sheet with
+  // their fallback.
+  'GET /v1/door-knocking/turfs/:id': {
+    Request: {}
+    Response: DoorKnockingTurf
+  }
+  // Name and colour only. The polygon is what the frozen route was computed
+  // from, so it is not editable at all.
   'PUT /v1/door-knocking/turfs/:id': {
     Request: UpdateDoorKnockingTurf
     Response: DoorKnockingTurf
@@ -783,23 +1259,72 @@ export type APIEndpoints = {
     Request: {}
     Response: undefined
   }
-  'POST /v1/door-knocking/turfs/:id/knock': {
-    Request: DoorKnockingKnockRequest
-    Response: DoorKnockingKnockResponse
+  // The list lifecycle, which is written on the list's outreach envelope and
+  // read back on the whole row. Both are idempotent server-side in the
+  // direction that stamps a timestamp, so a retry cannot walk the date a card
+  // renders forward.
+  'POST /v1/door-knocking/turfs/:id/complete': {
+    Request: {}
+    Response: DoorKnockingTurf
+  }
+  // A body rather than an archive/unarchive pair, matching the route: restore
+  // is the same call with `archived: false`.
+  'POST /v1/door-knocking/turfs/:id/archive': {
+    Request: DoorKnockingArchiveRequest
+    Response: DoorKnockingTurf
   }
   'GET /v1/door-knocking/turfs/:id/route': {
     Request: {}
     Response: DoorKnockingRoutePayload
   }
+  // ADR 0010. The exact in-ring audience for a shape being drawn, addresses
+  // included — the knock's own evaluation without the billed vendor call. The
+  // filter half of the request is the same unsaved-draft grammar
+  // `POST /v1/voters/voter-file/filter` takes (no filter row exists yet at
+  // draw time), so it is typed here the way that endpoint is rather than
+  // restated as a contract; the response is a contracts schema.
+  'POST /v1/door-knocking/address-preview': {
+    Request: {
+      geoPoly: GeoJsonPolygon
+      filters: Record<string, unknown>
+    }
+    Response: DoorKnockingAddressPreviewResponse
+  }
+  // The who step's audience gate: the same filter grammar as the preview
+  // above, minus the shape, because emptiness does not depend on one. Cheap
+  // where the preview is not — it resolves person-id sets out of Postgres and
+  // reads no voter data — which is why this one may fire on a list pick.
+  'POST /v1/door-knocking/audience-check': {
+    Request: { filters: Record<string, unknown> }
+    Response: DoorKnockingAudienceCheckResponse
+  }
   'POST /v1/door-knocking/interactions': {
     Request: RecordDoorKnockInteraction
     Response: RecordDoorKnockInteractionResponse
+  }
+  // ADR 0007. Separate from the interaction write because a do-not-knock is
+  // recordable with no outcome to log, and reversible on its own.
+  'POST /v1/door-knocking/do-not-knock': {
+    Request: SetDoNotKnock
+    Response: SetDoNotKnockResponse
+  }
+  // ADR 0008. The reason behind a `not_a_voter` outcome, asked as a follow-up
+  // and written separately: the interaction row is replay-idempotent on
+  // clientKey, so a correction made on a later visit could never reach it.
+  'POST /v1/door-knocking/not-a-voter': {
+    Request: SetNotAVoter
+    Response: SetNotAVoterResponse
   }
   'GET /v1/contacts/list-detail': {
     // Omitted segment = the universe row's detail (ENG-10778): the whole
     // unfiltered district.
     Request: { segment?: number }
     Response: ListDetailContactsResponse
+  }
+
+  'GET /v1/contacts/precincts': {
+    Request: {}
+    Response: PeoplePrecinctsResponse
   }
 
   'GET /v1/contacts/:personId/notes': {
@@ -1208,6 +1733,31 @@ export type APIEndpoints = {
   'GET /v1/campaigns/mine/race-opponent/opponents/activity': {
     Request: {}
     Response: RaceOpponentActivityResponse
+  }
+
+  // The frozen phone-banking list plus its live per-person enrichment and
+  // logged interactions (PhoneBankingController.get). 404 when the list
+  // doesn't belong to the requester's organization.
+  'GET /v1/phone-banking/lists/:id': {
+    Request: {}
+    Response: PhoneBankingList
+  }
+
+  // Logs one call outcome. An answered call carries the active tab's
+  // personId (optionally markHouseholdDone); a number-level outcome
+  // (no_answer/voicemail/wrong_number/refused) carries no personId and
+  // fans out to every person on the entry server-side. The response reads
+  // from the persisted rows, so the caller can patch every affected
+  // person's cache entry from `results` without a refetch.
+  'POST /v1/phone-banking/lists/:id/calls': {
+    Request: RecordPhoneBankingCall
+    Response: RecordPhoneBankingCallResponse
+  }
+
+  // Deletes the list (and its entries/persons/interactions via cascade).
+  'DELETE /v1/phone-banking/lists/:id': {
+    Request: {}
+    Response: void
   }
 }
 
@@ -1690,12 +2240,98 @@ export type Organization = {
   slug: string
   name: string | null
   positionName: string | null
-  position: null | { id: string; brPositionId: string; state: string }
+  // Optional: existing Organization literals across the app predate this
+  // field. gp-api always sends it now; treat an absent value as null.
+  customPositionName?: string | null
+  position: null | {
+    id: string
+    name?: string
+    brPositionId: string
+    state: string
+  }
   district: null | { id: string; l2Type: string; l2Name: string }
   electedOfficeId: string | null
   campaignId: number | null
   // Derived on read by gp-api (never persisted); present on every org response.
   status: 'active' | 'past'
+  // The viewer's own role in this org (owner via ownerId match, else their
+  // membership row's role). Only GET /v1/organizations (the list) sends this
+  // — the singular GET/PATCH /v1/organizations/:slug responses don't, since
+  // it's a per-viewer fact rather than a property of the org (mirrors gp-api's
+  // APIOrganizationWithRoleSchema, which is list-only for the same reason).
+  role?: OrganizationRole
+  // The org owner's display name, for the org picker's secondary line
+  // (ENG-11041). List-only, same reasoning as role above.
+  ownerName?: string | null
+}
+
+// Wire shapes for team accounts (win-team-accounts / ENG-10816). Mirror
+// Team.schema.ts in @goodparty_org/contracts, but createdAt arrives over JSON
+// as an ISO string (the contract coerces it to Date) — same convention as
+// SelfResearchRecord above.
+export type TeamMember = {
+  userId: number
+  name: string | null
+  email: string
+  role: OrganizationRole
+  createdAt: string
+}
+
+export type PendingInvite = {
+  id: string
+  email: string
+  name: string
+  role: 'campaignAdmin' | 'volunteer'
+  createdAt: string
+  // Set only for a list-scoped volunteer invite (ENG-11049); null for a
+  // campaignAdmin invite. The outreach drawer's Assignees section filters
+  // this list by outreachId to show its own pending volunteer invites.
+  outreachId: number | null
+}
+
+export type TeamResponse = {
+  members: TeamMember[]
+  pendingInvites: PendingInvite[]
+}
+
+export type InviteMemberResponse =
+  | { status: 'added'; member: TeamMember }
+  | { status: 'pending'; invite: PendingInvite }
+
+// Mirrors TeamMemberStatsSchema / TeamStatsResponseSchema in
+// @goodparty_org/contracts, but lastActivityAt arrives over JSON as an ISO
+// string or null — same convention as TeamMember above.
+export type TeamMemberStats = {
+  userId: number
+  doorsKnocked: number
+  callsMade: number
+  totalLogged: number
+  lastActivityAt: string | null
+}
+
+export type TeamStatsResponse = {
+  stats: TeamMemberStats[]
+}
+
+// Wire shapes for outreach assignments (win-team-accounts / ENG-11048).
+// Mirrors OutreachAssignment.schema.ts in @goodparty_org/contracts, but
+// createdAt arrives over JSON as an ISO string — same convention as
+// TeamMember above.
+export type OutreachAssignee = {
+  userId: number
+  name: string | null
+  role: OrganizationRole
+  createdAt: string
+  assignedByUserId: number | null
+  assignedByName: string | null
+  // Per-assignee logged-interaction count on this outreach: a real count for
+  // the two native channels (nativePhoneBanking/nativeDoorKnocking), null for
+  // every other outreachType.
+  loggedCount: number | null
+}
+
+export type OutreachAssigneesResponse = {
+  assignees: OutreachAssignee[]
 }
 
 // Mirrors EligibilitySchema in @goodparty_org/contracts. Derived on read by

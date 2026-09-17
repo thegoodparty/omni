@@ -18,6 +18,7 @@ describe('CrmCampaignsService.trackCampaign', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       { errorMessage } as unknown as SlackService,
       {} as never,
       createMockLogger(),
@@ -80,6 +81,7 @@ describe('CrmCampaignsService 10DLC filing properties', () => {
         isConfigured: true,
         client: { crm: { companies: { basicApi: { update: companyUpdate } } } },
       } as unknown as HubspotService,
+      {} as never,
       {} as never,
       {} as never,
       { count: vi.fn().mockResolvedValue(0) } as never,
@@ -164,5 +166,119 @@ describe('CrmCampaignsService 10DLC filing properties', () => {
     expect(properties).not.toHaveProperty('n10_dlc_filing_email')
     expect(properties).not.toHaveProperty('n10_dlc_filing_phone')
     expect(properties).not.toHaveProperty('n10_dlc_filing_url')
+  })
+})
+
+// associateCompanyWithContact is private; accessed the same way as other
+// private-method tests in this codebase (e.g.
+// campaignTcrCompliance.service.test.ts) rather than driving the full
+// trackCampaign flow, which would require mocking calculateCRMCompanyProperties'
+// entire dependency graph to reach a call this test doesn't otherwise touch.
+describe('CrmCampaignsService association labels (ENG-11031)', () => {
+  const associationsCreate = vi.fn()
+  const resolveLabelId = vi.fn()
+  const logger = createMockLogger()
+
+  const buildService = () =>
+    new CrmCampaignsService(
+      {} as never,
+      {} as never,
+      {
+        isConfigured: true,
+        client: {
+          crm: {
+            associations: {
+              v4: { batchApi: { create: associationsCreate } },
+            },
+          },
+        },
+      } as unknown as HubspotService,
+      { resolveLabelId } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as unknown as SlackService,
+      {} as never,
+      logger,
+    )
+
+  const associate = (service: CrmCampaignsService) =>
+    (
+      service as unknown as {
+        associateCompanyWithContact: (
+          crmContactId?: string,
+          crmCompanyId?: string,
+        ) => Promise<void>
+      }
+    ).associateCompanyWithContact('contact-1', 'company-1')
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    associationsCreate.mockResolvedValue(undefined)
+  })
+
+  it('writes the primary type and the Candidate label together', async () => {
+    resolveLabelId.mockResolvedValue(777)
+
+    await associate(buildService())
+
+    expect(resolveLabelId).toHaveBeenCalledWith('Candidate')
+    expect(associationsCreate).toHaveBeenCalledWith('0-2', '0-1', {
+      inputs: [
+        {
+          _from: { id: 'company-1' },
+          to: { id: 'contact-1' },
+          types: [
+            { associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 2 },
+            { associationCategory: 'USER_DEFINED', associationTypeId: 777 },
+          ],
+        },
+      ],
+    })
+  })
+
+  it('keeps writing the primary association when the Candidate label is missing', async () => {
+    resolveLabelId.mockResolvedValue(undefined)
+
+    await associate(buildService())
+
+    expect(associationsCreate).toHaveBeenCalledWith('0-2', '0-1', {
+      inputs: [
+        {
+          _from: { id: 'company-1' },
+          to: { id: 'contact-1' },
+          types: [
+            { associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 2 },
+          ],
+        },
+      ],
+    })
+  })
+
+  // The v4 create is idempotent for an existing (from, to, type) triple —
+  // HubSpot's SDK response processor treats 207 as a normal (non-throwing)
+  // HttpInfo result, not an ApiException, so a duplicate/retry response
+  // never reaches this try/catch as a rejection.
+  it('treats a duplicate-association (207) response as success', async () => {
+    resolveLabelId.mockResolvedValue(777)
+    associationsCreate.mockResolvedValue({
+      status: 'COMPLETE',
+      results: [],
+      errors: [{ status: 'error', category: 'DUPLICATE' }],
+    })
+
+    await associate(buildService())
+
+    expect(logger.error).not.toHaveBeenCalled()
+  })
+
+  it('logs and does not throw when the association call rejects', async () => {
+    resolveLabelId.mockResolvedValue(777)
+    associationsCreate.mockRejectedValue(new Error('hubspot down'))
+
+    await expect(associate(buildService())).resolves.toBeUndefined()
+
+    expect(logger.error).toHaveBeenCalled()
   })
 })

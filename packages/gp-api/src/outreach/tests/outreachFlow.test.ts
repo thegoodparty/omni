@@ -13,6 +13,7 @@
  *   - Stripe / promo / payment ordering — separate ticket.
  */
 
+import { BadRequestException } from '@nestjs/common'
 import FormData from 'form-data'
 import { useTestService } from '@/test-service'
 import { CrmCampaignsService } from '@/campaigns/services/crmCampaigns.service'
@@ -127,6 +128,7 @@ interface SubmitOpts {
   outreachType: OutreachType
   script?: string
   date?: string
+  scheduledLocalTime?: string
   imageMime?: string
   phoneListId?: number
   voterFileFilterId?: number
@@ -148,6 +150,9 @@ async function submitOutreach(opts: SubmitOpts) {
   form.append('outreachType', opts.outreachType)
   form.append('status', 'pending')
   if (opts.date) form.append('date', opts.date)
+  if (opts.scheduledLocalTime) {
+    form.append('scheduledLocalTime', opts.scheduledLocalTime)
+  }
   if (opts.script) form.append('script', opts.script)
   if (opts.phoneListId) form.append('phoneListId', String(opts.phoneListId))
   if (opts.voterFileFilterId) {
@@ -279,7 +284,8 @@ describe('Outreach submission flow — single API call contract', () => {
     it('p2p submission produces 1 success Slack with peerly link, DB row, counter, hubspot', async () => {
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
-        script: 'Vote for me. Reply STOP to opt-out.',
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. Vote for me. Paid for by Friends of Johnny. Reply STOP to opt out.',
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
       })
@@ -295,7 +301,8 @@ describe('Outreach submission flow — single API call contract', () => {
     it('text submission produces 1 success Slack WITHOUT peerly link', async () => {
       const res = await submitOutreach({
         outreachType: OutreachType.text,
-        script: 'Vote for me. Reply STOP to opt-out.',
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. Vote for me. Paid for by Friends of Johnny. Reply STOP to opt out.',
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
       })
 
@@ -324,10 +331,28 @@ describe('Outreach submission flow — single API call contract', () => {
   })
 
   describe('failure cases — Slack still fires', () => {
+    it('a non-compliant script is rejected at scheduling', async () => {
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: 'Vote for me. Reply STOP to opt out.',
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+      })
+      expect(res.status).toBe(400)
+      expect(JSON.stringify(res.data)).toContain(
+        'does not meet texting compliance standards',
+      )
+      const outreachRows = await service.prisma.outreach.findMany({
+        where: { campaignId: campaign.id },
+      })
+      expect(outreachRows.length).toBe(0)
+    })
+
     it('invalid image MIME (HEIC) → 400, no DB row, FAILURE Slack with step=validation', async () => {
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
-        script: 'Vote for me. Reply STOP to opt-out.',
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. Vote for me. Paid for by Friends of Johnny. Reply STOP to opt out.',
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
         imageMime: 'image/heic',
@@ -347,7 +372,8 @@ describe('Outreach submission flow — single API call contract', () => {
 
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
-        script: 'Vote for me. Reply STOP to opt-out.',
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. Vote for me. Paid for by Friends of Johnny. Reply STOP to opt out.',
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
       })
@@ -355,6 +381,30 @@ describe('Outreach submission flow — single API call contract', () => {
       expect([400, 500, 502]).toContain(res.status)
       await assertFailedOutreach({
         expectedFailureStepLabel: 'peerlyJobCreation',
+        expectNoOutreachRow: true,
+      })
+    })
+
+    it('Peerly content rejection → 400 carrying the vendor message, no DB row', async () => {
+      const rejectionMessage =
+        'Message cannot contain tinyurl.com links. Please correct your message.'
+      peerlyCreatePeerlyP2pJob.mockRejectedValueOnce(
+        new BadRequestException(rejectionMessage),
+      )
+
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script:
+          'Hello {first_name}, this is Johnny Goodparty: tinyurl.com/x. ' +
+          'Paid for by Friends of Johnny. Reply STOP to opt out.',
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+      })
+
+      expect(res.status).toBe(400)
+      expect(JSON.stringify(res.data)).toContain(rejectionMessage)
+      await assertFailedOutreach({
+        expectedFailureStepLabel: 'validation',
         expectNoOutreachRow: true,
       })
     })
@@ -413,7 +463,8 @@ describe('Outreach submission flow — single API call contract', () => {
 
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
-        script: 'Vote for me. Reply STOP to opt-out.',
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. Vote for me. Paid for by Friends of Johnny. Reply STOP to opt out.',
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
       })
@@ -432,7 +483,8 @@ describe('Outreach submission flow — single API call contract', () => {
 
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
-        script: 'Vote for me. Reply STOP to opt-out.',
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. Vote for me. Paid for by Friends of Johnny. Reply STOP to opt out.',
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
       })
@@ -449,7 +501,9 @@ describe('Outreach submission flow — single API call contract', () => {
   })
 
   describe('draft-first purchase flow', () => {
-    const draftScript = 'Vote for me. Reply STOP to opt-out.'
+    const draftScript =
+      'Hello {first_name}, this is Johnny Goodparty. Vote for me. ' +
+      'Paid for by Friends of Johnny. Reply STOP to opt out.'
 
     const submitDraft = () =>
       submitOutreach({
@@ -488,7 +542,9 @@ describe('Outreach submission flow — single API call contract', () => {
           aiContent: {
             smsKey: {
               name: 'smsKey',
-              content: '<p>Hi from AI</p>',
+              content:
+                '<p>Hello {first_name}, this is Johnny Goodparty. ' +
+                'Paid for by Friends of Johnny. Reply STOP to opt out.</p>',
               updatedAt: Date.now(),
             },
           },
@@ -516,7 +572,10 @@ describe('Outreach submission flow — single API call contract', () => {
       // Stamped at the initial insert, not deferred to finalize.
       expect(row.organizationSlug).toBe(orgSlug)
       expect(row.identityId).toBe('11538886')
-      expect(row.script).toBe('Hi from AI')
+      expect(row.script).toBe(
+        'Hello {first_name}, this is Johnny Goodparty. ' +
+          'Paid for by Friends of Johnny. Reply STOP to opt out.',
+      )
       expect(row.textCount).toBe(5200)
       expect(row.billableTextCount).toBe(200)
       expect(row.campaignPlanDueDate).toBe('2026-04-19')
@@ -529,6 +588,44 @@ describe('Outreach submission flow — single API call contract', () => {
       const list = await service.client.get('/v1/outreach', orgHeaders())
       expect(list.status).toBe(404)
     })
+
+    it('persists the chosen wall-clock send time on the draft row', async () => {
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: draftScript,
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        scheduledLocalTime: '18:00',
+        draft: true,
+      })
+      expect(res.status).toBe(201)
+
+      const row = firstOrThrow(
+        await service.prisma.outreach.findMany({
+          where: { campaignId: campaign.id },
+        }),
+      )
+      expect(row.scheduledLocalTime).toBe('18:00')
+    })
+
+    it.each(['08:00', '20:30', '21:00', '6pm', '19:99'])(
+      'rejects a send time outside the 09:00-20:00 window (%s)',
+      async (scheduledLocalTime) => {
+        const res = await submitOutreach({
+          outreachType: OutreachType.p2p,
+          script: draftScript,
+          phoneListId: 3180213,
+          date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+          scheduledLocalTime,
+          draft: true,
+        })
+        expect(res.status).toBe(400)
+        const rows = await service.prisma.outreach.findMany({
+          where: { campaignId: campaign.id },
+        })
+        expect(rows).toHaveLength(0)
+      },
+    )
 
     it('finalize submits to Peerly, fires success Slack, and no-ops on repeat', async () => {
       const draft = await createDraftRow()
@@ -611,6 +708,38 @@ describe('Outreach submission flow — single API call contract', () => {
       expect(peerlyCreatePeerlyP2pJob).toHaveBeenCalledTimes(2)
     })
 
+    it('finalize propagates a Peerly content rejection as a 400 and reverts the draft', async () => {
+      const draft = await createDraftRow()
+      mockDraftImageInS3()
+      const rejectionMessage =
+        'Message cannot contain tinyurl.com links. Please correct your message.'
+      peerlyCreatePeerlyP2pJob.mockRejectedValueOnce(
+        new BadRequestException(rejectionMessage),
+      )
+
+      const outreachSvc = service.app.get(OutreachService)
+      const promise = outreachSvc.finalizeOutreachPurchase(
+        draft.id,
+        campaign.id,
+      )
+      await expect(promise).rejects.toThrow(BadRequestException)
+      await expect(promise).rejects.toThrow(rejectionMessage)
+
+      const reverted = await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: draft.id },
+      })
+      expect(reverted.status).toBe(OutreachStatus.pending_payment)
+      expect(reverted.projectId).toBeNull()
+
+      // CAS is still told (a paid purchase failed to schedule) but the step
+      // reads validation — a user-content problem, not a vendor failure.
+      expect(slackMessage).toHaveBeenCalledTimes(1)
+      const blob = JSON.stringify(firstOrThrow(slackMessage.mock.calls))
+      expect(blob).toContain('FAILED')
+      expect(blob).toContain('validation')
+      expect(blob).not.toContain('peerlyJobCreation')
+    })
+
     it('finalize rejects a missing draft or one owned by another campaign', async () => {
       const draft = await createDraftRow()
       mockDraftImageInS3()
@@ -633,7 +762,8 @@ describe('Outreach submission flow — single API call contract', () => {
     it('draft with a non-p2p outreachType → 400, no DB row', async () => {
       const res = await submitOutreach({
         outreachType: OutreachType.text,
-        script: 'Vote for me. Reply STOP to opt-out.',
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. Vote for me. Paid for by Friends of Johnny. Reply STOP to opt out.',
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
         draft: true,
       })

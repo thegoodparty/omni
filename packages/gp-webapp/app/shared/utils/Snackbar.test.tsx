@@ -58,7 +58,7 @@ describe('SnackbarProvider + useSnackbar', () => {
     expect(toast).toBeInTheDocument()
   })
 
-  it('renders the styleguide toast card: bottom-right, no richColors, no close button', async () => {
+  it('renders the styleguide toast card: bottom-center, no richColors, no close button', async () => {
     render(
       <SnackbarProvider>
         <HarnessComponent />
@@ -74,7 +74,7 @@ describe('SnackbarProvider + useSnackbar', () => {
     expect(toast?.getAttribute('data-type')).toBe('success')
     expect(toast?.getAttribute('data-rich-colors')).not.toBe('true')
     expect(toast?.getAttribute('data-y-position')).toBe('bottom')
-    expect(toast?.getAttribute('data-x-position')).toBe('right')
+    expect(toast?.getAttribute('data-x-position')).toBe('center')
     expect(toast?.querySelector('[data-close-button]')).toBeNull()
   })
 

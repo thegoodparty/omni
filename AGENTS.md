@@ -5,11 +5,10 @@ web app, the API monolith, a data microservice, the admin console, the candidate
 sites, and the shared SDK/contracts. One repo means agents and humans share one
 context, deploys are unified, and shared code is de-duplicated.
 
-Voter/people data access used to be its own microservice (`packages/people-api`);
-it was absorbed into `gp-api` (`src/peopleDb/`, direct people-db access) and the
-package was removed from this repo. Nothing calls it any more; the people-api
-ECS service and its Aurora cluster remain deployed but frozen, pending
-teardown — see `packages/gp-api/src/peopleDb/AGENTS.md`.
+Voter/people data is read from Databricks by `gp-api` (`src/peopleDb/`). The
+former `people-api` microservice has no package here; its ECS service and
+Aurora cluster remain deployed but frozen, pending teardown — see
+`packages/gp-api/src/peopleDb/AGENTS.md`.
 
 **This repo is built to be worked through coding agents.** Almost every change here
 is made by an engineer driving an agent. So every doc is an agent-context surface.
@@ -53,12 +52,16 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Background agents / PMF Engine / evals | `docs/cap-background-agents.md`               |
 | Interactive AI chat (the `ai` SDK)     | `docs/cap-interactive-agents.md`              |
 | The Python AI services + their infra   | `packages/gp-ai/AGENTS.md`                    |
+| **Writing any user-facing copy**       | **`docs/product-copy.md`**                    |
+| **Shipping a user-facing feature**     | **`docs/product-knowledge.md`** (add it to the assistants' product map) |
 | Setting up / running locally           | `docs/development.md`                         |
 | Writing or fixing a test               | `docs/testing.md`                             |
+| Adding a scheduled / cron job          | `docs/scheduled-jobs.md`                      |
 | Deploys, branches, CI                  | `docs/deployment.md`                          |
 | Debugging a prod issue / incident      | `docs/observability.md`                       |
 | The CRM (contacts) — flows, debugging  | `packages/gp-api/src/contacts/AGENTS.md`      |
 | Which MCP tools exist + their env vars | `docs/mcp.md`                                 |
+| Design rules + fixtures for Claude Design | `docs/design-memory/`                      |
 | Querying analytics data / Databricks   | `docs/databricks.md`                          |
 | AI code-review rule files              | `ai-rules/` (git submodule)                   |
 
@@ -78,6 +81,14 @@ Docs here are living context, not archive. **When a change alters behavior,
 architecture, or a convention, update the nearest relevant `AGENTS.md` and/or
 `docs/` file in the same change.** A PR that changes how something works and leaves
 its doc stale is incomplete. Update _or delete_ in place; never leave them to rot.
+
+**When a change adds or renames something a user can see, add it to the
+assistants' product map** (`packages/gp-api/src/chats/general/product-knowledge/`)
+in the same change. The Campaign Manager and Chief of Staff answer product
+questions from that map, and a feature missing from it is a feature they will
+guess about or send to support. CI fails a PR that adds a dashboard tab without
+it; everything reached from inside a page is on you. See
+`docs/product-knowledge.md`.
 
 **When a change removes something, delete its docs — don't rewrite them into a
 tombstone.** No "X is retired" or "X no longer exists" sections. A reader who never
@@ -104,14 +115,18 @@ packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
 - **Comments:** default to none. Add one only for a non-obvious WHY (a hidden
   constraint, a subtle invariant, a workaround). Never explain WHAT the code does.
   Never remove existing comments unless asked.
+- **Copy:** every user-facing string follows `docs/product-copy.md`. Step
+  titles are questions the user can answer, captions are one sentence of 20
+  words or fewer, and nothing on screen explains how the system works. The
+  voter outreach flows and onboarding are the reference implementations.
 - **WET over premature DRY.** Don't extract a helper used in one place. Prefer the
   simplest approach first; don't over-engineer.
 - **Validation:** Zod everywhere. API responses validated at runtime via response
   schemas; never `.passthrough()` input schemas.
 - **Services:** Prisma-backed services extend `createPrismaBase(MODELS.ModelName)`
-  (gp-api, election-api). gp-api's `src/peopleDb/` (the absorbed voter engine)
-  mirrors this with `createPeopleDbBase(PEOPLE_MODELS.ModelName)` against a
-  second, read-only Prisma client for people-db.
+  (gp-api, election-api). gp-api's `src/peopleDb/` mirrors this with
+  `createPeopleDbBase(PEOPLE_MODELS.ModelName)` against a second, read-only
+  Prisma client for people-db, which backs the voter-density heat map.
 - **Contracts are the cross-service source of truth.** Any shape that crosses a
   service boundary (S2S payloads, SQS messages, webhook bodies) lives in
   `@goodparty_org/contracts`. Change the contract in the _same_ PR as the

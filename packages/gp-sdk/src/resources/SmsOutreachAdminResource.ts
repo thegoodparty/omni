@@ -1,0 +1,81 @@
+import type {
+  ApproveSmsOutreachRequest,
+  CancelSmsOutreachRequest,
+  DenySmsOutreachRequest,
+  EditSmsOutreachDateRequest,
+  EditSmsOutreachRequest,
+  SmsAdminDetailResponse,
+  SmsApprovalQueueItem,
+  SmsApprovalQueueResponse,
+  SmsTestMessageRequest,
+  SmsTestMessageResponse,
+} from '@goodparty_org/contracts'
+import { BaseResource } from './BaseResource'
+
+// The CAS SMS console (approval queue + monitor) — gp-api's
+// /outreach/admin/sms surface, AdminOrM2M-gated.
+export class SmsOutreachAdminResource extends BaseResource {
+  protected readonly resourceBasePath = '/outreach/admin/sms'
+
+  getQueue = (): Promise<SmsApprovalQueueResponse> =>
+    this.getRequest<SmsApprovalQueueResponse>(`${this.resourceBasePath}/queue`)
+
+  getDetail = (id: number): Promise<SmsAdminDetailResponse> =>
+    this.getRequest<SmsAdminDetailResponse>(`${this.resourceBasePath}/${id}`)
+
+  approve = (
+    id: number,
+    input: ApproveSmsOutreachRequest,
+  ): Promise<SmsApprovalQueueItem> =>
+    this.postRequest<SmsApprovalQueueItem>(
+      `${this.resourceBasePath}/${id}/approve`,
+      input,
+    )
+
+  deny = (
+    id: number,
+    input: DenySmsOutreachRequest,
+  ): Promise<SmsApprovalQueueItem> =>
+    this.postRequest<SmsApprovalQueueItem>(
+      `${this.resourceBasePath}/${id}/deny`,
+      input,
+    )
+
+  cancel = (
+    id: number,
+    input: CancelSmsOutreachRequest,
+  ): Promise<SmsApprovalQueueItem> =>
+    this.postRequest<SmsApprovalQueueItem>(
+      `${this.resourceBasePath}/${id}/cancel`,
+      input,
+    )
+
+  edit = (
+    id: number,
+    input: EditSmsOutreachRequest,
+  ): Promise<SmsApprovalQueueItem> =>
+    this.patchRequest<SmsApprovalQueueItem>(
+      `${this.resourceBasePath}/${id}`,
+      input,
+    )
+
+  editDate = (
+    id: number,
+    input: EditSmsOutreachDateRequest,
+  ): Promise<SmsApprovalQueueItem> =>
+    this.patchRequest<SmsApprovalQueueItem>(
+      `${this.resourceBasePath}/${id}/date`,
+      input,
+    )
+
+  // Sends the campaign's live template as a real text to the supplied
+  // phone (CAS's own handset) via the job's Peerly test job.
+  sendTest = (
+    id: number,
+    input: SmsTestMessageRequest,
+  ): Promise<SmsTestMessageResponse> =>
+    this.postRequest<SmsTestMessageResponse>(
+      `${this.resourceBasePath}/${id}/test`,
+      input,
+    )
+}

@@ -1,6 +1,7 @@
 import { BadGatewayException, Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import type { AgentPlan, RoutePlannerResult } from '@geoapify/route-planner-sdk'
+import { recordGeoapifyCall } from '../observability/geoapify.metrics'
 
 // The SDK's package.json says type:module, which makes Node parse its
 // "require" entry (CJS content, .js extension) as ESM — requiring it from
@@ -80,11 +81,45 @@ export type RoutePlannerPlan = {
   legMeters: number[]
   totalSeconds: number
   totalMeters: number
+  // What the two billed calls were actually asked for, reported rather than
+  // left for the caller to re-derive from the stop list it handed in: the
+  // anchors and the plan's own waypoint array are only visible here, and a
+  // caller reconstructing them is a caller that will drift from the request.
+  locations: number
+  // Zero when the Routing call was never billed, which is the ONLY signal for
+  // that — a null pathGeometry is not one (see fetchPathGeometry).
+  routingWaypoints: number
   // Road-following tour path, fetched once here so it can be frozen with
   // the route (Geoapify's terms permit storing results). Null when the
   // routing call failed — the route itself is still valid, consumers fall
   // back to straight legs.
   pathGeometry: RoutePathGeometry | null
+}
+
+type PathGeometryFetch = {
+  geometry: RoutePathGeometry | null
+  billedWaypoints: number
+}
+
+// Geoapify answered, and the answer is that it will not plan THIS request.
+// Distinct from a BadGateway because nothing is broken and nothing is
+// retryable: the same coordinates produce the same refusal every time, so a
+// caller that turns this into "try again in a moment" is lying to someone.
+// The caller owns the HTTP status, because only the caller knows what the job
+// ids mean — here they are opaque strings.
+//
+// `unroutableJobIds` is the reconciliation's answer (requested minus planned),
+// not `issues.unassigned_jobs`, so a stop the vendor drops without mentioning
+// is named too. Empty when the vendor planned nothing at all and there is
+// therefore no subset to blame.
+export class RoutePlanRejectedError extends Error {
+  constructor(
+    message: string,
+    readonly unroutableJobIds: string[] = [],
+  ) {
+    super(message)
+    this.name = 'RoutePlanRejectedError'
+  }
 }
 
 @Injectable()
@@ -110,6 +145,13 @@ export class GeoapifyRoutePlannerService {
     mode: 'walk' | 'drive'
     agent: RoutePlannerAgent
     jobs: RoutePlannerJob[]
+    // Whether to buy the road-following path as well. Off for a caller whose
+    // jobs are not the things it will draw — door knocking orders block faces
+    // and then walks the doors inside them, so a polyline threading the faces'
+    // representatives would trace a route nobody takes. Skipping it is a whole
+    // billed call saved, and it reports as `routingWaypoints: 0` exactly as a
+    // failed one does, because in both cases nothing was charged.
+    fetchGeometry?: boolean
   }): Promise<RoutePlannerPlan> {
     const sdk = await loadSdk()
     const planner = new sdk.RoutePlanner({ apiKey: this.apiKey() })
@@ -126,10 +168,21 @@ export class GeoapifyRoutePlannerService {
       planner.addJob(new sdk.Job().setId(job.id).setLocation(...job.location))
     }
 
+    // Counted off the request that was just built, not off the caller's stop
+    // list: the anchors occupy their own billed location slots even when they
+    // sit on a coordinate a job already covers, and nothing between here and
+    // the wire collapses them. Why raw and not distinct coordinates is argued
+    // in doorKnocking/utils/geoapifyCost.util.ts, which prices this number.
+    const locations =
+      args.jobs.length +
+      (args.agent.start_location ? 1 : 0) +
+      (args.agent.end_location ? 1 : 0)
+
     let result: RoutePlannerResult
     try {
       result = await raceWithDeadline(planner.plan(), 'Route planner timed out')
     } catch (error) {
+      recordGeoapifyCall('route_planner', 'failed')
       // RoutePlannerError.message is the API's error text; never log the
       // original error object — the request URL carries ?apiKey=<key>.
       this.logger.error(
@@ -141,12 +194,17 @@ export class GeoapifyRoutePlannerService {
       )
       throw new BadGatewayException('Route optimization failed')
     }
+    recordGeoapifyCall('route_planner', 'success')
 
     const issues = result.getRaw().properties?.issues
     const agentPlan = result.getAgentPlans()[0]
     if (!agentPlan) {
-      this.logger.error({ issues }, 'Geoapify returned no agent plan')
-      throw new BadGatewayException('Route optimization returned no plan')
+      // A 200 carrying no plan is a verdict on the input, not a fault: the
+      // vendor read the request and declined it. Measured against the live API,
+      // the way to provoke this is to give the agent an anchor the road network
+      // cannot reach, at which point every job comes back unassigned too.
+      this.logger.warn({ issues }, 'Geoapify returned no agent plan')
+      throw new RoutePlanRejectedError('Route optimization returned no plan')
     }
 
     const actions = agentPlan.getActions()
@@ -190,18 +248,32 @@ export class GeoapifyRoutePlannerService {
       planned.size !== args.jobs.length ||
       orderedJobIds.length !== args.jobs.length
     ) {
-      this.logger.error(
+      // Which ones, so the caller can name them. A job the network cannot
+      // reach — a geocode in open water, a parcel with no way to it — comes
+      // back here while every other stop plans normally, so this is a fact
+      // about a handful of addresses rather than about the turf.
+      const unroutableJobIds = args.jobs
+        .map((job) => job.id)
+        .filter((id) => !planned.has(id))
+      this.logger.warn(
         {
           requested: args.jobs.length,
           planned: orderedJobIds.length,
+          unroutableJobIds,
           issues,
         },
         'Geoapify plan does not cover every stop',
       )
-      throw new BadGatewayException(
+      throw new RoutePlanRejectedError(
         'Route optimization did not cover every stop',
+        unroutableJobIds,
       )
     }
+
+    const path =
+      args.fetchGeometry === false
+        ? { geometry: null, billedWaypoints: 0 }
+        : await this.fetchPathGeometry(agentPlan, args.mode)
 
     return {
       orderedJobIds,
@@ -209,38 +281,60 @@ export class GeoapifyRoutePlannerService {
       legMeters,
       totalSeconds: agentPlan.getTime() ?? 0,
       totalMeters: agentPlan.getDistance() ?? 0,
-      pathGeometry: await this.fetchPathGeometry(agentPlan, args.mode),
+      locations,
+      routingWaypoints: path.billedWaypoints,
+      pathGeometry: path.geometry,
     }
   }
 
   // Best-effort: the ordered plan is the critical artifact; a geometry
-  // failure must not fail the knock.
+  // failure must not fail the knock. It is still a second billed vendor call
+  // per knock, so it reports what it was charged for alongside what it found.
   private async fetchPathGeometry(
     agentPlan: AgentPlan,
     mode: 'walk' | 'drive',
-  ): Promise<RoutePathGeometry | null> {
+  ): Promise<PathGeometryFetch> {
+    // The plan's waypoint array verbatim, because that is what getRoute turns
+    // into the `waypoints=` query param it is billed on — anchors included.
+    // The job count is a different, smaller number.
+    const billedWaypoints = agentPlan.getWaypoints().length
+
+    // Only the await is guarded. Billed means the call came back, and the
+    // sole place that is not true is the catch below, one statement from the
+    // failure counter — so the two cannot answer differently. Everything
+    // after the try returns money already spent: a response we could not read
+    // is charged, a projection we refuse to freeze is charged, and so is the
+    // straight line the SDK invents when Geoapify answers with no features.
+    // Inferring payment from a null geometry would drop all three.
+    let feature: unknown
     try {
       // getRoute is typed Promise<any>; narrow structurally instead of
       // asserting.
-      const feature: unknown = await raceWithDeadline<unknown>(
+      feature = await raceWithDeadline<unknown>(
         agentPlan.getRoute({ mode }),
         'Routing request timed out',
       )
-      if (
-        typeof feature !== 'object' ||
-        feature === null ||
-        !('geometry' in feature)
-      ) {
-        return null
-      }
-      const geometry = feature.geometry
-      return isRoutePathGeometry(geometry) ? geometry : null
     } catch (error) {
+      recordGeoapifyCall('routing', 'failed')
       this.logger.warn(
         { message: error instanceof Error ? error.message : String(error) },
         'Geoapify route geometry fetch failed; route ships without a path',
       )
-      return null
+      return { geometry: null, billedWaypoints: 0 }
+    }
+    recordGeoapifyCall('routing', 'success')
+
+    if (
+      typeof feature !== 'object' ||
+      feature === null ||
+      !('geometry' in feature)
+    ) {
+      return { geometry: null, billedWaypoints }
+    }
+    const geometry = feature.geometry
+    return {
+      geometry: isRoutePathGeometry(geometry) ? geometry : null,
+      billedWaypoints,
     }
   }
 }

@@ -24,6 +24,15 @@ const isPublicRoute = createRouteMatcher([
   // /serve/welcome; only this landing page is public, onboarding still needs a
   // session.
   '/win/welcome(.*)',
+  // Staff-issued one-time sign-in link: the recipient is not yet authenticated
+  // when they land here; the ticket is redeemed client-side on click.
+  '/sign-in-link(.*)',
+  // Team-invite landing page (ENG-11027): Clerk's hosted accept URL redirects
+  // here with __clerk_ticket, and a brand-new invitee has no session yet — an
+  // auth wall would strand the ticket URL-encoded inside /login's
+  // redirect_url where nothing can redeem it. The ticket is redeemed
+  // client-side on the page (same pattern as /serve/welcome).
+  '/team-invite(.*)',
   // Texted magic-link short link. The lead has no session when they tap it, and
   // the handler only exchanges the slug for the redemption URL before redirecting
   // to /serve/welcome or /win/welcome (both public above).

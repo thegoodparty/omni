@@ -1,0 +1,116 @@
+name: release-failure-alert
+
+# The release train (release.yml) is the only path to prod, so a failed run
+# means prod is not shipping — and the Sep 2026 incident (ENG-11106/11107)
+# showed a red train can sit unnoticed for days: ~20 consecutive failed runs
+# before a human happened to look. This posts one Slack message to #bot-urgent
+# per failed run.
+#
+# A separate workflow_run listener rather than a job inside release.yml: the
+# train's job graph changes often (the autopilot roots alone added several
+# jobs in one week), and a notify job wired via `needs:` silently stops
+# observing any job someone forgets to list. Listening for the run's terminal
+# conclusion can't drift.
+#
+# The message names the phase that died because the train's failure shape is
+# easy to misread: a failed "Dev <service>" job SKIPS the E2E shards and the
+# run's red gate job is still named "E2E" — during the Sep incident that got
+# a deploy-role IAM failure triaged as an e2e problem.
+
+on:
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+
+permissions:
+  actions: read
+
+jobs:
+  notify:
+    name: Alert on failed release run
+    # Every terminal conclusion that means the run did not succeed, except
+    # 'cancelled' — that is the train coalescing a burst of merges
+    # (release.yml's concurrency note) and is routine, not an incident.
+    if: contains(fromJson('["failure","timed_out","startup_failure"]'), github.event.workflow_run.conclusion)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post to Slack
+        env:
+          SLACK_APP_BOT_TOKEN: ${{ secrets.SLACK_APP_BOT_TOKEN }}
+          CHANNEL_ID: ${{ vars.SLACK_URGENT_CHANNEL_ID }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_TITLE: ${{ github.event.workflow_run.display_title }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SLACK_APP_BOT_TOKEN" ] || [ -z "$CHANNEL_ID" ]; then
+            echo "::error::SLACK_APP_BOT_TOKEN or SLACK_URGENT_CHANNEL_ID unset — cannot alert on a failed release run. Failing loudly."
+            exit 1
+          fi
+
+          # timed_out jobs conclude "timed_out", not "failure" — both count.
+          failed=$(gh api "repos/${{ github.repository }}/actions/runs/$RUN_ID/jobs?per_page=100" \
+            --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | .name] | join(", ")')
+
+          # Phase, in pipeline order: a failed dev deploy skips the E2E shards,
+          # so it wins the classification even though the "E2E" gate job also
+          # reports failure in that case. A startup_failure run schedules no
+          # jobs at all, so the job-name case has nothing to match on.
+          if [ "$CONCLUSION" = "startup_failure" ]; then
+            phase="runner startup failure (no jobs ran)"
+          else
+            # "Dev " before "Verify dev serving": verify-dev only needs
+            # gp-api + gp-webapp, so it can fail alongside another parallel
+            # Dev job — and the deploy failure is then the real story.
+            case "$failed" in
+              *"Await checks"*) phase="checks gate (pre-deploy checks failed)" ;;
+              *"Dev "*)    phase="dev deploy (E2E shards were skipped, not run)" ;;
+              *"Verify dev serving"*) phase="dev serving verification (dev did not converge to the deployed SHA)" ;;
+              *"E2E"*)     phase="E2E against dev" ;;
+              *"Promote"*|*"Record prod"*|*"Check gp-ai"*) phase="prod promotion" ;;
+              *)           phase="unknown — read the run" ;;
+            esac
+          fi
+
+          text=$(jq -rn \
+            --arg phase "$phase" \
+            --arg failed "${failed:-none reported}" \
+            --arg url "$RUN_URL" \
+            --arg title "$RUN_TITLE" \
+            --arg sha "${HEAD_SHA:0:9}" \
+            '":red_circle: Release train failed at: \($phase). Prod is not shipping until a run goes green.\nRun: <\($url)|\($title)> (\($sha))\nFailed jobs: \($failed)"')
+
+          # chat.postMessage needs the TOKEN'S OWN app to be a channel member,
+          # and SLACK_APP_BOT_TOKEN is the analytics app (analytics-event-bot),
+          # not the goodparty app — see gpbot-pr-triage.yml. That distinction
+          # dropped every alert from 09-14 to 09-17: the channel had the
+          # goodparty app invited, the wiring was verified with the goodparty
+          # app's token, and this workflow's posts all died not_in_channel.
+          # #bot-urgent is public, so join instead of waiting on an invite;
+          # best effort — the post's own error handling below reports.
+          jq -n --arg c "$CHANNEL_ID" '{channel: $c}' | \
+            curl -sS --max-time 10 -X POST https://slack.com/api/conversations.join \
+              -H "Authorization: Bearer $SLACK_APP_BOT_TOKEN" \
+              -H "Content-type: application/json; charset=utf-8" \
+              --data @- >/dev/null || true
+
+          resp=$(jq -n --arg c "$CHANNEL_ID" --arg t "$text" '{channel: $c, text: $t}' | \
+            curl -sf -X POST https://slack.com/api/chat.postMessage \
+              -H "Authorization: Bearer $SLACK_APP_BOT_TOKEN" \
+              -H "Content-type: application/json; charset=utf-8" \
+              --data @-)
+          if [ "$(echo "$resp" | jq -r .ok)" != "true" ]; then
+            err=$(echo "$resp" | jq -r .error)
+            # not_in_channel = the bot invite is pending; a red alert run next
+            # to every red release run would be noise, not signal. Everything
+            # else (bad token, deleted channel, rate limit) fails loudly.
+            if [ "$err" = "not_in_channel" ]; then
+              echo "::warning::Slack not_in_channel and self-join failed — invite the app behind SLACK_APP_BOT_TOKEN (analytics-event-bot, NOT the goodparty app) to #bot-urgent. Alert not sent."
+            else
+              echo "::error::Slack rejected the alert: $err"
+              exit 1
+            fi
+          fi

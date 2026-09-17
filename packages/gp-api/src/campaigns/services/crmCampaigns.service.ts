@@ -7,6 +7,7 @@ import {
   SimplePublicObjectBatchInput,
 } from '@hubspot/api-client/lib/codegen/crm/companies'
 import { HubspotService } from '../../crm/hubspot.service'
+import { AssociationLabelsService } from '../../crm/associationLabels.service'
 import { CampaignsService } from './campaigns.service'
 import { SlackService } from '../../vendors/slack/services/slack.service'
 import { Campaign, Prisma, User } from '../../generated/prisma'
@@ -14,7 +15,10 @@ import { getUserFullName } from '../../users/util/users.util'
 import { formatDateForCRM } from '../../crm/util/cms.util'
 import { CrmUsersService } from '../../users/services/crmUsers.service'
 import { UsersService } from '../../users/services/users.service'
-import { AssociationSpecAssociationCategoryEnum } from '@hubspot/api-client/lib/codegen/crm/associations/v4/models/AssociationSpec'
+import {
+  AssociationSpec,
+  AssociationSpecAssociationCategoryEnum,
+} from '@hubspot/api-client/lib/codegen/crm/associations/v4/models/AssociationSpec'
 import { AssociationTypes } from '@hubspot/api-client'
 import { AiChatService } from '../ai/chat/aiChat.service'
 import { OrganizationsService } from '../../organizations/services/organizations.service'
@@ -39,6 +43,7 @@ export class CrmCampaignsService {
     @Inject(forwardRef(() => UsersService))
     private readonly users: WrapperType<UsersService>,
     private readonly hubspot: HubspotService,
+    private readonly associationLabels: AssociationLabelsService,
     @Inject(forwardRef(() => CrmUsersService))
     private readonly crmUsers: WrapperType<CrmUsersService>,
     private readonly organizations: OrganizationsService,
@@ -431,6 +436,27 @@ export class CrmCampaignsService {
       return
     }
 
+    // Primary flag and label are orthogonal (ENG-11031) — keep the primary
+    // type regardless of whether the Candidate label resolves; existing
+    // automations key on primary, and a missing label must not regress it.
+    const types: AssociationSpec[] = [
+      {
+        associationCategory:
+          AssociationSpecAssociationCategoryEnum.HubspotDefined,
+        associationTypeId: AssociationTypes.primaryCompanyToContact,
+      },
+    ]
+
+    const candidateLabelId = await this.associationLabels.resolveLabelId(
+      HubSpot.AssociationLabelName.CANDIDATE,
+    )
+    if (candidateLabelId !== undefined) {
+      types.push({
+        associationCategory: AssociationSpecAssociationCategoryEnum.UserDefined,
+        associationTypeId: candidateLabelId,
+      })
+    }
+
     try {
       await this.hubspot.client.crm.associations.v4.batchApi.create(
         '0-2',
@@ -440,13 +466,7 @@ export class CrmCampaignsService {
             {
               _from: { id: crmCompanyId },
               to: { id: crmContactId },
-              types: [
-                {
-                  associationCategory:
-                    AssociationSpecAssociationCategoryEnum.HubspotDefined,
-                  associationTypeId: AssociationTypes.primaryCompanyToContact,
-                },
-              ],
+              types,
             },
           ],
         },

@@ -113,11 +113,6 @@ $ npm run start:dev
 $ npm run start:prod
 ```
 
-## Swagger / API documentation
-
-- Visit http://localhost:3000/api to see swagger documentation
-- Visit http://localhost:3000/api-json to get the JSON openApi representation of swagger config
-
 ## Development
 
 ### Testing
@@ -134,10 +129,10 @@ You can run the tests in the Postman desktop app or you can run them using the P
 
 ### Campaign Event Generation (Local)
 
-To test the campaign event generation Lambda locally, run the local server in `gp-ai-projects`:
+To test the campaign event generation Lambda locally, run the local server in `packages/gp-ai`:
 
 ```bash
-cd /gp-ai-projects
+cd packages/gp-ai
 source .venv/bin/activate
 python campaign_plan_lambda/local_server.py
 ```
@@ -149,14 +144,14 @@ CAMPAIGN_PLAN_LOCAL_URL=http://localhost:8089/generate
 CAMPAIGN_PLAN_RESULTS_BUCKET=campaign-plan-results-dev
 ```
 
-See `gp-ai-projects/campaign_plan_lambda/README.md` for full setup instructions including AWS credentials and SQS queue configuration.
+See `packages/gp-ai/campaign_plan_lambda/README.md` for full setup instructions including AWS credentials and SQS queue configuration.
 
 ### AWS Setup
 
 To set up your AWS CLI locally, run the following script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/thegoodparty/gp-api/master/scripts/aws-setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/thegoodparty/omni/main/packages/gp-api/scripts/aws-setup.sh | bash
 ```
 
 ## Contracts Package (`@goodparty_org/contracts`)

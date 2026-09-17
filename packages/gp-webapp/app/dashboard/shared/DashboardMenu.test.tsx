@@ -2,39 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { getDashboardMenuItems } from './DashboardMenu'
 
 const links = ({
-  serveAccessEnabled = false,
   isElectedOffice = false,
   isElectedOfficeLoading = false,
-  campaignStoryEnabled = false,
-  communityIssuesEnabled = true,
-  ordinancesEnabled = false,
-  ecanvasserConnected = false,
-  nativeEnabled = false,
-  districtResolvable = true,
 }: {
-  serveAccessEnabled?: boolean
   isElectedOffice?: boolean
   isElectedOfficeLoading?: boolean
-  campaignStoryEnabled?: boolean
-  communityIssuesEnabled?: boolean
-  ordinancesEnabled?: boolean
-  ecanvasserConnected?: boolean
-  nativeEnabled?: boolean
-  districtResolvable?: boolean
-} = {}) =>
-  getDashboardMenuItems(
-    serveAccessEnabled,
-    isElectedOffice,
-    isElectedOfficeLoading,
-    false,
-    campaignStoryEnabled,
-    communityIssuesEnabled,
-    ordinancesEnabled,
-    { ecanvasserConnected, nativeEnabled, districtResolvable },
-  )
-
-const hasDoorKnocking = (options: Parameters<typeof links>[0] = {}): boolean =>
-  links(options).some((item) => item.id === 'door-knocking-dashboard')
+} = {}) => getDashboardMenuItems(isElectedOffice, isElectedOfficeLoading)
 
 describe('getDashboardMenuItems — Win Contacts gating', () => {
   it('shows the Contacts item for a Win campaign, pro or not', () => {
@@ -69,7 +42,6 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
 
   it('leaves Serve/elected-office Contacts gating unchanged', () => {
     const items = links({
-      serveAccessEnabled: true,
       isElectedOffice: true,
     })
 
@@ -83,63 +55,24 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
   })
 })
 
-describe('getDashboardMenuItems: "Your story" sidebar item', () => {
-  it('renders "Your story" just above the tracker when the story flag is on', () => {
-    const items = getDashboardMenuItems(
-      false, // serveAccessEnabled
-      false, // isElectedOffice
-      false, // isElectedOfficeLoading
-      true, // campaignStrategyExists
-      true, // campaignStoryEnabled
-      false, // communityIssuesEnabled
-      false, // ordinancesEnabled
-    )
+describe('getDashboardMenuItems: "Your Story" sidebar item', () => {
+  it('always renders "Your Story" just above the tracker', () => {
+    const items = links()
     const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
     const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')
 
     expect(storyIdx).toBeGreaterThanOrEqual(0)
-    expect(items[storyIdx]?.label).toBe('Your story')
-    // It sits directly above the Campaign Plan tab.
+    expect(items[storyIdx]?.label).toBe('Your Story')
+    // It sits directly above the Campaign Tracker tab.
     expect(planIdx).toBe(storyIdx + 1)
-  })
-
-  it('omits "Your story" when the story flag is off', () => {
-    const items = getDashboardMenuItems(
-      false, // serveAccessEnabled
-      false, // isElectedOffice
-      false, // isElectedOfficeLoading
-      true, // campaignStrategyExists
-      false, // campaignStoryEnabled
-      false, // communityIssuesEnabled
-      false, // ordinancesEnabled
-    )
-    expect(
-      items.find((i) => i.id === 'campaign-story-dashboard'),
-    ).toBeUndefined()
   })
 })
 
-describe('getDashboardMenuItems — Campaign Plan tab label', () => {
-  it('labels the item "Campaign Plan" when campaignStoryEnabled is true', () => {
-    const items = links({ campaignStoryEnabled: true })
+describe('getDashboardMenuItems — Campaign Tracker tab label', () => {
+  it('always labels the item "Campaign Tracker"', () => {
+    const items = links()
     const planItem = items.find((i) => i.id === 'campaign-plan-dashboard')
-    expect(planItem?.label).toBe('Campaign Plan')
-  })
-
-  it('labels the item "Campaign Plan" when campaignStoryEnabled is false', () => {
-    // Story off: the item only appears when a campaign strategy exists, so pass
-    // that flag (position 4) directly rather than via the `links` helper.
-    const items = getDashboardMenuItems(
-      false, // serveAccessEnabled
-      false, // isElectedOffice
-      false, // isElectedOfficeLoading
-      true, // campaignStrategyExists
-      false, // campaignStoryEnabled
-      false, // communityIssuesEnabled
-      false, // ordinancesEnabled
-    )
-    const planItem = items.find((i) => i.id === 'campaign-plan-dashboard')
-    expect(planItem?.label).toBe('Campaign Plan')
+    expect(planItem?.label).toBe('Campaign Tracker')
   })
 })
 
@@ -163,25 +96,15 @@ describe('getDashboardMenuItems — Know Your Opponent nav', () => {
 })
 
 describe('getDashboardMenuItems — Chief of Staff nav gating', () => {
-  it('shows the Chief of Staff item when serve-access + elected-office', () => {
+  it('shows the Chief of Staff item for an elected office', () => {
     const items = links({
-      serveAccessEnabled: true,
       isElectedOffice: true,
     })
     expect(items.some((i) => i.id === 'chief-of-staff-dashboard')).toBe(true)
   })
 
-  it('hides the Chief of Staff item when serve-access is off', () => {
-    const items = links({
-      serveAccessEnabled: false,
-      isElectedOffice: true,
-    })
-    expect(items.some((i) => i.id === 'chief-of-staff-dashboard')).toBe(false)
-  })
-
   it('hides the Chief of Staff item when not elected office', () => {
     const items = links({
-      serveAccessEnabled: true,
       isElectedOffice: false,
     })
     expect(items.some((i) => i.id === 'chief-of-staff-dashboard')).toBe(false)
@@ -189,7 +112,6 @@ describe('getDashboardMenuItems — Chief of Staff nav gating', () => {
 
   it('renders Chief of Staff before Briefing Assistant when both are shown', () => {
     const items = links({
-      serveAccessEnabled: true,
       isElectedOffice: true,
     })
     const cosIdx = items.findIndex((i) => i.id === 'chief-of-staff-dashboard')
@@ -201,112 +123,95 @@ describe('getDashboardMenuItems — Chief of Staff nav gating', () => {
 })
 
 describe('getDashboardMenuItems — Community Issues nav gating', () => {
-  it('shows the Community Issues nav for an elected office when the flag is on', () => {
+  it('shows the Community Issues nav for an elected office', () => {
     const items = links({
       isElectedOffice: true,
-      communityIssuesEnabled: true,
     })
     expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(true)
   })
 
-  it('hides the Community Issues nav for an elected office when the flag is off', () => {
-    const items = links({
-      isElectedOffice: true,
-      communityIssuesEnabled: false,
-    })
-    expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(false)
-  })
-
-  it('hides the Community Issues nav for a non-elected-office user even when the flag is on', () => {
+  it('hides the Community Issues nav for a non-elected-office user', () => {
     const items = links({
       isElectedOffice: false,
-      communityIssuesEnabled: true,
     })
     expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(false)
   })
 
-  it('still renders Campaign Plan when the flag hides Community Issues for an elected office', () => {
-    // With Community Issues hidden, the front-of-list offset drops by one;
-    // the campaign-category items must still render in order.
+  it('still renders Campaign Tracker alongside Community Issues for an elected office', () => {
     const items = links({
       isElectedOffice: true,
-      communityIssuesEnabled: false,
-      campaignStoryEnabled: true,
     })
-    expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(false)
+    expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(true)
     const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')
     expect(planIdx).toBeGreaterThanOrEqual(0)
   })
 })
 
 describe('getDashboardMenuItems — Ordinances tab gating', () => {
-  it('shows the Ordinances item for an elected office when the flag is on', () => {
+  it('shows the Ordinances item for an elected office', () => {
     const items = links({
       isElectedOffice: true,
-      ordinancesEnabled: true,
     })
     expect(items.some((i) => i.id === 'ordinances-dashboard')).toBe(true)
   })
 
-  it('hides the Ordinances item when the flag is off', () => {
-    const items = links({
-      isElectedOffice: true,
-      ordinancesEnabled: false,
-    })
-    expect(items.some((i) => i.id === 'ordinances-dashboard')).toBe(false)
-  })
-
-  it('hides the Ordinances item for a non-elected office even with the flag on', () => {
+  it('hides the Ordinances item for a non-elected office', () => {
     const items = links({
       isElectedOffice: false,
-      ordinancesEnabled: true,
     })
     expect(items.some((i) => i.id === 'ordinances-dashboard')).toBe(false)
   })
 })
 
-describe('getDashboardMenuItems — Door Knocking nav gating', () => {
-  // The regression this gating fixes: the link used to be pushed only for orgs
-  // with an eCanvasser integration record, so a pilot candidate on the native
-  // flag had no way to reach the feature at all.
-  it('shows the item on the native flag without an eCanvasser record', () => {
-    expect(hasDoorKnocking({ nativeEnabled: true })).toBe(true)
+describe('getDashboardMenuItems — Constituent Outreach nav gating', () => {
+  it('shows the item for an elected office', () => {
+    const items = links({
+      isElectedOffice: true,
+    })
+    expect(items.some((i) => i.id === 'constituent-outreach-dashboard')).toBe(
+      true,
+    )
   })
 
-  it('hides the item with neither the flag nor an eCanvasser record', () => {
-    expect(hasDoorKnocking()).toBe(false)
+  it('hides the item for a campaign (non-elected-office) org', () => {
+    const items = links({
+      isElectedOffice: false,
+    })
+    expect(items.some((i) => i.id === 'constituent-outreach-dashboard')).toBe(
+      false,
+    )
   })
 
-  it('still shows the legacy item for an integrated org with the flag off', () => {
-    expect(hasDoorKnocking({ ecanvasserConnected: true })).toBe(true)
+  it('does not commit to the item while the elected-office query is loading', () => {
+    const items = links({
+      isElectedOffice: false,
+      isElectedOfficeLoading: true,
+    })
+    expect(items.some((i) => i.id === 'constituent-outreach-dashboard')).toBe(
+      false,
+    )
   })
+})
 
-  // Every pack and turf read resolves a district server-side and 400s without
-  // one, so the native map would render an error, not a walk list.
-  it('hides the item on the native flag when the district is unresolvable', () => {
-    expect(
-      hasDoorKnocking({ nativeEnabled: true, districtResolvable: false }),
-    ).toBe(false)
+// ENG-11061: Team moved out of getDashboardMenuItems (the primary nav)
+// entirely — it now lives in the sidebar account menu, which reads
+// showTeamAccountItem directly in DashboardMenu rather than through this
+// pure function. Coverage for that gating lives in
+// DashboardMenu.accountGating.test.tsx.
+describe('getDashboardMenuItems — Team not a primary-nav item (ENG-11061)', () => {
+  it('never includes a team item, elected office or not', () => {
+    const isTeamItem = (i: { id: string }) => i.id === 'team-dashboard'
+    expect(links({ isElectedOffice: false }).some(isTeamItem)).toBe(false)
+    expect(links({ isElectedOffice: true }).some(isTeamItem)).toBe(false)
   })
+})
 
-  // Flag on means the route renders the native map regardless of eCanvasser, so
-  // an integrated org with no district would land on the same error page.
-  it('does not let an eCanvasser record rescue the item on the native flag', () => {
-    expect(
-      hasDoorKnocking({
-        nativeEnabled: true,
-        ecanvasserConnected: true,
-        districtResolvable: false,
-      }),
-    ).toBe(false)
-  })
-
-  // While the flag is unsettled the page renders the eCanvasser dashboard, so
-  // the nav must match rather than flashing a link that changes meaning.
-  it('ignores district resolution while the flag is unsettled', () => {
-    expect(hasDoorKnocking({ districtResolvable: true })).toBe(false)
-    expect(
-      hasDoorKnocking({ ecanvasserConnected: true, districtResolvable: false }),
-    ).toBe(true)
+describe('getDashboardMenuItems — Door Knocking has no standalone nav item', () => {
+  // Door knocking is a channel of Voter Outreach, not a peer of it: the outreach
+  // hub's channel tile (`v2/ChannelTileGrid.tsx`) is the only entry, since it's
+  // the only one that can carry a saved list across as `?listId=`.
+  it('never includes a door-knocking item', () => {
+    const items = links({ isElectedOffice: true })
+    expect(items.some((i) => i.id === 'door-knocking-dashboard')).toBe(false)
   })
 })

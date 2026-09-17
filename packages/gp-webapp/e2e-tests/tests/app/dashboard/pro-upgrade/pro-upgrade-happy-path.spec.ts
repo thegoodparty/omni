@@ -94,10 +94,11 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   await page.getByRole('button', { name: 'Continue' }).click()
 
   // 6. Filing details. Email and phone are both required (ENG-10483: Peerly
-  // needs both); the filing address is optional. Fill committee, filing link,
-  // email, and phone, and skip the Google-autocomplete address, which is flaky
-  // in e2e and not required for submission.
+  // needs both); the filing address is optional. Fill candidate name,
+  // committee, filing link, email, and phone, and skip the Google-autocomplete
+  // address, which is flaky in e2e and not required for submission.
   await page.waitForURL(/\/dashboard\/pro-upgrade\/filing-details/)
+  await page.getByPlaceholder('Jane Smith').fill('Jane Smith')
   await page.getByPlaceholder('Jane for Council').fill('Jane for Council')
   await page
     .getByPlaceholder('https://')
@@ -198,6 +199,12 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
   await expiryInput.fill(futureExpiry)
   await page.waitForTimeout(500)
   await cvcInput.fill('123')
+  await page.waitForTimeout(500)
+  // Stripe geolocates the billing country from the client IP, and the card
+  // form renders a ZIP field only for countries that collect one. CI runners
+  // are sometimes geolocated outside the US (observed: Mexico, 2026-09-04),
+  // which drops #payment-postalCodeInput entirely - pin the country first.
+  await stripeFrame.locator('#payment-countryInput').selectOption('US')
   await page.waitForTimeout(500)
   await zipInput.fill('82001')
   await page.waitForTimeout(500)

@@ -35,6 +35,7 @@ import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { rrulestr } from 'rrule'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { DashboardCardsService } from '@/dashboardCards/services/dashboardCards.service'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { BriefingItemLinksService } from './briefingItemLinks.service'
 
 const parseBriefingArtifact = (
@@ -72,6 +73,19 @@ const extractElectedOfficeId = (params: unknown): string | null => {
 // Maximum prose length we persist for a discovered location hint. Mirrors the
 // runbooks manifests so the DB row matches what the schema validator allows.
 const DISCOVERED_LOCATION_MAX = 2000
+
+// Unset in every environment today — Ops has not yet created the briefing
+// ready single-send email asset in HubSpot (ENG-11035), and the inventory
+// flags this email for an Ops portal check before it's confirmed a durable
+// MOVE (HUBSPOT_INTEGRATION.md § Meeting briefing ready). Read live rather
+// than cached at module load, mirroring HUBSPOT_PIN_SENT_EMAIL_ID. Until
+// it's set, the existing Segment-event -> HubSpot workflow email path is
+// unchanged.
+const getBriefingReadySingleSendEmailId = (): number | null => {
+  const raw = process.env.HUBSPOT_BRIEFING_READY_EMAIL_ID
+  const emailId = raw ? Number(raw) : NaN
+  return Number.isFinite(emailId) ? emailId : null
+}
 
 const readStringField = (obj: unknown, key: string): string | null => {
   if (
@@ -184,6 +198,7 @@ export class MeetingBriefingsService extends createPrismaBase(
     private readonly cronLock: CronLockService,
     private readonly dashboardCards: DashboardCardsService,
     private readonly briefingItemLinks: BriefingItemLinksService,
+    private readonly hubspotSingleSend: HubspotSingleSendService,
   ) {
     super()
   }
@@ -250,7 +265,7 @@ export class MeetingBriefingsService extends createPrismaBase(
     // when an active or successful schedule run already exists — otherwise a
     // retry spawns a duplicate live run and SQS message. A FAILED-only run is
     // not blocking: the first attempt did not succeed and nothing else
-    // re-dispatches it (a dead run is only marked FAILED by the gp-ai-projects
+    // re-dispatches it (a dead run is only marked FAILED by the gp-ai
     // ECS task-reaper, which does not re-dispatch).
     const existingScheduleRun = await this.client.experimentRun.findFirst({
       where: {
@@ -496,20 +511,12 @@ export class MeetingBriefingsService extends createPrismaBase(
     }
 
     // A briefing needs a meetingDate from the schedule. With the imminence
-    // gate on, match the daily cron exactly: require an affirmative serve-ICP
-    // flag (fail closed), skip if a future briefing already covers the
-    // official, and only dispatch when the next meeting falls inside the
-    // 3-day window. With the gate off (the UI "brief now" button) skip the
-    // ICP check and widen to 60 days so an operator can pre-brief any office.
+    // gate on, match the daily cron exactly: skip if a future briefing already
+    // covers the official, and only dispatch when the next meeting falls
+    // inside the 3-day window. With the gate off (the UI "brief now" button)
+    // widen to 60 days so an operator can pre-brief any office.
     const now = new Date()
     if (useImminenceGate) {
-      if (ctx.isServeIcp !== true) {
-        this.logger.info(
-          { electedOfficeId, isServeIcp: ctx.isServeIcp },
-          'skipping gated manual dispatch: position is not serve-ICP',
-        )
-        return { dispatched: false }
-      }
       const futureBriefing = await this.model.findFirst({
         where: { electedOfficeId, meetingDate: { gte: now } },
         select: { id: true },
@@ -590,9 +597,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       imminentMeetingDate,
       coveredByBriefingDate,
       gateWouldDispatch:
-        ctx?.isServeIcp === true &&
-        !futureBriefing &&
-        imminentMeetingDate !== null,
+        ctx !== null && !futureBriefing && imminentMeetingDate !== null,
       overrideWouldDispatch: ctx !== null && nextMeetingDate !== null,
     }
   }
@@ -831,10 +836,9 @@ export class MeetingBriefingsService extends createPrismaBase(
     //      pointers. No such run => resolveTargetMeeting returns null => skip.
     //   2. Coverage dedupe skips any office already covered by a future
     //      briefing (meetingDate >= now).
-    // The remaining gates (serve-ICP, activity, imminence window, in-flight
-    // dedupe) depend on the election-api / the S3 schedule artifact / user
-    // metadata and can't be expressed here, so they stay in the per-office
-    // guard below.
+    // The remaining gates (activity, imminence window, in-flight dedupe)
+    // depend on the S3 schedule artifact / user metadata and can't be
+    // expressed here, so they stay in the per-office guard below.
     const offices = await this.client.electedOffice.findMany({
       where: {
         organization: {
@@ -953,19 +957,6 @@ export class MeetingBriefingsService extends createPrismaBase(
     // findUnique the loop used to do per office (fetch once, up top).
     const ctx = await this.resolveDispatchContext(eo)
     if (!ctx) return notDispatched
-
-    // Fail closed: automated dispatches require an affirmative serve-ICP
-    // flag, so offices stay un-briefed until the Databricks backfill
-    // populates the column (gp-data-platform#473). dispatchManual applies
-    // the same check when useImminenceGate is set; only the ungated
-    // brief-now path skips it.
-    if (ctx.isServeIcp !== true) {
-      this.logger.info(
-        { electedOfficeId: eo.id, isServeIcp: ctx.isServeIcp },
-        'skipping dispatch: position is not serve-ICP',
-      )
-      return notDispatched
-    }
 
     // Activity gate: skip on the cron path when the user hasn't opened the
     // product within INACTIVITY_THRESHOLD_DAYS, firing a re-engagement
@@ -1290,7 +1281,7 @@ export class MeetingBriefingsService extends createPrismaBase(
     try {
       await this.analytics.track(
         electedOffice.userId,
-        'Briefing Assistant - Agenda Not Created',
+        EVENTS.BriefingAssistant.AgendaNotCreated,
         {
           electedOfficeId: electedOffice.id,
           experimentRunId: run.runId,
@@ -1353,7 +1344,7 @@ export class MeetingBriefingsService extends createPrismaBase(
     try {
       await this.analytics.track(
         userId,
-        'Briefing Assistant - Agenda Created',
+        EVENTS.BriefingAssistant.AgendaCreated,
         {
           agendaId: dateString,
           meetingDate: parseIsoDateAsUTC(dateString).getTime(),
@@ -1370,6 +1361,66 @@ export class MeetingBriefingsService extends createPrismaBase(
       this.logger.error(
         { err, userId },
         '[SEGMENT] Failed to track Briefing Assistant - Agenda Created',
+      )
+    }
+
+    await this.sendAgendaCreatedSingleSend(userId, {
+      meetingDate: dateString,
+      meetingTime,
+      meetingTimezone,
+      meetingPlace: artifact.location ?? '',
+      meetingType,
+      execSummary,
+      ...flattenTopAgendaItems(topItems),
+    })
+  }
+
+  // The email leg of this notification moves to a direct HubSpot single-send
+  // call (ENG-11035) — recipient is the elected official the briefing is
+  // for, not whatever email a HubSpot workflow would resolve off the contact
+  // record. The Segment event above keeps firing unchanged for non-email
+  // consumers. Unlike the other move-list emails, this one carries real
+  // per-meeting content rather than a bare link — HUBSPOT_INTEGRATION.md
+  // classifies it MOVE only on the assumption Ops's workflow personalizes
+  // straight from this event rather than persisting it onto the contact
+  // record; if the portal check finds otherwise, Ops simply never sets
+  // HUBSPOT_BRIEFING_READY_EMAIL_ID and it stays on the workflow path with
+  // no code change. A single-send failure must never fail this call — it
+  // runs inline in the SQS-driven onExperimentRunCompleted path, and this
+  // method already reports its own errors rather than throwing.
+  private async sendAgendaCreatedSingleSend(
+    userId: number,
+    customProperties: Record<string, string>,
+  ): Promise<void> {
+    const emailId = getBriefingReadySingleSendEmailId()
+    if (!emailId) {
+      this.logger.debug(
+        'HUBSPOT_BRIEFING_READY_EMAIL_ID not set — skipping HubSpot ' +
+          'single-send; the workflow email path still covers this notification',
+      )
+      return
+    }
+    try {
+      const user = await this.client.user.findUnique({
+        where: { id: userId },
+      })
+      if (!user) {
+        this.logger.warn(
+          { userId },
+          'Briefing Ready single-send skipped: user not found',
+        )
+        return
+      }
+      await this.hubspotSingleSend.sendSingleSend({
+        emailId,
+        to: user.email,
+        customProperties,
+      })
+    } catch (err) {
+      this.logger.error(
+        { err, userId },
+        'HubSpot single-send failed for Briefing Ready; the workflow email ' +
+          'path still fires from the Segment event',
       )
     }
   }

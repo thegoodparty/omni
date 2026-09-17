@@ -20,6 +20,8 @@ import {
   trackEvent,
   setImpersonating,
   setUserEmail,
+  setActorUserId,
+  setActorRole,
   getMetaClickIds,
   getPersistedClids,
   extractClids,
@@ -32,6 +34,8 @@ describe('trackEvent', () => {
   beforeEach(() => {
     setImpersonating(false)
     setUserEmail(undefined)
+    setActorUserId(undefined)
+    setActorRole(undefined)
     vi.clearAllMocks()
     sessionStorage.clear()
   })
@@ -107,6 +111,48 @@ describe('trackEvent', () => {
       'Test Event',
       expect.objectContaining({
         email: 'override@example.com',
+      }),
+    )
+  })
+
+  it('defaults actorUserId and actorRole to null when never set', () => {
+    trackEvent('Test Event', { foo: 'bar' })
+
+    expect(segmentTrackEvent).toHaveBeenCalledWith(
+      'Test Event',
+      expect.objectContaining({
+        actorUserId: null,
+        actorRole: null,
+      }),
+    )
+  })
+
+  it('includes the actor user id and role once set', () => {
+    setActorUserId(42)
+    setActorRole('campaignAdmin')
+
+    trackEvent('Test Event', { foo: 'bar' })
+
+    expect(segmentTrackEvent).toHaveBeenCalledWith(
+      'Test Event',
+      expect.objectContaining({
+        actorUserId: 42,
+        actorRole: 'campaignAdmin',
+      }),
+    )
+  })
+
+  it('actor props cannot be overridden by caller properties', () => {
+    setActorUserId(42)
+    setActorRole('owner')
+
+    trackEvent('Test Event', { actorUserId: 7, actorRole: 'volunteer' })
+
+    expect(segmentTrackEvent).toHaveBeenCalledWith(
+      'Test Event',
+      expect.objectContaining({
+        actorUserId: 42,
+        actorRole: 'owner',
       }),
     )
   })

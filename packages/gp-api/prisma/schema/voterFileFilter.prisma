@@ -28,6 +28,16 @@ model VoterFileFilter {
   genderUnknown              Boolean?                           @default(false) @map("gender_unknown")
   hasCellPhone               Boolean?                           @default(false) @map("has_cell_phone")
   hasLandline                Boolean?                           @default(false) @map("has_landline")
+  hasAnyPhone                Boolean?                           @default(false) @map("has_any_phone")
+  /// Voter_Independent_Affinity is a non-nullable BOOLEAN in the mart, so
+  /// there is no Unknown bucket to persist alongside this.
+  independentAffinity        Boolean?                           @default(false) @map("independent_affinity")
+  ideologyConservative       Boolean?                           @default(false) @map("ideology_conservative")
+  /// The mart column's value is `Liberal`; the product labels it
+  /// "Progressive". The persisted name follows the data, not the label.
+  ideologyLiberal            Boolean?                           @default(false) @map("ideology_liberal")
+  ideologyModerate           Boolean?                           @default(false) @map("ideology_moderate")
+  ideologyUnknown            Boolean?                           @default(false) @map("ideology_unknown")
   languageCodes              String[]                           @default([]) @map("language_codes")
   voterStatus                String[]                           @default([]) @map("voter_status")
   likelyMarried              Boolean?                           @default(false) @map("likely_married")
@@ -45,6 +55,9 @@ model VoterFileFilter {
   educationGraduateDegree    Boolean?                           @default(false) @map("education_graduate_degree")
   educationUnknown           Boolean?                           @default(false) @map("education_unknown")
   incomeRanges               String[]                           @default([]) @map("income_ranges")
+  /// Encoded `county|precinct` pairs; an empty precinct side is the "no
+  /// precinct on file" bucket. Per-district vocabulary, so there is no enum.
+  precincts                  String[]                           @default([]) @map("precincts")
   incomeUnknown              Boolean?                           @default(false) @map("income_unknown")
   ethnicityAsian             Boolean?                           @default(false) @map("ethnicity_asian")
   ethnicityEuropean          Boolean?                           @default(false) @map("ethnicity_european")
@@ -72,11 +85,20 @@ model VoterFileFilter {
   contactsMade5Plus          Boolean?                           @default(false) @map("contacts_made_5_plus")
   outreaches                 Outreach[]
   doorKnockingTurfs          DoorKnockingTurf[]
+  phoneBankingLists          PhoneBankingList[]
   organizationSlug           String                             @map("organization_slug")
   organization               Organization                       @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
   supportStatus              SupportStatusRollup[]              @default([]) @map("support_status")
   firstUsedForOutreachAt     DateTime?                          @map("first_used_for_outreach_at")
   activityConditions         VoterFileFilterActivityCondition[]
+  /// Registry key of the recommendation this list was created from; null
+  /// means user-built. Set once at create time, never re-derived.
+  recommendedVariant         String?                            @map("recommended_variant")
+  recommendedChannel         String?                            @map("recommended_channel")
+  recommendedIntent          String?                            @map("recommended_intent")
+  /// Whether the candidate edited the recommendation before submitting.
+  /// Null (not false) when recommendedVariant is null.
+  recommendedModified        Boolean?                           @map("recommended_modified")
 
   @@index([organizationSlug])
   @@map("voter_file_filter")

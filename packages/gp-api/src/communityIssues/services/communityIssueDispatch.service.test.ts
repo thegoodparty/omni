@@ -59,7 +59,6 @@ describe('CommunityIssueDispatchService.onElectedOfficeCreated', () => {
     mockResolveServeContext({
       state: 'MN',
       positionName: 'City Council',
-      isServeIcp: true,
     })
     const dispatchSpy = mockDispatchRun()
 
@@ -87,7 +86,6 @@ describe('CommunityIssueDispatchService.onElectedOfficeCreated', () => {
     mockResolveServeContext({
       state: 'MN',
       positionName: 'City Council',
-      isServeIcp: true,
     })
     const dispatchSpy = mockDispatchRun()
 
@@ -127,7 +125,6 @@ describe('CommunityIssueDispatchService.onElectedOfficeCreated', () => {
     mockResolveServeContext({
       state: 'MN',
       positionName: 'City Council',
-      isServeIcp: true,
     })
     const dispatchSpy = mockDispatchRun()
 
@@ -186,7 +183,7 @@ describe('CommunityIssueDispatchService.dispatchForCohort', () => {
     vi.restoreAllMocks()
   })
 
-  it('skips orgs that fail the serve-ICP gate', async () => {
+  it('dispatches for an office whose position is not serve-ICP', async () => {
     const suffix = Date.now()
     const orgSlug = `ci-cohort-icp-${suffix}`
     await service.prisma.organization.upsert({
@@ -207,11 +204,14 @@ describe('CommunityIssueDispatchService.dispatchForCohort', () => {
     })
     const dispatchSpy = mockDispatchRun()
 
-    await service.app
+    const result = await service.app
       .get(CommunityIssueDispatchService)
       .dispatchForCohort([orgSlug])
 
-    expect(dispatchSpy).not.toHaveBeenCalled()
+    const types = dispatchSpy.mock.calls.map((c) => c[0].type)
+    expect(types).toContain('top_community_issues')
+    expect(types).toContain('trending_issues')
+    expect(result).toEqual({ dispatched: 2, skipped: 0 })
   })
 
   it('skips orgs with an in-flight run of that type', async () => {
@@ -239,7 +239,6 @@ describe('CommunityIssueDispatchService.dispatchForCohort', () => {
     mockResolveServeContext({
       state: 'MN',
       positionName: 'City Council',
-      isServeIcp: true,
     })
     const dispatchSpy = mockDispatchRun()
 
@@ -278,7 +277,6 @@ describe('CommunityIssueDispatchService.dispatchForCohort', () => {
     mockResolveServeContext({
       state: 'MN',
       positionName: 'City Council',
-      isServeIcp: true,
     })
     const dispatchSpy = mockDispatchRun()
 
@@ -320,7 +318,6 @@ describe('CommunityIssueDispatchService.dispatchForCohort', () => {
     mockResolveServeContext({
       state: 'TX',
       positionName: 'Mayor',
-      isServeIcp: true,
     })
     const dispatchSpy = mockDispatchRun()
 
@@ -351,7 +348,6 @@ describe('CommunityIssueDispatchService.dispatchForCohort', () => {
     mockResolveServeContext({
       state: 'CA',
       positionName: 'Mayor',
-      isServeIcp: true,
     })
     const dispatchSpy = mockDispatchRun()
 
@@ -382,7 +378,6 @@ describe('CommunityIssueDispatchService.dispatchForCohort', () => {
       positionName: 'City Council',
       l2DistrictType: 'City_Ward',
       l2DistrictName: 'MINNEAPOLIS WARD 3',
-      isServeIcp: true,
     })
     const dispatchSpy = mockDispatchRun()
 
@@ -453,7 +448,6 @@ describe(
         mockResolveServeContext({
           state: 'MN',
           positionName: 'City Council',
-          isServeIcp: true,
         })
         const dispatchSpy = mockDispatchRun()
 
@@ -504,7 +498,6 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
       mockResolveServeContext({
         state: 'MN',
         positionName: 'City Council',
-        isServeIcp: true,
       })
       const dispatchSpy = mockDispatchRun()
       const cronLock = service.app.get(CronLockService)
@@ -538,7 +531,6 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
       mockResolveServeContext({
         state: 'MN',
         positionName: 'City Council',
-        isServeIcp: true,
       })
       const dispatchSpy = mockDispatchRun()
       const trackSpy = vi
@@ -597,7 +589,6 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
       mockResolveServeContext({
         state: 'MN',
         positionName: 'City Council',
-        isServeIcp: true,
       })
       const dispatchSpy = mockDispatchRun()
       const cronLock = service.app.get(CronLockService)
@@ -634,7 +625,6 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
       mockResolveServeContext({
         state: 'MN',
         positionName: 'City Council',
-        isServeIcp: true,
       })
       const dispatchSpy = mockDispatchRun()
       const trackSpy = vi
@@ -683,7 +673,6 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
       mockResolveServeContext({
         state: 'MN',
         positionName: 'City Council',
-        isServeIcp: true,
       })
       const dispatchSpy = mockDispatchRun()
 
@@ -711,7 +700,6 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
       mockResolveServeContext({
         state: 'MN',
         positionName: 'City Council',
-        isServeIcp: true,
       })
       const dispatchSpy = mockDispatchRun()
 
@@ -747,7 +735,6 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
       mockResolveServeContext({
         state: 'MN',
         positionName: 'City Council',
-        isServeIcp: true,
       })
       const dispatchSpy = mockDispatchRun()
 
@@ -782,7 +769,6 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
       mockResolveServeContext({
         state: 'MN',
         positionName: 'City Council',
-        isServeIcp: true,
       })
       const dispatchSpy = mockDispatchRun()
 
@@ -796,7 +782,7 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
       )
     })
 
-    it('skips entirely when the org fails the serve-ICP gate', async () => {
+    it('dispatches for an office whose position is not serve-ICP', async () => {
       const orgSlug = `ci-ondemand-icp-${Date.now()}`
       await seedOrg(orgSlug)
       await service.prisma.electedOffice.create({
@@ -813,8 +799,8 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
         .get(CommunityIssueDispatchService)
         .dispatchIfNeeded(orgSlug)
 
-      expect(dispatchSpy).not.toHaveBeenCalled()
-      expect(result).toEqual({ dispatched: 0, skipped: 2 })
+      expect(dispatchSpy).toHaveBeenCalledTimes(2)
+      expect(result).toEqual({ dispatched: 2, skipped: 0 })
     })
   })
 })

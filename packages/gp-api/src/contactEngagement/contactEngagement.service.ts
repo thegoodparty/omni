@@ -1,4 +1,5 @@
 import { ContactInteractionDoorKnockService } from '@/contactInteraction/services/contactInteractionDoorKnock.service'
+import { ContactInteractionPhoneBankingService } from '@/contactInteraction/services/contactInteractionPhoneBanking.service'
 import { ContactInteractionRobocallService } from '@/contactInteraction/services/contactInteractionRobocall.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
@@ -23,6 +24,7 @@ import {
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
   OutreachConstituentActivity,
+  PhoneBankingConstituentActivity,
   PollConstituentActivity,
   RobocallConstituentActivity,
   StatusChangeConstituentActivity,
@@ -30,6 +32,17 @@ import {
 } from './contactEngagement.types'
 
 type PollIndividualMessageWithPoll = PollIndividualMessage & { poll: Poll }
+
+// The activity feed always needs the writer's name alongside a phone-banking
+// row (ENG-10946) — mirrors ContactStatusService.ContactStatusEventWithActor.
+const PHONE_BANKING_ACTOR_INCLUDE = {
+  actor: { select: { firstName: true, lastName: true } },
+} satisfies Prisma.ContactInteractionPhoneBankingInclude
+
+// Same actor include, door-knock side (ENG-10824).
+const DOOR_KNOCK_ACTOR_INCLUDE = {
+  actor: { select: { firstName: true, lastName: true } },
+} satisfies Prisma.ContactInteractionDoorKnockInclude
 
 // Every union variant carries a per-type id under a different field name.
 // This is the tiebreak for same-timestamp rows (e.g. two Win outreach
@@ -45,6 +58,7 @@ const activityId = (activity: ConstituentActivity): string => {
     case ConstituentActivityType.DOOR_KNOCK:
     case ConstituentActivityType.TEXT:
     case ConstituentActivityType.ROBOCALL:
+    case ConstituentActivityType.PHONE_BANKING:
     case ConstituentActivityType.STATUS_CHANGE:
       return activity.data.activityId
   }
@@ -64,6 +78,7 @@ export class ContactEngagementService {
     private readonly contactInteractionDoorKnock: ContactInteractionDoorKnockService,
     private readonly contactInteractionText: ContactInteractionTextService,
     private readonly contactInteractionRobocall: ContactInteractionRobocallService,
+    private readonly contactInteractionPhoneBanking: ContactInteractionPhoneBankingService,
     private readonly contactStatus: ContactStatusService,
   ) {}
 
@@ -127,7 +142,7 @@ export class ContactEngagementService {
       return [...before, ...atCursor]
     }
 
-    const [doorKnocks, texts, robocalls] = await Promise.all([
+    const [doorKnocks, texts, robocalls, phoneBankings] = await Promise.all([
       fetchWindow(
         (windowTake) =>
           this.contactInteractionDoorKnock.findMany({
@@ -138,12 +153,14 @@ export class ContactEngagementService {
             },
             orderBy,
             take: windowTake,
+            include: DOOR_KNOCK_ACTOR_INCLUDE,
           }),
         cursorDate
           ? () =>
               this.contactInteractionDoorKnock.findMany({
                 where: { organizationSlug, personId, occurredAt: cursorDate },
                 orderBy,
+                include: DOOR_KNOCK_ACTOR_INCLUDE,
               })
           : null,
       ),
@@ -182,6 +199,27 @@ export class ContactEngagementService {
               this.contactInteractionRobocall.findMany({
                 where: { organizationSlug, personId, occurredAt: cursorDate },
                 orderBy,
+              })
+          : null,
+      ),
+      fetchWindow(
+        (windowTake) =>
+          this.contactInteractionPhoneBanking.findMany({
+            where: {
+              organizationSlug,
+              personId,
+              ...(cursorDate ? { occurredAt: { lt: cursorDate } } : {}),
+            },
+            orderBy,
+            take: windowTake,
+            include: PHONE_BANKING_ACTOR_INCLUDE,
+          }),
+        cursorDate
+          ? () =>
+              this.contactInteractionPhoneBanking.findMany({
+                where: { organizationSlug, personId, occurredAt: cursorDate },
+                orderBy,
+                include: PHONE_BANKING_ACTOR_INCLUDE,
               })
           : null,
       ),
@@ -257,6 +295,12 @@ export class ContactEngagementService {
           supportAnswer: activity.supportAnswer,
           note: activity.note,
           manual: activity.manual,
+          actorName: activity.actor
+            ? [activity.actor.firstName, activity.actor.lastName]
+                .filter(Boolean)
+                .join(' ') || null
+            : null,
+          actorUserId: activity.actorUserId,
         },
       }),
     )
@@ -288,6 +332,26 @@ export class ContactEngagementService {
         },
       }),
     )
+
+    const phoneBankingActivities: PhoneBankingConstituentActivity[] =
+      phoneBankings.map((activity) => ({
+        type: ConstituentActivityType.PHONE_BANKING,
+        date: activity.occurredAt.toISOString(),
+        data: {
+          activityId: activity.id,
+          outcome: activity.outcome,
+          supportAnswer: activity.supportAnswer,
+          willVote: activity.willVote,
+          note: activity.note,
+          manual: activity.manual,
+          actorName: activity.actor
+            ? [activity.actor.firstName, activity.actor.lastName]
+                .filter(Boolean)
+                .join(' ') || null
+            : null,
+          actorUserId: activity.actorUserId,
+        },
+      }))
 
     const outreachConstituentActivities: OutreachConstituentActivity[] =
       outreachActivities.map((activity) => ({
@@ -328,6 +392,7 @@ export class ContactEngagementService {
       ...doorKnockActivities,
       ...textActivities,
       ...robocallActivities,
+      ...phoneBankingActivities,
       ...statusChangeActivities,
     ]
     // date desc, then type/id as an explicit tiebreak — same-day Win outreach

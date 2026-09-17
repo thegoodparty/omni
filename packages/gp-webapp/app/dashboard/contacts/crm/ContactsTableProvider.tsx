@@ -6,6 +6,7 @@ import {
   useCallback,
   useMemo,
   useRef,
+  useState,
   ReactNode,
 } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
@@ -122,6 +123,7 @@ interface ContactsTableState {
   isElectedOfficial: boolean
   isWinContext: boolean
   isWinContextReady: boolean
+  editingSegment: SegmentResponse | null
 }
 
 interface ContactsTableActions {
@@ -131,6 +133,12 @@ interface ContactsTableActions {
   setPageSize: (pageSize: number) => void
   selectPerson: (personId: string | number | null) => void
   selectList: (listId: string | number | null) => void
+  // Opens the list wizard in edit mode over the index (CrmContactsPage mounts
+  // the single wizard instance). Lives here rather than in page state because
+  // both entry points — the list row's kebab and the detail sheet's pencil —
+  // are rendered well below that page.
+  editList: (segment: SegmentResponse) => void
+  closeEditList: () => void
   selectSegment: (segment: string) => void
   searchContacts: (query: string) => void
   refreshCustomSegments: () => Promise<void>
@@ -173,11 +181,11 @@ const contactTableQueryOptions = (params: {
         ...(params.search ? { search: params.search } : {}),
       }).then((res) => res.data),
     refetchOnMount: false,
-    // Contacts 4xx are deterministic (VOTER_DATA_UNAVAILABLE / not-pro = 400,
-    // flag-off = 403); retrying just makes ineligible users wait through the
-    // global 2-retry backoff before the ineligible state renders, and the
-    // page+1 prefetch doubles the wasted requests. Keep the global budget for
-    // everything else (5xx, network).
+    // Contacts 4xx are deterministic (VOTER_DATA_UNAVAILABLE = 400, not-pro =
+    // 403); retrying just makes ineligible users wait through the global
+    // 2-retry backoff before the ineligible state renders. The check below is
+    // a 4xx range, not a list of codes, so both are covered. Keep the global
+    // budget for everything else (5xx, network).
     retry: (failureCount, error) =>
       !(
         error instanceof FetchError &&
@@ -261,22 +269,6 @@ export const ContactsTableProvider = ({
     // Gated on the proactive predicate only. Gating on the union would let this
     // query's own error disable the query that produced it.
     enabled: !isDistrictUnresolvable,
-  })
-
-  // Prefetch the next page, but only once we know there is one. Without this
-  // guard the prefetch fires a second /v1/contacts request on every view —
-  // including the last page, where page+1 has no results — doubling the list
-  // request volume for no benefit.
-  useQuery({
-    ...contactTableQueryOptions({
-      orgSlug,
-      page: currentPage + 1,
-      resultsPerPage: pageSize,
-      segment: currentSegment,
-      search: searchTerm,
-    }),
-    enabled:
-      !isDistrictUnresolvable && !!contactsQuery.data?.pagination?.hasNextPage,
   })
 
   const personQuery = useQuery({
@@ -579,6 +571,23 @@ export const ContactsTableProvider = ({
     [searchParams],
   )
 
+  const [editingSegment, setEditingSegment] = useState<SegmentResponse | null>(
+    null,
+  )
+
+  // Closes the detail sheet on the way in, like the prototype's vdEditList —
+  // the wizard is a full-height drawer and would otherwise stack on top of
+  // the one it was launched from. The save handler reopens it.
+  const editList = useCallback(
+    (segment: SegmentResponse) => {
+      selectList(null)
+      setEditingSegment(segment)
+    },
+    [selectList],
+  )
+
+  const closeEditList = useCallback(() => setEditingSegment(null), [])
+
   const selectSegment = useCallback(
     (segment: string) => {
       // A list saved from a search result set stores its search term; selecting
@@ -639,6 +648,9 @@ export const ContactsTableProvider = ({
       setPageSize,
       selectPerson,
       selectList,
+      editingSegment,
+      editList,
+      closeEditList,
       selectSegment,
       searchContacts: searchContactsAction,
       refreshCustomSegments,
@@ -670,6 +682,9 @@ export const ContactsTableProvider = ({
       setPageSize,
       selectPerson,
       selectList,
+      editingSegment,
+      editList,
+      closeEditList,
       selectSegment,
       searchContactsAction,
       refreshCustomSegments,

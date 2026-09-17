@@ -3,7 +3,9 @@
 // channel's row filter matches the legacy raw-SQL voter-file export so the
 // migrated path returns the same population:
 //   - texting / digitalAds: only voters with a cell phone (SMS + ad matching).
-//   - phoneBanking: only voters with a landline.
+//   - phoneBanking: any phone number, cell or landline (ENG-10914) — the
+//     list builder freezes any phone, cell first, so this must agree with
+//     the built list rather than the old landline-only population.
 //   - all: no row filter (every voter in the district).
 //   - doorKnocking: no row filter, but `groupByHousehold` so people-api
 //     de-dupes to one voter per physical residence address — a canvasser walks
@@ -28,7 +30,7 @@ const defaultSegmentToFiltersMap = {
     filters: [],
   },
   phoneBanking: {
-    filters: ['hasLandline'],
+    filters: ['hasAnyPhone'],
   },
   digitalAds: {
     filters: ['hasCellPhone'],

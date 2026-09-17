@@ -17,7 +17,7 @@ parquet and never re-pulls S3. Coverage (logs parsed / runs in scope) is printed
 and stored alongside.
 
 When a run also has a sibling milestones.jsonl (written by the agent via
-pmf_runtime.milestone() — see the gp-ai-projects primitive), each turn row is
+pmf_runtime.milestone() — see the gp-ai primitive), each turn row is
 tagged with the active milestone (the most recent marker at/before the turn's
 timestamp). Runs without markers (older runs, or agents that emitted none) leave
 the milestone column null and downstream analysis falls back to turn-progress.
@@ -97,7 +97,7 @@ def _session_key(experiment_type: str, run_id: str) -> str:
 
 def _milestones_key(experiment_type: str, run_id: str) -> str:
     # Sibling of session.jsonl. The runner promotes the agent's
-    # <workspace>/logs/milestones.jsonl to this bare key (see gp-ai-projects
+    # <workspace>/logs/milestones.jsonl to this bare key (see gp-ai
     # pmf_runtime.milestone + runner _collect_log_files).
     return f"{experiment_type}/{run_id}/logs/milestones.jsonl"
 

@@ -26,19 +26,13 @@ import { reportErrorToSentry } from '@shared/sentry'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { numberFormatter } from 'helpers/numberHelper'
 import type { Campaign } from 'helpers/types'
-import { prewarmCommunityEvents } from '../success/hooks/useCommunityEvents'
 import { prewarmStrategicLandscape } from '../success/hooks/useStrategicLandscape'
-import { useCampaignStrategyFlag } from '@shared/experiments/campaignStrategyFlag'
-import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import {
   ONBOARDING_STEPS,
   firstOnboardingStepId,
   isStoryStepId,
 } from './onboardingConfig'
-import {
-  getVisibleOnboardingSteps,
-  resolvePostPledgeRoute,
-} from './onboardingHelpers'
+import { getVisibleOnboardingSteps } from './onboardingHelpers'
 import { OfficeSelectionStep } from './OfficeSelectionStep'
 import { ManualOfficeEntryStep } from './ManualOfficeEntryStep'
 import { PathToVictoryStep } from './PathToVictoryStep'
@@ -69,6 +63,7 @@ import type {
   OnboardingStepId,
   PartyAffiliation,
   SelectedOffice,
+  SignupGoal,
 } from './onboardingTypes'
 
 type OnboardingUpdateAttribute = {
@@ -124,6 +119,40 @@ const partyAffiliationOptions: ReadonlyArray<
     description: 'Running as a Republican.',
   },
 ]
+
+const signupGoalOptions: ReadonlyArray<RadioCardOption<SignupGoal>> = [
+  {
+    value: 'voter-data',
+    title: 'I need voter data for my race',
+    description: 'Who your voters are and where they live.',
+  },
+  {
+    value: 'voter-outreach',
+    title: 'I want to reach voters',
+    description: 'Texting, door-knocking and robocalls.',
+  },
+  {
+    value: 'campaign-strategy',
+    title: 'I want help with campaign strategy',
+    description: 'Your win number and what to do next.',
+  },
+  {
+    value: 'templates-resources',
+    title: 'I want templates and resources',
+    description: 'Scripts, letters and materials you can make your own.',
+  },
+  {
+    value: 'exploring',
+    title: "I'm just exploring",
+    description: 'Look around and see what is here.',
+  },
+]
+
+// The Segment property is the selected option's own title, so the event reads
+// the same as the screen did. Derived from the options rather than a second
+// copy of the strings, which would drift the moment one is reworded.
+const signupGoalLabel = (value: SignupGoal): string =>
+  signupGoalOptions.find((option) => option.value === value)?.title ?? value
 
 const isMajorPartyAffiliation = (
   value: PartyAffiliation | undefined,
@@ -391,6 +420,17 @@ const StepBody = ({
     )
   }
 
+  if (activeStep.id === 'signup-goal') {
+    return (
+      <RadioCardGroup
+        name="signup-goal"
+        value={answers.signupGoal}
+        onChange={(value) => updateAnswers({ signupGoal: value })}
+        options={signupGoalOptions}
+      />
+    )
+  }
+
   if (activeStep.id === 'pledge') {
     return <PledgeStep />
   }
@@ -408,30 +448,7 @@ export default function OnboardingFlow({
   const [contextCampaign] = useCampaign()
   const campaign = contextCampaign ?? initialCampaign
   const [user] = useUser()
-  // Gates the post-pledge Campaign Plan flow. When off, we skip the LLM
-  // pre-warm calls and route the candidate directly to /dashboard after
-  // pledge instead of /onboarding/success.
-  const { ready: campaignStrategyReady, enabled: campaignStrategyEnabled } =
-    useCampaignStrategyFlag()
-  // Campaign-story users don't auto-generate a plan during onboarding: they
-  // write their Campaign Story first, then generate from it. So we skip the
-  // pre-warm and route them to the story page instead of /onboarding/success.
-  // trackExposure=false: onboarding only reads the flag for routing, it's not
-  // the treatment surface (the story page is), so the read mustn't fire
-  // exposure for every onboarding visitor.
-  const { ready: campaignStoryReady, enabled: campaignStoryEnabled } =
-    useCampaignStoryFlag(false)
-  // The campaign-story step lives in the static config but only for the story
-  // cohort. Inject it (flag-gated) into the array getVisibleOnboardingSteps
-  // filters, so the stepper count and back/forward navigation stay correct.
-  const [welcomeStep, ...laterOnboardingSteps] = ONBOARDING_STEPS
-  const effectiveSteps: NonEmptyArray<OnboardingStepConfig> =
-    campaignStoryEnabled
-      ? ONBOARDING_STEPS
-      : [
-          welcomeStep,
-          ...laterOnboardingSteps.filter((step) => !isStoryStepId(step.id)),
-        ]
+  const effectiveSteps: NonEmptyArray<OnboardingStepConfig> = ONBOARDING_STEPS
   // Only hydrate from campaign if explicitly resuming (not on first onboarding visit)
   // If the router has ?resume=1 or similar, you could use that; for now, always start fresh
   const [answers, setAnswers] = useState<OnboardingAnswers>({})
@@ -439,6 +456,7 @@ export default function OnboardingFlow({
     firstOnboardingStepId,
   )
   const [isSavingOffice, setIsSavingOffice] = useState(false)
+  const [isSavingSignupGoal, setIsSavingSignupGoal] = useState(false)
   const [isHydratingOffice, setIsHydratingOffice] = useState(false)
   // The three story steps share one in-memory draft; nothing persists until the
   // final step's Continue. Gated on the flag AND on actually being on a story
@@ -447,9 +465,7 @@ export default function OnboardingFlow({
   // campaign and leave the draft stuck in its error state by the time they
   // arrive. Fetching on entry to the first story step mirrors the old
   // mount-time fetch.
-  const storyDraft = useOnboardingStoryDraft(
-    campaignStoryEnabled && isStoryStepId(activeStepId),
-  )
+  const storyDraft = useOnboardingStoryDraft(isStoryStepId(activeStepId))
   const [isPersistingStory, setIsPersistingStory] = useState(false)
   // True while a story card is mid-dictation; blocks Continue so advancing
   // can't persist before an in-flight transcript lands.
@@ -506,6 +522,7 @@ export default function OnboardingFlow({
   const isOfficeHydrationBlocking =
     activeStep.id === 'office-selection' && isHydratingOffice
   const isStoryStep = isStoryStepId(activeStep.id)
+  const isSignupGoalStep = activeStep.id === 'signup-goal'
   // Continue requires content on every story step: an empty field can only be
   // passed with Skip, which preserves any existing saved value (Continue would
   // otherwise persist the empty field and clear a returning candidate's data).
@@ -522,22 +539,11 @@ export default function OnboardingFlow({
     liveCampaign?.organization?.customPositionName ||
     liveCampaign?.office ||
     null
-  // Block the pledge step's Continue until both plan flags resolve — routing
-  // post-pledge depends on them, and reading them mid-init would default to
-  // false and misroute (e.g. a campaign-story user sent to /onboarding/success
-  // and into the pre-warm they're excluded from).
-  const pledgeFlagsReady =
-    activeStep.id !== 'pledge' || (campaignStrategyReady && campaignStoryReady)
   const canContinue =
     isActiveStepValid &&
     !isSavingOffice &&
     !isP2vBlocking &&
-    !isOfficeHydrationBlocking &&
-    // Hold Continue until the story flag resolves so effectiveSteps is stable
-    // (story step present) before the candidate can advance past it. Otherwise
-    // a slow flag load drops the step and they never see it.
-    campaignStoryReady &&
-    pledgeFlagsReady
+    !isOfficeHydrationBlocking
 
   const handleP2vLoadingChange = useCallback((loading: boolean) => {
     setIsP2vLoading(loading)
@@ -600,6 +606,7 @@ export default function OnboardingFlow({
       'campaign-story-why': EVENTS.OnboardingV2.WhyAreYouRunningViewed,
       'campaign-story-background': EVENTS.OnboardingV2.BackgroundViewed,
       'campaign-story-issues': EVENTS.OnboardingV2.IssuesViewed,
+      'signup-goal': EVENTS.OnboardingV2.SignupGoalViewed,
       pledge: EVENTS.OnboardingV2.PledgeViewed,
     }
     const viewedEvent = viewedEventByStep[activeStepId]
@@ -695,10 +702,12 @@ export default function OnboardingFlow({
   }
 
   const goBack = () => {
-    // Skipping jumps straight from a story step to the pledge, so Back from the
-    // pledge must return to the story question the candidate left unanswered —
-    // not step them back through each story question one at a time.
-    if (activeStep.id === 'pledge' && campaignStoryEnabled) {
+    // Skipping jumps straight from a story step to signup-goal (the story
+    // block's successor), so Back from there must return to the story question
+    // the candidate left unanswered — not step them back through each story
+    // question one at a time. Back from the pledge is ordinary: signup-goal is
+    // its previous visible step.
+    if (activeStep.id === 'signup-goal') {
       setActiveStepId(firstUnansweredStoryStepId())
       return
     }
@@ -716,7 +725,7 @@ export default function OnboardingFlow({
       })
     }
     if (answers.ballotStatus) {
-      attrs.push({ key: 'details.ballotStatus', value: answers.ballotStatus })
+      attrs.push({ key: 'ballotStatus', value: answers.ballotStatus })
     }
     return attrs
   }
@@ -845,6 +854,11 @@ export default function OnboardingFlow({
       { key: 'details.district', value: form.district },
       { key: 'details.officeTermLength', value: form.officeTermLength },
       { key: 'details.electionDate', value: form.electionDate },
+      // The 10DLC compliance flows derive the office level from
+      // details.ballotLevel; leaving it unset silently treated manual-entry
+      // federal candidates as local (ENG-11043). The step's isValid gates
+      // Continue on a valid BallotReadyPositionLevel value.
+      { key: 'details.ballotLevel', value: form.level },
       // Manual entry doesn't collect ZIP directly — the office-picker step
       // required a valid ZIP before "I don't see my office" was clickable, so
       // reuse that. Persist so HubSpot / Peerly get an area code (ENG-10618).
@@ -1030,32 +1044,6 @@ export default function OnboardingFlow({
         })
         const ok = await persistStructuredOffice(answers.structuredOffice)
         if (!ok) return
-        // Pre-warm the success-page LLM sections now that raceId +
-        // electionDate are persisted. Both endpoints poll on mount, but
-        // firing here gives them a ~15-90s head start so sections are usually
-        // ready by the time the user lands. Fire-and-forget — both helpers
-        // swallow errors and gp-api dedupes via the per-pod inFlight slot, so
-        // pre-warm + success-page mount collapse to a single LLM run.
-        //
-        // Gated on the strategy-only cohort (campaign-strategy on,
-        // campaign-story off): they land on the legacy success page. No point
-        // spending Gemini calls for campaign-story users (who generate on
-        // demand after their story, and whose events come from the tracker)
-        // or flag-off users (routed straight to /dashboard).
-        if (campaignStrategyEnabled && !campaignStoryEnabled) {
-          // These prewarm calls are the real first request for the strategic
-          // landscape and community events, so the `Requested` events fire
-          // here (not on the success page, which only re-polls afterward).
-          const planCampaignId = liveCampaign?.id ?? campaign?.id
-          trackEvent(EVENTS.OnboardingV2.StrategicLandscapeRequested, {
-            campaignId: planCampaignId,
-          })
-          trackEvent(EVENTS.OnboardingV2.CommunityEventsRequested, {
-            campaignId: planCampaignId,
-          })
-          void prewarmStrategicLandscape()
-          void prewarmCommunityEvents()
-        }
         router.refresh()
       } finally {
         setIsSavingOffice(false)
@@ -1083,7 +1071,7 @@ export default function OnboardingFlow({
     if (activeStep.id === 'ballot-status' && answers.ballotStatus) {
       if (campaign) {
         const updated = await updateCampaign([
-          { key: 'details.ballotStatus', value: answers.ballotStatus },
+          { key: 'ballotStatus', value: answers.ballotStatus },
         ])
         if (updated === false) return
       }
@@ -1108,16 +1096,9 @@ export default function OnboardingFlow({
       if (!effectiveCampaign) return
       const ok = await persistPledgeAndComplete()
       if (!ok) return
-      // Campaign-story users land on the Campaign Manager home, whose chat
-      // opens with the story intake (the plan + tracker are generated from
-      // the story later). Otherwise: campaign-strategy on →
-      // /onboarding/success (legacy LLM plan); off → /dashboard (legacy).
-      router.push(
-        resolvePostPledgeRoute({
-          campaignStoryEnabled,
-          campaignStrategyEnabled,
-        }),
-      )
+      // Lands on the Campaign Manager home, whose chat opens with the story
+      // intake (the plan + tracker are generated from the story later).
+      router.push('/dashboard')
       return
     }
     if (nextStep) {
@@ -1132,17 +1113,17 @@ export default function OnboardingFlow({
     }
   }
 
-  // Skip and the final Continue both leave the story for the pledge (pledge is
-  // the fixed successor of the story block). currentStep is navigation state
-  // only, so a failed update mustn't block the move.
-  const advanceToPledge = async (): Promise<void> => {
+  // Moves to a fixed step out of the story / signup-goal block, recording it as
+  // the resumable currentStep. currentStep is navigation state only, so a
+  // failed update mustn't block the move.
+  const advanceTo = async (stepId: OnboardingStepId): Promise<void> => {
     if (campaign) {
       await updateCampaign([
-        { key: 'data.currentStep', value: 'pledge' },
+        { key: 'data.currentStep', value: stepId },
         { key: 'data.onboarding', value: answers },
       ])
     }
-    setActiveStepId('pledge')
+    setActiveStepId(stepId)
   }
 
   // Advance to the next story step, recording it as the resumable currentStep.
@@ -1158,11 +1139,11 @@ export default function OnboardingFlow({
     setActiveStepId(nextStep.id)
   }
 
-  // Leaving the story for the pledge (from the final issues step). Persistence
-  // and the per-step funnel events already happened in advanceStory; here we
-  // only kick off plan generation, once, when every question was answered this
-  // session.
-  const leaveStoryForPledge = async (): Promise<void> => {
+  // Leaving the story (from the final issues step) for signup-goal, the story
+  // block's successor. Persistence and the per-step funnel events already
+  // happened in advanceStory; here we only kick off plan generation, once, when
+  // every question was answered this session.
+  const leaveStory = async (): Promise<void> => {
     const answered = storyAnsweredRef.current
     const complete = answered.why && answered.background && answered.issues
     if (complete && !storyGenFiredRef.current) {
@@ -1172,7 +1153,52 @@ export default function OnboardingFlow({
       // is never blocked from reaching the pledge.
       void prewarmStrategicLandscape()
     }
-    await advanceToPledge()
+    await advanceTo('signup-goal')
+  }
+
+  // Continue persists the selection and fires Completed; Skip persists nothing
+  // and fires the shared Onboarding Skipped. Both leave for the pledge, so a
+  // candidate is never held here by a question they don't want to answer.
+  const advanceSignupGoal = async (skip: boolean): Promise<void> => {
+    if (isAdvancingRef.current) return
+    isAdvancingRef.current = true
+    try {
+      const campaignId = liveCampaign?.id ?? campaign?.id
+      if (skip) {
+        trackEvent(EVENTS.OnboardingV2.OnboardingSkipped, {
+          step: 'Signup Goal',
+          campaignId,
+        })
+      } else {
+        const goal = answers.signupGoal
+        if (!goal) return
+        if (campaign) {
+          setIsSavingSignupGoal(true)
+          try {
+            const updated = await updateCampaign([
+              { key: 'signupGoal', value: goal },
+            ])
+            if (updated === false) {
+              errorSnackbar('Could not save your answer. Please try again.')
+              return
+            }
+          } finally {
+            setIsSavingSignupGoal(false)
+          }
+        }
+        trackEvent(EVENTS.OnboardingV2.SignupGoalCompleted, {
+          campaignId,
+          signupGoal: goal,
+          signupGoalLabel: signupGoalLabel(goal),
+        })
+        if (user?.id) {
+          await identifyUser(user.id, { signupGoal: goal })
+        }
+      }
+      await advanceTo('pledge')
+    } finally {
+      isAdvancingRef.current = false
+    }
   }
 
   // Continue and Skip both move one story step at a time. Continue persists the
@@ -1230,7 +1256,7 @@ export default function OnboardingFlow({
       }
 
       if (activeStep.id === 'campaign-story-issues') {
-        await leaveStoryForPledge()
+        await leaveStory()
       } else {
         await advanceToNextStoryStep()
       }
@@ -1410,6 +1436,29 @@ export default function OnboardingFlow({
                 Continue
               </Button>
             </div>
+          ) : isSignupGoalStep ? (
+            // Skippable like the story questions: Continue needs a selection,
+            // Skip moves on without one. Both land on the pledge.
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                variant="ghost"
+                size="large"
+                onClick={() => void advanceSignupGoal(true)}
+                disabled={isSavingSignupGoal}
+              >
+                Skip
+              </Button>
+              <Button
+                type="button"
+                variant="default"
+                size="large"
+                onClick={() => void advanceSignupGoal(false)}
+                disabled={!canContinue || isSavingSignupGoal}
+              >
+                Continue
+              </Button>
+            </div>
           ) : (
             <Button
               type="button"
@@ -1421,9 +1470,7 @@ export default function OnboardingFlow({
               {nextStep
                 ? 'Continue'
                 : activeStep.id === 'pledge'
-                  ? campaignStoryEnabled
-                    ? 'Meet your campaign manager'
-                    : 'Agree & Create My Plan'
+                  ? 'Meet your campaign manager'
                   : 'Complete'}
             </Button>
           )}

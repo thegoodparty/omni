@@ -7,14 +7,14 @@ overview: `docs/features/campaign-tracker-v3.md`.
 
 ## Key files
 
-| File                                          | Role                                                                                                                                                    |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `services/campaignTrackerTasks.service.ts`    | Core. Bootstrap (atomic claim + materialize + dispatch), dispatch params, artifact persistence (append), completion.                                    |
-| `services/campaignTrackerDispatch.service.ts` | Thursday `@Cron` weekly re-generation (env-gated, CronLock dedup, active/non-demo cohort); primary-loss gate (tears down outreach + skips).             |
-| `services/staticTrackerTasks.util.ts`         | Builds the static catalog rows **and** the 7 deterministic outreach rows (`buildOutreachTrackerTaskRows`) from `@goodparty_org/contracts` at bootstrap. |
-| `campaignTracker.controller.ts`               | `/campaigns/tracker-tasks` GET (also an `@McpTool`) + complete/uncomplete + `POST generate` (non-prod manual override).                                 |
-| `schemas/trackerTaskResponse.schema.ts`       | `@ResponseSchema` for the GET (required for the MCP tool).                                                                                              |
-| `campaignTracker.consts.ts`                   | Experiment type, cron job name, `CHANNEL_TO_FLOW_TYPE` (the canonical map).                                                                             |
+| File                                          | Role                                                                                                                                                                                                                                   |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `services/campaignTrackerTasks.service.ts`    | Core. Bootstrap (atomic claim + materialize + dispatch), dispatch params, artifact persistence (append), completion.                                                                                                                   |
+| `services/campaignTrackerDispatch.service.ts` | Thursday `@Cron` weekly re-generation (env-gated, CronLock dedup, active/non-demo cohort); primary-loss gate (tears down outreach + skips).                                                                                            |
+| `services/staticTrackerTasks.util.ts`         | Builds the static catalog rows **and** the 7 deterministic outreach rows (`buildOutreachTrackerTaskRows`) from `@goodparty_org/contracts` at bootstrap; owns the ballot-stage read (`needsBallotAccessTasks`). |
+| `campaignTracker.controller.ts`               | `/campaigns/tracker-tasks` GET (also an `@McpTool`) + complete/uncomplete + `POST generate` (non-prod manual override).                                                                                                                |
+| `schemas/trackerTaskResponse.schema.ts`       | `@ResponseSchema` for the GET (required for the MCP tool).                                                                                                                                                                             |
+| `campaignTracker.consts.ts`                   | Experiment type, cron job name, `CHANNEL_TO_FLOW_TYPE` (the canonical map).                                                                                                                                                            |
 
 ## Patterns / non-obvious logic
 
@@ -28,8 +28,10 @@ overview: `docs/features/campaign-tracker-v3.md`.
   `bootstrapTrackerIfPlanComplete` (in `campaignStrategy.service.ts`) only
   proceeds if a `campaign_story` row exists. The tracker takes the story as
   input, so story-off (legacy) campaigns generate their plan but never bootstrap
-  the tracker. The gate is on the story _data_, not the flag, so it holds
-  regardless of flag state. Then: two plan sections complete on independent SQS
+  the tracker. The gate is on the story _data_ — it never depended on the
+  webapp's `campaign-story` flag (removed in ENG-11013; the legacy cohort is
+  now only reachable by a pre-existing campaign with no story row). Then: two
+  plan sections complete on independent SQS
   messages, so `bootstrapForCampaign` claims `CampaignStrategy.trackerBootstrapped`
   with one conditional `updateMany` (false->true); only the winner materializes +
   dispatches, and the claim is released on failure so a later trigger retries.
@@ -43,6 +45,21 @@ overview: `docs/features/campaign-tracker-v3.md`.
   (`TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY`), because the plan endpoint is polled
   and the count-check alone isn't atomic, so the eager call and the bootstrap
   call can't double-insert the catalog.
+- **Ballot access is gated on the candidate's ballot stage.** The catalog's
+  `Ballot access` category (`BALLOT_ACCESS_CATEGORY` in contracts) is dropped at
+  materialization for a candidate who answered onboarding's "Are you already on
+  the ballot?" with `on-ballot`. Every other answer keeps it, including `testing`
+  and a missing answer — an absent answer is not evidence they filed, and a
+  missed filing window can't be undone. The answer is read off the
+  `campaign.ballotStatus` column via `parseBallotStatus`, so an unrecognised
+  value also reads as unanswered. Because static rows
+  materialize once, `reconcileBallotAccessTasks` re-reads the _current_ answer on
+  every generation (bootstrap, weekly cron, manual) and immediately after a
+  campaign update changes `ballotStatus` (`CampaignsService.updateJsonFields`,
+  best-effort), and adds or deletes those rows to match, under the same
+  advisory lock as `materializeStaticTasks`. These
+  tasks are `type: 'static'`, so they are absent from the dynamic CAP menu and
+  the agent can never re-surface them.
 - **The model only selects/ranks/voices/finds-events.** Gates, caps, and the
   generation/dating logic are deterministic here, not in the agent. Dateless
   dynamic tasks are dated across the upcoming Mon-Sun week (counter skips dated
@@ -54,6 +71,15 @@ overview: `docs/features/campaign-tracker-v3.md`.
   `electionRelative` dates off the **general** election). Belt and suspenders:
   the catalog attachment excludes them (see the generator) and
   `onExperimentRunCompleted` drops any `text`/`robocall` rows the agent emits.
+- **A past election date anchors nothing.** `resolveElectionDate` takes the
+  general date, falls back to the primary, and ignores whichever has already
+  passed; with no upcoming date `buildOutreachTrackerTaskRows` emits **no**
+  outreach rows (never a `start`-anchored fallback). The reason: a returning
+  candidate's campaign row keeps last cycle's `electionDate` until they update
+  their race, and static rows are one-shot, so rows dated off it would survive
+  the fix and post a finished schedule to CAS on Pro upgrade. Upstream,
+  `getOrGenerateStrategicLandscape` refuses (400) to generate at all for a past
+  `electionDate`, before `materializeStaticTasks` runs.
 - **Manual generation is non-prod only.** The weekly cron
   (`CAMPAIGN_TRACKER_AUTOMATION_ENABLED='true'`) runs in prod only, so dev/qa
   never generate on their own. `POST /campaigns/tracker-tasks/generate` →
@@ -124,13 +150,9 @@ true AND flow_type IN (text, robocall))`), matching what `buildActiveWeeks`
   latest generation index; and it is a `LEFT JOIN latest_gen` so a campaign with
   outreach dated in the window still surfaces if its dynamic generation is
   momentarily absent. Outreach ranks ahead of the dynamic picks.
-- **The digest serves two cohorts.** `weeklyTasksDigestHandler` runs one query
-  over `campaign_tracker_tasks` (this table) and a second over the legacy
-  `campaign_task` table, guarded by `NOT EXISTS (campaign_tracker_tasks)` so the
-  two cohorts are mutually exclusive, so each campaign gets exactly one digest.
-  Don't assume a campaign in the digest is on the tracker.
-- **Legacy `campaign_task` coexists** (not a hard flip): story-off campaigns
-  keep the legacy generator, dashboard task list, onboarding success page, and
-  `community_events` JSON column. The new tracker is the story cohort's path
-  only. Gating lives on the `campaign-story` flag (routing/UI) + `campaign_story`
-  existence (bootstrap).
+- **A pre-existing campaign with no `campaign_story` row never bootstraps the
+  tracker** (gating is purely on story data, not a flag), so it has no
+  `campaign_tracker_tasks` rows and gets no weekly digest. Its legacy
+  `campaign_task` rows (if any were generated before ENG-11015) are still
+  readable/completable via `CampaignTasksController`, but nothing generates new
+  ones or emails a digest for them anymore.

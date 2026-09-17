@@ -42,6 +42,71 @@ project. Key on the raw `event_type`, not the Govern display name (which can dif
 inject a phantom row and leave the real one stale. `assemble()` overlays it onto (or injects
 it into) the Databricks catalog.
 
+## The questions tab (DATA-2316)
+
+The `questions` tab answers "which questions can we actually answer right now". One row per
+distinct question in the `behaviors:` block of `scripts/python/monitored_events.yaml`, worst
+state first: `not_answerable`, `partially_answerable`, `answerable`, plus the behaviors and
+live events behind it, the surfaces still uninstrumented, and the ClickUp task that asked it.
+
+Questions come from the ClickUp Analytics Questions list, not from the sheet.
+`scripts/python/question_intake.py` reads accepted tasks into `monitored_events.yaml` as
+surfaceless stubs (uncovered until someone enumerates where the behavior happens), and the
+write-back pushes each question's answer state and last-checked date back onto its task.
+
+Declaring an event as a behavior's `instrumented_by` also puts it under the health monitor
+(DATA-2290): `analytics_event_health.load_monitored_events` unions `events:` with every
+behavior instrument, and a behavior's `okr:` anchors each of its instruments. `load_watchlist`
+stays the literal reader of `events:` because validation rule 8 compares against it.
+
+The accept gate is the list's `stage` dropdown (`proposed` / `accepted` / `retired`), not the
+native task status — the Data Team space enforces a shared status group, so the list cannot
+carry its own statuses. Native status means nothing to the loop; Closed tasks drop out because
+the API read passes `include_closed: false`. Custom fields are matched by name,
+case-insensitively.
+
+- `uv run python event_state_gsheet.py refresh-questions` — full overwrite of the `questions`
+  tab. Same auth as `refresh` (`GP_EVENT_STATE_SHEET_ID` + the cached Google token) plus
+  Databricks, and `--dry-run` prints the matrix dimensions without writing.
+- `uv run python event_state_gsheet.py writeback-questions` — writes two ClickUp custom fields
+  (answer state, last checked) and nothing else. `--dry-run` reports how many tasks would
+  change. Unchanged states are skipped, so a quiet week produces no task notifications.
+- `uv run python question_intake.py` — reads the list into the registry. `--dry-run` counts
+  what it would add. It refuses to write on top of an invalid `behaviors:` block and exits
+  non-zero listing every problem.
+
+`CLICKUP_API_KEY` is the only thing either command needs. The list, field and option ids are
+pointers rather than secrets, so they default from `scripts/python/questions_clickup.py` —
+edit that one file if the list is ever rebuilt. `GP_QUESTIONS_*` env vars (and
+`question_intake.py --list-id`) still override, which is how you aim a run at a scratch list.
+In CI the token is the existing `secrets.CLICKUP_API_TOKEN`, mapped onto the `CLICKUP_API_KEY`
+name `clickup_api.py` reads. Locally, note that `clickup_api.py` loads `scripts/.env` without
+`override=True`, so an empty `CLICKUP_API_KEY` exported by your shell silently beats it.
+
+Both the `questions` and `gaps` tabs refresh **only** via the scheduled `analytics-governance`
+workflow. `scripts/shell/refresh-event-state.sh` runs `refresh` alone, so a manual run updates
+the `events` and `meta` tabs and leaves those two as the scheduled run last left them.
+
+## The anchors tab (DATA-2426)
+
+The `anchors` tab is a read-only render of `event_anchors.py`'s review queue: one row per
+candidate event's drafted `fires_on`/`url`, its confidence and (when low) `flag_reason`, the
+call-site `evidence`, and the human `disposition`. Nothing about this tab writes to
+Amplitude — see `event_anchors.py`'s own module docstring; the tab only ever displays
+whatever is already committed to `instrumentation_data/event_anchors.json`.
+
+- `uv run python event_state_gsheet.py refresh-anchors` — full overwrite of the `anchors`
+  tab. Same auth as `refresh` (`GP_EVENT_STATE_SHEET_ID` + the cached Google token); no
+  Databricks read. `--anchors-state PATH` points at a non-default state file; `--dry-run`
+  prints the matrix dimensions without writing.
+- A corrupt `--anchors-state` file skips just the `anchors` tab refresh, with a warning on
+  stderr, rather than crashing the command — same as `refresh-gaps`'s handling of a corrupt
+  gaps state file.
+
+Unlike `refresh`, `refresh-gaps` and `refresh-questions`, `refresh-anchors` is **not** wired
+into the scheduled `analytics-governance` workflow — run it by hand until DATA-2426's
+calibration pilot has been read and the batch writer (a separate, later plan) lands.
+
 ## Steps
 
 1. Make sure the provenance CSV is current — run the provenance walk first if needed:

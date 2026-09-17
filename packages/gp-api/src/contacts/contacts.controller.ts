@@ -16,6 +16,7 @@ import {
   PersonSchema,
   type UpdateContactStatusInput,
   UpdateContactStatusInputSchema,
+  PeoplePrecinctsResponseSchema,
 } from '@goodparty_org/contracts'
 import { Organization, User } from '../generated/prisma'
 import { FastifyReply } from 'fastify'
@@ -68,6 +69,14 @@ export class ContactsController {
   @Get('stats')
   async getContactsStats(@ReqOrganization() organization: Organization) {
     return this.contactsService.getDistrictStats(organization)
+  }
+
+  // Before @Get(':id') — Nest matches in declaration order, so a literal
+  // path declared after the param route would be swallowed by it.
+  @Get('precincts')
+  @ResponseSchema(PeoplePrecinctsResponseSchema)
+  async getPrecincts(@ReqOrganization() organization: Organization) {
+    return this.contactsService.getPrecincts(organization)
   }
 
   @Post('count')

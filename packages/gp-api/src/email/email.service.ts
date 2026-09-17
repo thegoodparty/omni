@@ -3,6 +3,7 @@ import { EmailData, MailgunService } from './mailgun.service'
 import {
   getBasicEmailContent,
   getRecoverPasswordEmailContent,
+  getTeamMemberAddedEmailContent,
 } from './util/content.util'
 import { User } from '../generated/prisma'
 import {
@@ -98,6 +99,18 @@ export class EmailService {
       template: EmailTemplateName.setPassword,
       variables,
     })
+  }
+
+  // Existing-account invite branch: Clerk can only invite an email with no
+  // Clerk account, so a known account is added directly and told here
+  // instead of via a Clerk invitation email.
+  async sendTeamMemberAddedEmail(user: User, campaignName: string) {
+    const name = getUserFullName(user) || user.email
+    const link = `${APP_ROOT}/dashboard`
+    const subject = "You've Been Added to a Campaign - GoodParty.org"
+    const message = getTeamMemberAddedEmailContent(name, campaignName, link)
+
+    return await this.sendEmail({ to: user.email, subject, message })
   }
 
   async sendCancellationRequestConfirmationEmail(

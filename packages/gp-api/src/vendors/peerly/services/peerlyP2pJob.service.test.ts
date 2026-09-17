@@ -5,7 +5,10 @@ import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { P2P_JOB_DEFAULTS } from '../constants/p2pJob.constants'
-import { GetJobResponseDto } from '../schemas/peerlyP2pSms.schema'
+import {
+  GetJobResponseDto,
+  JobDetailedStatsResponseDto,
+} from '../schemas/peerlyP2pSms.schema'
 import { PeerlyJobStatus } from '../peerly.types'
 import { PeerlyMediaService } from './peerlyMedia.service'
 import { PeerlyP2pJobService } from './peerlyP2pJob.service'
@@ -20,7 +23,10 @@ describe('PeerlyP2pJobService', () => {
   let mockHttpService: {
     post: ReturnType<typeof vi.fn>
     get: ReturnType<typeof vi.fn>
+    put: ReturnType<typeof vi.fn>
+    delete: ReturnType<typeof vi.fn>
     validateResponse: ReturnType<typeof vi.fn>
+    getAuthenticatedUser: ReturnType<typeof vi.fn>
   }
   let mockErrorHandling: {
     handleApiError: ReturnType<typeof vi.fn>
@@ -50,9 +56,20 @@ describe('PeerlyP2pJobService', () => {
     mockHttpService = {
       post: vi.fn(),
       get: vi.fn(),
+      put: vi.fn().mockResolvedValue({ data: {} }),
+      delete: vi.fn(),
       validateResponse: vi
         .fn()
         .mockImplementation((_data, _dto, _ctx) => _data),
+      getAuthenticatedUser: vi.fn().mockResolvedValue({
+        user_id: 1,
+        first_name: 'jane',
+        last_name: 'doe',
+        email: 'api@goodparty.org',
+        user_type: 'api',
+        identities: [],
+        local_timezone: 'America/New_York',
+      }),
     }
     mockErrorHandling = {
       handleApiError: vi.fn().mockImplementation(() => {
@@ -279,6 +296,23 @@ describe('PeerlyP2pJobService', () => {
       ).toBe(false)
     })
 
+    it('propagates a BadRequestException content rejection instead of the generic 502', async () => {
+      const rejectionMessage =
+        'Message cannot contain tinyurl.com links. Please correct your message.'
+      mockHttpService.post.mockImplementation((path: string) =>
+        path === '/1to1/jobs'
+          ? Promise.reject(new Error('Request failed with status code 400'))
+          : Promise.resolve({ data: {} }),
+      )
+      mockErrorHandling.handleApiError.mockImplementation(() => {
+        throw new BadRequestException(rejectionMessage)
+      })
+
+      const promise = service.createPeerlyP2pJob(baseJobParams)
+      await expect(promise).rejects.toThrow(BadRequestException)
+      await expect(promise).rejects.toThrow(rejectionMessage)
+    })
+
     it('throws BadGatewayException when list assignment fails (job already created)', async () => {
       mockHttpService.post.mockImplementation((path: string) => {
         if (path.includes('assignlist')) {
@@ -326,6 +360,37 @@ describe('PeerlyP2pJobService', () => {
       mockHttpService.get.mockRejectedValue(new Error('API error'))
 
       await expect(service.getJobsByIdentityId('identity-123')).rejects.toThrow(
+        BadGatewayException,
+      )
+    })
+  })
+
+  describe('deleteJob', () => {
+    it('deletes the job through the HTTP service', async () => {
+      mockHttpService.delete.mockResolvedValue(undefined)
+
+      await service.deleteJob('job-1')
+
+      expect(mockHttpService.delete).toHaveBeenCalledWith('/1to1/jobs/job-1')
+    })
+
+    // Cancel retries after a refund failure re-run the delete; the job being
+    // gone already is the desired state, not a vendor failure.
+    it('treats an already-deleted job (404) as success', async () => {
+      mockHttpService.delete.mockRejectedValue(
+        Object.assign(new Error('Request failed with status code 404'), {
+          isAxiosError: true,
+          response: { status: 404 },
+        }),
+      )
+
+      await expect(service.deleteJob('job-1')).resolves.toBeUndefined()
+    })
+
+    it('throws BadGatewayException on any other vendor failure', async () => {
+      mockHttpService.delete.mockRejectedValue(new Error('boom'))
+
+      await expect(service.deleteJob('job-1')).rejects.toThrow(
         BadGatewayException,
       )
     })
@@ -385,6 +450,306 @@ describe('PeerlyP2pJobService', () => {
       )
 
       await expect(service.getJob('job-1')).rejects.toThrow(BadGatewayException)
+    })
+
+    // start_date drives the completion sweep's not-started hold the same
+    // way end_date drives its completion predicate: a missing value must
+    // 502 the poll, never parse to Invalid Date and skip the pending guard.
+    it('throws BadGatewayException when the job response lacks start_date', async () => {
+      mockHttpService.get.mockResolvedValue({
+        data: {
+          id: 'job-1',
+          status: PeerlyJobStatus.ACTIVE,
+          leads_remaining: 0,
+          end_date: '2026-09-07',
+        },
+      })
+      mockHttpService.validateResponse.mockImplementationOnce((data, dto) =>
+        (dto as typeof GetJobResponseDto).create(data),
+      )
+
+      await expect(service.getJob('job-1')).rejects.toThrow(BadGatewayException)
+    })
+  })
+
+  describe('updateJobSchedule', () => {
+    const activeJob = {
+      id: 'job-1',
+      status: 'active',
+      leads_remaining: 5,
+      can_use_mms: true,
+      start_date: '2026-09-10',
+      end_date: '2026-09-10',
+      templates: [
+        {
+          id: 't1',
+          title: 'Default Template',
+          text: 'Hello {first_name}',
+          is_default: true,
+          media: { media_id: 'm1', media_type: 'IMAGE', title: 'img' },
+        },
+      ],
+    }
+
+    it('mints a schedule and PUTs the new window echoing job state', async () => {
+      mockHttpService.get.mockResolvedValueOnce({ data: activeJob })
+
+      await service.updateJobSchedule({
+        jobId: 'job-1',
+        campaignId: 42,
+        date: '2026-10-01',
+      })
+
+      expect(mockScheduleService.createSchedule).toHaveBeenCalledWith(
+        expect.stringContaining('GP P2P - Campaign 42 - 2026-10-01'),
+      )
+      expect(mockHttpService.put).toHaveBeenCalledWith(
+        '/1to1/jobs/job-1',
+        expect.objectContaining({
+          status: 'active',
+          can_use_mms: true,
+          schedule_id: 99999,
+          start_date: '2026-10-01',
+          end_date: '2026-10-01',
+          templates: [
+            {
+              is_default: true,
+              title: 'Default Template',
+              text: 'Hello {first_name}',
+              media: { media_type: 'IMAGE', media_id: 'm1', title: 'img' },
+            },
+          ],
+        }),
+      )
+    })
+
+    it('routes a createSchedule failure through the shared error handler', async () => {
+      mockHttpService.get.mockResolvedValueOnce({ data: activeJob })
+      mockScheduleService.createSchedule.mockRejectedValueOnce(
+        new Error('schedule create failed'),
+      )
+
+      await expect(
+        service.updateJobSchedule({
+          jobId: 'job-1',
+          campaignId: 42,
+          date: '2026-10-01',
+        }),
+      ).rejects.toThrow(BadGatewayException)
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalled()
+      expect(mockHttpService.put).not.toHaveBeenCalled()
+    })
+
+    it('routes a reschedule PUT failure through the shared error handler', async () => {
+      mockHttpService.get.mockResolvedValueOnce({ data: activeJob })
+      mockHttpService.put.mockRejectedValueOnce(new Error('vendor down'))
+
+      await expect(
+        service.updateJobSchedule({
+          jobId: 'job-1',
+          campaignId: 42,
+          date: '2026-10-01',
+        }),
+      ).rejects.toThrow(BadGatewayException)
+      expect(mockErrorHandling.handleApiError).toHaveBeenCalled()
+    })
+  })
+
+  describe('activateJob', () => {
+    const pausedJob = {
+      id: 'job-1',
+      status: 'paused',
+      leads_remaining: 5,
+      can_use_mms: true,
+      start_date: '2026-09-10',
+      end_date: '2026-09-10',
+      templates: [
+        {
+          id: 't1',
+          title: 'Default Template',
+          text: 'Hello {first_name}',
+          is_default: true,
+          media: { media_id: 'm1', media_type: 'IMAGE', title: 'img' },
+        },
+      ],
+    }
+
+    it('sets status active and echoes the existing templates', async () => {
+      mockHttpService.get.mockResolvedValueOnce({ data: pausedJob })
+
+      await service.activateJob('job-1')
+
+      expect(mockHttpService.put).toHaveBeenCalledWith(
+        '/1to1/jobs/job-1',
+        expect.objectContaining({
+          status: 'active',
+          can_use_mms: true,
+          templates: [
+            {
+              is_default: true,
+              title: 'Default Template',
+              text: 'Hello {first_name}',
+              media: { media_type: 'IMAGE', media_id: 'm1', title: 'img' },
+            },
+          ],
+        }),
+      )
+    })
+
+    it('omits media for a template without one', async () => {
+      mockHttpService.get.mockResolvedValueOnce({
+        data: {
+          ...pausedJob,
+          templates: [{ id: 't1', title: 'T', text: 'Hi', is_default: true }],
+        },
+      })
+
+      await service.activateJob('job-1')
+
+      const [, body] = mockHttpService.put.mock.calls.at(-1) as [
+        string,
+        { templates: Array<Record<string, string>> },
+      ]
+      expect(body.templates[0]).not.toHaveProperty('media')
+    })
+
+    it('routes an activation failure through the shared error handler', async () => {
+      mockHttpService.get.mockResolvedValueOnce({ data: pausedJob })
+      mockHttpService.put.mockRejectedValueOnce(new Error('vendor down'))
+
+      await expect(service.activateJob('job-1')).rejects.toThrow(
+        BadGatewayException,
+      )
+    })
+  })
+
+  describe('requestCanvassers', () => {
+    it('derives initials from the Peerly login and books the 9-9 window', async () => {
+      await service.requestCanvassers('job-1', { date: '2026-09-10' })
+
+      expect(mockHttpService.post).toHaveBeenCalledWith(
+        '/v2/p2p/job-1/request_canvassers',
+        {
+          requested_initials: 'JD',
+          requested_date: '2026-09-10',
+          requested_timeframe: 'CUSTOM',
+          requested_start_time: '09:00:00',
+          requested_end_time: '21:00:00',
+          requested_timezone: 'LOCAL',
+        },
+      )
+    })
+
+    it('opens the window at the caller-supplied start time', async () => {
+      await service.requestCanvassers('job-1', {
+        date: '2026-09-10',
+        startTime: '18:00',
+      })
+
+      expect(mockHttpService.post).toHaveBeenCalledWith(
+        '/v2/p2p/job-1/request_canvassers',
+        {
+          requested_initials: 'JD',
+          requested_date: '2026-09-10',
+          requested_timeframe: 'CUSTOM',
+          requested_start_time: '18:00:00',
+          requested_end_time: '21:00:00',
+          requested_timezone: 'LOCAL',
+        },
+      )
+    })
+
+    it('omits requested_date when no date is given', async () => {
+      await service.requestCanvassers('job-1')
+
+      const [, body] = mockHttpService.post.mock.calls.at(-1) as [
+        string,
+        Record<string, string>,
+      ]
+      expect(body).not.toHaveProperty('requested_date')
+      expect(body.requested_initials).toBe('JD')
+    })
+
+    it('routes an auth-user failure through the shared error handler', async () => {
+      mockHttpService.getAuthenticatedUser.mockRejectedValue(
+        new Error('no user in token-auth response'),
+      )
+
+      await expect(service.requestCanvassers('job-1')).rejects.toThrow(
+        BadGatewayException,
+      )
+      expect(mockHttpService.post).not.toHaveBeenCalledWith(
+        expect.stringContaining('request_canvassers'),
+        expect.anything(),
+      )
+    })
+  })
+
+  describe('getJobDetailedStats', () => {
+    const range = { startDate: '2026-08-01', endDate: '2026-09-05' }
+
+    it('requests the v2 endpoint with a required CUSTOM date range', async () => {
+      mockHttpService.get.mockResolvedValue({ data: { messages: {} } })
+
+      await service.getJobDetailedStats('job-1', range)
+
+      expect(mockHttpService.get).toHaveBeenCalledWith(
+        '/v2/p2p/job-1/detailedstats',
+        {
+          params: {
+            date_range: 'CUSTOM',
+            start_date: range.startDate,
+            end_date: range.endDate,
+          },
+        },
+      )
+    })
+
+    it('sums sent/received/delivered counts and total cost from the response', async () => {
+      mockHttpService.get.mockResolvedValue({
+        data: {
+          messages: { TX_SUCCESS: 10, RX_SUCCESS: 2 },
+          mms_messages: { TX_SUCCESS: 3 },
+          delivery_receipts: { Delivered: 8, 'Delivery Failed': 1 },
+          mms_delivery_receipts: { Delivered: 2 },
+          total_cost: 12.5,
+        },
+      })
+
+      const result = await service.getJobDetailedStats('job-1', range)
+
+      expect(result).toEqual({
+        sentTotal: 13,
+        receivedTotal: 2,
+        delivered: 10,
+        deliveryFailed: 1,
+        deliveryUnconfirmed: 0,
+        totalCost: 12.5,
+      })
+    })
+
+    it('throws BadGatewayException when the vendor call fails', async () => {
+      mockHttpService.get.mockRejectedValue(new Error('API error'))
+
+      await expect(service.getJobDetailedStats('job-1', range)).rejects.toThrow(
+        BadGatewayException,
+      )
+    })
+
+    // Exercises the real schema parse (the suite's default validateResponse
+    // is a blind passthrough): a v2 payload whose keys we don't recognize
+    // must 502, not render as all-zero stats in the CAS console.
+    it('rejects a response with none of the expected counter fields', async () => {
+      mockHttpService.get.mockResolvedValue({
+        data: { unrecognized_v2_key: { TX_SUCCESS: 10 } },
+      })
+      mockHttpService.validateResponse.mockImplementationOnce((data, dto) =>
+        (dto as typeof JobDetailedStatsResponseDto).create(data),
+      )
+
+      await expect(service.getJobDetailedStats('job-1', range)).rejects.toThrow(
+        BadGatewayException,
+      )
     })
   })
 })

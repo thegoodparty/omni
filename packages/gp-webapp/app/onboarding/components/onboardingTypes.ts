@@ -8,6 +8,7 @@ export type OnboardingStepId =
   | 'campaign-story-why'
   | 'campaign-story-background'
   | 'campaign-story-issues'
+  | 'signup-goal'
   | 'pledge'
 
 // Set only by the follow-on flow (running for re-election / a new office from
@@ -28,6 +29,13 @@ export type PartyAffiliation =
   | 'independent-or-non-major'
   | 'democrat'
   | 'republican'
+
+export type SignupGoal =
+  | 'voter-data'
+  | 'voter-outreach'
+  | 'campaign-strategy'
+  | 'templates-resources'
+  | 'exploring'
 
 export interface SelectedOffice {
   raceId: string
@@ -57,6 +65,12 @@ export type OnboardingJsonValue =
 
 export interface ManualOfficeForm {
   office: string
+  // A BallotReadyPositionLevel value ('LOCAL' | 'COUNTY' | 'STATE' |
+  // 'FEDERAL'), or '' until selected. Persisted to details.ballotLevel, which
+  // downstream 10DLC compliance derives the office level from — before this
+  // field existed, manual-entry federal candidates were silently treated as
+  // local and their FEC filing URL was rejected (ENG-11043).
+  level: string
   state: string
   city: string
   district: string
@@ -70,6 +84,7 @@ export interface OnboardingAnswers {
   unmatchedOffice?: boolean
   ballotStatus?: BallotStatus
   partyAffiliation?: PartyAffiliation
+  signupGoal?: SignupGoal
   officeZip?: string
   structuredOffice?: SelectedOffice
   manualOfficeForm?: ManualOfficeForm

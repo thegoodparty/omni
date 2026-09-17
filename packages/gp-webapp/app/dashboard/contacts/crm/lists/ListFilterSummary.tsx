@@ -1,12 +1,16 @@
-import filterSections, {
-  legacyAgeOptions,
-} from '../../[[...attr]]/components/configs/filters.config'
+import filterSections, { legacyAgeOptions } from '../../shared/filters.config'
 import { LANGUAGE_KEY_TO_CODE } from '../shared/voterFileFilterTransform.util'
+import {
+  ANY_PHONE_FIELD,
+  RECOMMENDED_LIST_FILTER_FIELDS,
+  WIN_ONLY_RECOMMENDED_FIELD_KEYS,
+} from '../shared/recommendedListFilters.config'
 import {
   ACTIVITY_CONDITION_ACTION_LABELS,
   ACTIVITY_CONDITION_CHANNELS,
   SUPPORT_STATUS_OPTIONS,
 } from '../shared/activityConditionOptions'
+import { decodePrecinctPair } from '@goodparty_org/contracts'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { sentenceCase } from '../shared/labels.util'
 import { SectionLabel } from './ListDetailSection'
@@ -25,6 +29,10 @@ const CODE_TO_LANGUAGE_LABEL: Record<string, string> = (
   if (code) labelByCode[code] = option.label
   return labelByCode
 }, {})
+
+// Past this the sentence stops naming individual precincts and reports a
+// count instead — a district can hold hundreds, and the summary is one line.
+const MAX_LISTED_PRECINCTS = 5
 
 const INCOME_FIELD = filterSections
   .flatMap((section) => section.fields)
@@ -62,35 +70,44 @@ export const buildFilterSummary = (
 ): string => {
   const clauses: string[] = []
 
-  for (const section of filterSections) {
-    for (const field of section.fields) {
-      // Political party and voter likelihood don't apply to an elected
-      // official's constituent file — same exclusions VoterFileStep.tsx
-      // applies at creation time.
-      if (
-        isElectedOfficial &&
-        (field.key === 'political_party' || field.key === 'voter_likely')
-      )
-        continue
-      // Contacts Made gets its own "with N or M prior contacts made" clause
-      // (ENG-10839, matching the product-specified wording) instead of the
-      // generic "{Label} {value}" phrasing every other boolean-group field
-      // uses — same skip-and-handle-separately pattern as language/income.
-      if (field.key === 'contacts_made') continue
-      if (field.key === 'language' || field.key === 'income_ranges') continue
+  // Read side covers every dimension the wizard can write, including the
+  // recommended-list groups the outreach builders never render.
+  const summarizedFields = [
+    ...filterSections.flatMap((section) => section.fields),
+    ...RECOMMENDED_LIST_FILTER_FIELDS,
+    ANY_PHONE_FIELD,
+  ]
 
-      // Lists saved before ENG-10752 carry the retired age keys; without
-      // this union an age-only legacy list would summarize as unfiltered.
-      const options =
-        field.key === 'age'
-          ? [...field.options, ...legacyAgeOptions]
-          : field.options
-      const matched = options.filter((option) => isTrue(segment[option.key]))
-      if (matched.length > 0) {
-        clauses.push(
-          `${sentenceCase(field.label)} ${matched.map((option) => option.label).join(' or ')}`,
-        )
-      }
+  for (const field of summarizedFields) {
+    // Political party and voter likelihood don't apply to an elected
+    // official's constituent file — same exclusions VoterFileStep.tsx
+    // applies at creation time. Affinity and ideology are Win-only the same
+    // way (gp-api 400s both for an eo- org).
+    if (
+      isElectedOfficial &&
+      (field.key === 'political_party' ||
+        field.key === 'voter_likely' ||
+        WIN_ONLY_RECOMMENDED_FIELD_KEYS.includes(field.key))
+    )
+      continue
+    // Contacts Made gets its own "with N or M prior contacts made" clause
+    // (ENG-10839, matching the product-specified wording) instead of the
+    // generic "{Label} {value}" phrasing every other boolean-group field
+    // uses — same skip-and-handle-separately pattern as language/income.
+    if (field.key === 'contacts_made') continue
+    if (field.key === 'language' || field.key === 'income_ranges') continue
+
+    // Lists saved before ENG-10752 carry the retired age keys; without
+    // this union an age-only legacy list would summarize as unfiltered.
+    const options =
+      field.key === 'age'
+        ? [...field.options, ...legacyAgeOptions]
+        : field.options
+    const matched = options.filter((option) => isTrue(segment[option.key]))
+    if (matched.length > 0) {
+      clauses.push(
+        `${sentenceCase(field.label)} ${matched.map((option) => option.label).join(' or ')}`,
+      )
     }
   }
 
@@ -141,6 +158,27 @@ export const buildFilterSummary = (
           ?.label ?? value,
     )
     clauses.push(`Support status ${labels.join(' or ')}`)
+  }
+
+  // A saved list can carry a precinct filter, so the summary has to name it —
+  // otherwise the sentence describes a narrower audience than the list
+  // actually holds. Enumerated per district, so there is no label map to look
+  // values up in: the encoded pair is decoded for display.
+  const precincts = Array.isArray(segment.precincts)
+    ? (segment.precincts as string[])
+    : []
+  if (precincts.length > 0) {
+    const labels = precincts.map((encoded) => {
+      const { county, precinct } = decodePrecinctPair(encoded)
+      return precinct === ''
+        ? `${sentenceCase(county)} (no precinct)`
+        : `${sentenceCase(county)} ${precinct}`
+    })
+    clauses.push(
+      labels.length > MAX_LISTED_PRECINCTS
+        ? `in ${labels.length} precincts`
+        : `in precinct${labels.length === 1 ? '' : 's'} ${labels.join(' or ')}`,
+    )
   }
 
   if (typeof segment.search === 'string' && segment.search.trim()) {

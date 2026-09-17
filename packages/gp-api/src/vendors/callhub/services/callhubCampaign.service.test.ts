@@ -1,0 +1,218 @@
+import { BadGatewayException, BadRequestException } from '@nestjs/common'
+import { addDays } from 'date-fns'
+import { formatInTimeZone } from 'date-fns-tz'
+import {
+  AxiosError,
+  AxiosHeaders,
+  AxiosRequestConfig,
+  AxiosResponse,
+} from 'axios'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { CallhubCampaignService } from './callhubCampaign.service'
+import { CallhubErrorHandlingService } from './callhubErrorHandling.service'
+import { CallhubHttpService } from './callhubHttp.service'
+
+const createAxiosError = (
+  data: Record<string, unknown> | undefined,
+  status = 500,
+): AxiosError => {
+  const config: AxiosRequestConfig = { url: '/x', headers: new AxiosHeaders() }
+  const response: AxiosResponse = {
+    data,
+    status,
+    statusText: 'err',
+    headers: {},
+    config: config as AxiosResponse['config'],
+  }
+  return new AxiosError(
+    'Request failed',
+    'ERR_BAD_RESPONSE',
+    config as AxiosError['config'],
+    {},
+    response,
+  )
+}
+
+// 21 days out — past the 14-day live-verification safeguard the human required.
+const scheduledStart = addDays(new Date(), 21)
+const params = {
+  name: 'Robocall town-hall',
+  phonebookPkStr: '3972680349405677061',
+  callerId: '+18336320222',
+  mediaFileId: '3972681326913389747',
+  scheduledStart,
+}
+
+describe('CallhubCampaignService', () => {
+  let service: CallhubCampaignService
+  let http: {
+    get: ReturnType<typeof vi.fn>
+    post: ReturnType<typeof vi.fn>
+    put: ReturnType<typeof vi.fn>
+  }
+
+  beforeEach(() => {
+    http = { get: vi.fn(), post: vi.fn(), put: vi.fn() }
+    service = new CallhubCampaignService(
+      createMockLogger(),
+      http as unknown as CallhubHttpService,
+      new CallhubErrorHandlingService(),
+    )
+  })
+
+  describe('createVoiceBroadcast', () => {
+    it('creates a scheduled, non-launched voice broadcast', async () => {
+      http.post.mockResolvedValue({
+        pk_str: '3972682680557897335',
+        name: 'Robocall town-hall',
+        // Extra fields CallHub returns are stripped by the schema.
+        id: 3972682680557897000,
+        schedule: { startingdate: '2026-09-16 08:18:21' },
+      })
+
+      const result = await service.createVoiceBroadcast(params)
+
+      const [path, body] = http.post.mock.calls[0] ?? []
+      // Trailing slash is load-bearing — the slashless path lists instead of
+      // creating.
+      expect(path).toBe('/v1/vb_campaign/')
+      // Phonebook + media travel as strings (safe-integer caveat), the caller
+      // ID is stripped to digits, and the audio is the uploaded file id.
+      expect(body.phonebooks).toEqual(['3972680349405677061'])
+      expect(body.callerid_options).toEqual({ callerid: '18336320222' })
+      expect(body.script.live_message).toEqual({
+        audiofile: '3972681326913389747',
+      })
+      expect(body.script.label).toBe('Robocall town-hall')
+      // Schedule + contact options are nested objects (flat fields are ignored
+      // by CallHub) and the start carries the 21-day-out time verbatim.
+      expect(body.schedule.startingdate).toBe(
+        formatInTimeZone(
+          scheduledStart,
+          'America/Chicago',
+          'yyyy-MM-dd HH:mm:ss',
+        ),
+      )
+      expect(body.schedule.expirationdate).toBe(
+        formatInTimeZone(
+          addDays(scheduledStart, 7),
+          'America/Chicago',
+          'yyyy-MM-dd HH:mm:ss',
+        ),
+      )
+      expect(body.schedule.timezone).toBe('America/Chicago')
+      expect(body.schedule.monday).toBe(true)
+      expect(body.contact_options).toEqual({
+        use_contact_tz: true,
+        dont_call_dnc: true,
+        dont_call_litigator: true,
+        block_cellphone_numbers: true,
+      })
+      // The launch status is never sent from this service.
+      expect(body).not.toHaveProperty('status')
+      expect(result.pk_str).toBe('3972682680557897335')
+    })
+
+    it('refuses to schedule a broadcast in the past (never dials now)', async () => {
+      await expect(
+        service.createVoiceBroadcast({
+          ...params,
+          scheduledStart: addDays(new Date(), -1),
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException)
+      expect(http.post).not.toHaveBeenCalled()
+    })
+
+    it('maps a CallHub failure to a 502', async () => {
+      http.post.mockRejectedValue(
+        createAxiosError({ detail: 'invalid caller id' }, 400),
+      )
+
+      await expect(service.createVoiceBroadcast(params)).rejects.toBeInstanceOf(
+        BadGatewayException,
+      )
+    })
+
+    it('surfaces a malformed create response as a schema error, not a 502', async () => {
+      // The response is parsed OUTSIDE the fetch try/catch, so a shape mismatch
+      // is a permanent ZodError — not a BadGatewayException a caller would
+      // retry as a transient vendor blip.
+      http.post.mockResolvedValue({ name: 'no pk_str here' })
+
+      await expect(
+        service.createVoiceBroadcast(params),
+      ).rejects.not.toBeInstanceOf(BadGatewayException)
+    })
+  })
+
+  describe('launchVoiceBroadcast', () => {
+    it('STARTs the campaign and returns the parsed status', async () => {
+      const pkStr = '3972682680557897335'
+      http.put.mockResolvedValue({
+        pk_str: pkStr,
+        status: 1,
+        // Extra fields CallHub echoes are stripped by the schema.
+        id: 3972682680557897000,
+      })
+
+      const result = await service.launchVoiceBroadcast(pkStr)
+
+      const [path, body] = http.put.mock.calls[0] ?? []
+      // Trailing slash is load-bearing, and pk_str is interpolated as a STRING
+      // (never coerced — CallHub ids exceed JS's safe-integer range).
+      expect(path).toBe(`/v1/voice_broadcasts/${pkStr}/`)
+      expect(typeof path).toBe('string')
+      // START is status 1 (CALLHUB_VB_STATUS.START), the only field sent.
+      expect(body).toEqual({ status: 1 })
+      expect(result).toEqual({ pk_str: pkStr, status: 1 })
+    })
+
+    it('maps a CallHub launch failure to a 502', async () => {
+      http.put.mockRejectedValue(
+        createAxiosError({ detail: 'campaign not found' }, 404),
+      )
+
+      await expect(
+        service.launchVoiceBroadcast('3972682680557897335'),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+    })
+  })
+
+  describe('abortVoiceBroadcast', () => {
+    it('ABORTs the campaign (PUT status 3) at the pk_str path', async () => {
+      const pkStr = '3972682680557897335'
+      http.put.mockResolvedValue({ pk_str: pkStr, status: 3 })
+
+      await service.abortVoiceBroadcast(pkStr)
+
+      const [path, body] = http.put.mock.calls[0] ?? []
+      expect(path).toBe(`/v1/voice_broadcasts/${pkStr}/`)
+      // ABORT is status 3 (CALLHUB_VB_STATUS.ABORT), the only field sent — the
+      // opposite of START (1), so this can only ever stop a campaign dialing.
+      expect(body).toEqual({ status: 3 })
+    })
+
+    it('maps a non-404 CallHub abort failure to a 502 (retried next sweep)', async () => {
+      http.put.mockRejectedValue(
+        createAxiosError({ detail: 'server error' }, 500),
+      )
+
+      await expect(
+        service.abortVoiceBroadcast('3972682680557897335'),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+    })
+
+    it('treats a 404 (campaign already gone) as retired — does not throw', async () => {
+      // A gone campaign can never dial, so the orphan is resolved; swallowing
+      // lets the cleanup sweep stamp it aborted instead of retrying forever.
+      http.put.mockRejectedValue(
+        createAxiosError({ detail: 'Not found.' }, 404),
+      )
+
+      await expect(
+        service.abortVoiceBroadcast('3972682680557897335'),
+      ).resolves.toBeUndefined()
+    })
+  })
+})

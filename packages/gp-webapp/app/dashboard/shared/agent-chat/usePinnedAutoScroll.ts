@@ -34,6 +34,20 @@ export function usePinnedAutoScroll(deps: readonly unknown[]): {
   useEffect(() => {
     const el = scrollRef.current
     if (!el || !pinnedRef.current) return
+    // Re-check the position before writing, not just in `onScroll`. Scroll
+    // events are coalesced and delivered at the end of a frame, so a user
+    // scroll-up can land, get clobbered by the next reveal tick's write (they
+    // run every 24ms), and only then be reported — at which point scrollTop is
+    // back at the bottom and reads as our own write. Growing content doesn't
+    // move scrollTop, so a value other than the one we last set means the user
+    // moved it: release rather than yank them back down.
+    if (
+      Math.abs(el.scrollTop - lastAutoTopRef.current) >= 1 &&
+      el.scrollHeight - el.scrollTop - el.clientHeight >= 4
+    ) {
+      pinnedRef.current = false
+      return
+    }
     el.scrollTop = el.scrollHeight
     lastAutoTopRef.current = el.scrollTop
     // eslint-disable-next-line react-hooks/exhaustive-deps

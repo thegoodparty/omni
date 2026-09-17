@@ -8,8 +8,10 @@ const PERSON_ID = '11111111-1111-1111-1111-111111111111'
 const OTHER_PERSON_ID = '22222222-2222-2222-2222-222222222222'
 const MISSING_PERSON_ID = '99999999-9999-9999-9999-999999999999'
 
-const PERSON_SLUG = 'jane-doe'
-const OTHER_PERSON_SLUG = 'john-roe'
+// The person mart mints the 8-hex id suffix into `slug` itself, so the stored
+// value is the whole public slug and /people/<slug> is the URL verbatim.
+const PERSON_SLUG = 'jane-doe-11111111'
+const OTHER_PERSON_SLUG = 'john-roe-22222222'
 
 // PII that must NEVER appear on the public read endpoints.
 const PERSON_EMAIL = 'jane.doe.personal@example.com'
@@ -29,6 +31,11 @@ const OFFICE_HOLDER_ID = '44444444-4444-4444-4444-444444444444'
 const RACE_ID = '55555555-5555-5555-5555-555555555555'
 // The candidacy's race date — surfaced (non-PII) so consumers can date a run.
 const RACE_ELECTION_DATE = '2024-11-05'
+// The candidacy's own race slug and level. Surfaced alongside the date so each
+// run in "Recent Experience" can link to its position page, not just the one
+// candidacy the profile happens to fetch in full.
+const RACE_SLUG = 'ca/mayor'
+const RACE_POSITION_LEVEL = 'CITY'
 
 // A second office term with no position, so one payload covers both the
 // resolvable and the degraded (null positionId) branch.
@@ -111,9 +118,9 @@ const seedPerson = async () => {
     data: {
       id: RACE_ID,
       electionDate: new Date(RACE_ELECTION_DATE),
-      slug: 'ca/mayor',
+      slug: RACE_SLUG,
       state: 'CA',
-      positionLevel: 'CITY',
+      positionLevel: RACE_POSITION_LEVEL,
     },
   })
 
@@ -230,6 +237,9 @@ describe('GET /v1/persons (public list)', () => {
     expect(jane.Candidacies[0].email).toBeUndefined()
     // The race's election date is surfaced (non-PII) so consumers can date the run.
     expect(jane.Candidacies[0].Race.electionDate).toContain(RACE_ELECTION_DATE)
+    // ...and its slug + level, the pair the position link is built from.
+    expect(jane.Candidacies[0].Race.slug).toBe(RACE_SLUG)
+    expect(jane.Candidacies[0].Race.positionLevel).toBe(RACE_POSITION_LEVEL)
 
     // Nested office holder IS present with its public office contact.
     expect(jane.OfficeHolders).toHaveLength(2)
@@ -293,12 +303,17 @@ describe('GET /v1/persons (public list)', () => {
 
   it('requires M2M auth to use the gpApiUserId filter (no public enumeration)', async () => {
     // The linkage column is already omitted from responses, but filtering on it
-    // is itself an enumeration oracle, so an unauthenticated (observe-only)
-    // caller is rejected outright. The authenticated 200 path is covered by the
-    // service + controller unit tests (the harness runs without an M2M token).
-    const res = await service.client.get('/v1/persons', {
+    // is itself an enumeration oracle, so an unauthenticated caller is rejected
+    // by the default-deny guard before it reaches the controller. The
+    // authenticated path is covered by the service + controller unit tests.
+    const res = await service.unauthedClient.get('/v1/persons', {
       params: { gpApiUserId: PERSON_GP_API_USER_ID, columns: 'id' },
     })
+    expect(res.status).toBe(401)
+  })
+
+  it('rejects any request without an M2M token (default-deny guard)', async () => {
+    const res = await service.unauthedClient.get('/v1/persons')
     expect(res.status).toBe(401)
   })
 
@@ -327,6 +342,51 @@ describe('GET /v1/persons (public list)', () => {
   })
 })
 
+// The single exception to expectNoPersonPii, and the shape of the exception is
+// the safeguard: the address is the whole response, so it cannot ride into a
+// public page inside a payload someone spread without noticing.
+describe('GET /v1/persons/:personId/contact-email', () => {
+  it('serves the address, and nothing else about the person', async () => {
+    const res = await service.client.get(
+      `/v1/persons/${PERSON_ID}/contact-email`,
+    )
+
+    expect(res.status).toBe(200)
+    expect(res.data).toEqual({ personId: PERSON_ID, email: PERSON_EMAIL })
+    // No name, no slug, no phone — nothing to make this useful as a general
+    // person read.
+    expect(Object.keys(res.data).sort()).toEqual(['email', 'personId'])
+  })
+
+  it('404s an unknown person', async () => {
+    const res = await service.client.get(
+      `/v1/persons/${MISSING_PERSON_ID}/contact-email`,
+    )
+
+    expect(res.status).toBe(404)
+  })
+
+  it('rejects an unauthenticated caller (the whole basis for serving PII here)', async () => {
+    const res = await service.unauthedClient.get(
+      `/v1/persons/${PERSON_ID}/contact-email`,
+    )
+
+    expect(res.status).toBe(401)
+    expect(JSON.stringify(res.data)).not.toContain(PERSON_EMAIL)
+  })
+
+  it('does not shadow the by-id route', async () => {
+    // `:personId/contact-email` and `:personId` are different depths, but the
+    // profile read is what every /people page depends on, so assert it still
+    // resolves to the full spine rather than to the email route.
+    const res = await service.client.get(`/v1/persons/${PERSON_ID}`)
+
+    expect(res.status).toBe(200)
+    expect(res.data.slug).toBe(PERSON_SLUG)
+    expectNoPersonPii(res.data)
+  })
+})
+
 describe('GET /v1/persons/:personId (public profile)', () => {
   it('returns the person with relations and never any PII', async () => {
     const res = await service.client.get(`/v1/persons/${PERSON_ID}`)
@@ -342,6 +402,10 @@ describe('GET /v1/persons/:personId (public profile)', () => {
     // Candidacy nested with email omitted.
     expect(res.data.Candidacies).toHaveLength(1)
     expect(res.data.Candidacies[0].email).toBeUndefined()
+    // This is the endpoint /people builds profiles from, so the race slug the
+    // "View Position" link needs has to survive the by-id path specifically.
+    expect(res.data.Candidacies[0].Race.slug).toBe(RACE_SLUG)
+    expect(res.data.Candidacies[0].Race.positionLevel).toBe(RACE_POSITION_LEVEL)
 
     // Office holder nested with public office contact intact.
     expect(res.data.OfficeHolders).toHaveLength(2)
@@ -390,14 +454,8 @@ describe('GET /v1/persons/:personId (public profile)', () => {
 })
 
 describe('GET /v1/persons/by-slug/:slug (canonical URL resolution)', () => {
-  // Public slug is `<base>-<id8>`; PERSON_ID starts 11111111, OTHER 22222222.
-  const PERSON_PUBLIC_SLUG = `${PERSON_SLUG}-11111111`
-  const OTHER_PUBLIC_SLUG = `${OTHER_PERSON_SLUG}-22222222`
-
   it('resolves a person by the base slug + 8-hex id suffix, with relations and no PII', async () => {
-    const res = await service.client.get(
-      `/v1/persons/by-slug/${PERSON_PUBLIC_SLUG}`,
-    )
+    const res = await service.client.get(`/v1/persons/by-slug/${PERSON_SLUG}`)
 
     expect(res.status).toBe(200)
     expect(res.data.id).toBe(PERSON_ID)
@@ -406,6 +464,7 @@ describe('GET /v1/persons/by-slug/:slug (canonical URL resolution)', () => {
     // Same spine shape as by-id: relations present, PII stripped.
     expect(res.data.Candidacies).toHaveLength(1)
     expect(res.data.Candidacies[0].email).toBeUndefined()
+    expect(res.data.Candidacies[0].Race.slug).toBe(RACE_SLUG)
     expect(res.data.OfficeHolders).toHaveLength(2)
     expect(findOffice(res.data).officeEmail).toBe(OFFICE_EMAIL)
     // Same office position slug as the by-id path.
@@ -418,7 +477,7 @@ describe('GET /v1/persons/by-slug/:slug (canonical URL resolution)', () => {
   it('does not capture the by-slug segment as an id', async () => {
     // Regression guard for route ordering: `by-slug` must not hit :personId.
     const res = await service.client.get(
-      `/v1/persons/by-slug/${OTHER_PUBLIC_SLUG}`,
+      `/v1/persons/by-slug/${OTHER_PERSON_SLUG}`,
     )
     expect(res.status).toBe(200)
     expect(res.data.id).toBe(OTHER_PERSON_ID)
@@ -444,8 +503,250 @@ describe('GET /v1/persons/by-slug/:slug (canonical URL resolution)', () => {
     expect(res.status).toBe(404)
   })
 
+  describe('when two ids share the same 8-hex prefix', () => {
+    // Shares PERSON_ID's first 8 hex, so both come back from the range scan.
+    const COLLIDING_ID = '11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+    const COLLIDING_SLUG = 'jim-poe-11111111'
+
+    beforeEach(async () => {
+      await service.prisma.person.create({
+        data: {
+          id: COLLIDING_ID,
+          slug: COLLIDING_SLUG,
+          firstName: 'Jim',
+          lastName: 'Poe',
+          fullName: 'Jim Poe',
+          state: 'TX',
+        },
+      })
+    })
+
+    it('serves each of the two the profile its own slug names', async () => {
+      const jane = await service.client.get(
+        `/v1/persons/by-slug/${PERSON_SLUG}`,
+      )
+      expect(jane.status).toBe(200)
+      expect(jane.data.id).toBe(PERSON_ID)
+
+      const jim = await service.client.get(
+        `/v1/persons/by-slug/${COLLIDING_SLUG}`,
+      )
+      expect(jim.status).toBe(200)
+      expect(jim.data.id).toBe(COLLIDING_ID)
+    })
+
+    it('404s a stale base rather than guessing between the two', async () => {
+      const res = await service.client.get(
+        '/v1/persons/by-slug/some-old-name-11111111',
+      )
+      expect(res.status).toBe(404)
+    })
+  })
+
+  describe('when the name slugifies to nothing', () => {
+    // Non-Latin scripts strip to empty, so the mart emits a bare 8-hex slug and
+    // the public URL has no base part at all.
+    const BARE_HEX_ID = 'b2c3d4e5-0000-0000-0000-000000000000'
+    const BARE_HEX_SLUG = 'b2c3d4e5'
+
+    beforeEach(async () => {
+      await service.prisma.person.create({
+        data: {
+          id: BARE_HEX_ID,
+          slug: BARE_HEX_SLUG,
+          // Persian for "sample name" — a stand-in, not a real person.
+          firstName: 'نمونه',
+          lastName: 'نام',
+          fullName: 'نمونه نام',
+          state: 'VA',
+        },
+      })
+    })
+
+    it('resolves a slug that is only the id suffix', async () => {
+      const res = await service.client.get(
+        `/v1/persons/by-slug/${BARE_HEX_SLUG}`,
+      )
+      expect(res.status).toBe(200)
+      expect(res.data.id).toBe(BARE_HEX_ID)
+      expect(res.data.slug).toBe(BARE_HEX_SLUG)
+    })
+  })
+
   it('400s for a slug with invalid characters', async () => {
     const res = await service.client.get('/v1/persons/by-slug/Jane_Doe')
     expect(res.status).toBe(400)
+  })
+
+  // The data team purges duplicate persons on an ongoing basis. Because the
+  // id8 that makes a slug unique is the deleted row's PK, nothing in Person
+  // can match the old URL — PersonMerge is the forwarding address that lets
+  // the marketing page 308 to the survivor instead of 404-ing.
+  describe('when the person was purged as a duplicate', () => {
+    // Two duplicates of PERSON_ID's subject, both absorbed by them. Distinct
+    // 8-hex prefixes, so neither collides with a live person.
+    const RETIRED_A = 'aaaa1111-0000-0000-0000-000000000000'
+    const RETIRED_A_SLUG = 'jane-d-aaaa1111'
+    const RETIRED_B = 'bbbb2222-0000-0000-0000-000000000000'
+    const RETIRED_B_SLUG = 'j-doe-bbbb2222'
+
+    beforeEach(async () => {
+      await service.prisma.personMerge.createMany({
+        data: [
+          {
+            retiredId: RETIRED_A,
+            survivingId: PERSON_ID,
+            retiredSlug: RETIRED_A_SLUG,
+            retiredAt: new Date('2026-09-01T00:00:00.000Z'),
+          },
+          {
+            retiredId: RETIRED_B,
+            survivingId: PERSON_ID,
+            retiredSlug: RETIRED_B_SLUG,
+            retiredAt: new Date('2026-09-01T00:00:00.000Z'),
+          },
+        ],
+      })
+    })
+
+    it('forwards a purged slug to the surviving person, with the full spine', async () => {
+      const res = await service.client.get(
+        `/v1/persons/by-slug/${RETIRED_A_SLUG}`,
+      )
+
+      expect(res.status).toBe(200)
+      expect(res.data.id).toBe(PERSON_ID)
+      // The survivor's own slug differs from the requested one — that
+      // difference is exactly what gp-marketing turns into a 308.
+      expect(res.data.slug).toBe(PERSON_SLUG)
+      // Not a degraded payload: same shape as resolving the survivor directly.
+      expect(res.data.OfficeHolders).toHaveLength(2)
+      expect(findOffice(res.data).positionSlug).toBe(OFFICE_RACE_SLUG)
+      expectNoPersonPii(res.data)
+    })
+
+    it('forwards every duplicate of the same person to the one survivor', async () => {
+      // Many-to-one is the normal shape of a purge, not an edge case.
+      for (const slug of [RETIRED_A_SLUG, RETIRED_B_SLUG]) {
+        const res = await service.client.get(`/v1/persons/by-slug/${slug}`)
+        expect(res.status).toBe(200)
+        expect(res.data.id).toBe(PERSON_ID)
+      }
+    })
+
+    it('still 404s a purged id whose survivor is also gone', async () => {
+      await service.prisma.personMerge.create({
+        data: {
+          retiredId: 'cccc3333-0000-0000-0000-000000000000',
+          survivingId: MISSING_PERSON_ID,
+          retiredSlug: 'ghost-cccc3333',
+          retiredAt: new Date('2026-09-01T00:00:00.000Z'),
+        },
+      })
+
+      const res = await service.client.get('/v1/persons/by-slug/ghost-cccc3333')
+      expect(res.status).toBe(404)
+    })
+
+    it('404s a broken forwarding address rather than serving a live person on the same prefix', async () => {
+      // The same broken forward as above, but now a live person (PERSON_ID,
+      // `jane-doe-11111111`) shares the purged person's 8-hex prefix. The URL
+      // is demonstrably jim-poe's, so it must 404 rather than resolve to the
+      // unrelated jane-doe who merely collides on the prefix.
+      await service.prisma.personMerge.create({
+        data: {
+          retiredId: '11111111-cafe-cafe-cafe-cafecafecafe',
+          survivingId: MISSING_PERSON_ID,
+          retiredSlug: 'jim-poe-11111111',
+          retiredAt: new Date('2026-09-04T00:00:00.000Z'),
+        },
+      })
+
+      const res = await service.client.get(
+        '/v1/persons/by-slug/jim-poe-11111111',
+      )
+
+      expect(res.status).toBe(404)
+    })
+
+    it('follows a residual chain to the terminal survivor', async () => {
+      // The ETL is contracted to path-compress; this proves an uncompressed
+      // chain degrades to an extra hop rather than a dead link.
+      await service.prisma.personMerge.create({
+        data: {
+          retiredId: 'dddd4444-0000-0000-0000-000000000000',
+          survivingId: RETIRED_A,
+          retiredSlug: 'jane-dddd4444',
+          retiredAt: new Date('2026-09-02T00:00:00.000Z'),
+        },
+      })
+
+      const res = await service.client.get('/v1/persons/by-slug/jane-dddd4444')
+
+      expect(res.status).toBe(200)
+      expect(res.data.id).toBe(PERSON_ID)
+    })
+
+    it('forwards a slugless purged id to its survivor instead of the live person on the same prefix', async () => {
+      // The shape the data team will actually publish: no retiredSlug. The
+      // purged id shares PERSON_ID's 8-hex prefix, so without reconstruction
+      // this URL resolves to the live jane-doe -- a different human -- which
+      // gp-marketing would then 308 to permanently.
+      await service.prisma.personMerge.create({
+        data: {
+          retiredId: '11111111-cafe-cafe-cafe-cafecafecafe',
+          survivingId: OTHER_PERSON_ID,
+          retiredSlug: null,
+          retiredAt: new Date('2026-09-04T00:00:00.000Z'),
+        },
+      })
+
+      // The survivor is john-roe-22222222, so the duplicate's slug was minted
+      // as john-roe + its own suffix.
+      const res = await service.client.get(
+        '/v1/persons/by-slug/john-roe-11111111',
+      )
+
+      expect(res.status).toBe(200)
+      expect(res.data.id).toBe(OTHER_PERSON_ID)
+      expect(res.data.id).not.toBe(PERSON_ID)
+    })
+
+    it('404s a slugless purged id it cannot reconstruct rather than serving the live neighbour', async () => {
+      // Same row, but the URL carries a name variant the survivor does not, so
+      // nothing can confirm whose URL it is. A dead link beats the wrong person.
+      await service.prisma.personMerge.create({
+        data: {
+          retiredId: '11111111-cafe-cafe-cafe-cafecafecafe',
+          survivingId: OTHER_PERSON_ID,
+          retiredSlug: null,
+          retiredAt: new Date('2026-09-04T00:00:00.000Z'),
+        },
+      })
+
+      const res = await service.client.get(
+        '/v1/persons/by-slug/bob-smith-11111111',
+      )
+
+      expect(res.status).toBe(404)
+    })
+
+    it('does not let a purged id shadow a live person on the same prefix', async () => {
+      // A retired id sharing PERSON_ID's 8-hex prefix must not hijack the live
+      // person's own URL.
+      await service.prisma.personMerge.create({
+        data: {
+          retiredId: '11111111-dead-dead-dead-deaddeaddead',
+          survivingId: OTHER_PERSON_ID,
+          retiredSlug: 'someone-else-11111111',
+          retiredAt: new Date('2026-09-03T00:00:00.000Z'),
+        },
+      })
+
+      const res = await service.client.get(`/v1/persons/by-slug/${PERSON_SLUG}`)
+
+      expect(res.status).toBe(200)
+      expect(res.data.id).toBe(PERSON_ID)
+    })
   })
 })

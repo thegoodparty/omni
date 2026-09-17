@@ -1,4 +1,5 @@
 import { applyDecorators, SetMetadata, UseGuards } from '@nestjs/common'
+import { OrganizationRoleGuard } from '../guards/OrganizationRole.guard'
 import { UseOrganizationGuard } from '../guards/UseOrganization.guard'
 
 export const REQUIRE_ORGANIZATION_META_KEY = 'requireOrganizationDecorator'
@@ -20,6 +21,9 @@ export type RequireOrganizationMetadata = {
 export const UseOrganization = (args: RequireOrganizationMetadata = {}) => {
   return applyDecorators(
     SetMetadata(REQUIRE_ORGANIZATION_META_KEY, args),
-    UseGuards(UseOrganizationGuard),
+    // OrganizationRoleGuard must run after UseOrganizationGuard, which
+    // attaches request.organizationRole — route-level guards run in the
+    // order listed here.
+    UseGuards(UseOrganizationGuard, OrganizationRoleGuard),
   )
 }

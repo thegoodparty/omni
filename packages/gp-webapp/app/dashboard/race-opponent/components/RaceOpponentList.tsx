@@ -249,17 +249,31 @@ const RawResearch = ({
   items,
 }: {
   items: RaceOpponentItem[]
-}): React.JSX.Element => (
-  <div className="flex w-full min-w-0 flex-col gap-4">
-    {groupBySourceType(items).map((group) => (
-      <RawSourceGroup
-        key={group.sourceType}
-        sourceType={group.sourceType}
-        items={group.items}
-      />
-    ))}
-  </div>
-)
+}): React.JSX.Element => {
+  // A rostered opponent (from campaign_strategy_opponent, seeded by discovery
+  // or the manual-entry form) can be surfaced with no collected rows and no
+  // structured summary when the collection agent found no public sources
+  // (ENG-10893). Render a placeholder so the expanded card is not visually
+  // empty and matches the Executive Summary's inclusion of the same opponent.
+  if (items.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        We haven&apos;t found public info on this opponent yet.
+      </p>
+    )
+  }
+  return (
+    <div className="flex w-full min-w-0 flex-col gap-4">
+      {groupBySourceType(items).map((group) => (
+        <RawSourceGroup
+          key={group.sourceType}
+          sourceType={group.sourceType}
+          items={group.items}
+        />
+      ))}
+    </div>
+  )
+}
 
 // The expanded detail for an opponent, rendered inline inside its accordion
 // panel. Identity (avatar, name, party/incumbency, threat tier) lives in the

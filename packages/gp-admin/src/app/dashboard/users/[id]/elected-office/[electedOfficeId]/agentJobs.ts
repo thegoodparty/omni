@@ -73,20 +73,19 @@ export const describeBriefingPreview = (
     }
   }
 
-  const message =
-    preview.isServeIcp !== true
-      ? 'Gate will skip — office is not serve-ICP'
-      : preview.coveredByBriefingDate
-        ? `Gate will skip — already covered by a briefing for ${formatDateOnly(
-            preview.coveredByBriefingDate
-          )}`
-        : !preview.scheduleKnown
-          ? 'Gate will skip — no meeting schedule known'
-          : preview.nextMeetingDate
-            ? `Gate will skip — no meeting within 3 days (next meeting ${formatDateOnly(
-                preview.nextMeetingDate
-              )})`
-            : 'Gate will skip — no upcoming meeting found'
+  const message = !preview.contextOk
+    ? 'Gate will skip — serve context is unavailable'
+    : preview.coveredByBriefingDate
+      ? `Gate will skip — already covered by a briefing for ${formatDateOnly(
+          preview.coveredByBriefingDate
+        )}`
+      : !preview.scheduleKnown
+        ? 'Gate will skip — no meeting schedule known'
+        : preview.nextMeetingDate
+          ? `Gate will skip — no meeting within 3 days (next meeting ${formatDateOnly(
+              preview.nextMeetingDate
+            )})`
+          : 'Gate will skip — no upcoming meeting found'
 
   return {
     gateWouldDispatch: false,

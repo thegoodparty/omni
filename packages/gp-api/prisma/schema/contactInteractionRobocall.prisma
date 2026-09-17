@@ -9,9 +9,18 @@ model ContactInteractionRobocall {
   // Null for manual logs; Postgres treats NULLs as distinct so the unique
   // index never collides those rows.
   outreachId       Int?         @map("outreach_id")
+  // These two mean DIFFERENT things per row class, and nothing else says so
+  // (docs/adr/0013). On a manual row a null is an observation — a human logged
+  // the call and it wasn't answered. On a campaign-materialized row a null
+  // means nothing was ever observed: no robocall vendor is integrated, the
+  // materializer never sets these, and there is no update path that could.
+  // So they are permanently null for every recipient of every campaign.
+  // Do NOT read them as delivery outcomes without filtering on `manual`.
   answeredAt       DateTime?    @map("answered_at")
   voicemailLeftAt  DateTime?    @map("voicemail_left_at")
-  // Peerly call id for write-back idempotency (feature 5).
+  // Idempotency key for a vendor call-event write-back (ENG-10677) that was
+  // never built; null on every row today. Kept because it is the right shape
+  // for that sweep — see docs/adr/0013 for what it would take.
   sourceCallId     String?      @map("source_call_id")
   note             String?
   manual           Boolean      @default(false)

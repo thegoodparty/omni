@@ -10,6 +10,7 @@ import {
 import { subMinutes } from 'date-fns'
 import { PeerlyBillingException } from '../../../vendors/peerly/utils/peerlyBillingError.util'
 import { PeerlyCvRejectionException } from '../../../vendors/peerly/utils/peerlyCvRejection.util'
+import { CvPreSubmissionValidationException } from '../utils/cvPreSubmissionValidation.util'
 import {
   CommitteeType,
   ExperimentRunStatus,
@@ -18,9 +19,10 @@ import {
 } from '../../../generated/prisma'
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
 import { PinoLogger } from 'nestjs-pino'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { CampaignTcrComplianceService } from './campaignTcrCompliance.service'
+import { CvPreSubmissionValidationService } from './cvPreSubmissionValidation.service'
 import { ComplianceStateService } from './complianceState.service'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
 import { PeerlyCvVerificationStatus } from '../../../vendors/peerly/peerly.types'
@@ -30,8 +32,11 @@ import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { CronLockService } from '@/cron/services/cronLock.service'
 import { SlackService } from '@/vendors/slack/services/slack.service'
+import { SlackChannel } from '@/vendors/slack/slackService.types'
 import { EVENTS } from '@/vendors/segment/segment.types'
+import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { PrismaService } from '@/prisma/prisma.service'
 import { MessageGroup, QueueType } from '../../../queue/queue.types'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -98,6 +103,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
   const basePayload = {
     ein: '12-3456789',
     committeeName: 'Test Committee',
+    candidateName: 'Jane Candidate',
     filingUrl: 'https://example.com/filing',
     email: 'test@example.com',
     phone: '5555555555',
@@ -161,7 +167,27 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         },
         {
           provide: SlackService,
-          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+          useValue: {
+            errorMessage: vi.fn().mockResolvedValue('ok'),
+            message: vi.fn().mockResolvedValue('ok'),
+          },
+        },
+        {
+          provide: CvPreSubmissionValidationService,
+          useValue: {
+            validate: vi.fn().mockResolvedValue({ outcome: 'passed' }),
+          },
+        },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
         },
         CampaignTcrComplianceService,
       ],
@@ -650,7 +676,11 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         peerlyIdentityId: null,
         kickoffSentAt: null,
         campaign: {
-          user: { clerkId: 'clerk_stranded' },
+          user: {
+            clerkId: 'clerk_stranded',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          },
           campaignPositions: [],
         },
       }
@@ -716,7 +746,14 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_a' }, campaignPositions: [] },
+        campaign: {
+          user: {
+            clerkId: 'clerk_a',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          },
+          campaignPositions: [],
+        },
       }
       const b = {
         id: 'tcr-b',
@@ -724,7 +761,14 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_b' }, campaignPositions: [] },
+        campaign: {
+          user: {
+            clerkId: 'clerk_b',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          },
+          campaignPositions: [],
+        },
       }
       mockModel.findMany.mockResolvedValueOnce([a, b])
       mockQueue.sendMessage
@@ -762,7 +806,14 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_d' }, campaignPositions: [] },
+        campaign: {
+          user: {
+            clerkId: 'clerk_d',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          },
+          campaignPositions: [],
+        },
       }
       const completed = {
         id: 'tcr-completed',
@@ -770,7 +821,14 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_c' }, campaignPositions: [] },
+        campaign: {
+          user: {
+            clerkId: 'clerk_c',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          },
+          campaignPositions: [],
+        },
       }
       mockModel.findMany.mockResolvedValueOnce([deferred, completed])
       mockWebsites.getContentForCampaign.mockImplementation(
@@ -797,7 +855,14 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_x' }, campaignPositions: [] },
+        campaign: {
+          user: {
+            clerkId: 'clerk_x',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          },
+          campaignPositions: [],
+        },
       }
       const healthy = {
         id: 'tcr-healthy',
@@ -805,7 +870,14 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: null,
         kickoffSentAt: null,
-        campaign: { user: { clerkId: 'clerk_y' }, campaignPositions: [] },
+        campaign: {
+          user: {
+            clerkId: 'clerk_y',
+            firstName: 'Test',
+            lastName: 'Candidate',
+          },
+          campaignPositions: [],
+        },
       }
       mockModel.findMany.mockResolvedValueOnce([broken, healthy])
       mockWebsites.getContentForCampaign.mockImplementation(
@@ -832,6 +904,150 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
           where: expect.objectContaining({ campaign: { isPro: true } }),
         }),
       )
+    })
+  })
+
+  // ENG-10965: correcting the filing data on a held (validation-failed)
+  // record clears the hold so the next submission attempt re-validates.
+  describe('clearing a CV pre-submission validation hold', () => {
+    it('updates the corrected filing data and clears the hold columns, without deleting/recreating the row', async () => {
+      const held = {
+        id: 'tcr-held',
+        campaignId: campaign.id,
+        status: TcrComplianceStatus.submitted,
+        peerlyIdentityId: null,
+        filingUrl: 'https://drive.google.com/file/d/abc123',
+        candidateName: 'Jane Candidate',
+        cvValidationFailedAt: new Date(),
+        cvValidationFailureReasons: ['Filing URL host is not acceptable'],
+      }
+      mockModel.findUnique.mockResolvedValue(held)
+      mockModel.update.mockImplementation(({ where, data }) =>
+        Promise.resolve({ ...held, ...data, id: where.id }),
+      )
+
+      const result = await service.createAgentic(user, campaign, {
+        ...basePayload,
+        filingUrl: 'https://sos.state.gov/filings/jane-candidate',
+      })
+
+      expect(mockModel.update).toHaveBeenCalledWith({
+        where: { id: 'tcr-held' },
+        data: {
+          filingUrl: 'https://sos.state.gov/filings/jane-candidate',
+          candidateName: basePayload.candidateName,
+          cvValidationFailedAt: null,
+          cvValidationFailureReasons: [],
+          cvValidationOverriddenAt: null,
+          cvValidationTransientCount: 0,
+        },
+      })
+      expect(mockModel.deleteMany).not.toHaveBeenCalled()
+      expect(mockModel.create).not.toHaveBeenCalled()
+      expect(result).toEqual({
+        record: expect.objectContaining({
+          id: 'tcr-held',
+          filingUrl: 'https://sos.state.gov/filings/jane-candidate',
+          cvValidationFailedAt: null,
+        }),
+        created: false,
+      })
+    })
+
+    // ENG-10965 blocker fix: an admin override is scoped to the data it was
+    // granted for, not to the record — new filing data must clear it too, or
+    // never-validated data would reach Peerly under a stale bypass.
+    it('clears a prior admin override when the filing data changes, so the next submission re-validates', async () => {
+      const overridden = {
+        id: 'tcr-overridden',
+        campaignId: campaign.id,
+        status: TcrComplianceStatus.submitted,
+        peerlyIdentityId: null,
+        filingUrl: 'https://drive.google.com/file/d/abc123',
+        candidateName: basePayload.candidateName,
+        cvValidationFailedAt: null,
+        cvValidationFailureReasons: [],
+        cvValidationOverriddenAt: new Date(),
+      }
+      mockModel.findUnique.mockResolvedValue(overridden)
+      mockModel.update.mockImplementation(({ where, data }) =>
+        Promise.resolve({ ...overridden, ...data, id: where.id }),
+      )
+
+      const result = await service.createAgentic(user, campaign, {
+        ...basePayload,
+        filingUrl: 'https://sos.state.gov/filings/jane-candidate',
+      })
+
+      expect(mockModel.update).toHaveBeenCalledWith({
+        where: { id: 'tcr-overridden' },
+        data: {
+          filingUrl: 'https://sos.state.gov/filings/jane-candidate',
+          candidateName: basePayload.candidateName,
+          cvValidationFailedAt: null,
+          cvValidationFailureReasons: [],
+          cvValidationOverriddenAt: null,
+          cvValidationTransientCount: 0,
+        },
+      })
+      expect(result).toEqual({
+        record: expect.objectContaining({
+          id: 'tcr-overridden',
+          filingUrl: 'https://sos.state.gov/filings/jane-candidate',
+          cvValidationOverriddenAt: null,
+        }),
+        created: false,
+      })
+    })
+
+    it('does not update when the resubmitted filing data is unchanged', async () => {
+      const held = {
+        id: 'tcr-held',
+        campaignId: campaign.id,
+        status: TcrComplianceStatus.submitted,
+        peerlyIdentityId: null,
+        filingUrl: basePayload.filingUrl,
+        candidateName: basePayload.candidateName,
+        cvValidationFailedAt: new Date(),
+        cvValidationFailureReasons: ['Filing URL host is not acceptable'],
+      }
+      mockModel.findUnique.mockResolvedValue(held)
+
+      const result = await service.createAgentic(user, campaign, basePayload)
+
+      expect(mockModel.update).not.toHaveBeenCalled()
+      expect(result).toEqual({ record: held, created: false })
+    })
+
+    // Defense-in-depth, not the primary race guard: the failure claim
+    // (peerlyIdentityId: null) and the pre-Peerly submission claim
+    // (cvValidationFailedAt: null) are now mutually exclusive — see the two
+    // concurrent-caller tests in the submitToPeerlyForAgent gate suite — so a
+    // row can no longer reach cvValidationFailedAt set while peerlyIdentityId
+    // is also set via the normal gate flow; this state is genuinely
+    // unreachable there. This guard still protects a row in that shape from a
+    // data repair or a future regression — it's never safe to mutate filing
+    // data on an already-submitted record in place.
+    it('does not update a record that already has a Peerly identity, even if it also carries a stale hold', async () => {
+      const held = {
+        id: 'tcr-held',
+        campaignId: campaign.id,
+        status: TcrComplianceStatus.submitted,
+        peerlyIdentityId: 'peerly-1',
+        filingUrl: 'https://drive.google.com/file/d/abc123',
+        candidateName: basePayload.candidateName,
+        cvValidationFailedAt: new Date(),
+        cvValidationFailureReasons: ['Filing URL host is not acceptable'],
+      }
+      mockModel.findUnique.mockResolvedValue(held)
+
+      const result = await service.createAgentic(user, campaign, {
+        ...basePayload,
+        filingUrl: 'https://sos.state.gov/filings/jane-candidate',
+      })
+
+      expect(mockModel.update).not.toHaveBeenCalled()
+      expect(result).toEqual({ record: held, created: false })
     })
   })
 })
@@ -919,7 +1135,27 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
         },
         {
           provide: SlackService,
-          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+          useValue: {
+            errorMessage: vi.fn().mockResolvedValue('ok'),
+            message: vi.fn().mockResolvedValue('ok'),
+          },
+        },
+        {
+          provide: CvPreSubmissionValidationService,
+          useValue: {
+            validate: vi.fn().mockResolvedValue({ outcome: 'passed' }),
+          },
+        },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
         },
         CampaignTcrComplianceService,
       ],
@@ -1388,6 +1624,9 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     $transaction: ReturnType<typeof vi.fn>
   }
   let mockAnalytics: { track: ReturnType<typeof vi.fn> }
+  let mockSlack: { message: ReturnType<typeof vi.fn> }
+  let mockCvValidation: { validate: ReturnType<typeof vi.fn> }
+  let mockSendSingleSend: ReturnType<typeof vi.fn>
 
   const user = createMockUser({ clerkId: 'user_clerk_xyz' })
   const campaign = createMockCampaign({
@@ -1416,6 +1655,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     campaignId: campaign.id,
     ein: '12-3456789',
     committeeName: 'Jane for Springfield',
+    candidateName: 'Jane Doe',
     websiteDomain: '',
     filingUrl: 'https://sos.example.gov/filing/jane',
     phone: '5555555555',
@@ -1459,7 +1699,14 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
         peerlyVerificationId: null,
         peerlyCvStatus: null,
       }),
-      getStageForCampaign: vi.fn().mockResolvedValue('awaiting_pin'),
+      // Mirrors the real sequence: the pre-submit gate reads
+      // `ready_to_submit` (no identity yet), and the response builder reads
+      // again after the identity is persisted, when the record has become
+      // `awaiting_pin`.
+      getStageForCampaign: vi
+        .fn()
+        .mockResolvedValueOnce('ready_to_submit')
+        .mockResolvedValue('awaiting_pin'),
     }
     mockTcrModel = {
       findUnique: vi.fn().mockResolvedValue(existingRecord),
@@ -1479,6 +1726,11 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
       ),
     }
     mockAnalytics = { track: vi.fn().mockResolvedValue(undefined) }
+    mockSlack = { message: vi.fn().mockResolvedValue('ok') }
+    mockCvValidation = {
+      validate: vi.fn().mockResolvedValue({ outcome: 'passed' }),
+    }
+    mockSendSingleSend = vi.fn().mockResolvedValue(undefined)
     mockWebsites = {
       // The submit path resolves the website host from the campaign's
       // registered domain (apex), not the request.
@@ -1517,7 +1769,25 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
         { provide: AnalyticsService, useValue: mockAnalytics },
         {
           provide: SlackService,
-          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+          useValue: {
+            errorMessage: vi.fn().mockResolvedValue('ok'),
+            ...mockSlack,
+          },
+        },
+        {
+          provide: CvPreSubmissionValidationService,
+          useValue: mockCvValidation,
+        },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: mockSendSingleSend },
         },
         CampaignTcrComplianceService,
       ],
@@ -1589,6 +1859,11 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
   })
 
   it('is idempotent: returns existing record without calling Peerly when peerlyIdentityId is set', async () => {
+    // This path short-circuits straight to the response builder, so the only
+    // stage read is the post-submission one — an identity-bearing record
+    // derives `awaiting_pin`, never the pre-submission stage.
+    mockComplianceState.getStageForCampaign.mockReset()
+    mockComplianceState.getStageForCampaign.mockResolvedValue('awaiting_pin')
     mockTcrModel.findUnique.mockResolvedValueOnce({
       ...existingRecord,
       peerlyIdentityId: 'peerly-already-set',
@@ -1654,6 +1929,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
       where: {
         id: existingRecord.id,
         peerlyIdentityId: null,
+        cvValidationFailedAt: null,
         OR: [
           { peerlySubmissionStartedAt: null },
           { peerlySubmissionStartedAt: { lt: expect.any(Date) } },
@@ -1768,6 +2044,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
         email: existingRecord.email,
         phone: existingRecord.phone,
         officeLevel: existingRecord.officeLevel,
+        candidateName: existingRecord.candidateName,
       }),
       user,
       campaign,
@@ -1853,6 +2130,43 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
   })
 
+  // ENG-10965 blocker fix: the mirror of the failure claim's race guard. A
+  // caller's 'passed' verdict was read before a concurrent caller's 'failed'
+  // verdict won the failure claim — the pre-Peerly claim's WHERE now also
+  // requires cvValidationFailedAt: null, so it matches 0 rows against the
+  // now-held live row and this caller never reaches Peerly either.
+  it('refuses the pre-Peerly claim and surfaces the hold when a concurrent caller already claimed the failure', async () => {
+    mockCvValidation.validate.mockResolvedValue({ outcome: 'passed' })
+    mockTcrModel.updateMany.mockResolvedValueOnce({ count: 0 })
+    const held = {
+      ...existingRecord,
+      cvValidationFailedAt: new Date(),
+      cvValidationFailureReasons: ['Filing URL is not a valid, public URL'],
+    }
+    mockTcrModel.findUnique
+      .mockResolvedValueOnce(existingRecord)
+      .mockResolvedValueOnce(held)
+
+    await expect(
+      service.submitToPeerlyForAgent(user, campaign),
+    ).rejects.toThrow(CvPreSubmissionValidationException)
+
+    expect(mockTcrModel.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: existingRecord.id,
+        peerlyIdentityId: null,
+        cvValidationFailedAt: null,
+        OR: [
+          { peerlySubmissionStartedAt: null },
+          { peerlySubmissionStartedAt: { lt: expect.any(Date) } },
+        ],
+      },
+      data: { peerlySubmissionStartedAt: expect.any(Date) },
+    })
+    expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
+    expect(mockPeerly.submitCampaignVerifyRequest).not.toHaveBeenCalled()
+  })
+
   it('returns idempotent response when claim is taken because a concurrent call already completed', async () => {
     mockTcrModel.updateMany.mockResolvedValueOnce({ count: 0 })
     const winner = {
@@ -1908,8 +2222,9 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     expect(mockTcrModel.update).not.toHaveBeenCalled()
   })
 
-  it('throws UnprocessableEntityException when compliance stage is not awaiting_pin (website not yet live)', async () => {
-    mockComplianceState.getStageForCampaign.mockResolvedValueOnce(
+  it('throws UnprocessableEntityException when compliance stage is not ready_to_submit (website not yet live)', async () => {
+    mockComplianceState.getStageForCampaign.mockReset()
+    mockComplianceState.getStageForCampaign.mockResolvedValue(
       'pending_website_live',
     )
 
@@ -1922,6 +2237,43 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
     expect(mockTcrModel.updateMany).not.toHaveBeenCalled()
     expect(mockTcrModel.update).not.toHaveBeenCalled()
+  })
+
+  // ENG-11018 split `awaiting_pin` into pre- and post-submission stages. The
+  // gate has to move with it: keying it on `awaiting_pin` after the split
+  // would reject every legitimate first submission, since the record has no
+  // Peerly identity at this point by definition.
+  it('admits a ready_to_submit record through the stage gate', async () => {
+    mockComplianceState.getStageForCampaign.mockReset()
+    mockComplianceState.getStageForCampaign
+      .mockResolvedValueOnce('ready_to_submit')
+      .mockResolvedValue('awaiting_pin')
+
+    const result = await service.submitToPeerlyForAgent(user, campaign)
+
+    expect(mockPeerly.submitCampaignVerifyRequest).toHaveBeenCalledTimes(1)
+    expect(result.stage).toBe('awaiting_pin')
+  })
+
+  // A held record clears the stage gate on purpose so the CV pre-submission
+  // gate can answer with the stored reasons (a 400 the agent records as a
+  // permanent blocker) rather than a generic 422 that reads as "try later".
+  it('lets filing_review_hold reach the CV gate instead of a stage 422', async () => {
+    mockComplianceState.getStageForCampaign.mockReset()
+    mockComplianceState.getStageForCampaign.mockResolvedValue(
+      'filing_review_hold',
+    )
+    mockTcrModel.findUnique.mockResolvedValue({
+      ...existingRecord,
+      cvValidationFailedAt: new Date(),
+      cvValidationFailureReasons: ['filing url is a search form'],
+    })
+
+    await expect(
+      service.submitToPeerlyForAgent(user, campaign),
+    ).rejects.toThrow('filing url is a search form')
+
+    expect(mockPeerly.submitCampaignVerifyRequest).not.toHaveBeenCalled()
   })
 
   it('refuses to submit when website content is generic', async () => {
@@ -2088,6 +2440,78 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     )
   })
 
+  describe('ComplianceRejected single-send on a cv_submit rejection (ENG-11035)', () => {
+    it('does not call single-send when HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID is unset', async () => {
+      const cvErr = new PeerlyCvRejectionException(
+        'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
+      )
+      mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
+
+      await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
+        cvErr,
+      )
+
+      expect(mockSendSingleSend).not.toHaveBeenCalled()
+    })
+
+    it('sends to the triggering account email with the rejection details as call properties', async () => {
+      vi.stubEnv('HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID', '777666')
+      const cvErr = new PeerlyCvRejectionException(
+        'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
+      )
+      mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
+
+      await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
+        cvErr,
+      )
+
+      expect(mockSendSingleSend).toHaveBeenCalledWith({
+        emailId: 777666,
+        to: user.email,
+        customProperties: {
+          rejection_source: 'cv_submit',
+          rejection_reason: cvErr.message,
+        },
+      })
+    })
+
+    it('still rethrows the original rejection when single-send fails', async () => {
+      vi.stubEnv('HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID', '777666')
+      mockSendSingleSend.mockRejectedValueOnce(new Error('HubSpot down'))
+      const cvErr = new PeerlyCvRejectionException(
+        'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
+      )
+      mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
+
+      await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
+        cvErr,
+      )
+
+      expect(mockAnalytics.track).toHaveBeenCalledWith(
+        user.id,
+        EVENTS.Outreach.ComplianceRejected,
+        expect.objectContaining({ rejection_source: 'cv_submit' }),
+      )
+    })
+
+    it('does not call single-send when a TTL re-claimant owns the record', async () => {
+      vi.stubEnv('HUBSPOT_COMPLIANCE_REJECTED_EMAIL_ID', '777666')
+      const cvErr = new PeerlyCvRejectionException(
+        'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
+      )
+      mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
+      mockTcrModel.updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValueOnce({ count: 0 })
+
+      await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
+        cvErr,
+      )
+
+      expect(mockSendSingleSend).not.toHaveBeenCalled()
+    })
+  })
+
   it('does not fire the rejection event when the rejected stamp fails to commit', async () => {
     // If the rollback transaction fails, the record stays non-rejected and
     // the deterministic retry would fire the event again — so no stamp, no
@@ -2162,12 +2586,458 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
       data: expect.objectContaining({ peerlyBillingBlockedAt: null }),
     })
   })
+
+  // ENG-10965: pre-submission validation gate.
+  describe('CV pre-submission validation gate', () => {
+    it('holds the record, claims once, and posts the Slack alert with the concrete failed checks — never touching Peerly', async () => {
+      mockCvValidation.validate.mockResolvedValue({
+        outcome: 'failed',
+        reasons: [
+          'Filing URL host "drive.google.com" is not an election ' +
+            "authority's own site (file share, social page, or unrelated " +
+            'site)',
+        ],
+      })
+
+      await expect(
+        service.submitToPeerlyForAgent(user, campaign),
+      ).rejects.toThrow(CvPreSubmissionValidationException)
+
+      // The claim is atomic on cvValidationFailedAt IS NULL AND
+      // peerlyIdentityId IS NULL AND the submission slot being unclaimed or
+      // stale (the race-safety conditions — see the concurrent-caller tests
+      // below), written before the Slack post.
+      expect(mockTcrModel.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: existingRecord.id,
+          cvValidationFailedAt: null,
+          peerlyIdentityId: null,
+          OR: [
+            { peerlySubmissionStartedAt: null },
+            { peerlySubmissionStartedAt: { lt: expect.any(Date) } },
+          ],
+        },
+        data: {
+          cvValidationFailedAt: expect.any(Date),
+          cvValidationFailureReasons: [
+            'Filing URL host "drive.google.com" is not an election ' +
+              "authority's own site (file share, social page, or " +
+              'unrelated site)',
+          ],
+        },
+      })
+      // Exact produced Slack payload — campaign, filing URL, and the
+      // concrete failed check, not just "was called".
+      expect(mockSlack.message).toHaveBeenCalledWith(
+        {
+          blocks: [
+            expect.objectContaining({ type: 'header' }),
+            expect.objectContaining({
+              type: 'section',
+              text: expect.objectContaining({
+                type: 'mrkdwn',
+                text: expect.stringContaining(
+                  `*Campaign:* campaignId=${campaign.id}`,
+                ),
+              }),
+            }),
+          ],
+        },
+        SlackChannel.bot10DlcCompliance,
+      )
+      expect(mockSlack.message).toHaveBeenCalledWith(
+        expect.objectContaining({
+          blocks: expect.arrayContaining([
+            expect.objectContaining({
+              text: expect.objectContaining({
+                text: expect.stringContaining(
+                  'Filing URL host "drive.google.com"',
+                ),
+              }),
+            }),
+          ]),
+        }),
+        SlackChannel.bot10DlcCompliance,
+      )
+      // No Peerly call — the hold happens strictly before any Peerly touch.
+      expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
+      expect(mockPeerly.submitCampaignVerifyRequest).not.toHaveBeenCalled()
+      // The pre-Peerly submission claim never runs either.
+      expect(mockTcrModel.updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ peerlySubmissionStartedAt: null }),
+        }),
+      )
+    })
+
+    it('claims nothing and posts nothing when a concurrent caller already submitted (peerlyIdentityId race)', async () => {
+      // The gate runs before the peerlySubmissionStartedAt claim, so a
+      // slower concurrent caller can still be evaluating a failed verdict
+      // after a faster one already submitted (existingRecord.peerlyIdentityId
+      // was null when *this* caller read it, but the live row now has one).
+      // The claim's WHERE clause is scoped to peerlyIdentityId: null, so it
+      // matches 0 rows against the live row regardless of the stale
+      // in-memory read.
+      mockCvValidation.validate.mockResolvedValue({
+        outcome: 'failed',
+        reasons: ['Filing URL is not a valid, public URL'],
+      })
+      mockTcrModel.updateMany.mockResolvedValueOnce({ count: 0 })
+
+      await expect(
+        service.submitToPeerlyForAgent(user, campaign),
+      ).rejects.toThrow(CvPreSubmissionValidationException)
+
+      expect(mockTcrModel.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: existingRecord.id,
+          cvValidationFailedAt: null,
+          peerlyIdentityId: null,
+          OR: [
+            { peerlySubmissionStartedAt: null },
+            { peerlySubmissionStartedAt: { lt: expect.any(Date) } },
+          ],
+        },
+        data: {
+          cvValidationFailedAt: expect.any(Date),
+          cvValidationFailureReasons: ['Filing URL is not a valid, public URL'],
+        },
+      })
+      expect(mockSlack.message).not.toHaveBeenCalled()
+    })
+
+    // ENG-10965 blocker fix (round 3): the failure claim must also respect an
+    // ACTIVE in-flight submission claim — mirrors the submission claim's own
+    // TTL semantics exactly, so a live claim blocks the hold but a stale
+    // (crashed) one doesn't block it forever.
+    it('refuses the hold claim while a concurrent submission is actively in flight (fresh peerlySubmissionStartedAt, no identity yet)', async () => {
+      // Models a caller mid-flight to Peerly: it just claimed the
+      // submission slot (well within the TTL) but hasn't persisted
+      // peerlyIdentityId yet — real Postgres would refuse this UPDATE
+      // (neither OR branch matches a fresh, non-stale timestamp), so this
+      // caller's failed verdict must not land a hold or fire an alert while
+      // the in-flight submission might still succeed.
+      mockTcrModel.findUnique.mockResolvedValue({
+        ...existingRecord,
+        peerlySubmissionStartedAt: new Date(),
+      })
+      mockCvValidation.validate.mockResolvedValue({
+        outcome: 'failed',
+        reasons: ['Filing URL is not a valid, public URL'],
+      })
+      mockTcrModel.updateMany.mockResolvedValueOnce({ count: 0 })
+
+      await expect(
+        service.submitToPeerlyForAgent(user, campaign),
+      ).rejects.toThrow(CvPreSubmissionValidationException)
+
+      expect(mockTcrModel.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: existingRecord.id,
+          cvValidationFailedAt: null,
+          peerlyIdentityId: null,
+          OR: [
+            { peerlySubmissionStartedAt: null },
+            { peerlySubmissionStartedAt: { lt: expect.any(Date) } },
+          ],
+        },
+        data: {
+          cvValidationFailedAt: expect.any(Date),
+          cvValidationFailureReasons: ['Filing URL is not a valid, public URL'],
+        },
+      })
+      expect(mockSlack.message).not.toHaveBeenCalled()
+    })
+
+    it('wins the hold claim when a concurrent submission claim is stale (past the TTL, effectively abandoned)', async () => {
+      // Models a crashed caller: it claimed the submission slot but never
+      // persisted peerlyIdentityId, and that claim is now past
+      // PEERLY_SUBMISSION_CLAIM_TTL_MINUTES (5 min) — real Postgres would
+      // match this row on the claim's `{ lt: staleBefore }` branch, so the
+      // hold must not be blocked forever by an abandoned claim.
+      mockTcrModel.findUnique.mockResolvedValue({
+        ...existingRecord,
+        peerlySubmissionStartedAt: subMinutes(new Date(), 10),
+      })
+      mockCvValidation.validate.mockResolvedValue({
+        outcome: 'failed',
+        reasons: ['Filing URL is not a valid, public URL'],
+      })
+
+      await expect(
+        service.submitToPeerlyForAgent(user, campaign),
+      ).rejects.toThrow(CvPreSubmissionValidationException)
+
+      // The exact OR shape sent — its `{ lt: staleBefore }` branch is what a
+      // real Postgres UPDATE would match against the stale timestamp above.
+      const claimCall = firstOrThrow(mockTcrModel.updateMany.mock.calls)[0]
+      expect(claimCall).toEqual({
+        where: {
+          id: existingRecord.id,
+          cvValidationFailedAt: null,
+          peerlyIdentityId: null,
+          OR: [
+            { peerlySubmissionStartedAt: null },
+            { peerlySubmissionStartedAt: { lt: expect.any(Date) } },
+          ],
+        },
+        data: {
+          cvValidationFailedAt: expect.any(Date),
+          cvValidationFailureReasons: ['Filing URL is not a valid, public URL'],
+        },
+      })
+      // The claim lands (mock defaults to { count: 1 }), so the hold + alert
+      // proceed — the stale submission claim did not block it forever.
+      expect(mockSlack.message).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not re-post to Slack on a second failed attempt once already claimed (once-only)', async () => {
+      mockTcrModel.findUnique.mockResolvedValue({
+        ...existingRecord,
+        cvValidationFailedAt: new Date(),
+        cvValidationFailureReasons: ['Filing URL is not a valid, public URL'],
+      })
+
+      await expect(
+        service.submitToPeerlyForAgent(user, campaign),
+      ).rejects.toThrow(CvPreSubmissionValidationException)
+
+      // Already held: no re-validation (no fetch/LLM cost) and no re-claim.
+      expect(mockCvValidation.validate).not.toHaveBeenCalled()
+      expect(mockSlack.message).not.toHaveBeenCalled()
+      expect(mockTcrModel.updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ cvValidationFailedAt: null }),
+        }),
+      )
+    })
+
+    it('rolls back the claim, scoped to the exact claimed timestamp, when the Slack post fails', async () => {
+      mockCvValidation.validate.mockResolvedValue({
+        outcome: 'failed',
+        reasons: ['Filing URL is not a valid, public URL'],
+      })
+      mockSlack.message.mockResolvedValue(undefined)
+
+      await expect(
+        service.submitToPeerlyForAgent(user, campaign),
+      ).rejects.toThrow(CvPreSubmissionValidationException)
+
+      const claimCall = mockTcrModel.updateMany.mock.calls.find(
+        ([args]) => args.data.cvValidationFailedAt instanceof Date,
+      )
+      expect(claimCall).toBeDefined()
+      const claimedAt = claimCall?.[0].data.cvValidationFailedAt as Date
+
+      expect(mockTcrModel.updateMany).toHaveBeenCalledWith({
+        where: { id: existingRecord.id, cvValidationFailedAt: claimedAt },
+        data: { cvValidationFailedAt: null, cvValidationFailureReasons: [] },
+      })
+    })
+
+    it('bypasses the gate entirely when an admin override is set', async () => {
+      mockTcrModel.findUnique.mockResolvedValue({
+        ...existingRecord,
+        cvValidationOverriddenAt: new Date(),
+        cvValidationFailedAt: new Date(),
+        cvValidationFailureReasons: ['stale failure, now overridden'],
+      })
+
+      await service.submitToPeerlyForAgent(user, campaign)
+
+      expect(mockCvValidation.validate).not.toHaveBeenCalled()
+      expect(mockPeerly.submitCampaignVerifyRequest).toHaveBeenCalledTimes(1)
+    })
+
+    // ENG-11000: an overridden record with the hold actually cleared (the
+    // fixed overrideCvValidation always clears cvValidationFailedAt in the
+    // same write) must reach and win the pre-Peerly submission claim, whose
+    // WHERE unconditionally requires cvValidationFailedAt: null. Before the
+    // fix, the override left that column set and this claim's WHERE never
+    // matched a real Postgres row — reproduced in prod on campaigns 326653
+    // and 326890.
+    it('proceeds to and wins the pre-Peerly claim for an overridden record whose hold was cleared', async () => {
+      mockTcrModel.findUnique.mockResolvedValue({
+        ...existingRecord,
+        cvValidationOverriddenAt: new Date(),
+        cvValidationFailedAt: null,
+        cvValidationFailureReasons: [],
+      })
+
+      await service.submitToPeerlyForAgent(user, campaign)
+
+      expect(mockCvValidation.validate).not.toHaveBeenCalled()
+      expect(mockTcrModel.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: existingRecord.id,
+          peerlyIdentityId: null,
+          cvValidationFailedAt: null,
+          OR: [
+            { peerlySubmissionStartedAt: null },
+            { peerlySubmissionStartedAt: { lt: expect.any(Date) } },
+          ],
+        },
+        data: { peerlySubmissionStartedAt: expect.any(Date) },
+      })
+      expect(mockPeerly.submitCampaignVerifyRequest).toHaveBeenCalledTimes(1)
+    })
+
+    it('re-validates (does not bypass) once a prior override has been cleared by a filing-data update', async () => {
+      // Represents the record after createAgentic's clear-on-update branch
+      // cleared cvValidationOverriddenAt (see the createAgentic describe
+      // block's "clearing" tests) — the next submission attempt must invoke
+      // the gate fresh rather than trusting the stale override.
+      mockTcrModel.findUnique.mockResolvedValue({
+        ...existingRecord,
+        cvValidationOverriddenAt: null,
+        cvValidationFailedAt: null,
+        cvValidationFailureReasons: [],
+        filingUrl: 'https://sos.state.gov/filings/jane-candidate',
+      })
+
+      await service.submitToPeerlyForAgent(user, campaign)
+
+      expect(mockCvValidation.validate).toHaveBeenCalledWith({
+        filingUrl: 'https://sos.state.gov/filings/jane-candidate',
+        // existingRecord carries its own candidateName, which takes
+        // precedence over the account-holder fallback.
+        submissionName: existingRecord.candidateName,
+      })
+      expect(mockPeerly.submitCampaignVerifyRequest).toHaveBeenCalledTimes(1)
+    })
+
+    it('treats a transient validation outcome (the real fetch-throw case) as a retryable 502 — holds and pings nothing', async () => {
+      mockCvValidation.validate.mockResolvedValue({ outcome: 'transient' })
+      // First transient hit on this row (below the ENG-10998 hold threshold
+      // of 3) — still a plain retryable 502, not a hold.
+      mockTcrModel.update.mockResolvedValueOnce({
+        ...existingRecord,
+        cvValidationTransientCount: 1,
+      })
+
+      await expect(
+        service.submitToPeerlyForAgent(user, campaign),
+      ).rejects.toThrow(BadGatewayException)
+
+      expect(mockSlack.message).not.toHaveBeenCalled()
+      expect(mockTcrModel.updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ cvValidationFailedAt: null }),
+        }),
+      )
+      expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
+      expect(mockPeerly.submitCampaignVerifyRequest).not.toHaveBeenCalled()
+    })
+
+    // ENG-10998: a run of transient blips never resolves on its own either —
+    // it used to retry forever through the agent's paid resume loop. Count
+    // consecutive transient outcomes on the row and convert to a hold once
+    // the threshold is hit, same as a genuine 'failed' verdict.
+    describe('transient escalation counter', () => {
+      it('increments the counter and still returns a retryable 502 below the hold threshold', async () => {
+        mockTcrModel.findUnique.mockResolvedValue({
+          ...existingRecord,
+          cvValidationTransientCount: 0,
+        })
+        mockCvValidation.validate.mockResolvedValue({ outcome: 'transient' })
+        mockTcrModel.update.mockResolvedValueOnce({
+          ...existingRecord,
+          cvValidationTransientCount: 1,
+        })
+
+        await expect(
+          service.submitToPeerlyForAgent(user, campaign),
+        ).rejects.toThrow(BadGatewayException)
+
+        expect(mockTcrModel.update).toHaveBeenCalledWith({
+          where: { id: existingRecord.id },
+          data: { cvValidationTransientCount: { increment: 1 } },
+        })
+        expect(mockSlack.message).not.toHaveBeenCalled()
+        expect(mockTcrModel.updateMany).not.toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({ cvValidationFailedAt: null }),
+          }),
+        )
+        expect(mockPeerly.submitCampaignVerifyRequest).not.toHaveBeenCalled()
+      })
+
+      it('converts to a held failure once the transient counter reaches the threshold (3) — hold columns written, Slack alerted once, CvPreSubmissionValidationException thrown', async () => {
+        mockTcrModel.findUnique.mockResolvedValue({
+          ...existingRecord,
+          cvValidationTransientCount: 2,
+        })
+        mockCvValidation.validate.mockResolvedValue({ outcome: 'transient' })
+        mockTcrModel.update.mockResolvedValueOnce({
+          ...existingRecord,
+          cvValidationTransientCount: 3,
+        })
+
+        await expect(
+          service.submitToPeerlyForAgent(user, campaign),
+        ).rejects.toThrow(CvPreSubmissionValidationException)
+
+        expect(mockTcrModel.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: existingRecord.id,
+            cvValidationFailedAt: null,
+            peerlyIdentityId: null,
+            OR: [
+              { peerlySubmissionStartedAt: null },
+              { peerlySubmissionStartedAt: { lt: expect.any(Date) } },
+            ],
+          },
+          data: {
+            cvValidationFailedAt: expect.any(Date),
+            cvValidationFailureReasons: [
+              'Filing page could not be fetched after 3 attempts; staff ' +
+                'review needed',
+            ],
+          },
+        })
+        expect(mockSlack.message).toHaveBeenCalledTimes(1)
+        expect(mockPeerly.submitCampaignVerifyRequest).not.toHaveBeenCalled()
+      })
+
+      it('resets the counter to 0 once a later attempt produces a genuine passed verdict', async () => {
+        mockTcrModel.findUnique.mockResolvedValue({
+          ...existingRecord,
+          cvValidationTransientCount: 2,
+        })
+        mockCvValidation.validate.mockResolvedValue({ outcome: 'passed' })
+
+        await service.submitToPeerlyForAgent(user, campaign)
+
+        expect(mockTcrModel.update).toHaveBeenCalledWith({
+          where: { id: existingRecord.id },
+          data: { cvValidationTransientCount: 0 },
+        })
+        expect(mockPeerly.submitCampaignVerifyRequest).toHaveBeenCalledTimes(1)
+      })
+
+      it('does not bother resetting the counter when it is already zero', async () => {
+        mockTcrModel.findUnique.mockResolvedValue({
+          ...existingRecord,
+          cvValidationTransientCount: 0,
+        })
+        mockCvValidation.validate.mockResolvedValue({ outcome: 'passed' })
+
+        await service.submitToPeerlyForAgent(user, campaign)
+
+        expect(mockTcrModel.update).not.toHaveBeenCalledWith({
+          where: { id: existingRecord.id },
+          data: { cvValidationTransientCount: 0 },
+        })
+      })
+    })
+  })
 })
 
 describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
   let service: CampaignTcrComplianceService
   let mockPeerly: { getIdentities: ReturnType<typeof vi.fn> }
   let mockWebsites: { findFirstOrThrow: ReturnType<typeof vi.fn> }
+  let mockCvValidation: { validate: ReturnType<typeof vi.fn> }
 
   const user = createMockUser({ clerkId: 'user_clerk_legacy' })
   // CreateTcrCompliancePayload omits placeId/formattedAddress (they live on the
@@ -2191,6 +3061,9 @@ describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
         .fn()
         .mockResolvedValue({ domain: { name: 'vote-jane.site' } }),
     }
+    mockCvValidation = {
+      validate: vi.fn().mockResolvedValue({ outcome: 'passed' }),
+    }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -2212,7 +3085,25 @@ describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
         },
         {
           provide: SlackService,
-          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+          useValue: {
+            errorMessage: vi.fn().mockResolvedValue('ok'),
+            message: vi.fn().mockResolvedValue('ok'),
+          },
+        },
+        {
+          provide: CvPreSubmissionValidationService,
+          useValue: mockCvValidation,
+        },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
         },
         CampaignTcrComplianceService,
       ],
@@ -2235,6 +3126,41 @@ describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
     // Fails inside submitToPeerly before any Peerly call.
     expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
   })
+
+  // ENG-10965: the legacy create() path is gated too — no persisted record
+  // exists yet, so a failure just 400s/502s synchronously with no hold.
+  it('rejects with CvPreSubmissionValidationException on a failed verdict, before any Peerly call', async () => {
+    mockCvValidation.validate.mockResolvedValue({
+      outcome: 'failed',
+      reasons: ['Filing URL is not a valid, public URL'],
+    })
+    const campaign = createMockCampaign({
+      userId: user.id,
+      placeId: 'place-1',
+      formattedAddress: '123 Main St',
+      details: { electionDate: '2026-11-03' },
+    })
+
+    await expect(service.create(user, campaign, payload)).rejects.toThrow(
+      CvPreSubmissionValidationException,
+    )
+    expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
+  })
+
+  it('rejects with BadGatewayException on a transient outcome — never Peerly, never a rejection', async () => {
+    mockCvValidation.validate.mockResolvedValue({ outcome: 'transient' })
+    const campaign = createMockCampaign({
+      userId: user.id,
+      placeId: 'place-1',
+      formattedAddress: '123 Main St',
+      details: { electionDate: '2026-11-03' },
+    })
+
+    await expect(service.create(user, campaign, payload)).rejects.toThrow(
+      BadGatewayException,
+    )
+    expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
+  })
 })
 
 describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => {
@@ -2243,9 +3169,12 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     verifyCampaignVerifyPin: ReturnType<typeof vi.fn>
     createCampaignVerifyToken: ReturnType<typeof vi.fn>
     submitCampaignVerifyTokenToBrand: ReturnType<typeof vi.fn>
-    retrieveCampaignVerifyStatus: ReturnType<typeof vi.fn>
+    retrieveCampaignVerifyDetails: ReturnType<typeof vi.fn>
   }
-  let mockModel: { findFirstOrThrow: ReturnType<typeof vi.fn> }
+  let mockModel: {
+    findFirstOrThrow: ReturnType<typeof vi.fn>
+    updateMany: ReturnType<typeof vi.fn>
+  }
   let mockPrisma: { tcrCompliance: typeof mockModel }
 
   const tcrCompliance = {
@@ -2260,9 +3189,12 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
       verifyCampaignVerifyPin: vi.fn(),
       createCampaignVerifyToken: vi.fn(),
       submitCampaignVerifyTokenToBrand: vi.fn(),
-      retrieveCampaignVerifyStatus: vi.fn(),
+      retrieveCampaignVerifyDetails: vi.fn(),
     }
-    mockModel = { findFirstOrThrow: vi.fn() }
+    mockModel = {
+      findFirstOrThrow: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    }
     mockPrisma = { tcrCompliance: mockModel }
 
     const module: TestingModule = await Test.createTestingModule({
@@ -2300,7 +3232,27 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
         },
         {
           provide: SlackService,
-          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+          useValue: {
+            errorMessage: vi.fn().mockResolvedValue('ok'),
+            message: vi.fn().mockResolvedValue('ok'),
+          },
+        },
+        {
+          provide: CvPreSubmissionValidationService,
+          useValue: {
+            validate: vi.fn().mockResolvedValue({ outcome: 'passed' }),
+          },
+        },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
         },
         CampaignTcrComplianceService,
       ],
@@ -2385,8 +3337,15 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
   >[1]
 
   it('retrieveCampaignVerifyToken verifies the PIN when the CV is not yet VERIFIED', async () => {
-    mockModel.findFirstOrThrow.mockResolvedValueOnce({ campaign: { id: 1 } })
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('APPROVED')
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      campaign: { id: 1, user: null },
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: 'APPROVED',
+      pinDelivery: null,
+    })
     mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(true)
     mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce('cv-token')
 
@@ -2400,14 +3359,35 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
       expect(mockPeerly.verifyCampaignVerifyPin).toHaveBeenCalledWith(
         'peerly-1',
         '123456',
-        { id: 1 },
+        { id: 1, user: null },
       )
+      // A verified PIN means the CV is VERIFIED — the persisted mirror must
+      // stamp so sweepUnsubmittedUsecases picks the record up without
+      // waiting for the next CV status scan.
+      expect(mockModel.updateMany).toHaveBeenCalledWith({
+        where: {
+          peerlyIdentityId: 'peerly-1',
+          NOT: { peerlyCvStatus: 'VERIFIED' },
+        },
+        data: {
+          peerlyCvStatus: 'VERIFIED',
+          peerlyCvStatusChangedAt: expect.any(Date),
+          cvInReviewEscalatedAt: null,
+        },
+      })
     })
   })
 
   it('retrieveCampaignVerifyToken throws Invalid PIN for a wrong PIN on a non-VERIFIED CV', async () => {
-    mockModel.findFirstOrThrow.mockResolvedValueOnce({ campaign: { id: 1 } })
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('APPROVED')
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      campaign: { id: 1, user: null },
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: 'APPROVED',
+      pinDelivery: null,
+    })
     mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(false)
 
     await withEnv('prod', async () => {
@@ -2415,12 +3395,20 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
         service.retrieveCampaignVerifyToken('000000', tcrWithIdentity),
       ).rejects.toThrow(UnprocessableEntityException)
       expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
+      expect(mockModel.updateMany).not.toHaveBeenCalled()
     })
   })
 
   it('retrieveCampaignVerifyToken skips PIN re-verification and mints a token when the CV is already VERIFIED', async () => {
-    mockModel.findFirstOrThrow.mockResolvedValueOnce({ campaign: { id: 1 } })
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('VERIFIED')
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      campaign: { id: 1, user: null },
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: 'VERIFIED',
+      pinDelivery: null,
+    })
     mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce('cv-token')
 
     await withEnv('prod', async () => {
@@ -2433,9 +3421,64 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
       expect(mockPeerly.verifyCampaignVerifyPin).not.toHaveBeenCalled()
       expect(mockPeerly.createCampaignVerifyToken).toHaveBeenCalledWith(
         'peerly-1',
-        { id: 1 },
+        { id: 1, user: null },
       )
     })
+  })
+
+  // A candidate who enters their PIN between scans leaves the CV scan's poll
+  // set the moment VERIFIED is stamped, so PIN entry is the last observation
+  // that can record the delivery channel + fire CompliancePinSent.
+  it('retrieveCampaignVerifyToken runs PIN-delivery detection off its own read after a successful verify', async () => {
+    const user = { id: 55 }
+    const record = {
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      campaign: { id: 1, user },
+    }
+    mockModel.findFirstOrThrow.mockResolvedValueOnce(record)
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: 'APPROVED',
+      pinDelivery: { method: 'text', destination: '3125550000' },
+    })
+    mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(true)
+    mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce('cv-token')
+    const detectSpy = vi
+      .spyOn(service, 'applyCvDetection')
+      .mockResolvedValue(undefined)
+
+    await withEnv('prod', async () => {
+      await service.retrieveCampaignVerifyToken('123456', tcrWithIdentity)
+    })
+    // The detection is detached — flush it before asserting.
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(detectSpy).toHaveBeenCalledExactlyOnceWith(record, record.campaign, {
+      status: 'VERIFIED',
+      pinDelivery: { method: 'text', destination: '3125550000' },
+    })
+  })
+
+  it('retrieveCampaignVerifyToken does not run detection when the PIN is rejected', async () => {
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({
+      id: 'tcr-2',
+      peerlyIdentityId: 'peerly-1',
+      campaign: { id: 1, user: null },
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: 'APPROVED',
+      pinDelivery: { method: 'text', destination: '3125550000' },
+    })
+    mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(false)
+    const detectSpy = vi.spyOn(service, 'applyCvDetection')
+
+    await withEnv('prod', async () => {
+      await expect(
+        service.retrieveCampaignVerifyToken('000000', tcrWithIdentity),
+      ).rejects.toThrow(UnprocessableEntityException)
+    })
+
+    expect(detectSpy).not.toHaveBeenCalled()
   })
 })
 
@@ -2447,8 +3490,14 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
   }
   let mockModel: { findUnique: ReturnType<typeof vi.fn> }
   let mockAnalytics: { track: ReturnType<typeof vi.fn> }
+  let mockSendSingleSend: ReturnType<typeof vi.fn>
+  let mockLogger: ReturnType<typeof createMockLogger>
 
-  const campaign = createMockCampaign({ id: 7, userId: 1 })
+  const recipient = createMockUser({ id: 1, email: 'candidate@example.com' })
+  const campaign = {
+    ...createMockCampaign({ id: 7, userId: 1 }),
+    user: recipient,
+  }
 
   const withEnv = async (
     value: string | undefined,
@@ -2465,6 +3514,10 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
     }
   }
 
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   beforeEach(async () => {
     mockPeerly = {
       retrieveCampaignVerifyDetails: vi.fn(),
@@ -2472,6 +3525,8 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
     }
     mockModel = { findUnique: vi.fn() }
     mockAnalytics = { track: vi.fn().mockResolvedValue(undefined) }
+    mockSendSingleSend = vi.fn().mockResolvedValue(undefined)
+    mockLogger = createMockLogger()
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -2483,11 +3538,31 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
         { provide: ComplianceStateService, useValue: {} },
         { provide: QueueProducerService, useValue: {} },
         { provide: ExperimentRunsService, useValue: {} },
-        { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: PinoLogger, useValue: mockLogger },
         { provide: AnalyticsService, useValue: mockAnalytics },
         {
           provide: SlackService,
-          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+          useValue: {
+            errorMessage: vi.fn().mockResolvedValue('ok'),
+            message: vi.fn().mockResolvedValue('ok'),
+          },
+        },
+        {
+          provide: CvPreSubmissionValidationService,
+          useValue: {
+            validate: vi.fn().mockResolvedValue({ outcome: 'passed' }),
+          },
+        },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: mockSendSingleSend },
         },
         CampaignTcrComplianceService,
       ],
@@ -2619,7 +3694,62 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
         EVENTS.Outreach.CompliancePinResent,
         { triggered_by: 'admin', peerly_identity_id: 'peerly-1' },
       )
+      // Unset HUBSPOT_PIN_SENT_EMAIL_ID (every environment today) — the
+      // Segment-event workflow email path is unaffected.
+      expect(mockSendSingleSend).not.toHaveBeenCalled()
     })
+  })
+
+  it('sends to the campaign account email once configured', async () => {
+    vi.stubEnv('HUBSPOT_PIN_SENT_EMAIL_ID', '999888')
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: PeerlyCvVerificationStatus.APPROVED,
+      pinDelivery: { method: 'text', destination: '3126851162' },
+    })
+
+    await withEnv('prod', async () => {
+      await service.resendCampaignVerifyPin(campaign)
+
+      expect(mockSendSingleSend).toHaveBeenCalledWith({
+        emailId: 999888,
+        to: recipient.email,
+        customProperties: {
+          peerly_identity_id: 'peerly-1',
+          pin_delivery_method: 'text',
+          pin_delivery_destination: '3126851162',
+        },
+      })
+    })
+  })
+
+  it('logs loudly (not silently) when single-send fails, without failing the request', async () => {
+    vi.stubEnv('HUBSPOT_PIN_SENT_EMAIL_ID', '999888')
+    mockSendSingleSend.mockRejectedValueOnce(new Error('HubSpot down'))
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: PeerlyCvVerificationStatus.APPROVED,
+      pinDelivery: null,
+    })
+
+    await withEnv('prod', async () => {
+      await expect(
+        service.resendCampaignVerifyPin(campaign),
+      ).resolves.toBeUndefined()
+    })
+    // The single-send is fire-and-forget off the void'd promise — flush the
+    // microtask queue so its rejection handler (the logger.error call) runs.
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(Error), campaignId: 7 }),
+      expect.stringContaining('HubSpot single-send failed for PIN Resent'),
+    )
   })
 
   it('does not fire the resent event when the Peerly resend call fails', async () => {
@@ -2678,6 +3808,10 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     update: ReturnType<typeof vi.fn>
   }
   let mockPrisma: { tcrCompliance: typeof mockModel }
+  let mockCronLock: {
+    tryClaimHourlyRun: ReturnType<typeof vi.fn>
+    markHourlyCompleted: ReturnType<typeof vi.fn>
+  }
 
   const campaign = createMockCampaign({ id: 555 })
   const stuckRecord = {
@@ -2731,6 +3865,19 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       update: vi.fn().mockResolvedValue(undefined),
     }
     mockPrisma = { tcrCompliance: mockModel }
+    // Stands in for the DB-backed lock: one winner per (jobName, hour slot),
+    // so two invocations inside the same hour behave the way two prod replicas
+    // do. The real Postgres-level race is covered in cronLock.service.test.ts.
+    const claimedSlots = new Set<string>()
+    mockCronLock = {
+      tryClaimHourlyRun: vi.fn(async (jobName: string, now: Date) => {
+        const slot = `${jobName}-${now.toISOString().slice(0, 13)}`
+        if (claimedSlots.has(slot)) return false
+        claimedSlots.add(slot)
+        return true
+      }),
+      markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+    }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -2752,7 +3899,21 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
         },
         {
           provide: SlackService,
-          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+          useValue: {
+            errorMessage: vi.fn().mockResolvedValue('ok'),
+            message: vi.fn().mockResolvedValue('ok'),
+          },
+        },
+        {
+          provide: CvPreSubmissionValidationService,
+          useValue: {
+            validate: vi.fn().mockResolvedValue({ outcome: 'passed' }),
+          },
+        },
+        { provide: CronLockService, useValue: mockCronLock },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
         },
         CampaignTcrComplianceService,
       ],
@@ -2761,9 +3922,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     service = module.get(CampaignTcrComplianceService)
   })
 
-  it('mints a token and submits the usecase when CV is VERIFIED', async () => {
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('VERIFIED')
-
+  it('mints a token and submits the usecase for a swept (VERIFIED) record', async () => {
     await withEnv('prod', async () => {
       await submitUsecaseIfVerified(service, stuckRecord)
     })
@@ -2782,22 +3941,6 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     })
   })
 
-  it('does not submit or advance when CV is APPROVED (candidate still owes a PIN)', async () => {
-    // APPROVED can be reached by the CV authority before the candidate enters
-    // their PIN, so the sweep must leave the record in `submitted`. Advancing
-    // it to `pending` would flip the candidate to the "in review" screen and
-    // strand them with a PIN they can no longer enter.
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('APPROVED')
-
-    await withEnv('prod', async () => {
-      await submitUsecaseIfVerified(service, stuckRecord)
-    })
-
-    expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-    expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
-    expect(mockModel.update).not.toHaveBeenCalled()
-  })
-
   it.each(['waiting_to_finalize', 'finalized'])(
     'skips when the profile is already past pending (status %s)',
     async (status) => {
@@ -2807,21 +3950,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
 
       await submitUsecaseIfVerified(service, stuckRecord)
 
-      expect(mockPeerly.retrieveCampaignVerifyStatus).not.toHaveBeenCalled()
       expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-      expect(mockModel.update).not.toHaveBeenCalled()
-    },
-  )
-
-  it.each(['REQUESTED', 'IN_REVIEW', 'REJECTED', 'WITHDRAWN'])(
-    'skips (no token, no Slack-spamming approve) when CV is %s',
-    async (status) => {
-      mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce(status)
-
-      await submitUsecaseIfVerified(service, stuckRecord)
-
-      expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-      expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
       expect(mockModel.update).not.toHaveBeenCalled()
     },
   )
@@ -2859,16 +3988,6 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 
-  it('skips when CV status is null (no CV request exists for the identity)', async () => {
-    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce(null)
-
-    await submitUsecaseIfVerified(service, stuckRecord)
-
-    expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-    expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
-    expect(mockModel.update).not.toHaveBeenCalled()
-  })
-
   it('skips (no rethrow) when the Peerly identity 404s (orphaned/deleted)', async () => {
     mockPeerly.getIdentityProfile.mockRejectedValueOnce(
       new NotFoundException('identity not found'),
@@ -2878,7 +3997,6 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       submitUsecaseIfVerified(service, stuckRecord),
     ).resolves.toBeUndefined()
 
-    expect(mockPeerly.retrieveCampaignVerifyStatus).not.toHaveBeenCalled()
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 
@@ -2903,7 +4021,11 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 
-  it('sweeps submitted records that have a Peerly identity', async () => {
+  // The persisted-VERIFIED filter is what keeps APPROVED records (candidate
+  // still owes a PIN) out of the sweep — auto-submitting on APPROVED would
+  // race the candidate past the PIN screen. It also removed the per-record
+  // retrieve_cv read Peerly's rate-limit complaint was about (2026-08-17).
+  it('sweeps only submitted records whose persisted CV status is VERIFIED', async () => {
     mockModel.findMany.mockResolvedValueOnce([])
 
     await sweep(service)
@@ -2912,6 +4034,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       where: {
         status: TcrComplianceStatus.submitted,
         peerlyIdentityId: { not: null },
+        peerlyCvStatus: 'VERIFIED',
       },
     })
   })
@@ -2934,6 +4057,51 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       where: { id: 'tcr-b' },
       data: { status: TcrComplianceStatus.pending },
     })
+  })
+
+  // The whole point of the cron lock: without it both prod replicas' timers
+  // fire a pass, and since submitUsecaseIfVerified has no per-record claim
+  // both would mint a CV token and approve the same brand — double-finalizing
+  // the 10DLC identity into Peerly's MNO queue.
+  it('runs exactly one pass when two replicas fire in the same hour', async () => {
+    mockModel.findMany.mockResolvedValue([stuckRecord])
+
+    await withEnv('prod', async () => {
+      await Promise.all([sweep(service), sweep(service)])
+    })
+
+    expect(mockCronLock.tryClaimHourlyRun).toHaveBeenCalledTimes(2)
+    expect(mockModel.findMany).toHaveBeenCalledTimes(1)
+    expect(mockPeerly.createCampaignVerifyToken).toHaveBeenCalledTimes(1)
+    expect(mockPeerly.submitCampaignVerifyTokenToBrand).toHaveBeenCalledTimes(1)
+  })
+
+  it('does no work at all when the claim is lost', async () => {
+    mockCronLock.tryClaimHourlyRun.mockResolvedValueOnce(false)
+
+    await sweep(service)
+
+    expect(mockModel.findMany).not.toHaveBeenCalled()
+    expect(mockCronLock.markHourlyCompleted).not.toHaveBeenCalled()
+  })
+
+  it('seals the claim even when the pass throws', async () => {
+    // A dangling claim would block the rest of the hour for nothing.
+    mockModel.findMany.mockRejectedValueOnce(new Error('db down'))
+
+    await expect(sweep(service)).rejects.toThrow('db down')
+
+    expect(mockCronLock.markHourlyCompleted).toHaveBeenCalledTimes(1)
+  })
+
+  it('claims and completes against the same pinned timestamp', async () => {
+    await sweep(service)
+
+    const claimAt = firstOrThrow(mockCronLock.tryClaimHourlyRun.mock.calls)[1]
+    const completeAt = firstOrThrow(
+      mockCronLock.markHourlyCompleted.mock.calls,
+    )[1]
+    expect(completeAt).toBe(claimAt)
   })
 })
 
@@ -2976,7 +4144,27 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
         },
         {
           provide: SlackService,
-          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+          useValue: {
+            errorMessage: vi.fn().mockResolvedValue('ok'),
+            message: vi.fn().mockResolvedValue('ok'),
+          },
+        },
+        {
+          provide: CvPreSubmissionValidationService,
+          useValue: {
+            validate: vi.fn().mockResolvedValue({ outcome: 'passed' }),
+          },
+        },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
         },
         CampaignTcrComplianceService,
       ],
@@ -3150,5 +4338,190 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
       service.revokeInternalTestingApproval(campaign.id),
     ).rejects.toThrow(ConflictException)
     expect(mockModel.deleteMany).not.toHaveBeenCalled()
+  })
+})
+
+// ENG-10965: admin override for a held CV pre-submission validation failure.
+describe('CampaignTcrComplianceService - overrideCvValidation', () => {
+  let service: CampaignTcrComplianceService
+  let mockModel: {
+    findUnique: ReturnType<typeof vi.fn>
+    update: ReturnType<typeof vi.fn>
+  }
+
+  beforeEach(async () => {
+    mockModel = {
+      findUnique: vi.fn().mockResolvedValue(null),
+      update: vi.fn().mockResolvedValue(undefined),
+    }
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        { provide: PrismaService, useValue: { tcrCompliance: mockModel } },
+        { provide: PeerlyIdentityService, useValue: {} },
+        { provide: WebsitesService, useValue: {} },
+        { provide: CampaignsService, useValue: {} },
+        { provide: CrmCampaignsService, useValue: {} },
+        { provide: ComplianceStateService, useValue: {} },
+        { provide: QueueProducerService, useValue: {} },
+        { provide: ExperimentRunsService, useValue: {} },
+        { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: AnalyticsService, useValue: { track: vi.fn() } },
+        {
+          provide: SlackService,
+          useValue: {
+            errorMessage: vi.fn().mockResolvedValue('ok'),
+            message: vi.fn().mockResolvedValue('ok'),
+          },
+        },
+        {
+          provide: CvPreSubmissionValidationService,
+          useValue: { validate: vi.fn() },
+        },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: vi.fn().mockResolvedValue(undefined) },
+        },
+        CampaignTcrComplianceService,
+      ],
+    }).compile()
+    service = module.get(CampaignTcrComplianceService)
+  })
+
+  it('throws NotFoundException when no TcrCompliance record exists for the campaign', async () => {
+    await expect(service.overrideCvValidation(123)).rejects.toThrow(
+      NotFoundException,
+    )
+    expect(mockModel.update).not.toHaveBeenCalled()
+  })
+
+  it('stamps cvValidationOverriddenAt on the existing record', async () => {
+    mockModel.findUnique.mockResolvedValue({ id: 'tcr-1', campaignId: 123 })
+
+    await service.overrideCvValidation(123)
+
+    expect(mockModel.update).toHaveBeenCalledWith({
+      where: { id: 'tcr-1' },
+      data: {
+        cvValidationOverriddenAt: expect.any(Date),
+        cvValidationFailedAt: null,
+        cvValidationFailureReasons: [],
+        cvValidationTransientCount: 0,
+      },
+    })
+  })
+
+  // ENG-11000: overriding a held record used to leave cvValidationFailedAt
+  // set, so the pre-Peerly submission claim's unconditional
+  // cvValidationFailedAt: null WHERE matched 0 rows and
+  // assertCvPreSubmissionValid's claim.count === 0 fallback re-threw the
+  // stale stored reasons — the override changed nothing (campaigns 326653,
+  // 326890, Sep 2026).
+  it('clears the held failure columns in the same update, not just the override stamp', async () => {
+    mockModel.findUnique.mockResolvedValue({
+      id: 'tcr-1',
+      campaignId: 123,
+      cvValidationFailedAt: new Date(),
+      cvValidationFailureReasons: ['Filing URL is not a valid, public URL'],
+    })
+
+    await service.overrideCvValidation(123)
+
+    expect(mockModel.update).toHaveBeenCalledWith({
+      where: { id: 'tcr-1' },
+      data: {
+        cvValidationOverriddenAt: expect.any(Date),
+        cvValidationFailedAt: null,
+        cvValidationFailureReasons: [],
+        cvValidationTransientCount: 0,
+      },
+    })
+  })
+})
+
+// Called by QueueConsumerService.handleTcrComplianceCheckMessage, which has
+// no acting user — this covers the env-var gating this public method owns;
+// the consumer-side recipient resolution is covered in
+// queueConsumer.service.test.ts.
+describe('CampaignTcrComplianceService - sendComplianceCompletedSingleSend (ENG-11035)', () => {
+  let service: CampaignTcrComplianceService
+  let mockSendSingleSend: ReturnType<typeof vi.fn>
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  beforeEach(async () => {
+    mockSendSingleSend = vi.fn().mockResolvedValue(undefined)
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        { provide: PrismaService, useValue: { tcrCompliance: {} } },
+        { provide: PeerlyIdentityService, useValue: {} },
+        { provide: WebsitesService, useValue: {} },
+        { provide: CampaignsService, useValue: {} },
+        { provide: CrmCampaignsService, useValue: {} },
+        { provide: ComplianceStateService, useValue: {} },
+        { provide: QueueProducerService, useValue: {} },
+        { provide: ExperimentRunsService, useValue: {} },
+        { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: AnalyticsService, useValue: { track: vi.fn() } },
+        { provide: SlackService, useValue: {} },
+        { provide: CvPreSubmissionValidationService, useValue: {} },
+        {
+          provide: CronLockService,
+          useValue: {
+            tryClaimHourlyRun: vi.fn().mockResolvedValue(true),
+            markHourlyCompleted: vi.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: HubspotSingleSendService,
+          useValue: { sendSingleSend: mockSendSingleSend },
+        },
+        CampaignTcrComplianceService,
+      ],
+    }).compile()
+    service = module.get(CampaignTcrComplianceService)
+  })
+
+  it('does not call single-send when HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID is unset', async () => {
+    await service.sendComplianceCompletedSingleSend('candidate@example.com', {
+      peerly_identity_id: 'peerly-999',
+    })
+
+    expect(mockSendSingleSend).not.toHaveBeenCalled()
+  })
+
+  it('sends to the given recipient with the given properties once configured', async () => {
+    vi.stubEnv('HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID', '555444')
+
+    await service.sendComplianceCompletedSingleSend('candidate@example.com', {
+      peerly_identity_id: 'peerly-999',
+    })
+
+    expect(mockSendSingleSend).toHaveBeenCalledWith({
+      emailId: 555444,
+      to: 'candidate@example.com',
+      customProperties: { peerly_identity_id: 'peerly-999' },
+    })
+  })
+
+  it('propagates a single-send failure to the caller', async () => {
+    vi.stubEnv('HUBSPOT_COMPLIANCE_COMPLETED_EMAIL_ID', '555444')
+    mockSendSingleSend.mockRejectedValueOnce(new Error('HubSpot down'))
+
+    await expect(
+      service.sendComplianceCompletedSingleSend('candidate@example.com', {
+        peerly_identity_id: 'peerly-999',
+      }),
+    ).rejects.toThrow('HubSpot down')
   })
 })

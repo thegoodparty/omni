@@ -73,6 +73,10 @@ export const EVENTS = {
     // HubSpot company record. Peerly's 10DLC Slack notifications reference
     // only this id, so it's the shared key Campaign Success matches on.
     PeerlyIdentityIdCreated: 'Peerly Identity ID Created',
+    // Fired when GoodParty staff approve a queued outreach campaign from the
+    // admin console. Carries `channel` so SMS and robocall approvals share one
+    // event.
+    CampaignApproved: 'Voter Outreach - Campaign Approved',
   },
   AiContent: {
     GenerationStarted: 'Content Builder: Generation Started',
@@ -87,6 +91,9 @@ export const EVENTS = {
   // on-demand landing check skips this gate (see meetingBriefings.service).
   BriefingAssistant: {
     DispatchSkipped: 'Briefing Assistant - Dispatch Skipped',
+    // Terminal outcome of a briefing run, one or the other, never both.
+    AgendaCreated: 'Briefing Assistant - Agenda Created',
+    AgendaNotCreated: 'Briefing Assistant - Agenda Not Created',
   },
   Campaigns: {
     FollowOnCreated: 'Campaign - Follow-On Created',
@@ -159,6 +166,68 @@ export const EVENTS = {
   // browser only observes polling; completion is server truth.
   Ordinances: {
     QualityLoopCompleted: 'Ordinances - Quality Loop Completed',
+  },
+  // Team accounts (ENG-10816). Membership rows are only ever created by the
+  // invite/accept endpoints, so these are the only place these events fire.
+  Team: {
+    MemberInvited: 'Team - Member Invited',
+    InviteAccepted: 'Team - Invite Accepted',
+    RoleChanged: 'Team - Role Changed',
+    MemberRemoved: 'Team - Member Removed',
+    // Outreach assignment (ENG-11048). Fires from the two mutating
+    // OutreachAssignment endpoints only.
+    OutreachAssigned: 'Team - Outreach Assigned',
+    OutreachAssignmentRemoved: 'Team - Outreach Assignment Removed',
+  },
+  // Robocall payment milestones (Win, VO 2.0). Server-truth outcomes of the
+  // pay-time authorization hold the browser cannot observe. Each is emitted
+  // only from the winning DB transition with a deterministic Segment messageId
+  // (`<outreachId>:hold_placed` / `<outreachId>:hold_failed`) so a replay
+  // dedups to a single milestone email. Reminder (daily "fix your card" while
+  // the send is still ahead, messageId `<outreachId>:reminder:<yyyy-mm-dd>` so
+  // it dedups to one per day) and Canceled (the send deadline passed with the
+  // card never fixed, so the run is cancelled unsent, messageId
+  // `<outreachId>:canceled`) cover the failed-hold follow-up path.
+  Robocall: {
+    // The candidate scheduled a robocall (the pending_payment draft was created),
+    // emitted once from the fresh-create path with messageId
+    // `<outreachId>:scheduled` so a replay dedups to one email.
+    Scheduled: 'Robocall - Scheduled',
+    HoldPlaced: 'Robocall - Hold Placed',
+    HoldFailed: 'Robocall - Hold Failed',
+    Reminder: 'Robocall - Reminder',
+    Canceled: 'Robocall - Canceled',
+    // The send chain could not deliver the robocall (a permanent CallHub
+    // failure): the hold was voided and no charge was made. Emitted once from
+    // the winning send_failed transition, messageId `<outreachId>:send_failed`.
+    SendFailed: 'Robocall - Send Failed',
+    // The capture receipt: emitted once from the winning capturing → captured
+    // transition after the actual completed-call count is charged off the hold,
+    // messageId `<outreachId>:receipt` so a replay dedups to one email.
+    Receipt: 'Robocall - Receipt',
+  },
+  // Native door knocking (Win). One rollup event carrying the org's running
+  // canvassing totals, not one event per knock: HubSpot workflows can copy a
+  // value onto a property but cannot sum across events, so the running total
+  // has to arrive already summed. Same shape as CampaignPlan.WeeklyTasksDigest
+  // above. Fired on turf create, turf complete, and a daily sweep — see
+  // `doorKnockingStats.service.ts` for the nine metric definitions and
+  // HUBSPOT_INTEGRATION.md for the property list CS keys the workflow on.
+  //
+  //  ⚠️  DO NOT MODIFY - A HubSpot workflow triggers on this exact string to
+  //  copy the nine canvassing totals onto the contact and its company
+  DoorKnocking: {
+    CanvassingTotalsUpdated: 'Door Knocking - Canvassing Totals Updated',
+  },
+  // A visitor on a public /people page asking an unclaimed person to complete
+  // their profile. Distinct from gp-marketing's browser-side 'Person Profile
+  // Notify Submitted', which counts the same submission for product analytics:
+  // this is the CRM signal, and it is server-side precisely so it can carry the
+  // subject's email address without publishing it to the page.
+  PersonProfiles: {
+    //  ⚠️  DO NOT MODIFY - Resolves the HubSpot contact that the
+    //  "complete your profile" nudge email is sent to
+    CompletionRequested: 'Person Profile - Completion Requested',
   },
 }
 

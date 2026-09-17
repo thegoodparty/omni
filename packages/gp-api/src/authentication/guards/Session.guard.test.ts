@@ -49,9 +49,6 @@ describe('SessionGuard — impersonating flag', () => {
     model: { findUnique: ReturnType<typeof vi.fn> }
   }
   let sessions: { trackSession: ReturnType<typeof vi.fn> }
-  let clerkEnricher: {
-    fetchClerkFields: ReturnType<typeof vi.fn>
-  }
 
   const buildRequest = (
     token?: string,
@@ -87,15 +84,10 @@ describe('SessionGuard — impersonating flag', () => {
 
     sessions = { trackSession: vi.fn() }
 
-    clerkEnricher = {
-      fetchClerkFields: vi.fn().mockResolvedValue(null),
-    }
-
     guard = new SessionGuard(
       authProvider,
       usersService as never,
       sessions as never,
-      clerkEnricher as never,
       createMockLogger(),
       new Reflector(),
       { token: 'test-token', matches: vi.fn().mockReturnValue(false) } as never,
@@ -186,6 +178,27 @@ describe('SessionGuard — impersonating flag', () => {
     expect(req.actorSub).toBe('user_nonexistent_789')
   })
 
+  describe('identity fields', () => {
+    it('serves the Postgres identity fields without calling Clerk', async () => {
+      const request = buildRequest('session-token')
+      vi.mocked(authProvider.verifySessionToken).mockResolvedValue({
+        externalUserId: baseUser.clerkId!,
+      })
+      usersService.model.findUnique.mockResolvedValue({
+        ...baseUser,
+        avatar: 'https://assets.goodparty.org/uploads/1/avatar.png',
+      })
+
+      await guard.canActivate(buildContext(request))
+
+      expect(request.user?.firstName).toBe('Subject')
+      expect(request.user?.avatar).toBe(
+        'https://assets.goodparty.org/uploads/1/avatar.png',
+      )
+      expect(authProvider.getUser).not.toHaveBeenCalled()
+    })
+  })
+
   describe('agent token gating (agentTokenAllowedHere)', () => {
     const MARKER = 'marker-xyz'
 
@@ -212,7 +225,6 @@ describe('SessionGuard — impersonating flag', () => {
         authProvider,
         usersService as never,
         sessions as never,
-        clerkEnricher as never,
         createMockLogger(),
         new Reflector(),
         {

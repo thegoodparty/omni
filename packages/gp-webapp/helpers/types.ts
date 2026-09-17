@@ -1,3 +1,4 @@
+import type { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
 /**
  * Shared type definitions for helper utilities and domain models
  * Based on Prisma schema definitions
@@ -106,6 +107,25 @@ export interface RunningAgainst {
   description: string
 }
 
+// Onboarding's "Are you already on the ballot?" answer. Persisted on the
+// campaign.ballotStatus column; data.onboarding keeps a copy as part of the
+// whole-answers snapshot, but that is an archive, not a read path.
+export type BallotStatus =
+  | 'on-ballot'
+  | 'qualified-not-filed'
+  | 'considering'
+  | 'testing'
+
+// Onboarding's "What do you most want help with?" answer — the candidate's
+// primary reason for signing up. Persisted on the campaign.signupGoal column;
+// data.onboarding keeps a copy in the whole-answers snapshot, as an archive.
+export type SignupGoal =
+  | 'voter-data'
+  | 'voter-outreach'
+  | 'campaign-strategy'
+  | 'templates-resources'
+  | 'exploring'
+
 export interface CampaignDetails {
   state?: string
   ballotLevel?: string
@@ -167,6 +187,7 @@ export interface TcrCompliance {
   ein: string
   postalAddress: string
   committeeName: string
+  candidateName?: string | null
   websiteDomain: string
   filingUrl: string
   phone: string
@@ -177,6 +198,8 @@ export interface TcrCompliance {
   updatedAt: Date | string
   campaignId: number
   peerlyIdentityId?: string | null
+  cvValidationFailedAt?: Date | string | null
+  peerlyCvStatus?: PeerlyCvVerificationStatus | null
   peerlyRegistrationLink?: string | null
   peerlyIdentityProfileLink?: string | null
   peerly10DLCBrandSubmissionKey?: string | null
@@ -211,6 +234,14 @@ export interface CampaignData {
   adminUserEmail?: string
   hubspotId?: string
   name?: string
+  onboarding?: OnboardingAnswersSnapshot
+}
+
+// The subset of the onboarding answers snapshot this app reads back off
+// data.onboarding. Not the full answers object — add fields as readers need
+// them.
+export interface OnboardingAnswersSnapshot {
+  ballotStatus?: BallotStatus
 }
 
 export interface HubSpotUpdates {
@@ -396,7 +427,14 @@ export interface RaceTargetMetrics {
   registeredVoters?: number | null
   uniqueCellphones?: number | null
   uniqueLandlines?: number | null
-  projectedVoterTurnout?: number | null
+  // 70% prediction interval around the turnout projection, and the same
+  // interval carried through the win-number math. Null where the model has no
+  // projection for the race; the product shows no range rather than inventing
+  // one.
+  projectedTurnoutLower?: number | null
+  projectedTurnoutUpper?: number | null
+  winNumberLower?: number | null
+  winNumberUpper?: number | null
   candidates?: RaceCandidate[]
   generalElectionDate?: string | null
   primaryElectionDate?: string | null
@@ -453,6 +491,8 @@ export interface Campaign {
   isDemo: boolean
   didWin?: boolean | null
   primaryResult?: 'won' | 'lost' | null
+  ballotStatus?: BallotStatus | null
+  signupGoal?: SignupGoal | null
   dateVerified?: Date | string | null
   tier?: CampaignTier | null
   formattedAddress?: string | null

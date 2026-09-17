@@ -12,7 +12,7 @@ Usage: python3 make_chi_turf.py   (serve.py running; open /chi_turf.html)
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-LOCAL = os.path.join(LOCAL, "local")
+LOCAL = os.path.join(HERE, "local")
 os.makedirs(LOCAL, exist_ok=True)
 
 
@@ -255,8 +255,12 @@ document.getElementById('optimize').addEventListener('click', async () => {
   }
   routeData = { path, labels };
   render();
+  // Stops plus the end anchor, priced the way Geoapify prices locations:
+  // squared under ten of them, ten each from there up.
+  const locations = seq + 1;
+  const credits = locations < 10 ? locations * locations : locations * 10;
   document.getElementById('order-stats').innerHTML =
-    `order for ${seq} stops in ${secs}s (~${(seq+1)*10} credits)<br>` +
+    `order for ${seq} stops in ${secs}s (~${credits} credits)<br>` +
     `walk: ${(p.distance/1000).toFixed(1)}km, ${(p.time/3600).toFixed(1)}h + door time`;
 });
 </script>

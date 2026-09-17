@@ -1,4 +1,5 @@
 import { applyDecorators, SetMetadata, UseGuards } from '@nestjs/common'
+import { OrganizationRoleGuard } from '@/organizations/guards/OrganizationRole.guard'
 import { UseCampaignGuard } from '../guards/UseCampaign.guard'
 import { Prisma } from '../../generated/prisma'
 
@@ -17,6 +18,9 @@ export type RequireCampaignMetadata = {
 export const UseCampaign = (args: RequireCampaignMetadata = {}) => {
   return applyDecorators(
     SetMetadata(REQUIRE_CAMPAIGN_META_KEY, args),
-    UseGuards(UseCampaignGuard),
+    // OrganizationRoleGuard must run after UseCampaignGuard, which attaches
+    // request.organizationRole — route-level guards run in the order
+    // listed here.
+    UseGuards(UseCampaignGuard, OrganizationRoleGuard),
   )
 }

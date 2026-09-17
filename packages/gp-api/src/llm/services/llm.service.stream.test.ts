@@ -19,6 +19,11 @@ const stubAnthropicFactory: AnthropicProviderFactory = () =>
 
 const USER_MSG = { role: 'user' as const, content: 'Hi' }
 
+const EXHAUSTED_NOTE = {
+  role: 'user',
+  content: expect.stringContaining("I wasn't able to find what I needed"),
+}
+
 const fakeTextStream = (chunks: string[]): AsyncIterable<string> => ({
   async *[Symbol.asyncIterator]() {
     for (const c of chunks) yield c
@@ -199,7 +204,316 @@ describe('LlmService.streamChatCompletion', () => {
     expect(call.tools).toHaveProperty('lookup_voter')
     expect(call.tools.lookup_voter.description).toBe('Look up a voter by id')
     expect(typeof call.tools.lookup_voter.execute).toBe('function')
-    expect(call.stopWhen).toBeDefined()
+  })
+
+  it('allows one text-only step past the tool budget', async () => {
+    const { service, streamTextFn } = buildStreamService()
+    streamTextFn.mockReturnValueOnce(fakeStreamResult())
+
+    await service.streamChatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      retries: 0,
+      tools: {
+        lookup_voter: {
+          description: 'Look up a voter by id',
+          inputSchema: z.object({ voterId: z.number() }),
+          execute: vi.fn(),
+        },
+      },
+      maxSteps: 2,
+    })
+
+    const call = firstOrThrow(streamTextFn.mock.calls)[0]
+    expect(await call.stopWhen({ steps: [{}, {}] })).toBe(false)
+    expect(await call.stopWhen({ steps: [{}, {}, {}] })).toBe(true)
+    expect(call.prepareStep({ stepNumber: 0 })).toBeUndefined()
+    expect(call.prepareStep({ stepNumber: 1 })).toBeUndefined()
+    expect(call.prepareStep({ stepNumber: 2, messages: [USER_MSG] })).toEqual({
+      toolChoice: 'none',
+      messages: [USER_MSG, EXHAUSTED_NOTE],
+    })
+  })
+
+  it('rewrites tool history into text on the forced final step', async () => {
+    const { service, streamTextFn } = buildStreamService()
+    streamTextFn.mockReturnValueOnce(fakeStreamResult())
+
+    await service.streamChatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      retries: 0,
+      tools: {
+        lookup_voter: {
+          description: 'Look up a voter by id',
+          inputSchema: z.object({ voterId: z.number() }),
+          execute: vi.fn(),
+        },
+      },
+      maxSteps: 1,
+    })
+
+    const call = firstOrThrow(streamTextFn.mock.calls)[0]
+    const { messages } = call.prepareStep({
+      stepNumber: 1,
+      messages: [
+        USER_MSG,
+        { role: 'assistant', content: 'Earlier answer.' },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'Checking.' },
+            {
+              type: 'tool-call',
+              toolCallId: 'call-1',
+              toolName: 'lookup_voter',
+              input: { voterId: 42 },
+            },
+            {
+              type: 'tool-call',
+              toolCallId: 'call-2',
+              toolName: 'lookup_income',
+              input: { district: 'D7' },
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          content: [
+            {
+              type: 'tool-result',
+              toolCallId: 'call-1',
+              toolName: 'lookup_voter',
+              output: { type: 'json', value: { name: 'Jane' } },
+            },
+            {
+              type: 'tool-result',
+              toolCallId: 'call-2',
+              toolName: 'lookup_income',
+              output: { type: 'error-text', value: 'no income dimension' },
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(messages).toEqual([
+      USER_MSG,
+      { role: 'assistant', content: 'Earlier answer.' },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Checking.' },
+          {
+            type: 'text',
+            text: '[called lookup_voter with {"voterId":42}]',
+          },
+          {
+            type: 'text',
+            text: '[called lookup_income with {"district":"D7"}]',
+          },
+        ],
+      },
+      // results are rewritten into the assistant role, not the user role,
+      // so injected tool output can't speak with the user's authority
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: '[lookup_voter result: {"name":"Jane"}]' },
+          { type: 'text', text: '[lookup_income error: no income dimension]' },
+        ],
+      },
+      EXHAUSTED_NOTE,
+    ])
+  })
+
+  it('omits provider-executed web search payloads on the forced step', async () => {
+    const { service, streamTextFn } = buildStreamService()
+    streamTextFn.mockReturnValueOnce(fakeStreamResult())
+
+    await service.streamChatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      retries: 0,
+      tools: {
+        web_search: { kind: 'native_web_search', maxUses: 5 },
+      },
+      maxSteps: 1,
+    })
+
+    const call = firstOrThrow(streamTextFn.mock.calls)[0]
+    const { messages } = call.prepareStep({
+      stepNumber: 1,
+      messages: [
+        USER_MSG,
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool-call',
+              toolCallId: 'ws-1',
+              toolName: 'web_search',
+              input: { query: 'district income' },
+              providerExecuted: true,
+            },
+            {
+              type: 'tool-result',
+              toolCallId: 'ws-1',
+              toolName: 'web_search',
+              output: {
+                type: 'json',
+                value: { encryptedContent: 'A'.repeat(4096) },
+              },
+              providerExecuted: true,
+            },
+            { type: 'text', text: 'Found some figures.' },
+          ],
+        },
+      ],
+    })
+
+    expect(messages).toEqual([
+      USER_MSG,
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: '[called web_search with {"query":"district income"}]',
+          },
+          { type: 'text', text: '[web_search completed]' },
+          { type: 'text', text: 'Found some figures.' },
+        ],
+      },
+      EXHAUSTED_NOTE,
+    ])
+    expect(JSON.stringify(messages)).not.toContain('encryptedContent')
+  })
+
+  it('survives tool output JSON.stringify cannot serialize', async () => {
+    const { service, streamTextFn } = buildStreamService()
+    streamTextFn.mockReturnValueOnce(fakeStreamResult())
+
+    await service.streamChatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      retries: 0,
+      tools: {
+        lookup_voter: {
+          description: 'Look up a voter by id',
+          inputSchema: z.object({ voterId: z.number() }),
+          execute: vi.fn(),
+        },
+      },
+      maxSteps: 1,
+    })
+
+    const circular: { self?: object } = {}
+    circular.self = circular
+
+    const call = firstOrThrow(streamTextFn.mock.calls)[0]
+    const { messages } = call.prepareStep({
+      stepNumber: 1,
+      messages: [
+        {
+          role: 'tool',
+          content: [
+            {
+              type: 'tool-result',
+              toolCallId: 'call-1',
+              toolName: 'lookup_voter',
+              output: { type: 'json', value: { id: 42n } },
+            },
+            {
+              type: 'tool-result',
+              toolCallId: 'call-2',
+              toolName: 'lookup_voter',
+              output: { type: 'json', value: circular },
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(messages).toEqual([
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: '[lookup_voter result: {"id":"42"}]' },
+          { type: 'text', text: '[lookup_voter result: [unstringifiable]]' },
+        ],
+      },
+      EXHAUSTED_NOTE,
+    ])
+  })
+
+  it('drops a tool message that rewrites to nothing', async () => {
+    const { service, streamTextFn } = buildStreamService()
+    streamTextFn.mockReturnValueOnce(fakeStreamResult())
+
+    await service.streamChatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      retries: 0,
+      tools: {
+        lookup_voter: {
+          description: 'Look up a voter by id',
+          inputSchema: z.object({ voterId: z.number() }),
+          execute: vi.fn(),
+        },
+      },
+      maxSteps: 1,
+    })
+
+    const call = firstOrThrow(streamTextFn.mock.calls)[0]
+    const { messages } = call.prepareStep({
+      stepNumber: 1,
+      messages: [USER_MSG, { role: 'tool', content: [] }],
+    })
+
+    expect(messages).toEqual([USER_MSG, EXHAUSTED_NOTE])
+  })
+
+  it('defaults the tool budget to five steps', async () => {
+    const { service, streamTextFn } = buildStreamService()
+    streamTextFn.mockReturnValueOnce(fakeStreamResult())
+
+    await service.streamChatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      retries: 0,
+      tools: {
+        lookup_voter: {
+          description: 'Look up a voter by id',
+          inputSchema: z.object({ voterId: z.number() }),
+          execute: vi.fn(),
+        },
+      },
+    })
+
+    const call = firstOrThrow(streamTextFn.mock.calls)[0]
+    const fiveSteps = Array.from({ length: 5 }, () => ({}))
+    expect(await call.stopWhen({ steps: fiveSteps })).toBe(false)
+    expect(await call.stopWhen({ steps: [...fiveSteps, {}] })).toBe(true)
+    expect(call.prepareStep({ stepNumber: 4 })).toBeUndefined()
+    expect(call.prepareStep({ stepNumber: 5, messages: [USER_MSG] })).toEqual({
+      toolChoice: 'none',
+      messages: [USER_MSG, EXHAUSTED_NOTE],
+    })
+  })
+
+  it('leaves prepareStep unset when no tools are provided', async () => {
+    const { service, streamTextFn } = buildStreamService()
+    streamTextFn.mockReturnValueOnce(fakeStreamResult())
+
+    await service.streamChatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      retries: 0,
+    })
+
+    const call = firstOrThrow(streamTextFn.mock.calls)[0]
+    expect(call.prepareStep).toBeUndefined()
   })
 
   it('falls back to next model when streamText throws at connect-time', async () => {

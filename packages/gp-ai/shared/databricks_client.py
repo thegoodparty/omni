@@ -102,6 +102,12 @@ class DatabricksClient:
             with connection.cursor() as cursor:
                 cursor.execute(query)
 
+                # None for statements that return no rows -- DDL, and anything
+                # else non-SELECT. Iterating it raises TypeError, so a CREATE
+                # TABLE reports a query failure after having succeeded.
+                if cursor.description is None:
+                    return pd.DataFrame()
+
                 columns = [desc[0] for desc in cursor.description]
                 data = cursor.fetchall()
 

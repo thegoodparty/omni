@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@styleguide'
@@ -10,7 +11,7 @@ import {
   CAMPAIGN_QUERY_KEY,
   fetchCampaign,
 } from '@shared/hooks/CampaignProvider'
-import { LoadingAnimation } from '@shared/utils/LoadingAnimation'
+import { Spinner } from '@styleguide'
 import {
   USER_WEBSITE_QUERY_KEY,
   getUserWebsite,
@@ -22,6 +23,10 @@ import {
 } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import { isCandidateProfileComplete } from 'app/dashboard/profile/texting-compliance/candidate-profile/candidateProfile.utils'
 import { checkEinSanity } from '@shared/inputs/EinSanityCheck'
+import { PRO_COMPLIANCE_SUPPORT_EMAIL as SUPPORT_EMAIL } from '@shared/utils/supportContact'
+import { ELIGIBILITY_QUERY_KEY } from '@shared/organization-picker'
+import { clientRequest } from 'gpApi/typed-request'
+import type { Eligibility } from 'gpApi/api-endpoints'
 import {
   deriveProUpgradeStep,
   filingStatusFromDetails,
@@ -66,15 +71,34 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
     queryKey: TCR_COMPLIANCE_QUERY_KEY,
     queryFn: getTcrCompliance,
   })
+  // Server-derived eligibility (the same isActiveCampaign predicate the
+  // checkout-session guard runs), so an inactive campaign is caught here with
+  // an explanation instead of a generic 400 after five steps of forms
+  // (ENG-10892). Not re-derived client-side to avoid predicate drift.
+  const {
+    data: eligibility,
+    isPending: eligibilityPending,
+    isError: eligibilityError,
+    refetch: refetchEligibility,
+  } = useQuery<Eligibility>({
+    queryKey: ELIGIBILITY_QUERY_KEY,
+    queryFn: () =>
+      clientRequest('GET /v1/eligibility', {}).then((res) => res.data),
+  })
 
-  const ready = !campaignPending && !websitePending && !tcrPending
-  const hasError = campaignError || websiteError || tcrError
+  const ready =
+    !campaignPending && !websitePending && !tcrPending && !eligibilityPending
+  const hasError = campaignError || websiteError || tcrError || eligibilityError
+  // Already-Pro users have nothing left to buy — let derivation route them to
+  // the post-payment SUCCESS surface instead of a purchase-blocked screen.
+  const purchaseBlocked =
+    ready && !hasError && !campaign?.isPro && !eligibility?.hasActiveCampaign
 
   useEffect(() => {
     // Don't derive a step from partial state: a failed fetch leaves data
     // undefined, which would mis-derive a returning candidate back to the
     // value-prop intro as if they had zero progress.
-    if (!ready || hasError) return
+    if (!ready || hasError || purchaseBlocked) return
 
     const { filingComplete, pinComplete } =
       getTcrComplianceStatusCompletions(tcrCompliance)
@@ -93,10 +117,23 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
     })
 
     router.replace(proUpgradeStepPath(step))
-  }, [ready, hasError, campaign, website, tcrCompliance, router])
+  }, [
+    ready,
+    hasError,
+    purchaseBlocked,
+    campaign,
+    website,
+    tcrCompliance,
+    router,
+  ])
 
   // Spinner only while the canonical-state queries are pending.
-  if (!ready) return <LoadingAnimation />
+  if (!ready)
+    return (
+      <div className="flex h-[60vh] items-center justify-center">
+        <Spinner />
+      </div>
+    )
 
   // A fetch failed: show a recoverable error instead of mis-routing to the
   // intro. Refetching clears the error and re-runs the redirect effect.
@@ -112,10 +149,37 @@ const ProUpgradeEntry = (): React.JSX.Element | null => {
             void refetchCampaign()
             void refetchWebsite()
             void refetchTcr()
+            void refetchEligibility()
           }}
         >
           Try again
         </Button>
+      </div>
+    )
+  }
+
+  if (purchaseBlocked) {
+    return (
+      <div className="text-center">
+        <H2 className="mb-2">Pro requires an active campaign</H2>
+        <Body2 className="mb-6 text-base-muted-foreground">
+          Our records show your campaign isn&apos;t active right now — usually
+          because its election date has passed or an election result was
+          recorded. If you&apos;re running in an upcoming election, contact us
+          and we&apos;ll get your campaign updated so you can upgrade.
+        </Body2>
+        <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+          <Button asChild>
+            <a
+              href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Help upgrading to Pro')}`}
+            >
+              Contact support
+            </a>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/dashboard">Back to dashboard</Link>
+          </Button>
+        </div>
       </div>
     )
   }

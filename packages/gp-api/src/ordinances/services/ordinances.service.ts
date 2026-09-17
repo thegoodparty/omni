@@ -8,7 +8,6 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { FeaturesService } from 'src/features/services/features.service'
 import {
   type CreateOrdinanceRequest,
   type Ordinance as OrdinanceResponse,
@@ -46,8 +45,6 @@ import { OrdinanceQualityLoopService } from './ordinanceQualityLoop.service'
 import { type OrdinanceQualityLoopStartReason } from './ordinanceQualityLoop.types'
 import { estimateCostUsd } from './ordinanceCost.util'
 
-const SERVE_ORDINANCES_FLAG = 'serve-ordinances'
-
 // A 'running' claim older than this is an interrupted run (the server died
 // mid-run and the background writer never came back), not a live one.
 const STALE_RUN_MS = MANUAL_RUN_STALE_MINUTES * 60_000
@@ -62,7 +59,6 @@ const QUALITY_RUN_ERROR_MESSAGE = 'Quality check failed. Please try again.'
 @Injectable()
 export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
   constructor(
-    private readonly features: FeaturesService,
     private readonly qualityReports: OrdinanceQualityReportService,
     private readonly exporter: OrdinanceExportService,
     private readonly qualityLoop: OrdinanceQualityLoopService,
@@ -77,7 +73,6 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     slug: string,
     format: OrdinanceExportFormat,
   ): Promise<OrdinanceExportResult> {
-    await this.assertEnabled(electedOffice.userId)
     const existing = await this.findOwnedOrThrow(electedOffice, slug)
     return this.exporter.render(existing, format)
   }
@@ -86,7 +81,6 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     electedOffice: ElectedOffice,
     dto: CreateOrdinanceRequest,
   ): Promise<OrdinanceResponse> {
-    await this.assertEnabled(electedOffice.userId)
     const record = await this.model.create({
       data: {
         electedOfficeId: electedOffice.id,
@@ -100,7 +94,6 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
   }
 
   async list(electedOffice: ElectedOffice): Promise<OrdinanceListResponse> {
-    await this.assertEnabled(electedOffice.userId)
     const where = { electedOfficeId: electedOffice.id, deletedAt: null }
     const [records, grouped] = await Promise.all([
       this.model.findMany({
@@ -130,7 +123,6 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     electedOffice: ElectedOffice,
     slug: string,
   ): Promise<OrdinanceResponse> {
-    await this.assertEnabled(electedOffice.userId)
     return this.toResponse(await this.findOwnedOrThrow(electedOffice, slug))
   }
 
@@ -139,7 +131,6 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     slug: string,
     dto: UpdateOrdinanceRequest,
   ): Promise<OrdinanceResponse> {
-    await this.assertEnabled(electedOffice.userId)
     const existing = await this.findOwnedOrThrow(electedOffice, slug)
     // A user edit that changes the loop's graded inputs (or advances the
     // ordinance past draft) invalidates any running quality loop. Changed
@@ -193,7 +184,6 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     slug: string,
     answer: OrdinanceClarifyAnswer,
   ): Promise<OrdinanceResponse> {
-    await this.assertEnabled(electedOffice.userId)
     const existing = await this.findOwnedOrThrow(electedOffice, slug)
     const parsed = OrdinanceClarifyAnswersSchema.safeParse(
       existing.clarifyAnswers,
@@ -242,7 +232,6 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
   }
 
   async softDelete(electedOffice: ElectedOffice, slug: string): Promise<void> {
-    await this.assertEnabled(electedOffice.userId)
     const existing = await this.findOwnedOrThrow(electedOffice, slug)
     await this.model.update({
       where: { id: existing.id },
@@ -258,7 +247,6 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     electedOffice: ElectedOffice,
     slug: string,
   ): Promise<OrdinanceQualityRun> {
-    await this.assertEnabled(electedOffice.userId)
     const existing = await this.findOwnedOrThrow(electedOffice, slug)
     if ((existing.draftBody ?? '').trim().length === 0) {
       throw new BadRequestException(
@@ -330,10 +318,6 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     electedOffice: ElectedOffice,
     slug: string,
   ): Promise<OrdinanceQualityRun> {
-    // No feature-flag check here: this sits in the client's 2s polling loop
-    // and assertEnabled costs a remote Amplitude evaluation plus a user SELECT
-    // per poll. The scoped findFirst is the access boundary; the flag gates
-    // run creation (POST), not run-state reads.
     return this.toQualityRun(
       await this.findOwnedForRunOrThrow(electedOffice, slug),
     )
@@ -343,7 +327,6 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     electedOffice: ElectedOffice,
     slug: string,
   ): Promise<OrdinanceResponse> {
-    await this.assertEnabled(electedOffice.userId)
     const existing = await this.findOwnedOrThrow(electedOffice, slug)
     const result = await this.qualityLoop.start({
       ordinance: existing,
@@ -360,7 +343,6 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     electedOffice: ElectedOffice,
     slug: string,
   ): Promise<OrdinanceResponse> {
-    await this.assertEnabled(electedOffice.userId)
     const existing = await this.findOwnedOrThrow(electedOffice, slug)
     await this.qualityLoop.cancel(existing.id)
     return this.toResponse(await this.findOwnedOrThrow(electedOffice, slug))
@@ -370,7 +352,6 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     electedOffice: ElectedOffice,
     slug: string,
   ): Promise<OrdinanceQualityIterationsResponse> {
-    await this.assertEnabled(electedOffice.userId)
     const existing = await this.findOwnedOrThrow(electedOffice, slug)
     return this.qualityLoop.listIterations(existing.id)
   }
@@ -502,16 +483,6 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
       throw new NotFoundException('Ordinance not found')
     }
     return record
-  }
-
-  private async assertEnabled(userId: number): Promise<void> {
-    const enabled = await this.features.isFeatureEnabled({
-      user: userId,
-      feature: SERVE_ORDINANCES_FLAG,
-    })
-    if (!enabled) {
-      throw new ForbiddenException('Ordinances is not enabled')
-    }
   }
 
   // Derive the run envelope from the raw claim columns. `report` always

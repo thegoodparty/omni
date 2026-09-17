@@ -262,9 +262,12 @@ export const buildPresentDraftTool = (
     'Present the finished first-draft ordinance as a card and save it to the ' +
     'record. Synthesize the prior steps into one complete, section-numbered ' +
     'draft: pass a title, a one-line description for the card, the full statute ' +
-    'body, and the sources it draws on. For an in-place amendment, write the ' +
-    'body as a redline using {-struck old text-}{+inserted new text+} markup; ' +
-    'for standalone new text write plain statute prose. Call it once, at the ' +
+    'body, and the sources it draws on. Only when amending existing law you ' +
+    'have the verbatim text of — write the body as a redline using {-struck ' +
+    'old text-}{+inserted new text+} markup. A standalone new ordinance is ' +
+    'plain statute prose with NO {-/+} markup, even a wholly new section that ' +
+    'will be codified into the existing code — that is new text, not an edit. ' +
+    'Call it once, at the ' +
     'end of the draft step; do not restate the body as chat text. execute ' +
     'persists title/body/sources and sets the ordinance to draft status.',
   inputSchema: OrdinancePresentDraftSchema,

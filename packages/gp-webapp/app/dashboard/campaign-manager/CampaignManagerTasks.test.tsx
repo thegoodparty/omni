@@ -23,16 +23,6 @@ vi.mock(
   }),
 )
 
-// Spy on the in-place outreach launcher so the text/robocall CTA wiring can
-// be asserted without mounting the real gates/TaskFlow.
-const mockOpenOutreach = vi.fn()
-vi.mock('app/dashboard/outreach/hooks/useOutreachComposeFlow', () => ({
-  useOutreachComposeFlow: () => ({
-    open: mockOpenOutreach,
-    flowNode: <div data-testid="outreach-flow-node" />,
-  }),
-}))
-
 // The meet card no longer keys off chat history; keep the module stubbed so no
 // child pulls the real query into jsdom.
 vi.mock('../chief-of-staff/data/use-chat-history', () => ({
@@ -74,7 +64,6 @@ const meetButton = () =>
 beforeEach(() => {
   window.localStorage.clear()
   mockToggle.mockClear()
-  mockOpenOutreach.mockClear()
 })
 
 const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
@@ -135,6 +124,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -167,6 +157,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -199,6 +190,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -219,6 +211,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -228,7 +221,7 @@ describe('CampaignManagerTasks', () => {
     )
   })
 
-  it('renders each task as a rich card with a category eyebrow and summary', () => {
+  it('renders each task as a rich card with a category overline and summary', () => {
     mockResult.mockReturnValue(
       settled([
         task({
@@ -246,6 +239,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -267,6 +261,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={onMeet}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
     await user.click(
@@ -285,6 +280,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -307,6 +303,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -330,6 +327,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -361,6 +359,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
@@ -377,6 +376,7 @@ describe('CampaignManagerTasks', () => {
         onMeetManager={vi.fn()}
         onSkipMeet={vi.fn()}
         onPersonalize={onPersonalize}
+        onGetOnBallot={vi.fn()}
       />,
     )
     await userEvent.click(
@@ -387,8 +387,8 @@ describe('CampaignManagerTasks', () => {
   })
 })
 
-describe('text/robocall cards open the outreach flow in place', () => {
-  it('renders Start outreach as a button and opens the flow with the date', async () => {
+describe('text/robocall cards link into the outreach hub', () => {
+  it('renders Start outreach as a link carrying the due date', () => {
     mockResult.mockReturnValue(
       settled([
         task({
@@ -405,19 +405,21 @@ describe('text/robocall cards open the outreach flow in place', () => {
         onMeetManager={() => undefined}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
-    const cta = screen.getByRole('button', { name: /start outreach/i })
-    expect(screen.queryByRole('link', { name: /start outreach/i })).toBeNull()
-    await userEvent.click(cta)
-    expect(mockOpenOutreach).toHaveBeenCalledWith(
-      'text',
-      '2026-07-14T00:00:00.000Z',
+    // A link into the hub, not an in-place launcher: the hub owns the one
+    // mount of each channel flow and the gate in front of it.
+    expect(
+      screen.getByRole('link', { name: /start outreach/i }),
+    ).toHaveAttribute(
+      'href',
+      '/dashboard/outreach?compose=text&source=campaign_manager&due=2026-07-14',
     )
   })
 
-  it('opens the robocall flow for robocall tasks', async () => {
+  it('links robocall tasks into the hub with the due date', () => {
     mockResult.mockReturnValue(
       settled([
         task({
@@ -434,15 +436,15 @@ describe('text/robocall cards open the outreach flow in place', () => {
         onMeetManager={() => undefined}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
-    await userEvent.click(
-      screen.getByRole('button', { name: /start outreach/i }),
-    )
-    expect(mockOpenOutreach).toHaveBeenCalledWith(
-      'robocall',
-      '2026-07-15T00:00:00.000Z',
+    expect(
+      screen.getByRole('link', { name: /start outreach/i }),
+    ).toHaveAttribute(
+      'href',
+      '/dashboard/outreach?compose=robocall&source=campaign_manager&due=2026-07-15',
     )
   })
 
@@ -463,10 +465,11 @@ describe('text/robocall cards open the outreach flow in place', () => {
         onMeetManager={() => undefined}
         onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
+        onGetOnBallot={vi.fn()}
       />,
     )
 
+    expect(screen.queryByRole('link', { name: /start outreach/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /start outreach/i })).toBeNull()
-    expect(mockOpenOutreach).not.toHaveBeenCalled()
   })
 })

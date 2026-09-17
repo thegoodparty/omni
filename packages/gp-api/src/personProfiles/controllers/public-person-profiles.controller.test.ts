@@ -3,7 +3,9 @@ import {
   PersonProfileIssueStatus,
   PrioritySource,
   ProfileClaimRequestSource,
+  UserRole,
 } from '../../generated/prisma'
+import { subMinutes } from 'date-fns'
 import { describe, expect, it } from 'vitest'
 
 const service = useTestService()
@@ -66,9 +68,34 @@ describe('GET /v1/public-person-profiles', () => {
     expect(res.data.deletedAt).toBeUndefined()
   })
 
-  it('404s when the profile is unpublished (draft)', async () => {
+  it('marks an unpublished (draft) profile rather than 404ing', async () => {
     await seedProfile({ publishedAt: null })
     const res = await get()
+
+    expect(res.status).toBe(200)
+    expect(res.data.unpublished).toBe(true)
+    expect(res.data.personId).toBe(PERSON_ID)
+  })
+
+  it('leaks no authored content on the unpublished marker', async () => {
+    // The owner wrote this and chose not to publish it. The marker exists so
+    // the page can stop inviting them to claim what they already own — it must
+    // not become a back door to the draft itself.
+    await seedProfile({ publishedAt: null })
+    const res = await get()
+
+    expect(res.status).toBe(200)
+    expect(res.data.displayName).toBeNull()
+    expect(res.data.bioOverride).toBeNull()
+    expect(res.data.publishedAt).toBeNull()
+    expect(res.data.issues).toEqual([])
+  })
+
+  it('404s when no profile row exists at all', async () => {
+    // The distinction the marker exists for: nobody has claimed this person,
+    // so the page legitimately shows claim CTAs.
+    const res = await get()
+
     expect(res.status).toBe(404)
   })
 
@@ -215,9 +242,41 @@ describe('public profile render-gate scenarios (local DB)', () => {
   })
 
   it('treats a deleted draft as gone (410 takes precedence over unpublished)', async () => {
+    // Deleting is a stronger request than unpublishing: the owner asked for
+    // the page to be gone, not merely hidden for now.
     await seedProfile({ publishedAt: null, deletedAt: new Date() })
     const res = await get()
     expect(res.status).toBe(410)
+  })
+
+  it('serves the live overlay again once a draft is published', async () => {
+    await seedProfile({ publishedAt: null })
+    expect((await get()).data.unpublished).toBe(true)
+
+    await service.prisma.personProfile.update({
+      where: { personId: PERSON_ID },
+      data: { publishedAt: new Date() },
+    })
+
+    const res = await get()
+    expect(res.status).toBe(200)
+    expect(res.data.unpublished).toBeUndefined()
+    expect(res.data.displayName).toBe('Jane Rivera')
+  })
+
+  it('marks a live profile the owner unpublished', async () => {
+    // The bug this fixes: someone who claimed and then deliberately hid their
+    // profile was indistinguishable from a stranger who never claimed one.
+    await seedProfile()
+    await service.prisma.personProfile.update({
+      where: { personId: PERSON_ID },
+      data: { publishedAt: null },
+    })
+
+    const res = await get()
+    expect(res.status).toBe(200)
+    expect(res.data.unpublished).toBe(true)
+    expect(res.data.displayName).toBeNull()
   })
 
   it('returns visible issues ordered by sortOrder ascending', async () => {
@@ -267,6 +326,10 @@ describe('public profile render-gate scenarios (local DB)', () => {
         personId: SECOND_PERSON_ID,
         userId: older.id,
         publishedAt: new Date(),
+        // listPublished orders on updatedAt alone, and @updatedAt is stamped
+        // client-side at millisecond precision, so two adjacent creates can
+        // land on the same value and leave the order arbitrary.
+        updatedAt: subMinutes(new Date(), 1),
       },
     })
     await seedProfile() // service.user, created after `older`
@@ -405,10 +468,15 @@ describe('POST /v1/public-person-profiles/claim-request', () => {
 })
 
 describe('GET /v1/public-person-profiles removal gate', () => {
-  it('returns 200 { removed: true } and no content when a removal exists', async () => {
-    await service.prisma.personProfileRemoval.create({
-      data: { personId: PERSON_ID },
+  const OPERATOR = 'ops@goodparty.org'
+
+  const seedRemoval = (note?: string) =>
+    service.prisma.personProfileRemoval.create({
+      data: { personId: PERSON_ID, appliedBy: OPERATOR, note: note ?? null },
     })
+
+  it('returns 200 { removed: true } and no content when a removal exists', async () => {
+    await seedRemoval()
 
     const res = await get()
     expect(res.status).toBe(200)
@@ -420,16 +488,77 @@ describe('GET /v1/public-person-profiles removal gate', () => {
     expect(res.data.issues).toEqual([])
   })
 
+  it('removal wins over an unpublished draft', async () => {
+    // Both are 200 markers now, so precedence has to be explicit: a takedown
+    // noindexes the page, an unpublished draft does not.
+    await seedProfile({ publishedAt: null })
+    await seedRemoval()
+
+    const res = await get()
+    expect(res.status).toBe(200)
+    expect(res.data.removed).toBe(true)
+    expect(res.data.unpublished).toBeUndefined()
+  })
+
   it('removal wins over a live, published profile (privacy takedown)', async () => {
     await seedProfile()
-    await service.prisma.personProfileRemoval.create({
-      data: { personId: PERSON_ID, note: 'CA privacy request' },
-    })
+    await seedRemoval('CA privacy request')
 
     const res = await get()
     expect(res.status).toBe(200)
     expect(res.data.removed).toBe(true)
     // The published overlay content must not leak through the removal gate.
     expect(res.data.displayName).toBeNull()
+  })
+
+  it('serves the live overlay again once the takedown is reverted', async () => {
+    await seedProfile()
+    await seedRemoval()
+    await service.prisma.personProfileRemoval.update({
+      where: { personId: PERSON_ID },
+      data: { clearedAt: new Date(), clearedBy: OPERATOR },
+    })
+
+    const res = await get()
+    expect(res.status).toBe(200)
+    // The row is still there as history; the gate must read clearedAt rather
+    // than row existence or an Undo could never restore the page.
+    expect(res.data.removed).toBeUndefined()
+    expect(res.data.displayName).toBe('Jane Rivera')
+  })
+
+  it('reopens the same row when a cleared person is removed again', async () => {
+    await seedRemoval()
+    await service.prisma.personProfileRemoval.update({
+      where: { personId: PERSON_ID },
+      data: { clearedAt: new Date(), clearedBy: OPERATOR },
+    })
+    // The write route is AdminOrM2MGuard-gated and the default test user is
+    // not an admin.
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { roles: [UserRole.admin] },
+    })
+
+    const res = await service.client.post('/v1/person-profiles/removals', {
+      personId: PERSON_ID,
+      appliedBy: 'privacy@goodparty.org',
+      note: 'second request',
+    })
+    expect(res.status).toBe(200)
+
+    // personId is unique, so a re-removal has to reuse the cleared row. Leaving
+    // clearedAt set would store a takedown that every read treats as reverted.
+    const rows = await service.prisma.personProfileRemoval.findMany({
+      where: { personId: PERSON_ID },
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      clearedAt: null,
+      clearedBy: null,
+      appliedBy: 'privacy@goodparty.org',
+    })
+
+    expect((await get()).data.removed).toBe(true)
   })
 })

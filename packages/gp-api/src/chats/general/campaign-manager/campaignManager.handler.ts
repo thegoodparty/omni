@@ -1,5 +1,10 @@
 import { Inject, Injectable, Optional } from '@nestjs/common'
-import { differenceInCalendarWeeks, parseISO } from 'date-fns'
+import {
+  differenceInCalendarDays,
+  differenceInCalendarWeeks,
+  isValid,
+  parseISO,
+} from 'date-fns'
 import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
@@ -9,7 +14,6 @@ import type { LlmTool } from '@/llm/services/llm.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
-import { FeaturesService } from '@/features/services/features.service'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import {
   buildDescribeConstituentDataTool,
@@ -39,6 +43,11 @@ import { buildDescribeFilterDimensionsTool } from '../crm-tools/describeFilterDi
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
+import { ElectionsService } from '@/elections/services/elections.service'
+import { parseBallotStatus } from '@/campaigns/schemas/ballotStatus.schema'
+import { buildGetBallotRequirementsTool } from './getBallotRequirements.tool'
+import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
+import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
 
 // Sensitive scope: the agent is grounded in the candidate's own campaign data,
 // so it runs Anthropic-only. The registry fails closed on any non-claude model.
@@ -117,11 +126,6 @@ const CAMPAIGN_MANAGER_PRODUCT_OVERVIEW = [
     'tailor everything to your race.',
 ].join('\n\n')
 
-// Campaign Manager's own rollout flag for the constituent-data tool, distinct
-// from Chief of Staff's. Off until enabled per internal tester while the tool
-// runs against the shared (broad) Databricks credential.
-export const CM_CONSTITUENT_DATA_TOOL_FLAG = 'cm-constituent-data-tool'
-
 // Injection tokens for the aggregate-only Databricks provider and the in-code
 // table allowlist, provided by CampaignManagerModule.
 export const CM_CONSTITUENT_DATA_PROVIDER = 'CM_CONSTITUENT_DATA_PROVIDER'
@@ -139,25 +143,51 @@ const EMPTY_STORY_STATE: StoryState = {
   missing: ['why', 'background', 'positions'],
 }
 
-// Win's CRM rollout flag (same key the webapp's contacts page reads). The
-// contact describe/count tools require it, mirroring the webapp's
-// useCrmEnabled gate, so the assistant capability ramps with exactly the
-// same cohorts as the UI.
-export const WIN_CRM_FLAG = 'win-crm'
+// details is a raw JSON blob with no schema at this call site, so a
+// human-patched or differently-formatted date parses to an Invalid Date and the
+// difference comes back NaN. NaN is not null, so it would slip past every
+// null-guard downstream and land in the system prompt as "NaN days from today".
+// Return null for anything unparseable and let the prompt say it does not know.
+const calendarDaysUntil = (iso: string): number | null => {
+  const parsed = parseISO(iso)
+  return isValid(parsed) ? differenceInCalendarDays(parsed, new Date()) : null
+}
+
+const calendarWeeksUntil = (iso: string): number | null => {
+  const parsed = parseISO(iso)
+  return isValid(parsed) ? differenceInCalendarWeeks(parsed, new Date()) : null
+}
+
+// Native web search only exists when the Anthropic key is configured. Read in
+// one place so the prompt's guidance and the tool registration can never
+// disagree about whether the manager can search.
+const webSearchAvailable = (): boolean => !!process.env.ANTHROPIC_API_KEY
 
 const EMPTY_CONTEXT: CampaignManagerContext = {
   candidateFirstName: null,
   candidateName: '',
   campaignId: null,
   officeName: null,
+  district: null,
+  officeLevel: null,
   location: null,
   weeksToElection: null,
+  ballotStatus: null,
+  filingPeriodStart: null,
+  filingPeriodEnd: null,
+  daysToFilingDeadline: null,
   topTasks: [],
   districtFilters: null,
   constituentToolEnabled: false,
   organization: null,
   crmToolsEnabled: false,
   savedFilterToolsEnabled: false,
+  helpCenterToolEnabled: false,
+  raceId: null,
+  // Overridden by the early-return sites below: web search does not depend on
+  // the campaign resolving, so a campaign we could not load must not silently
+  // lose it.
+  webSearchEnabled: false,
   story: null,
   plan: null,
 }
@@ -180,13 +210,15 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     @Optional()
     private readonly districtResolver?: DistrictResolverService,
     @Optional()
-    private readonly features?: FeaturesService,
-    @Optional()
     private readonly storyIntake?: CampaignStoryIntakeService,
     @Optional()
     private readonly contacts?: ContactsService,
     @Optional()
     private readonly voterFileFilters?: VoterFileFilterService,
+    @Optional()
+    private readonly elections?: ElectionsService,
+    @Optional()
+    private readonly helpCenter?: HelpCenterSearchService,
   ) {}
 
   // The manager is a single ongoing conversation, not one per open: resume the
@@ -251,6 +283,16 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     return buildCampaignManagerGreeting(campaign.user?.firstName)
   }
 
+  private emptyContext(): CampaignManagerContext {
+    return {
+      ...EMPTY_CONTEXT,
+      webSearchEnabled: webSearchAvailable(),
+      // Help-center search needs neither a campaign nor a credential, so it
+      // survives a context we could not resolve.
+      helpCenterToolEnabled: !!this.helpCenter,
+    }
+  }
+
   async loadContext(
     conversationId: string,
     userId: number,
@@ -259,13 +301,13 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       where: { id: conversationId, ownerUserId: userId },
     })
     const organizationSlug = conversation?.organizationSlug
-    if (!organizationSlug) return EMPTY_CONTEXT
+    if (!organizationSlug) return this.emptyContext()
 
     const campaign = await this.campaigns.client.campaign.findFirst({
       where: { organizationSlug },
       include: { user: true },
     })
-    if (!campaign) return EMPTY_CONTEXT
+    if (!campaign) return this.emptyContext()
 
     const tasks = await this.campaigns.client.campaignTrackerTask.findMany({
       where: { campaignId: campaign.id },
@@ -285,11 +327,13 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     const electionDate = details.electionDate ?? details.primaryElectionDate
     const location =
       [details.city, details.state].filter(Boolean).join(', ') || null
+    const ballotStatus = parseBallotStatus(campaign.ballotStatus)
 
     // Scope constituent queries to the campaign's district (from its org's
-    // position), same shape Chief of Staff uses. Resolving the flag only when
-    // the tool could otherwise register avoids an Amplitude call for candidates
-    // who can't use it anyway.
+    // position), same shape Chief of Staff uses. Folding districtFilters into
+    // constituentToolEnabled (rather than leaving it a separate buildTools
+    // check) keeps prompt advertising and tool registration on one signal,
+    // same as crmToolsEnabled/savedFilterToolsEnabled below.
     const resolved =
       await this.districtResolver?.resolveByOrgSlug(organizationSlug)
     const districtFilters =
@@ -299,21 +343,18 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     const constituentToolEnabled =
       !!this.constituentProvider &&
       this.constituentTables.length > 0 &&
-      (await this.isFlagOn(userId, CM_CONSTITUENT_DATA_TOOL_FLAG))
+      districtFilters !== null
 
     // The org row the CRM contact tools bind counts to. Folding the service
     // presence into crmToolsEnabled keeps prompt advertising and tool
-    // registration on one signal; only look up the org and hit Amplitude when
-    // the tools could otherwise register.
+    // registration on one signal; only look up the org when the tools could
+    // otherwise register.
     const organization = this.contacts
       ? await this.campaigns.client.organization.findFirst({
           where: { slug: organizationSlug },
         })
       : null
-    const crmToolsEnabled =
-      !!this.contacts &&
-      !!organization &&
-      (await this.isFlagOn(userId, WIN_CRM_FLAG))
+    const crmToolsEnabled = !!this.contacts && !!organization
     // The saved-filter write tool additionally needs VoterFileFilterService;
     // folding its presence in keeps prompt advertising and tool registration
     // on one signal, same as crmToolsEnabled itself.
@@ -324,9 +365,15 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       candidateName,
       campaignId: campaign.id,
       officeName: details.normalizedOffice ?? null,
+      district: details.district ?? null,
+      officeLevel: details.ballotLevel ?? null,
       location,
-      weeksToElection: electionDate
-        ? differenceInCalendarWeeks(parseISO(electionDate), new Date())
+      weeksToElection: electionDate ? calendarWeeksUntil(electionDate) : null,
+      ballotStatus,
+      filingPeriodStart: details.filingPeriodsStart ?? null,
+      filingPeriodEnd: details.filingPeriodsEnd ?? null,
+      daysToFilingDeadline: details.filingPeriodsEnd
+        ? calendarDaysUntil(details.filingPeriodsEnd)
         : null,
       topTasks: selectTopDynamicTasks(tasks).map((t) => ({
         title: t.title,
@@ -337,20 +384,11 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       organization,
       crmToolsEnabled,
       savedFilterToolsEnabled,
+      raceId: details.raceId ?? null,
+      webSearchEnabled: webSearchAvailable(),
+      helpCenterToolEnabled: !!this.helpCenter,
       story,
       plan,
-    }
-  }
-
-  // FeaturesService.isFeatureEnabled throws if Amplitude fails to return a
-  // value. Resolving a flag is on the critical path of loadContext, so a
-  // flag-service outage must degrade to "tool off", never take down the chat.
-  private async isFlagOn(userId: number, feature: string): Promise<boolean> {
-    if (!this.features) return false
-    try {
-      return await this.features.isFeatureEnabled({ user: userId, feature })
-    } catch {
-      return false
     }
   }
 
@@ -362,17 +400,26 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     const tools: Record<string, LlmTool> = {}
 
     // Web search runs through Anthropic's native tool (the scope is Claude-only)
-    // so queries stay within the enterprise agreement. Gated on the key here so
-    // the system prompt never advertises a tool that was not registered.
-    if (process.env.ANTHROPIC_API_KEY) {
+    // so queries stay within the enterprise agreement. Registration reads the
+    // same ctx flag the prompt's ballot guidance reads, so the prompt can never
+    // advertise a search tool that was not registered.
+    if (ctx.webSearchEnabled) {
       tools.web_search = { kind: 'native_web_search', maxUses: 5 }
+    }
+
+    // Our own published support articles. Needs no credential and no
+    // campaign context, so it registers whenever the service is provided.
+    if (this.helpCenter && ctx.helpCenterToolEnabled) {
+      tools.search_help_center = buildSearchHelpCenterTool({
+        helpCenter: this.helpCenter,
+      })
     }
 
     // Aggregate-only constituent data against the dedicated Win mart
     // (sp_win_agent credential + win_agent_voters allowlist + the shared SQL
     // validator + cell-size floor). Registers only when the provider is
-    // configured, the campaign's district resolved into server-bound filters,
-    // and the per-user rollout flag is on — otherwise it stays dark.
+    // configured and the campaign's district resolved into server-bound
+    // filters — otherwise it stays dark.
     if (
       this.constituentProvider &&
       ctx.districtFilters &&
@@ -393,6 +440,17 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       }
     }
 
+    // BallotReady filing requirements for the candidate's own race, bound to
+    // the campaign's race hash. Registered whenever the race resolved, not
+    // gated on ballot status: a candidate who already filed can still ask what
+    // their filing office needs, and the prompt decides when to lead with it.
+    if (this.elections && ctx.raceId) {
+      tools.get_ballot_requirements = buildGetBallotRequirementsTool({
+        elections: this.elections,
+        raceId: ctx.raceId,
+      })
+    }
+
     // Campaign Story intake: read/elaborate/save the candidate's story and,
     // once complete, kick off plan + tracker generation. Registered whenever
     // the intake service + campaign are resolved; the prompt drives when to run
@@ -405,10 +463,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       })
     }
 
-    // Aggregate-only CRM reads (describe dimensions + count), gated on the
-    // win-crm flag so the assistant capability ramps with the CRM UI. The
-    // org is bound from the resolved context; ContactsService enforces the
-    // pro gate and every other filter rule.
+    // Aggregate-only CRM reads (describe dimensions + count), unconditional
+    // for Win once contacts + the org resolve. The org is bound from the
+    // resolved context; ContactsService enforces the pro gate and every
+    // other filter rule.
     if (this.contacts && ctx.crmToolsEnabled && ctx.organization) {
       tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
         contacts: this.contacts,

@@ -1,15 +1,5 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  MessageEvent,
-  Param,
-  Put,
-  Sse,
-} from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Put } from '@nestjs/common'
 import { Campaign } from '../../generated/prisma'
-import { Observable } from 'rxjs'
 import { CampaignTasksService } from './services/campaignTasks.service'
 import { ReqCampaign } from '../decorators/ReqCampaign.decorator'
 import { UseCampaign } from '../decorators/UseCampaign.decorator'
@@ -44,12 +34,5 @@ export class CampaignTasksController {
     @Param('id') id: string,
   ) {
     return this.tasksService.unCompleteTask(campaign, id)
-  }
-
-  @Sse('generate/stream')
-  generateTasksStream(
-    @ReqCampaign() campaign: Campaign,
-  ): Observable<MessageEvent> {
-    return this.tasksService.generateTasksStream(campaign)
   }
 }

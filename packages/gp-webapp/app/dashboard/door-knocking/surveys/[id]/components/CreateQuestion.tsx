@@ -175,7 +175,16 @@ export default function CreateQuestion(): React.JSX.Element {
               </form>
               <ol className="mt-2 list-decimal list-inside">
                 {options.map((option, index) => (
-                  <li key={option}>
+                  <li
+                    key={option}
+                    // `list-item` because globals.css gives every `<li>` inside
+                    // a `data-slot` element `display: flex`, and `Modal`'s
+                    // `DialogContent` emits one: that drops the space between
+                    // the option and the trash icon (flex containers discard
+                    // whitespace-only text between items) and suppresses the
+                    // marker this `list-decimal` list is asking for.
+                    className="list-item"
+                  >
                     {option}{' '}
                     <FaTrash
                       className="ml-2 inline-block text-red-500 cursor-pointer"

@@ -52,55 +52,62 @@ describe('PollResponsesDownloadService', () => {
     if (!copyStream.destroyed) copyStream.destroy()
   })
 
-  describe('streamPollResponses', () => {
+  describe('buildPollResponsesCsv', () => {
     const VALID_UUID = '01234567-89ab-cdef-0123-456789abcdef'
     const POLL_NAME = 'My Test Poll'
     const FILE_NAME = 'My Test Poll'
 
-    it('returns a StreamableFile', async () => {
-      const result = await service.streamPollResponses(
+    it('returns a StreamableFile with a Content-Length', async () => {
+      copyStream.end()
+
+      const result = await service.buildPollResponsesCsv(
         VALID_UUID,
         POLL_NAME,
         FILE_NAME,
       )
-      copyStream.end()
 
       expect(result).toBeDefined()
       expect(result.getHeaders().type).toBe('text/csv; charset=utf-8')
       expect(result.getHeaders().disposition).toContain(FILE_NAME)
+      // A fixed length is what keeps the response from being chunked (and
+      // truncated) in transit.
+      expect(result.getHeaders().length).toBeGreaterThan(0)
     })
 
     it('writes UTF-8 BOM and poll name as the first line', async () => {
-      const result = await service.streamPollResponses(
+      copyStream.end()
+
+      const result = await service.buildPollResponsesCsv(
         VALID_UUID,
         POLL_NAME,
         FILE_NAME,
       )
-      copyStream.end()
 
       const output = await drainStream(result.getStream())
       expect(output.startsWith('\uFEFF' + POLL_NAME + '\n')).toBe(true)
     })
 
     it('sanitizes newlines from poll name', async () => {
-      const result = await service.streamPollResponses(
+      copyStream.end()
+
+      const result = await service.buildPollResponsesCsv(
         VALID_UUID,
         'Poll\nWith\rNewlines',
         FILE_NAME,
       )
-      copyStream.end()
 
       const output = await drainStream(result.getStream())
       expect(output.startsWith('\uFEFFPoll With Newlines\n')).toBe(true)
     })
 
     it('neutralizes a formula-injection poll name in the header line', async () => {
-      const result = await service.streamPollResponses(
+      copyStream.end()
+
+      const result = await service.buildPollResponsesCsv(
         VALID_UUID,
         '=HYPERLINK("http://evil","x")',
         FILE_NAME,
       )
-      copyStream.end()
 
       const output = await drainStream(result.getStream())
       const headerLine = output.split('\n')[0] ?? ''
@@ -108,27 +115,28 @@ describe('PollResponsesDownloadService', () => {
     })
 
     it('uses fallback when poll name is empty or whitespace', async () => {
-      const result = await service.streamPollResponses(
+      copyStream.end()
+
+      const result = await service.buildPollResponsesCsv(
         VALID_UUID,
         '   ',
         FILE_NAME,
       )
-      copyStream.end()
 
       const output = await drainStream(result.getStream())
       expect(output.startsWith('\uFEFFPoll responses\n')).toBe(true)
     })
 
     it('strips leading newlines from COPY stream to avoid empty rows', async () => {
-      const result = await service.streamPollResponses(
+      copyStream.write('\n\n\nmessage_content,associated_clusters\n')
+      copyStream.write('"Hello world","Issue A"\n')
+      copyStream.end()
+
+      const result = await service.buildPollResponsesCsv(
         VALID_UUID,
         POLL_NAME,
         FILE_NAME,
       )
-
-      copyStream.write('\n\n\nmessage_content,associated_clusters\n')
-      copyStream.write('"Hello world","Issue A"\n')
-      copyStream.end()
 
       const output = await drainStream(result.getStream())
       const lines = output.split('\n')
@@ -137,11 +145,49 @@ describe('PollResponsesDownloadService', () => {
       expect(lines[2]).toBe('"Hello world","Issue A"')
     })
 
+    it('includes the full COPY body after the poll name line', async () => {
+      copyStream.write('message_content,associated_clusters\n')
+      copyStream.write('"Hello world","Issue A; Issue B"\n')
+      copyStream.end()
+
+      const result = await service.buildPollResponsesCsv(
+        VALID_UUID,
+        POLL_NAME,
+        FILE_NAME,
+      )
+
+      const output = await drainStream(result.getStream())
+      const lines = output.split('\n')
+      expect(lines[0]).toBe('\uFEFF' + POLL_NAME)
+      expect(lines[1]).toBe('message_content,associated_clusters')
+      expect(lines[2]).toBe('"Hello world","Issue A; Issue B"')
+    })
+
+    it('does not truncate the tail when many rows are buffered', async () => {
+      copyStream.write('message_content,associated_clusters\n')
+      for (let i = 0; i < 5000; i++) {
+        copyStream.write(`"reply number ${i}","Issue ${i % 7}"\n`)
+      }
+      copyStream.end()
+
+      const result = await service.buildPollResponsesCsv(
+        VALID_UUID,
+        POLL_NAME,
+        FILE_NAME,
+      )
+
+      const output = await drainStream(result.getStream())
+      const lines = output.trimEnd().split('\n')
+      // header line + column header + 5000 rows, none dropped off the end
+      expect(lines).toHaveLength(5002)
+      expect(lines[lines.length - 1]).toBe('"reply number 4999","Issue 1"')
+    })
+
     it('builds COPY SQL with the poll ID', async () => {
       const { to: copyTo } = await import('pg-copy-streams')
-
-      await service.streamPollResponses(VALID_UUID, POLL_NAME, FILE_NAME)
       copyStream.end()
+
+      await service.buildPollResponsesCsv(VALID_UUID, POLL_NAME, FILE_NAME)
 
       expect(vi.mocked(copyTo)).toHaveBeenCalledWith(
         expect.stringContaining(`pim.poll_id = '${VALID_UUID}'`),
@@ -153,9 +199,9 @@ describe('PollResponsesDownloadService', () => {
 
     it('neutralizes leading CSV formula characters in message_content', async () => {
       const { to: copyTo } = await import('pg-copy-streams')
-
-      await service.streamPollResponses(VALID_UUID, POLL_NAME, FILE_NAME)
       copyStream.end()
+
+      await service.buildPollResponsesCsv(VALID_UUID, POLL_NAME, FILE_NAME)
 
       const sql = vi.mocked(copyTo).mock.calls[0]?.[0] as string
       expect(sql).toContain(
@@ -166,9 +212,9 @@ describe('PollResponsesDownloadService', () => {
 
     it('SQL includes string_agg with DISTINCT and alphabetical ordering', async () => {
       const { to: copyTo } = await import('pg-copy-streams')
-
-      await service.streamPollResponses(VALID_UUID, POLL_NAME, FILE_NAME)
       copyStream.end()
+
+      await service.buildPollResponsesCsv(VALID_UUID, POLL_NAME, FILE_NAME)
 
       const sql = vi.mocked(copyTo).mock.calls[0]?.[0] as string
       expect(sql).toContain("string_agg(DISTINCT pi.title, '; '")
@@ -177,65 +223,31 @@ describe('PollResponsesDownloadService', () => {
       expect(sql).toContain('is_opt_out')
     })
 
-    it('pipes COPY stream data after the poll name line', async () => {
-      const result = await service.streamPollResponses(
-        VALID_UUID,
-        POLL_NAME,
-        FILE_NAME,
-      )
-
-      copyStream.write('message_content,associated_clusters\n')
-      copyStream.write('"Hello world","Issue A; Issue B"\n')
+    it('releases the client after building the CSV', async () => {
       copyStream.end()
 
-      const output = await drainStream(result.getStream())
-      const lines = output.split('\n')
-      expect(lines[0]).toBe('\uFEFF' + POLL_NAME)
-      expect(lines[1]).toBe('message_content,associated_clusters')
-      expect(lines[2]).toBe('"Hello world","Issue A; Issue B"')
-    })
-
-    it('releases the client when stream ends', async () => {
-      await service.streamPollResponses(VALID_UUID, POLL_NAME, FILE_NAME)
-      copyStream.end()
-
-      // Allow microtasks to flush
-      await new Promise((r) => setImmediate(r))
+      await service.buildPollResponsesCsv(VALID_UUID, POLL_NAME, FILE_NAME)
 
       expect(mockRelease).toHaveBeenCalledTimes(1)
+      expect(mockRelease).toHaveBeenCalledWith()
     })
 
     it('releases the client and propagates error on stream failure', async () => {
-      const result = await service.streamPollResponses(
+      const promise = service.buildPollResponsesCsv(
         VALID_UUID,
         POLL_NAME,
         FILE_NAME,
       )
+      // Let the service attach its listeners and start consuming before the
+      // source fails, so the error is forwarded rather than emitted into the
+      // void.
+      await new Promise((resolve) => setImmediate(resolve))
+      copyStream.destroy(new Error('pg connection lost'))
 
-      const error = new Error('pg connection lost')
-      copyStream.destroy(error)
-
-      await expect(drainStream(result.getStream())).rejects.toThrow(
-        'pg connection lost',
-      )
+      await expect(promise).rejects.toThrow('pg connection lost')
       expect(mockRelease).toHaveBeenCalledTimes(1)
-    })
-
-    it('destroys the COPY stream when output is destroyed', async () => {
-      const destroySpy = vi.spyOn(copyStream, 'destroy')
-
-      const result = await service.streamPollResponses(
-        VALID_UUID,
-        POLL_NAME,
-        FILE_NAME,
-      )
-
-      result.getStream().destroy()
-
-      await new Promise((r) => setImmediate(r))
-
-      expect(destroySpy).toHaveBeenCalled()
-      expect(mockRelease).toHaveBeenCalled()
+      // Released WITH the error so pg-pool discards the COPY-mode connection.
+      expect(mockRelease).toHaveBeenCalledWith(expect.any(Error))
     })
   })
 

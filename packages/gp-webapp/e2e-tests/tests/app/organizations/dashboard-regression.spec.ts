@@ -61,11 +61,20 @@ test.describe('Dashboard Regression with Elected Office', () => {
       page.getByRole('heading', { name: 'Constituent Data' }),
     ).toBeVisible({ timeout: 10000 })
 
-    const table = page.locator('table')
-    await expect(table).toBeVisible({ timeout: 15000 })
+    // The CRM contacts surface has no member table by design, so "the page
+    // loaded with real data" is proved by the universe card instead. Anchored
+    // on 'Records available' (the L2 record count, always rendered) rather
+    // than the census population row above it, which hides itself whenever
+    // the district has no census figure.
+    await expect(
+      page.getByRole('heading', { name: 'Your Constituent Universe' }),
+    ).toBeVisible({ timeout: 15000 })
 
-    const firstRow = table.locator('tbody tr').first()
-    await expect(firstRow).toBeVisible({ timeout: 10000 })
-    await expect(firstRow).toHaveText(/.+/)
+    const statRow = page.getByText('Records available').locator('xpath=..')
+    await expect(statRow).toBeVisible({ timeout: 15000 })
+    // A real count is a formatted integer, never the card's 'Unavailable'
+    // fallback. Generous timeout: this waits on GET /v1/contacts/stats, which
+    // is a Databricks read.
+    await expect(statRow.getByText(/^[\d,]+$/)).toBeVisible({ timeout: 30000 })
   })
 })

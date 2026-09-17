@@ -163,7 +163,7 @@ const RightSideMobile = (): React.JSX.Element => {
                           onClick={closeMenu}
                           className="block w-full text-white py-2 mb-2 text-center font-medium"
                         >
-                          Login
+                          Log In
                         </Link>
                         <Button
                           asChild

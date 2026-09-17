@@ -22,8 +22,16 @@ import {
 // The webapp wizard renders a parallel expression of this knowledge in
 // packages/gp-webapp/app/dashboard/contacts/ (filters.config.ts and
 // crm/shared/*), which cannot be imported across packages — keep labels
-// aligned with it by eye. Precinct and top-issue are deliberately absent
-// (blocked dimensions; adding them later is additive).
+// aligned with it by eye.
+//
+// Precinct is filterable in the wizard but is deliberately NOT listed here.
+// Every dimension in this catalog carries its complete value vocabulary, and
+// precinct has none: its values are enumerated per district by
+// GET /v1/contacts/precincts (a precinct number is only unique within its
+// county, and the same district can hold anywhere from 0 to 579 of them).
+// Advertising the dimension without its values would invite the assistant to
+// invent precinct names that match nobody. Listing it needs a tool that can
+// enumerate them first. Top-issue remains absent as a blocked dimension.
 
 export type FilterDimensionMode = 'win' | 'serve' | 'both'
 
@@ -106,6 +114,7 @@ const ACTIVITY_CHANNEL_LABELS: Record<ActivityConditionChannel, string> = {
   p2p: 'P2P Text',
   doorKnocking: 'Door Knocking',
   robocall: 'Robocall',
+  phoneBanking: 'Phone Banking',
 }
 
 const ACTIVITY_ACTION_LABELS: Record<ActivityConditionAction, string> = {
@@ -120,12 +129,17 @@ const ACTIVITY_ACTION_LABELS: Record<ActivityConditionAction, string> = {
   support_no: 'Support: No',
   voicemail_left: 'Voicemail Left',
   no_answer: 'No Answer',
+  voicemail: 'Voicemail',
+  wrong_number: 'Wrong Number',
+  refused: 'Refused',
+  disconnected: 'Disconnected',
+  hung_up: 'Hung Up',
 }
 
-// All five values (ENG-10837): `undecided`/`refused` (ENG-10833) exist only
-// as manual overrides, but SupportStatusService.personIdsByEffectiveStatus
-// now resolves overrides alongside derivation, so advertising them here no
-// longer risks a filter that silently matches zero people.
+// All five values (ENG-10837): `refused` (ENG-10833) exists only as a manual
+// override, but SupportStatusService.personIdsByEffectiveStatus resolves
+// overrides alongside derivation, so advertising it here doesn't risk a
+// filter that silently matches zero people.
 const SUPPORT_STATUS_LABELS: Record<
   (typeof SupportStatusRollupSchema.options)[number],
   string
@@ -145,6 +159,7 @@ const ACTIVITY_CHANNELS: readonly ActivityConditionChannel[] = [
   'p2p',
   'doorKnocking',
   'robocall',
+  'phoneBanking',
 ]
 
 const activityChannelValue = (
@@ -225,15 +240,53 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     ],
   },
   {
+    // hasAnyPhone is the OR of the other two, so it cannot be expressed by
+    // combining them (they AND). Selecting it alongside either is redundant
+    // rather than contradictory — every value here is presence-only — so the
+    // wizard makes it exclusive and the resolver keeps plain AND semantics.
     key: 'phone',
     label: 'Phone',
     kind: 'boolean-group',
     modes: 'both',
     provenance: 'observed',
     values: [
+      { key: 'hasAnyPhone', label: 'Has Any Phone' },
       { key: 'hasCellPhone', label: 'Has Cell Phone' },
       { key: 'hasLandline', label: 'Has Landline' },
     ],
+  },
+  {
+    // Column is hf_ideology_general, whose own vocabulary says Liberal; the
+    // product says Progressive, so the key follows the data and the label
+    // follows the copy. Unknown covers the 40% of the file with no value and
+    // is a real reportable segment, not a gap to drop. Win-only alongside
+    // affinity: the recommended-list dimensions are a Win product surface.
+    // That is a permanent product rule, independent of the feature flag,
+    // which only decides whether the wizard shows them.
+    key: 'ideology',
+    label: 'Ideology',
+    kind: 'boolean-group',
+    modes: 'win',
+    provenance: 'modeled',
+    values: [
+      { key: 'ideologyConservative', label: 'Conservative' },
+      { key: 'ideologyModerate', label: 'Moderate' },
+      { key: 'ideologyLiberal', label: 'Progressive' },
+      { key: 'ideologyUnknown', label: 'Unknown' },
+    ],
+  },
+  {
+    // Modeled openness to voting for an independent. A non-nullable BOOLEAN
+    // column, so unlike every other modeled dimension here there is no
+    // Unknown bucket — the file classifies everyone. Win-only like party:
+    // it describes electoral behavior toward a candidate, which has no Serve
+    // meaning (assertNoRecommendedListFilterForElectedOffice 400s it).
+    key: 'independentAffinity',
+    label: 'Independent Affinity',
+    kind: 'boolean-group',
+    modes: 'win',
+    provenance: 'modeled',
+    values: [{ key: 'independentAffinity', label: 'Open to Independents' }],
   },
   {
     key: 'languageCodes',
@@ -295,16 +348,18 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
   },
   {
     key: 'homeowner',
-    label: 'Homeowner',
+    label: 'Homeownership',
     kind: 'boolean-group',
     modes: 'both',
-    // Column is Homeowner_Probability_Model; every value including 'Yes'
-    // comes out of that model, not a deed record.
+    // Column is Homeowner_Probability_Model; every value including
+    // 'Homeowner' comes out of that model, not a deed record. 'Homeowner'
+    // folds in the model's Probable Home Owner bucket (ENG-10947) —
+    // homeownerLikely is a legacy wire key still accepted from saved
+    // filters, but no longer offered as its own option.
     provenance: 'modeled',
     values: [
-      { key: 'homeownerYes', label: 'Yes' },
-      { key: 'homeownerLikely', label: 'Likely' },
-      { key: 'homeownerNo', label: 'No' },
+      { key: 'homeownerYes', label: 'Homeowner' },
+      { key: 'homeownerNo', label: 'Renter' },
       { key: 'homeownerUnknown', label: 'Unknown' },
     ],
   },

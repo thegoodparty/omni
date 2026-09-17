@@ -7,11 +7,18 @@ import {
 import { Prisma, PrismaClient } from '../generated/people-prisma'
 import { PeopleDbUrlProvider } from './peopleDbUrl.provider'
 
+// Gated on its own flag rather than on LOG_LEVEL, matching PrismaService. This
+// client missed that gate: gp-api deploys LOG_LEVEL=debug in prod, so every
+// people-db query — with parameters — was serialized and shipped to Loki on
+// the request event loop. The level is gated alongside the listener so the
+// engine does not emit the event at all when it is off.
+const enableQueryLogging = process.env.ENABLE_QUERY_LOGGING === 'true'
+
 const PRISMA_LOG_LEVELS = [
   'info',
   'warn',
   'error',
-  ...(process.env.LOG_LEVEL === 'debug' ? ['query' as Prisma.LogLevel] : []),
+  ...(enableQueryLogging ? ['query' as Prisma.LogLevel] : []),
 ]
 
 export type PeopleDbPrismaClient = PrismaClient<
@@ -100,13 +107,30 @@ export class PeopleDbService implements OnModuleInit, OnModuleDestroy {
     // ~25 concurrent ones saturate the pool and the rest fail with a pool
     // timeout. The Aurora writer's max_connections is 5000 with a few dozen in
     // use, so this headroom is safe; it stays a bulkhead (not 500) so a burst
-    // of heavy scans can't overrun the 16-vCPU instance. Real fix is making
-    // those queries cheap (see peopleDb/CLAUDE.md § Benchmarks).
+    // of heavy scans can't overrun the 16-vCPU instance.
     url.searchParams.set('connection_limit', '50')
     url.searchParams.set('pool_timeout', '5')
     url.searchParams.set('connect_timeout', '5')
-    // Queries that take longer than 60 seconds will be cancelled.
+    // A client-side backstop only: it abandons the connection while the query
+    // keeps running on people-db, so anything relying on it burns database CPU
+    // after the caller has given up and surfaces an unclassifiable
+    // `P2010 Code: N/A` rather than SQLSTATE 57014.
     url.searchParams.set('socket_timeout', '60')
+
+    // Postgres plans a prepared statement custom for its first 5 executions,
+    // then may switch to a generic plan built without the parameter values.
+    // For a selective predicate the generic plan can assume default
+    // selectivity and pick a catastrophically wrong shape. It reads as
+    // intermittent because it depends on how many times a POOLED connection
+    // has run that statement shape. force_custom_plan re-plans every
+    // execution: single-digit ms of planning against a multi-second tail.
+    // Set by hand rather than via searchParams because URLSearchParams encodes
+    // the space in `-c plan_cache_mode=...` as `+`, which libpq does not read
+    // as a space.
+    const search = url.searchParams.toString()
+    url.search = `${search}&options=${encodeURIComponent(
+      '-c plan_cache_mode=force_custom_plan',
+    )}`
 
     const client = new PrismaClient<Prisma.PrismaClientOptions, 'query'>({
       log: PRISMA_LOG_LEVELS.map((level) => ({
@@ -121,16 +145,17 @@ export class PeopleDbService implements OnModuleInit, OnModuleDestroy {
       },
     })
 
-    client.$on('query', (event: Prisma.QueryEvent) => {
-      this.logger.debug(
-        {
-          query: event.query,
-          params: event.params,
-          durationMs: event.duration,
-        },
-        'Completed SQL query',
-      )
-    })
+    enableQueryLogging &&
+      client.$on('query', (event: Prisma.QueryEvent) => {
+        this.logger.debug(
+          {
+            query: event.query,
+            params: event.params,
+            durationMs: event.duration,
+          },
+          'Completed SQL query',
+        )
+      })
 
     // Fail-soft connect: attempt it for an early diagnostic signal on a
     // genuinely broken PEOPLE_DATABASE_URL in deployed envs, but don't let a
