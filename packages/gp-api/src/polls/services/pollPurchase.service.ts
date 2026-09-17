@@ -193,7 +193,7 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
       if (!isUniqueConstraintError(error)) {
         throw error
       }
-      await this.reconcileDuplicatePollCreate(metadata.pollId, electedOffice.id)
+      await this.reconcileDuplicatePollCreate(metadata.pollId, userId)
     }
   }
 
@@ -233,7 +233,7 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
   // campaignStory/services/campaignStory.service.ts).
   private async reconcileDuplicatePollCreate(
     pollId: string,
-    electedOfficeId: string,
+    userId: number,
   ): Promise<void> {
     const existing = await this.pollsService.findUnique({
       where: { id: pollId },
@@ -249,12 +249,37 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
       )
     }
 
-    if (existing.electedOfficeId !== electedOfficeId) {
+    // Ownership is settled against every office this userId holds, not against
+    // the one office the create above happened to draw. A user can hold more
+    // than one elected_office row: the @@unique([userId]) constraint is gone
+    // (see the advisory lock in ElectedOfficeService.create, which exists
+    // because of that) and create only refuses *overlapping* terms, so
+    // consecutive terms coexist by design (dateRangesOverlap treats terms as
+    // half-open, so term A ending the day term B starts is allowed). The
+    // findFirst({ where: { userId } }) that picked electedOffice above has no
+    // orderBy, so which of those rows it returns is whatever order Postgres
+    // hands back. Comparing against it would let a redelivery that drew the
+    // holder's other term read as "belongs to another elected office" and take
+    // the permanent-rejection branch below — acking the webhook on a purchase
+    // whose marker never got stamped.
+    const ownerOffice = existing.electedOfficeId
+      ? await this.electedOfficeService.findFirst({
+          where: { id: existing.electedOfficeId, userId },
+        })
+      : null
+
+    if (!ownerOffice) {
       // pollId is client-supplied, so it can in principle name a poll belonging
       // to someone else. Treating that as "already fulfilled" would take the
       // buyer's money and silently hand them nothing, and would hide the
       // collision. Nothing of the other office's is read or written here — the
       // expansion path above refuses the mirror-image case with Forbidden.
+      //
+      // A conflicting row with no electedOfficeId at all lands here too. Both
+      // production create paths always supply one (polls.controller.ts and the
+      // create above), so a null-office row is an anomaly no redelivery can
+      // resolve — the row is already committed that way — which makes the
+      // permanent branch the right one rather than retrying for days.
       //
       // BadRequestException specifically, not Forbidden: the webhook caller in
       // payments/services/paymentEventsService.ts treats BadRequest as a
@@ -265,7 +290,7 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
       this.logger.error(
         {
           pollId,
-          electedOfficeId,
+          userId,
           ownerElectedOfficeId: existing.electedOfficeId,
         },
         'Poll purchase supplied a pollId owned by a different elected office',
@@ -289,7 +314,7 @@ export class PollPurchaseHandlerService implements PurchaseHandler<unknown> {
     // constituents twice and paying for it, which is strictly worse than the
     // pre-existing best-effort gap this leaves in place.
     this.logger.info(
-      { pollId, electedOfficeId },
+      { pollId, userId, electedOfficeId: ownerOffice.id },
       'Poll already created for this purchase; skipping duplicate fulfillment',
     )
   }

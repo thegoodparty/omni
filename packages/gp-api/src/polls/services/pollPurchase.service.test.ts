@@ -134,9 +134,25 @@ describe('PollPurchaseHandlerService', () => {
         },
       )
 
+    // A holder can own several elected_office rows (consecutive terms), and the
+    // unordered findFirst({ where: { userId } }) in processNewPoll returns an
+    // arbitrary one, so the mock answers from a list: an id-scoped lookup only
+    // matches an office the user actually holds, an unscoped one returns the
+    // first as Postgres might.
+    const givenUserOffices = (offices: { id: string }[]) => {
+      electedOfficeService.findFirst.mockImplementation(
+        ({ where }: { where: { id?: string; userId: number } }) =>
+          Promise.resolve(
+            where.id
+              ? (offices.find((office) => office.id === where.id) ?? null)
+              : (offices[0] ?? null),
+          ),
+      )
+    }
+
     beforeEach(() => {
       usersService.findUser.mockResolvedValue({ id: 1 })
-      electedOfficeService.findFirst.mockResolvedValue({ id: 'eo-1' })
+      givenUserOffices([{ id: 'eo-1' }])
     })
 
     it('creates the poll with the checkout pollId on the first fulfillment', async () => {
@@ -163,6 +179,40 @@ describe('PollPurchaseHandlerService', () => {
       await expect(
         service.handlePollPostPurchase('sess_1', rawMetadata),
       ).resolves.toBeUndefined()
+    })
+
+    it("swallows the duplicate when the holder's other term owns the poll", async () => {
+      // The redelivery draws eo-second-term while the winning insert had drawn
+      // eo-first-term. Both are this user's, so this is still one purchase
+      // fulfilled twice — rejecting it would ack the webhook without ever
+      // stamping postPurchaseCompletedAt.
+      givenUserOffices([{ id: 'eo-second-term' }, { id: 'eo-first-term' }])
+      pollsService.create.mockRejectedValue(uniqueConstraintError())
+      pollsService.findUnique.mockResolvedValue({
+        id: POLL_ID,
+        electedOfficeId: 'eo-first-term',
+      })
+
+      await expect(
+        service.handlePollPostPurchase('sess_1', rawMetadata),
+      ).resolves.toBeUndefined()
+      expect(pollsService.create).toHaveBeenCalledWith(
+        expect.objectContaining({ electedOfficeId: 'eo-second-term' }),
+      )
+    })
+
+    it('rejects permanently when the conflicting poll has no elected office', async () => {
+      pollsService.create.mockRejectedValue(uniqueConstraintError())
+      pollsService.findUnique.mockResolvedValue({
+        id: POLL_ID,
+        electedOfficeId: null,
+      })
+
+      // Ownership can never be established for that row, and it is already
+      // committed, so redelivering forever cannot fix it.
+      await expect(
+        service.handlePollPostPurchase('sess_1', rawMetadata),
+      ).rejects.toThrow(BadRequestException)
     })
 
     it('rejects permanently when the pollId belongs to another elected office', async () => {
