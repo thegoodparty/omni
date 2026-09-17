@@ -83,6 +83,20 @@ jobs:
             --arg sha "${HEAD_SHA:0:9}" \
             '":red_circle: Release train failed at: \($phase). Prod is not shipping until a run goes green.\nRun: <\($url)|\($title)> (\($sha))\nFailed jobs: \($failed)"')
 
+          # chat.postMessage needs the TOKEN'S OWN app to be a channel member,
+          # and SLACK_APP_BOT_TOKEN is the analytics app (analytics-event-bot),
+          # not the goodparty app — see gpbot-pr-triage.yml. That distinction
+          # dropped every alert from 09-14 to 09-17: the channel had the
+          # goodparty app invited, the wiring was verified with the goodparty
+          # app's token, and this workflow's posts all died not_in_channel.
+          # #bot-urgent is public, so join instead of waiting on an invite;
+          # best effort — the post's own error handling below reports.
+          jq -n --arg c "$CHANNEL_ID" '{channel: $c}' | \
+            curl -sS --max-time 10 -X POST https://slack.com/api/conversations.join \
+              -H "Authorization: Bearer $SLACK_APP_BOT_TOKEN" \
+              -H "Content-type: application/json; charset=utf-8" \
+              --data @- >/dev/null || true
+
           resp=$(jq -n --arg c "$CHANNEL_ID" --arg t "$text" '{channel: $c, text: $t}' | \
             curl -sf -X POST https://slack.com/api/chat.postMessage \
               -H "Authorization: Bearer $SLACK_APP_BOT_TOKEN" \
@@ -94,7 +108,7 @@ jobs:
             # to every red release run would be noise, not signal. Everything
             # else (bad token, deleted channel, rate limit) fails loudly.
             if [ "$err" = "not_in_channel" ]; then
-              echo "::warning::Slack not_in_channel — invite the goodparty app to #bot-urgent. Alert not sent."
+              echo "::warning::Slack not_in_channel and self-join failed — invite the app behind SLACK_APP_BOT_TOKEN (analytics-event-bot, NOT the goodparty app) to #bot-urgent. Alert not sent."
             else
               echo "::error::Slack rejected the alert: $err"
               exit 1

@@ -273,6 +273,17 @@ jobs:
             exit 0
           fi
 
+          # SLACK_APP_BOT_TOKEN is the analytics app (analytics-event-bot),
+          # which is not invited anywhere near #bot-urgent by default — its
+          # posts and history reads both die not_in_channel unless the app is
+          # a member. The channel is public, so self-join; best effort, same
+          # as everything else in this step.
+          jq -n --arg c "$SLACK_CHANNEL_ID" '{channel: $c}' | \
+            curl -sS --max-time 10 -X POST https://slack.com/api/conversations.join \
+              -H "Authorization: Bearer $SLACK_APP_BOT_TOKEN" \
+              -H "Content-type: application/json; charset=utf-8" \
+              --data @- >/dev/null || true
+
           if [ "$SHARDS_RAN" != "true" ]; then
             summary=":mag: dev-only E2E triage: the shards did not run, so there is nothing to triage. The failure is earlier in the train."
           elif [ "${COUNT:-0}" = "0" ]; then
