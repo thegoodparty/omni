@@ -1,7 +1,13 @@
-import { ForbiddenException, Injectable } from '@nestjs/common'
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common'
 import { ElectedOffice, ExperimentRunStatus } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { parseIsoDateAsUTC } from 'src/shared/util/date.util'
+import { SEED_BUCKET } from '@/meetings/util/seedBucket'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import { CommunityIssuesArtifact } from '../communityIssueArtifact.validation'
 import { SeedRequestDto } from '../schemas/communityIssues.schema'
 import { CommunityIssueUpsertService } from './communityIssueUpsert.service'
@@ -31,7 +37,10 @@ const EXPERIMENT_TYPE_FOR_LIST: Record<'top_community' | 'trending', string> = {
 export class CommunityIssueSeedService extends createPrismaBase(
   MODELS.CommunityIssue,
 ) {
-  constructor(private readonly upsert: CommunityIssueUpsertService) {
+  constructor(
+    private readonly upsert: CommunityIssueUpsertService,
+    private readonly s3: S3Service,
+  ) {
     super()
   }
 
@@ -48,13 +57,19 @@ export class CommunityIssueSeedService extends createPrismaBase(
     // seeded rows are produced by the real write logic, not hand-rolled inserts.
     const runByList = new Map<string, string>()
     for (const list of lists) {
+      // No artifact pointers: this run's issues go straight into
+      // upsertFromArtifact below, so its artifact never reaches S3 and the
+      // columns have nothing truthful to hold. They are nullable precisely for
+      // this case, and every consumer already treats null as "nothing to
+      // fetch" (CommunityIssueService.onExperimentRunCompleted logs and
+      // returns; AdminAgentRunsService.detail skips the GET). Naming a bucket
+      // here instead would only give those readers a pointer that resolves to
+      // someone else's bucket.
       const run = await this.client.experimentRun.create({
         data: {
           organizationSlug: org,
           experimentType: EXPERIMENT_TYPE_FOR_LIST[list],
           status: ExperimentRunStatus.COMPLETED,
-          artifactBucket: 'seed',
-          artifactKey: 'seed',
         },
       })
       runByList.set(list, run.runId)
@@ -85,11 +100,142 @@ export class CommunityIssueSeedService extends createPrismaBase(
       created.map((row) => [`${row.list}::${row.title}`, row]),
     )
 
+    // Group the related briefings by meeting date before writing anything.
+    // There is one artifact object per (office, date) and one row pointing at
+    // it, so two issues naming the same date describe one artifact with two
+    // items — not two artifacts. Writing them one issue at a time meant the
+    // second issue found the row the first had just created, skipped the
+    // upload, and left the object listing only the first item. The link row
+    // for the second was still written, and CommunityIssueService drops links
+    // whose briefingItemId is absent from the artifact, so that issue's
+    // related briefing vanished from every reader with nothing logged.
+    const briefingsByDate = new Map<
+      string,
+      {
+        briefingItemId: string
+        content: string
+        issueId: string
+        list: string
+      }[]
+    >()
     for (const issue of body.issues) {
       if (!issue.relatedBriefing) continue
       const row = idByKey.get(`${issue.list}::${issue.title}`)
       if (!row) continue
       const { meetingDate, briefingItemId, content } = issue.relatedBriefing
+      const forDate = briefingsByDate.get(meetingDate) ?? []
+      forDate.push({
+        briefingItemId,
+        content,
+        issueId: row.id,
+        list: issue.list,
+      })
+      briefingsByDate.set(meetingDate, forDate)
+    }
+
+    for (const [meetingDate, linked] of briefingsByDate) {
+      const existing = await this.client.meetingBriefing.findUnique({
+        where: {
+          electedOfficeId_meetingDate: {
+            electedOfficeId: electedOffice.id,
+            meetingDate: parseIsoDateAsUTC(meetingDate),
+          },
+        },
+        select: { artifactBucket: true, artifactKey: true },
+      })
+
+      // An existing briefing normally keeps its own pointers: it may belong to
+      // a real agent run, and repointing it at this stub would strand that
+      // run's artifact in S3 and serve dummy data for that meeting from then
+      // on. Rows this service wrote itself are the exception, and the first of
+      // the two is a row carrying the exact pair it wrote before the fix below
+      // — bucket "seed", key "seed" — which is an
+      // unambiguous signature rather than a heuristic. No writer in the repo
+      // can produce that pair now: the agent path copies the bucket the broker
+      // reports (gp-agent-artifacts-*), and both seeds write SEED_BUCKET under
+      // a prefixed key. "seed" is also a real bucket owned by someone else in
+      // ap-south-1, so no run of ours could ever have published there. A row
+      // matching it is therefore broken, and broken by this code.
+      //
+      // Repairing it here is what turns the incident from a standing manual
+      // chore into nothing: the e2e suite drives this endpoint on dev after
+      // every merge with a fixed meeting date, so the next run repoints the
+      // row that was answering `GET /v1/meetings/2026-07-01/briefing` with an
+      // S3 PermanentRedirect 768 times a week. Seeding is rejected outright on
+      // qa and prod (see isSeedEnabled), so a row like this cannot exist for a
+      // customer and the repair can only ever touch dev and preview.
+      //
+      // This branch is disposable. It has no purpose once dev and preview hold
+      // no rows with that signature — verify with `select count(*) from
+      // meeting_briefing where artifact_bucket = 'seed'` and delete it.
+      const repairsPreFixPointer =
+        existing?.artifactBucket === 'seed' && existing.artifactKey === 'seed'
+
+      // The other seed owns this (office, date) if the row carries its
+      // deterministic key, and falling through to `update: {}` would be the
+      // silent failure this file already guards in the other direction. The
+      // upload is skipped, the row keeps pointing at an artifact listing only
+      // seed-item-N, and the link rows below still get written with the
+      // caller's briefingItemIds — which CommunityIssueService drops, every
+      // one, because they are absent from that artifact. The issues would lose
+      // their related briefing with nothing logged.
+      //
+      // One row holds one seed's artifact, so the collision has to surface on
+      // the call that causes it. Only BriefingSeedService writes this prefix,
+      // and a false positive costs a spurious 409 rather than a dropped link,
+      // so the prefix alone is the check — no need to also pin the bucket,
+      // which MEETING_PIPELINE_BUCKET can legitimately vary per deploy.
+      if (existing?.artifactKey.startsWith('briefing-seed/')) {
+        throw new ConflictException(
+          `A briefing seeded by POST /v1/meetings/briefings/seed already exists for ${meetingDate}; seed the two from different meeting dates`,
+        )
+      }
+
+      // A row this service already owns has to be refreshed, not left alone.
+      // `update: {}` kept the object in S3 and the JSONB copy listing the
+      // previous call's briefingItemIds while the link rows below were written
+      // for this call's, and CommunityIssueReadService filters links through
+      // the item ids it finds in the artifact — so every link from the second
+      // call was dropped. That is the same silent failure as two issues
+      // sharing a date, one call later, and it made the endpoint
+      // non-idempotent in the one way that matters to a reader.
+      const reseedsOwnRow =
+        existing?.artifactKey.startsWith('community-issue-seed/') ?? false
+
+      // The row is ours to rewrite in both cases: a pre-fix pointer is broken
+      // by this code, and an own-prefix key was written by it.
+      const writesPointers = repairsPreFixPointer || reseedsOwnRow
+
+      // The row this creates only exists to anchor the MeetingBriefingItemLink
+      // below, but it is a fully-fledged briefing pointer as far as every
+      // reader is concerned: `GET /meetings/:date/briefing` and the PDF
+      // renderer fetch artifactBucket/artifactKey from S3 unconditionally. So
+      // the object goes up before the row that points at it, and only when
+      // this call is actually going to write pointers — leaving someone else's
+      // briefing alone means having nothing to upload.
+      const artifact = {
+        executive_summary: {
+          items: linked.map((item) => ({
+            item_id: item.briefingItemId,
+            content: item.content,
+          })),
+        },
+      }
+      const artifactKey = `community-issue-seed/${electedOffice.id}/${meetingDate}.json`
+      // Any of the linked issues' runs would do -- the row points at one run
+      // only so the NOT NULL foreign key has a value, and nothing reads a
+      // community-issue run through the briefing. Taking the first keeps it
+      // deterministic when a date spans both lists.
+      const runId = runByList.get(linked[0]!.list) ?? ''
+      if (!existing || writesPointers) {
+        await this.s3.uploadFile(
+          SEED_BUCKET,
+          JSON.stringify(artifact),
+          artifactKey,
+          { contentType: 'application/json' },
+        )
+      }
+
       const briefing = await this.client.meetingBriefing.upsert({
         where: {
           electedOfficeId_meetingDate: {
@@ -102,31 +248,72 @@ export class CommunityIssueSeedService extends createPrismaBase(
           meetingDate: parseIsoDateAsUTC(meetingDate),
           meetingTime: '18:00',
           meetingTimezone: 'America/New_York',
-          experimentRunId: runByList.get(issue.list) ?? '',
-          artifactBucket: 'seed',
-          artifactKey: 'seed',
-          artifact: {
-            executive_summary: {
-              items: [{ item_id: briefingItemId, content }],
+          experimentRunId: runId,
+          artifactBucket: SEED_BUCKET,
+          artifactKey,
+          artifact,
+        },
+        // experimentRunId has to move with the pointers in both cases. On a
+        // repair the run the broken row points at carries the same
+        // ('seed', 'seed') pair on its own columns, so leaving it attached
+        // means AdminAgentRunsService.detail still fails for that run and the
+        // row still names a run that never published anything. On a re-seed
+        // the previous call's run no longer describes the artifact now in S3.
+        // Either way the run this call created is the only value here that
+        // describes something real.
+        update: writesPointers
+          ? {
+              artifactBucket: SEED_BUCKET,
+              artifactKey,
+              artifact,
+              experimentRunId: runId,
+            }
+          : {},
+      })
+
+      // The links only mean something when the artifact they name is this
+      // call's. Having left a real agent's row alone above, writing them anyway
+      // produces rows claiming a briefing item that appears nowhere in the
+      // artifact readers fetch, and CommunityIssueReadService filters links
+      // through that artifact's item ids -- so every one is dropped and the
+      // seeded issue comes back with relatedBriefings: [] regardless. That is
+      // the same silent drop the two guards above exist to prevent, one branch
+      // later.
+      //
+      // Skipping them rather than failing the request keeps the deliberate
+      // choice made above: this endpoint's product is the issues, and a date
+      // that happens to hold a real briefing is not a reason to reject the
+      // whole seed. It is logged because the caller asked for a link and is
+      // not getting one, and nothing else would say so.
+      if (existing && !writesPointers) {
+        this.logger.warn(
+          'community-issue seed: skipped related-briefing links, the meeting date belongs to another run',
+          {
+            electedOfficeId: electedOffice.id,
+            meetingDate,
+            artifactKey: existing.artifactKey,
+            skippedBriefingItemIds: linked.map((item) => item.briefingItemId),
+          },
+        )
+        continue
+      }
+
+      for (const item of linked) {
+        await this.client.meetingBriefingItemLink.upsert({
+          where: {
+            meetingBriefingId_briefingItemId: {
+              meetingBriefingId: briefing.id,
+              briefingItemId: item.briefingItemId,
             },
           },
-        },
-        update: {},
-      })
-      await this.client.meetingBriefingItemLink.upsert({
-        where: {
-          meetingBriefingId_briefingItemId: {
+          create: {
             meetingBriefingId: briefing.id,
-            briefingItemId,
+            briefingItemId: item.briefingItemId,
+            communityIssueId: item.issueId,
           },
-        },
-        create: {
-          meetingBriefingId: briefing.id,
-          briefingItemId,
-          communityIssueId: row.id,
-        },
-        update: { communityIssueId: row.id },
-      })
+          update: { communityIssueId: item.issueId },
+        })
+      }
     }
 
     return {
