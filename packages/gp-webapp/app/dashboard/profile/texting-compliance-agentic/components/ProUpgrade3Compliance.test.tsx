@@ -7,7 +7,11 @@ import {
 } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
-import type { TcrCompliance, TcrComplianceStatus } from 'helpers/types'
+import type {
+  Campaign,
+  TcrCompliance,
+  TcrComplianceStatus,
+} from 'helpers/types'
 import ProUpgrade3Compliance from './ProUpgrade3Compliance'
 
 const mockGetTcrCompliance = vi.fn<() => Promise<TcrCompliance | null>>()
@@ -56,6 +60,15 @@ vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => mockUseUser(),
 }))
 
+// The approved-state description is gated on Campaign.hasFreeTextsOffer
+// (ENG-10440); tests mock the campaign hook and override per-case.
+const mockUseCampaign = vi.fn<() => [Partial<Campaign> | null]>(() => [
+  { hasFreeTextsOffer: false },
+])
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: () => mockUseCampaign(),
+}))
+
 const baseTcrCompliance: TcrCompliance = {
   id: 'tcr-1',
   ein: '12-3456789',
@@ -94,6 +107,9 @@ beforeEach(() => {
   )
   mockSuccessSnackbar.mockReset()
   mockErrorSnackbar.mockReset()
+  // Default to a campaign without the free-texts offer so the approved-state
+  // description doesn't advertise one; free-texts tests override this.
+  mockUseCampaign.mockReturnValue([{ hasFreeTextsOffer: false }])
 })
 
 // The PIN form uses input-otp, whose selection-sync effect schedules
@@ -225,6 +241,55 @@ describe('ProUpgrade3Compliance — status → state mapping', () => {
         screen.getByText('Your profile has been approved!'),
       ).toBeInTheDocument()
     })
+  })
+
+  // ENG-10440: the dashboard used to hardcode "Claim up to 5,000 free texts"
+  // on every approved TCR record, but the checkout discount is gated on
+  // Campaign.hasFreeTextsOffer. A candidate without the offer saw the promise
+  // and then got charged full price at checkout.
+  it('advertises free texts on the approved card ONLY when campaign.hasFreeTextsOffer is true', async () => {
+    mockUseCampaign.mockReturnValue([{ hasFreeTextsOffer: true }])
+    mockGetTcrCompliance.mockResolvedValue(tcrWith('approved'))
+    render(<ProUpgrade3Compliance />)
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Your profile has been approved!'),
+      ).toBeInTheDocument()
+    })
+    expect(
+      screen.getByText(/claim up to 5,000 free texts/i),
+    ).toBeInTheDocument()
+  })
+
+  it('does NOT advertise free texts on the approved card when campaign.hasFreeTextsOffer is false', async () => {
+    mockUseCampaign.mockReturnValue([{ hasFreeTextsOffer: false }])
+    mockGetTcrCompliance.mockResolvedValue(tcrWith('approved'))
+    render(<ProUpgrade3Compliance />)
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Your profile has been approved!'),
+      ).toBeInTheDocument()
+    })
+    expect(
+      screen.queryByText(/claim up to 5,000 free texts/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('does NOT advertise free texts when the campaign hook returns null', async () => {
+    mockUseCampaign.mockReturnValue([null])
+    mockGetTcrCompliance.mockResolvedValue(tcrWith('approved'))
+    render(<ProUpgrade3Compliance />)
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Your profile has been approved!'),
+      ).toBeInTheDocument()
+    })
+    expect(
+      screen.queryByText(/claim up to 5,000 free texts/i),
+    ).not.toBeInTheDocument()
   })
 
   it('renders the denied state when status is `rejected`', async () => {
