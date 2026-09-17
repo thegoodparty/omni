@@ -29,6 +29,7 @@ import {
   User,
 } from '../../generated/prisma'
 import { OutreachRobocallService } from './outreachRobocall.service'
+import { OutreachNotificationService } from './outreachNotification.service'
 import { RobocallOrphanedCampaignService } from './robocallOrphanedCampaign.service'
 import {
   OrphanHoldReason,
@@ -63,6 +64,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     private readonly orphanedCampaigns: RobocallOrphanedCampaignService,
     private readonly orphanedHolds: RobocallOrphanedHoldService,
     private readonly robocallSingleSend: OutreachRobocallSingleSendService,
+    private readonly notification: OutreachNotificationService,
   ) {
     super()
   }
@@ -159,7 +161,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
       }
       // Card saved and the send is committed (the hold lands later, when the
       // deferred sweep runs in-window). Make the row visible now.
-      await this.markSpineScheduled(outreachId)
+      await this.scheduleSpineAndNotify(outreachId, user, campaign)
       return {
         status: 'deferred',
         settleState: RobocallSettleState.pending_payment,
@@ -433,7 +435,7 @@ export class OutreachRobocallHoldService extends createPrismaBase(
 
     // The hold committed, so this is a real scheduled send: make it visible in
     // the history list.
-    await this.markSpineScheduled(outreachId)
+    await this.scheduleSpineAndNotify(outreachId, user, campaign)
 
     // The commit just nulled callhubCampaignPkStr. If a previously-staged
     // campaign was there (a hold_failed re-auth re-derives the count, so the old
@@ -481,16 +483,51 @@ export class OutreachRobocallHoldService extends createPrismaBase(
   // committed, so a transient failure must not 500 a money-succeeded request —
   // a 500 sends the retry to the placement CAS's noop path, which returns
   // 'authorized' and never re-flips. A miss only leaves the row hidden; log it.
-  private async markSpineScheduled(outreachId: number) {
+  private async markSpineScheduled(outreachId: number): Promise<boolean> {
     try {
-      await this.client.outreach.updateMany({
+      const res = await this.client.outreach.updateMany({
         where: { id: outreachId, status: OutreachStatus.pending_payment },
         data: { status: OutreachStatus.pending },
       })
+      return res.count > 0
     } catch (err) {
       this.logger.error(
         { err, outreachId },
         'robocall: failed to advance spine to pending for history',
+      )
+      return false
+    }
+  }
+
+  // Advance the spine to scheduled AND, only on the real pending_payment ->
+  // pending transition, fire the CAS "Campaign Schedule Request" Slack notice
+  // once (product 2026-09-17: VO2.0 robocall stopped posting to the CAS channel
+  // the legacy flow used). Gated on the transition so a re-authorize (already
+  // pending) never re-notifies. Best-effort: the schedule already committed, so
+  // a notify failure must never affect the money path.
+  private async scheduleSpineAndNotify(
+    outreachId: number,
+    user: User,
+    campaign: Campaign,
+  ): Promise<void> {
+    const scheduled = await this.markSpineScheduled(outreachId)
+    if (!scheduled) return
+    try {
+      const outreach = await this.client.outreach.findUnique({
+        where: { id: outreachId },
+        include: { voterFileFilter: true },
+      })
+      if (outreach) {
+        await this.notification.notifyRobocallScheduled(
+          user,
+          campaign,
+          outreach,
+        )
+      }
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId, campaignId: campaign.id },
+        'robocall: CAS scheduled notify failed',
       )
     }
   }
