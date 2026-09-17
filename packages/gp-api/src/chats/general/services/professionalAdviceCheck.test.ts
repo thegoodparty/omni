@@ -100,49 +100,44 @@ describe('professionalAdviceDisclaimer', () => {
     ).toBeNull()
   })
 
-  it('stays quiet on routine mentions of the tightened terms', () => {
-    expect(
-      professionalAdviceDisclaimer(
-        'Your last two texts had a 42% opt-in rate, up from 35%.',
-      ),
-    ).toBeNull()
-    expect(
-      professionalAdviceDisclaimer(
-        'Your robocall to 500 voters went out this morning.',
-      ),
-    ).toBeNull()
-    expect(
-      professionalAdviceDisclaimer('The robocall went out fine this time.'),
-    ).toBeNull()
-    expect(
-      professionalAdviceDisclaimer('Your TCPA registration is active.'),
-    ).toBeNull()
-    expect(
-      professionalAdviceDisclaimer(
-        'Your 10DLC registration cleared this morning, so your texts ' +
-          'are sending now.',
-      ),
-    ).toBeNull()
-    expect(
-      professionalAdviceDisclaimer(
-        'Your filing deadline is March 1, about six weeks away.',
-      ),
-    ).toBeNull()
-    expect(
-      professionalAdviceDisclaimer(
-        "You'll miss the filing deadline if you wait much longer.",
-      ),
-    ).toBeNull()
-    expect(
-      professionalAdviceDisclaimer(
-        'Your campaign finance report is due at the end of the quarter.',
-      ),
-    ).toBeNull()
-    expect(
-      professionalAdviceDisclaimer(
-        'The disclaimer requirement checkbox is enabled in your campaign.',
-      ),
-    ).toBeNull()
+  it.each([
+    [
+      'an opt-in-rate report',
+      'Your last two texts had a 42% opt-in rate, up from 35%.',
+    ],
+    [
+      'a routine robocall status update',
+      'Your robocall to 500 voters went out this morning.',
+    ],
+    ['a robocall going "fine"', 'The robocall went out fine this time.'],
+    ['a TCPA status update', 'Your TCPA registration is active.'],
+    [
+      'a 10DLC status update',
+      'Your 10DLC registration cleared this morning, so your texts ' +
+        'are sending now.',
+    ],
+    [
+      'a routine filing-deadline mention',
+      'Your filing deadline is March 1, about six weeks away.',
+    ],
+    [
+      'a filing deadline you might miss',
+      "You'll miss the filing deadline if you wait much longer.",
+    ],
+    [
+      'a campaign-finance-report reminder',
+      'Your campaign finance report is due at the end of the quarter.',
+    ],
+    [
+      'a campaign-finance-rules link',
+      "Here's a link to your state's campaign finance rules.",
+    ],
+    [
+      'a disclaimer-requirement setting',
+      'The disclaimer requirement checkbox is enabled in your campaign.',
+    ],
+  ])('stays quiet on %s', (_label, input) => {
+    expect(professionalAdviceDisclaimer(input)).toBeNull()
   })
 
   it('does not double the line when the model already disclaimed', () => {
@@ -154,32 +149,29 @@ describe('professionalAdviceDisclaimer', () => {
     ).toBeNull()
   })
 
-  it('skips the line when a reply names an election contact', () => {
-    expect(
-      professionalAdviceDisclaimer(
-        'That contribution limit does not apply to a self-funded loan. ' +
-          'Confirm with your state election board before you rely on ' +
-          'this.',
-      ),
-    ).toBeNull()
-    expect(
-      professionalAdviceDisclaimer(
-        'RCW 42.17A applies here. Check with an election attorney ' +
-          'before you rely on this.',
-      ),
-    ).toBeNull()
-    expect(
-      professionalAdviceDisclaimer(
-        'TCPA rules allow that many calls per day. Confirm with your ' +
-          'election office before you rely on this.',
-      ),
-    ).toBeNull()
-    expect(
-      professionalAdviceDisclaimer(
-        'Campaign finance rules require a report every quarter. Check ' +
-          'with your election bureau before you rely on this.',
-      ),
-    ).toBeNull()
+  it.each([
+    [
+      'the state election board',
+      'That contribution limit does not apply to a self-funded loan. ' +
+        'Confirm with your state election board before you rely on this.',
+    ],
+    [
+      'an election attorney',
+      'RCW 42.17A applies here. Check with an election attorney before ' +
+        'you rely on this.',
+    ],
+    [
+      'the election office',
+      'TCPA rules allow that many calls per day. Confirm with your ' +
+        'election office before you rely on this.',
+    ],
+    [
+      'the election bureau',
+      'Campaign finance rules require a report every quarter. Check ' +
+        'with your election bureau before you rely on this.',
+    ],
+  ])('skips the line when a reply names %s', (_label, input) => {
+    expect(professionalAdviceDisclaimer(input)).toBeNull()
   })
 
   it('skips the line when a reply says not to rely on it', () => {
@@ -206,6 +198,16 @@ describe('professionalAdviceDisclaimer', () => {
       professionalAdviceDisclaimer(
         'Check the election office hours before you go. Robocalls are ' +
           'legal at that volume.',
+      ),
+    ).toBe(appended)
+  })
+
+  it('still appends when "rely on" only follows past a sentence break', () => {
+    expect(
+      professionalAdviceDisclaimer(
+        'Check the election office hours! You can rely on same-day ' +
+          'registration for this event. Robocalls are legal at that ' +
+          'volume.',
       ),
     ).toBe(appended)
   })
