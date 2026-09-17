@@ -45,6 +45,25 @@ describe('routing every provisioned alert', () => {
     ).toEqual([])
   })
 
+  // Why the deploy-time check in grafana.ts runs only for prod. Non-prod going
+  // to 'nowhere' is correct, but 'nowhere' is not an expected prod receiver, so
+  // checking a dev deploy against that list flags every slug at once. A
+  // warning that always fires is one nobody reads, which is the failure the
+  // guard exists to catch.
+  it('flags every slug in dev, which is why the deploy check is prod-only', () => {
+    const misrouted = misroutedAlerts({
+      tree: POLICY,
+      slugs: allSlugs(),
+      environment: 'dev',
+      expected: EXPECTED_PROD_RECEIVERS,
+    })
+
+    expect(misrouted).toHaveLength(allSlugs().length)
+    expect(new Set(misrouted.map((m) => m.receiver))).toEqual(
+      new Set(['nowhere']),
+    )
+  })
+
   it('sends non-prod nowhere, which is what keeps dev out of Slack', () => {
     expect(
       receiverFor(POLICY, { alert_slug: 'gp-api-5xx', environment: 'dev' }),

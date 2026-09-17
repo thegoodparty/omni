@@ -133,6 +133,15 @@ const checkAlertRouting = async ({
     )
   }
 
+  // The misrouting check is prod-only, because the tree is prod-centric: the
+  // `environment != prod` route sends everything else to 'nowhere', which is
+  // correct and is what keeps dev out of Slack. Checking a dev deploy against
+  // EXPECTED_RECEIVERS would therefore report all seventeen slugs as
+  // misrouted, and a warning that always fires is one nobody reads — the exact
+  // failure this function exists to catch. Drift above is still checked
+  // everywhere, since the tree is global and a dev deploy can see it move.
+  if (environment !== 'prod') return
+
   const misrouted = misroutedAlerts({
     tree: live,
     slugs,
