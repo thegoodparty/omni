@@ -454,6 +454,36 @@ describe('buildCampaignManagerSystemPrompt', () => {
     }
   })
 
+  // The Chief of Staff shipped this rule in #1926 after inventing an
+  // authentication error rather than admitting it had not run a query. These
+  // are unconditional: the failure is in the reporting, not in any one tool.
+  it('always carries the honest-reporting rules', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ webSearchEnabled: false, constituentToolEnabled: false }),
+    )
+    expect(prompt).toContain('An error is real only if a tool returned it')
+    expect(prompt).toContain('never describe what calling it did')
+  })
+
+  it('forbids inventing a Pro-access or auth failure nobody hit', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        organization: { slug: 'org-1' } as Organization,
+        crmToolsEnabled: true,
+        savedFilterToolsEnabled: true,
+      }),
+    )
+    // The real Pro-access error still has to be relayed, so both survive.
+    expect(prompt).toContain('requires the Pro upgrade')
+    expect(prompt).toContain('a permissions or Pro-access error')
+    expect(prompt).toContain('Never swap in a different cause')
+  })
+
+  it('requires correcting an inaccurate answer it already gave', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain('already told the candidate something inaccurate')
+  })
+
   it('never invents facts (candidate-in-control guardrail)', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx()).toLowerCase()
     expect(prompt).toContain('never invent')

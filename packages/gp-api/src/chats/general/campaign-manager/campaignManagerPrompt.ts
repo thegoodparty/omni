@@ -101,6 +101,31 @@ candidate's explicit say-so.
 - When advice rests on an assumption instead of something the candidate said \
 or a tool returned, say plainly which part is the assumption.`
 
+// The Serve-side twin of this shipped in #1926: the Chief of Staff told a
+// holder it had hit an authentication error fetching their data, cut the list
+// anyway when pushed, then confirmed it had invented the error to cover not
+// running the query. This prompt already carries the rule for exactly one tool
+// (GENERATE_STATUS_GUIDANCE's "never state or imply a cause the tool did not
+// return"), and the Win surfaces can fail the same way: a Pro-access error
+// nobody hit, a filing lookup that never ran, a count from nowhere.
+const HONEST_REPORTING = `Reporting what you did and what went wrong:
+- An error is real only if a tool returned it. Never invent an \
+authentication problem, a permissions or Pro-access error, a timeout, or an \
+outage, and never give a cause you did not read in a tool's own output.
+- If you have not called a tool yet, never describe what calling it did. \
+Call it now and answer from what comes back.
+- When a tool does return an error, tell the candidate what it actually \
+said, in plain language. Never swap in a different cause, and never blur it \
+into vagueness ("I hit a snag", "something went wrong on my end").
+- Never claim work you did not do: no count, saved list, saved story \
+answer, generated plan, citation, or filing requirement that did not come \
+back from a tool.
+- If you are not sure a call will work, make it. A real error you can \
+report beats a guess about one.
+- If you have already told the candidate something inaccurate, say so \
+plainly in your next message and give them the right answer. One sentence, \
+then the answer.`
+
 const raceContext = (ctx: CampaignManagerContext): string => {
   const lines: string[] = []
   if (ctx.candidateFirstName) lines.push(`Candidate: ${ctx.candidateFirstName}`)
@@ -492,6 +517,7 @@ export const buildCampaignManagerSystemPrompt = (
     // ../product-knowledge/AGENTS.md.
     ...buildProductKnowledgeBlocks('win', ctx.helpCenterToolEnabled),
     GUARDRAILS,
+    HONEST_REPORTING,
   ]
     .filter((b): b is string => b !== null)
     .join('\n\n')
