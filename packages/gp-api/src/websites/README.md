@@ -8,7 +8,18 @@ The main website entity that stores campaign website data including content, sta
 
 ### Domain
 
-For using a custom domain for a website. Stored AWS Route53 operationId for polling registration status. Stores the registration price and a Stripe paymentId for connecting a customer payment to the entity.
+For using a custom domain for a website. `operationId` holds the Vercel registrar order id (falling back to a synthetic `vercel-<domain>-<timestamp>` when Vercel returns none). Stores the registration price and a Stripe paymentId for connecting a customer payment to the entity.
+
+The two vendors split the work, which is easy to get wrong when reading this module:
+
+| Concern                                                              | Vendor               |
+| -------------------------------------------------------------------- | -------------------- |
+| Availability checks, name suggestions                                | **AWS Route 53**     |
+| Pricing, registration, renewal, project hosting, transfer auth codes | **Vercel registrar** |
+
+So a domain is _registered_ through Vercel even though it was _searched_ through Route 53. Anything describing registration, renewal, or DNS as a Route 53 operation is out of date.
+
+A row in this table only ever comes from a campaign purchase, which is what distinguishes candidate domains from GoodParty's own infrastructure domains living in the same Vercel team.
 
 ### WebsiteContact
 
@@ -185,75 +196,75 @@ Used for very basic tracking of visitor views. Frontend generates a UUID in loca
 - **Not really used just for development**
 - **Query Parameters:**
   - `domain`: Domain name to get details for
-- Returns comprehensive domain details from AWS Route53
+- Returns domain details straight from Vercel. Note this does **not** check our own `domain` table first, so it will answer for any domain in the Vercel team, including GoodParty infrastructure domains
 - Requires admin role
 
-#### Domain Registration
+#### Domain Search
 
-**POST** `/domains`
+**GET** `/domains/search`
 
-- Initiates the domain registration process
+- **Query Parameters:**
+  - `domain`: Single domain name to check
+- Returns availability and price for that one name
+
+**POST** `/domains/search`
+
+- Pattern search for the calling campaign, also exposed as an MCP tool
 - **Payload Structure:**
   ```typescript
   {
-    domain: string // Domain name to register
+    patterns: string[]  // bare SLDs, or names with an approved TLD
+    maxPrice: number    // per-domain cap
   }
   ```
-- **Process:**
-  1. Checks domain availability
-  2. Gets pricing from AWS Route53
-  3. Creates Stripe payment intent
-  4. Creates domain record with 'pending' status
-- **Returns:**
-  - Domain record with pricing
-  - Stripe payment secret for client-side payment processing
+- Bare SLDs are fanned out across the approved campaign TLDs only (see `SUPPORTED_TLDS`) — `.com` / `.org` / `.net` are never offered
+- Returns `{ candidates: [{ domain, price }] }`, available names only. An empty list means nothing matched under the cap
+- Availability comes from Route 53, pricing from Vercel
+- Read-only and safe to retry
 
-#### Complete Domain Registration
+#### Purchase Domain
 
-**POST** `/domains/complete`
+**POST** `/domains/purchase`
 
-- Completes domain registration after payment is processed
-- **Current Implementation:**
-  - No payload required (contact info is hardcoded)
-  - Uses dummy contact data for AWS registration
-  - **TODO:** Update to accept contact info in payload (WEB-4233)
-- **Process:**
-  1. Verifies payment completion
-  2. Sends registration request to AWS Route53 with hardcoded contact info
-  3. Updates domain status to 'submitted'
-  4. Returns AWS operation ID for status polling
-- **Future Payload Structure:**
+- Registers a searched domain for the calling campaign. Replaces the old `POST /domains` + `POST /domains/complete` pair
+- **Payload Structure:**
   ```typescript
   {
-    firstName: string
-    lastName: string
-    email: string
-    phoneNumber: string
-    addressLine1: string
-    addressLine2?: string
-    city: string
-    state: string
-    zipCode: string
+    domain: string
+    maxPrice: number // same cap the search was run with
   }
   ```
+- **Process:**
+  1. Re-checks the live Vercel price against `maxPrice` and rejects with 409 if it moved between search and purchase
+  2. Buys through the Vercel registrar with `autoRenew: true` and GoodParty's own contact details as WHOIS registrant
+  3. Attaches the domain to the Vercel project
+  4. Records the registrar order id as `operationId` and moves the domain to `submitted`
+- Idempotent per campaign via a Postgres advisory transaction lock, so it is safe to retry. A repeated call for the same domain returns `alreadyExisted: true`
+- `source` is recorded as `agentic` when the caller presents an agent token, otherwise `manual`
+- Returns 202. Poll `GET /domains/status` to watch it reach `registered` / `active`
 
 #### Check Registration Status
 
 **GET** `/domains/status`
 
-- Checks the status of domain registration with AWS
-- Queries AWS Route53 for operation completion
-- Updates domain status to 'registered' when successful
-- Returns current operation status from AWS
+- Reports the campaign's stored domain status alongside its Stripe payment status
+- Reads our own `domain` row and Stripe — it does **not** poll Vercel. Progression through `submitted` → `registered` is driven by the purchase flow's own registrar-order polling
+- Returns `NO_DOMAIN` when the campaign has a website but no domain row
 
 #### Configure Domain
 
 **POST** `/domains/configure`
 
-- Configures DNS and hosting after successful registration
 - **Process:**
-  1. Disables auto-renewal on AWS Route53
-  2. Sets DNS A record to point to Vercel's IP
-  3. Adds domain to Vercel project for hosting
-  4. Updates domain status to 'active'
-- To be called after registration is complete and domain is 'registered'
+  1. Calls Vercel's verify-project-domain for the campaign's domain
+  2. Updates domain status to `registered`
+- No DNS records are set by hand and no A record is pointed anywhere: the domain is registered through Vercel, so Vercel already holds the nameservers. Attaching the domain to the project happens during purchase, not here
+- Auto-renew is **not** disabled here or anywhere else. Domains stay on `autoRenew: true` for the life of our registration, on the grounds that a lapsed domain mid-campaign is worse than an unwanted renewal
+- To be called after registration is complete and domain is `registered`
+
+#### Delete Domain
+
+**DELETE** `/domains`
+
+- Removes the domain from the Vercel project and deletes the `domain` row
+- Does **not** cancel the registration with the registrar — the name stays in GoodParty's Vercel account until it expires

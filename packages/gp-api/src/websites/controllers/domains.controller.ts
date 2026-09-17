@@ -266,7 +266,10 @@ export class DomainsController {
     }
   }
 
-  // After domain is successfully registered, disable auto renew and configure DNS
+  // After domain is successfully registered, verify it with Vercel and mark it
+  // active. Auto-renew is left on: Vercel registers with autoRenew: true and
+  // nothing turns it off, which is deliberate — letting a candidate's domain
+  // lapse mid-campaign is the worse failure.
   // TODO: should be handled by a queued job instead of a controller https://goodparty.atlassian.net/browse/WEB-4233
   @Post('configure')
   @UseCampaign()
