@@ -7,6 +7,7 @@ import {
 import {
   ALERT_OWNERSHIP,
   CONTROLLERS_WITHOUT_ROUTE_ALERTS,
+  GLOBAL_ALERTS,
   SERVER_ERRORS_ONLY,
 } from '../alerts'
 import { controllerAlerts } from './controller-alerts'
@@ -338,6 +339,37 @@ describe('every controller is accounted for', () => {
 
       const [alert] = controllerAlerts(controller)
       expect(alert?.disabled, `${controller}`).toBe(unmonitored.has(controller))
+    }
+  })
+
+  // The two controllers that are on the list and still alerted on, paired with
+  // the hand-written rule that does it. Being on the list means "no generated
+  // rule", which for these two is a choice about the tool rather than about
+  // whether anyone watches — so the rule they were traded for has to exist.
+  const BESPOKE_COVERAGE: ReadonlyArray<readonly [ControllerName, string]> = [
+    ['public-campaigns', 'public-campaigns-lookup-error-ratio'],
+    ['public-person-profiles', 'public-person-profiles-error-ratio'],
+  ]
+
+  // Until now the trade was only prose, in the comment on
+  // CONTROLLERS_WITHOUT_ROUTE_ALERTS. Deleting either rule from GLOBAL_ALERTS
+  // took a public controller back to no alerting at all with every test still
+  // green, which is the state this PR exists to make impossible to reach
+  // quietly. Pairing the two halves means removing one without the other is a
+  // failure that names what it costs.
+  it('keeps the hand-written rules the two public controllers rely on', () => {
+    const slugs = new Set(GLOBAL_ALERTS.map((alert) => alert.slug))
+
+    for (const [controller, slug] of BESPOKE_COVERAGE) {
+      expect(
+        unmonitored.has(controller),
+        `${controller} is covered by ${slug} instead of a generated rule, so it belongs in CONTROLLERS_WITHOUT_ROUTE_ALERTS`,
+      ).toBe(true)
+
+      expect(
+        slugs.has(slug),
+        `${controller} has no generated route alert, and ${slug} is no longer in GLOBAL_ALERTS — nothing alerts on it at all`,
+      ).toBe(true)
     }
   })
 })
