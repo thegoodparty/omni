@@ -866,7 +866,7 @@ describe('CampaignManagerHandler.maybeCannedReply', () => {
   })
 
   describe('finalizeAssistantText (professional-advice backstop)', () => {
-    it('appends the disclaimer to a texting-consent answer with no caveat', () => {
+    it('appends the disclaimer to a texting-consent answer', () => {
       const handler = buildHandler()
       const answer =
         'No, you do not need opt-in consent before texting your list.'

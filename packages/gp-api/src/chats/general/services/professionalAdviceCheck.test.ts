@@ -121,7 +121,7 @@ describe('professionalAdviceDisclaimer', () => {
     ).toBeNull()
   })
 
-  it('does not double the line when a reply names the election office, an election attorney, or the state board', () => {
+  it('skips the line when a reply names an election contact', () => {
     expect(
       professionalAdviceDisclaimer(
         'That contribution limit is $1,000. Do not rely on my answer ' +
