@@ -607,14 +607,20 @@ idempotency-key thread alone as "not mine to resolve". Asking there would assert
 something false and buy a re-review that returns the same blocker, so that case
 goes straight to a human instead.
 
-**`gpbot-review-gap-alert.yml` deliberately does not do this**, and the
-difference is worth being precise about. That workflow reports the same gap
-across every PR in the repo and refuses to send `delegate review` itself,
-because on a human's PR the reply is a claim only the author can make, against a
-head they may still be editing. Both halves of that objection dissolve here and
-only here: the drive **is** the author of the commit, and it has just
-established the board is green and nothing is in flight. The alert still covers
-every PR this does not act on.
+**It only ever happens on the bot's own PRs**, and nothing covers the same gap
+anywhere else. `delegate review` is a claim that the blockers were addressed,
+made against a head that may still be moving; both halves are fine here and
+only here, because the drive **is** the author of the commit and has just
+established the board is green with nothing in flight.
+
+`gpbot-review-gap-alert.yml` used to report this gap across every PR in the
+repo, and was deleted rather than narrowed to bot PRs — narrowing it would only
+have duplicated this. Its Slack post named the PR's author, and on the run that
+retired it two of the three names had nothing to do: one author's blockers were
+already addressed and pushed, and the other was Dependabot, which cannot read
+Slack. Their PRs were waiting on two fixed words, not on them. Asking on their
+behalf instead is a different overreach, so the answer was neither: other
+people's PRs are other people's.
 
 A missing approval **fails toward asking**, the opposite of the `UNKNOWN`
 mergeability default, because the costs are not symmetric: a wrong "approved" is
@@ -638,13 +644,29 @@ the PR to a human — a drive that cannot tell how many times it has asked is
 exactly the one that should not ask again, because the alternative is the same
 comment every 30 minutes for as long as the PR stays open.
 
+**And they are counted against the current head, not the whole PR.** This is
+the difference between a cap and a trap. An approval names a commit, so every
+push is a new question — and on these PRs the pushes are the drive's own fix
+runs. Two asks for the life of a PR that spends its two fix runs leaves the
+final commit unable to ask at all, and the PR then escalates as "the reviewer
+will not approve" when the reviewer was never asked about that code. Delegate
+also answers a mid-review push with *"the PR tip moved during review
+(`a884375b` → `b11ce98c`) ... reply `delegate review` to re-check"*, which is an
+instruction rather than a refusal; counted per-PR that exchange spends an ask
+and produces no review.
+
+The anchor is the head commit's committer date, with one skew in the safe
+direction: after a rebase that date can be newer than an ask that preceded it,
+so the ask counts against the new head. That spends an ask early rather than
+asking too often.
+
 ### Caps, and where they live
 
 | Cap | Value | Why |
 |---|---|---|
 | Re-runs | 3 | Costs CI minutes and no model spend, so the number is set by observation rather than price: #1319 hit the same apt-get hang **twice in a row**, so 1 or 2 would have escalated a pure flake to a human |
 | Fix runs | 2 | Matches ship-pr Phase 3's "stop after 2 check-fix rounds". At $1.50-$5 a run this holds the feature to ~$10 per PR, on top of the ~$30 an escalated ticket may already have spent |
-| Review requests | 2 | Asking costs one comment, but what follows is a real review. A reviewer that declined twice is making a judgement rather than flaking, and a third ask would only be louder. Counted off the PR's comments rather than the state block |
+| Review requests | 2 **per head** | Asking costs one comment, but what follows is a real review. A reviewer that declined twice about the same commit is making a judgement rather than flaking, and a third ask would only be louder. Counted off the PR's comments rather than the state block |
 
 The fix-run budget is **shared** between conflicts, failing checks and review
 findings, because what it bounds is money rather than any one activity. A PR

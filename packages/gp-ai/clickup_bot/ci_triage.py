@@ -499,6 +499,10 @@ def _coerce_asks(value: Any) -> int:
     PR goes to a human. A drive that cannot tell how many times it has asked is
     exactly the drive that should not ask again: the cheap failure is one
     escalation, the expensive one is the same comment every 30 minutes forever.
+
+    SCOPED TO THE CURRENT HEAD by the caller, which only sharpens the point: an
+    approval names a commit, so an ask about a commit the branch has moved past
+    is not an ask about this one and must not count against it.
     """
     return MAX_REVIEW_REQUESTS if value is None else _coerce_count(value)
 
@@ -924,14 +928,17 @@ def _decide_review(asks_made: int, reviewer_blocking: bool, next_state: Any) -> 
     on open and on request, never on push, so any fix run this drive launched
     invalidated the approval and left nothing in its place.
 
-    WHY THIS MAY ASK WHEN gpbot-review-gap-alert.yml DELIBERATELY WILL NOT.
-    That workflow reports the same gap across the whole repo and refuses to send
-    `delegate review` itself, because on a human's PR the reply is a claim about
-    blockers only the author can make, against a head they may still be editing.
-    Both halves of that objection dissolve here and only here: the drive IS the
-    author of this commit, and it has just established that the board is green
-    and nothing is in flight. It is asking for a verdict on its own work, not
-    speaking for somebody else. The alert still covers every PR this does not.
+    AND ONLY ON THE BOT'S OWN PRs, which is why asking is the drive's to do and
+    nobody else's. The reply is a claim that the blockers were addressed, made
+    against a head that may still be moving. Both halves are fine here and only
+    here: the drive IS the author of this commit, and it has just established
+    that the board is green and nothing is in flight. It asks for a verdict on
+    its own work rather than speaking for somebody else.
+
+    gpbot-review-gap-alert.yml used to report the same gap repo-wide and was
+    deleted rather than narrowed. Naming a person in Slack for a PR this bot
+    does not drive puts the work on them, and most of those names had nothing
+    to do — their PR was waiting on two fixed words, not on them.
 
     AND IT STANDS DOWN WHEN THE REVIEWER IS STILL BLOCKING, which is the other
     half of keeping that claim true — see reviewer_is_blocking. Then the PR is
@@ -942,6 +949,12 @@ def _decide_review(asks_made: int, reviewer_blocking: bool, next_state: Any) -> 
     cap from MAX_RERUNS. If delegate has looked at this commit twice and still
     withholds approval, escalating names the PR to a human rather than leaving
     it to the stale-PR alert to notice days later.
+
+    `asks_made` IS PER HEAD, counted by the caller against the head commit's
+    date — "twice about this commit", not "twice in this PR's life". The cap
+    reads as a judgement only under that scope: every push is a new question,
+    and a PR that spends two fix runs would otherwise reach its last commit
+    unable to ask at all and escalate as a reviewer that will not approve.
     """
     if reviewer_blocking:
         return {
