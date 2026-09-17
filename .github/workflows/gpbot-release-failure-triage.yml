@@ -1,0 +1,486 @@
+name: gpbot-release-failure-triage
+
+# File a ClickUp ticket when the release train fails, so the bot pipeline
+# investigates it instead of a human noticing days later.
+#
+# WHY THIS EXISTS: nothing reacted to a failed release train. Two workflows
+# listened for `release` completing — release-failure-alert.yml, which posts to
+# Slack and dispatches nothing, and gpbot-dev-test-triage.yml, which only files
+# for failing `@dev-only` Playwright specs. A train that dies BEFORE the E2E
+# shards therefore reached no queue at all: the shards are skipped, no report is
+# uploaded, the spec triage answers `shards_ran: false` and files nothing, and
+# the whole event leaves one Slack message waiting to be read.
+#
+# That is the gap the Sep 2026 incident (ENG-11106/11107) ran through: ~20
+# consecutive failed runs over three days with nobody told. It is not
+# hypothetical since, either — on 2026-09-17 releases 35273516196 and
+# 35275512629 both died in `Dev gp-ai` on a filename bug in release.yml's own
+# convergence check, prod could not ship for forty minutes, and the only reason
+# it was found is that a human happened to be reading #bot-urgent.
+#
+# WHY A TICKET AND NOT A DIRECT AGENT DISPATCH: the same three reasons
+# gpbot-dev-test-triage.yml gives. The ticket IS the deduplication key; ClickUp
+# is where the previous investigation's comment already lives, so the next red
+# run can see it; and a `fix` verdict escalates to an implement run through the
+# identical path a human-filed bug takes. Dispatching directly would mean
+# rebuilding all three.
+#
+# WHAT IT DOES NOT TICKET, and both boundaries matter:
+#
+#   - THE E2E PHASE. gpbot-dev-test-triage.yml files one ticket per failing
+#     `@dev-only` spec off this same event, with the spec's fingerprint and a
+#     repro command — strictly better than anything derivable from a job name
+#     here. Two listeners filing for one failure would buy two investigations
+#     into one question. release_failure_triage.DEFERRED_PHASES is where that
+#     is enforced, and the deferral is REPORTED rather than silent so the Slack
+#     thread still shows this triage saw the run.
+#   - CANCELLED RUNS. The train cancels to coalesce a burst of merges
+#     (release.yml's concurrency note). On 2026-09-17 five of six consecutive
+#     runs were cancelled that way; ticketing them would file an incident per
+#     merge in a busy hour.
+#
+# ONE TICKET PER RED STREAK, not per failed run. A train red for twenty runs
+# must buy one investigation, and "same failure" is decided by the signature
+# release_failure_triage.signature computes — normalised so the commit sha, run
+# id and timings that change every run do not make every run a new incident.
+# The streak boundary is the last SUCCESSFUL release run: a failure that
+# recurs after the train has gone green is a new incident and gets its own
+# ticket, because the first one was closed by something that worked.
+#
+# SEPARATE FROM release-failure-alert.yml, which is the human-facing half and
+# must stay the fast, simple one. This checks out the repo, reads job
+# annotations and writes to ClickUp, and its failures must not be able to
+# suppress that alert. Where they meet is Slack: this threads its disposition
+# under that alert's message for the same run, so one place shows both what
+# broke and what the bot did about it.
+
+on:
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+  # The `workflow_run` half only ever runs the copy of this file on the default
+  # branch, so nothing here is exercisable from a PR. This input is how it gets
+  # tested before it merges, and how a run is re-triaged after the ClickUp tag
+  # or a repo variable is fixed.
+  #
+  # release-failure-alert.yml has no such input, and paid for it: its first
+  # live delivery attempt was its first real failed release, three days after
+  # merging, and it failed — the app was not in #bot-urgent and could not join.
+  # An alerting path that cannot be exercised on demand is one whose first test
+  # is an incident.
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: The release run id to triage
+        required: true
+      dry_run:
+        description: Report what would be filed without writing to ClickUp or Slack
+        type: boolean
+        default: true
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+
+# One triage per release run. Two runs racing on the same failure would both
+# see no existing ticket and both file one.
+concurrency:
+  group: gpbot-release-failure-triage-${{ github.event.workflow_run.id || inputs.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    name: Triage release failures
+    # 'cancelled' is excluded here as it is in release-failure-alert.yml and
+    # gpbot-dev-test-triage.yml, for the reason in the header.
+    #
+    # main only. release.yml is a main-push workflow, but a workflow_dispatch of
+    # the train from a branch would otherwise file tickets about code that is
+    # not on main and that nobody can act on.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (contains(fromJson('["failure","timed_out","startup_failure"]'), github.event.workflow_run.conclusion)
+          && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+      DRY_RUN: ${{ inputs.dry_run || 'false' }}
+      CLICKUP_API_TOKEN: ${{ secrets.CLICKUP_API_TOKEN }}
+      # Platform > Bugs, the same list gpbot-dev-test-triage.yml files into.
+      # Engineering-space, so tasks get ENG- custom_ids — which the implement
+      # run needs, because it names the branch after one
+      # (`ENG-1234/gp-bot_...`). A list without them would produce branches
+      # gpbot-pr-triage.yml cannot route back to an owning group.
+      CLICKUP_LIST_ID: ${{ vars.CLICKUP_RELEASE_FAILURE_LIST_ID || '901320540273' }}
+      # gpbot-analyze and NOT gpbot-work. The analyze agent reads the repo and
+      # decides `fix` / `no-code-change` / `needs-human`, and escalation.py
+      # applies gpbot-work on a `fix` verdict — so an implement run still
+      # happens, through the judgement step rather than instead of it. Tagging
+      # gpbot-work here would point a model straight at the release pipeline on
+      # the strength of a log-line match, which is the one thing
+      # ci_triage.decide refuses to do ("INFRA NEVER BECOMES AN AGENT RUN").
+      ANALYZE_TAG: gpbot-analyze
+      # gp_ai_bot, like every other gpbot workflow — NOT
+      # secrets.SLACK_APP_BOT_TOKEN, which is the analytics app and a member of
+      # #product-analytics only. Both workflows that post here shipped with
+      # that one, which is how a red release train went three days unannounced.
+      SLACK_TOKEN: ${{ secrets.GPBOT_SLACK_BOT_TOKEN }}
+      SLACK_CHANNEL_ID: ${{ vars.SLACK_URGENT_CHANNEL_ID }}
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          # ci_triage.py comes along because release_failure_triage.py imports
+          # INFRA_LOG_SIGNATURES from it rather than keeping a second copy. It
+          # has no imports of its own, so this is the whole dependency.
+          sparse-checkout: |
+            packages/gp-ai/clickup_bot/release_failure_triage.py
+            packages/gp-ai/clickup_bot/ci_triage.py
+          sparse-checkout-cone-mode: false
+
+      # Resolved rather than taken from the event, because workflow_dispatch has
+      # no event payload to take them from and both paths need the same facts.
+      - name: Resolve the release run
+        id: run
+        run: |
+          set -euo pipefail
+          run_json=$(gh api "repos/$REPO/actions/runs/$RELEASE_RUN_ID")
+          {
+            echo "url=$(jq -r '.html_url' <<<"$run_json")"
+            echo "sha=$(jq -r '.head_sha' <<<"$run_json")"
+            echo "conclusion=$(jq -r '.conclusion // ""' <<<"$run_json")"
+            echo "started=$(jq -r '.run_started_at' <<<"$run_json")"
+          } >> "$GITHUB_OUTPUT"
+          jq -c '{id, conclusion, head_sha, run_attempt}' <<<"$run_json"
+
+      # ANNOTATIONS, NOT LOGS. A failed job's `::error::` annotations are the
+      # lines the job chose to surface, in a few hundred bytes; the logs are
+      # megabytes of Terraform and npm output that would have to be downloaded
+      # and grepped per job. The signature only needs what distinguishes this
+      # failure from another one, and that is exactly what an annotation is.
+      #
+      # Empty is a real answer, not an error: a step that dies on a bare
+      # non-zero exit annotates nothing but `Process completed with exit code
+      # 1`, and a job killed by `timeout-minutes` may annotate nothing at all.
+      # The module handles that and still produces a ticket, because a red
+      # train nobody was told about is the thing being fixed.
+      - name: Gather the failed jobs and what they reported
+        id: facts
+        env:
+          RUN_URL: ${{ steps.run.outputs.url }}
+          RUN_SHA: ${{ steps.run.outputs.sha }}
+          RUN_CONCLUSION: ${{ steps.run.outputs.conclusion }}
+        run: |
+          set -euo pipefail
+
+          jobs=$(gh api "repos/$REPO/actions/runs/$RELEASE_RUN_ID/jobs?per_page=100" --paginate \
+            --jq '[.jobs[] | {name, conclusion, html_url, id}]' | jq -s 'add // []')
+          display_title=$(gh api "repos/$REPO/actions/runs/$RELEASE_RUN_ID" --jq '.display_title')
+
+          echo '[]' > annotations.json
+          for jid in $(jq -r '.[] | select(.conclusion == "failure" or .conclusion == "timed_out") | .id' <<<"$jobs"); do
+            # `|| ann='[]'`: a job whose check-run has been expired or is
+            # otherwise unreadable must not take the triage down with it. One
+            # job's missing annotations weaken the signature; a failed step here
+            # would file nothing at all.
+            ann=$(gh api "repos/$REPO/check-runs/$jid/annotations" --paginate \
+              --jq '[.[] | select(.annotation_level == "failure") | .message]' 2>/dev/null) || ann='[]'
+            jq -e . <<<"$ann" >/dev/null 2>&1 || ann='[]'
+            jq -s '(add // []) | map(select(. != null))' annotations.json <(printf '%s' "$ann") > annotations.next
+            mv annotations.next annotations.json
+          done
+          echo "gathered $(jq 'length' annotations.json) failure annotation(s) across $(jq '[.[] | select(.conclusion == "failure" or .conclusion == "timed_out")] | length' <<<"$jobs") failed job(s)"
+
+          jq -n \
+            --argjson jobs "$jobs" \
+            --slurpfile annotations annotations.json \
+            --arg url "$RUN_URL" \
+            --arg sha "$RUN_SHA" \
+            --arg conclusion "$RUN_CONCLUSION" \
+            --arg title "$display_title" \
+            --arg id "$RELEASE_RUN_ID" \
+            '{run: {id: $id, url: $url, head_sha: $sha, conclusion: $conclusion, display_title: $title},
+              jobs: $jobs,
+              annotations: $annotations[0]}' \
+            | python3 packages/gp-ai/clickup_bot/release_failure_triage.py > triage.json
+
+          jq -c '{actionable, phase, signature, infra, failed_jobs, reason}' triage.json
+          {
+            echo "actionable=$(jq -r '.actionable' triage.json)"
+            echo "signature=$(jq -r '.signature // ""' triage.json)"
+            echo "infra=$(jq -r '.infra' triage.json)"
+            echo "phase=$(jq -r '.phase // ""' triage.json)"
+            # Delimited rather than `key=value`: these are prose written by the
+            # module, and one containing a newline would otherwise corrupt
+            # every output after it.
+            echo 'reason<<REASON_EOF'
+            jq -r '.reason // ""' triage.json
+            echo 'REASON_EOF'
+            echo 'title<<TITLE_EOF'
+            jq -r '.ticket_title // ""' triage.json
+            echo 'TITLE_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      # THE STREAK BOUNDARY. "One ticket per red streak" needs a definition of
+      # where the streak starts, and it is the last release run on main that
+      # SUCCEEDED. An open ticket older than that green run belongs to a
+      # different incident: whatever it described was survived by a run that
+      # shipped, so a failure with the same signature now is a regression and
+      # deserves its own investigation rather than a comment on a stale ticket.
+      #
+      # No green run in the last 50 is treated as "the streak is everything we
+      # can see", which is the conservative answer: it can only make this
+      # comment on an existing ticket rather than file a new one.
+      - name: Find where this red streak started
+        id: streak
+        if: steps.facts.outputs.actionable == 'true'
+        run: |
+          set -euo pipefail
+          since=$(gh api "repos/$REPO/actions/workflows/release.yml/runs?branch=main&status=success&per_page=1" \
+            --jq '.workflow_runs[0].run_started_at // ""')
+          if [ -z "$since" ]; then
+            echo "::warning::no successful release run found on main; treating every open ticket as part of this streak"
+            since="1970-01-01T00:00:00Z"
+          fi
+          echo "streak started after the last green release run at $since"
+          echo "since=$since" >> "$GITHUB_OUTPUT"
+
+      - name: File or update the ClickUp ticket
+        id: clickup
+        if: steps.facts.outputs.actionable == 'true'
+        env:
+          RUN_URL: ${{ steps.run.outputs.url }}
+          SINCE: ${{ steps.streak.outputs.since }}
+          TITLE: ${{ steps.facts.outputs.title }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLICKUP_API_TOKEN:-}" ]; then
+            echo "::error::CLICKUP_API_TOKEN unset — the release train failed and no ticket was filed. Failing loudly."
+            exit 1
+          fi
+
+          # `--fail-with-body` rather than a bare curl: without it a 401, 429 or
+          # 5xx comes back as exit 0 with an error body, `.tasks[]?` reads that
+          # as zero open tickets, and every red run looks like a new incident —
+          # so a bad token files a duplicate ticket and starts a duplicate
+          # investigation on every run until someone notices.
+          cu() { curl -sS --fail-with-body --max-time 30 -H "Authorization: $CLICKUP_API_TOKEN" "$@"; }
+
+          # DEDUP IS ON THE TASK NAME, scoped to tasks carrying the bot's tag,
+          # exactly as gpbot-dev-test-triage.yml does it and for the same
+          # reason: ClickUp's list endpoint does not reliably return
+          # descriptions, so matching the signature in the body would cost one
+          # GET per open ticket per run. The name is derived deterministically
+          # from the phase and signature (release_failure_triage.ticket_title),
+          # and it CONTAINS the signature, so the name match is a signature
+          # match.
+          existing=$(cu -G "https://api.clickup.com/api/v2/list/$CLICKUP_LIST_ID/task" \
+            --data-urlencode "include_closed=false" \
+            --data-urlencode "subtasks=false" \
+            --data-urlencode "tags[]=$ANALYZE_TAG" \
+            | jq -c '[.tasks[]? | {id, custom_id, name, url, date_created}]')
+          echo "$(jq 'length' <<<"$existing") open analyze ticket(s) to compare against"
+
+          # date_created is ClickUp's epoch MILLISECONDS as a string; the streak
+          # boundary is an ISO instant. Compared in epoch seconds so the two
+          # are the same kind of thing.
+          since_epoch=$(date -u -d "$SINCE" +%s)
+          match=$(jq -r --arg n "$TITLE" --argjson since "$since_epoch" \
+            'map(select(.name == $n and ((.date_created | tonumber) / 1000) > $since)) | .[0] // empty' \
+            <<<"$existing")
+
+          if [ -n "$match" ]; then
+            task_id=$(jq -r '.id' <<<"$match")
+            label=$(jq -r '.custom_id // .id' <<<"$match")
+            echo "already open for this streak: $label"
+            # A COMMENT, NOT A SECOND TICKET, and deliberately NOT a re-tag:
+            # the tag is what launches an agent run, and a train failing the
+            # same way on every run for an hour would otherwise buy an
+            # investigation per run into a question already being investigated.
+            if [ "$DRY_RUN" != "true" ]; then
+              body=$(jq -n --arg u "$RUN_URL" \
+                '{comment_text: ("Failed the same way again on release run \($u). Still open, so no second investigation was queued.")}')
+              cu -X POST "https://api.clickup.com/api/v2/task/$task_id/comment" \
+                -H "Content-Type: application/json" --data "$body" > /dev/null
+            fi
+            {
+              echo "disposition=repeat"
+              echo "task=$label"
+              echo "task_url=$(jq -r '.url // ""' <<<"$match")"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "would file: $TITLE"
+            echo "disposition=dry-run" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          payload=$(jq -c --arg tag "$ANALYZE_TAG" \
+            '{name: .ticket_title, markdown_description: .ticket_body, tags: [$tag]}' triage.json)
+          if ! created=$(cu -X POST "https://api.clickup.com/api/v2/list/$CLICKUP_LIST_ID/task" \
+            -H "Content-Type: application/json" --data "$payload"); then
+            echo "::error::ClickUp refused the task for '$TITLE': $created"
+            exit 1
+          fi
+
+          task_id=$(jq -r '.id // empty' <<<"$created")
+          if [ -z "$task_id" ]; then
+            echo "::error::ClickUp accepted the task for '$TITLE' but returned no id: $(jq -c '.' <<<"$created")"
+            exit 1
+          fi
+
+          # The tag is the trigger. A task created without it is a ticket that
+          # looks filed and silently never starts a run, which is the failure
+          # mode this whole workflow exists to prevent — so it is checked on the
+          # create response rather than assumed. ClickUp only accepts tag names
+          # that already exist in the space.
+          if ! jq -e --arg t "$ANALYZE_TAG" '[.tags[]?.name] | index($t)' <<<"$created" > /dev/null; then
+            echo "::error::Task $task_id was created without the '$ANALYZE_TAG' tag, so no agent run will start. Create that tag in the Engineering space, then re-run this workflow."
+            exit 1
+          fi
+
+          echo "filed: $(jq -r '.custom_id // .id' <<<"$created")"
+          {
+            echo "disposition=filed"
+            echo "task=$(jq -r '.custom_id // .id' <<<"$created")"
+            echo "task_url=$(jq -r '.url // ""' <<<"$created")"
+          } >> "$GITHUB_OUTPUT"
+
+      # WHY THIS POSTS EVEN WHEN NOTHING WAS FILED: a workflow that is silent on
+      # its quiet path cannot demonstrate that it is working. A thread saying
+      # "the E2E specs are the other triage's to file" is the difference between
+      # this bot working and it being broken in a way nobody notices — which is
+      # the failure mode the whole #bot-urgent effort exists to end.
+      - name: Report disposition to Slack
+        if: always() && steps.facts.outcome == 'success' && env.DRY_RUN != 'true'
+        env:
+          RUN_URL: ${{ steps.run.outputs.url }}
+          ACTIONABLE: ${{ steps.facts.outputs.actionable }}
+          PHASE: ${{ steps.facts.outputs.phase }}
+          REASON: ${{ steps.facts.outputs.reason }}
+          INFRA: ${{ steps.facts.outputs.infra }}
+          DISPOSITION: ${{ steps.clickup.outputs.disposition }}
+          TASK: ${{ steps.clickup.outputs.task }}
+          TASK_URL: ${{ steps.clickup.outputs.task_url }}
+          # This step runs on `always()`, so it also runs when the ClickUp step
+          # died — and a disposition that names the failure without saying it
+          # went unticketed is the silent write failure this workflow exists to
+          # prevent, reported in the voice of the thing working.
+          CLICKUP_OUTCOME: ${{ steps.clickup.outcome }}
+        run: |
+          set -euo pipefail
+          # exit 1, not exit 0. An unset token and a Slack refusal have the
+          # identical observable outcome — no disposition, so nobody learns what
+          # the triage decided — and the refusal path below already fails the
+          # run for exactly that reason. Exiting 0 here would make the
+          # missing-credential case the one way left for this workflow to be
+          # silent and green, which is the shape of bug it exists to end.
+          if [ -z "${SLACK_TOKEN:-}" ] || [ -z "${SLACK_CHANNEL_ID:-}" ]; then
+            echo "::error::GPBOT_SLACK_BOT_TOKEN or SLACK_URGENT_CHANNEL_ID unset — disposition not posted and nobody was told what the triage decided. Failing loudly."
+            exit 1
+          fi
+
+          infra_note=""
+          if [ "$INFRA" = "true" ]; then
+            infra_note=" This matched a known-environmental signature, so it may be a sick dependency rather than a defect."
+          fi
+
+          if [ "$ACTIONABLE" != "true" ]; then
+            summary=":mag: release triage: nothing filed — ${REASON:-no reason was given}."
+          elif [ "$CLICKUP_OUTCOME" = "failure" ]; then
+            # The alarm is the point: the train is red and the failure is in
+            # nobody's queue.
+            summary=":warning: release triage: the train failed at ${PHASE} and the ClickUp step errored, so NO ticket was filed and no investigation will start. This needs a human."
+          elif [ "$DISPOSITION" = "repeat" ]; then
+            summary=":mag: release triage: same failure as earlier in this red streak — commented on <${TASK_URL}|${TASK}>, no second investigation queued.${infra_note}"
+          elif [ "$DISPOSITION" = "filed" ]; then
+            summary=":mag: release triage: filed <${TASK_URL}|${TASK}> for the failure at ${PHASE}. An analyze run will investigate and escalate to a fix if it is a defect.${infra_note}"
+          else
+            summary=":mag: release triage: the train failed at ${PHASE} but the ClickUp step did not run, so nothing was filed."
+          fi
+
+          # Both helpers always print one JSON object: a proxy error page or a
+          # dropped connection is not JSON, and handing it to jq would kill this
+          # step under `set -e` with a parse error as its only account of what
+          # went wrong. Same normalisation as release-failure-alert.yml, for the
+          # same reason.
+          as_json() {
+            if jq -e . <<<"$1" >/dev/null 2>&1; then
+              printf '%s' "$1"
+            else
+              jq -nc --arg ep "$2" --arg body "${1:0:200}" \
+                '{ok: false, error: ($ep + " answered something that is not JSON: " + $body)}'
+            fi
+          }
+          slack_get() {
+            local resp
+            resp=$(curl -sS --max-time 20 -G "https://slack.com/api/$1" \
+              -H "Authorization: Bearer $SLACK_TOKEN" "${@:2}") || resp=''
+            as_json "$resp" "$1"
+          }
+          slack_post() {
+            local resp
+            resp=$(curl -sS --max-time 20 -X POST "https://slack.com/api/$1" \
+              -H "Authorization: Bearer $SLACK_TOKEN" \
+              -H "Content-type: application/json; charset=utf-8" --data @-) || resp=''
+            as_json "$resp" "$1"
+          }
+          error_of() { jq -r 'if .ok then "" else (.error // "unknown") end' <<<"$1"; }
+
+          # Membership ensured before either call, because both need it and the
+          # history read comes first — a refused read silently costs the
+          # disposition its thread. Idempotent for a channel the app is already
+          # in. A warning and not fatal: the post below gets its own attempt and
+          # reports its own outcome, and that is the error worth failing on.
+          join=$(jq -nc --arg c "$SLACK_CHANNEL_ID" '{channel: $c}' | slack_post conversations.join)
+          if [ "$(jq -r '.ok // false' <<<"$join")" != "true" ]; then
+            echo "::warning::Could not join $SLACK_CHANNEL_ID ($(error_of "$join")); the disposition may not be deliverable."
+          fi
+
+          # Threaded under release-failure-alert.yml's message for this same run
+          # so one place shows what broke and what the bot did about it. Found by
+          # searching for the run URL rather than passed between the workflows,
+          # because they are independent listeners on the same event and neither
+          # can hand the other a message id.
+          #
+          # BEST EFFORT BY DESIGN — delivery, below, is not. A disposition in the
+          # wrong place is worth having; a failed triage job because Slack
+          # threading did not work is not.
+          thread_ts=""
+          hist=$(slack_get conversations.history \
+            --data-urlencode "channel=$SLACK_CHANNEL_ID" \
+            --data-urlencode "limit=30")
+          if [ "$(jq -r '.ok // false' <<<"$hist")" = "true" ]; then
+            thread_ts=$(jq -r --arg u "$RUN_URL" '[.messages[]? | select(.text | contains($u))] | .[0].ts // empty' <<<"$hist")
+          else
+            echo "::warning::Could not read channel history ($(jq -r '.error // "unknown"' <<<"$hist")); posting the disposition at top level."
+          fi
+          [ -n "$thread_ts" ] || summary="$summary"$'\n'"Release run: $RUN_URL"
+
+          resp=$(jq -n --arg c "$SLACK_CHANNEL_ID" --arg t "$summary" --arg ts "$thread_ts" \
+            '{channel: $c, text: $t} + (if $ts == "" then {} else {thread_ts: $ts} end)' \
+            | slack_post chat.postMessage)
+          # RED, not a warning. The ticket above may well have been filed — the
+          # run going red says nobody was told.
+          if [ -n "$(error_of "$resp")" ]; then
+            echo "::error::Slack rejected the disposition: $(error_of "$resp"). The triage ran but nobody was told what it decided."
+            exit 1
+          fi
+
+      - name: Write summary
+        if: always() && steps.facts.outcome == 'success'
+        run: |
+          {
+            echo "### release failure triage"
+            echo
+            jq -r '"- actionable: \(.actionable)\n- phase: \(.phase // "n/a")\n- signature: \(.signature // "n/a")\n- looks environmental: \(.infra)\n- failed jobs: \((.failed_jobs // []) | join(", "))" + (if .reason then "\n- \(.reason)" else "" end)' triage.json
+            if [ -n "${{ steps.clickup.outputs.disposition }}" ]; then
+              echo
+              echo "- disposition: ${{ steps.clickup.outputs.disposition }} ${{ steps.clickup.outputs.task }}"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
