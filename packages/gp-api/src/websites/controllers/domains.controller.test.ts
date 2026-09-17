@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { DiscoveryModule, HttpAdapterHost, Reflector } from '@nestjs/core'
 import {
   ConflictException,
+  ForbiddenException,
   HttpStatus,
   ModuleMetadata,
   NotFoundException,
@@ -345,10 +346,12 @@ describe('DomainsController.domainAuthCode', () => {
     controller = module.get<DomainsController>(DomainsController)
   })
 
+  const asRequest = (req: Partial<IncomingRequest>) => req as IncomingRequest
+
   it('returns the auth code from the service and passes the requesting user through', async () => {
     const user = createMockUser({ firstName: 'Support', lastName: 'Staff' })
 
-    const result = await controller.domainAuthCode(user, {
+    const result = await controller.domainAuthCode(asRequest({ user }), {
       domain: 'stephanieberardi.com',
     })
 
@@ -359,13 +362,46 @@ describe('DomainsController.domainAuthCode', () => {
     expect(result).toEqual({ authCode: 'AuthC0de!' })
   })
 
+  it('attributes the request to the admin actor, not the candidate being impersonated', async () => {
+    // RolesGuard lets this route through on the actor's roles, so recording
+    // the subject would credit the handover to the candidate whose domain is
+    // leaving — the opposite of an audit trail.
+    const candidate = createMockUser({ id: 7, firstName: 'Candidate' })
+    const admin = createMockUser({ id: 99, firstName: 'Admin' })
+
+    await controller.domainAuthCode(
+      asRequest({ user: candidate, actorUser: admin, actorSub: 'clerk_admin' }),
+      { domain: 'stephanieberardi.com' },
+    )
+
+    expect(mockDomains.getDomainTransferAuthCode).toHaveBeenCalledWith(
+      'stephanieberardi.com',
+      admin,
+    )
+  })
+
+  it('refuses an impersonated session whose actor never resolved to a user', async () => {
+    // SessionGuard warns and continues when it cannot resolve the actor. With
+    // no identifiable admin there is nobody to hold accountable, so the
+    // credential should not be issued at all.
+    await expect(
+      controller.domainAuthCode(
+        asRequest({ user: createMockUser(), actorSub: 'clerk_unknown' }),
+        { domain: 'stephanieberardi.com' },
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException)
+    expect(mockDomains.getDomainTransferAuthCode).not.toHaveBeenCalled()
+  })
+
   it('propagates NotFoundException for a domain we did not register', async () => {
     mockDomains.getDomainTransferAuthCode.mockRejectedValueOnce(
-      new NotFoundException('not-ours.com is not registered through GoodParty'),
+      new NotFoundException('not-ours.com is not a campaign domain on record'),
     )
 
     await expect(
-      controller.domainAuthCode(createMockUser(), { domain: 'not-ours.com' }),
+      controller.domainAuthCode(asRequest({ user: createMockUser() }), {
+        domain: 'not-ours.com',
+      }),
     ).rejects.toBeInstanceOf(NotFoundException)
   })
 

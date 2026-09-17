@@ -20,11 +20,11 @@ import {
 import { AddProjectDomainResponseBody } from '@vercel/sdk/models/addprojectdomainop'
 import { BuySingleDomainResponseBody } from '@vercel/sdk/models/buysingledomainop'
 import { DomainCannotBeTransferedOutUntil } from '@vercel/sdk/models/domaincannotbetransferedoutuntil'
-import { DomainNotRegistered } from '@vercel/sdk/models/domainnotregistered'
 import { GetDomainResponseBody } from '@vercel/sdk/models/getdomainop'
 import { GetOrderStatus } from '@vercel/sdk/models/getorderop'
 import { GetProjectDomainResponseBody } from '@vercel/sdk/models/getprojectdomainop'
 import { Records } from '@vercel/sdk/models/getrecordsop'
+import { VercelError } from '@vercel/sdk/models/vercelerror'
 import { VerifyProjectDomainResponseBody } from '@vercel/sdk/models/verifyprojectdomainop'
 import { isAxiosError } from 'axios'
 import { PaymentStatus } from 'src/payments/payments.types'
@@ -435,23 +435,45 @@ export class DomainsService
     domainName: string,
     requestedBy: User,
   ): Promise<string> {
+    // Our Vercel team also holds GoodParty's own infrastructure domains, and
+    // Vercel will happily mint a transfer code for those too. Rows in `domain`
+    // only ever come from a campaign purchase, so requiring one here is what
+    // keeps this endpoint from handing away goodparty.org itself.
+    const campaignDomain = await this.model.findUnique({
+      where: { name: domainName },
+      select: { status: true, website: { select: { campaignId: true } } },
+    })
+
+    if (!campaignDomain) {
+      throw new NotFoundException(
+        `${domainName} is not a campaign domain on record. If GoodParty did ` +
+          `register it, the campaign may have since been deleted — escalate ` +
+          `to engineering rather than telling the candidate we never owned it.`,
+      )
+    }
+
     // WHOIS registrant on these domains is a GoodParty identity rather than the
     // candidate, so we are the only party who can produce this code. Record who
     // asked, since the request is what hands control of the domain away.
     this.logger.info(
-      { domain: domainName, requestedByUserId: requestedBy.id },
+      {
+        domain: domainName,
+        domainStatus: campaignDomain.status,
+        campaignId: campaignDomain.website.campaignId,
+        requestedByUserId: requestedBy.id,
+      },
       'Domain transfer auth code requested',
     )
 
     try {
       return await this.vercel.getDomainAuthCode(domainName)
     } catch (error) {
-      if (
-        this.vercel.isVercelNotFoundError(error) ||
-        error instanceof DomainNotRegistered
-      ) {
+      // A row exists but the registrar disagrees, so our records are out of
+      // step with Vercel rather than the candidate being wrong about the name.
+      if (this.vercel.isVercelNotFoundError(error)) {
         throw new NotFoundException(
-          `${domainName} is not registered through GoodParty`,
+          `${domainName} is on record for a campaign but is not registered ` +
+            `in GoodParty's Vercel account`,
         )
       }
 
@@ -459,6 +481,19 @@ export class DomainsService
       // lifts, which is the only actionable detail for the candidate.
       if (error instanceof DomainCannotBeTransferedOutUntil) {
         throw new ConflictException(error.message)
+      }
+
+      // The registrar API rejects tokens without Owner scope on the team. That
+      // is our misconfiguration, not the caller's, so say so plainly instead of
+      // surfacing a bare 500 that reads like the domain is at fault.
+      if (
+        error instanceof VercelError &&
+        error.statusCode === Number(HttpStatus.FORBIDDEN)
+      ) {
+        throw new BadGatewayException(
+          `Vercel refused the transfer-code request for ${domainName}. The ` +
+            `configured VERCEL_TOKEN likely lacks Owner scope on the team.`,
+        )
       }
 
       throw error

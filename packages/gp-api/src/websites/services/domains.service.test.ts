@@ -31,12 +31,13 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpStatus,
   NotFoundException,
 } from '@nestjs/common'
 import { DomainAvailability } from '@aws-sdk/client-route-53-domains'
 import { DomainCannotBeTransferedOutUntil } from '@vercel/sdk/models/domaincannotbetransferedoutuntil'
-import { DomainNotRegistered } from '@vercel/sdk/models/domainnotregistered'
 import { GetOrderStatus } from '@vercel/sdk/models/getorderop'
+import { VercelError } from '@vercel/sdk/models/vercelerror'
 
 const mockUser = createMockUser()
 
@@ -310,8 +311,19 @@ describe('DomainsService', () => {
     const buildVercelError = (
       errorClass: { prototype: object },
       message: string,
+      statusCode?: number,
     ): Error =>
-      Object.assign(Object.create(errorClass.prototype), { message }) as Error
+      Object.assign(Object.create(errorClass.prototype), {
+        message,
+        ...(statusCode === undefined ? {} : { statusCode }),
+      }) as Error
+
+    beforeEach(() => {
+      mockPrisma.domain.findUnique.mockResolvedValue({
+        status: DomainStatus.registered,
+        website: { campaignId: 42 },
+      })
+    })
 
     it('returns the auth code from Vercel', async () => {
       const result = await service.getDomainTransferAuthCode(
@@ -336,22 +348,39 @@ describe('DomainsService', () => {
       expect(mockPrisma.domain.create).not.toHaveBeenCalled()
     })
 
-    it('maps a domain we never registered to NotFoundException', async () => {
-      mockVercel.isVercelNotFoundError.mockReturnValue(true)
-      mockVercel.getDomainAuthCode.mockRejectedValueOnce(new Error('404'))
+    it('refuses a domain with no campaign row without ever calling Vercel', async () => {
+      // goodparty.org and our other infrastructure domains sit in the same
+      // Vercel team and would otherwise get a transfer code handed out.
+      mockPrisma.domain.findUnique.mockResolvedValue(null)
 
       await expect(
-        service.getDomainTransferAuthCode('not-ours.com', mockUser),
+        service.getDomainTransferAuthCode('goodparty.org', mockUser),
       ).rejects.toBeInstanceOf(NotFoundException)
+      expect(mockVercel.getDomainAuthCode).not.toHaveBeenCalled()
     })
 
-    it('maps DomainNotRegistered to NotFoundException', async () => {
-      mockVercel.getDomainAuthCode.mockRejectedValueOnce(
-        buildVercelError(
-          DomainNotRegistered,
-          'The domain is not registered with Vercel.',
-        ),
+    it('tells support to escalate when we have no row, rather than denying we registered it', async () => {
+      // Deleting a campaign cascades the domain row away while the
+      // registration lives on, and that candidate is exactly the person who
+      // needs the code. The message has to distinguish that from "not ours".
+      mockPrisma.domain.findUnique.mockResolvedValue(null)
+
+      await expect(
+        service.getDomainTransferAuthCode('orphaned.com', mockUser),
+      ).rejects.toThrow(/escalate to engineering/)
+    })
+
+    it('looks the domain up by name alone, so a stalled purchase is still transferable', async () => {
+      await service.getDomainTransferAuthCode('test-domain.com', mockUser)
+
+      expect(mockPrisma.domain.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { name: 'test-domain.com' } }),
       )
+    })
+
+    it('maps a Vercel 404 to NotFoundException', async () => {
+      mockVercel.isVercelNotFoundError.mockReturnValue(true)
+      mockVercel.getDomainAuthCode.mockRejectedValueOnce(new Error('404'))
 
       await expect(
         service.getDomainTransferAuthCode('not-ours.com', mockUser),
@@ -366,6 +395,7 @@ describe('DomainsService', () => {
         buildVercelError(
           DomainCannotBeTransferedOutUntil,
           'The domain cannot be transfered out until 2026-05-02.',
+          HttpStatus.CONFLICT,
         ),
       )
 
@@ -375,6 +405,18 @@ describe('DomainsService', () => {
       await expect(
         service.getDomainTransferAuthCode('brand-new.run', mockUser),
       ).rejects.toThrow(/2026-05-02/)
+    })
+
+    it('reports a registrar 403 as our token scope problem, not the domain', async () => {
+      // The registrar API rejects tokens without Owner scope on the team. A
+      // bare 500 here would send support chasing the candidate's domain.
+      mockVercel.getDomainAuthCode.mockRejectedValue(
+        buildVercelError(VercelError, 'Not authorized', HttpStatus.FORBIDDEN),
+      )
+
+      await expect(
+        service.getDomainTransferAuthCode('test-domain.com', mockUser),
+      ).rejects.toThrow(/VERCEL_TOKEN likely lacks Owner scope/)
     })
 
     it('rethrows unexpected Vercel failures rather than reporting the domain missing', async () => {

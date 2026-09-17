@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -34,7 +35,6 @@ import {
   UserRole,
 } from '../../generated/prisma'
 import { IncomingRequest } from '@/authentication/authentication.types'
-import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { Roles } from 'src/authentication/decorators/Roles.decorator'
 import { WebsitesService } from '../services/websites.service'
 import {
@@ -68,11 +68,27 @@ export class DomainsController {
   @Get('auth-code')
   @Roles(UserRole.admin)
   async domainAuthCode(
-    @ReqUser() user: User,
+    @Req() req: IncomingRequest,
     @Query() { domain }: SearchDomainSchema,
   ): Promise<{ authCode: string }> {
+    // RolesGuard admits this route on the actor's roles, so the actor is the
+    // human accountable for the handover — `@ReqUser()` would name the
+    // impersonated candidate instead. An impersonated session whose actor
+    // never resolved to a local user cannot be attributed to anyone, so refuse
+    // rather than record the wrong person for a domain-transfer credential.
+    const requestedBy = req.actorSub ? req.actorUser : req.user
+    if (!requestedBy) {
+      throw new ForbiddenException(
+        'Cannot issue a domain transfer auth code for an impersonated ' +
+          'session whose acting admin could not be identified',
+      )
+    }
+
     return {
-      authCode: await this.domains.getDomainTransferAuthCode(domain, user),
+      authCode: await this.domains.getDomainTransferAuthCode(
+        domain,
+        requestedBy,
+      ),
     }
   }
 
