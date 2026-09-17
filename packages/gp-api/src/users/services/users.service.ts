@@ -26,7 +26,6 @@ import {
   WithOptional,
   WrapperType,
 } from 'src/shared/types/utility.types'
-import Stripe from 'stripe'
 import { AnalyticsService } from '../../analytics/analytics.service'
 import { toLowerAndTrim, trimMany } from '../../shared/util/strings.util'
 import { StripeService } from '../../vendors/stripe/services/stripe.service'
@@ -56,6 +55,8 @@ const REGISTER_USER_CRM_FORM_ID = '37d98f01-7062-405f-b0d1-c95179057db1'
 const CLERK_PAGE_SIZE = 500
 
 const SIGN_IN_LINK_TTL_SECONDS = 3600
+
+const DELETE_USER_TX_TIMEOUT_MS = 60_000
 
 // Refusal shown to sales when an EO magic link targets an email that already
 // belongs to a real, self-owned GoodParty login (password set or owns a
@@ -544,62 +545,80 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       include: { campaigns: true },
     })
 
-    const campaign = user?.campaigns?.[0]
-    // Prisma JSON column typed as JsonValue — requires prisma-json-types-generator to narrow
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    const subscriptionId = (campaign?.details as { subscriptionId?: string })
-      ?.subscriptionId
+    // Every campaign, not only the first: a user with more than one campaign
+    // can hold the Pro subscription on any of them, and one left uncanceled
+    // keeps charging a customer whose account no longer exists.
+    const subscriptionIds = [
+      ...new Set(
+        (user?.campaigns ?? [])
+          .map(({ details }) => details?.subscriptionId)
+          .filter((subscriptionId): subscriptionId is string =>
+            Boolean(subscriptionId),
+          ),
+      ),
+    ]
 
-    await this.client.$transaction(async (tx) => {
-      await tx.user.delete({ where: { id } })
-      this.logger.info({ userId: id }, 'User deleted from database')
+    await this.client.$transaction(
+      async (tx) => {
+        // The delete goes first so a cascade the DB refuses (a Restrict FK —
+        // UserAgendaUpload has one) is rejected before Clerk or Stripe is
+        // touched at all, leaving a user who cannot be deleted with both an
+        // identity and a subscription rather than neither.
+        await tx.user.delete({ where: { id } })
+        this.logger.info({ userId: id }, 'User deleted from database')
 
-      if (user?.clerkId) {
-        try {
-          await this.clerkClient.users.deleteUser(user.clerkId)
-          this.logger.info(
-            { userId: id, clerkId: user.clerkId },
-            'User deleted from Clerk',
-          )
-        } catch (error) {
-          this.logger.error(
-            { error },
-            `Failed to delete Clerk user ${user.clerkId} during account deletion`,
-          )
-          throw new BadGatewayException(
-            `Failed to delete Clerk user during account deletion`,
-          )
+        if (user?.clerkId) {
+          try {
+            await this.clerkClient.users.deleteUser(user.clerkId)
+            this.logger.info(
+              { userId: id, clerkId: user.clerkId },
+              'User deleted from Clerk',
+            )
+          } catch (error) {
+            this.logger.error(
+              { error },
+              `Failed to delete Clerk user ${user.clerkId} during account deletion`,
+            )
+            throw new BadGatewayException(
+              `Failed to delete Clerk user during account deletion`,
+            )
+          }
         }
-      }
-    })
 
-    if (subscriptionId) {
-      try {
-        await this.stripeService.cancelSubscription(subscriptionId)
-      } catch (error) {
-        if (
-          error instanceof BadGatewayException &&
-          error.cause instanceof Stripe.errors.StripeError
-        ) {
-          const stripeError = error.cause
-          this.logger.error(
-            {
-              data: {
-                code: stripeError.code,
-                type: stripeError.type,
-                statusCode: stripeError.statusCode,
-              },
-            },
-            `Failed to cancel subscription ${subscriptionId} after user deletion: ${stripeError.message}`,
-          )
-        } else {
-          this.logger.error(
-            { error },
-            `Unexpected error canceling subscription ${subscriptionId} after user deletion`,
-          )
+        // Cancelling before the commit, rather than after it, is the
+        // money-critical ordering. Campaign cascade-deletes with the user and
+        // details.subscriptionId is the only record we keep of the
+        // subscription, so a cancel that runs after the commit has no row to
+        // be retried from and no row for the resulting
+        // customer.subscription.deleted webhook to resolve. Gating the commit
+        // on the cancel makes the failure modes "billing stopped, data still
+        // here" or "nothing happened" — never "data gone, billing live".
+        //
+        // Anything thrown here means billing may still be live, so it must
+        // abort the deletion: cancelSubscription already reports the outcomes
+        // that prove cancellation is moot (a subscription Stripe has no
+        // record of, one canceled out of band mid-flight) as success, and an
+        // outage is not evidence that a subscription stopped. A loop that
+        // throws part-way through has canceled a subset, which is the safe
+        // direction — the retry re-cancels idempotently.
+        for (const subscriptionId of subscriptionIds) {
+          try {
+            await this.stripeService.cancelSubscription(subscriptionId)
+          } catch (err) {
+            this.logger.error(
+              { err, userId: id, subscriptionId },
+              'Aborting account deletion: subscription may still be billable',
+            )
+            throw err
+          }
         }
-      }
-    }
+      },
+      // Two external calls run inside this transaction by design, so the
+      // budget must absorb both. A timeout that fires after Clerk has already
+      // deleted the identity is the worst outcome available, and the locks are
+      // confined to the rows of the one user being deleted.
+      { timeout: DELETE_USER_TX_TIMEOUT_MS },
+    )
 
     await this.trackUserDeletion(id, initiatedByUserId, user)
   }

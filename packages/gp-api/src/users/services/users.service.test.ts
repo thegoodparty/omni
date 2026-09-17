@@ -2057,6 +2057,179 @@ describe('UsersService', () => {
       })
       expect(found).not.toBeNull()
     })
+
+    // The campaign row carrying details.subscriptionId is what the resulting
+    // customer.subscription.deleted webhook resolves the subscription back to,
+    // and it cascade-deletes with the user. Cancelling after the deletion
+    // committed left that webhook with nothing to find.
+    it('cancels the subscription before the campaign row is deleted', async () => {
+      const targetUser = await service.prisma.user.create({
+        data: { email: 'cancel-ordering@example.com', clerkId: null },
+      })
+      await service.prisma.organization.create({
+        data: {
+          slug: `org-cancel-ordering-${targetUser.id}`,
+          ownerId: targetUser.id,
+          positionId: 'br-pos-cancel-ordering',
+        },
+      })
+      const campaign = await service.prisma.campaign.create({
+        data: {
+          userId: targetUser.id,
+          slug: `cancel-ordering-${targetUser.id}`,
+          organizationSlug: `org-cancel-ordering-${targetUser.id}`,
+          details: { subscriptionId: 'sub_ordering' },
+        },
+      })
+      vi.spyOn(analyticsService, 'track').mockResolvedValue(
+        {} as Awaited<ReturnType<typeof analyticsService.track>>,
+      )
+      // Read from outside the deletion transaction, the way a webhook handler
+      // would: the row is still visible until the transaction commits.
+      let campaignsVisibleAtCancel = -1
+      vi.spyOn(stripeService, 'cancelSubscription').mockImplementation(
+        async () => {
+          campaignsVisibleAtCancel = await service.prisma.campaign.count({
+            where: { id: campaign.id },
+          })
+          return null
+        },
+      )
+
+      await usersService.deleteUser(targetUser.id, service.user.id)
+
+      expect(campaignsVisibleAtCancel).toBe(1)
+      expect(
+        await service.prisma.campaign.count({ where: { id: campaign.id } }),
+      ).toBe(0)
+    })
+
+    it('cancels the subscription on every campaign, not just the first', async () => {
+      const targetUser = await service.prisma.user.create({
+        data: { email: 'multi-campaign@example.com', clerkId: null },
+      })
+      // One organization per campaign: Campaign.organizationSlug is unique.
+      for (const [index, subscriptionId] of [
+        'sub_first_campaign',
+        'sub_second_campaign',
+      ].entries()) {
+        const organizationSlug = `org-multi-campaign-${targetUser.id}-${index}`
+        await service.prisma.organization.create({
+          data: {
+            slug: organizationSlug,
+            ownerId: targetUser.id,
+            positionId: `br-pos-multi-campaign-${index}`,
+          },
+        })
+        await service.prisma.campaign.create({
+          data: {
+            userId: targetUser.id,
+            slug: `multi-campaign-${targetUser.id}-${index}`,
+            organizationSlug,
+            details: { subscriptionId },
+          },
+        })
+      }
+      vi.spyOn(analyticsService, 'track').mockResolvedValue(
+        {} as Awaited<ReturnType<typeof analyticsService.track>>,
+      )
+      const cancelSpy = vi
+        .spyOn(stripeService, 'cancelSubscription')
+        .mockResolvedValue(null)
+
+      await usersService.deleteUser(targetUser.id, service.user.id)
+
+      expect(cancelSpy.mock.calls.map(([id]) => id).sort()).toEqual([
+        'sub_first_campaign',
+        'sub_second_campaign',
+      ])
+    })
+
+    it('keeps the user when the Stripe cancel fails, so billing is never left live on a deleted account', async () => {
+      const targetUser = await service.prisma.user.create({
+        data: { email: 'cancel-fails@example.com', clerkId: null },
+      })
+      await service.prisma.organization.create({
+        data: {
+          slug: `org-cancel-fails-${targetUser.id}`,
+          ownerId: targetUser.id,
+          positionId: 'br-pos-cancel-fails',
+        },
+      })
+      await service.prisma.campaign.create({
+        data: {
+          userId: targetUser.id,
+          slug: `cancel-fails-${targetUser.id}`,
+          organizationSlug: `org-cancel-fails-${targetUser.id}`,
+          details: { subscriptionId: 'sub_cancel_fails' },
+        },
+      })
+      vi.spyOn(stripeService, 'cancelSubscription').mockRejectedValue(
+        new BadGatewayException('Failed to cancel subscription'),
+      )
+      const trackSpy = vi
+        .spyOn(analyticsService, 'track')
+        .mockResolvedValue(
+          {} as Awaited<ReturnType<typeof analyticsService.track>>,
+        )
+
+      await expect(
+        usersService.deleteUser(targetUser.id, service.user.id),
+      ).rejects.toThrow(BadGatewayException)
+
+      const found = await service.prisma.user.findUnique({
+        where: { id: targetUser.id },
+      })
+      expect(found).not.toBeNull()
+      expect(trackSpy).not.toHaveBeenCalled()
+    })
+
+    it('keeps the user when a second campaign has an uncancelable subscription', async () => {
+      const targetUser = await service.prisma.user.create({
+        data: { email: 'second-cancel-fails@example.com', clerkId: null },
+      })
+      for (const [index, subscriptionId] of [
+        'sub_cancelable',
+        'sub_uncancelable',
+      ].entries()) {
+        const organizationSlug = `org-second-cancel-${targetUser.id}-${index}`
+        await service.prisma.organization.create({
+          data: {
+            slug: organizationSlug,
+            ownerId: targetUser.id,
+            positionId: `br-pos-second-cancel-${index}`,
+          },
+        })
+        await service.prisma.campaign.create({
+          data: {
+            userId: targetUser.id,
+            slug: `second-cancel-${targetUser.id}-${index}`,
+            organizationSlug,
+            details: { subscriptionId },
+          },
+        })
+      }
+      vi.spyOn(analyticsService, 'track').mockResolvedValue(
+        {} as Awaited<ReturnType<typeof analyticsService.track>>,
+      )
+      vi.spyOn(stripeService, 'cancelSubscription').mockImplementation(
+        async (subscriptionId: string) => {
+          if (subscriptionId === 'sub_uncancelable') {
+            throw new BadGatewayException('Failed to cancel subscription')
+          }
+          return null
+        },
+      )
+
+      await expect(
+        usersService.deleteUser(targetUser.id, service.user.id),
+      ).rejects.toThrow(BadGatewayException)
+
+      const found = await service.prisma.user.findUnique({
+        where: { id: targetUser.id },
+      })
+      expect(found).not.toBeNull()
+    })
   })
 
   describe('deleteTestUsers', () => {

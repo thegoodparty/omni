@@ -56,6 +56,20 @@ Where Pro state lives (all of it — there is no subscription table):
   user. Written only by `createProCheckoutSession`, cleared by the completion
   and expiry webhooks.
 
+**Account deletion stops billing before it deletes anything.**
+`UsersService.deleteUser` cancels the subscription on EVERY campaign the user
+owns, from inside the deletion transaction and before it commits. `Campaign`
+cascade-deletes with the user and `details.subscriptionId` is the only record
+we keep of the subscription, so a cancel attempted after the commit has no row
+left to retry from and no row for the resulting
+`customer.subscription.deleted` webhook to resolve. A cancel that fails aborts
+the deletion with a 502 rather than leave a subscription billing an account
+that no longer exists — the outcomes that prove cancellation moot
+(`resource_missing`, canceled out of band) are already reported as success by
+`StripeService.cancelSubscription`, so only a genuine "may still be billable"
+reaches the abort. Deleting a user therefore has two possible outcomes,
+billing stopped or nothing happened, never data gone with billing live.
+
 `POST /payments/purchase/checkout-session` is guarded (ENG-10771, PR #992 —
 each guard exists because a customer was double-billed without it):
 
