@@ -42,7 +42,7 @@ const mockRecommend = (result: Recommendation[]) =>
 
 const getRecommendedLists = (
   slug: string,
-  query: { channel?: string; intent?: string },
+  query: { channel?: string; intent?: string; variant?: string },
 ) =>
   service.client.get('/v1/campaigns/mine/recommended-lists', {
     headers: { [ORG_SLUG_HEADER]: slug },
@@ -51,6 +51,7 @@ const getRecommendedLists = (
 
 const sampleRecommendation: Recommendation = {
   variant: 'persuadeAffinity',
+  intent: 'persuade',
   filter: { voterStatus: ['Super', 'Likely'], independentAffinity: true },
   count: 4_200,
   voteGoalShare: 1.05,
@@ -98,6 +99,58 @@ describe('GET /v1/campaigns/mine/recommended-lists', () => {
     })
 
     expect(res.status).toBe(500)
+  })
+
+  // The voter data page's request: no channel at all.
+  it('serves the global universes when no channel is given', async () => {
+    const slug = `win-${Date.now()}-global`
+    await seedWinOrg(slug)
+    const recommend = mockRecommend([sampleRecommendation])
+
+    const res = await getRecommendedLists(slug, {})
+
+    expect(res.status).toBe(200)
+    expect(res.data).toEqual([sampleRecommendation])
+    expect(recommend).toHaveBeenCalledWith(
+      expect.objectContaining({ slug }),
+      expect.anything(),
+      null,
+      null,
+      null,
+    )
+  })
+
+  it('passes a requested variant through to the service', async () => {
+    const slug = `win-${Date.now()}-variant`
+    await seedWinOrg(slug)
+    const recommend = mockRecommend([sampleRecommendation])
+
+    const res = await getRecommendedLists(slug, {
+      channel: 'sms',
+      variant: 'persuadeAffinity',
+    })
+
+    expect(res.status).toBe(200)
+    expect(recommend).toHaveBeenCalledWith(
+      expect.objectContaining({ slug }),
+      expect.anything(),
+      'sms',
+      null,
+      'persuadeAffinity',
+    )
+  })
+
+  it('rejects an unknown variant', async () => {
+    const slug = `win-${Date.now()}-badvariant`
+    await seedWinOrg(slug)
+    mockRecommend([sampleRecommendation])
+
+    const res = await getRecommendedLists(slug, {
+      channel: 'sms',
+      variant: 'everyoneEver',
+    })
+
+    expect(res.status).toBe(400)
   })
 
   it('rejects an unknown channel', async () => {

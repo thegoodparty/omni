@@ -84,6 +84,10 @@ export type RecommendedListFilter = z.infer<typeof RecommendedListFilterSchema>
 
 export const RecommendedListSchema = z.object({
   variant: RecommendedListVariantSchema,
+  // The intent the variant belongs to. A channel request already knows it
+  // (it is the query), but a global request spans every intent, and the
+  // list a candidate saves from one records it as provenance.
+  intent: RecommendedListIntentSchema,
   filter: RecommendedListFilterSchema,
   count: z.number().int().nonnegative(),
   // `count` over the race's vote goal. Absent — not null — when the vote

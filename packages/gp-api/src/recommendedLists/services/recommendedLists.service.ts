@@ -3,6 +3,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
 import {
   encodePrecinctPair,
+  RECOMMENDED_LIST_VARIANT_VALUES,
   type IdOverrides,
   type RecommendedListChannel,
   type RecommendedListIntent,
@@ -28,11 +29,15 @@ import {
   RECOMMENDED_LISTS_REGISTRY,
 } from '../recommendedLists.registry'
 import { buildVariantFilter } from '../recommendedListsUniverse.util'
-import { findEquivalentFilter } from '../recommendedListsDedupe.util'
+import {
+  findEquivalentFilter,
+  type SavedDedupeFilter,
+} from '../recommendedListsDedupe.util'
 import { VOTE_GOAL_FLOOR_SHARE } from '../recommendedLists.consts'
 
 export type Recommendation = {
   variant: RecommendedListVariant
+  intent: RecommendedListIntent
   filter: VoterFilterBase
   count: number
   // Both absent rather than null when they don't apply: the share when the
@@ -84,7 +89,7 @@ const NO_FLOOR = 0
 // channel, variant family, and whether the race even has a resolved vote
 // goal -- and which one applied is exactly what a reader is here to work out.
 const sizeFloor = (
-  channel: RecommendedListChannel,
+  channel: RecommendedListChannel | null,
   variant: RecommendedListVariant,
   votesNeededToWin: number | null,
 ): number => {
@@ -110,7 +115,7 @@ const sizeFloor = (
 // contactability filter is applied.
 const qualifies = (
   count: number,
-  channel: RecommendedListChannel,
+  channel: RecommendedListChannel | null,
   variant: RecommendedListVariant,
   votesNeededToWin: number | null,
 ): boolean =>
@@ -150,14 +155,28 @@ export class RecommendedListsService {
     this.logger.setContext(RecommendedListsService.name)
   }
 
+  // Three shapes of request share this. A channel with an intent is a flow's
+  // audience step. No channel is the voter data page asking for the global
+  // universes: every intent, no contactability cut, no price. A variant is a
+  // flow the candidate entered from that page carrying one universe, which
+  // the purpose they then pick must not hide.
   async recommend(
     organization: Organization,
     campaign: Campaign,
-    channel: RecommendedListChannel,
+    channel: RecommendedListChannel | null,
     intent: RecommendedListIntent | null,
+    variant: RecommendedListVariant | null = null,
   ): Promise<Recommendation[]> {
-    // `custom` and social's `issue_update` map to no intent at all.
-    if (!intent) return []
+    // With a channel and no intent there is nothing to recommend: `custom`
+    // and social's `issue_update` map to no intent at all.
+    const variants = variant
+      ? [variant]
+      : intent
+        ? variantsForIntent(intent)
+        : channel === null
+          ? [...RECOMMENDED_LIST_VARIANT_VALUES]
+          : []
+    if (variants.length === 0) return []
 
     // Win only, and a refusal rather than an empty answer: the endpoint
     // gate is the primary one, and a backstop that returned [] would hand
@@ -172,7 +191,6 @@ export class RecommendedListsService {
       )
     }
 
-    const variants = variantsForIntent(intent)
     // `introduce` has no ideology variant, so classifying its campaign is an
     // LLM call whose only possible consumer is absent. Gated on the registry
     // rather than on the intent name so a variant added to any intent picks
@@ -245,12 +263,24 @@ export class RecommendedListsService {
     )
     if (firstFailure && !sized.some(isSized)) throw firstFailure.error
 
-    const costInCents = COST_IN_CENTS[channel]
+    const costInCents = channel ? COST_IN_CENTS[channel] : null
+
+    // Two intents can describe the same universe (early voting duplicates
+    // persuasion and event audiences by decision), so a global request
+    // would otherwise show one list twice. Kept under the first intent in
+    // registry order; the same payload comparison as the saved-list dedupe.
+    const seen: SavedDedupeFilter[] = []
+    const distinct = sized.filter(isSized).filter((draft) => {
+      if (findEquivalentFilter(draft.filter, seen) !== null) return false
+      seen.push({ ...draft.filter, id: seen.length })
+      return true
+    })
 
     // variantsForIntent already returns registry display order and neither
-    // the map nor the filter above disturbs it.
-    return sized.filter(isSized).map(({ variant, filter, count }) => ({
+    // the map nor the filters above disturb it.
+    return distinct.map(({ variant, filter, count }) => ({
       variant,
+      intent: RECOMMENDED_LISTS_REGISTRY[variant].intent,
       filter,
       count,
       ...(votesNeededToWin ? { voteGoalShare: count / votesNeededToWin } : {}),
@@ -294,7 +324,7 @@ export class RecommendedListsService {
   private async sizeDraft(
     organization: Organization,
     district: DbxDistrict,
-    channel: RecommendedListChannel,
+    channel: RecommendedListChannel | null,
     draft: VariantDraft,
     votesNeededToWin: number | null,
   ): Promise<SizeOutcome> {

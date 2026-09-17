@@ -33,7 +33,7 @@ export class RecommendedListsController {
   async get(
     @ReqOrganization() organization: Organization,
     @Query(new ZodValidationPipe(GetRecommendedListsQuerySchema))
-    { channel, intent }: GetRecommendedListsQuery,
+    { channel, intent, variant }: GetRecommendedListsQuery,
   ) {
     // The primary gate, ahead of the service's own defence-in-depth 400:
     // an `eo-` (Serve) org has no Campaign row to resolve below, so this
@@ -51,8 +51,9 @@ export class RecommendedListsController {
     return this.recommendedLists.recommend(
       organization,
       campaign,
-      channel,
+      channel ?? null,
       intent ?? null,
+      variant ?? null,
     )
   }
 }

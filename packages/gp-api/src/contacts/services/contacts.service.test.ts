@@ -1527,6 +1527,89 @@ describe('ContactsService', () => {
       })
     })
 
+    describe('getFilterDetail (aggregates for an unsaved filter)', () => {
+      it('throws when the organization is not pro, before querying', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+
+        await expect(
+          service.getFilterDetail({ voterStatus: ['Super'] }, org),
+        ).rejects.toThrow(ForbiddenException)
+        expect(
+          mockVoterQueryService.getListDetailAggregates,
+        ).not.toHaveBeenCalled()
+      })
+
+      it('runs the inline filter through the same translation a saved list gets', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockVoterQueryService.getListDetailAggregates.mockResolvedValue({
+          count: 4200,
+          avgAge: 44,
+          avgIncome: 58000,
+          sms: 2600,
+          robocall: 2900,
+          phoneBanking: 3100,
+          doorKnocking: 4200,
+        })
+
+        const result = await service.getFilterDetail(
+          { independentAffinity: true },
+          org,
+        )
+
+        expect(
+          mockVoterQueryService.getListDetailAggregates,
+        ).toHaveBeenCalledWith(
+          expect.objectContaining({
+            districtId: OVERRIDE_DISTRICT_ID,
+            filters: expect.objectContaining({
+              filterValues: { independentAffinity: ['Yes'] },
+            }),
+          }),
+        )
+        expect(result).toEqual({
+          demographics: { people: 4200, avgAge: 44, avgIncome: 58000 },
+          reachability: {
+            sms: 2600,
+            robocall: 2900,
+            phoneBanking: 3100,
+            doorKnocking: 4200,
+            polls: 2600,
+          },
+          outreachHistory: [],
+        })
+      })
+
+      it('returns zeros without querying when support status resolves to nobody', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+          { kind: 'empty' },
+        )
+
+        const result = await service.getFilterDetail(
+          { supportStatus: ['supporter'] },
+          org,
+        )
+
+        expect(result.demographics.people).toBe(0)
+        expect(result.reachability.sms).toBe(0)
+        expect(
+          mockVoterQueryService.getListDetailAggregates,
+        ).not.toHaveBeenCalled()
+      })
+    })
+
     describe('getListDetail (list-detail demographics/reachability, ENG-10706)', () => {
       const savedFilter = {
         id: 42,

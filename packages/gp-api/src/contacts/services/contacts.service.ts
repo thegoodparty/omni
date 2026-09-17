@@ -1123,6 +1123,48 @@ export class ContactsService {
     return { ...aggregates, outreachHistory }
   }
 
+  // The same payload as getListDetail for a filter that has not been saved
+  // — a recommended list's detail sheet. Same pro gate and the same filter
+  // translation countContacts gives an unsaved filter, so the figures agree
+  // with what saving it would show. No row, so no outreach history.
+  async getFilterDetail(
+    filterInput: CountContactsDTO,
+    organization: Organization,
+  ): Promise<ListDetailContactsResponse> {
+    if (!(await this.isProAccess(organization))) {
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
+    }
+
+    const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
+      organization,
+      filterInput,
+    )
+    const { idResolution, contactsMadeIdOverrides } =
+      await this.resolveIdFilterWithContactsMade(organization, filterInput)
+
+    if (idResolution.kind === 'empty') {
+      return {
+        demographics: { people: 0, avgAge: null, avgIncome: null },
+        reachability: {
+          sms: 0,
+          robocall: 0,
+          phoneBanking: 0,
+          doorKnocking: 0,
+          polls: 0,
+        },
+        outreachHistory: [],
+      }
+    }
+
+    const aggregates = await this.fetchListDetailAggregates(
+      organization,
+      this.mergeIdFilter(baseFilters, idResolution),
+      idOverrides,
+      contactsMadeIdOverrides,
+    )
+    return { ...aggregates, outreachHistory: [] }
+  }
+
   // Demographics + reachable-by-channel aggregates shared by a saved list's
   // detail and the universe detail (ENG-10778 made the latter a second
   // caller). One call, and on Databricks one statement: the channel counts

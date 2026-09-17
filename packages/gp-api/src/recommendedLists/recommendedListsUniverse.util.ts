@@ -122,9 +122,11 @@ const buildUniverse = (
   }
 }
 
+// A null channel is the global universe itself — what the voter data page
+// shows before any channel is picked — so no contactability cut is applied.
 export const buildVariantFilter = (
   variant: RecommendedListVariant,
-  channel: RecommendedListChannel,
+  channel: RecommendedListChannel | null,
   ideologyBucket: IdeologyBucket | null,
 ): VoterFilterShape | null => {
   if (
@@ -136,6 +138,6 @@ export const buildVariantFilter = (
 
   return {
     ...buildUniverse(variant, ideologyBucket),
-    ...CHANNEL_CONTACTABILITY[channel],
+    ...(channel ? CHANNEL_CONTACTABILITY[channel] : {}),
   }
 }
