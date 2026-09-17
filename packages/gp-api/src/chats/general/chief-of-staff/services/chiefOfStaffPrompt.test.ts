@@ -301,6 +301,24 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain("that dimension's unknown value selected")
   })
 
+  it('teaches the map rules once show_list_map is registered', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [...ALL_TOOLS, 'show_list_map'],
+    })
+    expect(prompt).toContain('LIST MAP RULES')
+    // The rule that keeps it honest: it cannot see the map it just drew.
+    expect(prompt).toContain('The dots are markers, not a directory')
+  })
+
+  it('omits the map rules when the tool is not registered', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ALL_TOOLS,
+    })
+    expect(prompt).not.toContain('LIST MAP RULES')
+  })
+
   it('instructs against over-refusing borderline in-scope requests', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),

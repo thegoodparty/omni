@@ -33,6 +33,9 @@ import type {
 import { COS_INTRO_MESSAGES, toolDisplayName } from './chatConstants'
 import ChatHistoryPopover from './ChatHistoryPopover'
 import { HISTORY_KEY, useChatHistory } from '../../data/use-chat-history'
+import { ShowListMapSchema, type ShowListMap } from '@goodparty_org/contracts'
+import type { ChatMessageSegment } from '../../../shared/agent-chat/chatTypes'
+import ChatListMap from './ChatListMap'
 
 interface Props {
   /**
@@ -143,6 +146,19 @@ const CHAT_SUGGESTIONS = [
  * intro on first open, a typed-in seeded greeting, deferred conversation
  * creation, hidden kickoffs, starter chips, and quick prompts.
  */
+const LIST_MAP_TOOL = 'show_list_map'
+
+// Pulls the widget payload back out of a persisted turn. Returns null for
+// every turn without one, which is nearly all of them.
+const listMapFromSegments = (
+  segments: ChatMessageSegment[],
+): ShowListMap | null => {
+  const segment = segments.find((s) => s.toolName === LIST_MAP_TOOL)
+  if (!segment) return null
+  const parsed = ShowListMapSchema.safeParse(segment.payload)
+  return parsed.success ? parsed.data : null
+}
+
 export default function ChiefOfStaffChatBody({
   conversationIdOverride,
   opener,
@@ -177,6 +193,7 @@ export default function ChiefOfStaffChatBody({
     message: string
     retryable: boolean
   } | null>(null)
+  const [liveListMap, setLiveListMap] = useState<ShowListMap | null>(null)
   const [introProgress, setIntroProgress] = useState(0)
   // True once anything has been sent this session (visible OR hidden). Gates the
   // with-greeting starter chips off after a hidden kickoff (which adds no user
@@ -217,8 +234,24 @@ export default function ChiefOfStaffChatBody({
   const { messages, setMessages, visibleSegments, sending, send } =
     useStreamingTurn(chatApi, {
       toolLabel,
-      onTurnStart: () => setStreamError(null),
+      onTurnStart: () => {
+        setStreamError(null)
+        setLiveListMap(null)
+      },
       onError: (message, retryable) => setStreamError({ message, retryable }),
+      onEvent: (event) => {
+        // The ARGS carry the payload, which is why this reads tool_call and
+        // not tool_result: args are what the segment persists, so the same
+        // payload replays on reload.
+        if (event.type === 'tool_call' && event.toolName === LIST_MAP_TOOL) {
+          const parsed = ShowListMapSchema.safeParse(event.args)
+          if (parsed.success) setLiveListMap(parsed.data)
+          // Consumed either way: a payload we cannot parse is still not a
+          // pill the user should see.
+          return true
+        }
+        return false
+      },
     })
 
   const busy = sending || loading
@@ -556,6 +589,11 @@ export default function ChiefOfStaffChatBody({
         role: m.role,
         content: m.content,
         feedback: m.feedback ?? null,
+        // Replayed from the persisted tool segment rather than remembered
+        // from the live stream: a reloaded transcript never passes through
+        // onEvent, and a map that only existed in the session that made it
+        // would vanish under the user the moment they refreshed.
+        listMap: listMapFromSegments(m.segments ?? []),
         live:
           m.role === 'user'
             ? null
@@ -652,6 +690,7 @@ export default function ChiefOfStaffChatBody({
           ) : (
             <AssistantRow key={m.id}>
               <InlineSegments segments={m.live} toolLabel={toolLabel} />
+              {m.listMap ? <ChatListMap {...m.listMap} /> : null}
               {showMessageActions && conversationId && m.content ? (
                 <MessageActionBar
                   conversationId={conversationId}
@@ -668,6 +707,7 @@ export default function ChiefOfStaffChatBody({
         {visibleSegments.length > 0 ? (
           <AssistantRow>
             <InlineSegments segments={visibleSegments} toolLabel={toolLabel} />
+            {liveListMap ? <ChatListMap {...liveListMap} /> : null}
           </AssistantRow>
         ) : null}
 

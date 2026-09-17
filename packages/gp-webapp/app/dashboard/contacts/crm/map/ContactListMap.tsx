@@ -41,7 +41,13 @@ const FIT_PADDING_PX = 48
 interface ContactListMapProps {
   people: Person[]
   selectedPersonId?: string | null
-  onSelectPerson: (personId: string) => void
+  // Omitted where the dots are markers rather than an index into anything.
+  // The Chief of Staff chat is that case: there is no person overlay in a
+  // transcript, so a dot that highlighted and opened a list of names would be
+  // offering a door with nothing behind it. Absent, the layer is not pickable
+  // at all rather than pickable-but-inert, so the cursor never suggests
+  // otherwise.
+  onSelectPerson?: (personId: string) => void
 }
 
 export default function ContactListMap({
@@ -125,7 +131,7 @@ export default function ContactListMap({
         new ScatterplotLayer<ContactPoint>({
           id: 'contacts',
           data: points,
-          pickable: true,
+          pickable: Boolean(onSelectPerson),
           radiusUnits: 'pixels',
           lineWidthUnits: 'pixels',
           stroked: true,
@@ -145,7 +151,7 @@ export default function ContactListMap({
           radiusMinPixels: BASE_RADIUS_PX,
           updateTriggers: { getFillColor: [selectedKey] },
           onClick: ({ object }) => {
-            if (!object) return false
+            if (!object || !onSelectPerson) return false
             if (object.residents.length === 1) {
               setOpenPoint(null)
               onSelectPerson(object.residents[0]!.id)
@@ -208,7 +214,7 @@ export default function ContactListMap({
         </div>
       ) : null}
 
-      {openPoint ? (
+      {openPoint && onSelectPerson ? (
         <div className="absolute bottom-3 left-3 max-h-56 w-64 overflow-auto rounded-md bg-background p-2 shadow-lg">
           <div className="mb-1 px-1 text-xs text-muted-foreground">
             {openPoint.residents.length} people at this address
