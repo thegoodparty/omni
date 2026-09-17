@@ -2,6 +2,7 @@ import { ForbiddenException } from '@nestjs/common'
 import { z } from 'zod'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import type { RewriteCampaignStoryInput } from '@/campaignStory/schemas/rewriteCampaignStory.schema'
+import type { StrategicLandscapeFailedReason } from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import {
   CampaignStoryIntakeService,
   StoryState,
@@ -33,7 +34,7 @@ export type CampaignStoryToolOutput =
   | { story: StoryState }
   | { rewrite: string }
   | { saved: 'why' | 'background' | 'positions' }
-  | { generation: { status: string; reason?: string } }
+  | { generation: { status: string; reason?: StrategicLandscapeFailedReason } }
   | { error: string }
 
 export const buildCampaignStoryTool = (deps: {

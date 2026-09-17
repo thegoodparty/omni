@@ -730,6 +730,9 @@ export class CampaignStrategyService extends createPrismaBase(
     if (opposition === 'inflight' || opportunities === 'inflight') {
       return { status: 'generating' }
     }
+    // Neither dead nor inflight and not both persisted (the caller already
+    // returns 'ready' for that): the only state left is 'stalled', so this is
+    // always an SQS-dispatch failure, never a generic catch-all.
     return { status: 'failed', reason: 'queue_failed' }
   }
 

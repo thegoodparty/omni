@@ -2,7 +2,10 @@ import { Injectable } from '@nestjs/common'
 import { CampaignStoryService } from '@/campaignStory/services/campaignStory.service'
 import { CampaignStoryRewriteService } from '@/campaignStory/services/campaignStoryRewrite.service'
 import type { RewriteCampaignStoryInput } from '@/campaignStory/schemas/rewriteCampaignStory.schema'
-import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
+import type {
+  StrategicLandscapeFailedReason,
+  StrategicLandscapeResult,
+} from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { WebsitesService } from '@/websites/services/websites.service'
@@ -173,7 +176,7 @@ export class CampaignStoryIntakeService {
   // generation once the plan's sections persist.
   async generate(
     campaignId: number,
-  ): Promise<{ status: string; reason?: string }> {
+  ): Promise<{ status: string; reason?: StrategicLandscapeFailedReason }> {
     // Backstop the prompt: never dispatch plan generation with an unfinished
     // story (a misfiring early generate call), which would build from empty
     // content. 'incomplete' is handled in the manager prompt's status guidance.

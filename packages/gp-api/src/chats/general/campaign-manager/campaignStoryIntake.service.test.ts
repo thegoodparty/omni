@@ -91,6 +91,33 @@ describe('CampaignStoryIntakeService.generate', () => {
       reason: 'race_lookup_failed',
     })
   })
+
+  it('does not carry a reason when the generate result is not failed', async () => {
+    const { stories, websites } = completeSources()
+    const campaigns = {
+      client: {
+        campaign: {
+          findUnique: vi.fn(() => Promise.resolve({ id: 42, user: {} })),
+        },
+      },
+    } as unknown as CampaignsService
+    const strategy = {
+      getOrGenerateStrategicLandscape: vi.fn(() =>
+        Promise.resolve({ status: 'generating' }),
+      ),
+    } as unknown as CampaignStrategyService
+    const service = new CampaignStoryIntakeService(
+      stories,
+      {} as CampaignStoryRewriteService,
+      websites,
+      strategy,
+      campaigns,
+    )
+
+    const result = await service.generate(42)
+    expect(result).toEqual({ status: 'generating' })
+    expect(result).not.toHaveProperty('reason')
+  })
 })
 
 describe('CampaignStoryIntakeService.patchAbout (via saveWhy)', () => {
