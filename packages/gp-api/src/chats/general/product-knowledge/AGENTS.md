@@ -11,12 +11,12 @@ feature in your head.
 
 ## Files
 
-| File                          | Role                                                                          |
-| ----------------------------- | ----------------------------------------------------------------------------- |
-| `productMap.ts`               | **The content.** Every area of the product, per mode. This is what you edit.  |
-| `productKnowledgePrompt.ts`   | Renders the map into prompt blocks, plus the one support route. Rarely edit.  |
-| `productMapCoverage.ts`       | The check: every nav tab has an entry, every entry is still a tab.            |
-| `productMapCoverage.test.ts`  | Where CI fails when the map goes stale.                                       |
+| File                         | Role                                                                         |
+| ---------------------------- | ---------------------------------------------------------------------------- |
+| `productMap.ts`              | **The content.** Every area of the product, per mode. This is what you edit. |
+| `productKnowledgePrompt.ts`  | Renders the map into prompt blocks, plus the one support route. Rarely edit. |
+| `productMapCoverage.ts`      | The check: every nav tab has an entry, every entry is still a tab.           |
+| `productMapCoverage.test.ts` | Where CI fails when the map goes stale.                                      |
 
 Rendered into `../campaign-manager/campaignManagerPrompt.ts` (`'win'`) and
 `../chief-of-staff/services/chiefOfStaffPrompt.ts` (`'serve'`).
@@ -24,10 +24,10 @@ Rendered into `../campaign-manager/campaignManagerPrompt.ts` (`'win'`) and
 The map has a companion: `../help-center/` holds `search_help_center`, which
 searches our published support articles. The two split cleanly.
 
-| Question                                    | Source                       |
-| ------------------------------------------- | ---------------------------- |
-| Where does X live? What is this tab called? | the map, always              |
-| How do I do X? What are the texting rules?  | `search_help_center`         |
+| Question                                    | Source               |
+| ------------------------------------------- | -------------------- |
+| Where does X live? What is this tab called? | the map, always      |
+| How do I do X? What are the texting rules?  | `search_help_center` |
 
 **The map outranks the articles on naming and location, and that ordering is
 load-bearing.** The articles are hand-written and some are behind the product:
@@ -76,10 +76,12 @@ often than the map:
 - Never name a third-party tool for something we build. The audit found two
   third-party canvassing apps recommended to a candidate who already had our
   door-knocking tool.
-- **One support route**, `SUPPORT_ROUTE` + `SUPPORT_EMAIL`. Before this,
-  fifteen of fifty audited sessions ended in a handoff and named eight
-  different routes between them. Everything a user gets sent to comes from
-  those two constants.
+- **One support route**, `SUPPORT_ROUTE` + `SUPPORT_EMAIL`, plus
+  `HELP_CENTER_URL` for what Get help falls back to when the chat cannot load.
+  Before this, fifteen of fifty audited sessions ended in a handoff and named
+  eight different routes between them. Everything a user gets sent to comes
+  from those constants, and all three are duplicated in gp-webapp
+  (`app/shared/utils/supportContact.ts`) — change both sides together.
 
 ## Why the assistants answer support questions at all
 

@@ -1,5 +1,5 @@
 import { SUPPORT_CHAT_ENABLED } from 'appEnv'
-import { SUPPORT_EMAIL } from './supportContact'
+import { HELP_CENTER_URL } from './supportContact'
 
 // HubSpot's Conversations SDK, attached to window by the support script in the
 // root layout. Typed here because it arrives at runtime.
@@ -82,6 +82,22 @@ const removeWhenClosed = (): void => {
   })
 }
 
+// Where a click lands when the chat cannot be reached. A new tab keeps the
+// candidate's work where it is, but ten seconds after the click there is no
+// user gesture left, so a popup blocker can refuse one — and a refused tab is
+// the same dead click this replaced. Same-tab navigation always lands.
+//
+// `noopener` is deliberately NOT passed. With it, `window.open` returns null
+// even when the tab opened, so the return value cannot tell a granted tab from
+// a refused one: every click took the fallback as well, opening the help
+// center AND navigating the candidate off their dashboard. The destination is
+// our own knowledge base, so the reverse-tabnabbing `noopener` guards against
+// is not a live concern; losing the only signal that the tab arrived is.
+const openHelpCenter = (): void => {
+  const opened = window.open(HELP_CENTER_URL, '_blank')
+  if (!opened) window.location.href = HELP_CENTER_URL
+}
+
 const openWidget = (): void => {
   window.HubSpotConversations?.widget.open()
   removeWhenClosed()
@@ -90,9 +106,9 @@ const openWidget = (): void => {
 // One ready-hook callback is enough for the life of the page, and one watch is
 // enough at a time. Without these, an impatient user clicking Get help while
 // the SDK is still loading queues a callback and starts a timer per click —
-// every callback firing `load()` again, and every timer able to navigate to
-// `mailto:` on its own. That accumulation is observable: six clicks against a
-// missing SDK left six entries on `hsConversationsOnReady`.
+// every callback firing `load()` again, and every timer able to navigate away
+// on its own. That accumulation is observable: six clicks against a missing
+// SDK left six entries on `hsConversationsOnReady`.
 //
 // `queuedOnReady` never resets, because the hook only ever needs one callback.
 // `watching` resets when a watch settles, so a click after a failed attempt
@@ -120,10 +136,10 @@ let watching = false
 export const openSupportChat = (): void => {
   // Nav item renders everywhere; the chat script only loads in production or
   // behind NEXT_PUBLIC_SUPPORT_CHAT. Where it was never injected there is
-  // nothing to wait for, so email answers the click immediately rather than
-  // after ten seconds of a widget that is not coming.
+  // nothing to wait for, so the help center answers the click immediately
+  // rather than after ten seconds of a widget that is not coming.
   if (!SUPPORT_CHAT_ENABLED) {
-    window.location.href = `mailto:${SUPPORT_EMAIL}`
+    openHelpCenter()
     return
   }
 
@@ -160,10 +176,9 @@ export const openSupportChat = (): void => {
 
   // Watch until it is up, rather than checking once. A single check a couple
   // of seconds in cannot tell "never coming" from "still coming", and getting
-  // that wrong means redirecting to a mail client over the top of a widget
-  // mid-animation. Only a widget that is still absent at the deadline counts
-  // as a failure, and then the click goes somewhere a person will answer
-  // rather than nowhere.
+  // that wrong means navigating away over the top of a widget mid-animation.
+  // Only a widget that is still absent at the deadline counts as a failure,
+  // and then the click goes to the help center rather than nowhere.
   if (watching) return
   watching = true
   const deadline = Date.now() + GIVE_UP_MS
@@ -183,7 +198,7 @@ export const openSupportChat = (): void => {
         openWidget()
         return
       }
-      window.location.href = `mailto:${SUPPORT_EMAIL}`
+      openHelpCenter()
       return
     }
     window.setTimeout(check, POLL_MS)
