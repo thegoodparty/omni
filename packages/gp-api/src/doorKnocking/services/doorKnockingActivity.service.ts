@@ -10,6 +10,7 @@ import {
   ContactStatusField,
   ContactStatusSource,
   DoorKnockOutcome,
+  FollowUpAnswer,
   PhoneBankCallOutcome,
   Prisma,
   SupportAnswer,
@@ -21,6 +22,7 @@ type BaseRow = { personId: string; occurredAt: Date; id: string }
 type DoorKnockRow = BaseRow & {
   outcome: DoorKnockOutcome
   supportAnswer: SupportAnswer | null
+  followUp: FollowUpAnswer | null
   note: string | null
   manual: boolean
   actorUserId: number | null
@@ -48,6 +50,7 @@ type PhoneBankingRow = BaseRow & {
   outcome: PhoneBankCallOutcome
   supportAnswer: SupportAnswer | null
   willVote: WillVoteAnswer | null
+  followUp: FollowUpAnswer | null
   note: string | null
   manual: boolean
   actorUserId: number | null
@@ -106,13 +109,14 @@ export class DoorKnockingActivityService extends createPrismaBase(
       await Promise.all([
         this.client.$queryRaw<DoorKnockRow[]>(Prisma.sql`
           SELECT ranked."personId", ranked."occurredAt", ranked.id,
-                 ranked.outcome, ranked."supportAnswer", ranked.note,
-                 ranked.manual, ranked."actorUserId",
+                 ranked.outcome, ranked."supportAnswer", ranked."followUp",
+                 ranked.note, ranked.manual, ranked."actorUserId",
                  "user".first_name AS "actorFirstName",
                  "user".last_name AS "actorLastName"
           FROM (
             SELECT person_id AS "personId", occurred_at AS "occurredAt", id,
-                   outcome, support_answer AS "supportAnswer", note, manual,
+                   outcome, support_answer AS "supportAnswer",
+                   follow_up AS "followUp", note, manual,
                    actor_user_id AS "actorUserId", ${RANK_OVER} AS rank
             FROM contact_interaction_door_knock
             WHERE organization_slug = ${organizationSlug}
@@ -149,13 +153,15 @@ export class DoorKnockingActivityService extends createPrismaBase(
         this.client.$queryRaw<PhoneBankingRow[]>(Prisma.sql`
           SELECT ranked."personId", ranked."occurredAt", ranked.id,
                  ranked.outcome, ranked."supportAnswer", ranked."willVote",
-                 ranked.note, ranked.manual, ranked."actorUserId",
+                 ranked."followUp", ranked.note, ranked.manual,
+                 ranked."actorUserId",
                  "user".first_name AS "actorFirstName",
                  "user".last_name AS "actorLastName"
           FROM (
             SELECT person_id AS "personId", occurred_at AS "occurredAt", id,
                    outcome, support_answer AS "supportAnswer",
-                   will_vote AS "willVote", note, manual,
+                   will_vote AS "willVote", follow_up AS "followUp",
+                   note, manual,
                    actor_user_id AS "actorUserId", ${RANK_OVER} AS rank
             FROM contact_interaction_phone_banking
             WHERE organization_slug = ${organizationSlug}
@@ -189,6 +195,12 @@ export class DoorKnockingActivityService extends createPrismaBase(
         `),
       ])
 
+    // Same one-vocabulary-per-row rule the Constituent Data feed follows
+    // (contactEngagement.service.ts): this history is read on a Serve walk's
+    // person sheet, so it must not hand a canvasser the answer to a question
+    // their surface never asked.
+    const isServe = organizationSlug.startsWith('eo-')
+
     const activities: [string, RouteTargetActivity][] = [
       ...doorKnocks.map((row): [string, RouteTargetActivity] => [
         row.personId,
@@ -198,7 +210,8 @@ export class DoorKnockingActivityService extends createPrismaBase(
           data: {
             activityId: row.id,
             outcome: row.outcome,
-            supportAnswer: row.supportAnswer,
+            supportAnswer: isServe ? null : row.supportAnswer,
+            followUp: isServe ? row.followUp : null,
             note: row.note,
             manual: row.manual,
             actorName: composeActorName(row.actorFirstName, row.actorLastName),
@@ -244,8 +257,9 @@ export class DoorKnockingActivityService extends createPrismaBase(
           data: {
             activityId: row.id,
             outcome: row.outcome,
-            supportAnswer: row.supportAnswer,
-            willVote: row.willVote,
+            supportAnswer: isServe ? null : row.supportAnswer,
+            willVote: isServe ? null : row.willVote,
+            followUp: isServe ? row.followUp : null,
             note: row.note,
             manual: row.manual,
             actorName: composeActorName(row.actorFirstName, row.actorLastName),

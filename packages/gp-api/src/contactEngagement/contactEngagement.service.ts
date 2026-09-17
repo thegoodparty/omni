@@ -285,14 +285,13 @@ export class ContactEngagementService {
         )
       : []
 
-    // A support answer and a turnout intention are Win facts about a person,
-    // and this feed is read on both surfaces — the walk's person sheet and the
-    // Constituent Data overlay. Nulled here rather than hidden per reader, the
-    // same way `politicalParty` is (`ContactsService.hasElectedOfficeAccess`):
-    // the `eo-` prefix is the whole rule, and one null fixes every reader at
-    // once instead of each one remembering to check. Serve's own answer has no
-    // field on these activity shapes yet, so a Serve row simply states its
-    // outcome, note and actor.
+    // One vocabulary per row, decided here rather than per reader — this feed
+    // has two (the walk's person sheet and the Constituent Data overlay), and
+    // the `eo-` prefix is the whole rule, the same way `politicalParty` is
+    // stripped in `ContactsService`. A support answer and a turnout intention
+    // are Win facts about a person; a follow-up is Serve's. Each surface reads
+    // back only its own, so neither can show a reader the answer to a question
+    // their canvasser never asked.
     const isServe = organizationSlug.startsWith('eo-')
 
     const doorKnockActivities: DoorKnockConstituentActivity[] = doorKnocks.map(
@@ -303,6 +302,7 @@ export class ContactEngagementService {
           activityId: activity.id,
           outcome: activity.outcome,
           supportAnswer: isServe ? null : activity.supportAnswer,
+          followUp: isServe ? activity.followUp : null,
           note: activity.note,
           manual: activity.manual,
           actorName: activity.actor
@@ -352,6 +352,7 @@ export class ContactEngagementService {
           outcome: activity.outcome,
           supportAnswer: isServe ? null : activity.supportAnswer,
           willVote: isServe ? null : activity.willVote,
+          followUp: isServe ? activity.followUp : null,
           note: activity.note,
           manual: activity.manual,
           actorName: activity.actor

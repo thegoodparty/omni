@@ -48,7 +48,6 @@ import {
   StatusChangeActivityRow,
   TextActivityRow,
 } from './ActivityFeedEntry'
-import { SUPPORT_STATUS_ROLLUP_LABELS } from '@goodparty_org/contracts'
 
 export const formatPersonName = (person: Person) =>
   [person.firstName, person.lastName, person.nameSuffix]
@@ -396,9 +395,13 @@ const getIncomeBucket = (income: number | null) => {
 
 const PersonContent: React.FC<{
   person: Person
-  hidePoliticalParty: boolean
+  // Named for the surface, not for one of its consequences: this flag decides
+  // party visibility AND the card's whole vocabulary, and calling it
+  // `hidePoliticalParty` is why the voter wording below survived a vocabulary
+  // pass. Serve reads constituents; Win reads voters.
+  isServe: boolean
   showWinActivities: boolean
-}> = ({ person, hidePoliticalParty, showWinActivities }) => {
+}> = ({ person, isServe, showWinActivities }) => {
   const { on: showActivitiesAndIssues } = useFlagOn(
     'serve-contacts-activities-and-issues',
   )
@@ -442,7 +445,7 @@ const PersonContent: React.FC<{
           of the Support Status Field below and the OptedInChip that used to
           render next to the name above. Self-gates on Win so Serve's
           rendering (the Field below, no opt-in display) is untouched. */}
-      <StatusRow person={person} hidePoliticalParty={hidePoliticalParty} />
+      <StatusRow person={person} hidePoliticalParty={isServe} />
       <div className="flex flex-col gap-6">
         <NotesSection personId={person.id} />
 
@@ -491,22 +494,28 @@ const PersonContent: React.FC<{
           <Field label="Landline" value={person.landline} />
         </InfoSection>
         <InfoSection
-          title="Voter Demographics"
+          title={isServe ? 'Constituent Demographics' : 'Voter Demographics'}
           icon={<LuClipboardList size={24} />}
         >
-          {/* Win moved this to the StatusRow's editable dropdown (ENG-10836)
-              — Serve keeps the read-only Field unchanged. */}
-          {hidePoliticalParty ? (
-            <Field
-              label="Support Status"
-              value={
-                SUPPORT_STATUS_ROLLUP_LABELS[person.supportStatus ?? 'unknown']
-              }
-            />
-          ) : null}
-          <Field label="Registered Voter" value={person.registeredVoter} />
-          <Field label="Voter Status" value={person.voterStatus} />
-          {!hidePoliticalParty && (
+          {/* Support Status is Win's, and this was the only place Serve still
+              showed it: Win moved it to the StatusRow's editable dropdown
+              (ENG-10836) and left the read-only Field here for Serve. An
+              elected official never asks a constituent for a stance, so the
+              row could only ever read "Support unknown" — a question nobody
+              was asked, reported as a gap in the record. */}
+          <Field
+            label={isServe ? 'Registered to vote' : 'Registered Voter'}
+            value={person.registeredVoter}
+          />
+          {/* `Voter_Status` holds turnout propensity (Super / Likely /
+              Unreliable / Unlikely), not active-or-inactive registration —
+              Serve names the field for what it actually is, matching the door
+              sheet's own `voterDemographicFacts`. */}
+          <Field
+            label={isServe ? 'Turnout likelihood' : 'Voter Status'}
+            value={person.voterStatus}
+          />
+          {!isServe && (
             <Field label="Political Party" value={person.politicalParty} />
           )}
         </InfoSection>
@@ -611,7 +620,7 @@ export default function PersonOverlay(): React.JSX.Element {
               <PersonContent
                 key={person.id}
                 person={person}
-                hidePoliticalParty={isElectedOfficial}
+                isServe={isElectedOfficial}
                 showWinActivities={isWinContext}
               />
             )

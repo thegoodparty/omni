@@ -35,6 +35,7 @@ const knock = (
     activityId: `dk-${date}`,
     outcome: 'answered',
     supportAnswer,
+    followUp: null,
     note: null,
     manual: false,
     actorName: null,

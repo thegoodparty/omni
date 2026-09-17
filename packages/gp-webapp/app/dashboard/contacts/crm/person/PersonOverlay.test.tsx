@@ -378,6 +378,7 @@ describe('<PersonOverlay>', () => {
           activityId: 'dk_1',
           outcome: 'answered',
           supportAnswer: 'supporter',
+          followUp: null,
           note: null,
           manual: true,
           actorName: null,
@@ -732,42 +733,34 @@ describe('<PersonOverlay>', () => {
     expect(activitiesFetchNextPage).toHaveBeenCalledTimes(1)
   })
 
-  describe('ENG-10698 support status (Serve)', () => {
-    // ENG-10836 removed this Field for Win (replaced by the StatusRow
-    // dropdown, mocked below) — these assertions now only apply to Serve,
-    // which keeps the pre-ENG-10836 read-only rendering untouched.
-    it.each([
-      ['supporter', 'Supporter'],
-      ['non_supporter', 'Non-supporter'],
-      ['unknown', 'Support unknown'],
-    ] as const)(
-      'shows Support Status "%s" as "%s" for Serve',
-      (rollup, label) => {
-        setContext({
-          isElectedOfficial: true,
-          selectedPerson: { person: makePerson({ supportStatus: rollup }) },
-        })
-
-        render(<PersonOverlay />)
-
-        expect(screen.getByText('Support Status')).toBeInTheDocument()
-        expect(screen.getByText(label)).toBeInTheDocument()
-      },
-    )
-
-    it('shows "Support unknown" when supportStatus is absent from the response', () => {
-      // makePerson() doesn't set supportStatus (undefined by default).
+  describe('the demographics card reads in its own vocabulary', () => {
+    // This card was the last place Serve still said "voter", and it said it
+    // three times plus a support concept: Win moved Support Status to the
+    // StatusRow dropdown (ENG-10836) and left the read-only Field here for
+    // Serve, where the question is never asked — so it could only ever read
+    // "Support unknown", reporting a gap in the record for something nobody
+    // was ever asked.
+    it('serve names constituents and offers no support row', () => {
       setContext({
         isElectedOfficial: true,
-        selectedPerson: { person: makePerson() },
+        selectedPerson: { person: makePerson({ supportStatus: 'supporter' }) },
       })
 
       render(<PersonOverlay />)
 
-      expect(screen.getByText('Support unknown')).toBeInTheDocument()
+      expect(screen.getByText('Constituent Demographics')).toBeInTheDocument()
+      expect(screen.getByText('Registered to vote')).toBeInTheDocument()
+      expect(screen.getByText('Turnout likelihood')).toBeInTheDocument()
+
+      // Not even when the record carries one.
+      expect(screen.queryByText('Support Status')).not.toBeInTheDocument()
+      expect(screen.queryByText('Supporter')).not.toBeInTheDocument()
+      expect(screen.queryByText('Voter Demographics')).not.toBeInTheDocument()
+      expect(screen.queryByText('Registered Voter')).not.toBeInTheDocument()
+      expect(screen.queryByText('Voter Status')).not.toBeInTheDocument()
     })
 
-    it('hides the Support Status Field for Win — the status row replaces it (ENG-10836)', () => {
+    it('win keeps its own wording, and its support row still lives in the status row', () => {
       setContext({
         isElectedOfficial: false,
         selectedPerson: { person: makePerson({ supportStatus: 'supporter' }) },
@@ -775,6 +768,11 @@ describe('<PersonOverlay>', () => {
 
       render(<PersonOverlay />)
 
+      expect(screen.getByText('Voter Demographics')).toBeInTheDocument()
+      expect(screen.getByText('Registered Voter')).toBeInTheDocument()
+      expect(screen.getByText('Voter Status')).toBeInTheDocument()
+      expect(screen.getByText('Political Party')).toBeInTheDocument()
+      // ENG-10836: the StatusRow replaces this Field on Win.
       expect(screen.queryByText('Support Status')).not.toBeInTheDocument()
     })
   })
@@ -854,6 +852,7 @@ describe('<PersonOverlay>', () => {
           activityId: 'dk_1',
           outcome: 'answered',
           supportAnswer: 'supporter',
+          followUp: null,
           note: 'Left a flyer',
           manual: true,
           actorName: null,

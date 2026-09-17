@@ -86,6 +86,15 @@ export const SERVE_ONLY_DIRS: readonly string[] = [
   'app/dashboard/constituent-outreach',
   'app/dashboard/admin-review/briefings',
   'app/serve',
+  // The Serve onboarding lives under `app/polls/` for historical reasons —
+  // `app/polls/onboarding/page.tsx` is titled "Serve Onboarding" and fires
+  // EVENTS.ServeOnboarding — so it is Serve-only despite the path, and its
+  // sibling `/dashboard/polls` is not (see SHARED_SERVE_ROUTES). Missing it
+  // is not hypothetical: five "based on your voter file" insights shipped to
+  // elected officials on the first screen of onboarding, and this check ran
+  // clean over them because the directory was not listed here.
+  'app/polls/onboarding',
+  'app/polls/welcome',
 ]
 
 // Serve-gated routes that are NOT serve-only, and why. Listed rather than

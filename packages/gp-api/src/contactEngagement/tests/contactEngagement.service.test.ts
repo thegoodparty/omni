@@ -685,6 +685,8 @@ describe('ContactEngagementService', () => {
             outcome: 'answered',
             supportAnswer: 'supporter',
             willVote: 'yes',
+            // Win reads back its own two answers and never a follow-up.
+            followUp: null,
             note: 'Confirmed will vote',
             manual: false,
             actorName: null,
@@ -722,6 +724,7 @@ describe('ContactEngagementService', () => {
             activityId: 'dk-1',
             outcome: 'answered',
             supportAnswer: 'supporter',
+            followUp: null,
             note: 'Friendly chat',
             manual: true,
             actorName: null,
@@ -744,6 +747,7 @@ describe('ContactEngagementService', () => {
           occurredAt: new Date('2026-01-01T10:00:00Z'),
           outcome: 'answered',
           supportAnswer: 'supporter',
+          followUp: 'yes',
           note: 'Friendly chat',
           manual: true,
           actorUserId: null,
@@ -757,6 +761,7 @@ describe('ContactEngagementService', () => {
           outcome: 'answered',
           supportAnswer: 'supporter',
           willVote: 'yes',
+          followUp: 'no',
           note: 'Confirmed will vote',
           manual: false,
           actorUserId: null,
@@ -780,12 +785,15 @@ describe('ContactEngagementService', () => {
       expect(phoneBanking?.data).toMatchObject({
         supportAnswer: null,
         willVote: null,
+        // Serve's own answer rides in their place.
+        followUp: 'no',
         // Everything that is a fact about the call itself survives.
         outcome: 'answered',
         note: 'Confirmed will vote',
       })
       expect(doorKnock?.data).toMatchObject({
         supportAnswer: null,
+        followUp: 'yes',
         outcome: 'answered',
         note: 'Friendly chat',
       })
