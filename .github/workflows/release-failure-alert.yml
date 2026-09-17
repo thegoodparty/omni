@@ -28,7 +28,7 @@ name: release-failure-alert
 # workflow exists for, while every one of its own runs was green.
 #
 # Three things follow, and none of them is optional:
-#   - the app is gp_ai_bot, the one the humans' channels actually contain (see
+#   - the app is gp_ai_bot, the one every other gpbot workflow posts with (see
 #     the job's env block, and the same warning in gpbot-pr-triage.yml);
 #   - a `not_in_channel` it can fix — a public channel it has not joined — it
 #     fixes, rather than waiting to be noticed;
@@ -41,6 +41,32 @@ name: release-failure-alert
 # already standardises these channels on gp_ai_bot. It also kept the
 # `::warning::` downgrade, so an undeliverable alert stayed green — the half of
 # the bug that made the original silence last three days.
+#
+# THE SELF-JOIN ABOVE CANNOT CURRENTLY SUCCEED, and it is worth knowing why
+# before reading it as dead code. Dispatching the sibling triage against a real
+# failed run on 2026-09-17 answered:
+#
+#   Could not join C0C1JSUPPEX (missing_scope)
+#   Slack rejected the disposition: not_in_channel
+#
+# #bot-urgent is a public channel, so `conversations.join` is the right call —
+# but the gp_ai_bot app was never granted `channels:join`, so it may neither be
+# in the channel nor let itself in. At the time of writing the channel held
+# eight members and every one was a human; no bot has ever been in it. That is
+# also what retires the earlier claim here that gp_ai_bot is "the one the
+# humans' channels actually contain": it posts fine to GPBOT_PR_CHANNEL_ID with
+# this same token (gpbot-stale-pr-alert.yml has been green for days), and that
+# is the whole of the evidence the claim ever rested on.
+#
+# Two fixes, and the second is the one that lasts:
+#   - `/invite @gp_ai_bot` in #bot-urgent, which needs no scope and no admin;
+#   - grant the app `channels:join` at api.slack.com and reinstall, after which
+#     the branch above heals this for the next channel too.
+#
+# Until one of them happens this workflow is red on every failed release rather
+# than silent on one, which is the trade it was written to make: the release
+# failure is still discoverable from the train itself, and a red alert run is
+# the only thing that makes the undelivered alert discoverable at all.
 
 on:
   workflow_run:
