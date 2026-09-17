@@ -147,8 +147,9 @@ export class CommunityIssueSeedService extends createPrismaBase(
       // An existing briefing normally keeps its own pointers: it may belong to
       // a real agent run, and repointing it at this stub would strand that
       // run's artifact in S3 and serve dummy data for that meeting from then
-      // on. The one exception is a row carrying the exact pair this service
-      // wrote before the fix below — bucket "seed", key "seed" — which is an
+      // on. Rows this service wrote itself are the exception, and the first of
+      // the two is a row carrying the exact pair it wrote before the fix below
+      // — bucket "seed", key "seed" — which is an
       // unambiguous signature rather than a heuristic. No writer in the repo
       // can produce that pair now: the agent path copies the bucket the broker
       // reports (gp-agent-artifacts-*), and both seeds write SEED_BUCKET under
@@ -190,6 +191,21 @@ export class CommunityIssueSeedService extends createPrismaBase(
         )
       }
 
+      // A row this service already owns has to be refreshed, not left alone.
+      // `update: {}` kept the object in S3 and the JSONB copy listing the
+      // previous call's briefingItemIds while the link rows below were written
+      // for this call's, and CommunityIssueReadService filters links through
+      // the item ids it finds in the artifact — so every link from the second
+      // call was dropped. That is the same silent failure as two issues
+      // sharing a date, one call later, and it made the endpoint
+      // non-idempotent in the one way that matters to a reader.
+      const reseedsOwnRow =
+        existing?.artifactKey.startsWith('community-issue-seed/') ?? false
+
+      // The row is ours to rewrite in both cases: a pre-fix pointer is broken
+      // by this code, and an own-prefix key was written by it.
+      const writesPointers = repairsPreFixPointer || reseedsOwnRow
+
       // The row this creates only exists to anchor the MeetingBriefingItemLink
       // below, but it is a fully-fledged briefing pointer as far as every
       // reader is concerned: `GET /meetings/:date/briefing` and the PDF
@@ -211,7 +227,7 @@ export class CommunityIssueSeedService extends createPrismaBase(
       // community-issue run through the briefing. Taking the first keeps it
       // deterministic when a date spans both lists.
       const runId = runByList.get(linked[0]!.list) ?? ''
-      if (!existing || repairsPreFixPointer) {
+      if (!existing || writesPointers) {
         await this.s3.uploadFile(
           SEED_BUCKET,
           JSON.stringify(artifact),
@@ -237,13 +253,15 @@ export class CommunityIssueSeedService extends createPrismaBase(
           artifactKey,
           artifact,
         },
-        // The repair has to move experimentRunId too. The run the broken row
-        // points at carries the same ('seed', 'seed') pair on its own columns,
-        // so leaving it attached means AdminAgentRunsService.detail still fails
-        // for that run and the row still names a run that never published
-        // anything. Repointing at the run this call just created is the only
-        // value here that describes something real.
-        update: repairsPreFixPointer
+        // experimentRunId has to move with the pointers in both cases. On a
+        // repair the run the broken row points at carries the same
+        // ('seed', 'seed') pair on its own columns, so leaving it attached
+        // means AdminAgentRunsService.detail still fails for that run and the
+        // row still names a run that never published anything. On a re-seed
+        // the previous call's run no longer describes the artifact now in S3.
+        // Either way the run this call created is the only value here that
+        // describes something real.
+        update: writesPointers
           ? {
               artifactBucket: SEED_BUCKET,
               artifactKey,

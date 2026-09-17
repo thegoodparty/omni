@@ -881,6 +881,61 @@ describe('POST /v1/community-issues/seed', () => {
     expect(links).toEqual([])
   })
 
+  it('refreshes the artifact when re-seeding a date it already owns', async () => {
+    stubS3()
+    await service.client.post(`${BASE}/seed`, seedBody(), eoHeaders())
+
+    const base = seedBody()
+    const second = {
+      issues: [
+        {
+          ...base.issues[0]!,
+          relatedBriefing: {
+            meetingDate: '2026-07-01',
+            briefingItemId: 'item-housing-revised',
+            content: 'Council revisited housing.',
+          },
+        },
+        base.issues[1]!,
+        base.issues[2]!,
+      ],
+    }
+    const { data: seeded } = await service.client.post<{
+      issues: { id: string; title: string }[]
+    }>(`${BASE}/seed`, second, eoHeaders())
+
+    // The row is this service's own, so a second call has to rewrite it. Under
+    // `update: {}` the object and the JSONB copy both kept listing
+    // item-housing while the link row for item-housing-revised was written
+    // anyway, and the reader filters links through the artifact's item ids —
+    // so the re-seeded issue came back with no related briefing at all.
+    const briefing = await service.client.get<{
+      executive_summary: { items: { item_id: string; content: string }[] }
+    }>('/v1/meetings/2026-07-01/briefing', eoHeaders())
+    expect(briefing.status).toBe(HttpStatus.OK)
+    expect(briefing.data.executive_summary.items).toEqual([
+      {
+        item_id: 'item-housing-revised',
+        content: 'Council revisited housing.',
+      },
+    ])
+
+    const housingId = seeded.issues.find(
+      (i) => i.title === 'Housing affordability',
+    )?.id
+    const detailRes = await service.client.get<{
+      relatedBriefings: { briefingItemId: string }[]
+    }>(`${BASE}/${housingId}`, eoHeaders())
+    expect(
+      detailRes.data.relatedBriefings.map((b) => b.briefingItemId),
+    ).toEqual(['item-housing-revised'])
+
+    const rows = await service.prisma.meetingBriefing.findMany({
+      where: { electedOfficeId: eoId },
+    })
+    expect(rows).toHaveLength(1)
+  })
+
   it('commits no briefing row when the stub artifact upload fails', async () => {
     const s3 = service.app.get(S3Service)
     vi.spyOn(s3, 'uploadFile').mockRejectedValue(
