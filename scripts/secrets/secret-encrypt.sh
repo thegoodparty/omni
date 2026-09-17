@@ -72,13 +72,23 @@ key_bits=$(openssl pkey -pubin -in "$pubkey" -noout -text 2>/dev/null |
   die "expected an RSA-4096 public key at $pubkey, found '${key_bits:-unreadable}' bits"
 
 cat >"$workdir/plaintext"
-if [ "$raw" -eq 0 ]; then
-  # Strip exactly one trailing newline, preserving any others.
-  printf %s "$(cat "$workdir/plaintext")" >"$workdir/stripped" || true
-  mv "$workdir/stripped" "$workdir/plaintext"
+size=$(wc -c <"$workdir/plaintext" | tr -d ' ')
+
+if [ "$raw" -eq 0 ] && [ "$size" -gt 0 ]; then
+  # Strip exactly ONE trailing newline, byte-wise.
+  #
+  # Not `printf %s "$(cat ...)"`: command substitution strips *every* trailing
+  # newline and cannot carry NUL bytes, so a multiline value ending in blank
+  # lines would be stored as something other than what was encrypted — and
+  # silently, since nothing here ever prints the value back.
+  if [ "$(tail -c 1 "$workdir/plaintext" | od -An -tx1 | tr -d ' \n')" = '0a' ]; then
+    head -c $((size - 1)) "$workdir/plaintext" >"$workdir/stripped"
+    mv "$workdir/stripped" "$workdir/plaintext"
+    size=$((size - 1))
+  fi
 fi
 
-size=$(wc -c <"$workdir/plaintext" | tr -d ' ')
+# After the strip, so a lone newline counts as empty.
 [ "$size" -gt 0 ] || die 'refusing to encrypt an empty value (nothing on stdin?)'
 
 rsa_encrypt() {
@@ -125,6 +135,15 @@ else
   shape='envelope'
 fi
 
+# Environment comes from the filename so the file, its name, and the sync step
+# that selects on it can never disagree.
+base=$(basename "$file" .json)
+environment="${base##*.}"
+case "$environment" in
+  dev | prod) ;;
+  *) die "cannot tell the environment from '$base'; name files <service>.<dev|prod>.json" ;;
+esac
+
 if [ -f "$file" ]; then
   existing_id=$(jq -r '.secretId // empty' "$file")
   [ -n "$existing_id" ] || die "$file has no secretId"
@@ -132,20 +151,24 @@ if [ -f "$file" ]; then
     die "$file targets $existing_id, but --secret-id said $secret_id"
   fi
   secret_id="$existing_id"
+else
+  [ -n "$secret_id" ] ||
+    die "$file does not exist yet; pass --secret-id <AWS secret name> to create it"
+fi
+
+# Refuse to point a dev file at a prod secret (or vice versa). The dev sync
+# stage runs before the E2E, so this would be a way to write a prod credential
+# without the E2E gate. Validation enforces it too; this is the earlier, clearer
+# failure.
+secret_id_matches_environment "$secret_id" "$environment" ||
+  die "$secret_id is not a $environment secret, but $file is a $environment file.
+A $environment file must not write another environment's secret."
+
+if [ -f "$file" ]; then
   tmp=$(mktemp "$workdir/out.XXXXXX")
   jq --arg k "$key" --arg v "$entry" '.values[$k] = $v' "$file" >"$tmp"
   mv "$tmp" "$file"
 else
-  [ -n "$secret_id" ] ||
-    die "$file does not exist yet; pass --secret-id <AWS secret name> to create it"
-  # Environment comes from the filename so the file, its name, and the sync step
-  # that selects on it can never disagree.
-  base=$(basename "$file" .json)
-  environment="${base##*.}"
-  case "$environment" in
-    dev | prod) ;;
-    *) die "cannot tell the environment from '$base'; name files <service>.<dev|prod>.json" ;;
-  esac
   mkdir -p "$(dirname "$file")"
   jq -n --arg id "$secret_id" --arg env "$environment" --arg k "$key" --arg v "$entry" \
     '{secretId: $id, environment: $env, values: {($k): $v}}' >"$file"

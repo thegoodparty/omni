@@ -142,8 +142,17 @@ sync_file() {
     total_failed=$((total_failed + 1))
     return
   fi
-  # A brand-new secret created by IaC holds `{}`.
-  jq -e . "$workdir/live.json" >/dev/null 2>&1 || echo '{}' >"$workdir/live.json"
+  # Fail rather than defaulting to `{}`. The merge below is a read-modify-write
+  # over a blob that holds keys this file does not declare, so treating an
+  # unreadable live value as empty would write only the declared keys and drop
+  # every other one — exactly the wipe the no-prune rule exists to prevent. A
+  # secret IaC just created already holds `{}`, which is valid JSON, so nothing
+  # legitimate needs the fallback.
+  if ! jq -e 'type == "object"' "$workdir/live.json" >/dev/null 2>&1; then
+    echo "::error file=$file::$secret_id does not currently hold a JSON object. Refusing to sync, because overwriting it would drop any key not declared here. Inspect it by hand."
+    total_failed=$((total_failed + 1))
+    return
+  fi
 
   local keys=() key i=0
   while IFS= read -r key; do

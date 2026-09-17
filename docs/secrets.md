@@ -85,9 +85,13 @@ printf %s "$VALUE" | scripts/secrets/secret-encrypt.sh \
 
 Values over 446 bytes (PEM keys, certs) automatically switch to an envelope
 format — that's the RSA-OAEP ceiling, not a policy — and need nothing extra from
-you. A trailing newline is stripped by default, because `echo "$KEY" |` is the
-common invocation and a stray `\n` silently breaks API auth; pass `--raw` when
-the bytes must survive verbatim.
+you. Exactly one trailing newline is stripped by default, because `echo "$KEY" |`
+is the common invocation and a stray `\n` silently breaks API auth; any earlier
+newlines are kept, and `--raw` preserves the bytes verbatim.
+
+The secret named by `--secret-id` has to belong to the file's environment — a
+`*.dev.json` cannot write `GP_API_PROD`. The dev sync runs before the E2E, so
+crossing that line would be a way to change prod without passing the gate.
 
 The value lands in Secrets Manager on the next release train, in the stage that
 runs before the services deploy. Rotating is the same command with a new value.

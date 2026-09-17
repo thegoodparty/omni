@@ -254,7 +254,10 @@ Details worth knowing:
   `sha` input targets a specific commit.
 - **Break glass (`force`).** `workflow_dispatch` with `force=true` skips the
   checks gate, the E2E, **and** the freeze switch, and promotes the target SHA
-  straight to prod (loud warning in the run; write access required). Use it when
+  straight to prod (loud warning in the run; write access required). It does
+  *not* skip `Dev secrets`: prod secrets are written on a force run, so dev's are
+  too, or dev would silently fall behind prod. The dev service deploys are still
+  skipped. Use it when
   the pipeline itself is broken or a hotfix can't wait. It only works if the SHA's
   images were already built — if the dev _build_ failed there is nothing to
   promote, so that case is fix-forward. First resort for a flaky pipeline is to

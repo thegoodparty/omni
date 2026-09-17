@@ -168,12 +168,18 @@ jobs:
   # Vercel project id: until an admin creates the KMS key and the sync role this
   # skips rather than failing every train. The deploy jobs below therefore have
   # to accept `skipped` — and must keep treating `failure` as blocking.
+  # Deliberately NOT gated on `force != 'true'`, unlike every dev deploy below.
+  # prod-secrets explicitly runs on a force, so excluding this one would let a
+  # break-glass promotion write a new key to prod while dev never receives it —
+  # dev stays behind until some later train, and the dev decrypt that proves the
+  # ciphertext is good never happens. Writing a value to the dev secret during a
+  # force run costs nothing: the dev service deploys keep their own `force`
+  # exclusion and still skip.
   dev-secrets:
     name: Dev secrets
     needs: await-checks
     if: >-
       always() && needs.await-checks.result == 'success'
-      && needs.await-checks.outputs.force != 'true'
       && vars.AWS_SECRETS_SYNC_ROLE_ARN != ''
     runs-on: ubuntu-latest
     steps:

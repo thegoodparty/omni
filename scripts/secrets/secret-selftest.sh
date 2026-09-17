@@ -167,6 +167,21 @@ sync_env dev >/dev/null 2>&1
 check_eq '--raw keeps the trailing newline' \
   "$(printf 'value-with-newline\n')" "$(live_value GP_API_DEV RAW_KEY)"
 
+# Exactly ONE newline, not all of them: `printf %s "$(cat ...)"` would strip all
+# three and silently store something other than what was encrypted. "multi\n\n\n"
+# is 8 bytes in, so 7 back out. Piped into wc rather than compared as a string,
+# because command substitution would itself eat the trailing newlines.
+printf 'multi\n\n\n' | encrypt "$file" MULTI_NL_KEY >/dev/null
+sync_env dev >/dev/null 2>&1
+check_eq 'only one trailing newline is stripped, not all of them' \
+  '7' "$(live_value GP_API_DEV MULTI_NL_KEY | wc -c | tr -d ' ')"
+
+if printf '\n' | encrypt "$file" ONLY_NL_KEY >/dev/null 2>&1; then
+  bad 'a lone newline counts as empty and is refused'
+else
+  ok 'a lone newline counts as empty and is refused'
+fi
+
 # ============================================================
 echo 'idempotency'
 # ============================================================
@@ -222,6 +237,47 @@ sync_env prod >/dev/null 2>&1
 check_eq 'syncing prod writes the prod secret' \
   'prod-only-value' "$(live_value GP_API_PROD PROD_KEY)"
 
+# A dev file must not be able to name a prod secret. The dev sync runs before
+# the E2E, so this would be a route to writing a prod credential without the
+# E2E gate — and the sync role can PutSecretValue on both environments.
+if printf %s 'x' | encrypt --secret-id GP_API_PROD \
+  "$SECRET_FILES_DIR/crossenv.dev.json" X_KEY >/dev/null 2>&1; then
+  bad 'encrypt refuses a dev file targeting a prod secret'
+else
+  ok 'encrypt refuses a dev file targeting a prod secret'
+fi
+rm -f "$SECRET_FILES_DIR/crossenv.dev.json"
+
+# Same invariant, enforced on a hand-written file that bypassed the script.
+jq -n --arg v "$(jq -r '.values.SHORT_KEY' "$file")" \
+  '{secretId:"GP_API_PROD", environment:"dev", values:{X_KEY:$v}}' \
+  >"$SECRET_FILES_DIR/crossenv.dev.json"
+if validate "$SECRET_FILES_DIR/crossenv.dev.json" >/dev/null 2>&1; then
+  bad 'validation rejects a dev file targeting a prod secret'
+else
+  ok 'validation rejects a dev file targeting a prod secret'
+fi
+rm -f "$SECRET_FILES_DIR/crossenv.dev.json"
+
+# ============================================================
+echo 'unreadable live secret'
+# ============================================================
+
+# If the live value is not a JSON object, the read-modify-write cannot preserve
+# the keys this file does not declare — so it must refuse, not start from {} and
+# silently drop them.
+cp "$root/live/GP_API_DEV.json" "$root/live-backup.json"
+printf %s '"not-an-object"' >"$root/live/GP_API_DEV.json"
+if sync_env dev >/dev/null 2>&1; then
+  bad 'sync refuses a live secret that is not a JSON object'
+else
+  ok 'sync refuses a live secret that is not a JSON object'
+fi
+check_eq 'the unreadable live secret was left untouched' \
+  '"not-an-object"' "$(cat "$root/live/GP_API_DEV.json")"
+# Restore, because the sections below drive sync against this secret.
+mv "$root/live-backup.json" "$root/live/GP_API_DEV.json"
+
 # ============================================================
 echo 'validation rejects bad input'
 # ============================================================
@@ -238,28 +294,28 @@ reject() {
 
 bad_dir="$SECRET_FILES_DIR"
 
-jq -n '{secretId:"X", environment:"dev", values:{PLAIN_KEY:"just-a-plaintext-secret"}}' \
+jq -n '{secretId:"X_DEV", environment:"dev", values:{PLAIN_KEY:"just-a-plaintext-secret"}}' \
   >"$bad_dir/plain.dev.json"
 reject 'rejects a committed plaintext value' "$bad_dir/plain.dev.json"
 
 truncated=$(jq -r '.values.TRICKY_KEY' "$file" | cut -c1-200)
-jq -n --arg v "$truncated" '{secretId:"X", environment:"dev", values:{T_KEY:$v}}' \
+jq -n --arg v "$truncated" '{secretId:"X_DEV", environment:"dev", values:{T_KEY:$v}}' \
   >"$bad_dir/trunc.dev.json"
 reject 'rejects a truncated ciphertext' "$bad_dir/trunc.dev.json"
 
-jq -n '{secretId:"X", environment:"dev", values:{E_KEY:"v1:env:AAAA.BBBB"}}' \
+jq -n '{secretId:"X_DEV", environment:"dev", values:{E_KEY:"v1:env:AAAA.BBBB"}}' \
   >"$bad_dir/badenv.dev.json"
 reject 'rejects a malformed envelope' "$bad_dir/badenv.dev.json"
 
-jq -n '{secretId:"X", environment:"prod", values:{K:"v1:rsa:AAAA"}}' \
+jq -n '{secretId:"X_PROD", environment:"prod", values:{K:"v1:rsa:AAAA"}}' \
   >"$bad_dir/mismatch.dev.json"
 reject 'rejects environment that disagrees with the filename' "$bad_dir/mismatch.dev.json"
 
-jq -n '{secretId:"X", environment:"dev", values:{"lower_case":"v1:rsa:AAAA"}}' \
+jq -n '{secretId:"X_DEV", environment:"dev", values:{"lower_case":"v1:rsa:AAAA"}}' \
   >"$bad_dir/case.dev.json"
 reject 'rejects a lowercase key name' "$bad_dir/case.dev.json"
 
-jq -n '{secretId:"X", environment:"dev", values:{}, oops:"typo"}' \
+jq -n '{secretId:"X_DEV", environment:"dev", values:{}, oops:"typo"}' \
   >"$bad_dir/extra.dev.json"
 reject 'rejects an unexpected top-level key' "$bad_dir/extra.dev.json"
 
@@ -313,14 +369,14 @@ esac
 jq 'del(.values.MAC_KEY)' "$file" >"$root/t.json" && mv "$root/t.json" "$file"
 
 # A missing secret container is IaC's problem, and must not be auto-created.
-printf %s 'v' | encrypt --secret-id NO_SUCH_SECRET \
+printf %s 'v' | encrypt --secret-id NO_SUCH_SECRET_DEV \
   "$SECRET_FILES_DIR/ghost.dev.json" GHOST_KEY >/dev/null
 if sync_env dev >/dev/null 2>&1; then
   bad 'sync fails when the secret container does not exist'
 else
   ok 'sync fails when the secret container does not exist'
 fi
-[ -f "$root/live/NO_SUCH_SECRET.json" ] &&
+[ -f "$root/live/NO_SUCH_SECRET_DEV.json" ] &&
   bad 'sync did not create the missing secret' ||
   ok 'sync did not create the missing secret'
 rm -f "$SECRET_FILES_DIR/ghost.dev.json"

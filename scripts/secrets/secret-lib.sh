@@ -129,6 +129,24 @@ is_valid_key_name() {
   [[ "$1" =~ ^[A-Z][A-Z0-9_]*$ ]]
 }
 
+# Does this AWS secret name belong to this environment?
+#
+# Load-bearing for more than tidiness. The sync role can PutSecretValue on both
+# environments' secrets, and the dev sync runs BEFORE the E2E while the prod
+# sync runs after it. Without this check a file named `*.dev.json` could carry
+# `secretId: GP_API_PROD` and write a prod credential in the dev stage, skipping
+# the E2E gate entirely — so the environment in the filename has to constrain
+# the AWS target, not just the file's own `environment` field.
+#
+# Every secret here is suffixed with its environment (`GP_API_PROD`,
+# `AI_SECRETS_DEV`, `broker-prod`), so the suffix is the check. Case-insensitive
+# on the separator and the token to allow both naming styles in use.
+secret_id_matches_environment() {
+  local secret_id="$1" environment="$2" lowered
+  lowered=$(printf %s "$secret_id" | tr '[:upper:]' '[:lower:]')
+  [[ "$lowered" =~ [_-]"$environment"$ ]]
+}
+
 # Splits an entry into "<alg> <payload>" on stdout, or fails if the prefix is not
 # a format this version understands. Deliberately strict — an unrecognized entry
 # is treated as a possible plaintext leak, not as something to pass through.

@@ -116,6 +116,18 @@ validate_file() {
     fail "$file" "environment is '$environment' but the filename says '$filename_env'"
   fi
 
+  # The AWS target has to belong to the file's environment. Otherwise a
+  # `*.dev.json` could name a prod secret and be written by the dev sync stage,
+  # which runs before the E2E — see secret_id_matches_environment.
+  case "$filename_env" in
+    dev | prod)
+      if [ -n "$secret_id" ] &&
+        ! secret_id_matches_environment "$secret_id" "$filename_env"; then
+        fail "$file" "secretId '$secret_id' is not a $filename_env secret (it must end with _$(printf %s "$filename_env" | tr '[:lower:]' '[:upper:]') or -$filename_env); a $filename_env file must not write another environment's secret"
+      fi
+      ;;
+  esac
+
   if ! jq -e '.values | type == "object"' "$file" >/dev/null 2>&1; then
     fail "$file" 'values must be an object'
     return
