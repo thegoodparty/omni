@@ -226,7 +226,11 @@ export class PaymentEventsService {
     }
     const { id: campaignId } = campaign
 
-    // These have to happen in serial since setIsPro also mutates the JSONP details column
+    // Still serial, but no longer to stop the two from clobbering each other's
+    // `details` keys — patchCampaignDetails merges in one atomic statement now.
+    // The order is what matters: subscriptionId has to be stored before the Pro
+    // flip, because findBySubscriptionId is how later subscription events for
+    // this campaign find it.
     await this.campaignsService.patchCampaignDetails(campaignId, {
       subscriptionId: subscriptionId as string,
     })
@@ -395,7 +399,11 @@ export class PaymentEventsService {
       )
     }
 
-    // These have to happen in serial since setIsPro also mutates the JSONP details column
+    // Still serial, but no longer to stop the two from clobbering each other's
+    // `details` keys — patchCampaignDetails merges in one atomic statement now.
+    // The order is what matters: subscriptionId has to be stored before the Pro
+    // flip, because findBySubscriptionId is how later subscription events for
+    // this campaign find it.
     await this.campaignsService.patchCampaignDetails(campaignId, {
       subscriptionId: incomingSubscriptionId,
     })

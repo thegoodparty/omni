@@ -701,36 +701,84 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     return updatedCampaign
   }
 
+  // One atomic `details = details || patch` statement, not a read, an
+  // application-side spread and a write-back.
+  //
+  // The previous shape read `details` OUTSIDE its transaction and wrote the
+  // merged blob inside a Serializable one, so the isolation level protected
+  // nothing it was meant to: the snapshot it serialized only began after the
+  // read had already happened. Two concurrent patches of the same campaign
+  // therefore had two outcomes and only one was visible. When the second
+  // transaction BEGAN before the first committed, Postgres caught the
+  // write-write overlap and aborted it — P2034, `Transaction failed due to a
+  // write conflict or a deadlock`. When it began a moment later there was no
+  // overlap left to catch, so the second write silently overwrote every key
+  // the first had set, from a snapshot taken before those keys existed, and
+  // answered 200. The aborts are the narrow observable edge of a lost update
+  // that leaves no log line at all.
+  //
+  // Measured over the 30 days to 2026-09-17, P2034 raised from this method:
+  // 4 in prod, 73 in dev. Prod 2026-09-15T07:42:51Z is the shape of all of
+  // them — Stripe delivered `customer.subscription.created` (request
+  // 47a77f84) and `checkout.session.completed` (request 97845068) 9ms apart
+  // for sub_1UFr0v1taBPnTqn4PH8LMj6R. The first patched
+  // `details.subscriptionId`; the second reached here via setIsPro to stamp
+  // `details.isProUpdatedAt`, lost the conflict, and 400'd the webhook.
+  // Different keys, one blob. Two more (prod campaigns 222443 and 326572)
+  // were raised inside notifySlackOnProUpgrade, which catches and logs them,
+  // so the `proUpgradeSlackNotifiedAt` stamp was dropped AFTER the Slack
+  // message had been sent — leaving those campaigns eligible to be announced
+  // again.
+  //
+  // `details || patch` re-reads the row under its own row lock, so a
+  // concurrent writer blocks and then merges onto the committed result instead
+  // of onto a stale snapshot. The write becomes order-independent for the
+  // disjoint key sets every caller here uses (`subscriptionId`,
+  // `isProUpdatedAt`, `proUpgradeSlackNotifiedAt`, `subscriptionCancelAt`,
+  // `subscriptionCanceledAt`) and idempotent on re-application, which is
+  // exactly what a Stripe redelivery does. No retry is added and none is
+  // wanted: there is no transaction left to abort, and a retry around the old
+  // shape would have re-run the write from the same stale read.
+  //
+  // Two deliberate details. `||` is a top-level merge, the same shallow
+  // semantics the spread had, so a nested object in `patch` still replaces
+  // rather than merges; but an explicitly-`undefined` value now leaves the
+  // existing key alone where the spread plus JSON serialization deleted it.
+  // No caller passes `undefined` (every one passes a value or `null`), and
+  // leaving a key untouched is the correct reading of a patch. And
+  // `updated_at` is set by hand because raw SQL does not fire Prisma's
+  // `@updatedAt`.
+  //
+  // This does NOT fix the other two contended writers on the `campaign` row,
+  // which are honest write-write conflicts rather than lost updates and need
+  // their own measurement: `updateJsonFields` (PUT /v1/campaigns/mine, 11
+  // prod / 340 dev) and setIsPro's own read-then-write transaction (1 prod /
+  // ~679 dev, the dev figure inflated by the test-set-pro E2E route).
   async patchCampaignDetails(
     campaignId: number,
     details: Partial<PrismaJson.CampaignDetails>,
   ) {
-    const currentCampaign = await this.model.findFirst({
-      where: { id: campaignId },
-    })
-    if (!currentCampaign?.details) {
+    // Raw SQL because merging into an existing jsonb column has no Prisma
+    // equivalent — same reason as compareAndSwapCheckoutSessionId in
+    // users.service.ts.
+    const updatedCount = await this.client.$executeRaw`
+      UPDATE campaign
+      SET details = details || ${JSON.stringify(details)}::jsonb,
+          updated_at = NOW()
+      WHERE id = ${campaignId}
+        AND jsonb_typeof(details) = 'object'
+    `
+
+    // Reproduces the previous `!currentCampaign?.details` guard exactly: zero
+    // rows means either no such campaign or a `details` that is not a JSON
+    // object, which are the two cases that threw before.
+    if (updatedCount === 0) {
       throw new InternalServerErrorException(
         `Campaign ${campaignId} has no details JSON`,
       )
     }
-    const { details: currentDetails } = currentCampaign
 
-    const updatedDetails = {
-      ...currentDetails,
-      ...details,
-    }
-    const updatedCampaign = await this.client.$transaction(
-      async (tx) =>
-        tx.campaign.update({
-          where: { id: campaignId },
-          data: { details: updatedDetails },
-        }),
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
-    )
-
-    return updatedCampaign
+    return this.model.findUniqueOrThrow({ where: { id: campaignId } })
   }
 
   async persistCampaignProCancellation(campaign: Campaign) {
@@ -796,7 +844,6 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     // cancellation date on every downgrade, and re-stamped it on no-op rewrites
     // from at-least-once Stripe webhook deliveries.
     if (isBecomingProFirstTime) {
-      // Must be in serial so as to not overwrite campaign details w/ concurrent queries
       await this.patchCampaignDetails(campaignId, {
         isProUpdatedAt: formatISO(new Date()),
       })
