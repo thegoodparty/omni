@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import * as aws from '@pulumi/aws'
 import * as pulumi from '@pulumi/pulumi'
 import * as grafana from '@pulumiverse/grafana'
@@ -11,7 +13,6 @@ import {
 } from './alerting/alert-notification'
 import { controllerAlerts } from './alerting/controller-alerts'
 import { misroutedAlerts, PolicyTree } from './alerting/alert-routing'
-import COMMITTED_POLICY_JSON from './alerting/alert-routing.policy.json'
 import { personProfilesDashboardConfigJson } from './personProfilesDashboard'
 import { CONTROLLER_NAMES } from '../../src/generated/route-types'
 
@@ -52,8 +53,18 @@ export const ALERT_FILTER_WEBHOOK_URLS: Record<string, string> = {
 // they go once the filter is routed.
 const EXPECTED_RECEIVERS = ['dev-alerts', 'gpbot-alert-filter'] as const
 
-// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-const COMMITTED_POLICY = COMMITTED_POLICY_JSON as PolicyTree
+/**
+ * The snapshot, read rather than imported.
+ *
+ * `import ... from './x.json'` needs `resolveJsonModule`, and the Pulumi
+ * program has no tsconfig of its own — it compiles under ts-node's defaults, so
+ * turning that on means introducing one and changing how every file in this
+ * directory is compiled. Not worth it to load eight lines of JSON.
+ */
+const COMMITTED_POLICY = JSON.parse(
+  readFileSync(join(__dirname, 'alerting/alert-routing.policy.json'), 'utf8'),
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+) as PolicyTree
 
 /**
  * Check the live notification policy tree against what the repo believes.
