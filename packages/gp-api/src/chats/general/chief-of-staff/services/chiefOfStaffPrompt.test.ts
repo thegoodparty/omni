@@ -1,5 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
+
+// The segmentation method is held to non-prod deploys, so the suite drives
+// that gate directly rather than depending on the runner's environment.
+const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
+  return {
+    ...actual,
+    get IS_NON_PROD_DEPLOY() {
+      return envNonProd.value
+    },
+  }
+})
+
 import {
   buildChiefOfStaffSystemPrompt,
   COS_GUARDRAIL_DECLINE,
@@ -209,6 +224,81 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     })
     expect(prompt).not.toContain('CONTACT LIST RULES')
     expect(prompt).not.toContain(FILTER_DIMENSION_PROVENANCE_RULES)
+  })
+
+  it('teaches the segmentation method once saving is available', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [
+        'describe_filter_dimensions',
+        'count_contacts',
+        'crud_saved_filters',
+      ],
+    })
+    expect(prompt).toContain('BUILDING A SEGMENT')
+  })
+
+  // The release train promotes every merge to prod unattended, so this gate is
+  // the only thing keeping an unfinished method away from real officials.
+  it('withholds the method on a prod deploy even with the tool registered', () => {
+    envNonProd.value = false
+    try {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx(),
+        toolNames: ALL_TOOLS,
+      })
+      expect(prompt).not.toContain('BUILDING A SEGMENT')
+      // The rest of the saved-list surface is unaffected by the gate.
+      expect(prompt).toContain('SAVED LIST RULES')
+    } finally {
+      envNonProd.value = true
+    }
+  })
+
+  it('withholds the method from a session that can only count', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ['describe_filter_dimensions', 'count_contacts'],
+    })
+    expect(prompt).not.toContain('BUILDING A SEGMENT')
+  })
+
+  // The three rules the hand-cut lists got wrong often enough to be written
+  // down. Pinned individually because a reworded block that quietly drops one
+  // still passes a test that only looks for the heading.
+  it('orders the gates ahead of sizing', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ALL_TOOLS,
+    })
+    expect(prompt).toContain('Gate, then size')
+  })
+
+  // A list nobody can be reached on is the one failure that wastes the whole
+  // segment, and each channel needs a different thing on file.
+  it('makes the reach gate depend on the channel', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ALL_TOOLS,
+    })
+    expect(prompt).toContain('Texting needs a cell phone')
+    expect(prompt).toContain('Door knocking needs no reach gate')
+  })
+
+  it('forbids carrying dimensions over from the last issue', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ALL_TOOLS,
+    })
+    expect(prompt).toContain('fresh for THIS issue')
+  })
+
+  it('requires a coverage check before a dimension carries a segment', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ALL_TOOLS,
+    })
+    expect(prompt).toContain("that dimension's unknown value selected")
   })
 
   it('instructs against over-refusing borderline in-scope requests', () => {
