@@ -476,6 +476,14 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
     // non-match, because a duplicate may carry a name variant its survivor does
     // not. While one of those shares the prefix, we cannot tell whose URL this
     // is.
+    //
+    // Deliberately keyed on the row, not on whether its survivor loaded. A row
+    // whose forwarding address is broken can serve nobody, but it is still
+    // evidence that a purged person held this prefix, so it still makes the URL
+    // ambiguous. If the URL was in fact that person's, 404 is the right answer
+    // anyway — the same conclusion rung 2 reaches for a broken forward it
+    // matched exactly. Reading the survivor here would instead hand their URL
+    // to a live neighbour, which is the one outcome worth avoiding.
     const unresolvedRetired = merges.some((m) => m.retiredSlug === null)
 
     // (4) One live person owns the prefix and the URL carries a stale name.
@@ -488,9 +496,17 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
       return this.attachOfficeContext(candidates[0]!)
     }
 
-    // (5) Same, for a purged person: one retired id owns the prefix, and no
-    // live person contests it. Covers rows that carry no retiredSlug and whose
-    // survivor was renamed after the purge, so rung 3 could not reconstruct.
+    // (5) Same, for a purged person: one retired id owns the prefix and no live
+    // person contests it.
+    //
+    // Deliberately admits rows whose published retiredSlug did NOT match at
+    // rung 2, for the same reason rung 4 admits any stale name: a person
+    // renamed before being purged has older URLs that cannot match the single
+    // final slug the row carries, and those are exactly the links most in need
+    // of forwarding. A non-match is not proof the URL was never theirs — only
+    // an exact match ever proves whose a URL is. With no live candidate on the
+    // prefix there is nobody to conflate them with, so the permissiveness is
+    // free here in a way it is not at rung 4.
     if (forwards.length === 1 && candidates.length === 0) {
       const { survivor } = forwards[0]!
       if (survivor) return this.attachOfficeContext(survivor)

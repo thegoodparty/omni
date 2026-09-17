@@ -539,6 +539,47 @@ describe('PersonsService', () => {
       ).rejects.toBeInstanceOf(NotFoundException)
     })
 
+    it("404s rather than serving a live neighbour when the purged id's forwarding address is broken", async () => {
+      // The row still proves a purged person held this prefix, even though it
+      // can serve nobody. If the URL was theirs, 404 is the right answer
+      // regardless; if we read the broken survivor as "no claim" we would hand
+      // their URL to the live neighbour instead, which is the one outcome worth
+      // avoiding.
+      findMany.mockResolvedValueOnce([
+        { id: 'a1b2c3d4-live', slug: 'jim-poe-a1b2c3d4', OfficeHolders: [] },
+      ])
+      mergeFindMany.mockResolvedValueOnce([
+        { retiredId: RETIRED_ID, survivingId: 'ghost-id', retiredSlug: null },
+      ])
+      mergeFindUnique.mockResolvedValueOnce(null)
+      findUnique.mockResolvedValueOnce(null)
+
+      await expect(
+        service.getPersonBySlug('jim-poe-stale-a1b2c3d4'),
+      ).rejects.toBeInstanceOf(NotFoundException)
+    })
+
+    it('forwards a lone uncontested purged id whose published slug is an older name', async () => {
+      // Renamed before being purged: the row carries only the final slug, so
+      // the older URL cannot match it. With no live person on the prefix there
+      // is nobody to conflate with, and those older links are exactly the ones
+      // worth forwarding.
+      findMany.mockResolvedValueOnce([])
+      mergeFindMany.mockResolvedValueOnce([
+        {
+          retiredId: RETIRED_ID,
+          survivingId: SURVIVOR.id,
+          retiredSlug: 'jane-married-a1b2c3d4',
+        },
+      ])
+      mergeFindUnique.mockResolvedValueOnce(null)
+      findUnique.mockResolvedValueOnce(SURVIVOR)
+
+      await expect(
+        service.getPersonBySlug('jane-maiden-a1b2c3d4'),
+      ).resolves.toEqual(SURVIVOR)
+    })
+
     it('still serves a renamed live person when the purged id on the prefix published a slug', async () => {
       // A published slug that does not match is a real answer: this URL is not
       // the purged person's, so the live person's rename forwarding is safe.
