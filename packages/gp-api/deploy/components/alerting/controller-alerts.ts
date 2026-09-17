@@ -30,7 +30,30 @@ const EXCLUDED_STATUS_PROSE = EXCLUDED_STATUS_CODES.join('/')
 // filter reads a missing label as empty, so this is the shape that matches it
 // whether the field is absent or empty. It admits no status code at all, and
 // therefore none of the 4xx noise SERVER_ERRORS_ONLY exists to suppress.
-const noStatusFilter = 'response_statusCode = ""'
+//
+// THE DURATION FLOOR IS WHAT MAKES IT USABLE, and it was missing. A null status
+// says only "we never answered", which covers two unrelated things: the gateway
+// gave up on us, and the caller gave up on us. The second is not a fault and
+// there is nothing to do about it — the line is logged at `info`, with
+// `bytes: null` and a duration in the low hundreds of milliseconds:
+//
+//   {"msg":"Request completed","request":{"endpoint":"GET /v1/users/me"},
+//    "response":{"statusCode":null,"bytes":null},"responseTimeMs":207}
+//
+// It is also the overwhelming majority. Over the 30 days to 2026-09-17, null
+// statuses split 165 over 30s / 307 under in prod, and 3 over / 2,345 under in
+// dev, where the E2E suite aborts requests as it navigates. So four fifths of
+// what this clause matched was users closing tabs, and enabling it across every
+// controller would have paged on that until someone muted the result.
+//
+// 30s is well clear of any real handler (the p99 of a normal route is orders
+// of magnitude below it) and well under the gateway's ~120s idle timeout, so
+// it keeps every genuine "no answer" case — including both door-knocking pack
+// timeouts above — and discards the aborts. A route that legitimately streams
+// for longer than this needs its own treatment rather than a wider floor here.
+const NO_STATUS_MIN_MS = 30_000
+const NO_STATUS_PROSE = '30 seconds'
+const noStatusFilter = `response_statusCode = "" and responseTimeMs > ${NO_STATUS_MIN_MS}`
 
 // Parenthesized rather than left to operator precedence: `A and B or C` is one
 // misread away from `A and (B or C)`, which would count every 401.
@@ -60,9 +83,12 @@ const LOOKBACK_RANGE = '10m'
 const LOOKBACK_PROSE = '10 minutes'
 
 export const controllerAlerts = (controller: ControllerName): Alert[] => {
-  const slackGroupName = Object.entries(ALERT_OWNERSHIP).find(
-    ([_, controllers]) => controllers.includes(controller),
-  )?.[0]
+  // Every group that claims this controller, not the first one found. A shared
+  // surface is owned by both products, and `find` silently told the second one
+  // nothing — the controller was listed under them and they were never tagged.
+  const owners = (
+    Object.keys(ALERT_OWNERSHIP) as (keyof typeof ALERT_OWNERSHIP)[]
+  ).filter((group) => ALERT_OWNERSHIP[group].includes(controller))
   const serverErrorsOnly = SERVER_ERRORS_ONLY.includes(controller)
   const statusCodeFilter = serverErrorsOnly ? serverErrorFilter : anyErrorFilter
   const routes = ROUTE_MAP[controller]
@@ -111,12 +137,10 @@ export const controllerAlerts = (controller: ControllerName): Alert[] => {
           ? `\`{{ $labels.request_endpoint }}\` returned server errors, or no status at all, in the last ${LOOKBACK_PROSE} (status ≥ 500 or null). 4xx responses are deliberately excluded on this controller — see SERVER_ERRORS_ONLY in alerts.ts.`
           : `\`{{ $labels.request_endpoint }}\` returned unexpected error responses, or no status at all, in the last ${LOOKBACK_PROSE} (status ≥ 400 excluding ${EXCLUDED_STATUS_PROSE}, or null).`,
         'Click *View in Grafana* to find the failing requests, then examine their logs and stack traces to understand why errors are occurring and ship fixes.',
-        'A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Check `responseTimeMs` on those lines — a cluster at ~120,000ms is the timeout, not the handler.',
+        `A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Only those running longer than ${NO_STATUS_PROSE} are counted — a shorter one is the caller hanging up, which is not a fault and is far more common. Check \`responseTimeMs\` on those lines; a cluster at ~120,000ms is the timeout, not the handler.`,
       ].join('\n\n'),
-      // slackGroupName comes from Object.entries find — disabled flag guards undefined case
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-      notify: slackGroupName as SlackGroup,
-      disabled: !slackGroupName,
+      notify: owners,
+      disabled: owners.length === 0,
     } satisfies Alert,
   ]
 }

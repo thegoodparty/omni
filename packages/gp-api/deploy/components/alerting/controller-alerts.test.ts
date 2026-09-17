@@ -265,6 +265,40 @@ describe('controllerAlerts', () => {
     }
   })
 
+  // "We never answered" covers two things, and only one is a fault: the gateway
+  // gave up on us, or the caller did. The second is not actionable and is four
+  // fifths of the volume — 2,345 of 2,348 null statuses in dev over the 30 days
+  // to 2026-09-17 ran under 30s, which is the E2E suite aborting requests as it
+  // navigates, logged at `info` with `bytes: null`. Without a floor this clause
+  // pages on users closing tabs, and across every controller that is the kind
+  // of alert someone mutes.
+  it('ignores a null status the caller caused by hanging up', () => {
+    for (const alert of alerts) {
+      expect(alert.expr).toMatch(/responseTimeMs > \d+/)
+    }
+  })
+
+  // The floor has to sit between the two populations it separates: above any
+  // real handler, and below the gateway's ~120s idle timeout, or it discards
+  // the timeouts the clause exists to catch along with the aborts.
+  it('puts the floor under the gateway timeout it has to catch', () => {
+    for (const alert of alerts) {
+      const floor = Number(/responseTimeMs > (\d+)/.exec(alert.expr)?.[1])
+
+      expect(floor).toBeGreaterThan(5_000)
+      expect(floor).toBeLessThan(120_000)
+    }
+  })
+
+  // The message tells whoever is paged what to look for, so it has to state the
+  // floor. Reading "the request was killed in flight" and then finding nothing
+  // under 30s in the logs is how someone concludes the alert is broken.
+  it('says that short no-status requests are excluded', () => {
+    for (const alert of alerts) {
+      expect(alert.message).toMatch(/30 seconds/)
+    }
+  })
+
   // It has to catch the timeout without dragging the 4xx vocabulary back in —
   // a null status is the absence of one, so it can't overlap with 429 or 400.
   it('admits no 4xx alongside the null-status clause', () => {
