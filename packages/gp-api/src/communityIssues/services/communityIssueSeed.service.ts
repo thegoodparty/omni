@@ -271,6 +271,33 @@ export class CommunityIssueSeedService extends createPrismaBase(
           : {},
       })
 
+      // The links only mean something when the artifact they name is this
+      // call's. Having left a real agent's row alone above, writing them anyway
+      // produces rows claiming a briefing item that appears nowhere in the
+      // artifact readers fetch, and CommunityIssueReadService filters links
+      // through that artifact's item ids -- so every one is dropped and the
+      // seeded issue comes back with relatedBriefings: [] regardless. That is
+      // the same silent drop the two guards above exist to prevent, one branch
+      // later.
+      //
+      // Skipping them rather than failing the request keeps the deliberate
+      // choice made above: this endpoint's product is the issues, and a date
+      // that happens to hold a real briefing is not a reason to reject the
+      // whole seed. It is logged because the caller asked for a link and is
+      // not getting one, and nothing else would say so.
+      if (existing && !writesPointers) {
+        this.logger.warn(
+          'community-issue seed: skipped related-briefing links, the meeting date belongs to another run',
+          {
+            electedOfficeId: electedOffice.id,
+            meetingDate,
+            artifactKey: existing.artifactKey,
+            skippedBriefingItemIds: linked.map((item) => item.briefingItemId),
+          },
+        )
+        continue
+      }
+
       for (const item of linked) {
         await this.client.meetingBriefingItemLink.upsert({
           where: {

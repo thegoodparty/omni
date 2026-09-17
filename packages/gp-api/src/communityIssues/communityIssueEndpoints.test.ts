@@ -853,6 +853,26 @@ describe('POST /v1/community-issues/seed', () => {
       'meeting_briefing/019826f4-0000-7000-8000-00000000000a/artifact.json',
     )
     expect(after.artifact).toEqual({ executive_summary: { items: [] } })
+
+    // Leaving the row alone is only half of it. A link row naming
+    // item-housing against the agent's artifact is a row no reader can
+    // resolve — CommunityIssueReadService filters links through the artifact's
+    // item ids — so the seeded issue would come back with relatedBriefings: []
+    // and nothing would say why.
+    const links = await service.prisma.meetingBriefingItemLink.findMany({
+      where: { meetingBriefing: { electedOfficeId: eoId } },
+    })
+    expect(links).toEqual([])
+
+    const housingId = (
+      await service.prisma.communityIssue.findFirstOrThrow({
+        where: { organizationSlug: eoOrgSlug, title: 'Housing affordability' },
+      })
+    ).id
+    const detailRes = await service.client.get<{
+      relatedBriefings: { briefingItemId: string }[]
+    }>(`${BASE}/${housingId}`, eoHeaders())
+    expect(detailRes.data.relatedBriefings).toEqual([])
   })
 
   it('refuses a date the briefing seed already owns', async () => {
