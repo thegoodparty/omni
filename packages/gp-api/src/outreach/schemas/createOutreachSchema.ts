@@ -112,6 +112,21 @@ export class CreateOutreachSchema extends createZodDto(
           message: 'Draft creation is only supported for P2P outreach',
         })
       }
+      // Payment enforcement (ENG-10214): a p2p create must go through the
+      // draft → pay → finalize flow so the Stripe webhook is what launches
+      // the Peerly job. A direct API call (script, agent, curl) that omits
+      // draft:true otherwise reaches createP2pOutreach → Peerly with no
+      // payment check — CAS is not manually reconciling against Stripe.
+      // The webapp always sends draft:true (SmsFlow.tsx).
+      if (data.outreachType === OutreachType.p2p && !data.draft) {
+        ctx.addIssue({
+          path: ['draft'],
+          code: z.ZodIssueCode.custom,
+          message:
+            'P2P outreach must be created as a draft (draft: true) so ' +
+            'payment can be enforced before scheduling',
+        })
+      }
       if (data.status === OutreachStatus.pending_payment) {
         ctx.addIssue({
           path: ['status'],

@@ -23,10 +23,7 @@ import { FilesInterceptor } from 'src/files/interceptors/files.interceptor'
 import { CampaignTcrComplianceService } from '../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { CreateOutreachSchema } from './schemas/createOutreachSchema'
 import { OutreachNotificationInterceptor } from './interceptors/outreachNotification.interceptor'
-import {
-  OutreachService,
-  type P2pOutreachImageInput,
-} from './services/outreach.service'
+import { OutreachService } from './services/outreach.service'
 import { PinoLogger } from 'nestjs-pino'
 
 @Controller('outreach')
@@ -105,21 +102,11 @@ export class OutreachController {
       throw new BadRequestException('Failed to upload image for P2P outreach')
     }
 
-    const p2pImage: P2pOutreachImageInput | undefined =
-      outreachType === OutreachType.p2p && image?.filename && image?.mimetype
-        ? {
-            stream: image.data,
-            filename: image.filename,
-            mimetype: image.mimetype,
-          }
-        : undefined
-
     return this.outreachService.create(
       user,
       campaign,
       createOutreachDto,
       imageUrl,
-      p2pImage,
     )
   }
 

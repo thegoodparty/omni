@@ -31,7 +31,6 @@ import { GooglePlacesService } from 'src/vendors/google/services/google-places.s
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
-import { Readable } from 'stream'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import { CreateOutreachSchema } from '../schemas/createOutreachSchema'
 import {
@@ -44,13 +43,6 @@ import { OutreachMaterializationService } from './outreachMaterialization.servic
 import { OutreachNotificationService } from './outreachNotification.service'
 
 export type { P2pJobGeographyResult } from '../util/campaignGeography.util'
-
-/** Image payload for P2P outreach (decoupled from HTTP FileUpload). */
-export interface P2pOutreachImageInput {
-  stream: Buffer | Readable
-  filename: string
-  mimetype: string
-}
 
 const SMS_STANDARDS_FIXES: Record<SmsStandardsRule, string> = {
   opt_out_line: 'add an opt-out line ("Reply STOP to opt out.")',
@@ -216,74 +208,21 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     )
   }
 
-  private async createP2pOutreach(
-    campaign: Campaign,
-    createOutreachDto: CreateOutreachSchema,
-    p2pImage: P2pOutreachImageInput,
-    imageUrl: string,
-    script: string,
-    phoneListId: number,
-  ) {
-    const {
-      peerlyIdentityId,
-      name,
-      resolvedScriptText,
-      didState,
-      didNpaSubset,
-    } = await this.resolveP2pCreateInputs(campaign, createOutreachDto, script)
-
-    let jobId: string
-    try {
-      jobId = await this.peerlyP2pJobService.createPeerlyP2pJob({
-        campaignId: campaign.id,
-        listId: phoneListId,
-        imageInfo: {
-          fileStream: p2pImage.stream,
-          fileName: p2pImage.filename,
-          mimeType: p2pImage.mimetype,
-          title: createOutreachDto.title,
-        },
-        scriptText: resolvedScriptText,
-        identityId: peerlyIdentityId,
-        name,
-        didState,
-        didNpaSubset,
-        scheduledDate: createOutreachDto.date,
-      })
-    } catch (err) {
-      // Peerly content rejections (400) are the user's to fix — propagate
-      // as their natural HttpException per outreachStepError.ts.
-      if (err instanceof BadRequestException) {
-        throw err
-      }
-      throw new OutreachStepError('peerlyJobCreation', err)
-    }
-
-    return await this.createRecord(
-      campaign,
-      {
-        ...createOutreachDto,
-        script: resolvedScriptText,
-        projectId: jobId,
-        status: OutreachStatus.pending,
-        didState,
-        didNpaSubset,
-      },
-      imageUrl,
-    )
-  }
-
   /**
    * Single entry point for creating outreach (text or P2P).
    * On success, fires the CAS Slack notification inline (awaited, with
    * internal try/catch so a Slack failure can't break the response).
+   *
+   * P2P is draft-only (ENG-10214): the schema (`createOutreachSchema.ts`)
+   * requires `draft: true` for p2p so payment is enforced by the Stripe
+   * webhook via `finalizeOutreachPurchase`. The former direct-to-Peerly
+   * `createP2pOutreach` path bypassed payment entirely and was removed.
    */
   async create(
     user: User,
     campaign: Campaign,
     createOutreachDto: CreateOutreachSchema,
     imageUrl?: string,
-    p2pImage?: P2pOutreachImageInput,
   ) {
     if (createOutreachDto.voterFileFilterId) {
       await this.voterFileFilterService.filterAccessCheck(
@@ -305,11 +244,6 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       if (!imageUrl) {
         throw new BadRequestException('imageUrl is required for P2P outreach')
       }
-      if (!p2pImage) {
-        throw new BadRequestException(
-          'P2P outreach requires an image with filename and MIME type; cannot create P2P outreach without Peerly job setup',
-        )
-      }
       if (!createOutreachDto.script) {
         throw new BadRequestException('Script is required for P2P outreach')
       }
@@ -319,26 +253,12 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         )
       }
 
-      if (createOutreachDto.draft) {
-        return await this.createP2pDraft(
-          campaign,
-          createOutreachDto,
-          imageUrl,
-          createOutreachDto.script,
-        )
-      }
-
-      const outreach = await this.createP2pOutreach(
+      return await this.createP2pDraft(
         campaign,
         createOutreachDto,
-        p2pImage,
         imageUrl,
         createOutreachDto.script,
-        createOutreachDto.phoneListId,
       )
-      await this.tryNotifySuccess(user, campaign, outreach, createOutreachDto)
-      await this.tryMaterializeOutreach(campaign, outreach)
-      return outreach
     }
 
     const outreach = await this.createRecord(

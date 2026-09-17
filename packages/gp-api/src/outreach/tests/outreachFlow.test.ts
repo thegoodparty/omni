@@ -280,8 +280,13 @@ async function assertFailedOutreach(opts: FailureOutcomeOpts) {
 // -- Tests ----------------------------------------------------------------------------
 
 describe('Outreach submission flow — single API call contract', () => {
-  describe('success cases', () => {
-    it('p2p submission produces 1 success Slack with peerly link, DB row, counter, hubspot', async () => {
+  describe('payment enforcement (ENG-10214)', () => {
+    // A p2p create without `draft: true` must never reach Peerly — that is
+    // the codepath a direct API call would exploit to schedule a real p2p
+    // send with no payment. The webapp always sends `draft: true` (see
+    // gp-webapp SmsFlow.tsx), so this is a server-side backstop for anyone
+    // (script, agent, curl) hitting the endpoint directly.
+    it('p2p submission WITHOUT draft:true is rejected — no Peerly job, no DB row', async () => {
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
         script:
@@ -290,12 +295,37 @@ describe('Outreach submission flow — single API call contract', () => {
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
       })
 
-      expect(res.status).toBe(201)
-      await assertSuccessfulOutreach({
-        outreachType: OutreachType.p2p,
-        expectPeerlyJobLink: true,
-        expectedTextCountAfter: 1,
+      expect(res.status).toBe(400)
+      expect(peerlyCreatePeerlyP2pJob).not.toHaveBeenCalled()
+      const outreachRows = await service.prisma.outreach.findMany({
+        where: { campaignId: campaign.id },
       })
+      expect(outreachRows.length).toBe(0)
+    })
+  })
+
+  describe('success cases', () => {
+    it('p2p draft submission persists a pending_payment row (no Peerly, no Slack)', async () => {
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script:
+          'Hello {first_name}, this is Johnny Goodparty. Vote for me. Paid for by Friends of Johnny. Reply STOP to opt out.',
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        draft: true,
+      })
+
+      expect(res.status).toBe(201)
+      // Draft creation is a payment-gated path: no Peerly job, no Slack, no
+      // counter increment until finalizeOutreachPurchase runs. The finalize
+      // path itself is exercised by the draft-first purchase flow tests.
+      expect(peerlyCreatePeerlyP2pJob).not.toHaveBeenCalled()
+      expect(slackMessage).not.toHaveBeenCalled()
+      const rows = await service.prisma.outreach.findMany({
+        where: { campaignId: campaign.id },
+      })
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.status).toBe(OutreachStatus.pending_payment)
     })
 
     it('text submission produces 1 success Slack WITHOUT peerly link', async () => {
@@ -337,6 +367,7 @@ describe('Outreach submission flow — single API call contract', () => {
         script: 'Vote for me. Reply STOP to opt out.',
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        draft: true,
       })
       expect(res.status).toBe(400)
       expect(JSON.stringify(res.data)).toContain(
@@ -356,6 +387,7 @@ describe('Outreach submission flow — single API call contract', () => {
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
         imageMime: 'image/heic',
+        draft: true,
       })
 
       expect(res.status).toBe(400)
@@ -365,49 +397,11 @@ describe('Outreach submission flow — single API call contract', () => {
       })
     })
 
-    it('Peerly job creation throws → 4xx/5xx, no DB row, FAILURE Slack with step=peerlyJobCreation', async () => {
-      peerlyCreatePeerlyP2pJob.mockRejectedValueOnce(
-        new Error('Peerly API ERROR: account_id required'),
-      )
-
-      const res = await submitOutreach({
-        outreachType: OutreachType.p2p,
-        script:
-          'Hello {first_name}, this is Johnny Goodparty. Vote for me. Paid for by Friends of Johnny. Reply STOP to opt out.',
-        phoneListId: 3180213,
-        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
-      })
-
-      expect([400, 500, 502]).toContain(res.status)
-      await assertFailedOutreach({
-        expectedFailureStepLabel: 'peerlyJobCreation',
-        expectNoOutreachRow: true,
-      })
-    })
-
-    it('Peerly content rejection → 400 carrying the vendor message, no DB row', async () => {
-      const rejectionMessage =
-        'Message cannot contain tinyurl.com links. Please correct your message.'
-      peerlyCreatePeerlyP2pJob.mockRejectedValueOnce(
-        new BadRequestException(rejectionMessage),
-      )
-
-      const res = await submitOutreach({
-        outreachType: OutreachType.p2p,
-        script:
-          'Hello {first_name}, this is Johnny Goodparty: tinyurl.com/x. ' +
-          'Paid for by Friends of Johnny. Reply STOP to opt out.',
-        phoneListId: 3180213,
-        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
-      })
-
-      expect(res.status).toBe(400)
-      expect(JSON.stringify(res.data)).toContain(rejectionMessage)
-      await assertFailedOutreach({
-        expectedFailureStepLabel: 'validation',
-        expectNoOutreachRow: true,
-      })
-    })
+    // Peerly failure paths for p2p live on the FINALIZE step now (ENG-10214):
+    // create is payment-gated (draft-only), so Peerly is only invoked from
+    // the Stripe webhook via finalizeOutreachPurchase. The draft-first
+    // purchase flow section below covers both the vendor failure revert and
+    // the content-rejection propagation.
 
     it('p2p script over the MMS limit → 400, no Peerly call, no DB row', async () => {
       const res = await submitOutreach({
@@ -415,6 +409,7 @@ describe('Outreach submission flow — single API call contract', () => {
         script: 'x'.repeat(P2P_SCRIPT_MAX_LENGTH + 1),
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        draft: true,
       })
 
       expect(res.status).toBe(400)
@@ -446,6 +441,7 @@ describe('Outreach submission flow — single API call contract', () => {
         script: 'smsScript',
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        draft: true,
       })
 
       expect(res.status).toBe(400)
@@ -467,6 +463,7 @@ describe('Outreach submission flow — single API call contract', () => {
           'Hello {first_name}, this is Johnny Goodparty. Vote for me. Paid for by Friends of Johnny. Reply STOP to opt out.',
         phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        draft: true,
       })
 
       expect([400, 500, 502]).toContain(res.status)
@@ -481,11 +478,13 @@ describe('Outreach submission flow — single API call contract', () => {
     it('Slack webhook itself fails → response is unaffected, server logs error', async () => {
       slackMessage.mockRejectedValueOnce(new Error('slack 5xx'))
 
+      // Uses `text` (not `p2p`) because p2p is draft-only after ENG-10214
+      // and the draft create path deliberately fires no Slack notification
+      // — a paid draft's Slack fires at finalize time from the webhook.
       const res = await submitOutreach({
-        outreachType: OutreachType.p2p,
+        outreachType: OutreachType.text,
         script:
           'Hello {first_name}, this is Johnny Goodparty. Vote for me. Paid for by Friends of Johnny. Reply STOP to opt out.',
-        phoneListId: 3180213,
         date: new Date(Date.now() + 7 * 86400_000).toISOString(),
       })
 
