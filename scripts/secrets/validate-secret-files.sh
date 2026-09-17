@@ -202,8 +202,8 @@ check_for_stray_files() {
   [ -d "$dir" ] || return 0
   while IFS= read -r file; do
     case "$(basename "$file")" in
-      *.json | gp-secret-write.pub.pem | README.md) ;;
-      *) fail "$file" 'unexpected file in secrets/; only <service>.<env>.json and the committed public key belong here' ;;
+      *.json | gp-secret-write.pub.pem | README.md | AGENTS.md | CLAUDE.md) ;;
+      *) fail "$file" 'unexpected file in secrets/; only <service>.<env>.json, the committed public key, and the docs files belong here' ;;
     esac
   done < <(find "$dir" -type f)
 }

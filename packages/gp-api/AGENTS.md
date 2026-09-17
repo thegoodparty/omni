@@ -86,6 +86,7 @@ migration-diff step in `Checks` will fail otherwise — see `npm run migrate:dev
 | -------------------------------------------- | ---------------------------------------------------------------- |
 | **Writing or editing code**                  | **`.cursor/rules/*.mdc` — read first, every time**               |
 | Adding an endpoint                           | `docs/architecture.md` § Module shape                            |
+| **Adding or rotating a secret / API key**    | **`docs/secrets.md`** — a PR, never an AWS access request        |
 | Adding or changing analytics instrumentation | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root) |
 | Touching contracts                           | `docs/contracts.md`                                              |
 | Writing or fixing a test                     | `docs/writing-tests.md`                                          |
@@ -279,6 +280,7 @@ Categories that PR review keeps catching. Each one has caused a real bug. Read t
 - Never bypass `@goodparty_org/contracts` for cross-service shapes.
 - Never `import 'node:test'` (banned by ESLint — use Vitest).
 - Never run a mutating ClickUp MCP tool without explicit user permission (no-clickup-mutations.mdc).
+- Never ask the user for AWS credentials, console access, or an IAM grant to add a credential a new integration needs — you can add it yourself, including in prod, without being able to read anything (`docs/secrets.md`). Don't ask them to paste a prod value to you either; they encrypt it themselves.
 - Never commit when `npm run lint` / `npm run verify` exits non-zero (rules.mdc Rule 27). Fix what you touched; raise pre-existing failures to the user.
 
 ## Environment

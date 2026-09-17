@@ -400,6 +400,20 @@ else
 fi
 rm -f "$bad_dir/leaked.env"
 
+# secrets/ carries its own AGENTS.md (plus the CLAUDE.md symlink the sync script
+# maintains, and a README for anyone browsing). That is what stops an agent
+# editing these files from going looking for AWS access, so the stray-file check
+# must not treat the docs as a leak.
+printf '# docs\n' >"$bad_dir/AGENTS.md"
+printf '# docs\n' >"$bad_dir/README.md"
+ln -sf AGENTS.md "$bad_dir/CLAUDE.md"
+if validate >/dev/null 2>&1; then
+  ok "secrets/ may carry its own AGENTS.md, CLAUDE.md and README"
+else
+  bad "secrets/ may carry its own AGENTS.md, CLAUDE.md and README"
+fi
+rm -f "$bad_dir/AGENTS.md" "$bad_dir/README.md" "$bad_dir/CLAUDE.md"
+
 # ============================================================
 echo 'failure modes'
 # ============================================================

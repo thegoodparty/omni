@@ -40,6 +40,7 @@ npm run test -w packages/election-api               # vitest run
 | Doing                                 | Read                                  |
 | ------------------------------------- | ------------------------------------- |
 | Adding an endpoint / module           | `docs/architecture.md` § Module shape |
+| **Adding or rotating a secret**       | **`docs/secrets.md`** (not an AWS ask) |
 | Querying data / adding a Prisma model | `docs/data-model.md`                  |
 | First-time setup                      | `docs/getting-started.md`             |
 | AI rule-by-rule code review           | `ai-rules/` (git submodule)           |
@@ -100,6 +101,7 @@ Never bypass the DTO and read `request` raw — the global pipe is what enforces
 - Never bypass `createZodDto` for request validation — the global `ZodValidationPipe` is the only enforcement point.
 - Never disable `unused-imports/no-unused-imports` without an inline comment justifying it.
 - Never add `any` casually — the rule is off, but typed code is still the bar.
+- Never ask the user for AWS credentials, console access, or an IAM grant to add a credential this service needs — you can add it yourself, including in prod, without being able to read anything (`docs/secrets.md`).
 
 ## Environment
 
