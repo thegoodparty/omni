@@ -1105,6 +1105,26 @@ jobs:
           npm ci
           npm run build
 
+      # NOT `background: true`, and the only prod apply that is not.
+      #
+      # prod/shared-infra reads this root's outputs through a
+      # `data "terraform_remote_state"`, which terraform resolves at PLAN time,
+      # so shared-infra cannot even produce a plan until this root's state
+      # object exists. Running the two in parallel is fine once it does — which
+      # is why the other two roots shared-infra reads this way
+      # (ddhq-matcher-fargate, clickup-bot) sit in the group below and converge
+      # across runs — but it is not fine for a root that has never been applied.
+      #
+      # THAT IS NOT HYPOTHETICAL: this root shipped in #1836 and was never added
+      # to either list here, so its state was never created, and every release
+      # run from 2026-09-16 15:39Z onward died on `prod/shared-infra: plan
+      # failed` reading a state file that does not exist. Prod shipped nothing
+      # for a day. Sequencing the first apply ahead of the group is what makes
+      # the run after this one green instead of making it the same failure one
+      # more time.
+      - name: apply prod/alert-filter
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/alert-filter
+
       - name: apply prod/agent-experiment-metadata
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/agent-experiment-metadata
@@ -1153,6 +1173,14 @@ jobs:
       - name: reverify prod/agent-run-inputs
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/agent-run-inputs
+      # Required, not optional: the convergence check below counts the
+      # directories in environments/prod and demands one .code file per root, so
+      # a root that is applied but never re-planned fails it with "expected 14
+      # re-plan results but found 13". That check would have caught #1836's
+      # missing wiring on its own had the apply above not died first.
+      - name: reverify prod/alert-filter
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/alert-filter
       - name: reverify prod/autopilot-agent-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/autopilot-agent-fargate autopilot-agent-${{ needs.await-checks.outputs.sha }} autopilot-agent-playwright-${{ needs.await-checks.outputs.sha }}
