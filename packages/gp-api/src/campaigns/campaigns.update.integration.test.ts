@@ -687,8 +687,73 @@ describe('CampaignsService.setIsPro', () => {
       'DROP TRIGGER IF EXISTS test_fail_details_write ON campaign',
     )
 
+  // Forces the two deliveries below to overlap, and lets Postgres rather than
+  // a sleep in the test decide the interleaving: whoever wins holds its
+  // transaction open inside pg_sleep while the loser is still arriving. It
+  // fires only on a real isPro change, so the loser — which by then finds the
+  // campaign already Pro — is not slowed in turn.
+  //
+  // Both shapes overlap under it, and that is the point. On the pre-change
+  // shape nothing locks the loser's read, so it gets in before the winner
+  // commits and its update then raises 40001. On this one the loser is still
+  // waiting for the row lock and reads only after the commit.
+  const slowTheProFlip = async () => {
+    await service.prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION test_slow_pro_flip() RETURNS trigger AS $$
+      BEGIN PERFORM pg_sleep(0.4); RETURN NEW; END;
+      $$ LANGUAGE plpgsql
+    `)
+    await service.prisma.$executeRawUnsafe(`
+      CREATE TRIGGER test_slow_pro_flip
+      BEFORE UPDATE OF is_pro ON campaign
+      FOR EACH ROW WHEN (NEW.is_pro IS DISTINCT FROM OLD.is_pro)
+      EXECUTE FUNCTION test_slow_pro_flip()
+    `)
+  }
+
   // DDL outlives the row cleanup between tests.
-  afterEach(allowDetailsWrites)
+  afterEach(async () => {
+    await allowDetailsWrites()
+    await service.prisma.$executeRawUnsafe(
+      'DROP TRIGGER IF EXISTS test_slow_pro_flip ON campaign',
+    )
+  })
+
+  // Two real concurrent deliveries, which is the semantics this change is
+  // actually about: not that the loser fails more gracefully, but that it
+  // stops failing and reaches the correct answer instead.
+  //
+  // Exactly one transition, and every one-time side effect hanging off it
+  // fires exactly once — the Slack announcement, the free-texts grant and the
+  // isProUpdatedAt stamp. Against the pre-change shape the loser raises the
+  // production error verbatim: P2034, `Transaction failed due to a write
+  // conflict or a deadlock`. The gate was never really computing
+  // becamePro=false for a duplicate; it was relying on Stripe to redeliver
+  // into a row that had become Pro in the meantime.
+  it('lets a duplicate delivery succeed with becamePro=false, firing the one-time effects once', async () => {
+    const { campaign } = await seedCampaign()
+    const slack = vi
+      .spyOn(service.app.get(CampaignTasksService), 'notifySlackOnProUpgrade')
+      .mockResolvedValue(undefined)
+    const campaigns = service.app.get(CampaignsService)
+    await slowTheProFlip()
+
+    const deliveries = await Promise.all([
+      campaigns.setIsPro(campaign.id, true, false),
+      campaigns.setIsPro(campaign.id, true, false),
+    ])
+
+    expect(deliveries.map((d) => d.becamePro).sort()).toEqual([false, true])
+    expect(slack).toHaveBeenCalledExactlyOnceWith(campaign.id)
+
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.isPro).toBe(true)
+    expect(row.hasFreeTextsOffer).toBe(true)
+    expect(row.freeTextsOfferRedeemedAt).toBeNull()
+    expect(row.details.isProUpdatedAt).toEqual(expect.any(String))
+  })
 
   // The one that matters. This is not "two writes, either of which can fail" —
   // it is a state that closes its own repair path behind it.
