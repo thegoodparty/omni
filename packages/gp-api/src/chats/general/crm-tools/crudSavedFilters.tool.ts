@@ -189,22 +189,28 @@ export const buildCrudSavedFiltersTool = (deps: {
         }
       }
       if (action === 'update') {
-        // Checked against the name/precincts pair this update leaves in
-        // place, not just the fields this call happens to touch: clearing
-        // precincts without renaming would otherwise leave an already-named
-        // list's place claim stale and unflagged. `??`, not `||`: an
-        // explicit `precincts: []` in this call must override a non-empty
-        // existing value (clearing the narrowing is a real edit), while an
-        // absent key falls back to what's persisted.
-        const effectiveName = name ?? existing.name
-        if (
-          effectiveName !== null &&
-          isUnfilteredPlaceName(
-            effectiveName,
-            filter.precincts ?? existing.precincts ?? [],
-          )
-        ) {
-          return { error: UNFILTERED_PLACE_NAME_ERROR }
+        // Only check the place-name invariant when this call touches the
+        // fields that could break it: a name change or a precincts change.
+        // Checked against the resulting name/precincts pair, not just the
+        // incoming fields: clearing precincts without renaming would
+        // otherwise leave an already-named list's place claim stale and
+        // unflagged. `??`, not `||`: an explicit `precincts: []` in this
+        // call must override a non-empty existing value (clearing the
+        // narrowing is a real edit), while an absent key falls back to
+        // what's persisted.
+        const nameIsBeingTouched = name !== undefined
+        const precinctsAreBeingTouched = filter.precincts !== undefined
+        if (nameIsBeingTouched || precinctsAreBeingTouched) {
+          const effectiveName = name ?? existing.name
+          if (
+            effectiveName !== null &&
+            isUnfilteredPlaceName(
+              effectiveName,
+              filter.precincts ?? existing.precincts ?? [],
+            )
+          ) {
+            return { error: UNFILTERED_PLACE_NAME_ERROR }
+          }
         }
         const payload = { ...filter, ...(name !== undefined && { name }) }
         if (Object.keys(payload).length === 0) {
