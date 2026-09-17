@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   transformVoterFileFiltersForBackend,
@@ -49,14 +49,31 @@ const NO_RECOMMENDED_CRITERIA: RecommendedCriteria = {
 // Kept beside the panel because both halves are one surface's contract: an
 // agent changing what the draw step asks of the map changes this file, and the
 // orchestrator only ever spreads the result onto `VoterMapCanvas`.
-export const useCreateListDraw = () => {
+// `seedColor` is the palette slot a candidate should land on when the flow
+// opens: `TURF_COLORS[0]` for a solo campaign, or `assignNextColor(...)`
+// off the anchor's siblings when the create is joining an existing
+// campaign. Passing it in rather than deriving it here keeps the hook
+// unaware of the campaign fetch — the surface is the one place that knows
+// whether siblings exist. It re-seeds when the value changes, but never
+// clobbers a colour the candidate has since picked (see the effect below).
+export const useCreateListDraw = (seedColor: string = TURF_COLORS[0]) => {
   const [startDrawToken, setStartDrawToken] = useState(0)
   const [resumeDrawToken, setResumeDrawToken] = useState(0)
   const [clearDrawToken, setClearDrawToken] = useState(0)
   const [undoDrawToken, setUndoDrawToken] = useState(0)
   const [frameDrawToken, setFrameDrawToken] = useState(0)
   const [pointCount, setPointCount] = useState(0)
-  const [drawColor, setDrawColor] = useState<string>(TURF_COLORS[0])
+  const [drawColor, setDrawColor] = useState<string>(seedColor)
+  // Whether the candidate has picked a colour themselves. The seed can
+  // change under this hook — the anchor's siblings arrive asynchronously,
+  // and adopting the fresh palette-next slot is the right default — but
+  // once a candidate reaches into the picker their choice is theirs, and
+  // a late-arriving fetch must not repaint their ring for them.
+  const [colorPicked, setColorPicked] = useState(false)
+  useEffect(() => {
+    if (colorPicked) return
+    setDrawColor(seedColor)
+  }, [seedColor, colorPicked])
   // Whether the map is uncovered and being drawn on. It belongs here rather
   // than inside the flow for the reason everything else in this hook does: it
   // is a fact about what the CANVAS is doing. The draw step's shielded preview
@@ -73,10 +90,17 @@ export const useCreateListDraw = () => {
     frameDrawToken,
     pointCount,
     onPointCount: setPointCount,
-    // The colour a new list is drawn in. Auto-assigned rather than picked —
-    // the canvas's confirm step is a single name field — but still the map's
-    // to know, because it tints the ring while it is being cut.
+    // The colour the in-progress ring is drawn in. Defaults to the seed
+    // (palette[0] for a solo turf; the assigner's next-slot answer when
+    // joining a campaign), and swaps to whatever the confirm step's picker
+    // reports through `pickColor` below.
     drawColor,
+    // The confirm step's picker: sticks the choice so a later re-seed
+    // cannot overwrite it, and updates the ring live.
+    pickColor: (color: string) => {
+      setColorPicked(true)
+      setDrawColor(color)
+    },
     // Nothing covers the map on the drawing surface, so the ring is fitted
     // into the whole of it.
     frameDrawBottomPct: 0,
@@ -112,7 +136,12 @@ export const useCreateListDraw = () => {
     // the unmount did has to be said out loud.
     clearDrawing: () => {
       setClearDrawToken((token) => token + 1)
-      setDrawColor(TURF_COLORS[0])
+      // Rewind to the seed rather than to a fixed palette[0]: the next
+      // create should start on whichever slot the assigner recommends
+      // right now — a solo campaign gets palette[0], a candidate opening
+      // "Add another turf" on a two-turf campaign gets palette[2].
+      setColorPicked(false)
+      setDrawColor(seedColor)
       setFullScreen(false)
     },
   }
@@ -226,6 +255,19 @@ export interface CreateListSurfaceProps {
   // Raised once the who step has taken the carried list, so the page can stop
   // handing it back on the next open of this flow.
   onPreselectApplied?: () => void
+  // The confirm step's picker reports the candidate's own colour choice
+  // back so the CANVAS re-tints the in-progress ring. Optional because the
+  // draw hook auto-assigns a colour that never changes underfoot when the
+  // page doesn't wire this.
+  onColorChange?: (color: string) => void
+  // The turfs already in this campaign, threaded to the flow so the confirm
+  // step can default the name to `Turf N` and read them off the colour
+  // picker's used-slots. Undefined for a solo (self-anchored) create.
+  siblingTurfs?: DoorKnockingTurf[]
+  // The anchor Outreach id this new turf should join, when the drawer's
+  // "Add another turf" opens the flow with `?campaignOutreachId=`. Threaded
+  // straight through — the surface never resolves it.
+  campaignOutreachId?: number
 }
 
 export default function CreateListSurface({
@@ -257,6 +299,9 @@ export default function CreateListSurface({
   orgSlug,
   preselectedListId,
   onPreselectApplied,
+  onColorChange,
+  siblingTurfs,
+  campaignOutreachId,
 }: CreateListSurfaceProps) {
   // The who step's list picker. Both reads are the page's own queries by key,
   // so this costs nothing: the saved lists are already warm (the rail resolves
@@ -441,6 +486,7 @@ export default function CreateListSurface({
       onDrawFullScreenChange={onDrawFullScreenChange}
       onRestartDrawing={onRestartDrawing}
       color={color}
+      onColorChange={onColorChange}
       drawnStops={drawnStops}
       onListCreated={onListCreated}
       isServeOrg={isServeOrg}
@@ -449,6 +495,8 @@ export default function CreateListSurface({
       preselectedListId={preselectedListId}
       onPreselectApplied={onPreselectApplied}
       onSelectedListChange={handleSelectedListChange}
+      siblingTurfs={siblingTurfs}
+      campaignOutreachId={campaignOutreachId}
     />
   )
 }

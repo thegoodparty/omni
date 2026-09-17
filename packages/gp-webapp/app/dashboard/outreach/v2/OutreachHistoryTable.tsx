@@ -535,8 +535,19 @@ export const OutreachHistoryTable = ({
                       <ChannelBadge type={row.outreachType} />
                     </TableCell>
                     <TableCell className="max-w-0 font-medium">
-                      <span className="block truncate">
-                        {row.name || row.title || 'Untitled campaign'}
+                      <span className="flex items-center gap-2">
+                        <span className="min-w-0 truncate">
+                          {row.name || row.title || 'Untitled campaign'}
+                        </span>
+                        {(row.turfCount ?? 1) > 1 && (
+                          <Badge
+                            shape="pill"
+                            variant="secondary"
+                            className="shrink-0"
+                          >
+                            {row.turfCount} turfs
+                          </Badge>
+                        )}
                       </span>
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-muted-foreground">
@@ -590,8 +601,19 @@ export const OutreachHistoryTable = ({
                   </div>
                   <HistoryStatusText label={displayStatusLabel(row)} />
                 </div>
-                <span className="truncate text-base font-medium text-foreground">
-                  {row.name || row.title || 'Untitled campaign'}
+                <span className="flex items-center gap-2 text-base font-medium text-foreground">
+                  <span className="min-w-0 truncate">
+                    {row.name || row.title || 'Untitled campaign'}
+                  </span>
+                  {(row.turfCount ?? 1) > 1 && (
+                    <Badge
+                      shape="pill"
+                      variant="secondary"
+                      className="shrink-0"
+                    >
+                      {row.turfCount} turfs
+                    </Badge>
+                  )}
                 </span>
                 <span className="text-xs text-muted-foreground">
                   <RowMetric row={row} compact detailFetcher={detailFetcher} />{' '}

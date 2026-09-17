@@ -22,7 +22,12 @@ import {
   runFilter,
   type FilterResult,
 } from './filterEngine'
-import { quotaQueryOptions, turfsQueryOptions } from './turfQueries'
+import {
+  campaignTurfsQueryOptions,
+  quotaQueryOptions,
+  turfsQueryOptions,
+} from './turfQueries'
+import { assignNextColor } from './turfColors'
 import { DoorKnockingSurface } from './doorKnockingSurface'
 import {
   HARD_STOP_LIMIT,
@@ -102,6 +107,11 @@ interface NativeDoorKnockingPageProps {
   // rather than to look at the rail. The tile is the only caller, so closing
   // the flow it opened goes back to the hub it was pressed on.
   openCreateFlow?: boolean
+  // `?campaignOutreachId=` — the campaign drawer's "Add another turf" opens
+  // the create flow onto an existing campaign. Threaded down to the surface
+  // and used to fetch the sibling turfs whose colors seed the picker's
+  // default and whose count decides the "Turf N" name default.
+  campaignOutreachId?: number
 }
 
 // Where closing the walk should put the candidate back. Each way in has a
@@ -145,6 +155,7 @@ export default function NativeDoorKnockingPage({
   walkTurfId,
   fromOutreachId,
   openCreateFlow,
+  campaignOutreachId,
 }: NativeDoorKnockingPageProps) {
   const queryClient = useQueryClient()
   const router = useRouter()
@@ -221,9 +232,31 @@ export default function NativeDoorKnockingPage({
   // shade by them.
   const [precincts, setPrecincts] = useState<string[]>([])
   const [ring, setRing] = useState<PolygonRing | null>(null)
+  // "Add another turf" arrives with `?campaignOutreachId=`. Two things
+  // read the resolved sibling list: the create flow (default name + colour
+  // picker default), and `useCreateListDraw` below (seed colour). Only
+  // fires when the caller says so — a solo create never asks — and the
+  // response is empty during the fetch, which is what makes the seed and
+  // name defaults land as though it were a solo campaign until the answer
+  // arrives.
+  const campaignSiblingsQuery = useQuery({
+    ...campaignTurfsQueryOptions(campaignOutreachId ?? 0),
+    enabled: campaignOutreachId !== undefined,
+  })
+  const siblingTurfs =
+    campaignOutreachId !== undefined
+      ? (campaignSiblingsQuery.data ?? [])
+      : undefined
+  // The palette-next slot for the drawn ring. `undefined` on a solo create
+  // resolves to the assigner's default (`TURF_COLORS[0]`), so a candidate
+  // opening the flow with no siblings still lands on blue.
+  const seedColor = useMemo(
+    () => assignNextColor((siblingTurfs ?? []).map((turf) => turf.color)),
+    [siblingTurfs],
+  )
   // The create-list surface's half of the canvas: draw tokens, the point count
   // and the coach mark. Called here because the canvas outlives the flow.
-  const draw = useCreateListDraw()
+  const draw = useCreateListDraw(seedColor)
   // The walk surface's half of the canvas: pins, the path, and a tapped pin as
   // a request to open that door.
   const walkMap = useWalkMapSession(walkTurf)
@@ -911,6 +944,7 @@ export default function NativeDoorKnockingPage({
                 onDrawFullScreenChange={draw.setFullScreen}
                 onRestartDrawing={draw.startDrawing}
                 color={draw.drawColor}
+                onColorChange={draw.pickColor}
                 drawnStops={drawnStops}
                 onListCreated={handleListCreated}
                 isServeOrg={isServeOrg}
@@ -920,6 +954,8 @@ export default function NativeDoorKnockingPage({
                 onPreselectApplied={() =>
                   setSpentPreselectId(preselectedListId)
                 }
+                siblingTurfs={siblingTurfs}
+                campaignOutreachId={campaignOutreachId}
               />
             )}
           </div>

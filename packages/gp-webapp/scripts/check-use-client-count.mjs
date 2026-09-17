@@ -385,7 +385,7 @@ import { dirname, join, relative } from 'node:path'
 // the handshake — it reads the Clerk session through `useUser`, holds the
 // field's state, and redirects on success, none of which a server component
 // can do. Its page shell stays a server component.
-const BASELINE = 567
+const BASELINE = 568
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

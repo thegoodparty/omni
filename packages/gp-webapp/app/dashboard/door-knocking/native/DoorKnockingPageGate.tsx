@@ -40,6 +40,9 @@ interface DoorKnockingPageGateProps {
   // `?create=1` — the hub's tile opening the create flow on arrival. Native
   // only, for the same reason as the two above.
   openCreateFlow?: boolean
+  // `?campaignOutreachId=` — the drawer's "Add another turf" opening the
+  // flow onto an existing campaign. Native only.
+  campaignOutreachId?: number
 }
 
 // Reached by URL or a stale tab rather than the sidebar — DashboardMenu hides
@@ -105,6 +108,7 @@ export default function DoorKnockingPageGate({
   walkTurfId,
   fromOutreachId,
   openCreateFlow,
+  campaignOutreachId,
 }: DoorKnockingPageGateProps) {
   const { ready, enabled } = useNativeDoorKnockingFlag(true)
   const { data: electedOffice, isPending: isElectedOfficePending } =
@@ -147,6 +151,7 @@ export default function DoorKnockingPageGate({
         walkTurfId={walkTurfId}
         fromOutreachId={fromOutreachId}
         openCreateFlow={openCreateFlow}
+        campaignOutreachId={campaignOutreachId}
       />
     )
   }

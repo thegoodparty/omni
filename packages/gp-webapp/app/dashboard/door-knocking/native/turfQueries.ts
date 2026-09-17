@@ -37,6 +37,21 @@ export const turfsQueryOptions = (serve: boolean) =>
       ).then((res) => res.data),
   })
 
+// Every turf in a door-knocking campaign — the anchor Outreach plus every
+// row pointing at it via `campaignOutreachId`. Keyed off the anchor id so
+// the drawer's fetch and any later "add another turf" open share one entry;
+// invalidated alongside `TURFS_QUERY_KEY` because the mutations that touch
+// this list are the same ones (create, rename, archive, delete) that
+// refresh the rail.
+export const campaignTurfsQueryOptions = (anchorOutreachId: number) =>
+  queryOptions({
+    queryKey: ['door-knocking-campaign-turfs', anchorOutreachId],
+    queryFn: () =>
+      clientRequest('GET /v1/door-knocking/campaigns/:anchorId', {
+        anchorId: String(anchorOutreachId),
+      }).then((res) => res.data),
+  })
+
 // Both daily allowances, read before the create flow opens rather than at the
 // press that spends them. The campaign count is the one that has to be known
 // this early: it refuses the whole flow rather than one shape, so discovering
