@@ -275,6 +275,54 @@ describe('<PhoneBankingEntryPanel>', () => {
       expect(capturedRequest).not.toHaveProperty('willVote')
     })
 
+    // The logged-row summary reads the interaction, not the draft, so it
+    // needed gating of its own. A Serve list's existing rows carry the Win
+    // answers — it shipped asking them — and reading those back would put
+    // "Support: Yes" in front of the caller this change stops asking.
+    it('a serve summary reads back follow-up, never the win answers', async () => {
+      const legacyServeRow = {
+        outcome: 'answered' as const,
+        supportAnswer: 'supporter' as const,
+        willVote: 'yes' as const,
+        followUp: 'no' as const,
+        occurredAt: new Date(),
+      }
+      const entry = buildEntry({
+        persons: [{ ...buildEntry().persons[0]!, interaction: legacyServeRow }],
+      })
+
+      renderPanel({ isServe: true, entry })
+      const dialog = await screen.findByRole('dialog')
+
+      expect(within(dialog).getByText(/Follow-up:/)).toBeInTheDocument()
+      expect(within(dialog).queryByText(/Support:/)).not.toBeInTheDocument()
+      expect(within(dialog).queryByText(/Will vote:/)).not.toBeInTheDocument()
+    })
+
+    it('a win summary reads back support and turnout, never follow-up', async () => {
+      const entry = buildEntry({
+        persons: [
+          {
+            ...buildEntry().persons[0]!,
+            interaction: {
+              outcome: 'answered' as const,
+              supportAnswer: 'supporter' as const,
+              willVote: 'yes' as const,
+              followUp: 'no' as const,
+              occurredAt: new Date(),
+            },
+          },
+        ],
+      })
+
+      renderPanel({ entry })
+      const dialog = await screen.findByRole('dialog')
+
+      expect(within(dialog).getByText(/Support:/)).toBeInTheDocument()
+      expect(within(dialog).getByText(/Will vote:/)).toBeInTheDocument()
+      expect(within(dialog).queryByText(/Follow-up:/)).not.toBeInTheDocument()
+    })
+
     it('win still asks support then turnout, and never follow-up', async () => {
       const user = userEvent.setup()
       renderPanel()

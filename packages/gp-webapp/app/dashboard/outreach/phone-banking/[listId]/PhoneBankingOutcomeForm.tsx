@@ -123,9 +123,15 @@ export default function PhoneBankingOutcomeForm({
             />
             {OUTCOME_LABEL[interaction.outcome]}
           </span>
+          {/* Read off the interaction rather than the draft, so the surface
+              has to be checked here too: a Serve list's existing rows carry
+              the Win answers (it shipped asking them), and showing them back
+              would put "Support: Yes" in front of the caller this change
+              exists to stop asking. Gated symmetrically with the edit form
+              below — each surface reads back only its own question. */}
           {interaction.outcome === 'answered' && (
             <>
-              {interaction.supportAnswer && (
+              {!isServe && interaction.supportAnswer && (
                 <span className="truncate">
                   {' · Support: '}
                   <span className="font-medium text-foreground">
@@ -133,7 +139,7 @@ export default function PhoneBankingOutcomeForm({
                   </span>
                 </span>
               )}
-              {interaction.willVote && (
+              {!isServe && interaction.willVote && (
                 <span className="truncate">
                   {' · Will vote: '}
                   <span className="font-medium text-foreground">
@@ -141,7 +147,7 @@ export default function PhoneBankingOutcomeForm({
                   </span>
                 </span>
               )}
-              {interaction.followUp && (
+              {isServe && interaction.followUp && (
                 <span className="truncate">
                   {' · Follow-up: '}
                   <span className="font-medium text-foreground">
