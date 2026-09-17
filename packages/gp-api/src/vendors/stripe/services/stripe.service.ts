@@ -771,24 +771,48 @@ export class StripeService {
   // status first and treat an already-canceled sub as success.
   //
   // The status read cannot stand alone, because it is a check against state
-  // that a concurrent request can change between the two calls: two overlapping
-  // de-Pro requests both retrieve `active`, both proceed, and the second cancel
-  // is the one Stripe rejects. The idempotency key closes that window — within
-  // Stripe's 24-hour replay window the second cancel returns the first one's
-  // response instead of erroring — and keys off the subscription id so every
-  // retry for the same subscription is the same request. It matches every other
-  // mutating call in this service for the same reason.
+  // somebody else can change before the cancel runs. Three layers, because
+  // there are three distinct ways this races and each needs a different one:
+  //
+  //   already canceled when we start   -> the status read returns it
+  //   two callers of THIS method       -> the idempotency key replays the first
+  //                                       response rather than erroring, which
+  //                                       is why the key is derived from the
+  //                                       subscription and not the attempt
+  //   canceled out of band mid-flight  -> the inner catch below
+  //
+  // The key does nothing for the third: an admin cancelling from the Stripe
+  // dashboard, or an earlier retry through another code path, sends no key of
+  // ours, so the cancel is rejected on its merits. Only recognising the
+  // rejection recovers it, which is the shape expireCheckoutSession already
+  // uses in this file.
   async cancelSubscription(subscriptionId: string) {
     try {
       const existing = await this.stripe.subscriptions.retrieve(subscriptionId)
       if (existing.status === 'canceled') {
         return existing
       }
-      return await this.stripe.subscriptions.cancel(
-        subscriptionId,
-        {},
-        { idempotencyKey: `cancel-subscription-${subscriptionId}` },
-      )
+      try {
+        return await this.stripe.subscriptions.cancel(
+          subscriptionId,
+          {},
+          { idempotencyKey: `cancel-subscription-${subscriptionId}` },
+        )
+      } catch (e) {
+        if (!(e instanceof Stripe.errors.StripeInvalidRequestError)) {
+          throw e
+        }
+        // The retrieve above proved the subscription exists on this key, so by
+        // here the only thing Stripe can be objecting to is that it is no
+        // longer cancellable — someone got there first. That is the outcome the
+        // caller wanted, so read the subscription back and report it rather
+        // than failing a de-Pro that has already happened.
+        this.logger.info(
+          { subscriptionId },
+          'Subscription was canceled out of band mid-cancel; treating as success',
+        )
+        return await this.stripe.subscriptions.retrieve(subscriptionId)
+      }
     } catch (e) {
       if (e instanceof Error) {
         this.logger.error(e, `Failed to cancel subscription ${subscriptionId}`)

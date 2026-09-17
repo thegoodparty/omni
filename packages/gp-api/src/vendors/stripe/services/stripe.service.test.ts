@@ -600,6 +600,40 @@ describe('StripeService.cancelSubscription', () => {
     expect(result).toMatchObject({ id: 'sub_gone', status: 'canceled' })
   })
 
+  // The window neither of the guards above can close: the subscription reads
+  // `active`, and is then canceled from the Stripe dashboard (or by an earlier
+  // retry through another code path) before our cancel lands. That actor sends
+  // none of our idempotency keys, so Stripe rejects the cancel on its merits.
+  // Rethrowing would 502 and skip the caller's `isPro: false` write, leaving the
+  // campaign stuck as Pro — the ENG-10660 symptom, reached by a third route.
+  it('treats a cancel lost to an out-of-band cancel as success', async () => {
+    subscriptionsRetrieve
+      .mockResolvedValueOnce({ id: 'sub_live', status: 'active' })
+      .mockResolvedValueOnce({ id: 'sub_live', status: 'canceled' })
+    subscriptionsCancel.mockRejectedValue(
+      new MockStripeError('No such active subscription'),
+    )
+
+    const result = await service.cancelSubscription('sub_live')
+
+    expect(result).toMatchObject({ id: 'sub_live', status: 'canceled' })
+  })
+
+  // The inner catch is narrow on purpose. A network failure or an outage is not
+  // evidence that the subscription was canceled, and reporting success for one
+  // would clear the campaign's Pro flag while it kept paying.
+  it('still fails when the cancel fails for any other reason', async () => {
+    subscriptionsRetrieve.mockResolvedValue({
+      id: 'sub_live',
+      status: 'active',
+    })
+    subscriptionsCancel.mockRejectedValue(new Error('stripe down'))
+
+    await expect(service.cancelSubscription('sub_live')).rejects.toBeInstanceOf(
+      BadGatewayException,
+    )
+  })
+
   it('maps a Stripe retrieve failure to a 502', async () => {
     subscriptionsRetrieve.mockRejectedValue(new Error('stripe down'))
 
