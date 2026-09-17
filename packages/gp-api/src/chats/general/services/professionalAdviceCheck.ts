@@ -18,7 +18,7 @@ const ADVICE_SIGNALS: RegExp[] = [
   /§/,
   /\bRCW\b/,
   /\bU\.S\.C\./,
-  /\bStat\./,
+  /\d+\s+Stat\.\s+\d+/,
   /\bstatute of limitations\b/i,
   /\bfile (?:a|an|your) (?:formal )?(?:complaint|charge|grievance) with\b/i,
   /\b(?:criminal|civil|legal) liability\b/i,
