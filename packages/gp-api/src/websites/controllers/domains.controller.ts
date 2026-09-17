@@ -11,12 +11,14 @@ import {
   Post,
   Query,
   Req,
+  UseGuards,
   UsePipes,
 } from '@nestjs/common'
 import { DomainsService } from '../services/domains.service'
 import { PaymentStatus } from 'src/payments/payments.types'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { SearchDomainSchema } from '../schemas/SearchDomain.schema'
+import { DomainAuthCodeSchema } from '../schemas/DomainAuthCode.schema'
 import {
   SearchDomainsBodySchema,
   SearchDomainsResponseSchema,
@@ -36,8 +38,10 @@ import {
 } from '../../generated/prisma'
 import { IncomingRequest } from '@/authentication/authentication.types'
 import { Roles } from 'src/authentication/decorators/Roles.decorator'
+import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { WebsitesService } from '../services/websites.service'
 import {
+  AuthCodeRequester,
   DomainOperationStatus,
   DomainOperationType,
   DomainStatusResponse,
@@ -65,31 +69,69 @@ export class DomainsController {
 
   // Lets support staff service a candidate's "transfer my domain out" request
   // without needing personal Owner access to the GoodParty Vercel team.
+  //
+  // AdminOrM2MGuard rather than @Roles(admin) so gp-admin can reach it at all:
+  // gp-admin authenticates with an M2M machine token, which SessionGuard
+  // short-circuits without populating a user, so RolesGuard can never pass for
+  // it. Same guard the impersonation and sign-in-link routes already use — and
+  // those mint a session as an arbitrary user, which is strictly more powerful
+  // than a transfer code for a domain we can already prove we own.
   @Get('auth-code')
-  @Roles(UserRole.admin)
+  @UseGuards(AdminOrM2MGuard)
   async domainAuthCode(
     @Req() req: IncomingRequest,
-    @Query() { domain }: SearchDomainSchema,
+    @Query() { domain, actorEmail }: DomainAuthCodeSchema,
   ): Promise<{ authCode: string }> {
-    // RolesGuard admits this route on the actor's roles, so the actor is the
-    // human accountable for the handover — `@ReqUser()` would name the
-    // impersonated candidate instead. An impersonated session whose actor
-    // never resolved to a local user cannot be attributed to anyone, so refuse
-    // rather than record the wrong person for a domain-transfer credential.
-    const requestedBy = req.actorSub ? req.actorUser : req.user
-    if (!requestedBy) {
+    return {
+      authCode: await this.domains.getDomainTransferAuthCode(
+        domain,
+        this.resolveAuthCodeRequester(req, actorEmail),
+      ),
+    }
+  }
+
+  // Control of the domain leaves GoodParty when this code is issued, so it has
+  // to be attributable to a person no matter which way the caller authenticated.
+  private resolveAuthCodeRequester(
+    req: IncomingRequest,
+    actorEmail?: string,
+  ): AuthCodeRequester {
+    // Impersonated admin session. AdminOrM2MGuard admits it on the actor's
+    // roles, so the actor is the accountable human — `req.user` would name the
+    // candidate being impersonated.
+    if (req.actorUser) {
+      return {
+        authSource: 'user',
+        userId: req.actorUser.id,
+        email: req.actorUser.email,
+      }
+    }
+
+    // An act claim that never resolved to a local user cannot be attributed to
+    // anyone, so refuse rather than record the wrong person.
+    if (req.actorSub) {
       throw new ForbiddenException(
         'Cannot issue a domain transfer auth code for an impersonated ' +
           'session whose acting admin could not be identified',
       )
     }
 
-    return {
-      authCode: await this.domains.getDomainTransferAuthCode(
-        domain,
-        requestedBy,
-      ),
+    if (req.user) {
+      return { authSource: 'user', userId: req.user.id, email: req.user.email }
     }
+
+    // M2M. gp-admin knows who is signed in; gp-api cannot derive it from a
+    // machine token, so the caller has to say. Unverified by construction —
+    // it records which admin gp-admin says is acting, and gp-admin's own
+    // permission check is what gates the call.
+    if (!actorEmail) {
+      throw new BadRequestException(
+        'actorEmail is required when requesting a domain transfer auth code ' +
+          'with a machine token',
+      )
+    }
+
+    return { authSource: 'm2m', email: actorEmail }
   }
 
   @Get('search')

@@ -52,6 +52,7 @@ import { ForwardEmailService } from '../../vendors/forwardEmail/services/forward
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import {
+  AuthCodeRequester,
   DomainPurchaseMetadata,
   DomainSearchResult,
   hasSupportedTld,
@@ -433,7 +434,7 @@ export class DomainsService
    */
   async getDomainTransferAuthCode(
     domainName: string,
-    requestedBy: User,
+    requestedBy: AuthCodeRequester,
   ): Promise<string> {
     // Our Vercel team also holds GoodParty's own infrastructure domains, and
     // Vercel will happily mint a transfer code for those too. Rows in `domain`
@@ -466,7 +467,12 @@ export class DomainsService
           domain: domainName,
           domainStatus: campaignDomain.status,
           campaignId: campaignDomain.website.campaignId,
-          requestedByUserId: requestedBy.id,
+          requestedByEmail: requestedBy.email,
+          requestedByUserId:
+            requestedBy.authSource === 'user' ? requestedBy.userId : undefined,
+          // Whether the identity above was verified here or asserted by
+          // gp-admin over a machine token.
+          authSource: requestedBy.authSource,
         },
         'Domain transfer auth code issued',
       )

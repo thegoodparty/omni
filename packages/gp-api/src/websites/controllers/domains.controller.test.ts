@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing'
 import { DiscoveryModule, HttpAdapterHost, Reflector } from '@nestjs/core'
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   HttpStatus,
@@ -8,9 +9,9 @@ import {
   NotFoundException,
   RequestMethod,
 } from '@nestjs/common'
-import { DomainSource, DomainStatus, UserRole } from '../../generated/prisma'
-import { ROLES_KEY } from 'src/authentication/decorators/Roles.decorator'
+import { DomainSource, DomainStatus } from '../../generated/prisma'
 import { IncomingRequest } from '@/authentication/authentication.types'
+import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DomainsController } from './domains.controller'
@@ -348,8 +349,12 @@ describe('DomainsController.domainAuthCode', () => {
 
   const asRequest = (req: Partial<IncomingRequest>) => req as IncomingRequest
 
-  it('returns the auth code from the service and passes the requesting user through', async () => {
-    const user = createMockUser({ firstName: 'Support', lastName: 'Staff' })
+  it('returns the auth code and attributes it to the admin session', async () => {
+    const user = createMockUser({
+      id: 42,
+      email: 'support@goodparty.org',
+      firstName: 'Support',
+    })
 
     const result = await controller.domainAuthCode(asRequest({ user }), {
       domain: 'stephanieberardi.com',
@@ -357,17 +362,17 @@ describe('DomainsController.domainAuthCode', () => {
 
     expect(mockDomains.getDomainTransferAuthCode).toHaveBeenCalledWith(
       'stephanieberardi.com',
-      user,
+      { authSource: 'user', userId: 42, email: 'support@goodparty.org' },
     )
     expect(result).toEqual({ authCode: 'AuthC0de!' })
   })
 
   it('attributes the request to the admin actor, not the candidate being impersonated', async () => {
-    // RolesGuard lets this route through on the actor's roles, so recording
+    // The guard lets this route through on the actor's roles, so recording
     // the subject would credit the handover to the candidate whose domain is
     // leaving — the opposite of an audit trail.
-    const candidate = createMockUser({ id: 7, firstName: 'Candidate' })
-    const admin = createMockUser({ id: 99, firstName: 'Admin' })
+    const candidate = createMockUser({ id: 7, email: 'candidate@example.com' })
+    const admin = createMockUser({ id: 99, email: 'admin@goodparty.org' })
 
     await controller.domainAuthCode(
       asRequest({ user: candidate, actorUser: admin, actorSub: 'clerk_admin' }),
@@ -376,7 +381,7 @@ describe('DomainsController.domainAuthCode', () => {
 
     expect(mockDomains.getDomainTransferAuthCode).toHaveBeenCalledWith(
       'stephanieberardi.com',
-      admin,
+      { authSource: 'user', userId: 99, email: 'admin@goodparty.org' },
     )
   })
 
@@ -393,6 +398,49 @@ describe('DomainsController.domainAuthCode', () => {
     expect(mockDomains.getDomainTransferAuthCode).not.toHaveBeenCalled()
   })
 
+  it('accepts an m2m caller that names the admin it is acting for', async () => {
+    // gp-admin's path. Its session token is minted by a different Clerk
+    // instance and cannot be verified here, so the acting admin arrives as a
+    // claim rather than a verified identity.
+    await controller.domainAuthCode(
+      asRequest({ m2mToken: {} as IncomingRequest['m2mToken'] }),
+      { domain: 'stephanieberardi.com', actorEmail: 'dee@goodparty.org' },
+    )
+
+    expect(mockDomains.getDomainTransferAuthCode).toHaveBeenCalledWith(
+      'stephanieberardi.com',
+      { authSource: 'm2m', email: 'dee@goodparty.org' },
+    )
+  })
+
+  it('refuses an m2m caller that does not name an admin', async () => {
+    // Without this the machine token alone would issue transfer codes with
+    // nothing in the trail naming a human, which is the whole point of the
+    // audit requirement.
+    await expect(
+      controller.domainAuthCode(
+        asRequest({ m2mToken: {} as IncomingRequest['m2mToken'] }),
+        { domain: 'stephanieberardi.com' },
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException)
+    expect(mockDomains.getDomainTransferAuthCode).not.toHaveBeenCalled()
+  })
+
+  it('ignores actorEmail when a real session is present', async () => {
+    // A verified identity must not be overridable by a query parameter.
+    const user = createMockUser({ id: 42, email: 'support@goodparty.org' })
+
+    await controller.domainAuthCode(asRequest({ user }), {
+      domain: 'stephanieberardi.com',
+      actorEmail: 'someone.else@example.com',
+    })
+
+    expect(mockDomains.getDomainTransferAuthCode).toHaveBeenCalledWith(
+      'stephanieberardi.com',
+      { authSource: 'user', userId: 42, email: 'support@goodparty.org' },
+    )
+  })
+
   it('propagates NotFoundException for a domain we did not register', async () => {
     mockDomains.getDomainTransferAuthCode.mockRejectedValueOnce(
       new NotFoundException('not-ours.com is not a campaign domain on record'),
@@ -405,21 +453,19 @@ describe('DomainsController.domainAuthCode', () => {
     ).rejects.toBeInstanceOf(NotFoundException)
   })
 
-  it('is registered for GET /auth-code and restricted to admins', () => {
+  it('is registered for GET /auth-code behind AdminOrM2MGuard', () => {
     // The auth code hands control of the domain to whoever holds it, and every
-    // domain sits under one shared Vercel team — without the admin role this
-    // route would let any authenticated candidate transfer away someone else's.
-    const reflector = new Reflector()
-
+    // domain sits under one shared Vercel team — ungated, this route would let
+    // any authenticated candidate transfer away someone else's.
     expect(Reflect.getMetadata('path', controller.domainAuthCode)).toBe(
       'auth-code',
     )
     expect(Reflect.getMetadata('method', controller.domainAuthCode)).toBe(
       RequestMethod.GET,
     )
-    expect(reflector.get(ROLES_KEY, controller.domainAuthCode)).toEqual([
-      UserRole.admin,
-    ])
+    expect(
+      Reflect.getMetadata('__guards__', controller.domainAuthCode),
+    ).toContain(AdminOrM2MGuard)
   })
 
   it('is not exposed as an MCP tool', () => {
