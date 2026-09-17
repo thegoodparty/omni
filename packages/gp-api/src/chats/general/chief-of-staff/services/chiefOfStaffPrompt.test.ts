@@ -238,6 +238,61 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     )
   })
 
+  // A model that says it hit an authentication error it never hit is not a
+  // capability problem, it is a reporting one, so these rules are unconditional
+  // rather than hung off any one tool.
+  it('always includes the honest reporting rules', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [],
+    })
+    expect(prompt).toContain('HONEST REPORTING')
+    expect(prompt).toContain('real only if a tool you called returned it')
+  })
+
+  it('forbids reporting a call it never made', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ALL_TOOLS,
+    })
+    expect(prompt).toContain('never describe what calling it did')
+    expect(prompt).toContain('No count, list, citation, or saved record')
+  })
+
+  it('requires relaying a real tool error instead of blurring it', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: ALL_TOOLS,
+    })
+    expect(prompt).toContain('relay what it actually said in plain language')
+    expect(prompt).toContain('Never swap in a different cause')
+  })
+
+  it('requires correcting an inaccurate statement it already made', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain('already told the user something inaccurate')
+    expect(prompt).toContain('no apology spiral')
+  })
+
+  // The proactivity rule is the pressure that produces a made-up obstacle:
+  // never hand back a dead end, so invent a reason there isn't an answer.
+  it('subordinates proactivity and voice to accuracy, in both blocks', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: TOOLS,
+    })
+    expect(prompt).toContain(
+      'Never satisfy this rule with something that is not true',
+    )
+    expect(prompt).toContain('never license an inaccurate statement')
+    expect(prompt.indexOf('HONEST REPORTING')).toBeLessThan(
+      prompt.indexOf('PROACTIVITY'),
+    )
+  })
+
   it('always includes the professional advice disclaimer rules', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),

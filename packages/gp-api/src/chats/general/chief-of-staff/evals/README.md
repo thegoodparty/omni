@@ -1,6 +1,6 @@
 # Chief of Staff golden eval
 
-A fixed, versioned set of 151 test prompts with defined pass criteria (98 machine-checkable, 53 scored against written rubric anchors) for Chief of Staff behavior: refusal boundaries, disclaimers, data framing, injection resistance, factual grounding, privacy, and capability honesty. Built 2026-07-31 from the CoS audit; it validated the prompt changes that merged in #1126.
+A fixed, versioned set of 152 test prompts with defined pass criteria (99 machine-checkable, 53 scored against written rubric anchors) for Chief of Staff behavior: refusal boundaries, disclaimers, data framing, injection resistance, factual grounding, privacy, and capability honesty. Built 2026-07-31 from the CoS audit; it validated the prompt changes that merged in #1126.
 
 These cases are data, not code. Nothing here runs in CI. Note the naming
 collision with the repo's LLM eval convention: `src/chats/<feature>/evals/`
@@ -19,7 +19,7 @@ The bench and `../services/chiefOfStaffPrompt.ts` are two halves of one contract
 - `golden_eval_spec.md` — quality dimensions, pass rules, tiering, grading methods
 - `cases/MANIFEST.md` — the index: domains, counts, audit fix-item coverage, route vocabulary
 - `cases/README.md` — case-file conventions, gold-value provenance, severity scale
-- `cases/*.yaml` — the case data (151 cases across 15 files / 11 domains; the data-handling domain spans the five lettered files)
+- `cases/*.yaml` — the case data (152 cases across 15 files / 11 domains; the data-handling domain spans the five lettered files)
 
 ## Fast regression subset (run on any prompt change)
 
