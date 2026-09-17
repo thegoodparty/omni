@@ -533,12 +533,27 @@ jobs:
           bad=0
           shopt -s nullglob
           files=("$PLAN_DIR"/*.code)
-          expected=$(find packages/gp-ai/infrastructure/environments/dev -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
-          if [ "${#files[@]}" -ne "$expected" ]; then
-            echo "::error::expected $expected re-plan results but found ${#files[@]}; a root produced no output and its convergence is unknown"
+          # BY NAME, not by count. Comparing totals answers a weaker question
+          # than this step is here to answer: N results and N roots can agree
+          # while being different sets, because one root re-planned twice
+          # overwrites a single result file and covers for another that
+          # produced none. That is not hypothetical — release 35240376865 ran
+          # 15 reverify steps, wrote 14 files, and reported "all 14 roots
+          # converged" because prod/alert-filter was declared twice and both
+          # copies wrote alert-filter.code. It converged anyway, so the count
+          # was right by luck rather than by construction.
+          missing=()
+          while IFS= read -r root; do
+            [ -f "$PLAN_DIR/$root.code" ] || missing+=("$root")
+          done < <(find packages/gp-ai/infrastructure/environments/dev -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
+          if [ "${#missing[@]}" -ne 0 ]; then
+            for root in "${missing[@]}"; do
+              echo "::error::$root produced no re-plan result, so its convergence is unknown"
+            done
             for f in "${files[@]}"; do echo "  got: $(basename "$f" .code)"; done
             exit 1
           fi
+          expected=$(find packages/gp-ai/infrastructure/environments/dev -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
           for f in "${files[@]}"; do
             root=$(basename "$f" .code)
             code=$(cat "$f")
@@ -1219,12 +1234,21 @@ jobs:
           set -uo pipefail
           shopt -s nullglob
           files=("$PLAN_DIR"/*.code)
-          expected=$(find packages/gp-ai/infrastructure/environments/prod -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
-          if [ "${#files[@]}" -ne "$expected" ]; then
-            echo "::error::expected $expected re-plan results but found ${#files[@]}; a root produced no output and its convergence is unknown"
+          # By name rather than by count, for the reason spelled out on the
+          # dev job's copy of this step: equal totals do not mean equal sets,
+          # and a duplicated root hides a missing one.
+          missing=()
+          while IFS= read -r root; do
+            [ -f "$PLAN_DIR/$root.code" ] || missing+=("$root")
+          done < <(find packages/gp-ai/infrastructure/environments/prod -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
+          if [ "${#missing[@]}" -ne 0 ]; then
+            for root in "${missing[@]}"; do
+              echo "::error::$root produced no re-plan result, so its convergence is unknown"
+            done
             for f in "${files[@]}"; do echo "  got: $(basename "$f" .code)"; done
             exit 1
           fi
+          expected=$(find packages/gp-ai/infrastructure/environments/prod -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
           bad=0
           for f in "${files[@]}"; do
             root=$(basename "$f" .code)
