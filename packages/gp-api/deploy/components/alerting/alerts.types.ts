@@ -143,7 +143,7 @@ export type Alert = {
    * The Slack group, or groups, to notify when the alert is triggered.
    *
    * A list because plenty of routes are not one team's: shared platform
-   * surfaces — auth, users, payments, websites — are used by both products,
+   * surfaces — auth, users, payments, elections — are used by both products,
    * and picking one owner for them means the other finds out second-hand.
    * Order is preserved, so the mentions read in the order they are declared.
    */

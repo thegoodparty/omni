@@ -317,10 +317,9 @@ describe('controllerAlerts', () => {
 
 // The gap these guard is not a wrong alert but an absent one, which is the
 // failure mode no alert can report. `controllerAlerts` sets
-// `disabled: !slackGroupName`, so a controller nobody lists is silently opted
-// out — and 71 of 77 are. CONTROLLERS_WITHOUT_ROUTE_ALERTS makes that a
-// declaration rather than an oversight, and these are what make the
-// declaration mandatory.
+// `disabled: !owners.length`, so a controller nobody lists is silently opted
+// out. CONTROLLERS_WITHOUT_ROUTE_ALERTS makes that a declaration rather than an
+// oversight, and these are what make the declaration mandatory.
 describe('every controller is accounted for', () => {
   const owned = new Set(Object.values(ALERT_OWNERSHIP).flat())
   const unmonitored = new Set(CONTROLLERS_WITHOUT_ROUTE_ALERTS)

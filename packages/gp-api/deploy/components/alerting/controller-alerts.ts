@@ -1,5 +1,5 @@
 import { ControllerName, ROUTE_MAP } from '../../../src/generated/route-types'
-import { Alert, SlackGroup } from './alerts.types'
+import { Alert } from './alerts.types'
 import { ALERT_OWNERSHIP, SERVER_ERRORS_ONLY } from '../alerts'
 
 // 400 is excluded because a 400 is never evidence of a fault on its own. In

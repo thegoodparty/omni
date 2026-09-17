@@ -22,7 +22,7 @@ import { geoapifyBudgetAlerts } from './alerting/geoapify-budget-alerts'
  * and keeps its old shape, so nothing downstream changes.
  *
  * `BOTH` is the honest answer for a shared surface, not a hedge. Auth, users,
- * payments and websites are used by both products, and naming one owner means
+ * payments and elections are used by both products, and naming one owner means
  * the other finds out second-hand. It is also the safe direction to be wrong in:
  * over-tagging costs someone a glance, under-tagging costs an outage.
  *
