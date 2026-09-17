@@ -158,6 +158,12 @@ const SAVED_FILTER_RULES = `SAVED LIST RULES (apply whenever you call \`crud_sav
 - Tool results contain only list ids, names, and counts, never individual constituent records.
 - After creating a list, report the count crud_saved_filters returned as the list's size, not an earlier number you quoted. If it differs from what you confirmed with the user before saving, say so.`
 
+const PRECINCT_RULES = `PRECINCT RULES (apply whenever you call \`list_precincts\`):
+- Precinct is the one dimension describe_filter_dimensions does not carry, because its values are per-district rather than fixed. Call list_precincts to learn them; never guess a precinct name.
+- Pass each chosen precinct's \`value\` verbatim into the \`precincts\` filter field. It is an encoded pair, so a name you assemble yourself matches nobody while looking perfectly reasonable.
+- Precinct is a real boundary, not an approximation of a neighbourhood. If they asked for a named neighbourhood and you are answering with precincts, say which precincts you used and that they are the nearest thing the data has.
+- If the result says it was truncated, say so before quoting a number: the list you filtered on is not all of them.`
+
 const COMMUNITY_ISSUES_RULES = `COMMUNITY ISSUES RULES (apply whenever you call \`read_community_issues\`):
 - Use it to fetch the full detail of the anchored issue or any issue the user asks about.
 - Surface the key detail clearly (category, rank, related briefings) without re-reading data already in the anchored_issue block.`
@@ -177,6 +183,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     'list the contact-filter dimensions and allowed values for this organization',
   count_contacts:
     'count the constituents matching a contact filter (aggregate only)',
+  list_precincts:
+    'list this district’s precincts with their counties and voter counts',
   crud_saved_filters:
     'manage saved contact lists (list/create/update/delete); returns ids, names, and counts only',
   search_help_center:
@@ -329,6 +337,7 @@ export const buildChiefOfStaffSystemPrompt = (args: {
       ? [COMMUNITY_ISSUES_RULES]
       : []),
     ...(toolNames.includes('count_contacts') ? [CRM_TOOLS_RULES] : []),
+    ...(toolNames.includes('list_precincts') ? [PRECINCT_RULES] : []),
     ...(toolNames.includes('crud_saved_filters') ? [SAVED_FILTER_RULES] : []),
     // What the product does and where it lives, plus the one support route.
     // Shared with the Campaign Manager, rendered for Serve. The July audit

@@ -38,6 +38,7 @@ import { buildReadCommunityIssuesTool } from './services/communityIssueRead.tool
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { buildDescribeFilterDimensionsTool } from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
+import { buildListPrecinctsTool } from '../crm-tools/listPrecincts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
@@ -227,6 +228,15 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         organization: ctx.organization,
       })
       tools.count_contacts = buildCountContactsTool({
+        contacts: this.contacts,
+        organization: ctx.organization,
+      })
+      // Precinct is the one dimension describe_filter_dimensions cannot
+      // carry, because its vocabulary is per-district rather than fixed.
+      // Registered beside it so the pair is always complete: advertising the
+      // filter field without a way to enumerate its values is what invites an
+      // invented precinct name.
+      tools.list_precincts = buildListPrecinctsTool({
         contacts: this.contacts,
         organization: ctx.organization,
       })
