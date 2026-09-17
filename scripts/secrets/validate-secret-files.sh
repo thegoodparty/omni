@@ -154,6 +154,46 @@ validate_file() {
   done < <(jq -r '.values | keys[]' "$file" 2>/dev/null)
 }
 
+# `docs/secrets.md` states the rule as "one key, every environment: same name in
+# dev and prod, different values" — but the two files are encrypted separately,
+# so nothing else notices when a key lands in only one of them. That asymmetry
+# is invisible on a green train: gp-api and election-api build their task
+# definitions from whatever keys the blob happens to hold, so a key added to dev
+# only passes the E2E and is then simply missing in prod at runtime.
+#
+# A warning, not a failure. One-sided keys are legitimate (a sandbox-only
+# credential, or a service mid-migration whose prod keys have not moved yet), so
+# this points at the asymmetry and leaves the judgement to the reviewer.
+#
+# Always reads the whole directory, never just the files passed in: the
+# counterpart of a changed file is usually the one that was NOT touched, and
+# pre-commit passes only what is staged.
+report_environment_drift() {
+  local dir dev_file prod_file service only_dev only_prod
+  dir="$(secret_files_dir)"
+  [ -d "$dir" ] || return 0
+
+  while IFS= read -r dev_file; do
+    service=$(basename "$dev_file" .dev.json)
+    prod_file="$dir/$service.prod.json"
+    [ -f "$prod_file" ] || continue
+    jq -e '.values | type == "object"' "$dev_file" >/dev/null 2>&1 || continue
+    jq -e '.values | type == "object"' "$prod_file" >/dev/null 2>&1 || continue
+
+    only_dev=$(jq -r --slurpfile p "$prod_file" \
+      '(.values | keys) - ($p[0].values | keys) | join(", ")' "$dev_file")
+    only_prod=$(jq -r --slurpfile d "$dev_file" \
+      '(.values | keys) - ($d[0].values | keys) | join(", ")' "$prod_file")
+
+    if [ -n "$only_dev" ]; then
+      echo "::warning file=$dev_file::declared for dev but not prod: $only_dev. If prod needs it too, add it to $service.prod.json — a missing prod key is invisible until the service reads it."
+    fi
+    if [ -n "$only_prod" ]; then
+      echo "::warning file=$prod_file::declared for prod but not dev: $only_prod. Its first and only decrypt will be the prod stage, after the E2E has already passed."
+    fi
+  done < <(find "$dir" -name '*.dev.json' -type f | sort)
+}
+
 # Anything in secrets/ that is neither a secret file nor the public key is
 # suspicious — a .env or a "notes.txt" dropped in here is how plaintext leaks.
 check_for_stray_files() {
@@ -177,6 +217,7 @@ if [ "${#files[@]}" -eq 0 ]; then
 fi
 
 check_for_stray_files
+report_environment_drift
 
 for file in ${files[@]+"${files[@]}"}; do
   [ -f "$file" ] || continue

@@ -197,6 +197,11 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - name: Sync secrets to dev
         run: bash scripts/secrets/ci-sync-secrets.sh dev
+      # Values differ between environments, so the sync above proves nothing
+      # about the prod ciphertexts in this same commit. Decrypt them here, write
+      # nothing, and fail the train now rather than part-way through a promotion.
+      - name: Verify prod secrets decrypt
+        run: bash scripts/secrets/ci-sync-secrets.sh prod --verify-only
 
   dev-gp-api:
     name: Dev gp-api

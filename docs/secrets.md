@@ -184,4 +184,7 @@ value that touches a developer laptop is a rotation, not a shortcut.
   `TF_VAR_*`, no `pulumi config set`. It lands in state, which is a wider-read
   surface than the secret itself.
 - **One key, every environment.** Same name in dev and prod, different values.
+  Add it to both files in the same PR. A key in only one of them is a warning,
+  not an error — validation prints it, because a prod key missing at runtime is
+  otherwise invisible until the service reads it, well after a green train.
 - **A secret that leaves the account is rotated, not reused.**

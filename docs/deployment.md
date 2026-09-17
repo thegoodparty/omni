@@ -272,12 +272,17 @@ Secret values are committed to the repo as ciphertext and written to Secrets
 Manager by the train, in the `Dev secrets` and `Promote secrets` stages. Adding
 one needs no AWS access — full workflow in `docs/secrets.md`.
 
-Two things matter for the deploy path:
+Three things matter for the deploy path:
 
 - **Ordering.** Both stages run *before* the backend deploys they gate. gp-api
   and election-api enumerate the live secret's keys at deploy time, so a value
   written after their deploy would sit in the secret but not reach the task
   definition until the following train.
+- **Prod ciphertexts are verified in the dev stage.** Values differ per
+  environment, so a clean dev sync says nothing about the prod ciphertext in the
+  same commit. `Dev secrets` decrypts the prod files without reading or writing
+  anything, so a bad one fails the train before the E2E instead of half-way
+  through a promotion.
 - **Both stages skip until `vars.AWS_SECRETS_SYNC_ROLE_ARN` is set**, the same
   way `dev-prototypes` no-ops without its Vercel project id. The deploy jobs
   accept `skipped` from them but still treat `failure` as blocking, so a broken

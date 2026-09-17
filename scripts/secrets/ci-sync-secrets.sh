@@ -14,7 +14,10 @@
 # deploy lands in the blob but is not in the task definition until the next
 # train.
 #
-# Usage: ci-sync-secrets.sh <dev|prod> [--dry-run]
+# Usage: ci-sync-secrets.sh <dev|prod> [--dry-run|--verify-only]
+#
+#   --dry-run      decrypt and diff against the live secret, report, write nothing
+#   --verify-only  decrypt only; touches Secrets Manager not at all
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/secret-lib.sh"
@@ -22,9 +25,18 @@ source "$(dirname "${BASH_SOURCE[0]}")/secret-lib.sh"
 # Never trace this script — the shell would echo decrypted values.
 set +x
 
-environment="${1:?usage: ci-sync-secrets.sh <dev|prod> [--dry-run]}"
+environment="${1:?usage: ci-sync-secrets.sh <dev|prod> [--dry-run|--verify-only]}"
+shift
 dry_run=0
-[ "${2:-}" = '--dry-run' ] && dry_run=1
+verify_only=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dry-run) dry_run=1 ;;
+    --verify-only) verify_only=1 ;;
+    *) die "unknown option '$1'" ;;
+  esac
+  shift
+done
 
 case "$environment" in
   dev | prod) ;;
@@ -120,6 +132,41 @@ decrypt_entry() {
 
 total_changed=0
 total_failed=0
+total_verified=0
+
+# Prove every entry decrypts, without reading or writing Secrets Manager.
+#
+# The dev stage runs this over the PROD files. Values differ per environment, so
+# a green dev sync says nothing about the prod ciphertext sitting in the same
+# commit: its first decrypt would otherwise be the prod stage, after the E2E has
+# passed and while the services are already promoting. A stale-key ciphertext
+# would fail there, half-way through a promotion. Here it fails before anything
+# has shipped.
+#
+# Deliberately does NOT call GetSecretValue: this checks the commit, not prod's
+# live state, so an unrelated problem with the prod blob can never block a dev
+# deploy.
+verify_file() {
+  local file="$1" secret_id key entry verified=0
+
+  secret_id=$(jq -r '.secretId // empty' "$file")
+  echo "$file -> $secret_id (verify only, nothing is read or written)"
+
+  while IFS= read -r key; do
+    [ -n "$key" ] || continue
+    entry=$(jq -r --arg k "$key" '.values[$k]' "$file")
+    if ! decrypt_entry "$entry" "$workdir/verify.bin"; then
+      echo "::error file=$file::key '$key' failed to decrypt. Most likely it was encrypted against a stale public key — re-run secret-encrypt.sh."
+      total_failed=$((total_failed + 1))
+      continue
+    fi
+    verified=$((verified + 1))
+  done < <(jq -r '.values | keys[]' "$file")
+
+  rm -f "$workdir/verify.bin"
+  total_verified=$((total_verified + verified))
+  echo "    $verified key(s) decrypt cleanly"
+}
 
 sync_file() {
   local file="$1"
@@ -251,10 +298,19 @@ fi
   die 'secret files failed validation; refusing to sync'
 
 for file in "${files[@]}"; do
-  sync_file "$file"
+  if [ "$verify_only" -eq 1 ]; then
+    verify_file "$file"
+  else
+    sync_file "$file"
+  fi
 done
 
 echo
+if [ "$verify_only" -eq 1 ]; then
+  [ "$total_failed" -gt 0 ] && die "$total_failed $environment key(s) failed to decrypt"
+  echo "verified $total_verified $environment key(s); nothing was read or written"
+  exit 0
+fi
 if [ "$total_failed" -gt 0 ]; then
   die "$total_failed secret(s) failed to sync"
 fi

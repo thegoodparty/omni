@@ -39,6 +39,14 @@ check_eq() {
   fi
 }
 
+check_contains() {
+  local label="$1" needle="$2" haystack="$3"
+  case "$haystack" in
+    *"$needle"*) ok "$label" ;;
+    *) bad "$label" "expected to find [$needle]" ;;
+  esac
+}
+
 # --- fixture: throwaway keypair standing in for the KMS key ---
 
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 \
@@ -258,6 +266,71 @@ else
   ok 'validation rejects a dev file targeting a prod secret'
 fi
 rm -f "$SECRET_FILES_DIR/crossenv.dev.json"
+
+# ============================================================
+echo 'verify-only'
+# ============================================================
+
+# The dev stage runs this over the prod files, so it must prove the ciphertext
+# decrypts without reading or writing the live secret.
+prod_file="$SECRET_FILES_DIR/gp-api.prod.json"
+
+verify_out=$(sync_env prod --verify-only 2>&1)
+check_contains 'verify-only reports the keys it decrypted' \
+  'key(s) decrypt cleanly' "$verify_out"
+check_contains 'verify-only says nothing was written' \
+  'nothing was read or written' "$verify_out"
+
+prod_live_before=$(cat "$root/live/GP_API_PROD.json")
+printf %s 'rotated-in-verify-test' | encrypt "$prod_file" PROD_KEY >/dev/null
+sync_env prod --verify-only >/dev/null 2>&1
+check_eq 'verify-only does not write a changed value' \
+  "$prod_live_before" "$(cat "$root/live/GP_API_PROD.json")"
+
+# It must catch exactly what the dev sync cannot: a prod ciphertext encrypted
+# against a key that is no longer the one CI decrypts with.
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out "$root/stale.pem" 2>/dev/null
+openssl rsa -pubout -in "$root/stale.pem" -out "$root/stale.pub.pem" 2>/dev/null
+SECRET_PUBLIC_KEY="$root/stale.pub.pem" \
+  bash -c "printf %s stale | '$here/secret-encrypt.sh' '$prod_file' STALE_PROD_KEY" >/dev/null
+if sync_env prod --verify-only >/dev/null 2>&1; then
+  bad 'verify-only fails on a stale-key prod ciphertext'
+else
+  ok 'verify-only fails on a stale-key prod ciphertext'
+fi
+jq 'del(.values.STALE_PROD_KEY)' "$prod_file" >"$root/tmp.json"
+mv "$root/tmp.json" "$prod_file"
+
+# A prod-side problem must not be able to block a dev deploy, so verify-only
+# never touches Secrets Manager — not even to read.
+mv "$root/live/GP_API_PROD.json" "$root/live-prod-backup.json"
+if sync_env prod --verify-only >/dev/null 2>&1; then
+  ok 'verify-only ignores the live secret entirely'
+else
+  bad 'verify-only ignores the live secret entirely'
+fi
+mv "$root/live-prod-backup.json" "$root/live/GP_API_PROD.json"
+
+# ============================================================
+echo 'dev/prod drift'
+# ============================================================
+
+# "One key, every environment" is a documented rule that nothing else enforces.
+# A key in only one file passes a green train and is missing at runtime.
+printf %s 'dev-only-value' | encrypt "$file" DEV_ONLY_KEY >/dev/null
+drift_out=$(validate 2>&1)
+check_contains 'a dev-only key is reported as drift' \
+  'declared for dev but not prod' "$drift_out"
+check_contains 'the drifting key is named' 'DEV_ONLY_KEY' "$drift_out"
+check_contains 'a prod-only key is reported as drift' \
+  'declared for prod but not dev: PROD_KEY' "$drift_out"
+
+# Reported, not rejected: one-sided keys are legitimate mid-migration.
+if validate >/dev/null 2>&1; then
+  ok 'drift is a warning, not a validation failure'
+else
+  bad 'drift is a warning, not a validation failure'
+fi
 
 # ============================================================
 echo 'unreadable live secret'

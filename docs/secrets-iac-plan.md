@@ -185,7 +185,44 @@ Open that as a PR. `secret-encrypt.sh` asserts the key is RSA-4096, because ever
 length check in validation derives from that.
 
 **3. Create the sync role.** Trust policy: GitHub's OIDC provider, restricted to
-this repo (`repo:thegoodparty/omni:*`). Permissions — and nothing else:
+**`main` specifically** — not the repo as a whole.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::333022194791:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": "repo:thegoodparty/omni:ref:refs/heads/main"
+        }
+      }
+    }
+  ]
+}
+```
+
+`StringEquals` on the full `sub`, with no wildcard, is the load-bearing part.
+A repo-wide `repo:thegoodparty/omni:*` would match every ref in the repo, so
+**pushing a branch** — no review, no merge — would be enough to run a workflow
+that assumes this role and either `kms:Decrypt`s the committed ciphertexts or
+reads the prod secrets outright. That is the entire write-only property, gone,
+via the one action every engineer can already take. Pinned to `main`, the only
+automatic path to this role is a commit that survived PR review.
+
+One residual path stays open by design: `workflow_dispatch` runs on `main` while
+checking out an arbitrary `sha`, so someone with write access can run this role
+against un-merged code. That is the same trust the break-glass `force` already
+assumes, and it is deliberate and logged rather than silent. Step 5's CODEOWNERS
+is what keeps it behind a second pair of eyes.
+
+Permissions — and nothing else:
 
 ```json
 {
@@ -224,7 +261,10 @@ Actions → Variables). Until this is set, both sync stages skip, which is why
 merging the pipeline ahead of the bootstrap is safe.
 
 **5. Add `CODEOWNERS`** (there is none today) requiring admin review on
-`secrets/**`, so prod secret PRs keep a human gate.
+`secrets/**`, so prod secret PRs keep a human gate — and on
+`scripts/secrets/**` and `.github/workflows/release.yml`, because with the trust
+policy pinned to `main`, merging a change to the sync script or the job that
+runs it is the remaining way to turn `kms:Decrypt` into a printed plaintext.
 
 **Verify**, with no secret at risk — encrypt a throwaway value into dev, let a
 train run, confirm it lands, then delete the key:
