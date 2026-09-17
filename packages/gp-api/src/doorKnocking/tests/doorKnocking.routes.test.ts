@@ -1168,6 +1168,38 @@ describe('door-knocking routes', () => {
       expect(lastCall?.[0].filters?.id).toEqual({ in: [responded] })
     })
 
+    // Unlike the two above, a precinct narrows the query instead of resolving
+    // an id set — which is exactly why nothing else notices when it goes
+    // missing. The audience check cannot see it (an empty precinct matches no
+    // rows, but only the people database knows that), the pack cannot shade by
+    // it (UNSHADEABLE_LIST_CRITERIA), and the create would still answer 201 on
+    // the whole district. One clause on one outgoing call is the entire
+    // observable behaviour, so it is asserted here rather than inferred from
+    // the converter's own unit test.
+    //
+    // A single selection on purpose. `convertVoterFileFilterToFilters` handles
+    // `precincts` explicitly because the generic array branch would get it
+    // wrong twice over: it writes `filters[key]`, and the persisted column is
+    // `precincts` while the filter key is `precinct`, and it emits `{ eq }`
+    // for one value where the filter accepts only `in`. PeopleFiltersSchema
+    // drops either mistake silently, widening the audience to the whole
+    // district without erroring. The multi-value case shares the branch; this
+    // is the one that fails quietly.
+    it("applies the list's precinct, and never as an eq", async () => {
+      await service.prisma.voterFileFilter.update({
+        where: { id: filter.id },
+        data: { precincts: ['ORANGE|711'] },
+      })
+      stubVendors()
+      const peopleApi = service.app.get(DoorKnockingPeopleApiService)
+
+      const res = await postTurf()
+
+      expect(res.status).toBe(201)
+      const lastCall = vi.mocked(peopleApi.evaluate).mock.calls.at(-1)
+      expect(lastCall?.[0].filters?.precinct).toEqual({ in: ['ORANGE|711'] })
+    })
+
     it('rejects a list that resolves to nobody without calling the vendor', async () => {
       await service.prisma.voterFileFilter.update({
         where: { id: filter.id },

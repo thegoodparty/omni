@@ -1789,13 +1789,48 @@ which is a separate instruction from an observed refusal and gets its own ADR.
 
 ## Scope guardrails (v1)
 
-Out: precinct / top-issue / district filters, recommended lists, canvasser
-identity (candidate-only), **voter record mutation** — `not_a_voter` now
-captures a reason and suppresses the person from future evaluation
-(ADR 0008), but no person, address, or L2-derived field is ever deleted or
-edited — sharable URLs, tagging, arbitrary questions, UI turf-splitting
-(the schema already supports N turfs). Feature flag: `native-door-knocking`
-gates all FE surfaces; backend lands dark.
+**Still out.** There is no **top-issue or district filter**:
+`voterFilterBaseSchema` carries neither, and a district is _resolved_ from the
+organization (`resolveEligibleDistrictId`) rather than chosen, so the one
+sub-district cut that exists — precinct — narrows the district an official
+already serves instead of picking a different one. No **voter record
+mutation**: nothing under `doorKnocking/`, `contacts/` or `peopleDb/` issues
+anything but a `SELECT` against the people database, and `not_a_voter` is the
+near-exception that proves it — it captures a reason and suppresses the person
+from future evaluation (ADR 0008), but that write lands in our own Postgres and
+no person, address or L2-derived field is ever deleted or edited. No **sharable
+URLs**: the deep links that exist (`?listId=`, `?walkTurfId=`,
+`/volunteer/door-knocking/[turfId]`) are authenticated in-app routes, not
+tokens. No **tagging**, and no **arbitrary questions at a native knock** —
+`RecordDoorKnockInteractionSchema` is `.strict()` over a closed outcome and
+answer vocabulary, and the question designer under `door-knocking/surveys/`
+belongs to the eCanvasser arm, which the flag-on arm redirects away from. No
+**UI turf-splitting**: the schema has supported N turfs per audience since the
+start (`voterFileFilterId` is deliberately not unique), but nothing divides a
+polygon, and an over-cap shape is refused rather than split.
+
+**Since shipped**, and listed here rather than deleted because their absence was
+load-bearing in the design above. **Precinct filtering** reached every
+list-creation surface including the who step; the map still cannot shade by it,
+which is the gap `UNSHADEABLE_LIST_CRITERIA` names, and the counts a candidate
+sees while drawing do not narrow. **Recommended lists** landed — see
+`docs/features/recommended-lists.md`, where a door-knocking recommendation is
+itself a precinct cut, which is how a recommendation could set precincts long
+before the builder could. **Canvasser identity** landed with the volunteer walk:
+an assigned volunteer knocks six `@AllowVolunteer()` routes scoped to their own
+`OutreachAssignment`, and `ContactInteractionDoorKnock.actorUserId` records who
+knocked. See § Volunteer access to the walk (ENG-11051), which this line used to
+contradict.
+
+**The flag line has drifted on both halves.** `native-door-knocking` still gates
+the dashboard surfaces and still demands the variant be literally `on`, but it
+does not gate _all_ of them: the volunteer walk is gated on `win-team-accounts`
+instead (`activeOrgVolunteer.server.ts`), so the two arms of this feature sit
+behind two different flags and can be turned on independently. And the backend
+no longer lands dark — gp-api checks no flag anywhere, `DoorKnockingModule` is
+registered unconditionally, and the routes are held by the Pro gate
+(`assertProAccess`) and by role. The figures in § Spend visibility are
+production measurements, not projections.
 
 ## Phones at the door
 

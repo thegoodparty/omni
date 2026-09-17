@@ -18,9 +18,10 @@ const resolveActiveOrg = (
 
 /**
  * Whether the signed-in user's ACTIVE org (not any org they hold) is one
- * where they're a volunteer — gated on win-team-accounts (ENG-11052). Real
- * volunteer memberships aren't creatable yet, but the flag check keeps every
- * caller byte-identical to today's routing even if one somehow existed.
+ * where they're a volunteer — gated on win-team-accounts (ENG-11052). Team
+ * invites create real volunteer memberships behind that same flag (ENG-11049,
+ * membership and outreach assignment in one act), so this answers true for
+ * people who exist rather than guarding against a case that could not arise.
  *
  * Shared by `candidateAccess.ts` (the /dashboard/* → /volunteer bounce and
  * the post-auth redirect) and `app/volunteer/layout.tsx` (the shell's own
