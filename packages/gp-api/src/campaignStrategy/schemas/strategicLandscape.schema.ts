@@ -36,8 +36,22 @@ export const StrategicLandscapeGeneratingSchema = z.object({
 
 // Terminal failure: at least one CAP run failed. We do NOT retry — the client
 // shows an error rather than polling forever.
+//
+// A short, fixed vocabulary for causes the code can actually distinguish.
+// Omitted when the cause isn't one of these — never guessed.
+export const StrategicLandscapeFailedReasonSchema = z.enum([
+  'race_lookup_failed',
+  'attempts_exhausted',
+  'queue_failed',
+])
+
+export type StrategicLandscapeFailedReason = z.infer<
+  typeof StrategicLandscapeFailedReasonSchema
+>
+
 export const StrategicLandscapeFailedSchema = z.object({
   status: z.literal('failed'),
+  reason: StrategicLandscapeFailedReasonSchema.optional(),
 })
 
 export const StrategicLandscapeResponseSchema = z.discriminatedUnion('status', [

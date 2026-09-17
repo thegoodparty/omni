@@ -213,6 +213,30 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt.toLowerCase()).toContain('never call it an error')
   })
 
+  it('pins the failed-reason guidance and the no-guessing rule', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        story: {
+          why: 'w',
+          background: 'b',
+          positions: [{ title: 't', description: 'd' }],
+          complete: true,
+          missing: [],
+        },
+      }),
+    )
+    expect(prompt).toContain('race_lookup_failed')
+    expect(prompt).toContain('attempts_exhausted')
+    expect(prompt).toContain('queue_failed')
+    const lower = prompt.toLowerCase()
+    expect(lower).toContain('race lookup failed')
+    expect(lower).toContain('cannot be regenerated automatically')
+    expect(lower).toContain('offer to try again')
+    expect(lower).toContain(
+      'never state or imply a cause the tool did not return',
+    )
+  })
+
   it('does not re-run the intake once the story is complete', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({
