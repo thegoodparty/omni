@@ -63,6 +63,34 @@ describe('CampaignStoryIntakeService.generate', () => {
     await expect(service.generate(42)).rejects.toThrow('not found')
     expect(strategy.getOrGenerateStrategicLandscape).not.toHaveBeenCalled()
   })
+
+  it('passes the strategy service reason through on a failed generate', async () => {
+    const { stories, websites } = completeSources()
+    const campaigns = {
+      client: {
+        campaign: {
+          findUnique: vi.fn(() => Promise.resolve({ id: 42, user: {} })),
+        },
+      },
+    } as unknown as CampaignsService
+    const strategy = {
+      getOrGenerateStrategicLandscape: vi.fn(() =>
+        Promise.resolve({ status: 'failed', reason: 'race_lookup_failed' }),
+      ),
+    } as unknown as CampaignStrategyService
+    const service = new CampaignStoryIntakeService(
+      stories,
+      {} as CampaignStoryRewriteService,
+      websites,
+      strategy,
+      campaigns,
+    )
+
+    await expect(service.generate(42)).resolves.toEqual({
+      status: 'failed',
+      reason: 'race_lookup_failed',
+    })
+  })
 })
 
 describe('CampaignStoryIntakeService.patchAbout (via saveWhy)', () => {

@@ -171,7 +171,9 @@ export class CampaignStoryIntakeService {
   // Same completion path as the story page → plan tab: kick off plan generation,
   // which materializes the tracker's static rows now and bootstraps its dynamic
   // generation once the plan's sections persist.
-  async generate(campaignId: number): Promise<{ status: string }> {
+  async generate(
+    campaignId: number,
+  ): Promise<{ status: string; reason?: string }> {
     // Backstop the prompt: never dispatch plan generation with an unfinished
     // story (a misfiring early generate call), which would build from empty
     // content. 'incomplete' is handled in the manager prompt's status guidance.
@@ -188,8 +190,9 @@ export class CampaignStoryIntakeService {
     if (!campaign) {
       throw new Error(`Campaign ${campaignId} not found during generate`)
     }
-    const { status } =
-      await this.strategy.getOrGenerateStrategicLandscape(campaign)
-    return { status }
+    const result = await this.strategy.getOrGenerateStrategicLandscape(campaign)
+    return result.status === 'failed'
+      ? { status: result.status, reason: result.reason }
+      : { status: result.status }
   }
 }

@@ -33,7 +33,7 @@ export type CampaignStoryToolOutput =
   | { story: StoryState }
   | { rewrite: string }
   | { saved: 'why' | 'background' | 'positions' }
-  | { generation: { status: string } }
+  | { generation: { status: string; reason?: string } }
   | { error: string }
 
 export const buildCampaignStoryTool = (deps: {

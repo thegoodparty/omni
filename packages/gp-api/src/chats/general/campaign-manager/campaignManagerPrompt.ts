@@ -389,17 +389,28 @@ const STORY_QUESTIONS = `The three Campaign Story questions, in the candidate's 
 
 // How to read the async campaign_story generate result, so the manager reports
 // it correctly instead of guessing. 'generating' is the normal success case (it
-// dispatched and is building in the background), not an error.
-const GENERATE_STATUS_GUIDANCE =
+// dispatched and is building in the background), not an error. 'failed'
+// carries an optional reason from a fixed list; map each to what to say and
+// do, and never state a cause the tool did not return.
+const GENERATE_STATUS_GUIDANCE = [
   "After calling campaign_story generate, read the result's status: " +
-  "'generating' means it started successfully and the Campaign Plan and " +
-  'Tracker are being built in the background, so tell the candidate they are ' +
-  'on the way and will appear shortly (this is the normal result, never call ' +
-  "it an error or a snag); 'ready' means it is already done; 'failed' means it " +
-  'could not start, so tell the candidate it did not kick off and offer to try ' +
-  "again, and do not claim it is being built. 'incomplete' means the Campaign " +
-  'Story is not finished yet, so nothing was generated: finish the missing ' +
-  'answers with the candidate first, and do not claim it is being built.'
+    "'generating' means it started successfully and the Campaign Plan and " +
+    'Tracker are being built in the background, so tell the candidate they ' +
+    'are on the way and will appear shortly (this is the normal result, ' +
+    "never call it an error or a snag); 'ready' means it is already done; " +
+    "'incomplete' means the Campaign Story is not finished yet, so nothing " +
+    'was generated: finish the missing answers with the candidate first, ' +
+    'and do not claim it is being built.',
+  "'failed' means it could not start. Check the result's reason: " +
+    "'race_lookup_failed' means the race lookup failed, so tell the " +
+    'candidate that and point them to the race details on their profile, ' +
+    "or to support if that does not fix it; 'attempts_exhausted' means it " +
+    'cannot be regenerated automatically, so tell the candidate that and ' +
+    "route them to support; 'queue_failed' means the attempt to start did " +
+    'not go through, so offer to try again now. With no reason, tell the ' +
+    'candidate the plan did not start and offer to try again.',
+  'Never state or imply a cause the tool did not return.',
+].join('\n\n')
 
 // When the story is incomplete, finishing it is the manager's first job: it
 // personalizes the plan, tracker, and GoodParty.org experience, and its
