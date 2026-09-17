@@ -26,6 +26,12 @@ Three known defects lose it:
    condition was surfaced as an upstream error rather than recorded as data
    drift, so nobody was counting.
 
+A fourth defect does not lose the linkage but doubles the charge: before
+ENG-11084, checkout identified a buyer by email alone and minted a new Stripe
+customer for every completed session. One person completing checkout twice
+became two customer records, each billing them separately, with no shared
+identifier for anything to notice. The worst confirmed case ran 14 months.
+
 Loki keeps 30 days. Anything older than that leaves no log evidence at all, and
 the confirmed victims are older than that. A direct Stripe↔database walk is the
 only way to find them.
@@ -43,9 +49,10 @@ issue anything but a GET to Stripe and only ever runs SELECTs, but credentials
 that cannot write are the layer that does not depend on anyone reading the code.
 
 **Cost**: the run walks every subscription on the Stripe account, plus one
-invoice list and one customer read per refund-candidate finding. On the current
-account that is a few minutes. It is safe to run repeatedly — nothing it does
-has an effect.
+customer read per customer holding a non-canceled Pro subscription (that lookup
+is what detects duplicates split across customer records) and one invoice list
+per refund-candidate finding. On the current account that is a few minutes. It
+is safe to run repeatedly — nothing it does has an effect.
 
 ## Step 1 — run the report
 
@@ -78,6 +85,51 @@ flag to get wrong.
 
 Findings are sorted by refund urgency, not by the order the checks run.
 
+A subscription appears in exactly one finding. The duplicate classes are
+computed first and claim theirs, so a person billed twice is a single row
+carrying their combined total rather than two rows you have to notice belong
+together and add up.
+
+### DUPLICATE_BY_EMAIL — one human, two customer records, treat as urgent
+
+Two or more Stripe customer records sharing one email address, holding more than
+one non-canceled Pro subscription between them. Nothing else finds this. Opening
+either customer in the Stripe dashboard shows one perfectly ordinary
+subscription; the duplication is only visible by comparing customers, which is
+what this class does.
+
+The cause is the pre-ENG-11084 email-only checkout: each completed session
+minted a fresh Stripe customer, so one person checking out twice ends up as two
+customer records holding one subscription each.
+
+The row gives you the shared email, every customer id, every subscription id,
+the combined per-period price, and the combined paid-invoice total across all of
+them — the exposure for that person, not for one of their subscriptions.
+
+Matching normalizes case and trims whitespace, because Stripe stores whatever
+was typed at checkout. A customer with **no** email is never grouped: a deleted
+Stripe customer reports no email at all, and joining on absence would collapse
+every deleted customer on the account into one fabricated person.
+
+Worked example — the worst confirmed case, and the one this class was added for.
+Customer `cus_ShNc4uj9XoiTfs` was created 2025-07-17 20:57:05Z and holds
+`sub_1RlyrV1taBPnTqn4LMHR0MNj`. Customer `cus_ShNjwVcfKwOcjl` was created six and
+a half minutes later at 21:03:41Z and holds `sub_1Rlyxu1taBPnTqn4xgXemRA5`. Same
+email, both subscriptions `active` and `charge_automatically` at $10/month, both
+still billing, neither linked to any campaign, 14 paid invoices each. That is
+**$280 taken from one person over 14 months** for nothing. Before this class
+existed the report emitted it as two unrelated $140 ORPHANED_ACTIVE rows with
+nothing tying them together, which is exactly how it survived that long.
+
+**Remediation**: this one needs more than cancelling a subscription. Merge the
+duplicate customer records in Stripe so the person has one billing identity —
+otherwise the next audit finds them again and the customer still sees two
+entries in their own billing history. Then pick the subscription to keep
+(re-link it to a campaign if one exists, per ORPHANED_ACTIVE), cancel the rest,
+and refund against the combined `chargedToDate`. Refunds are per-charge and each
+subscription's charges sit on its own customer, so expect to refund from both
+records even after the merge.
+
 ### ORPHANED_ACTIVE — someone is paying for nothing
 
 `active`, `trialing`, or `past_due` at Stripe, and no campaign in the database
@@ -106,7 +158,7 @@ to: cancel the subscription in Stripe and refund what the finding's
 back to go. Refunds can be blocked on insufficient Stripe available balance —
 retry later.
 
-### DUPLICATE — the double-billing shape, treat as urgent
+### DUPLICATE — the same-customer double-billing shape, treat as urgent
 
 One Stripe customer holding more than one non-canceled Pro subscription. This is
 ENG-10771, which recurred as ENG-11083. The chain is in
@@ -124,15 +176,16 @@ detail line says how many of them no campaign carries, and `chargedToDate` is
 the combined total. A canceled third subscription on the same customer is not
 part of the duplicate and still gets its own ORPHANED_CANCELED row.
 
-Note that this class only sees duplicates that landed on the SAME Stripe
-customer. Before ENG-11084, an email-only checkout minted a fresh customer per
-completed session, so the older duplicates are two customers under one email and
-show up here as two separate ORPHANED_ACTIVE or STALE_PRO rows instead. If the
-report hands you an ORPHANED_ACTIVE, search Stripe for other customers with the
-same email before concluding it is a lone stranded subscription.
+This class is the clean case: one billing identity, one extra subscription. If
+the same person's subscriptions landed on two customer records instead, the
+report says DUPLICATE_BY_EMAIL and the remediation is different — you do not
+need to check for that by hand, and a customer that is part of an email group is
+reported there rather than here, so one human is never split across both
+classes.
 
 **Remediation**: pick the subscription to keep, fix `subscriptionId` and the
-owner's `customerId` by SQL, cancel and refund the other in Stripe.
+owner's `customerId` by SQL, cancel and refund the other in Stripe. No customer
+merge is needed here; that is what separates this class from DUPLICATE_BY_EMAIL.
 
 ### MISMATCH — the two pointers disagree
 
@@ -171,7 +224,7 @@ Worked examples: `sub_1TnLmw1taBPnTqn4vQERKKXD` / `cus_Umvew4wWrtcSi5`
 reason `payment_failed`) — both cancelled at Stripe, both still Pro in the
 product.
 
-**Remediation**: this class has the highest false-positive rate of the five, so
+**Remediation**: this class has the highest false-positive rate of the six, so
 check before acting. A comped campaign is intentionally Pro with no
 subscription, and looks identical. `did_win` / election-result state can also
 leave a legitimately-finished campaign Pro. When it is genuine drift, de-Pro
@@ -214,10 +267,13 @@ out of the findings.
 - **Loki's 30-day retention is why this exists, and it does not come back.**
   Anything this report finds from before the window has no log trail to
   reconstruct. The Stripe and database state is all the evidence there is.
-- **Pre-ENG-11084 duplicates hide as separate customers.** See the DUPLICATE
-  section — the class cannot see a duplicate that landed on a second Stripe
-  customer. Search by email when an ORPHANED_ACTIVE looks like it should have a
-  sibling.
+- **Email is the only link between two customer records, and it is not a
+  reliable one.** DUPLICATE_BY_EMAIL finds the pre-ENG-11084 duplicates, but
+  only when both records carry the same address. Someone who used two different
+  addresses, or whose Stripe customer has since been deleted (deleted customers
+  report no email and are deliberately never grouped), still reads as two
+  unrelated ORPHANED_ACTIVE rows. Payment method or name would catch some of
+  those; neither is fetched today.
 - **`totalChargedCents` counts paid invoices and does not subtract refunds.** It
   is a ceiling for the refund conversation, not a balance.
 - **STALE_PRO cannot tell a comped campaign from a genuine one.** Nothing in the

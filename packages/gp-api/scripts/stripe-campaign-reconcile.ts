@@ -23,6 +23,11 @@
  * ─── Drift classes ───────────────────────────────────────────────────────
  * | Class             | Means                                | Remediation   |
  * |-------------------|--------------------------------------|---------------|
+ * | DUPLICATE_BY_EMAIL| >1 Stripe customer record sharing    | Merge the     |
+ * |                   | one email, holding >1 non-canceled   | customers,    |
+ * |                   | Pro sub between them — one human,    | then refund   |
+ * |                   | billed twice (pre-ENG-11084          | and cancel    |
+ * |                   | email-only checkout)                 | the extras    |
  * | ORPHANED_ACTIVE   | Live at Stripe, no campaign holds    | Refund and    |
  * |                   | the id — paying for nothing          | cancel, or    |
  * |                   |                                      | re-link       |
@@ -37,9 +42,15 @@
  * | ORPHANED_CANCELED | Not collecting, no campaign — often  | None; check   |
  * |                   | an account deletion                  | the reason    |
  *
- * ORPHANED_ACTIVE and DUPLICATE are the two that cost a customer money, so
- * they sort first and are the only classes that pay for the extra Stripe
- * round trips (paid-invoice total, customer email) needed to size a refund.
+ * The first three cost a customer money, so they sort first and are the only
+ * classes that pay for the extra Stripe round trips (paid-invoice total,
+ * customer email) needed to size a refund.
+ *
+ * A subscription appears in exactly one finding. The duplicate classes are
+ * computed first and claim their subscriptions, so a person billed twice is
+ * one row carrying their combined total — not two orphan rows an operator has
+ * to notice belong together and add up by hand. That specific failure mode is
+ * what let a confirmed $280 double-billing run for 14 months.
  *
  * ─── How to run ──────────────────────────────────────────────────────────
  *   # Read-only prod credentials. STRIPE_SECRET_KEY is in the GP_API_PROD
@@ -99,6 +110,7 @@ const CANCELED_STATUSES: Stripe.Subscription.Status[] = [
 ]
 
 export type DriftClass =
+  | 'DUPLICATE_BY_EMAIL'
   | 'ORPHANED_ACTIVE'
   | 'DUPLICATE'
   | 'MISMATCH'
@@ -106,8 +118,16 @@ export type DriftClass =
   | 'ORPHANED_CANCELED'
 
 // Report order is refund urgency, not the order the checks run in: the first
-// two cost a customer money every month they go unnoticed.
+// three cost a customer money every month they go unnoticed.
+//
+// DUPLICATE_BY_EMAIL leads because it is the only class nothing else can see.
+// A same-customer duplicate is visible to anyone who opens the customer in the
+// Stripe dashboard; a duplicate split across two customer records is not
+// visible from either one of them, so it survives exactly as long as nobody
+// runs this report. It also carries double the per-person exposure by
+// definition.
 export const DRIFT_CLASSES_BY_PRIORITY: DriftClass[] = [
+  'DUPLICATE_BY_EMAIL',
   'ORPHANED_ACTIVE',
   'DUPLICATE',
   'MISMATCH',
@@ -186,6 +206,10 @@ export interface Finding {
   cancellationReason: string | null
   totalChargedCents: number | null
   relatedSubscriptionIds: string[]
+  // Populated when a finding covers more than one Stripe customer record,
+  // i.e. DUPLICATE_BY_EMAIL. `customerId` is null on those, because the whole
+  // point of the class is that there is no single customer to name.
+  relatedCustomerIds: string[]
   detail: string
 }
 
@@ -205,6 +229,21 @@ export const isLiveStatus = (status: Stripe.Subscription.Status): boolean =>
 
 export const isCanceledStatus = (status: Stripe.Subscription.Status): boolean =>
   CANCELED_STATUSES.includes(status)
+
+/**
+ * The join key for "these two Stripe customer records are one human". Case and
+ * surrounding whitespace are noise — Stripe stores whatever was typed at
+ * checkout, and the same person typing their address twice is exactly the
+ * scenario this exists for.
+ *
+ * Returns null for an absent or blank address, and callers MUST treat null as
+ * "no key" rather than as a key. A deleted Stripe customer reports no email at
+ * all, so joining on null would collapse every deleted customer on the account
+ * into one fabricated person and invent a duplicate finding out of nothing.
+ */
+export const normalizeEmail = (
+  email: string | null | undefined,
+): string | null => email?.trim().toLowerCase() || null
 
 // The report only ever needs GETs, so any other verb means an edit introduced
 // a write against production billing data — fail the run instead of letting it
@@ -429,6 +468,7 @@ const EMPTY_FINDING: Omit<Finding, 'driftClass' | 'detail'> = {
   cancellationReason: null,
   totalChargedCents: null,
   relatedSubscriptionIds: [],
+  relatedCustomerIds: [],
 }
 
 const buildFinding = (
@@ -490,15 +530,25 @@ export const reconcile = async (
     return snapshot
   }
 
+  const emailByCustomerId = new Map<string, string | null>()
+  const emailOf = async (customerId: string): Promise<string | null> => {
+    if (emailByCustomerId.has(customerId)) {
+      return emailByCustomerId.get(customerId) ?? null
+    }
+    const email = await stripe.retrieveCustomerEmail(customerId)
+    emailByCustomerId.set(customerId, email)
+    return email
+  }
+
   const findings: Finding[] = []
 
-  // DUPLICATE grouping. One Stripe customer holding more than one live-ish Pro
-  // subscription; grouped over the Pro walk only, since a second subscription
+  // Duplicate grouping. Every customer holding a non-canceled Pro
+  // subscription, grouped over the Pro walk only, since a second subscription
   // is a second sale and so is on the same product by construction. Computed
   // before the orphan pass because a subscription belongs to exactly one
-  // finding: two unlinked subscriptions on one customer are ONE billing
-  // incident, and reporting them as three rows would both inflate the queue
-  // and count the same dollars twice.
+  // finding: two unlinked subscriptions on one person are ONE billing
+  // incident, and reporting them separately would both inflate the queue and
+  // count the same dollars twice in two classes.
   const byCustomer = new Map<string, SubscriptionSnapshot[]>()
   for (const subscription of subscriptions) {
     if (!subscription.customerId) continue
@@ -507,22 +557,103 @@ export const reconcile = async (
     if (existing) existing.push(subscription)
     else byCustomer.set(subscription.customerId, [subscription])
   }
+
+  // The second grouping, by email, is what makes the pre-ENG-11084 shape
+  // visible: an email-only checkout minted a NEW Stripe customer per completed
+  // session, so one person checking out twice ends up as two customer records
+  // that hold one subscription each. No same-customer check can see that, ours
+  // or Stripe's own, which is why the confirmed case ran 14 months.
+  //
+  // This is why every customer with a live subscription gets an email lookup
+  // rather than only the ones that end up in a finding — the lookup IS the
+  // detection. The cost is one cached GET per paying customer.
+  const customerIdsByEmail = new Map<string, string[]>()
+  for (const customerId of byCustomer.keys()) {
+    const email = normalizeEmail(await emailOf(customerId))
+    // A null email is not a join key. See normalizeEmail.
+    if (!email) continue
+    const existing = customerIdsByEmail.get(email)
+    if (existing) existing.push(customerId)
+    else customerIdsByEmail.set(email, [customerId])
+  }
+  const emailGroups = [...customerIdsByEmail].filter(
+    ([, customerIds]) => customerIds.length > 1,
+  )
+  const emailGroupedCustomerIds = new Set(
+    emailGroups.flatMap(([, customerIds]) => customerIds),
+  )
+
+  // A same-customer duplicate inside an email group is already covered by the
+  // DUPLICATE_BY_EMAIL row for that person, which spans all their customer
+  // records. Reporting it again would split one human across two findings —
+  // the exact fragmentation this change exists to remove.
   const duplicateCustomerIds = new Set(
     [...byCustomer]
       .filter(([, customerSubscriptions]) => customerSubscriptions.length > 1)
-      .map(([customerId]) => customerId),
+      .map(([customerId]) => customerId)
+      .filter((customerId) => !emailGroupedCustomerIds.has(customerId)),
   )
+
+  /**
+   * Rolls a person's subscriptions into the one number an operator acts on.
+   * Splitting this across rows is what let the confirmed case sit unnoticed:
+   * two $140 rows do not read as $280 taken from one human unless somebody
+   * happens to notice they belong together and adds them up.
+   */
+  const summarizeExposure = async (customerIds: string[]) => {
+    const groupSubscriptions = customerIds.flatMap(
+      (customerId) => byCustomer.get(customerId) ?? [],
+    )
+
+    let totalChargedCents: number | null = null
+    if (includeInvoiceTotals) {
+      totalChargedCents = 0
+      for (const subscription of groupSubscriptions) {
+        totalChargedCents += await stripe.sumPaidInvoiceCents(subscription.id)
+      }
+    }
+
+    return {
+      subscriptions: groupSubscriptions,
+      totalChargedCents,
+      // Combined per-period price, so the row also says how fast the exposure
+      // is still growing — every one of these is billing again next month.
+      recurringCents: groupSubscriptions.reduce(
+        (sum, subscription) => sum + (subscription.amountCents ?? 0),
+        0,
+      ),
+      currency:
+        groupSubscriptions.find((subscription) => subscription.currency)
+          ?.currency ?? null,
+      unlinked: groupSubscriptions.filter(
+        (subscription) => !campaignsBySubscriptionId.has(subscription.id),
+      ),
+    }
+  }
+
+  const describeLinkage = (
+    subscriptions: SubscriptionSnapshot[],
+    unlinked: SubscriptionSnapshot[],
+  ): string =>
+    unlinked.length === 0
+      ? 'Every one of them is linked to a campaign.'
+      : unlinked.length === subscriptions.length
+        ? `None of them is linked to any campaign.`
+        : `${unlinked.length} of them (${unlinked
+            .map((subscription) => subscription.id)
+            .join(', ')}) is not linked to any campaign.`
 
   // ORPHANED_ACTIVE / ORPHANED_CANCELED — at Stripe, nowhere in our database.
   for (const subscription of subscriptions) {
     if (campaignsBySubscriptionId.has(subscription.id)) continue
 
     const live = isLiveStatus(subscription.status)
-    // Reported under DUPLICATE instead, which carries every subscription id
-    // and the combined total. A canceled sibling is not in that set, so it
-    // still lands below as its own ORPHANED_CANCELED row.
+    // Reported under one of the duplicate classes instead, which carry every
+    // subscription id and the combined total. A canceled sibling is in neither
+    // grouping, so it still lands below as its own ORPHANED_CANCELED row.
     if (live && subscription.customerId) {
       if (duplicateCustomerIds.has(subscription.customerId)) continue
+      if (emailGroupedCustomerIds.has(subscription.customerId)) continue
     }
     const shared = {
       subscriptionId: subscription.id,
@@ -557,7 +688,7 @@ export const reconcile = async (
         {
           ...shared,
           customerEmail: subscription.customerId
-            ? await stripe.retrieveCustomerEmail(subscription.customerId)
+            ? await emailOf(subscription.customerId)
             : null,
           totalChargedCents: includeInvoiceTotals
             ? await stripe.sumPaidInvoiceCents(subscription.id)
@@ -567,39 +698,61 @@ export const reconcile = async (
     )
   }
 
-  for (const customerId of duplicateCustomerIds) {
-    const customerSubscriptions = byCustomer.get(customerId) ?? []
+  // DUPLICATE_BY_EMAIL — two or more Stripe customer records, one human.
+  for (const [email, customerIds] of emailGroups) {
+    const exposure = await summarizeExposure(customerIds)
 
-    let totalChargedCents: number | null = null
-    if (includeInvoiceTotals) {
-      totalChargedCents = 0
-      for (const subscription of customerSubscriptions) {
-        totalChargedCents += await stripe.sumPaidInvoiceCents(subscription.id)
-      }
-    }
-
-    const unlinked = customerSubscriptions.filter(
-      (subscription) => !campaignsBySubscriptionId.has(subscription.id),
+    findings.push(
+      buildFinding(
+        'DUPLICATE_BY_EMAIL',
+        `${customerIds.length} Stripe customer records share one email and ` +
+          `hold ${exposure.subscriptions.length} non-canceled Pro ` +
+          `subscriptions between them (${exposure.subscriptions
+            .map(
+              (subscription) =>
+                `${subscription.id} ${subscription.status} on ` +
+                `${subscription.customerId}`,
+            )
+            .join(', ')}). This is the pre-ENG-11084 email-only checkout ` +
+          `shape: each completed session minted a new customer, so no ` +
+          `same-customer check can see it. One person, billed more than ` +
+          `once. ` +
+          describeLinkage(exposure.subscriptions, exposure.unlinked) +
+          ` Remediation needs the customer records merged as well as the ` +
+          `extra subscriptions cancelled and refunded.`,
+        {
+          customerEmail: email,
+          relatedCustomerIds: customerIds,
+          relatedSubscriptionIds: exposure.subscriptions.map(({ id }) => id),
+          totalChargedCents: exposure.totalChargedCents,
+          amountCents: exposure.recurringCents,
+          currency: exposure.currency,
+        },
+      ),
     )
+  }
+
+  // DUPLICATE — one customer record holding more than one of them.
+  for (const customerId of duplicateCustomerIds) {
+    const exposure = await summarizeExposure([customerId])
 
     findings.push(
       buildFinding(
         'DUPLICATE',
-        `Stripe customer holds ${customerSubscriptions.length} non-canceled ` +
-          `Pro subscriptions (${customerSubscriptions
-            .map((s) => `${s.id} ${s.status}`)
+        `Stripe customer holds ${exposure.subscriptions.length} ` +
+          `non-canceled Pro subscriptions (${exposure.subscriptions
+            .map((subscription) => `${subscription.id} ${subscription.status}`)
             .join(', ')}). This is the ENG-10771 / ENG-11083 ` +
           `double-billing shape — treat as urgent. ` +
-          (unlinked.length === 0
-            ? 'Every one of them is linked to a campaign.'
-            : `${unlinked.length} of them (${unlinked
-                .map((s) => s.id)
-                .join(', ')}) is not linked to any campaign.`),
+          describeLinkage(exposure.subscriptions, exposure.unlinked),
         {
           customerId,
-          customerEmail: await stripe.retrieveCustomerEmail(customerId),
-          relatedSubscriptionIds: customerSubscriptions.map((s) => s.id),
-          totalChargedCents,
+          customerEmail: await emailOf(customerId),
+          relatedCustomerIds: [customerId],
+          relatedSubscriptionIds: exposure.subscriptions.map(({ id }) => id),
+          totalChargedCents: exposure.totalChargedCents,
+          amountCents: exposure.recurringCents,
+          currency: exposure.currency,
         },
       ),
     )
@@ -699,6 +852,7 @@ export const reconcile = async (
 
 export const summarize = (findings: Finding[]): Record<DriftClass, number> => {
   const summary = {
+    DUPLICATE_BY_EMAIL: 0,
     ORPHANED_ACTIVE: 0,
     DUPLICATE: 0,
     MISMATCH: 0,
@@ -759,11 +913,22 @@ const toTableRow = (finding: Finding): Record<string, string | number> => {
         renewsOn: finding.currentPeriodEnd ?? '',
         chargedToDate: formatCents(finding.totalChargedCents, finding.currency),
       }
+    // The two duplicate classes share a shape except for the column that
+    // distinguishes them: one names a customer, the other names several.
+    case 'DUPLICATE_BY_EMAIL':
+      return {
+        email: finding.customerEmail ?? '',
+        customers: finding.relatedCustomerIds.join(' '),
+        subscriptions: finding.relatedSubscriptionIds.join(' '),
+        perPeriod: formatCents(finding.amountCents, finding.currency),
+        chargedToDate: formatCents(finding.totalChargedCents, finding.currency),
+      }
     case 'DUPLICATE':
       return {
         customer: finding.customerId ?? '',
         email: finding.customerEmail ?? '',
         subscriptions: finding.relatedSubscriptionIds.join(' '),
+        perPeriod: formatCents(finding.amountCents, finding.currency),
         chargedToDate: formatCents(finding.totalChargedCents, finding.currency),
       }
     case 'MISMATCH':

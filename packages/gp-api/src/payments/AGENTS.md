@@ -94,16 +94,17 @@ which is the only way to find the cases nobody reported — Loki holds 30 days,
 and `campaign.details.subscriptionId` has no constraint, no history, and no
 second copy, so a linkage lost before that window leaves no trace anywhere but
 the divergence itself. It is strictly read-only (GETs and SELECTs; it refuses to
-put any other verb on the wire) and reports five drift classes that map onto the
+put any other verb on the wire) and reports six drift classes that map onto the
 recipes here:
 
-| Class               | Shape                                                    | Recipe                                      |
-| ------------------- | -------------------------------------------------------- | ------------------------------------------- |
-| `ORPHANED_ACTIVE`   | Billing at Stripe, no campaign holds the id              | Re-link by `metadata.userId`, else refund   |
-| `DUPLICATE`         | One customer, >1 non-canceled Pro sub                    | "Charged twice", below                      |
-| `MISMATCH`          | Stored `subscriptionId` belongs to another customer      | Fix `customerId`; subs can't be reparented  |
-| `STALE_PRO`         | `isPro` with no live subscription behind it              | "Cancelled Pro but Stripe kept billing"     |
-| `ORPHANED_CANCELED` | Not collecting, no campaign — usually account deletion   | None; read `cancellation_details.reason`    |
+| Class                | Shape                                                   | Recipe                                       |
+| -------------------- | ------------------------------------------------------- | -------------------------------------------- |
+| `DUPLICATE_BY_EMAIL` | >1 customer record under one email, >1 sub between them | "Charged twice", below, plus a customer merge |
+| `ORPHANED_ACTIVE`    | Billing at Stripe, no campaign holds the id             | Re-link by `metadata.userId`, else refund    |
+| `DUPLICATE`          | One customer, >1 non-canceled Pro sub                   | "Charged twice", below                       |
+| `MISMATCH`           | Stored `subscriptionId` belongs to another customer     | Fix `customerId`; subs can't be reparented   |
+| `STALE_PRO`          | `isPro` with no live subscription behind it             | "Cancelled Pro but Stripe kept billing"      |
+| `ORPHANED_CANCELED`  | Not collecting, no campaign — usually account deletion  | None; read `cancellation_details.reason`     |
 
 `npx tsx scripts/stripe-campaign-reconcile.ts` (add `--json` to pipe it). Full
 operator procedure, including which credentials to use and what remediation each
@@ -111,7 +112,10 @@ class implies: `packages/runbooks/books/reconcile-stripe-subscriptions.md`.
 
 **"Charged twice" (ENG-10771 shape; recurred as ENG-11083).** First check
 for TWO Stripe customers under one email (pre-ENG-11084 checkouts minted one
-per completed session), then list subs per customer. Known chain: duplicate
+per completed session — the reconciliation report finds these by itself and
+calls them `DUPLICATE_BY_EMAIL`, with the combined total across both records;
+that shape also needs the customer records merged, not just a sub cancelled),
+then list subs per customer. Known chain: duplicate
 checkout → second sub; `checkout.session.completed` overwrites
 `campaign.details.subscriptionId` (error-logged since ENG-11084 when the
 stored id differs — search Loki for "possible duplicate Pro subscription"),

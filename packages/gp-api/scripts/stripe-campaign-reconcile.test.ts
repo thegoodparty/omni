@@ -6,6 +6,7 @@ import {
   DRIFT_CLASSES_BY_PRIORITY,
   formatCents,
   isProSubscription,
+  normalizeEmail,
   parseArgs,
   proProductIdForKey,
   reconcile,
@@ -35,6 +36,25 @@ const CANCELED_BY_PAYMENT_FAILURE = {
   subscriptionId: 'sub_1TlI0T1taBPnTqn4wXcOjDJQ',
   customerId: 'cus_Ukna4d5HsEPEVJ',
 }
+
+// The worst confirmed case, and the reason DUPLICATE_BY_EMAIL exists. One
+// person completed checkout twice about six minutes apart on 2025-07-17. The
+// pre-ENG-11084 email-only flow minted a fresh Stripe customer for each
+// completed session, so the two $10/month subscriptions landed on two
+// different customer records. Both are still active, neither is linked to a
+// campaign, and 14 paid invoices each makes $280 taken from one human that no
+// same-customer check can see.
+const DOUBLE_BILLED_FIRST = {
+  subscriptionId: 'sub_1RlyrV1taBPnTqn4LMHR0MNj',
+  customerId: 'cus_ShNc4uj9XoiTfs',
+}
+const DOUBLE_BILLED_SECOND = {
+  subscriptionId: 'sub_1Rlyxu1taBPnTqn4xgXemRA5',
+  customerId: 'cus_ShNjwVcfKwOcjl',
+}
+// Stands in for the address the two records actually share, which is customer
+// PII and stays out of the repository.
+const SHARED_EMAIL = 'shared@example.com'
 
 const snapshot = (
   overrides: Partial<SubscriptionSnapshot> & { id: string },
@@ -106,6 +126,22 @@ describe('proProductIdForKey', () => {
 
   it('picks the test product for a test key', () => {
     expect(proProductIdForKey('sk_test_abc')).toBe('prod_QAR4xrqUhyHHqX')
+  })
+})
+
+describe('normalizeEmail', () => {
+  it('ignores case and surrounding whitespace', () => {
+    expect(normalizeEmail('  Person@Example.COM ')).toBe('person@example.com')
+  })
+
+  // Null is "no key", never a key. A deleted Stripe customer reports no email,
+  // so joining on null would collapse every deleted customer on the account
+  // into one fabricated person.
+  it('returns null for an absent or blank address', () => {
+    expect(normalizeEmail(null)).toBeNull()
+    expect(normalizeEmail(undefined)).toBeNull()
+    expect(normalizeEmail('')).toBeNull()
+    expect(normalizeEmail('   ')).toBeNull()
   })
 })
 
@@ -648,7 +684,7 @@ describe('reconcile', () => {
       expect(report.findings).toHaveLength(1)
       expect(report.findings[0].totalChargedCents).toBe(7000)
       expect(report.findings[0].detail).toContain(
-        '2 of them (sub_first, sub_second) is not linked',
+        'None of them is linked to any campaign',
       )
     })
 
@@ -716,6 +752,402 @@ describe('reconcile', () => {
       ])
 
       expect(report.summary.DUPLICATE).toBe(1)
+    })
+  })
+
+  describe('DUPLICATE_BY_EMAIL', () => {
+    // The confirmed incident, as a regression test. Before this class existed
+    // the report emitted these as two unrelated ORPHANED_ACTIVE rows of $140
+    // with nothing tying them to one person, which is how it survived 14
+    // months of review.
+    it('groups two customer records sharing one email into a single finding', async () => {
+      const { reader } = stubReader({
+        subscriptions: [
+          snapshot({
+            id: DOUBLE_BILLED_FIRST.subscriptionId,
+            customerId: DOUBLE_BILLED_FIRST.customerId,
+            status: 'active',
+            amountCents: 1000,
+            currency: 'usd',
+          }),
+          snapshot({
+            id: DOUBLE_BILLED_SECOND.subscriptionId,
+            customerId: DOUBLE_BILLED_SECOND.customerId,
+            status: 'active',
+            amountCents: 1000,
+            currency: 'usd',
+          }),
+        ],
+        paidInvoiceCents: {
+          [DOUBLE_BILLED_FIRST.subscriptionId]: 14000,
+          [DOUBLE_BILLED_SECOND.subscriptionId]: 14000,
+        },
+        emails: {
+          [DOUBLE_BILLED_FIRST.customerId]: SHARED_EMAIL,
+          [DOUBLE_BILLED_SECOND.customerId]: SHARED_EMAIL,
+        },
+      })
+
+      const report = await reconcile(reader, [])
+
+      expect(report.summary).toMatchObject({
+        DUPLICATE_BY_EMAIL: 1,
+        DUPLICATE: 0,
+        ORPHANED_ACTIVE: 0,
+      })
+      expect(report.findings).toHaveLength(1)
+      expect(report.findings[0]).toMatchObject({
+        driftClass: 'DUPLICATE_BY_EMAIL',
+        customerEmail: SHARED_EMAIL,
+        // No single customer owns this finding; that is the whole class.
+        customerId: null,
+        relatedCustomerIds: [
+          DOUBLE_BILLED_FIRST.customerId,
+          DOUBLE_BILLED_SECOND.customerId,
+        ],
+        relatedSubscriptionIds: [
+          DOUBLE_BILLED_FIRST.subscriptionId,
+          DOUBLE_BILLED_SECOND.subscriptionId,
+        ],
+      })
+    })
+
+    // The specific ask: one number the operator acts on. Two $140 rows do not
+    // read as $280 unless somebody notices they belong together.
+    it('aggregates the exposure per human rather than per subscription', async () => {
+      const { reader } = stubReader({
+        subscriptions: [
+          snapshot({
+            id: DOUBLE_BILLED_FIRST.subscriptionId,
+            customerId: DOUBLE_BILLED_FIRST.customerId,
+            amountCents: 1000,
+            currency: 'usd',
+          }),
+          snapshot({
+            id: DOUBLE_BILLED_SECOND.subscriptionId,
+            customerId: DOUBLE_BILLED_SECOND.customerId,
+            amountCents: 1000,
+            currency: 'usd',
+          }),
+        ],
+        paidInvoiceCents: {
+          [DOUBLE_BILLED_FIRST.subscriptionId]: 14000,
+          [DOUBLE_BILLED_SECOND.subscriptionId]: 14000,
+        },
+        emails: {
+          [DOUBLE_BILLED_FIRST.customerId]: SHARED_EMAIL,
+          [DOUBLE_BILLED_SECOND.customerId]: SHARED_EMAIL,
+        },
+      })
+
+      const report = await reconcile(reader, [])
+
+      expect(report.findings[0]).toMatchObject({
+        totalChargedCents: 28000,
+        // Combined per-period price: how fast the exposure is still growing.
+        amountCents: 2000,
+        currency: 'usd',
+      })
+    })
+
+    it('does not group two customers with different emails', async () => {
+      const { reader } = stubReader({
+        subscriptions: [
+          snapshot({
+            id: DOUBLE_BILLED_FIRST.subscriptionId,
+            customerId: DOUBLE_BILLED_FIRST.customerId,
+          }),
+          snapshot({
+            id: DOUBLE_BILLED_SECOND.subscriptionId,
+            customerId: DOUBLE_BILLED_SECOND.customerId,
+          }),
+        ],
+        emails: {
+          [DOUBLE_BILLED_FIRST.customerId]: 'one@example.com',
+          [DOUBLE_BILLED_SECOND.customerId]: 'two@example.com',
+        },
+      })
+
+      const report = await reconcile(reader, [])
+
+      expect(report.summary).toMatchObject({
+        DUPLICATE_BY_EMAIL: 0,
+        ORPHANED_ACTIVE: 2,
+      })
+    })
+
+    it('groups addresses that differ only by case or whitespace', async () => {
+      const { reader } = stubReader({
+        subscriptions: [
+          snapshot({
+            id: DOUBLE_BILLED_FIRST.subscriptionId,
+            customerId: DOUBLE_BILLED_FIRST.customerId,
+          }),
+          snapshot({
+            id: DOUBLE_BILLED_SECOND.subscriptionId,
+            customerId: DOUBLE_BILLED_SECOND.customerId,
+          }),
+        ],
+        emails: {
+          [DOUBLE_BILLED_FIRST.customerId]: ' Shared@Example.com ',
+          [DOUBLE_BILLED_SECOND.customerId]: 'SHARED@example.COM',
+        },
+      })
+
+      const report = await reconcile(reader, [])
+
+      expect(report.summary.DUPLICATE_BY_EMAIL).toBe(1)
+      expect(report.findings[0].customerEmail).toBe(SHARED_EMAIL)
+    })
+
+    // A deleted Stripe customer reports no email at all. Joining on that
+    // would invent a duplicate out of two unrelated people.
+    it('never joins two customers on a missing email', async () => {
+      const { reader } = stubReader({
+        subscriptions: [
+          snapshot({
+            id: DOUBLE_BILLED_FIRST.subscriptionId,
+            customerId: DOUBLE_BILLED_FIRST.customerId,
+          }),
+          snapshot({
+            id: DOUBLE_BILLED_SECOND.subscriptionId,
+            customerId: DOUBLE_BILLED_SECOND.customerId,
+          }),
+        ],
+      })
+
+      const report = await reconcile(reader, [])
+
+      expect(report.summary).toMatchObject({
+        DUPLICATE_BY_EMAIL: 0,
+        ORPHANED_ACTIVE: 2,
+      })
+    })
+
+    it('never joins a customer with an email to one without', async () => {
+      const { reader } = stubReader({
+        subscriptions: [
+          snapshot({
+            id: DOUBLE_BILLED_FIRST.subscriptionId,
+            customerId: DOUBLE_BILLED_FIRST.customerId,
+          }),
+          snapshot({
+            id: DOUBLE_BILLED_SECOND.subscriptionId,
+            customerId: DOUBLE_BILLED_SECOND.customerId,
+          }),
+        ],
+        emails: { [DOUBLE_BILLED_FIRST.customerId]: SHARED_EMAIL },
+      })
+
+      const report = await reconcile(reader, [])
+
+      expect(report.summary).toMatchObject({
+        DUPLICATE_BY_EMAIL: 0,
+        ORPHANED_ACTIVE: 2,
+      })
+    })
+
+    // A blank string is Stripe's other way of saying "no address", and it
+    // would otherwise be a perfectly good map key.
+    it('never joins two customers on a blank email', async () => {
+      const { reader } = stubReader({
+        subscriptions: [
+          snapshot({
+            id: DOUBLE_BILLED_FIRST.subscriptionId,
+            customerId: DOUBLE_BILLED_FIRST.customerId,
+          }),
+          snapshot({
+            id: DOUBLE_BILLED_SECOND.subscriptionId,
+            customerId: DOUBLE_BILLED_SECOND.customerId,
+          }),
+        ],
+        emails: {
+          [DOUBLE_BILLED_FIRST.customerId]: '   ',
+          [DOUBLE_BILLED_SECOND.customerId]: '',
+        },
+      })
+
+      const report = await reconcile(reader, [])
+
+      expect(report.summary).toMatchObject({
+        DUPLICATE_BY_EMAIL: 0,
+        ORPHANED_ACTIVE: 2,
+      })
+    })
+
+    // Sharing an email is the finding. Being linked to a campaign means the
+    // person is at least getting the Pro they paid for twice, but they are
+    // still paying twice.
+    it('flags a shared-email pair even when both subscriptions are linked', async () => {
+      const { reader } = stubReader({
+        subscriptions: [
+          snapshot({
+            id: DOUBLE_BILLED_FIRST.subscriptionId,
+            customerId: DOUBLE_BILLED_FIRST.customerId,
+          }),
+          snapshot({
+            id: DOUBLE_BILLED_SECOND.subscriptionId,
+            customerId: DOUBLE_BILLED_SECOND.customerId,
+          }),
+        ],
+        emails: {
+          [DOUBLE_BILLED_FIRST.customerId]: SHARED_EMAIL,
+          [DOUBLE_BILLED_SECOND.customerId]: SHARED_EMAIL,
+        },
+      })
+
+      const report = await reconcile(reader, [
+        campaignRow({
+          id: 81,
+          isPro: true,
+          subscriptionId: DOUBLE_BILLED_FIRST.subscriptionId,
+        }),
+        campaignRow({
+          id: 82,
+          isPro: true,
+          subscriptionId: DOUBLE_BILLED_SECOND.subscriptionId,
+        }),
+      ])
+
+      expect(report.summary.DUPLICATE_BY_EMAIL).toBe(1)
+      expect(report.findings[0].detail).toContain(
+        'Every one of them is linked to a campaign',
+      )
+    })
+
+    // The likeliest real shape after a partial cleanup: one of the pair got
+    // re-linked, the other is still billing for nothing. The detail has to
+    // name which, because that is the one to cancel.
+    it('names the unlinked subscription when only one of the pair is linked', async () => {
+      const { reader } = stubReader({
+        subscriptions: [
+          snapshot({
+            id: DOUBLE_BILLED_FIRST.subscriptionId,
+            customerId: DOUBLE_BILLED_FIRST.customerId,
+          }),
+          snapshot({
+            id: DOUBLE_BILLED_SECOND.subscriptionId,
+            customerId: DOUBLE_BILLED_SECOND.customerId,
+          }),
+        ],
+        emails: {
+          [DOUBLE_BILLED_FIRST.customerId]: SHARED_EMAIL,
+          [DOUBLE_BILLED_SECOND.customerId]: SHARED_EMAIL,
+        },
+      })
+
+      const report = await reconcile(reader, [
+        campaignRow({
+          id: 83,
+          isPro: true,
+          subscriptionId: DOUBLE_BILLED_FIRST.subscriptionId,
+        }),
+      ])
+
+      expect(report.findings[0].detail).toContain(
+        `1 of them (${DOUBLE_BILLED_SECOND.subscriptionId}) is not linked`,
+      )
+    })
+
+    // One human across three subscriptions is still one human. Emitting both
+    // a DUPLICATE for the two-subscription record and a DUPLICATE_BY_EMAIL
+    // spanning all three would split them across two rows and double-count
+    // the money.
+    it('subsumes a same-customer duplicate that shares the email', async () => {
+      const { reader } = stubReader({
+        subscriptions: [
+          snapshot({
+            id: DOUBLE_BILLED_FIRST.subscriptionId,
+            customerId: DOUBLE_BILLED_FIRST.customerId,
+          }),
+          snapshot({
+            id: 'sub_third',
+            customerId: DOUBLE_BILLED_FIRST.customerId,
+          }),
+          snapshot({
+            id: DOUBLE_BILLED_SECOND.subscriptionId,
+            customerId: DOUBLE_BILLED_SECOND.customerId,
+          }),
+        ],
+        paidInvoiceCents: {
+          [DOUBLE_BILLED_FIRST.subscriptionId]: 14000,
+          sub_third: 1000,
+          [DOUBLE_BILLED_SECOND.subscriptionId]: 14000,
+        },
+        emails: {
+          [DOUBLE_BILLED_FIRST.customerId]: SHARED_EMAIL,
+          [DOUBLE_BILLED_SECOND.customerId]: SHARED_EMAIL,
+        },
+      })
+
+      const report = await reconcile(reader, [])
+
+      expect(report.summary).toMatchObject({
+        DUPLICATE_BY_EMAIL: 1,
+        DUPLICATE: 0,
+        ORPHANED_ACTIVE: 0,
+      })
+      expect(report.findings).toHaveLength(1)
+      expect(report.findings[0].relatedSubscriptionIds).toEqual([
+        DOUBLE_BILLED_FIRST.subscriptionId,
+        'sub_third',
+        DOUBLE_BILLED_SECOND.subscriptionId,
+      ])
+      expect(report.findings[0].totalChargedCents).toBe(29000)
+    })
+
+    // Suppressing the orphan rows for a grouped customer must not swallow a
+    // canceled subscription, which is in no grouping.
+    it('still reports a canceled subscription on a grouped customer', async () => {
+      const { reader } = stubReader({
+        subscriptions: [
+          snapshot({
+            id: DOUBLE_BILLED_FIRST.subscriptionId,
+            customerId: DOUBLE_BILLED_FIRST.customerId,
+          }),
+          snapshot({
+            id: DOUBLE_BILLED_SECOND.subscriptionId,
+            customerId: DOUBLE_BILLED_SECOND.customerId,
+          }),
+          snapshot({
+            id: 'sub_old',
+            customerId: DOUBLE_BILLED_FIRST.customerId,
+            status: 'canceled',
+          }),
+        ],
+        emails: {
+          [DOUBLE_BILLED_FIRST.customerId]: SHARED_EMAIL,
+          [DOUBLE_BILLED_SECOND.customerId]: SHARED_EMAIL,
+        },
+      })
+
+      const report = await reconcile(reader, [])
+
+      expect(report.summary).toMatchObject({
+        DUPLICATE_BY_EMAIL: 1,
+        ORPHANED_CANCELED: 1,
+        ORPHANED_ACTIVE: 0,
+      })
+    })
+
+    // A single customer holding two subscriptions is a different remediation
+    // (cancel one) than two customer records (merge, then cancel one), so the
+    // shared email of one customer with itself must not reclassify it.
+    it('leaves a one-customer duplicate as DUPLICATE', async () => {
+      const { reader } = stubReader({
+        subscriptions: [
+          snapshot({ id: 'sub_first', customerId: 'cus_double' }),
+          snapshot({ id: 'sub_second', customerId: 'cus_double' }),
+        ],
+        emails: { cus_double: SHARED_EMAIL },
+      })
+
+      const report = await reconcile(reader, [])
+
+      expect(report.summary).toMatchObject({
+        DUPLICATE: 1,
+        DUPLICATE_BY_EMAIL: 0,
+      })
     })
   })
 
@@ -850,12 +1282,24 @@ describe('reconcile', () => {
           snapshot({ id: 'sub_first', customerId: 'cus_double' }),
           snapshot({ id: 'sub_second', customerId: 'cus_double' }),
           snapshot({ id: 'sub_mismatch', customerId: 'cus_actual' }),
+          snapshot({
+            id: DOUBLE_BILLED_FIRST.subscriptionId,
+            customerId: DOUBLE_BILLED_FIRST.customerId,
+          }),
+          snapshot({
+            id: DOUBLE_BILLED_SECOND.subscriptionId,
+            customerId: DOUBLE_BILLED_SECOND.customerId,
+          }),
         ],
         retrievable: {
           [CANCELED_BY_PAYMENT_FAILURE.subscriptionId]: snapshot({
             id: CANCELED_BY_PAYMENT_FAILURE.subscriptionId,
             status: 'canceled',
           }),
+        },
+        emails: {
+          [DOUBLE_BILLED_FIRST.customerId]: SHARED_EMAIL,
+          [DOUBLE_BILLED_SECOND.customerId]: SHARED_EMAIL,
         },
       })
 
@@ -876,6 +1320,7 @@ describe('reconcile', () => {
       ])
 
       expect(report.summary).toEqual({
+        DUPLICATE_BY_EMAIL: 1,
         ORPHANED_ACTIVE: 1,
         DUPLICATE: 1,
         MISMATCH: 1,
@@ -885,7 +1330,7 @@ describe('reconcile', () => {
       expect(report.findings.map((finding) => finding.driftClass)).toEqual(
         DRIFT_CLASSES_BY_PRIORITY,
       )
-      expect(report.proSubscriptionCount).toBe(5)
+      expect(report.proSubscriptionCount).toBe(7)
       expect(report.campaignCount).toBe(4)
     })
 
