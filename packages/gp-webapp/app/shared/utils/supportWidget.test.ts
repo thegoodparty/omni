@@ -3,13 +3,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // URL after the constant moves, certifying a destination the product no longer
 // uses. It is a plain string with no side effects, so the top-level import is
 // unaffected by the per-test resetModules/doMock below.
-import { HELP_CENTER_URL } from './supportContact'
+import { HELP_CENTER_URL, SUPPORT_CHAT_SCRIPT_ID } from './supportContact'
 
-// Each test gets a fresh copy so module state can never leak between cases,
-// and so the environment gate can be set per test.
-const loadWidget = async (supportChatEnabled = true) => {
+// Each test gets a fresh copy so module state can never leak between cases.
+//
+// Whether the chat is available is a DOM fact rather than a mocked module: the
+// root layout injects its settings script only where the chat is enabled, and
+// that script's presence is what the helper reads. Mirroring it here keeps the
+// test honest about how the real decision is made.
+const loadWidget = async (chatInjected = true) => {
   vi.resetModules()
-  vi.doMock('appEnv', () => ({ SUPPORT_CHAT_ENABLED: supportChatEnabled }))
+  if (chatInjected) {
+    const marker = document.createElement('script')
+    marker.id = SUPPORT_CHAT_SCRIPT_ID
+    document.head.append(marker)
+  }
   return (await import('./supportWidget')).openSupportChat
 }
 
@@ -90,6 +98,7 @@ beforeEach(() => {
   delete window.HubSpotConversations
   delete window.hsConversationsOnReady
   document.body.innerHTML = ''
+  document.head.innerHTML = ''
 })
 
 afterEach(() => {
@@ -502,7 +511,7 @@ describe('openSupportChat', () => {
   // deadline for a widget that cannot arrive is just a dead ten seconds, and
   // the destination has to be a URL: a mailto: shows nothing at all on a
   // machine with no mail client, which is what made this a dead click on dev.
-  describe('where the support chat is not loaded at all', () => {
+  describe('where the support chat was never injected', () => {
     it('goes to the help center on the click, without waiting', async () => {
       const openSupportChat = await loadWidget(false)
 

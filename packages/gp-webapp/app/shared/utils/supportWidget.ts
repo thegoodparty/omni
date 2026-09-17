@@ -1,5 +1,4 @@
-import { SUPPORT_CHAT_ENABLED } from 'appEnv'
-import { HELP_CENTER_URL } from './supportContact'
+import { HELP_CENTER_URL, SUPPORT_CHAT_SCRIPT_ID } from './supportContact'
 
 // HubSpot's Conversations SDK, attached to window by the support script in the
 // root layout. Typed here because it arrives at runtime.
@@ -39,11 +38,29 @@ const widgetContainer = () => document.getElementById(WIDGET_CONTAINER_ID)
 
 const widgetStatus = () => window.HubSpotConversations?.widget.status()
 
-// `status()` lags reality: on a cold load it reported
-// `{loaded: false, pending: false}` for six seconds after the container was
-// already in the DOM. So a widget that is visibly on screen is never treated
-// as a failure, whatever the SDK says about it.
-const widgetOnScreen = () => widgetContainer() !== null
+// Can support be reached right now? One question, one answer, asked by both
+// the click and the watch below.
+//
+// Splitting it across the two is what let them disagree. The watch waited for
+// the status AND the container; the click a few lines above trusted the status
+// alone, so on the ordering where `loaded` arrives first it opened a widget
+// with no container for the close watcher to attach to, and the launcher then
+// stayed in the corner on close. Every guard added to one of them since has
+// had to be remembered for the other.
+type Reachability = 'ready' | 'loading' | 'absent'
+
+const reachability = (): Reachability => {
+  // The root layout injects the chat only where it is enabled, so no script
+  // means nothing is coming however long we wait. This is how client code
+  // learns a server-side decision: VERCEL_ENV never reaches the browser.
+  if (!document.getElementById(SUPPORT_CHAT_SCRIPT_ID)) return 'absent'
+
+  // Both signals, because they arrive in either order. `status()` has reported
+  // `{loaded: false, pending: false}` for six seconds after the container was
+  // already in the DOM, and on another load flipped to `loaded` before the
+  // container existed.
+  return widgetStatus()?.loaded && widgetContainer() ? 'ready' : 'loading'
+}
 
 // Closing the chat has to take the launcher with it. HubSpot's launcher is a
 // fixed button in the bottom-right corner, which is where this product keeps
@@ -123,85 +140,76 @@ let watching = false
 // `load({widgetOpen: true})` asks for it open and is not enough on its own:
 // measured, it renders the launcher and the greeting bubble and leaves the
 // panel shut. The option stays because it costs nothing and opens instantly
-// where the SDK honours it, but `open()` is what actually opens the panel, so
-// the watch below calls it as soon as the widget exists.
-//
-// Whether it worked is asked of the SDK rather than assumed. An earlier
-// version set a local flag the instant it called `load()` and treated that as
-// success, which hid a whole class of failure: the SDK can be present and
-// `load()` can still do nothing, which is what happens on any host the
-// chatflow's targeting rules do not cover — `status()` stays
-// `{loaded: false, pending: false}` and no container is ever created, even
-// when `load()` is called straight from the console.
-export const openSupportChat = (): void => {
-  // Nav item renders everywhere; the chat script only loads in production or
-  // behind NEXT_PUBLIC_SUPPORT_CHAT. Where it was never injected there is
-  // nothing to wait for, so the help center answers the click immediately
-  // rather than after ten seconds of a widget that is not coming.
-  if (!SUPPORT_CHAT_ENABLED) {
-    openHelpCenter()
+// where the SDK honours it, but `open()` is what actually opens the panel.
+const requestWidget = (): void => {
+  const conversations = window.HubSpotConversations
+  if (conversations) {
+    conversations.widget.load({ widgetOpen: true })
     return
   }
 
-  const conversations = window.HubSpotConversations
+  // The SDK is not here yet, though the script that loads it is on the page:
+  // it is still in flight, or an ad blocker stopped it. Queue on HubSpot's own
+  // ready hook in case it is still coming.
+  if (queuedOnReady) return
+  queuedOnReady = true
+  window.hsConversationsOnReady = [
+    ...(window.hsConversationsOnReady ?? []),
+    // Re-enters openSupportChat rather than calling `load` directly. An SDK
+    // that shows up after the watch already gave up would otherwise mount the
+    // widget with nothing left to open it or to unmount it on close, leaving
+    // the launcher parked in the corner, which is the thing this whole file
+    // exists to avoid. Re-entering cannot recurse: the SDK is present by the
+    // time the hook runs, so it takes the branch above.
+    () => openSupportChat(),
+  ]
+}
 
-  if (conversations) {
-    // Same pair the watch below waits for, and for the same reason: a
-    // `loaded` the container has not caught up with would open a widget and
-    // find nothing to attach the close observer to, leaving the launcher
-    // behind on close. Without the container, fall through and load, and let
-    // the watch open it once both are true.
-    if (widgetStatus()?.loaded && widgetOnScreen()) {
-      openWidget()
-      return
-    }
-    conversations.widget.load({ widgetOpen: true })
-  } else if (!queuedOnReady) {
-    // The SDK is not here yet: outside production it loads only behind
-    // NEXT_PUBLIC_SUPPORT_CHAT, and in production an ad blocker can stop it.
-    // Queue on HubSpot's own ready hook in case it is still coming.
-    queuedOnReady = true
-    window.hsConversationsOnReady = [
-      ...(window.hsConversationsOnReady ?? []),
-      // Re-enters here rather than calling `load` directly. An SDK that shows
-      // up after the watch already gave up would otherwise mount the widget
-      // with nothing left to open it or to unmount it on close, leaving the
-      // launcher parked in the corner — the exact thing this change removes.
-      // Re-entering cannot recurse: `window.HubSpotConversations` is set by
-      // the time the hook runs, so this takes the branch above instead of
-      // queueing another callback.
-      () => openSupportChat(),
-    ]
-  }
-
-  // Watch until it is up, rather than checking once. A single check a couple
-  // of seconds in cannot tell "never coming" from "still coming", and getting
-  // that wrong means navigating away over the top of a widget mid-animation.
-  // Only a widget that is still absent at the deadline counts as a failure,
-  // and then the click goes to the help center rather than nowhere.
+// Watch until it is up, rather than checking once. A single check a couple of
+// seconds in cannot tell "never coming" from "still coming", and getting that
+// wrong means navigating away over the top of a widget mid-animation. Only a
+// widget still absent at the deadline counts as a failure, and then the click
+// goes to the help center rather than nowhere.
+const watchForWidget = (): void => {
   if (watching) return
   watching = true
   const deadline = Date.now() + GIVE_UP_MS
+
   const check = () => {
-    // Both, because the two arrive in either order: the container has been
-    // seen in the DOM six seconds before `status()` admitted the widget was
-    // loaded, and `status()` has also flipped first. Waiting for the later of
-    // the two is what guarantees `openWidget` has a container to watch.
-    if (widgetStatus()?.loaded && widgetOnScreen()) {
+    if (reachability() === 'ready') {
       watching = false
       openWidget()
       return
     }
     if (Date.now() >= deadline) {
       watching = false
-      if (widgetOnScreen()) {
-        openWidget()
-        return
-      }
-      openHelpCenter()
+      // A container on screen that `status()` still denies is a widget, not a
+      // failure. Navigating away over the top of it is the one outcome worse
+      // than waiting.
+      if (widgetContainer()) openWidget()
+      else openHelpCenter()
       return
     }
     window.setTimeout(check, POLL_MS)
   }
   window.setTimeout(check, POLL_MS)
+}
+
+// Whether the chat worked is asked of the SDK rather than assumed. An earlier
+// version set a local flag the instant it called `load()` and treated that as
+// success, which hid a whole class of failure: the SDK can be present and
+// `load()` can still do nothing, which is what happens on any host the
+// chatflow's targeting rules do not cover.
+export const openSupportChat = (): void => {
+  switch (reachability()) {
+    // Nothing to wait for, so the help center answers the click now rather
+    // than after ten seconds of a widget that was never coming.
+    case 'absent':
+      return openHelpCenter()
+    case 'ready':
+      return openWidget()
+    case 'loading':
+      requestWidget()
+      return watchForWidget()
+  }
 }

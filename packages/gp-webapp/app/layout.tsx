@@ -4,10 +4,11 @@ import { Suspense } from 'react'
 import PageWrapper from './shared/layouts/PageWrapper'
 import './globals.css'
 import VwoScript from '@shared/scripts/VwoScript'
-import { APP_BASE, IS_PROD, SUPPORT_CHAT_ENABLED } from 'appEnv'
+import { APP_BASE, IS_PROD } from 'appEnv'
 import RouteTracker from '@shared/scripts/RouteTrackerScript'
 import AnalyticsSessionReplayMiddleware from '@shared/AnalyticsSessionReplayMiddleware'
 import { SerwistProvider } from '@serwist/next/react'
+import { SUPPORT_CHAT_SCRIPT_ID } from '@shared/utils/supportContact'
 
 const openSans = Open_Sans({
   subsets: ['latin'],
@@ -24,6 +25,23 @@ const outfit = Outfit({
   weight: ['500', '600', '700'],
   variable: '--outfit-font',
 })
+
+// Production, dev and PR previews all load the support chat; locally it is
+// opt-in. VERCEL_ENV is Vercel's reserved runtime var, always present
+// server-side, and covers all three in one expression: per docs/deployment.md
+// the dev deploy and PR previews both hit Vercel's preview target and prod
+// hits the production target. Deliberately NOT the NEXT_PUBLIC_VERCEL_TARGET_ENV
+// that IS_PROD/IS_PREVIEW read — this app does not reliably get it (see
+// app/shared/experiments/flagOverrides.ts), and keying the chat off IS_PREVIEW
+// meant previews never loaded it at all.
+//
+// Read only here. It stays out of appEnv because VERCEL_ENV is not exposed to
+// the browser, so an exported constant would be quietly false in client code.
+// Client code asks the DOM instead, via SUPPORT_CHAT_SCRIPT_ID.
+const supportChatEnabled =
+  process.env.VERCEL_ENV === 'production' ||
+  process.env.VERCEL_ENV === 'preview' ||
+  process.env.NEXT_PUBLIC_SUPPORT_CHAT === '1'
 
 export const metadata = {
   applicationName: 'GoodParty',
@@ -71,13 +89,13 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
       `}
       </Script>
 
-      {SUPPORT_CHAT_ENABLED && (
+      {supportChatEnabled && (
         <>
           {/* The support chat is opened from "Get help" in the dashboard nav,
               not from a launcher hovering over every page. This suppresses the
               launcher and must run before the loader below. Opened via
               @shared/utils/supportWidget. */}
-          <Script id="hs-conversations-settings" strategy="beforeInteractive">
+          <Script id={SUPPORT_CHAT_SCRIPT_ID} strategy="beforeInteractive">
             {'window.hsConversationsSettings = { loadImmediately: false };'}
           </Script>
           <Script
