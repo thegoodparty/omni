@@ -10,7 +10,19 @@ import { HubspotSingleSendService } from '@/crm/hubspotSingleSend.service'
 import { OutreachRobocallService } from '@/outreach/services/outreachRobocall.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { OutreachRobocallHoldService } from '@/outreach/services/outreachRobocallHold.service'
+import { OutreachNotificationService } from '@/outreach/services/outreachNotification.service'
 import { Campaign, RobocallSettleState } from '../../generated/prisma'
+
+// The CAS schedule notice is fire-and-forget, so poll for the background call.
+const waitForCalls = async (
+  spy: { mock: { calls: unknown[] } },
+  count: number,
+  tries = 200,
+): Promise<void> => {
+  for (let i = 0; i < tries && spy.mock.calls.length < count; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+}
 import { calcRobocallTotalInCents } from '@/shared/util/robocallPricing.util'
 
 const service = useTestService()
@@ -25,6 +37,7 @@ let filterId: number
 let deriveSpy: ReturnType<typeof vi.spyOn>
 let trackSpy: ReturnType<typeof vi.spyOn>
 let singleSendSpy: ReturnType<typeof vi.spyOn>
+let notifySpy: ReturnType<typeof vi.spyOn>
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -53,6 +66,12 @@ beforeEach(async () => {
   singleSendSpy = vi
     .spyOn(service.app.get(HubspotSingleSendService), 'sendSingleSend')
     .mockResolvedValue(undefined as never)
+  notifySpy = vi
+    .spyOn(
+      service.app.get(OutreachNotificationService),
+      'notifyRobocallScheduled',
+    )
+    .mockResolvedValue(undefined)
 
   const campaignId = 997
   orgSlug = `campaign-${campaignId}`
@@ -213,6 +232,34 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     // HUBSPOT_ROBOCALL_HOLD_PLACED_EMAIL_ID is unset by default (ENG-11035) —
     // no single-send call, no behavior change from before the cutover.
     expect(singleSendSpy).not.toHaveBeenCalled()
+  })
+
+  it('posts the CAS schedule notice once on authorize and not again on re-auth', async () => {
+    const outreachId = await createDraft({ sendInDays: 2 })
+    deriveSpy.mockResolvedValue(100)
+    paymentMethodsRetrieve.mockResolvedValue({
+      id: 'pm_1',
+      customer: 'cus_test',
+      type: 'card',
+    })
+    paymentIntentsCreate.mockResolvedValue({
+      id: 'pi_hold_1',
+      status: 'requires_capture',
+      capture_before: captureBeforeUnix(),
+    })
+
+    const res = await postAuthorize(outreachId)
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    // Fire-and-forget notice: wait for the background call to land.
+    await waitForCalls(notifySpy, 1)
+    expect(notifySpy).toHaveBeenCalledTimes(1)
+
+    // A second authorize on the now-authorized draft does not re-transition the
+    // spine (already `pending`), so it must not re-post the schedule notice.
+    await postAuthorize(outreachId)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(notifySpy).toHaveBeenCalledTimes(1)
   })
 
   it('sends the HoldPlaced single-send email to the account that authorized, with the held amount', async () => {
