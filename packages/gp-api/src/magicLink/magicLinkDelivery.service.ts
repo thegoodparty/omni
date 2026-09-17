@@ -86,6 +86,23 @@ export class MagicLinkDeliveryService {
         return { smsSent: false, smsError: SMS_NO_SLUG_ERROR }
       }
 
+      // Asked before consent is written rather than discovered after. These
+      // are the two refusals sendSms makes without touching the network —
+      // unconfigured credentials, a number it cannot parse — and both are
+      // systematic: they will refuse the next attempt too. Banking consent
+      // against one records an opt-in for a message that was never going to
+      // exist, and nothing would ever clear it, because `checkConsent` sees
+      // `smsConsentAt` set and stops asking.
+      //
+      // A 4xx from Sinch itself is deliberately NOT in here. That takes a real
+      // request, against a real send, for a lead the rep really did assert
+      // consent for — the same category as the vendor being down, where the
+      // record should stand.
+      const sendable = this.sms.checkSendable(phone)
+      if (!sendable.sendable) {
+        return { smsSent: false, smsError: sendable.error }
+      }
+
       // Only now that a send is certain to be attempted, and before it is:
       // consent has to be on the row BEFORE the first message goes out, never
       // after, or a vendor success plus a failed write leaves a text sent

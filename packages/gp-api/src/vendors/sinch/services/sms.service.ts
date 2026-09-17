@@ -43,25 +43,52 @@ export class SmsService {
   }
 
   /**
-   * Sends a single SMS over the Conversation API's SMS channel. Never throws —
-   * returns a result the caller can surface to the rep, because every current
-   * caller treats delivery as best-effort and still hands back a copyable link.
+   * Whether a send would be attempted at all, with the normalized recipient if
+   * so and the reason if not.
+   *
+   * These are the only two refusals `sendSms` makes without touching the
+   * network, and both are systematic rather than bad luck: unconfigured
+   * credentials and an unparseable number will refuse the next attempt too.
+   * Exposed separately so a caller can ask before doing something it cannot
+   * undo on the strength of a send that was never going to happen — see
+   * MagicLinkDeliveryService, which records consent.
    */
-  async sendSms({ to, body }: SendSmsInput): Promise<SendSmsResult> {
+  checkSendable(
+    to: string,
+  ):
+    | { sendable: true; normalized: string }
+    | { sendable: false; error: string } {
     if (!this.config.isConfigured) {
       return {
-        sent: false,
+        sendable: false,
         error:
           'SMS is not configured (SINCH_PROJECT_ID, SINCH_KEY_ID, SINCH_KEY_SECRET, SINCH_APP_ID and SINCH_FROM_NUMBER are required).',
       }
     }
 
-    let normalized: string
     try {
-      normalized = parsePhoneNumberWithError(to, 'US').number
+      return {
+        sendable: true,
+        normalized: parsePhoneNumberWithError(to, 'US').number,
+      }
     } catch {
-      return { sent: false, error: `'${to}' is not a valid phone number.` }
+      return { sendable: false, error: `'${to}' is not a valid phone number.` }
     }
+  }
+
+  /**
+   * Sends a single SMS over the Conversation API's SMS channel. Never throws —
+   * returns a result the caller can surface to the rep, because every current
+   * caller treats delivery as best-effort and still hands back a copyable link.
+   */
+  async sendSms({ to, body }: SendSmsInput): Promise<SendSmsResult> {
+    // Re-asked rather than assumed, so sendSms is still safe to call directly,
+    // and so the two gates have one implementation between them.
+    const check = this.checkSendable(to)
+    if (!check.sendable) {
+      return { sent: false, error: check.error }
+    }
+    const normalized = check.normalized
 
     // Redirect away from the real recipient in non-prod before any network call,
     // so a misconfigured intercept can't leak a message to a lead.

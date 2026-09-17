@@ -42,6 +42,9 @@ function makeService(overrides?: {
     updateUser: vi.fn().mockResolvedValue(undefined),
   }
   const sms = {
+    checkSendable: vi
+      .fn()
+      .mockReturnValue({ sendable: true, normalized: '+15551234567' }),
     sendSms: vi
       .fn()
       .mockResolvedValue(
@@ -219,6 +222,44 @@ describe('MagicLinkDeliveryService.textActiveLink', () => {
       smsError: SMS_OPTED_OUT_ERROR,
     })
     expect(sms.sendSms).not.toHaveBeenCalled()
+  })
+
+  // The failures that never reach the network, and so would refuse the next
+  // attempt identically. Consent banked against one of these records an opt-in
+  // for a message that was never going to exist — and nothing clears it, since
+  // checkConsent stops asking once smsConsentAt is set.
+  it('does not bank consent when no send could be attempted at all', async () => {
+    for (const error of [
+      'SMS is not configured (SINCH_PROJECT_ID, SINCH_KEY_ID, SINCH_KEY_SECRET, SINCH_APP_ID and SINCH_FROM_NUMBER are required).',
+      "'555' is not a valid phone number.",
+    ]) {
+      const { service, users, sms } = makeService({
+        user: { id: 1, smsConsentAt: null, smsOptedOutAt: null },
+      })
+      sms.checkSendable.mockReturnValue({ sendable: false, error })
+
+      await expect(send(service, { smsConsent: true })).resolves.toEqual({
+        smsSent: false,
+        smsError: error,
+      })
+      expect(users.updateUser).not.toHaveBeenCalled()
+      expect(sms.sendSms).not.toHaveBeenCalled()
+    }
+  })
+
+  // The other side of that line. A vendor failure took a real request against a
+  // real send, for a lead the rep did assert consent for, so the record stands.
+  it('keeps consent when Sinch was reached and refused', async () => {
+    const { service, users } = makeService({
+      user: { id: 1, smsConsentAt: null, smsOptedOutAt: null },
+      sendResult: { sent: false, error: 'Sinch returned 500: boom' },
+    })
+
+    await expect(send(service, { smsConsent: true })).resolves.toEqual({
+      smsSent: false,
+      smsError: 'Sinch returned 500: boom',
+    })
+    expect(users.updateUser).toHaveBeenCalled()
   })
 
   // Order matters in the other direction too: the row has to carry consent
