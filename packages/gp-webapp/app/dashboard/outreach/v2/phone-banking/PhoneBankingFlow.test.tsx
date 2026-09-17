@@ -169,6 +169,14 @@ describe('PhoneBankingFlow', () => {
       status: 200,
       data: [],
     })
+    // Answered so it never reaches the network. Left unhandled it passes
+    // through, fails, and retries on a ~1s backoff, re-rendering the builder
+    // partway through a test. Precinct itself is covered by PrecinctFilter
+    // and usePrecinctOptions.
+    api.mock('GET /v1/contacts/precincts', {
+      status: 200,
+      data: { options: [], truncated: false },
+    })
   })
 
   it('opens the who step with no default audience — Continue is disabled until a list is picked or built', async () => {

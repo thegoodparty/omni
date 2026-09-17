@@ -553,6 +553,14 @@ beforeEach(() => {
       campaignLimit: 5,
     },
   })
+  // Fires as soon as the create flow opens. Answered so it never reaches the
+  // network: left unhandled it passes through, fails, and retries on a ~1s
+  // backoff, re-rendering the who step partway through a test. Precinct
+  // itself is covered by PrecinctFilter and usePrecinctOptions.
+  api.mock('GET /v1/contacts/precincts', {
+    status: 200,
+    data: { options: [], truncated: false },
+  })
 })
 
 describe('NativeDoorKnockingPage voter map', () => {

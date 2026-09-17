@@ -411,6 +411,14 @@ describe('RobocallFlow', () => {
       status: 404,
       data: { message: 'No elected office' },
     })
+    // Answered so it never reaches the network. Left unhandled it passes
+    // through, fails, and retries on a ~1s backoff, re-rendering the builder
+    // partway through a test. Precinct itself is covered by PrecinctFilter
+    // and usePrecinctOptions.
+    api.mock('GET /v1/contacts/precincts', {
+      status: 200,
+      data: { options: [], truncated: false },
+    })
     mockRentNumber()
     mockCompliance()
     // Reset call history + any queued once-implementations between tests, then

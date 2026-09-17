@@ -15,10 +15,12 @@ export const dynamic = 'force-dynamic'
  * with the dashboard, and no `fetchCampaignStatus`/`candidateAccess`
  * dependency, since neither applies to a volunteer.
  *
- * Gated on win-team-accounts AND the viewer's ACTIVE org role: real
- * volunteer memberships aren't creatable yet, so this is a pure safety net
- * today, but it's what keeps a typed /volunteer URL from ever rendering this
- * shell for an owner/manager, or from existing at all with the flag off.
+ * Gated on win-team-accounts AND the viewer's ACTIVE org role. Team invites
+ * create real volunteer memberships behind that same flag (ENG-11049), so the
+ * role half decides what actual people see rather than standing by for a case
+ * that could not arise; it is also what keeps a typed /volunteer URL from
+ * rendering this shell for an owner/manager, or existing at all with the flag
+ * off.
  */
 export default async function VolunteerLayout({
   children,
