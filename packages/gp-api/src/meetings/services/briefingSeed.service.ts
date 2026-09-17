@@ -84,9 +84,22 @@ export class BriefingSeedService extends createPrismaBase(
     // timeout several steps later instead of on the actual reason.
     //
     // The pre-fix bucket/key = "seed" signature is deliberately not
-    // special-cased here. Only CommunityIssueSeedService ever wrote that pair,
+    // special-cased here: only CommunityIssueSeedService ever wrote that pair
     // and it repairs rows carrying it against this same unique constraint, so
-    // a broken row heals there regardless of which seed endpoint is called.
+    // the dev row heals there, on the post-merge run of the community-issues
+    // suite, without this endpoint being involved.
+    //
+    // A row that seed owns does stay refused here, and that is the intended
+    // outcome rather than a gap. The two seeds write disjoint item-id
+    // namespaces into the artifact -- seed-item-N here, caller-supplied
+    // briefingItemIds there -- and CommunityIssueService drops any
+    // MeetingBriefingItemLink whose briefingItemId is absent from the current
+    // artifact. Repointing the row at this endpoint's artifact would therefore
+    // delete the other seed's related-briefing links from every reader with
+    // nothing logged, which is the same silent failure grouping the writes by
+    // date in that service exists to prevent. One (office, date) can only
+    // carry one seed's artifact, so the collision has to surface as an error;
+    // e2e suites avoid it by using distinct meeting dates.
     if (existing && !priorSeedRun) {
       throw new ConflictException(
         'A briefing already exists for this meeting date and was not created by this endpoint',

@@ -96,12 +96,40 @@ export class CommunityIssueSeedService extends createPrismaBase(
       created.map((row) => [`${row.list}::${row.title}`, row]),
     )
 
+    // Group the related briefings by meeting date before writing anything.
+    // There is one artifact object per (office, date) and one row pointing at
+    // it, so two issues naming the same date describe one artifact with two
+    // items — not two artifacts. Writing them one issue at a time meant the
+    // second issue found the row the first had just created, skipped the
+    // upload, and left the object listing only the first item. The link row
+    // for the second was still written, and CommunityIssueService drops links
+    // whose briefingItemId is absent from the artifact, so that issue's
+    // related briefing vanished from every reader with nothing logged.
+    const briefingsByDate = new Map<
+      string,
+      {
+        briefingItemId: string
+        content: string
+        issueId: string
+        list: string
+      }[]
+    >()
     for (const issue of body.issues) {
       if (!issue.relatedBriefing) continue
       const row = idByKey.get(`${issue.list}::${issue.title}`)
       if (!row) continue
       const { meetingDate, briefingItemId, content } = issue.relatedBriefing
+      const forDate = briefingsByDate.get(meetingDate) ?? []
+      forDate.push({
+        briefingItemId,
+        content,
+        issueId: row.id,
+        list: issue.list,
+      })
+      briefingsByDate.set(meetingDate, forDate)
+    }
 
+    for (const [meetingDate, linked] of briefingsByDate) {
       const existing = await this.client.meetingBriefing.findUnique({
         where: {
           electedOfficeId_meetingDate: {
@@ -147,10 +175,18 @@ export class CommunityIssueSeedService extends createPrismaBase(
       // briefing alone means having nothing to upload.
       const artifact = {
         executive_summary: {
-          items: [{ item_id: briefingItemId, content }],
+          items: linked.map((item) => ({
+            item_id: item.briefingItemId,
+            content: item.content,
+          })),
         },
       }
       const artifactKey = `community-issue-seed/${electedOffice.id}/${meetingDate}.json`
+      // Any of the linked issues' runs would do -- the row points at one run
+      // only so the NOT NULL foreign key has a value, and nothing reads a
+      // community-issue run through the briefing. Taking the first keeps it
+      // deterministic when a date spans both lists.
+      const runId = runByList.get(linked[0]!.list) ?? ''
       if (!existing || repairsPreFixPointer) {
         await this.s3.uploadFile(
           SEED_BUCKET,
@@ -172,29 +208,43 @@ export class CommunityIssueSeedService extends createPrismaBase(
           meetingDate: parseIsoDateAsUTC(meetingDate),
           meetingTime: '18:00',
           meetingTimezone: 'America/New_York',
-          experimentRunId: runByList.get(issue.list) ?? '',
+          experimentRunId: runId,
           artifactBucket: SEED_BUCKET,
           artifactKey,
           artifact,
         },
+        // The repair has to move experimentRunId too. The run the broken row
+        // points at carries the same ('seed', 'seed') pair on its own columns,
+        // so leaving it attached means AdminAgentRunsService.detail still fails
+        // for that run and the row still names a run that never published
+        // anything. Repointing at the run this call just created is the only
+        // value here that describes something real.
         update: repairsPreFixPointer
-          ? { artifactBucket: SEED_BUCKET, artifactKey, artifact }
+          ? {
+              artifactBucket: SEED_BUCKET,
+              artifactKey,
+              artifact,
+              experimentRunId: runId,
+            }
           : {},
       })
-      await this.client.meetingBriefingItemLink.upsert({
-        where: {
-          meetingBriefingId_briefingItemId: {
-            meetingBriefingId: briefing.id,
-            briefingItemId,
+
+      for (const item of linked) {
+        await this.client.meetingBriefingItemLink.upsert({
+          where: {
+            meetingBriefingId_briefingItemId: {
+              meetingBriefingId: briefing.id,
+              briefingItemId: item.briefingItemId,
+            },
           },
-        },
-        create: {
-          meetingBriefingId: briefing.id,
-          briefingItemId,
-          communityIssueId: row.id,
-        },
-        update: { communityIssueId: row.id },
-      })
+          create: {
+            meetingBriefingId: briefing.id,
+            briefingItemId: item.briefingItemId,
+            communityIssueId: item.issueId,
+          },
+          update: { communityIssueId: item.issueId },
+        })
+      }
     }
 
     return {

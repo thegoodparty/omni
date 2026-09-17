@@ -704,6 +704,65 @@ describe('POST /v1/community-issues/seed', () => {
     ).toBe(true)
   })
 
+  it('puts every issue sharing a meeting date into the one artifact', async () => {
+    stubS3()
+    const base = seedBody()
+    const body = {
+      issues: [
+        base.issues[0]!,
+        {
+          ...base.issues[1]!,
+          relatedBriefing: {
+            meetingDate: '2026-07-01',
+            briefingItemId: 'item-lighting',
+            content: 'Council discussed street lighting.',
+          },
+        },
+        base.issues[2]!,
+      ],
+    }
+
+    const { data: seeded } = await service.client.post<{
+      issues: { id: string; title: string }[]
+    }>(`${BASE}/seed`, body, eoHeaders())
+
+    // One (office, date) is one artifact object and one row. Uploading per
+    // issue meant the second issue found the row the first had created,
+    // skipped the upload, and left the object listing only item-housing.
+    const briefing = await service.client.get<{
+      executive_summary: { items: { item_id: string; content: string }[] }
+    }>('/v1/meetings/2026-07-01/briefing', eoHeaders())
+    expect(briefing.status).toBe(HttpStatus.OK)
+    expect(briefing.data.executive_summary.items).toEqual([
+      { item_id: 'item-housing', content: 'Council discussed housing.' },
+      {
+        item_id: 'item-lighting',
+        content: 'Council discussed street lighting.',
+      },
+    ])
+
+    // The link row alone was never the problem — it was written before too.
+    // CommunityIssueService drops links whose briefingItemId is absent from
+    // the artifact, so the second issue's related briefing disappeared from
+    // the reader with nothing logged. This is the assertion that catches it.
+    const lightingId = seeded.issues.find(
+      (i) => i.title === 'Street lighting',
+    )?.id
+    expect(lightingId).toBeTruthy()
+    const detailRes = await service.client.get<{
+      relatedBriefings: { briefingItemId: string; meetingDate: string }[]
+    }>(`${BASE}/${lightingId}`, eoHeaders())
+    expect(detailRes.data.relatedBriefings).toHaveLength(1)
+    expect(detailRes.data.relatedBriefings[0]?.briefingItemId).toBe(
+      'item-lighting',
+    )
+
+    const rows = await service.prisma.meetingBriefing.findMany({
+      where: { electedOfficeId: eoId },
+    })
+    expect(rows).toHaveLength(1)
+  })
+
   // Both cases below start from a briefing row that already exists for the
   // date the seed body targets, which is the branch that decides whether this
   // endpoint may overwrite someone else's pointer.
@@ -738,7 +797,7 @@ describe('POST /v1/community-issues/seed', () => {
     stubS3()
     // The exact row shape this service used to write, and the one sitting in
     // the dev database answering every poll with an S3 PermanentRedirect.
-    await seedExistingBriefing('seed', 'seed')
+    const broken = await seedExistingBriefing('seed', 'seed')
 
     await service.client.post(`${BASE}/seed`, seedBody(), eoHeaders())
 
@@ -749,6 +808,17 @@ describe('POST /v1/community-issues/seed', () => {
     expect(repaired.artifactKey).toBe(
       `community-issue-seed/${eoId}/2026-07-01.json`,
     )
+
+    // The run pointer has to move with the columns. The run this row arrived
+    // pointing at carries the same ('seed', 'seed') pair on its own copies, so
+    // a repaired row still attached to it names a run that never published
+    // anything and keeps AdminAgentRunsService.detail failing for that run.
+    expect(repaired.experimentRunId).not.toBe(broken.experimentRunId)
+    const attached = await service.prisma.experimentRun.findUniqueOrThrow({
+      where: { runId: repaired.experimentRunId },
+    })
+    expect(attached.artifactBucket).toBeNull()
+    expect(attached.artifactKey).toBeNull()
 
     // The point of the repair is the endpoint, not the columns: a post-merge
     // e2e run on dev has to be enough to make this request start answering.
