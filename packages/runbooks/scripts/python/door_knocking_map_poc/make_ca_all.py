@@ -13,7 +13,7 @@ Usage: python3 make_ca_all.py   (open /ca_all.html)
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-LOCAL = os.path.join(LOCAL, "local")
+LOCAL = os.path.join(HERE, "local")
 os.makedirs(LOCAL, exist_ok=True)
 
 
