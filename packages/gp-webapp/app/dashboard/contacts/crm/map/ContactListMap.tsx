@@ -62,6 +62,7 @@ export default function ContactListMap({
   // Which multi-resident dot the user opened, if any. A single-resident dot
   // selects its person directly and never lands here.
   const [openPoint, setOpenPoint] = useState<ContactPoint | null>(null)
+  const [basemapBlocked, setBasemapBlocked] = useState(false)
 
   const { points, unmappable } = useMemo(
     () => toContactPoints(people),
@@ -76,6 +77,16 @@ export default function ContactListMap({
       center: [-98, 39],
       zoom: 3,
       attributionControl: false,
+    })
+    // A present-but-rejected key fails differently from a missing one, and
+    // far more confusingly: the deck.gl overlay is independent of the
+    // basemap, so the dots draw normally over blank white and the surface
+    // looks like a half-broken feature rather than a config problem. The
+    // tiles key is domain-restricted (appEnv.ts), so any host not on its
+    // allowlist — every Vercel preview — lands here.
+    map.on('error', (event) => {
+      const status = (event.error as { status?: number } | undefined)?.status
+      if (status === 401 || status === 403) setBasemapBlocked(true)
     })
     map.addControl(
       new maplibregl.AttributionControl({ compact: true }),
@@ -172,6 +183,16 @@ export default function ContactListMap({
         className="h-full w-full"
         data-testid="contact-map"
       />
+
+      {/* Sits over the dots rather than replacing them: the points are real
+          and still worth reading, and hiding them would throw away the half
+          of the map that works. */}
+      {basemapBlocked ? (
+        <div className="absolute inset-x-3 top-3 rounded-md bg-background/95 px-2 py-1 text-center text-xs text-muted-foreground shadow">
+          The background map could not load here. Its tiles key does not allow
+          this domain.
+        </div>
+      ) : null}
 
       {unmappable > 0 ? (
         <div className="absolute left-3 top-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow">
