@@ -348,15 +348,18 @@ export const OutreachAudienceStep = ({
               <Loader2Icon className="size-3.5 animate-spin" />
               Finding your best audiences…
             </div>
-          ) : recommendationsError ? (
-            <p
-              data-testid="recommended-lists-error"
-              className="text-sm text-destructive"
-            >
-              We couldn&apos;t load recommendations right now.
-            </p>
           ) : (
             <div className="space-y-2">
+              {/* The purpose's own cards failed to load; a carried-in card
+                  came from its own query and is still worth showing. */}
+              {recommendationsError && (
+                <p
+                  data-testid="recommended-lists-error"
+                  className="text-sm text-destructive"
+                >
+                  We couldn&apos;t load recommendations right now.
+                </p>
+              )}
               {cards.map((recommendation) => (
                 <RecommendedListCard
                   key={recommendation.variant}

@@ -391,7 +391,10 @@ Three shapes of request, all optional params:
 - **`variant`** — one universe by registry key, regardless of intent, cut for
   the channel if one is given. This is how a flow entered from the voter data
   page fetches the recommendation it arrived with: the purpose the candidate
-  then picks must not hide it.
+  then picks must not hide it. **Held to no size floor, only the zero check**:
+  the candidate already chose it where its global count cleared the floor, a
+  channel's cut can take it under (SMS keeps 58%-74% of a list), and dropping
+  it here would open the flow with nothing.
 
 Returns an ordered array of recommendations. Each carries the unsaved filter
 shape plus everything the card displays:

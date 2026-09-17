@@ -92,7 +92,13 @@ const sizeFloor = (
   channel: RecommendedListChannel | null,
   variant: RecommendedListVariant,
   votesNeededToWin: number | null,
+  explicitlyRequested: boolean,
 ): number => {
+  // The candidate already chose this list on the voter data page, where its
+  // global count cleared the floor. A channel's cut can take it under (SMS
+  // keeps 58%-74% of a list), and dropping it here would open the flow with
+  // nothing — the one thing a carried preselection must never do.
+  if (explicitlyRequested) return NO_FLOOR
   // Three precincts by construction (DOOR_PRECINCT_COUNT), so a door list
   // is sized by precinct size and not by the race. Judging it against a
   // whole race's vote goal would suppress nearly every one.
@@ -118,8 +124,10 @@ const qualifies = (
   channel: RecommendedListChannel | null,
   variant: RecommendedListVariant,
   votesNeededToWin: number | null,
+  explicitlyRequested: boolean,
 ): boolean =>
-  count > 0 && count >= sizeFloor(channel, variant, votesNeededToWin)
+  count > 0 &&
+  count >= sizeFloor(channel, variant, votesNeededToWin, explicitlyRequested)
 
 // Per-contact only, and only on the two paid channels.
 //
@@ -239,6 +247,7 @@ export class RecommendedListsService {
           channel,
           draft,
           votesNeededToWin,
+          variant !== null,
         ),
       ),
     )
@@ -327,6 +336,7 @@ export class RecommendedListsService {
     channel: RecommendedListChannel | null,
     draft: VariantDraft,
     votesNeededToWin: number | null,
+    explicitlyRequested: boolean,
   ): Promise<SizeOutcome> {
     try {
       // The same resolution a saved list gets before it is queried.
@@ -361,6 +371,7 @@ export class RecommendedListsService {
             channel,
             draft.variant,
             votesNeededToWin,
+            explicitlyRequested,
           )
         ) {
           return null
@@ -382,7 +393,13 @@ export class RecommendedListsService {
         scope.filters,
         scope.idOverrides,
       )
-      return qualifies(count, channel, draft.variant, votesNeededToWin)
+      return qualifies(
+        count,
+        channel,
+        draft.variant,
+        votesNeededToWin,
+        explicitlyRequested,
+      )
         ? { ...draft, count }
         : null
     } catch (error) {

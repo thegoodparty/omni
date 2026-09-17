@@ -195,6 +195,57 @@ describe('CreateListFlow — a recommendation carried in on ?recommended=', () =
     ).toHaveTextContent('Voters you have not met')
   })
 
+  // `existingFilterId` names a saved list the picker has to hold before it
+  // can be selected, and the picker's rows arrive from their own query. Apply
+  // too early and the recommendation is built as a new list instead of
+  // selecting the one the candidate already has.
+  it('waits for the picker rows before selecting an existing list', async () => {
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => ({
+      status: 200,
+      data:
+        query.variant === 'persuadeAffinity' ? [EXISTING_RECOMMENDATION] : [],
+    }))
+    const onFiltersChange = vi.fn()
+    const onRecommendedPreselectApplied = vi.fn()
+    const { rerender } = renderAtWho({
+      onFiltersChange,
+      savedLists: [],
+      preselectedRecommendedVariant: 'persuadeAffinity',
+      onRecommendedPreselectApplied,
+    })
+
+    // The card is on screen, nothing has been applied yet.
+    expect(
+      await screen.findByTestId('recommended-list-card'),
+    ).toHaveTextContent('Persuadable independents')
+    expect(onFiltersChange).not.toHaveBeenCalled()
+    expect(onRecommendedPreselectApplied).not.toHaveBeenCalled()
+
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="filters"
+        onFiltersChange={onFiltersChange}
+        savedLists={[
+          {
+            id: 501,
+            name: 'Persuadable independents',
+            households: 900,
+            filters: { partyDemocrat: true },
+          },
+        ]}
+        preselectedRecommendedVariant="persuadeAffinity"
+        onRecommendedPreselectApplied={onRecommendedPreselectApplied}
+      />,
+    )
+
+    // Selected, not rebuilt: the draft carries the saved list's own filters.
+    await waitFor(() =>
+      expect(onFiltersChange).toHaveBeenCalledWith({ partyDemocrat: true }),
+    )
+    expect(onRecommendedPreselectApplied).toHaveBeenCalledTimes(1)
+  })
+
   it('asks for nothing on the Serve surface', async () => {
     const queries: Record<string, unknown>[] = []
     api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => {

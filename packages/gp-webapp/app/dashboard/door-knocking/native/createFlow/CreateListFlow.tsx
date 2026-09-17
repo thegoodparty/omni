@@ -671,20 +671,37 @@ export default function CreateListFlow({
     refetchOnWindowFocus: false,
   })
   const preselectedRecommendation = preselectedRecommendationQuery.data ?? null
-  // Applied once per mount, as `preselectApplied` is for the list above; the
-  // page spends it across mounts through onRecommendedPreselectApplied. The
-  // recommendation is kept here once applied: spending it drops the prop, and
-  // with it the query above, while the card still has to be on screen.
+  // Held here the moment it arrives, so the card is on screen whatever else
+  // happens: applying it spends the page's param, which drops the prop and
+  // with it the query above.
   const [carriedRecommendation, setCarriedRecommendation] =
     useState<RecommendedList | null>(null)
   useEffect(() => {
     if (carriedRecommendation || !preselectedRecommendation) return
     setCarriedRecommendation(preselectedRecommendation)
-    applyRecommendation(preselectedRecommendation)
+  }, [carriedRecommendation, preselectedRecommendation])
+  // Applied once per mount, as `preselectApplied` is for the list above; the
+  // page spends it across mounts through onRecommendedPreselectApplied. One
+  // that names a saved list waits for the picker's own rows the way the
+  // `?listId=` arrival does — `applyRecommendation` reads that row for the
+  // draft's filters, and applying before it arrives would build the list a
+  // second time instead of selecting the one the candidate already has.
+  const recommendedPreselectApplied = useRef(false)
+  useEffect(() => {
+    if (recommendedPreselectApplied.current || !carriedRecommendation) return
+    const { existingFilterId } = carriedRecommendation
+    if (
+      existingFilterId !== null &&
+      !savedLists.some((list) => list.id === existingFilterId)
+    ) {
+      return
+    }
+    recommendedPreselectApplied.current = true
+    applyRecommendation(carriedRecommendation)
     onRecommendedPreselectApplied?.()
   }, [
     carriedRecommendation,
-    preselectedRecommendation,
+    savedLists,
     applyRecommendation,
     onRecommendedPreselectApplied,
   ])

@@ -892,6 +892,40 @@ describe('RecommendedListsService.recommend', () => {
       expect(countForFilter).not.toHaveBeenCalled()
     })
 
+    // The candidate already chose this list on the voter data page, where
+    // its global count cleared the floor. The channel cut can take it under
+    // the floor (SMS keeps 58%-74% of a list), and dropping it here would open
+    // the flow with nothing — the one thing a carried preselection must not do.
+    it('is held to no size floor, only the zero check', async () => {
+      countForFilter.mockResolvedValue(FLOOR - 1)
+
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        null,
+        'persuadeAffinity',
+      )
+
+      expect(results.map((result) => result.variant)).toEqual([
+        'persuadeAffinity',
+      ])
+    })
+
+    it('still drops a variant that counts nobody', async () => {
+      countForFilter.mockResolvedValue(0)
+
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        null,
+        'persuadeAffinity',
+      )
+
+      expect(results).toEqual([])
+    })
+
     it('returns nothing for an ideology variant with no bucket', async () => {
       const results = await service.recommend(
         organization,

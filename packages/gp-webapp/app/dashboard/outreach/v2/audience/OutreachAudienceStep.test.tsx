@@ -250,6 +250,22 @@ describe('OutreachAudienceStep — a preselected recommendation', () => {
     expect(screen.getByTestId('recommended-list-card')).toBeInTheDocument()
   })
 
+  it('keeps the carried card on screen when the purpose query fails', () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        recommendationsError
+        preselectedRecommendation={RECOMMENDATION}
+        preselectedRecommendationApplied
+      />,
+    )
+
+    expect(screen.getByTestId('recommended-lists-error')).toBeInTheDocument()
+    expect(screen.getByTestId('recommended-list-card')).toHaveTextContent(
+      'Persuadable independents',
+    )
+  })
+
   it('does not list the carried card twice when the purpose already offers it', () => {
     render(
       <OutreachAudienceStep
