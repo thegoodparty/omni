@@ -725,6 +725,30 @@ describe('DomainsService', () => {
       )
     })
 
+    it('bounds concurrent availability checks to the batch size', async () => {
+      // Route53 Domains throttles account-wide; an unbounded fanout drains
+      // the token bucket and 502s the purchase call that follows.
+      let inFlight = 0
+      let maxInFlight = 0
+      mockRoute53.checkDomainAvailability.mockImplementation(async () => {
+        inFlight++
+        maxInFlight = Math.max(maxInFlight, inFlight)
+        await Promise.resolve()
+        inFlight--
+        return { Availability: DomainAvailability.AVAILABLE }
+      })
+      mockVercel.checkDomainPrice.mockResolvedValue({ price: 5 })
+
+      await service.searchDomainsForCampaign(
+        campaignWithUser,
+        ['voteoneill', 'oneillwins'],
+        10,
+      )
+
+      expect(mockRoute53.checkDomainAvailability).toHaveBeenCalledTimes(12)
+      expect(maxInFlight).toBeLessThanOrEqual(5)
+    })
+
     it('does not fan out patterns that already include a TLD', async () => {
       mockRoute53.checkDomainAvailability.mockResolvedValue({
         Availability: DomainAvailability.AVAILABLE,
