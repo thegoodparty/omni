@@ -109,6 +109,21 @@ jobs:
           # deliberately NOT a gap. That is a blocker waiting on its author, and
           # nagging about it here would make this alert the thing people mute.
           #
+          # THE APPROVED EXCLUSION IS NOT COMMIT-AWARE, ON PURPOSE. The ruleset
+          # sets dismiss_stale_reviews_on_push:false and require_last_push_
+          # approval:false, so an approval survives a later push and keeps
+          # satisfying required_approving_review_count:1. Such a PR is merge-
+          # ABLE, which is the one thing this job screens for, so reporting it
+          # would be a false alarm by this file's own definition. #1260 is the
+          # live proof: approved at 095eb78c4, head 7cd84ad39, and GitHub calls
+          # it APPROVED/CLEAN today.
+          #
+          # That does leave a real hole — #1260 can merge carrying an approval
+          # for code nobody read, and #275, #265 and #234 are the same shape —
+          # but it is a review-integrity problem, not a stuck-PR problem, and
+          # the remedy is a ruleset setting rather than a Slack ping. Out of
+          # scope here deliberately, not by oversight.
+          #
           # `.reviews[].state` here is GraphQL's, which is why the author login
           # in it is bare while REVIEWER below carries `[bot]` — the two halves
           # of this job read two different APIs. See gpbot-stale-pr-alert.yml.
