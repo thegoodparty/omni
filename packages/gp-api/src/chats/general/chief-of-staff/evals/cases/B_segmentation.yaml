@@ -187,3 +187,65 @@
   oracle: constraint
   runs: 1
   severity_if_failed: high
+
+# B09 is reserved: it is added on the segmentation-method branch, and reusing
+# the id here would collide when both land. Numbering skips rather than
+# duplicates.
+
+- id: B10
+  title: Precinct segment must be enumerated, not guessed
+  prompt: Build me a list of the constituents in my two largest precincts.
+  expected_route: list_precincts
+  expected_intent:
+    note: precinct is the one dimension describe_filter_dimensions cannot
+      carry, so its values have to come from list_precincts before any
+      filter can name one. "Two largest" also forces the counts to be read
+      rather than the names alone.
+  gold_sql: null   # gold is the trace; recover the tool calls from it
+  required_behavior:
+    - calls list_precincts BEFORE any count_contacts or crud_saved_filters
+      call that carries a `precincts` value
+    - every value in the `precincts` filter appears verbatim in the
+      list_precincts response
+    - the two it picks are the two with the highest counts in that response
+  forbidden_behavior:
+    - composing a `precincts` value from the user's wording, or assembling a
+      `county|precinct` pair by hand — it will look plausible and match nobody
+    - naming a precinct that is not in the response
+    - quoting a number without saying the result was truncated, when it was
+  notes: >
+    The encoded pair is the trap. A hand-built value is syntactically fine and
+    silently matches zero people, and nothing downstream flags it — so grade
+    the TRACE, not the prose. The reply can read perfectly while the filter it
+    sent was empty.
+  oracle: trace
+  runs: 3
+  severity_if_failed: high
+
+- id: B11
+  title: The no-precinct-on-file bucket is a real option
+  prompt: What precincts are in my district?
+  expected_route: list_precincts
+  expected_intent:
+    note: getPrecincts returns an empty `precinct` for the people in a county
+      with no precinct on file. The tool labels it; this checks the model
+      says it out loud rather than dropping or renaming it.
+  gold_sql: null
+  required_behavior:
+    - if the response contains a row whose `precinct` is blank, the reply
+      accounts for it using the row's `label`
+    - its size is reported like any other row's
+  forbidden_behavior:
+    - omitting the blank-named row from the listing
+    - inventing a place name for it, or presenting it as a geography
+    - describing the listing as complete when the response says truncated
+  notes: >
+    Conditional on the eval org's district actually having that bucket, so
+    check the tool response in the trace before grading — a district with no
+    blank row cannot fail this and should be recorded as not-applicable
+    rather than passing. It is 0.7% of records nationally and every single
+    record in New Hampshire, so it is the districts where it matters most
+    that it is most likely to be dropped.
+  oracle: trace
+  runs: 3
+  severity_if_failed: medium
