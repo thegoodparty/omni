@@ -1,3 +1,4 @@
+import * as aws from '@pulumi/aws'
 import * as pulumi from '@pulumi/pulumi'
 import * as grafana from '@pulumiverse/grafana'
 import { Alert } from './alerting/alerts.types'
@@ -26,6 +27,56 @@ const datasourceConfig = {
 } as const
 
 /**
+ * Where the alert filter answers, per environment.
+ *
+ * PROD ONLY, and that is not an omission. One Lambda serves both environments'
+ * alerts — a notification carries its own `environment` label, which the
+ * handler reads — so `environments/dev/alert-filter` does not exist and there
+ * is no dev endpoint to point at. A dev deploy therefore skips the contact
+ * point, loudly, rather than provisioning one aimed at a host that would 404.
+ *
+ * The path must equal the ALB listener rule's `path_pattern` in
+ * prod/shared-infra (priority 25). Two places, because Pulumi and Terraform
+ * own separate state and cannot share a constant; `grafana.test.ts` reads the
+ * Terraform and fails if they drift, which is the only thing making the
+ * duplication safe rather than merely conventional.
+ */
+export const ALERT_FILTER_WEBHOOK_URLS: Record<string, string> = {
+  prod: 'https://ai.goodparty.org/grafana/alert-webhook',
+}
+
+/**
+ * The webhook's shared secret, from the bundle the filter Lambda reads.
+ *
+ * Returns empty rather than throwing when the key is absent, so that a deploy
+ * of everything else still succeeds and says what is missing. Throwing would
+ * make one unset key fail the whole gp-api deploy, which is a much worse
+ * outcome than alerts continuing to route the way they route today.
+ */
+const alertFilterWebhookSecret = async (
+  environment: string,
+): Promise<string> => {
+  const secretId = `AI_SECRETS_${environment.toUpperCase()}`
+  try {
+    const version = await aws.secretsmanager.getSecretVersion({ secretId })
+    // JSON.parse returns any; this bundle is a flat string map by construction,
+    // and the only key read from it here is checked by the caller.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    const bundle = JSON.parse(version.secretString || '{}') as Record<
+      string,
+      string
+    >
+    return bundle.WEBHOOK_SECRET || ''
+  } catch (error) {
+    pulumi.log.warn(
+      `Could not read ${secretId} for the alert filter webhook secret: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
+    )
+    return ''
+  }
+}
+
+/**
  * A contact point that posts every notification to the gpbot alert filter
  * instead of straight to Slack.
  *
@@ -47,9 +98,35 @@ const datasourceConfig = {
  * `maxAlerts` below is the other half of that: it bounds the blast radius of
  * one enormous grouped delivery rather than letting it time the webhook out.
  */
-const alertFilterContactPoint = ({ environment }: { environment: string }) => {
-  const url = process.env.ALERT_FILTER_WEBHOOK_URL
-  const secret = process.env.ALERT_FILTER_WEBHOOK_SECRET
+const alertFilterContactPoint = async ({
+  environment,
+}: {
+  environment: string
+}) => {
+  // DERIVED, not configured. This used to read ALERT_FILTER_WEBHOOK_URL from
+  // the deploy environment, which meant the resource could not be created by CI
+  // at all: nothing sets that variable, so every prod deploy logged the warning
+  // below and skipped, and the feature sat dark waiting on a human to export
+  // something. The address is not a deployment choice — it is the ALB listener
+  // rule in prod/shared-infra, at priority 25, whose path is fixed in the
+  // Terraform beside it. A constant here and a path there can disagree, so the
+  // path is stated once in each and the pairing is what the rollout check
+  // verifies; there is no third place it can drift to.
+  const url = ALERT_FILTER_WEBHOOK_URLS[environment]
+
+  // FROM THE SAME BUNDLE THE LAMBDA READS, rather than a second copy in a
+  // second place that has to be kept equal to the first. The handler compares
+  // the basic-auth password against AI_SECRETS_<ENV>.WEBHOOK_SECRET, so that is
+  // the value, and two bundles holding it would mean a silent auth failure the
+  // day one is rotated and the other is not.
+  //
+  // Not generated in Terraform either, though that would need no human at all,
+  // because the handler's `secret()` documents the invariant it is protecting:
+  // these credentials never appear in Lambda environment variables, where
+  // `get-function-configuration` shows them to anyone with Lambda read access,
+  // nor in Terraform state, where they sit in plaintext in S3. A
+  // `random_password` resource is exactly Terraform state.
+  const secret = await alertFilterWebhookSecret(environment)
   // Skipped rather than defaulted when unconfigured. A contact point pointing
   // at the wrong URL is worse than an absent one: absent fails at provision
   // time, where somebody is watching, while wrong fails silently the first time
@@ -63,9 +140,14 @@ const alertFilterContactPoint = ({ environment }: { environment: string }) => {
   if (!url || !secret) {
     pulumi.log.warn(
       `gpbot-alert-filter contact point NOT created for ${environment}: ` +
-        `${!url ? 'ALERT_FILTER_WEBHOOK_URL' : 'ALERT_FILTER_WEBHOOK_SECRET'} is unset. ` +
-        `Alerts keep routing wherever they route today, which is safe. ` +
-        `Set both in the deploy environment to provision it — see gp-ai/alert_filter/README.md.`,
+        (!url
+          ? `no webhook URL is known for this environment. The filter is a ` +
+            `single prod stack serving both environments' alerts, so only the ` +
+            `environments in ALERT_FILTER_WEBHOOK_URLS have one.`
+          : `WEBHOOK_SECRET is not set in AI_SECRETS_${environment.toUpperCase()}. ` +
+            `Add it there — the same bundle and key the filter Lambda reads — ` +
+            `and redeploy. See gp-ai/alert_filter/README.md.`) +
+        ` Alerts keep routing wherever they route today, which is safe.`,
     )
     return undefined
   }
@@ -249,7 +331,7 @@ export const createGrafanaResources = async ({
     title: `${environment.toUpperCase()} Alerts (provisioned via gp-api)`,
   })
 
-  alertFilterContactPoint({ environment })
+  await alertFilterContactPoint({ environment })
 
   const alertToRule = (
     alert: Alert,
