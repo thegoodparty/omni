@@ -114,6 +114,19 @@ const matches = (matcher: ObjectMatcher, labels: Record<string, string>) => {
  * this wrong in either direction would make the guard lie — too eager and it
  * reports misrouting that does not happen, too lax and it misses the case it
  * was written for.
+ *
+ * A MATCHING `continue` ROUTE IS STILL A DELIVERY, which is the subtle half.
+ * Alertmanager's `Route.Match` appends the matched child and only falls back to
+ * the node itself when nothing below it matched at all, so a `continue` child
+ * with no matching sibling after it delivers to its own receiver, not to its
+ * parent's. Falling back to the parent there would report a route as harmless
+ * precisely when it is the only thing handling the alert.
+ *
+ * Simplification worth naming: Alertmanager delivers to *every* route a
+ * `continue` chain matches, so its answer is a set. This returns the last one,
+ * which is enough for the tree this guards (no `continue` routes at all today)
+ * but would under-report a fan-out to several receivers. The snapshot test is
+ * what would notice such a route being added.
  */
 export const receiverFor = (
   tree: PolicyTree,
@@ -121,6 +134,7 @@ export const receiverFor = (
 ): string => {
   const walk = (route: PolicyRoute, inherited: string): string => {
     const receiver = route.receiver || inherited
+    let continued: string | undefined
 
     for (const child of route.routes ?? []) {
       const applies = (child.object_matchers ?? []).every((matcher) =>
@@ -130,9 +144,10 @@ export const receiverFor = (
 
       const resolved = walk(child, receiver)
       if (!child.continue) return resolved
+      continued = resolved
     }
 
-    return receiver
+    return continued ?? receiver
   }
 
   return walk(tree, tree.receiver)

@@ -17,6 +17,7 @@ import {
   misroutedAlerts,
   PolicyTree,
 } from './alerting/alert-routing'
+import { provisionedAlertSlugs } from './alerting/provisioned-alerts'
 import { personProfilesDashboardConfigJson } from './personProfilesDashboard'
 import { CONTROLLER_NAMES } from '../../src/generated/route-types'
 
@@ -447,12 +448,7 @@ export const createGrafanaResources = async ({
 
   await checkAlertRouting({
     environment,
-    slugs: [
-      ...GLOBAL_ALERTS.map((alert) => alert.slug),
-      ...CONTROLLER_NAMES.flatMap((controller) =>
-        controllerAlerts(controller).map((alert) => alert.slug),
-      ),
-    ],
+    slugs: provisionedAlertSlugs(),
   })
 
   const alertToRule = (

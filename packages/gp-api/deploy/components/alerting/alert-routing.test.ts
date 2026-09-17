@@ -7,9 +7,7 @@ import {
   PolicyTree,
   receiverFor,
 } from './alert-routing'
-import { GLOBAL_ALERTS } from '../alerts'
-import { controllerAlerts } from './controller-alerts'
-import { CONTROLLER_NAMES } from '../../../src/generated/route-types'
+import { provisionedAlertSlugs } from './provisioned-alerts'
 
 const POLICY: PolicyTree = JSON.parse(
   readFileSync(join(__dirname, 'alert-routing.policy.json'), 'utf8'),
@@ -18,12 +16,7 @@ const POLICY: PolicyTree = JSON.parse(
   // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 ) as PolicyTree
 
-const allSlugs = () => [
-  ...GLOBAL_ALERTS.map((alert) => alert.slug),
-  ...CONTROLLER_NAMES.flatMap((controller) =>
-    controllerAlerts(controller).map((alert) => alert.slug),
-  ),
-]
+const allSlugs = provisionedAlertSlugs
 
 describe('routing every provisioned alert', () => {
   it('delivers all of them to an expected receiver in prod', () => {
@@ -183,6 +176,27 @@ describe('matcher semantics', () => {
     } as PolicyTree
 
     expect(receiverFor(continues, { k: 'v' })).toBe('second')
+  })
+
+  // The other half of `continue`, and the one that can mask a misrouting: when
+  // nothing after it matches, the continued route is itself the delivery point.
+  // Alertmanager only falls back to the parent when no child matched at all.
+  it('still delivers to a continue route when no sibling follows', () => {
+    const lone: PolicyTree = {
+      receiver: 'default',
+      routes: [
+        {
+          receiver: 'first',
+          object_matchers: [['k', '=', 'v']],
+          continue: true,
+        },
+      ],
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    } as PolicyTree
+
+    expect(receiverFor(lone, { k: 'v' })).toBe('first')
+    // Nothing matched below, so the parent is still the answer here.
+    expect(receiverFor(lone, { k: 'other' })).toBe('default')
   })
 
   it('lets a nested route override its parent', () => {
