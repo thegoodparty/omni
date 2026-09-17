@@ -20,6 +20,7 @@ import {
   buildQueryConstituentDataTool,
 } from '@/llm/tools/queryConstituentData.tool'
 import type { ConstituentTableConfig } from '../chief-of-staff/services/constituentDataScope'
+import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
 import { buildWinConstituentDataScope } from './services/constituentDataScope'
 import {
   ChatScopeHandler,
@@ -489,6 +490,13 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     }
 
     return tools
+  }
+
+  // Tier-1 deterministic backstop: if a turn gave professional-domain advice
+  // (texting/robocall consent, campaign finance, filing deadlines) but
+  // skipped the disclaimer, append it. See professionalAdviceCheck.ts.
+  finalizeAssistantText(text: string): string | null {
+    return professionalAdviceDisclaimer(text)
   }
 
   // Kicks off Campaign Story intake without a model round-trip when the

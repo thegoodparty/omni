@@ -18,7 +18,7 @@ import {
 } from './services/chiefOfStaffContext.service'
 import { ChiefOfStaffBriefingsService } from './services/chiefOfStaffBriefings.service'
 import { buildChiefOfStaffSystemPrompt } from './services/chiefOfStaffPrompt'
-import { professionalAdviceDisclaimer } from './services/professionalAdviceCheck'
+import { professionalAdviceDisclaimer } from '../services/professionalAdviceCheck'
 import {
   buildConstituentDataScope,
   ConstituentTableConfig,
