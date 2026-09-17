@@ -3,152 +3,177 @@ import { Alert, SlackGroup } from './alerting/alerts.types'
 import { geoapifyBudgetAlerts } from './alerting/geoapify-budget-alerts'
 
 /**
- * Map of slack group to controllers.
+ * Which product's users each controller serves, and therefore who hears about
+ * it when it breaks.
  *
  * Being in here is what enables a controller's generated route alert at all —
- * `controllerAlerts` ends with `disabled: !slackGroupName`. That has been true
- * since 2026-03-01, and the map was seeded on 2026-03-05 with the five
- * `serve-bugs` entries below and an empty `win-bugs`. In the six months since,
- * one controller has been added (`door-knocking`, ahead of its pilot) while
- * gp-api went from 40 controllers to 99. So the coverage below is not a set of
- * decisions about what needs watching; it is where two teams happened to opt
- * in once, and every controller written since has been born silent.
+ * `controllerAlerts` ends with `disabled: !owners.length`. That has been true
+ * since 2026-03-01, and the map was seeded on 2026-03-05 with five `serve-bugs`
+ * entries and an empty `win-bugs`. It gained exactly one entry in the six months
+ * after, while gp-api went from 40 `@Controller` decorators to 99 — so what used
+ * to be here was not a set of decisions about what needs watching, it was where
+ * two teams happened to opt in once. 320 of 382 routes could not report their
+ * own failure, which is how GET /v1/public-person-profiles/voter-density served
+ * 1,498,324 consecutive 500s over four days without paging anyone.
  *
- * The group split is also no longer real — it is one team now. Collapsing
- * these two keys into a single rotation is wanted, and is deliberately NOT
- * done here: it changes who is paged for everything in one commit, which is
- * its own change with its own blast radius. Until then, which key a controller
- * sits under carries less meaning than the fact that it sits under one.
+ * One line per controller, rather than two lists to keep in sync: a fifth of
+ * these are owned by both products, and expressing that as membership in two
+ * arrays means 22 entries duplicated by hand. ALERT_OWNERSHIP is derived below
+ * and keeps its old shape, so nothing downstream changes.
+ *
+ * `BOTH` is the honest answer for a shared surface, not a hedge. Auth, users,
+ * payments and websites are used by both products, and naming one owner means
+ * the other finds out second-hand. It is also the safe direction to be wrong in:
+ * over-tagging costs someone a glance, under-tagging costs an outage.
+ *
+ * The assignments come from guards and module docs rather than from names —
+ * `@UseCampaign()` for Win, `@UseElectedOffice()` for Serve, an explicit `eo-`
+ * organization rejection, or an AGENTS.md that says outright who a feature is
+ * for. Three are weaker and worth revisiting if they ever page the wrong team:
+ * `content` (mixed content types, no webapp caller), `subscribe` (no caller in
+ * the monorepo at all — presumably the marketing site), and the two public
+ * controllers, whose callers live in gp-marketing.
+ *
+ * The group split is itself on the way out — it is one team now, and a single
+ * rotation is wanted. That is deliberately NOT done here, because it changes
+ * who is paged for everything in one commit. Until then, which key a controller
+ * sits under matters less than that it sits under one.
  */
+const SERVE = 'serve-bugs' satisfies SlackGroup
+const WIN = 'win-bugs' satisfies SlackGroup
+const BOTH = [SERVE, WIN] satisfies SlackGroup[]
+
+const CONTROLLER_OWNERS: Partial<
+  Record<ControllerName, readonly SlackGroup[]>
+> = {
+  // Serve — officeholders governing. Almost all of these carry
+  // `@UseElectedOffice()`; the briefing, ordinance and annotation surfaces are
+  // the Chief of Staff product.
+  'elected-office': [SERVE],
+  polls: [SERVE],
+  contacts: [SERVE],
+  'contact-engagement': [SERVE],
+  organizations: [SERVE],
+  'dashboard/cards': [SERVE],
+  'dashboard/onboarding-cards': [SERVE],
+  'organizations/:slug/ordinance-code': [SERVE],
+  'outreach/serve': [SERVE],
+  priorities: [SERVE],
+  'admin/briefings': [SERVE],
+  'admin/elected-office': [SERVE],
+  annotations: [SERVE],
+  'meetings/:date/briefing/annotations': [SERVE],
+  'ordinances/:slug/annotations': [SERVE],
+  'meetings/:date/briefing/feedback': [SERVE],
+  'meetings/:date/briefing/items/:itemId/feedback': [SERVE],
+  'meetings/:date/briefing/review-verdict': [SERVE],
+  'community-issues': [SERVE],
+  briefings: [SERVE],
+  meetings: [SERVE],
+  ordinances: [SERVE],
+  'briefing-chats': [SERVE],
+  speech: [SERVE],
+
+  // Win — candidates campaigning. `@UseCampaign()`, a CampaignOwner guard, or a
+  // Prisma model that only relates to `Campaign`.
+  'door-knocking': [WIN],
+  campaigns: [WIN],
+  'campaign-plan-shares': [WIN],
+  'campaigns/mine/story': [WIN],
+  campaignStrategy: [WIN],
+  crm: [WIN],
+  'organizations/team': [WIN],
+  outreach: [WIN],
+  'outreach/admin/sms': [WIN],
+  'campaigns/mine/race-opponent': [WIN],
+  'campaigns/mine/recommended-lists': [WIN],
+  'campaigns/tracker-tasks': [WIN],
+  'campaigns/:id/positions': [WIN],
+  'campaigns/tasks': [WIN],
+  'campaigns/tcr-compliance': [WIN],
+  'campaigns/mine/update-history': [WIN],
+  'admin/campaign': [WIN],
+  'admin/campaigns': [WIN],
+  positions: [WIN],
+  ecanvasser: [WIN],
+  p2p: [WIN],
+  domains: [WIN],
+  websites: [WIN],
+  'campaigns/ai/chat': [WIN],
+  'campaigns/ai': [WIN],
+
+  // Shared. Platform surfaces, onboarding steps both flows render, and the two
+  // dual-product profile features.
+  authentication: BOTH,
+  content: BOTH,
+  elections: BOTH,
+  experiment: BOTH,
+  'onboarding/contacts': BOTH,
+  'onboarding/local-news': BOTH,
+  'onboarding/voter-issues': BOTH,
+  payments: BOTH,
+  'payments/purchase': BOTH,
+  'phone-banking': BOTH,
+  subscribe: BOTH,
+  'top-issues': BOTH,
+  users: BOTH,
+  'admin/agent-runs': BOTH,
+  'admin/users': BOTH,
+  eligibility: BOTH,
+  'person-profiles': BOTH,
+  'public-person-profiles': BOTH,
+  'public-campaigns': BOTH,
+  'speech/transcribe': BOTH,
+  'voters/voter-file': BOTH,
+  chats: BOTH,
+  'error-logger': BOTH,
+}
+
+const ownedBy = (group: SlackGroup): ControllerName[] =>
+  (Object.keys(CONTROLLER_OWNERS) as ControllerName[]).filter((controller) =>
+    CONTROLLER_OWNERS[controller]?.includes(group),
+  )
+
+/** Map of slack group to controllers, derived from {@link CONTROLLER_OWNERS}. */
 export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
-  'serve-bugs': [
-    'elected-office',
-    'polls',
-    'contacts',
-    'contact-engagement',
-    'organizations',
-    // The two public controllers behind the marketing site. Added after the
-    // 2026-08 voter-density outage, and grouped here only because one of the
-    // two existing keys had to be picked — see the note above.
-    //
-    // They also keep their hand-written ratio rules in GLOBAL_ALERTS, which do
-    // a different job: the generated rule answers "did anything fail" within a
-    // minute, the ratio rule answers "is this route substantially broken" and
-    // carries the known causes. A real outage trips both, which is two
-    // notifications for one event — accepted, because the generated rule is
-    // the one that catches a first error fast and the ratio rule is the one
-    // that survives the volume growing.
-    'public-campaigns',
-    'public-person-profiles',
-  ],
-  'win-bugs': ['door-knocking'],
+  'serve-bugs': ownedBy(SERVE),
+  'win-bugs': ownedBy(WIN),
 }
 
 /**
- * Controllers whose generated route alert is provisioned `disabled`, because
- * nothing in ALERT_OWNERSHIP claims them.
+ * Controllers deliberately left without a route alert.
  *
- * This list does not change what is alerted on. It exists so that the silence
- * is written down: `controllerAlerts` sets `disabled: !slackGroupName`, so
- * until now a controller was opted out of alerting by nobody ever mentioning
- * it, and nothing anywhere recorded that this had happened or to how many.
+ * Every other controller is now owned in CONTROLLER_OWNERS above. This list is
+ * what is left over, and it is short on purpose — each entry is a claim that
+ * failure here is not worth waking anyone for, and the tests make a new
+ * controller land in one place or the other rather than defaulting to silence.
  *
- * It is 68 of the 76 controllers that answer anything — and controllers are
- * the wrong unit to count in, because they hold several routes each. In routes
- * it is 320 of 382, so roughly 84% of the API cannot report its own failure.
- * Count in routes when quoting this; per-controller reads far smaller than it
- * is.
+ * `health` is covered better elsewhere. `health-check-probe-failure` watches it
+ * with a synthetic probe from outside, which tests reachability rather than just
+ * whether the handler threw, so a log-based route alert on the same endpoint
+ * would duplicate it and add nothing.
  *
- * The cost of that default is measurable. GET /v1/public-person-profiles
- * /voter-density served 1,498,324 consecutive 500s between 2026-08-24 and
- * 2026-08-28 — every request it received, for four days — and paged nobody,
- * because its controller was on this list. It was noticed a fortnight later
- * while reading unrelated logs, and it stopped when the table it reads was
- * created rather than when anyone responded.
+ * `test-fixtures` returns 404 outside dev and preview, so prod traffic to it is
+ * by definition not ours; paging on it means paging for a broken test, which CI
+ * already reports.
  *
- * So the point of the list is the test that reads it: a NEW controller has to
- * appear here or in ALERT_OWNERSHIP, and a reviewer sees which one the author
- * chose. Being on it is a statement that no route alert is wanted, not that
- * none was considered. That matters more than the list's current contents:
- * gp-api roughly doubled after the ownership map was seeded — 40 `@Controller`
- * decorators then, 99 now — and the map gained exactly one entry over the same
- * period, so most of what is below arrived by default rather than by decision.
+ * `version` echoes the build version and `queue` is a method literally named
+ * `testQueue()` that enqueues a hardcoded `test-slug` — a development poke, not
+ * a product route. Nothing downstream depends on either answering.
  *
- * Shortening this list is the work, and it is not gated on the generated rule
- * being the right tool: for the two public controllers it was not, and they
- * got hand-written ratio rules AND an owner. Anything user-facing still on
- * this list is an endpoint that can fail completely without telling anyone.
+ * `mcp` is here for a different reason: it has no entries in ROUTE_MAP, so
+ * `controllerAlerts` returns nothing for it and there is no rule to enable. It
+ * is listed so the coverage test can account for it, not because a decision was
+ * made about it. That it serves real traffic — 19 no-status timeouts on
+ * POST /v1/mcp in prod over 30 days — while being invisible to the route-type
+ * generator is a separate gap, and one this list cannot close.
  */
 export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
-  'authentication',
-  'campaigns',
-  'campaign-plan-shares',
-  'campaigns/mine/story',
-  'campaignStrategy',
-  'content',
-  'crm',
-  'dashboard/cards',
-  'dashboard/onboarding-cards',
-  'elections',
-  'error-logger',
-  'experiment',
   'health',
-  'version',
-  'mcp',
-  'onboarding/contacts',
-  'onboarding/local-news',
-  'onboarding/voter-issues',
-  'organizations/:slug/ordinance-code',
-  'organizations/team',
-  'outreach',
-  'outreach/serve',
-  'outreach/admin/sms',
-  'payments',
-  'payments/purchase',
-  'phone-banking',
-  'priorities',
-  'campaigns/mine/race-opponent',
-  'campaigns/mine/recommended-lists',
-  'subscribe',
   'test-fixtures',
-  'top-issues',
-  'users',
-  'admin/agent-runs',
-  'admin/briefings',
-  'admin/campaign',
-  'admin/campaigns',
-  'admin/elected-office',
-  'admin/users',
-  'annotations',
-  'meetings/:date/briefing/annotations',
-  'ordinances/:slug/annotations',
-  'meetings/:date/briefing/feedback',
-  'meetings/:date/briefing/items/:itemId/feedback',
-  'meetings/:date/briefing/review-verdict',
-  'campaigns/tracker-tasks',
-  'eligibility',
-  'campaigns/:id/positions',
-  'campaigns/tasks',
-  'campaigns/tcr-compliance',
-  'campaigns/mine/update-history',
-  'community-issues',
-  'briefings',
-  'meetings',
-  'ordinances',
-  'person-profiles',
+  'version',
   'queue',
-  'speech/transcribe',
-  'speech',
-  'positions',
-  'ecanvasser',
-  'p2p',
-  'voters/voter-file',
-  'domains',
-  'websites',
-  'campaigns/ai/chat',
-  'campaigns/ai',
-  'briefing-chats',
-  'chats',
+  'mcp',
 ]
 
 /**

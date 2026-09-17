@@ -342,6 +342,53 @@ describe('every controller is accounted for', () => {
     ).toEqual([])
   })
 
+  // The new shape's own silent default. `disabled` is derived from how many
+  // groups own a controller, so an entry left as `[]` — a half-finished edit, a
+  // group removed without picking a replacement — reads as owned in
+  // CONTROLLER_OWNERS while provisioning the alert disabled. That is precisely
+  // the failure this block exists to prevent, wearing a costume: the map looks
+  // right and the route is silent.
+  it('never claims an owner it does not name', () => {
+    const ownerless = CONTROLLER_NAMES.filter((controller) => {
+      if (ROUTE_MAP[controller].length === 0) return false
+      const [alert] = controllerAlerts(controller)
+      const owners = [alert?.notify ?? []].flat()
+      return owners.length === 0 && !unmonitored.has(controller)
+    })
+
+    expect(
+      ownerless,
+      'these controllers have an empty owner list, so their alert is provisioned disabled while the map reads as owned',
+    ).toEqual([])
+  })
+
+  // A fifth of these controllers are shared, and `notify` only became a list so
+  // that could be said out loud. If a later edit collapses them to one group,
+  // the alert still fires and still looks owned — the other team just silently
+  // stops being told, which is the same class of bug as the `find` this
+  // replaced.
+  it('still tags both groups where a controller is shared', () => {
+    const shared = CONTROLLER_NAMES.filter((controller) => {
+      if (ROUTE_MAP[controller].length === 0) return false
+      const [alert] = controllerAlerts(controller)
+      return [alert?.notify ?? []].flat().length > 1
+    })
+
+    expect(
+      shared.length,
+      'no controller notifies more than one group, so either the shared surfaces lost an owner or notify stopped carrying lists',
+    ).toBeGreaterThan(0)
+
+    for (const controller of shared) {
+      const [alert] = controllerAlerts(controller)
+      const owners = [alert?.notify ?? []].flat()
+
+      expect(new Set(owners).size, `${controller} names a group twice`).toBe(
+        owners.length,
+      )
+    }
+  })
+
   // Listing a controller in both reads as "owned" here and "deliberately
   // silent" there, and the code would honour the first while a reviewer
   // believes the second.
