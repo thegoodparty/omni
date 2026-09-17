@@ -74,6 +74,33 @@ each guard exists because a customer was double-billed without it):
    CAS (atomic conditional `jsonb_set` in `UsersService`). All
    `checkoutSessionId` writes go through that CAS; don't add a plain write.
 
+### Unmatched subscription events
+
+`customer.subscription.updated` and `customer.subscription.deleted` resolve
+their campaign through `details.subscriptionId`. That is the only link back
+from Stripe: a Pro checkout writes `userId` onto the checkout session, never
+onto the subscription, and the session is long gone by the time a cancellation
+arrives. When the lookup misses, the handler acknowledges the event and
+classifies it instead of throwing — a missing local row is not a third-party
+failure, and Stripe's 7 retries over ~68h re-run the same query against the
+same rows, raising one alert per attempt.
+
+`PaymentEventsService.reportUnmatchedSubscription` owns the classification.
+Three conditions hide behind one lookup miss, and only one of them is harmless:
+
+| Subscription status | Account behind the customer id | Log | Why |
+| --- | --- | --- | --- |
+| billable — `active`, `trialing`, `past_due`, `unpaid`, `incomplete`, `paused` | not consulted | `error` — "still billable" | Someone is being charged with no campaign carrying their sub id. `UsersService.deleteUser` cancels before deleting, so this can never be deletion residue. Repair as ENG-10771. |
+| `canceled` / `incomplete_expired` | user found, not `metaData.isDeleted` | `error` — "cancellation was never applied" | The de-Pro never ran, so the campaign may still be Pro — or its sub id was orphaned by a duplicate checkout (ENG-11084). Money stopped, fulfillment did not follow. |
+| `canceled` / `incomplete_expired` | no user, or `metaData.isDeleted` | `warn` — "consistent with account deletion" | Account deletion removes campaign and user together and cancels Stripe afterwards, so the event lands with nothing left to un-Pro. No redelivery and no human can act. |
+
+Status is the discriminator that carries the most weight: a subscription that
+can still bill is never the residue of an account deletion. Both `error` lines
+carry `subscriptionId`, `customerId`, `status`, `cancelAt` / `canceledAt` and
+`cancellationReason`, which is enough to find the customer in Stripe without a
+DB query — search Loki for `"Unmatched"`. The `error` lines are what the alert
+pipeline keys on; the `warn` sits deliberately below it.
+
 ## Debugging Pro billing issues (recipes from real incidents)
 
 Tools: prod DB creds in the `GP_API_PROD` AWS secret (`DB_PASSWORD`,
@@ -93,7 +120,9 @@ per completed session), then list subs per customer. Known chain: duplicate
 checkout → second sub; `checkout.session.completed` overwrites
 `campaign.details.subscriptionId` (error-logged since ENG-11084 when the
 stored id differs — search Loki for "possible duplicate Pro subscription"),
-orphaning (not cancelling) the first sub, which keeps billing; CS cancelling
+orphaning (not cancelling) the first sub, which keeps billing (its renewal
+`customer.subscription.updated` now error-logs "still billable" with both ids
+— see § Unmatched subscription events); CS cancelling
 the SECOND sub then fires `customer.subscription.deleted` and un-Pros the
 campaign while the FIRST sub still bills — paying-but-not-Pro. Repair = pick
 the sub to keep, fix `subscriptionId`/`customerId` by SQL, cancel/refund the

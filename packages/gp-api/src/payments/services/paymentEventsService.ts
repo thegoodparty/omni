@@ -35,6 +35,14 @@ if (!STRIPE_WEBSOCKET_SECRET) {
   throw new Error('Please set STRIPE_WEBSOCKET_SECRET in your .env')
 }
 
+// The two Stripe statuses a subscription can never bill from again. Every other
+// status — active, trialing, past_due, unpaid, incomplete, paused — can still
+// take the candidate's money, or resume taking it once a payment succeeds.
+const UNBILLABLE_SUBSCRIPTION_STATUSES = new Set<Stripe.Subscription.Status>([
+  'canceled',
+  'incomplete_expired',
+])
+
 @Injectable()
 export class PaymentEventsService {
   constructor(
@@ -254,6 +262,83 @@ export class PaymentEventsService {
     ])
   }
 
+  // Both subscription handlers below resolve their campaign through
+  // details.subscriptionId, and both used to throw BadGatewayException when that
+  // lookup missed. The throw was wrong twice over: a missing local row is not a
+  // third-party failure (AGENTS.md § Exception handling reserves 502 for those),
+  // and redelivery re-runs the same query against the same rows, so Stripe spent
+  // 7 attempts over ~68h raising one alert each on a state that cannot change.
+  //
+  // Acknowledging is what stops that, but acknowledging silently would bury the
+  // reason the miss matters. One lookup failure covers three conditions with
+  // three very different costs, and the event payload separates them:
+  //
+  // - Still billable. The customer is being charged and no campaign is being
+  //   served. UsersService.deleteUser cancels the subscription, so a billable
+  //   subscription can never be deletion residue — this is the
+  //   paying-but-not-Pro shape of ENG-10771 / ENG-11083.
+  // - Canceled, account still live. The de-Pro never ran, so the campaign may
+  //   still be Pro, or its subscriptionId was orphaned by a duplicate checkout
+  //   (ENG-11084). Money stopped and fulfillment did not follow: the one shape
+  //   this file must never swallow.
+  // - Canceled, no account. deleteUser cascade-deletes the campaign and the user
+  //   row in one transaction and cancels Stripe afterwards, so the cancellation
+  //   lands with nothing left to un-Pro. No redelivery and no human can act.
+  //
+  // Only the last is quiet. The other two error-log — what the Loki alert
+  // pipeline keys on — in the same "alert loudly, don't block fulfillment"
+  // shape as the ENG-11084 duplicate-subscription guard in
+  // handleSubscriptionCheckoutCompleted.
+  private async reportUnmatchedSubscription(
+    event:
+      | Stripe.CustomerSubscriptionUpdatedEvent
+      | Stripe.CustomerSubscriptionDeletedEvent,
+  ): Promise<void> {
+    const subscription = event.data.object
+    const customerId =
+      typeof subscription.customer === 'string'
+        ? subscription.customer
+        : subscription.customer.id
+    const context = {
+      eventType: event.type,
+      subscriptionId: subscription.id,
+      customerId,
+      status: subscription.status,
+      cancelAt: subscription.cancel_at,
+      canceledAt: subscription.canceled_at,
+      cancellationReason: subscription.cancellation_details?.reason ?? null,
+    }
+
+    if (!UNBILLABLE_SUBSCRIPTION_STATUSES.has(subscription.status)) {
+      this.logger.error(
+        context,
+        '[WEBHOOK] Unmatched Stripe subscription is still billable — the ' +
+          'customer is being charged with no campaign carrying their ' +
+          'subscriptionId',
+      )
+      return
+    }
+
+    // The Stripe customer is the only remaining link back to an account: Pro
+    // checkouts write no userId onto the subscription itself, only onto the
+    // checkout session, which is long gone by the time a cancellation arrives.
+    const user = await this.usersService.findByCustomerId(customerId)
+    if (!user || user.metaData?.isDeleted) {
+      this.logger.warn(
+        { ...context, userId: user?.id ?? null },
+        '[WEBHOOK] Unmatched canceled Stripe subscription has no live account ' +
+          'behind it — consistent with account deletion; nothing left to un-Pro',
+      )
+      return
+    }
+
+    this.logger.error(
+      { ...context, userId: user.id },
+      '[WEBHOOK] Unmatched canceled Stripe subscription belongs to a live ' +
+        'account — the Pro cancellation was never applied',
+    )
+  }
+
   async customerSubscriptionUpdatedHandler(
     event: Stripe.CustomerSubscriptionUpdatedEvent,
   ): Promise<void> {
@@ -273,7 +358,8 @@ export class PaymentEventsService {
     const campaign =
       await this.campaignsService.findBySubscriptionId(subscriptionId)
     if (!campaign) {
-      throw new BadGatewayException('No campaign found with given subscription')
+      await this.reportUnmatchedSubscription(event)
+      return
     }
 
     await this.campaignsService.patchCampaignDetails(campaign.id, {
@@ -592,9 +678,8 @@ export class PaymentEventsService {
       await this.campaignsService.findBySubscriptionId(subscriptionId)
 
     if (!campaign) {
-      throw new BadGatewayException(
-        `No campaign found with given subscriptionId => ${subscriptionId}`,
-      )
+      await this.reportUnmatchedSubscription(event)
+      return
     }
 
     const user = await this.usersService.findUser({
