@@ -315,8 +315,12 @@ describe('POST /v1/payments/events — customer.subscription.deleted', () => {
 
     expect(res.status).toBe(200)
     expect(slackMessage).not.toHaveBeenCalled()
-    // Left untouched rather than half-processed: the deletion owns the teardown.
+    // Left untouched rather than half-processed: the deletion owns the
+    // teardown. Both keys are asserted because `persistCampaignProCancellation`
+    // only writes them together today — were they ever separated, checking one
+    // would let an unguarded flip of the other through unnoticed.
     const updated = await readCampaign(campaign.id)
+    expect(updated.isPro).toBe(true)
     expect(updated.details.subscriptionId).toBe(CANCELLATION_REQUESTED_SUB)
   })
 })
