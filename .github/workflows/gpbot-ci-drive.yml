@@ -38,8 +38,14 @@ name: gpbot CI drive
 # never on a push. So every fix run above destroys the approval it needed and
 # nothing replaced it. #1905 sat green, in budget and unmergeable on exactly
 # that. The drive now asks, in the one case where asking is honest; see
-# _decide_review in ci_triage.py and gpbot-review-gap-alert.yml, which reports
-# the same gap everywhere this does not act.
+# _decide_review in ci_triage.py.
+#
+# ONLY ON ITS OWN PRs, and nothing covers the same gap on anybody else's.
+# gpbot-review-gap-alert.yml used to report it repo-wide and was deleted:
+# reporting a gap on a human's PR means naming a person in Slack for a PR the
+# bot has no business driving, and most of those names had nothing to do —
+# their PR was waiting on two fixed words, not on them. Asking on their behalf
+# instead is a different overreach. Other people's PRs are other people's.
 
 on:
   workflow_run:
@@ -476,7 +482,38 @@ jobs:
             # _coerce_asks. A human's ask is somebody else's login and does not
             # spend the bot's budget. An unreadable count is passed through as
             # null rather than guessed at, which _coerce_asks treats as spent.
-            asks_made="$(jq '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | gsub("^\\s+|\\s+$"; "")) == "delegate review")] | length' <<<"$comments")" || asks_made=null
+            #
+            # AND COUNTED AGAINST THIS HEAD, NOT THE WHOLE PR, which is the
+            # difference between a cap and a trap. An approval names a commit,
+            # so every push makes a new question — and on these PRs the pushes
+            # are the drive's own fix runs. Two asks for the life of a PR that
+            # spends two fix runs leaves the last commit unable to ask at all,
+            # and the PR escalates as "the reviewer will not approve" when the
+            # reviewer was never asked about the code in question.
+            #
+            # Delegate also answers a mid-review push with "the PR tip moved
+            # during review (a884375b -> b11ce98c) ... reply `delegate review`
+            # to re-check", which is an instruction, not a refusal. Counted
+            # per-PR it would spend an ask and produce no review.
+            #
+            # The anchor is the head commit's committer date. One skew, in the
+            # safe direction: after a rebase that date can be newer than an ask
+            # that preceded it, so the ask counts against the new head. That
+            # spends an ask early rather than asking too often.
+            head_date="$(gh api "repos/$REPO/commits/$head_sha" --jq '.commit.committer.date')" || head_date=''
+            if [ -z "$head_date" ]; then
+              # Fails closed to `null`, which _coerce_asks reads as spent, so an
+              # unreadable head means this PR goes to a human rather than being
+              # asked an unbounded number of times.
+              echo "::warning::could not read the head commit date of #$pr; not asking this pass"
+              asks_made=null
+            else
+              asks_made="$(jq --arg since "$head_date" \
+                '[.[] | select(.user.login == "github-actions[bot]")
+                      | select(((.created_at) // "") > $since)
+                      | select(((.body // "") | gsub("^\\s+|\\s+$"; "")) == "delegate review")] | length' \
+                <<<"$comments")" || asks_made=null
+            fi
 
             decision="$(jq -n --argjson checks "$enriched" --argjson findings "${threads:-[]}" \
               --argjson mergeability "$mergeability" --argjson reviews "${reviews:-[]}" \
@@ -574,8 +611,8 @@ jobs:
               request-review)
                 # The same two words a human sends, and the same ones delegate's
                 # own review asks for. See .claude/skills/ship-pr/SKILL.md
-                # Phase 2, and gpbot-review-gap-alert.yml for why no other
-                # workflow sends this on an author's behalf.
+                # Phase 2. Sent only on the bot's own PRs — see the note at the
+                # top on why nothing does this for anybody else.
                 #
                 # NOT A RE-REVIEW REQUEST VIA THE API, which does not work for
                 # an App: the REST call accepts `delegate-reviewer[bot]` and
