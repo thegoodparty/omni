@@ -127,6 +127,14 @@ const CONTROLLER_OWNERS: Partial<
   'voters/voter-file': BOTH,
   chats: BOTH,
   'error-logger': BOTH,
+  // One route serving both products' tools, so BOTH is the literal answer
+  // rather than the safe one. The 13 handlers carrying `@McpTool` today are 9
+  // Win surfaces (campaigns, tracker tasks, TCR compliance, websites, domains)
+  // and 4 Serve ones (priorities, community issues, ordinance flow), and a
+  // `tools/call` is an internal proxy of whichever one the agent picked — see
+  // src/mcp/AGENTS.md § Request flow. A failure at the transport is a failure
+  // of every tool behind it, so neither team can be the one told second.
+  mcp: BOTH,
 }
 
 const ownedBy = (group: SlackGroup): ControllerName[] =>
@@ -161,19 +169,20 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
  * `testQueue()` that enqueues a hardcoded `test-slug` — a development poke, not
  * a product route. Nothing downstream depends on either answering.
  *
- * `mcp` is here for a different reason: it has no entries in ROUTE_MAP, so
- * `controllerAlerts` returns nothing for it and there is no rule to enable. It
- * is listed so the coverage test can account for it, not because a decision was
- * made about it. That it serves real traffic — 19 no-status timeouts on
- * POST /v1/mcp in prod over 30 days — while being invisible to the route-type
- * generator is a separate gap, and one this list cannot close.
+ * Every entry is now a claim of that kind, which was not true until 2026-09-17.
+ * `mcp` sat here because it had no ROUTE_MAP entries at all — its only handler
+ * is `@All()`, which generate-route-types.ts did not recognise — so
+ * `controllerAlerts` returned nothing for it and there was no rule to enable.
+ * Being listed here made it look reviewed while POST /v1/mcp served 24,736 real
+ * requests in 30 days and answered 19 of them with nothing. The generator now
+ * expands `@All()` and refuses outright to emit a controller with no routes, so
+ * a controller can only reach this list by someone deciding it belongs.
  */
 export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   'health',
   'test-fixtures',
   'version',
   'queue',
-  'mcp',
 ]
 
 /**
