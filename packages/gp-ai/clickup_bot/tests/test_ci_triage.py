@@ -62,7 +62,6 @@ PR_1306_E2E_SHARD_1 = {
 FRESH_STATE = {
     "reruns": 0,
     "fixes": 0,
-    "reviews_requested": 0,
     "escalated": False,
     "fix_started_at": 0,
     "findings_attempted": [],
@@ -384,7 +383,6 @@ class TestStateSurvivesBetweenInvocations:
         state = {
             "reruns": 2,
             "fixes": 1,
-            "reviews_requested": 1,
             "escalated": False,
             "fix_started_at": NOW,
             # Carried across too. A round trip that dropped these would let an
@@ -422,13 +420,18 @@ class TestMalformedInputCannotCrashTheDrive:
         assert classify_check(None)["classification"] == UNKNOWN
 
     def test_non_list_checks_and_non_dict_state_are_survivable(self):
-        # Unreadable input resolves to "no checks", and with no readable approval
-        # either the cheapest possible move is to ask for one. What matters is
-        # that nothing raises and nothing expensive is reached — an agent run
-        # must never come out of input we could not parse.
+        # Unreadable input resolves to "no checks" and no readable approval, so
+        # the PR goes to a human. What matters is that nothing raises and nothing
+        # expensive is reached — an agent run must never come out of input we
+        # could not parse.
         for decision in (decide(None, None), decide("nope", "nope")):
-            assert decision["action"] == ACTION_REQUEST_REVIEW
+            assert decision["action"] == ACTION_ESCALATE
             assert decision["action"] not in (ACTION_FIX, ACTION_FIX_FINDINGS, ACTION_FIX_CONFLICTS)
+
+    def test_unreadable_input_with_a_countable_ask_asks_rather_than_escalating(self):
+        # Splitting the two unknowns apart: it is the unreadable ask total, not
+        # the unreadable checks, that sends the PR to a human.
+        assert decide(None, None, asks_made=0)["action"] == ACTION_REQUEST_REVIEW
 
     def test_malformed_input_with_an_approval_settles(self):
         assert decide(None, None, reviews=APPROVED, head_sha=HEAD_SHA)["action"] == ACTION_NONE
@@ -832,14 +835,13 @@ class TestAnUnapprovedPRIsNotFinished:
         )
 
     def test_a_green_board_without_an_approval_asks_for_one(self):
-        decision = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=STALE_COMMENT, head_sha=HEAD_SHA)
+        decision = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=STALE_COMMENT, head_sha=HEAD_SHA, asks_made=0)
 
         assert decision["action"] == ACTION_REQUEST_REVIEW
-        assert decision["next_state"]["reviews_requested"] == 1
         assert decision["approved"] is False
 
     def test_a_pr_nobody_ever_reviewed_is_asked_about_too(self):
-        decision = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA)
+        decision = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA, asks_made=0)
 
         assert decision["action"] == ACTION_REQUEST_REVIEW
 
@@ -847,14 +849,15 @@ class TestAnUnapprovedPRIsNotFinished:
         # The budgets are separate because the costs are: a re-run is CI minutes
         # and a fix run is $1.50-$5, while this is one comment. Sharing a budget
         # would let an unapproved PR eat the money set aside for a red board.
-        decision = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA)
+        decision = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA, asks_made=0)
 
         assert decision["next_state"]["reruns"] == 0
         assert decision["next_state"]["fixes"] == 0
 
     def test_the_ask_is_capped_and_then_handed_over(self):
-        spent = dict(FRESH_STATE, reviews_requested=MAX_REVIEW_REQUESTS)
-        decision = decide([], spent, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA)
+        decision = decide(
+            [], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA, asks_made=MAX_REVIEW_REQUESTS
+        )
 
         assert decision["action"] == ACTION_ESCALATE
         assert decision["next_state"]["escalated"] is True
@@ -866,49 +869,53 @@ class TestAnUnapprovedPRIsNotFinished:
         # here would be a false claim, and would buy a re-review that returns
         # the same blocker. This is the one case that goes straight to a human.
         assert reviewer_is_blocking([DELEGATE_THREAD])
-        decision = decide([], FRESH_STATE, [DELEGATE_THREAD], CLEAN, now=NOW, reviews=STALE_COMMENT, head_sha=HEAD_SHA)
+        decision = decide(
+            [], FRESH_STATE, [DELEGATE_THREAD], CLEAN, now=NOW, reviews=STALE_COMMENT, head_sha=HEAD_SHA, asks_made=0
+        )
 
         assert decision["action"] == ACTION_HOLD
-        assert decision["next_state"]["reviews_requested"] == 0, "an ask was spent on a reviewer who already answered"
         assert decision["next_state"]["escalated"] is True
 
     def test_a_resolved_reviewer_thread_does_not_block_the_ask(self):
         for cleared in ({"resolved": True}, {"outdated": True}):
             findings = [dict(DELEGATE_THREAD, **cleared)]
             assert not reviewer_is_blocking(findings)
-            decision = decide([], FRESH_STATE, findings, CLEAN, now=NOW, reviews=STALE_COMMENT, head_sha=HEAD_SHA)
+            decision = decide(
+                [], FRESH_STATE, findings, CLEAN, now=NOW, reviews=STALE_COMMENT, head_sha=HEAD_SHA, asks_made=0
+            )
             assert decision["action"] == ACTION_REQUEST_REVIEW
 
     def test_a_bugbot_thread_is_still_answered_before_the_review_is_asked_for(self):
         # Ordering: an approval names a commit, so asking for one while a fix run
         # is about to push is asking for a verdict that the push throws away.
-        decision = decide([], FRESH_STATE, [PR_1306_BUGBOT_FINDING], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA)
+        decision = decide(
+            [], FRESH_STATE, [PR_1306_BUGBOT_FINDING], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA, asks_made=0
+        )
 
         assert decision["action"] == ACTION_FIX_FINDINGS
 
     def test_a_red_board_is_settled_before_the_review_is_asked_for(self):
-        decision = decide([a_check()], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA)
+        decision = decide([a_check()], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA, asks_made=0)
 
         assert decision["action"] == ACTION_RERUN
 
     def test_a_conflict_is_settled_before_the_review_is_asked_for(self):
-        decision = decide([], FRESH_STATE, [], CONFLICTED, now=NOW, reviews=[], head_sha=HEAD_SHA)
+        decision = decide([], FRESH_STATE, [], CONFLICTED, now=NOW, reviews=[], head_sha=HEAD_SHA, asks_made=0)
 
         assert decision["action"] == ACTION_FIX_CONFLICTS
 
     def test_an_escalated_pr_is_not_asked_about(self):
         escalated = dict(FRESH_STATE, escalated=True)
-        decision = decide([], escalated, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA)
+        decision = decide([], escalated, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA, asks_made=0)
 
         assert decision["action"] == ACTION_NONE
 
     def test_a_fix_run_in_flight_is_waited_out_before_asking(self):
         # Its push will invalidate any approval anyway.
         in_flight = dict(FRESH_STATE, fix_started_at=int(NOW))
-        decision = decide([], in_flight, [], CLEAN, now=NOW + 60, reviews=[], head_sha=HEAD_SHA)
+        decision = decide([], in_flight, [], CLEAN, now=NOW + 60, reviews=[], head_sha=HEAD_SHA, asks_made=0)
 
         assert decision["action"] == ACTION_NONE
-        assert decision["next_state"]["reviews_requested"] == 0
 
     def test_an_unreadable_review_list_reads_as_unapproved(self):
         # Fails toward asking, the opposite direction from is_conflicted, because
@@ -945,32 +952,60 @@ class TestAnUnapprovedPRIsNotFinished:
         assert is_approved(bare, HEAD_SHA)
         assert reviewer_is_blocking([dict(DELEGATE_THREAD, author="delegate-reviewer[bot]")])
 
-    def test_an_older_marker_comment_does_not_read_as_out_of_asks(self):
-        # Every PR open when this shipped has a state block written without the
-        # counter. Reading those as exhausted would escalate exactly the PRs the
-        # counter was added for, on their first pass, without ever asking.
-        legacy = '<!-- gpbot-ci-state: {"escalated": false, "fixes": 0, "reruns": 0} -->'
-        assert parse_state(legacy)["reviews_requested"] == 0
+    def test_an_ask_that_never_reached_github_is_not_spent(self):
+        # The counter this replaced was written before the comment was posted, so
+        # a failed POST spent an ask nobody received — and two of those escalated
+        # a PR that had never been asked about. Nothing is counted now until the
+        # comment exists, so the same pass repeats verbatim.
+        first = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA, asks_made=0)
+        assert first["action"] == ACTION_REQUEST_REVIEW
 
-        decision = decide([], parse_state(legacy), [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA)
-        assert decision["action"] == ACTION_REQUEST_REVIEW
+        retry = decide(
+            [],
+            parse_state(ci_triage.render_comment(first)),
+            [],
+            CLEAN,
+            now=NOW,
+            reviews=[],
+            head_sha=HEAD_SHA,
+            asks_made=0,
+        )
 
-    def test_a_tampered_ask_counter_is_still_treated_as_exhausted(self):
-        # Absent is forgiven above; present-but-wrong is not, or the cap is
-        # bypassable by anyone who can post a comment.
-        for junk in (-1, True, "2", 1.5):
-            tampered = f'<!-- gpbot-ci-state: {{"reviews_requested": {json.dumps(junk)}}} -->'
-            assert parse_state(tampered)["reviews_requested"] >= MAX_REVIEW_REQUESTS
+        assert retry["action"] == ACTION_REQUEST_REVIEW, "a failed ask was counted against the budget anyway"
 
-    def test_the_ask_counter_round_trips_through_the_marker_comment(self):
-        state = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA)["next_state"]
-        body = ci_triage.render_comment({"action": ACTION_REQUEST_REVIEW, "next_state": state, "reason": "asked"})
+    def test_an_ask_that_landed_is_counted_off_the_pr(self):
+        # The other half: the budget still runs out, it is just the comments
+        # doing the counting.
+        second = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA, asks_made=1)
+        assert second["action"] == ACTION_REQUEST_REVIEW
+        # The comment a human reads has to count the ask already on the PR, or
+        # the second ask reports itself as the first and the cap looks unreached.
+        assert f"2 review request(s) of {MAX_REVIEW_REQUESTS}" in ci_triage.render_comment(second)
 
-        assert parse_state(body)["reviews_requested"] == 1
+        third = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA, asks_made=2)
+        assert third["action"] == ACTION_ESCALATE
+
+    def test_the_state_block_keeps_no_ask_counter_to_disagree_with(self):
+        # Two sources of truth for one number is the bug, not the fix: a counter
+        # left in the marker would be the one a later change reads.
+        decision = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA, asks_made=0)
+
+        assert "reviews_requested" not in decision["next_state"]
+        assert "reviews_requested" not in parse_state(ci_triage.render_comment(decision))
+
+    def test_an_uncountable_ask_total_goes_to_a_human_rather_than_asking_again(self):
+        # Fails closed, unlike the counter it replaces: a drive that cannot tell
+        # how many times it has asked would otherwise ask every 30 minutes for
+        # as long as the PR stayed open.
+        for junk in (None, -1, True, "2", 1.5, [1]):
+            decision = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA, asks_made=junk)
+            assert decision["action"] == ACTION_ESCALATE, f"asks_made={junk!r} bought another ask"
 
     def test_the_comment_says_what_it_did(self):
-        decision = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA)
+        decision = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA, asks_made=0)
         body = ci_triage.render_comment(decision)
 
         assert "review" in body.lower()
-        assert f"of {MAX_REVIEW_REQUESTS}" in body
+        # The ask about to be made is included, so the comment does not read
+        # "0 review request(s)" on the pass that asks.
+        assert f"1 review request(s) of {MAX_REVIEW_REQUESTS}" in body

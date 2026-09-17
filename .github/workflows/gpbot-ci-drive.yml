@@ -452,20 +452,38 @@ jobs:
             # through would read as "no state yet" and hand the PR a fresh
             # budget on every pass — an unbounded spend that looks identical to
             # a first visit. Skipping the PR costs one 30-minute pass.
-            marker="$(gh api "repos/$REPO/issues/$pr/comments" --paginate \
-              --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- gpbot-ci-drive -->")))] | last')" || {
+            # ONE FETCH, TWO READINGS. The state comment and the count of asks
+            # both come out of the PR's comments, and both readings below fail
+            # closed: an empty `marker` reads as "no state yet" and hands the PR
+            # a fresh budget, so a jq that failed must not reach the triage as
+            # one. `.body` is `// ""` because a comment posted empty comes back
+            # null, and `contains` on null raises.
+            comments="$(gh api "repos/$REPO/issues/$pr/comments" --paginate)" || {
+              echo "::error::could not read the state comment for #$pr; not driving it this pass"
+              action_failed=1
+              echo "::endgroup::"; continue
+            }
+            marker="$(jq '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains("<!-- gpbot-ci-drive -->")))] | last' <<<"$comments")" || {
               echo "::error::could not read the state comment for #$pr; not driving it this pass"
               action_failed=1
               echo "::endgroup::"; continue
             }
             comment_id="$(jq -r 'if . == null then "" else .id end' <<<"${marker:-null}")"
 
+            # THE ASKS ARE COUNTED, NOT TALLIED. `delegate review` is the whole
+            # body of an ask and this workflow is the only thing that posts it
+            # as github-actions[bot], so the comments ARE the ledger — see
+            # _coerce_asks. A human's ask is somebody else's login and does not
+            # spend the bot's budget. An unreadable count is passed through as
+            # null rather than guessed at, which _coerce_asks treats as spent.
+            asks_made="$(jq '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | gsub("^\\s+|\\s+$"; "")) == "delegate review")] | length' <<<"$comments")" || asks_made=null
+
             decision="$(jq -n --argjson checks "$enriched" --argjson findings "${threads:-[]}" \
               --argjson mergeability "$mergeability" --argjson reviews "${reviews:-[]}" \
-              --arg head_sha "$head_sha" \
+              --arg head_sha "$head_sha" --argjson asks_made "${asks_made:-null}" \
               --arg body "$(jq -r 'if . == null then "" else .body end' <<<"${marker:-null}")" \
               '{checks: $checks, findings: $findings, mergeability: $mergeability,
-                reviews: $reviews, head_sha: $head_sha,
+                reviews: $reviews, head_sha: $head_sha, asks_made: $asks_made,
                 state_comment: (if $body == "" then null else $body end)}' \
               | python3 "$triage")" || { echo "::error::triage failed for #$pr"; echo "::endgroup::"; continue; }
 
@@ -564,12 +582,15 @@ jobs:
                 # silently returns an empty requested_reviewers. #1898 burned
                 # two hours on that, plus a close/reopen and a force-push.
                 echo "asking for a review on #$pr"
+                # THE EXACT BODY IS THE LEDGER ENTRY, so it is `delegate review`
+                # and nothing else: asks_made above counts comments equal to
+                # this string. Adding a word here would reset the budget.
                 gh api -X POST "repos/$REPO/issues/$pr/comments" \
                   -f body="delegate review" >/dev/null || {
-                  # The round is already recorded as spent by the write above,
-                  # which is the right order — but the step must go red, or a
-                  # PR quietly loses both asks to an API error and escalates
-                  # having never actually asked anyone anything.
+                  # Nothing was spent — no comment, nothing to count — so the
+                  # next pass asks again. Still red: two words that cannot be
+                  # posted to GitHub is the API being down, which the other
+                  # actions cannot survive either.
                   echo "::error::could not ask for a review on #$pr"
                   action_failed=1
                 }

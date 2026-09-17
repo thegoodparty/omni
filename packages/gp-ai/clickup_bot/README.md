@@ -620,13 +620,31 @@ A missing approval **fails toward asking**, the opposite of the `UNKNOWN`
 mergeability default, because the costs are not symmetric: a wrong "approved" is
 silent and permanent, while a wrong "not approved" costs one capped comment.
 
+**The asks are counted off the PR, not tallied in the state comment.** Every
+other budget here is a number the drive writes down before it acts, which is
+what caps it: if the job dies mid-action the round is recorded as spent. That
+ordering is wrong for this one. The ask *is* a comment, so a `POST` that failed
+after the counter was written spent an ask nobody received — and with two in the
+budget, two such failures escalated a PR that had never actually been asked
+about. So the drive counts its own `delegate review` comments instead. The
+action leaves its own permanent, countable record, and a record it cannot
+diverge from is worth more than a counter kept for it. Nothing needs rolling
+back. A human's `delegate review` is a different login and does not spend the
+bot's budget.
+
+The exact body is therefore load-bearing: `delegate review` and nothing else.
+An unreadable count is treated as **spent**, unlike the ask itself, and hands
+the PR to a human — a drive that cannot tell how many times it has asked is
+exactly the one that should not ask again, because the alternative is the same
+comment every 30 minutes for as long as the PR stays open.
+
 ### Caps, and where they live
 
 | Cap | Value | Why |
 |---|---|---|
 | Re-runs | 3 | Costs CI minutes and no model spend, so the number is set by observation rather than price: #1319 hit the same apt-get hang **twice in a row**, so 1 or 2 would have escalated a pure flake to a human |
 | Fix runs | 2 | Matches ship-pr Phase 3's "stop after 2 check-fix rounds". At $1.50-$5 a run this holds the feature to ~$10 per PR, on top of the ~$30 an escalated ticket may already have spent |
-| Review requests | 2 | Asking costs one comment, but what follows is a real review. A reviewer that declined twice is making a judgement rather than flaking, and a third ask would only be louder |
+| Review requests | 2 | Asking costs one comment, but what follows is a real review. A reviewer that declined twice is making a judgement rather than flaking, and a third ask would only be louder. Counted off the PR's comments rather than the state block |
 
 The fix-run budget is **shared** between conflicts, failing checks and review
 findings, because what it bounds is money rather than any one activity. A PR

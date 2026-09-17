@@ -483,19 +483,24 @@ def _coerce_count(value: Any) -> int:
     return value
 
 
-def _coerce_review_count(value: Any) -> int:
-    """Like _coerce_count, but ABSENT means zero rather than exhausted.
+def _coerce_asks(value: Any) -> int:
+    """How many times the drive has already asked for a review.
 
-    The difference is not a weakening. For the other counters, absent can only
-    mean a state block that drifted, because they have always been written. This
-    one is new: every marker comment already on an open PR omits it, and reading
-    those as exhausted would disable the ask on precisely the PRs that motivated
-    it — the old ones, still waiting. Present-but-unreadable is still exhausted.
+    NOT A COUNTER, unlike everything else in this module: the caller counts the
+    drive's own `delegate review` comments on the PR. The ask is the only action
+    here that leaves its own permanent, countable record, so it does not need
+    one kept for it — and a record it cannot diverge from is worth more than the
+    counter it replaces. The counter had to be written before the ask was made,
+    to cap it, which meant a POST that failed after the write spent an ask that
+    never happened; with two asks in the budget, two such failures escalated a
+    PR nobody had ever been asked about. There is nothing to roll back now.
 
-    It is also the counter where erring open costs least: a spent round here is
-    one comment, not a Fargate task.
+    Unreadable means exhausted, as with _coerce_count, and here that means the
+    PR goes to a human. A drive that cannot tell how many times it has asked is
+    exactly the drive that should not ask again: the cheap failure is one
+    escalation, the expensive one is the same comment every 30 minutes forever.
     """
-    return 0 if value is None else _coerce_count(value)
+    return MAX_REVIEW_REQUESTS if value is None else _coerce_count(value)
 
 
 def _coerce_timestamp(value: Any) -> int:
@@ -528,7 +533,6 @@ def parse_state(comment_body: Any) -> dict:
     exhausted = {
         "reruns": MAX_RERUNS,
         "fixes": MAX_FIX_RUNS,
-        "reviews_requested": MAX_REVIEW_REQUESTS,
         "escalated": True,
         "fix_started_at": 0,
         "findings_attempted": [],
@@ -537,7 +541,6 @@ def parse_state(comment_body: Any) -> dict:
         return {
             "reruns": 0,
             "fixes": 0,
-            "reviews_requested": 0,
             "escalated": False,
             "fix_started_at": 0,
             "findings_attempted": [],
@@ -556,7 +559,6 @@ def parse_state(comment_body: Any) -> dict:
     return {
         "reruns": _coerce_count(parsed.get("reruns")),
         "fixes": _coerce_count(parsed.get("fixes")),
-        "reviews_requested": _coerce_review_count(parsed.get("reviews_requested")),
         "escalated": parsed.get("escalated") is True,
         "fix_started_at": _coerce_timestamp(parsed.get("fix_started_at")),
         "findings_attempted": _coerce_ids(parsed.get("findings_attempted")),
@@ -575,6 +577,7 @@ def decide(
     now: float | None = None,
     reviews: Any = None,
     head_sha: Any = None,
+    asks_made: Any = None,
 ) -> dict:
     """Turn classified failures plus what has already been spent into one action.
 
@@ -603,23 +606,32 @@ def decide(
     """
     conflicted = is_conflicted(mergeability)
     approved = is_approved(reviews, head_sha)
-    decision = _decide(checks, state, findings, conflicted, approved, now)
+    asks = _coerce_asks(asks_made)
+    decision = _decide(checks, state, findings, conflicted, approved, asks, now)
     # Stamped once on the way out rather than by each branch, for the same
     # reason next_state exists: eleven branches each restating the whole shape
     # is eleven chances to omit a field, and an omitted `conflicted` would drop
     # the conflict from the summary a human reads on escalation.
     decision["conflicted"] = conflicted
     decision["approved"] = approved
+    decision["asks_made"] = asks
     return decision
 
 
-def _decide(checks: Any, state: Any, findings: Any, conflicted: bool, approved: bool, now: float | None) -> dict:
+def _decide(
+    checks: Any,
+    state: Any,
+    findings: Any,
+    conflicted: bool,
+    approved: bool,
+    asks_made: int,
+    now: float | None,
+) -> dict:
     now = time.time() if now is None else now
     if not isinstance(state, dict):
         state = {}
     reruns = _coerce_count(state.get("reruns"))
     fixes = _coerce_count(state.get("fixes"))
-    reviews_requested = _coerce_review_count(state.get("reviews_requested"))
     already_escalated = state.get("escalated") is True
     fix_started_at = _coerce_timestamp(state.get("fix_started_at"))
     attempted = _coerce_ids(state.get("findings_attempted"))
@@ -632,7 +644,6 @@ def _decide(checks: Any, state: Any, findings: Any, conflicted: bool, approved: 
         *,
         reruns: int = reruns,
         fixes: int = fixes,
-        reviews_requested: int = reviews_requested,
         escalated: bool = False,
         fix_started_at: int = fix_started_at,
         findings_attempted: list[str] = attempted,
@@ -640,7 +651,6 @@ def _decide(checks: Any, state: Any, findings: Any, conflicted: bool, approved: 
         return {
             "reruns": reruns,
             "fixes": fixes,
-            "reviews_requested": reviews_requested,
             "escalated": escalated,
             "fix_started_at": fix_started_at,
             "findings_attempted": findings_attempted,
@@ -711,7 +721,7 @@ def _decide(checks: Any, state: Any, findings: Any, conflicted: bool, approved: 
     if unanswered:
         return _decide_findings(unanswered, attempted, fixes, now, classifications, next_state)
 
-    return _decide_review(reviews_requested, reviewer_is_blocking(findings), next_state)
+    return _decide_review(asks_made, reviewer_is_blocking(findings), next_state)
 
 
 def _decide_conflicts(classifications: list, unanswered: list, fixes: int, now: float, next_state: Any) -> dict:
@@ -901,7 +911,7 @@ def _decide_findings(
     }
 
 
-def _decide_review(reviews_requested: int, reviewer_blocking: bool, next_state: Any) -> dict:
+def _decide_review(asks_made: int, reviewer_blocking: bool, next_state: Any) -> dict:
     """What to do about a PR that is finished except that nobody has approved it.
 
     Reached only with the board green, no conflict and no unanswered Bugbot
@@ -945,22 +955,22 @@ def _decide_review(reviews_requested: int, reviewer_blocking: bool, next_state: 
             "next_state": next_state(escalated=True),
         }
 
-    if reviews_requested < MAX_REVIEW_REQUESTS:
+    if asks_made < MAX_REVIEW_REQUESTS:
         return {
             "action": ACTION_REQUEST_REVIEW,
             "reason": (
                 "everything else on this PR is settled but the reviewer has not approved this commit "
-                f"(ask {reviews_requested + 1} of {MAX_REVIEW_REQUESTS})"
+                f"(ask {asks_made + 1} of {MAX_REVIEW_REQUESTS})"
             ),
             "classifications": [],
             "findings": [],
-            "next_state": next_state(reviews_requested=reviews_requested + 1),
+            "next_state": next_state(),
         }
 
     return {
         "action": ACTION_ESCALATE,
         "reason": (
-            f"the board is green but the reviewer has still not approved after {reviews_requested} request(s); "
+            f"the board is green but the reviewer has still not approved after {asks_made} request(s); "
             "it needs a human to approve or say why not"
         ),
         "classifications": [],
@@ -1008,9 +1018,15 @@ def render_comment(decision: dict) -> str:
         ACTION_NONE: "No action.",
     }.get(action, "No action.")
 
+    # The asks are counted off the PR rather than out of the state block, so the
+    # count here is what was true when the pass started; the ask this pass is
+    # about to make is added by hand. If that ask then fails, the next pass
+    # counts the comments again and prints the truth — the prose can be one pass
+    # optimistic, but nothing is spent on the strength of it.
+    asks = decision.get("asks_made", 0) + (1 if action == ACTION_REQUEST_REVIEW else 0)
     spent = f"Spent so far on this PR: {next_state.get('reruns', 0)} re-run(s) of "
     spent += f"{MAX_RERUNS}, {next_state.get('fixes', 0)} fix run(s) of {MAX_FIX_RUNS}, "
-    spent += f"{next_state.get('reviews_requested', 0)} review request(s) of {MAX_REVIEW_REQUESTS}."
+    spent += f"{asks} review request(s) of {MAX_REVIEW_REQUESTS}."
 
     footer = ""
     if action in (ACTION_ESCALATE, ACTION_REPORT, ACTION_HOLD):
@@ -1055,6 +1071,11 @@ def main() -> int:
     PR, unfiltered, plus the commit they have to match. Which reviewer counts and
     whether a review anchored to an older commit still means anything are both
     judgements, and they are made in is_approved.
+
+    `asks_made` is the exception: a number the workflow counts rather than facts
+    it forwards, because the thing being counted is the workflow's own comments
+    and it has them in hand from the fetch that finds the state comment. See
+    _coerce_asks for why this is observed instead of tallied.
     """
     try:
         payload = json.load(sys.stdin)
@@ -1076,6 +1097,7 @@ def main() -> int:
         payload.get("mergeability"),
         reviews=payload.get("reviews"),
         head_sha=payload.get("head_sha"),
+        asks_made=payload.get("asks_made"),
     )
     decision["comment_body"] = render_comment(decision)
     decision["summary"] = render_summary(decision)
