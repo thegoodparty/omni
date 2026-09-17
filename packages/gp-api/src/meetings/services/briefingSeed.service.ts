@@ -5,6 +5,7 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { parseIsoDateAsUTC } from 'src/shared/util/date.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { BriefingSeedRequestDto } from '../schemas/briefingSeed.schema'
+import { SEED_BUCKET } from '../util/seedBucket'
 
 // The seed endpoint exists only to give e2e tests deterministic data without
 // the real (slow, non-deterministic, credit-spending) agent run. It is a write
@@ -21,15 +22,6 @@ const isSeedEnabled = () => {
   const env = process.env.OTEL_SERVICE_ENVIRONMENT
   return env === undefined || SEED_ENABLED_ENVIRONMENTS.has(env)
 }
-
-// Both read paths for a briefing artifact (`GET /meetings/:date/briefing` and
-// the public PDF renderer) fetch from S3 and 404 on a miss — the JSONB copy on
-// the row is only a cache. A seeded briefing therefore has to land a real S3
-// object, not just a row. gp-api already writes to the meeting pipeline bucket
-// for briefing speech audio, so it is the bucket we are guaranteed to hold
-// write access to in every non-prod deploy.
-const SEED_BUCKET =
-  process.env.MEETING_PIPELINE_BUCKET ?? 'meeting-pipeline-dev'
 
 @Injectable()
 export class BriefingSeedService extends createPrismaBase(
@@ -69,31 +61,23 @@ export class BriefingSeedService extends createPrismaBase(
         })
       : null
 
-    const runData = {
-      organizationSlug: electedOffice.organizationSlug,
-      experimentType: 'meeting_briefing',
-      status: ExperimentRunStatus.COMPLETED,
-      artifactBucket: SEED_BUCKET,
-      artifactKey,
-    }
-
-    const run = priorSeedRun
-      ? await this.client.experimentRun.update({
-          where: { runId: priorSeedRun.runId },
-          data: runData,
-        })
-      : await this.client.experimentRun.create({ data: runData })
-
     const artifact = buildArtifact(body)
     const serialized = JSON.stringify(artifact)
-    await this.s3.uploadFile(
-      SEED_BUCKET,
-      serialized,
-      // artifactKey is non-null on the row we just created, but Prisma types it
-      // nullable because the column is only populated once a run completes.
-      run.artifactKey ?? '',
-      { contentType: 'application/json' },
-    )
+
+    // The upload has to happen before either pointer row is committed. Both
+    // pointer columns are NOT NULL and every reader goes straight to S3, so a
+    // committed row whose object is absent is a dead end for that (office,
+    // date) that nothing in the product can repair — the endpoint fails on
+    // every request until someone re-seeds or edits the database by hand. With
+    // the writes ordered the other way around, one failed PUT was enough to
+    // reach that state. The inverted failure is cheap and self-healing: a
+    // failed row write leaves an unreferenced object at a key derived purely
+    // from (electedOfficeId, meetingDate), which the next seed for the same
+    // pair overwrites in place rather than accumulating.
+    await this.s3.uploadFile(SEED_BUCKET, serialized, artifactKey, {
+      contentType: 'application/json',
+    })
+
     // The real write path caches the row's JSONB copy by parsing the S3 body
     // back out, so round-trip here too rather than casting the built object —
     // the cache then matches the object byte-for-byte.
@@ -103,31 +87,60 @@ export class BriefingSeedService extends createPrismaBase(
       serialized,
     ) as PrismaJson.MeetingBriefingArtifact
 
-    const briefing = await this.model.upsert({
-      where: {
-        electedOfficeId_meetingDate: {
+    const runData = {
+      organizationSlug: electedOffice.organizationSlug,
+      experimentType: 'meeting_briefing',
+      status: ExperimentRunStatus.COMPLETED,
+      artifactBucket: SEED_BUCKET,
+      artifactKey,
+    }
+
+    // The run and the briefing commit together because the run exists only to
+    // be pointed at: nothing cascades from MeetingBriefing back to
+    // ExperimentRun, and the priorSeedRun lookup above reaches the run through
+    // the briefing row. A run committed without its briefing would therefore be
+    // invisible to the next re-seed, which would mint another one — the exact
+    // leak the priorSeedRun recycling exists to avoid.
+    const briefing = await this.client.$transaction(async (tx) => {
+      const run = priorSeedRun
+        ? await tx.experimentRun.update({
+            where: { runId: priorSeedRun.runId },
+            data: runData,
+          })
+        : await tx.experimentRun.create({ data: runData })
+
+      // Both pointer fields come from the locals we uploaded with rather than
+      // being read back off `run`. Prisma types the run's copies nullable (the
+      // columns fill in only when a run completes), and the `?? SEED_BUCKET`
+      // fallback that used to bridge that gap also meant any bucket sitting on
+      // the ExperimentRun would have been copied onto the briefing row
+      // unchallenged.
+      return tx.meetingBriefing.upsert({
+        where: {
+          electedOfficeId_meetingDate: {
+            electedOfficeId: electedOffice.id,
+            meetingDate: parseIsoDateAsUTC(body.meetingDate),
+          },
+        },
+        create: {
           electedOfficeId: electedOffice.id,
           meetingDate: parseIsoDateAsUTC(body.meetingDate),
+          meetingTime: body.meetingTime,
+          meetingTimezone: body.meetingTimezone,
+          experimentRunId: run.runId,
+          artifactBucket: SEED_BUCKET,
+          artifactKey,
+          artifact: artifactJson,
         },
-      },
-      create: {
-        electedOfficeId: electedOffice.id,
-        meetingDate: parseIsoDateAsUTC(body.meetingDate),
-        meetingTime: body.meetingTime,
-        meetingTimezone: body.meetingTimezone,
-        experimentRunId: run.runId,
-        artifactBucket: run.artifactBucket ?? SEED_BUCKET,
-        artifactKey: run.artifactKey ?? '',
-        artifact: artifactJson,
-      },
-      update: {
-        meetingTime: body.meetingTime,
-        meetingTimezone: body.meetingTimezone,
-        experimentRunId: run.runId,
-        artifactBucket: run.artifactBucket ?? SEED_BUCKET,
-        artifactKey: run.artifactKey ?? '',
-        artifact: artifactJson,
-      },
+        update: {
+          meetingTime: body.meetingTime,
+          meetingTimezone: body.meetingTimezone,
+          experimentRunId: run.runId,
+          artifactBucket: SEED_BUCKET,
+          artifactKey,
+          artifact: artifactJson,
+        },
+      })
     })
 
     return {

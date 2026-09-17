@@ -1,5 +1,5 @@
 import { useTestService } from '@/test-service'
-import { HttpStatus } from '@nestjs/common'
+import { BadGatewayException, HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { v7 as uuidv7 } from 'uuid'
 import { S3Service } from '@/vendors/aws/services/s3.service'
@@ -202,6 +202,88 @@ describe('POST /v1/meetings/briefings/seed', () => {
     })
     expect(preserved?.artifactBucket).toBe('real-bucket')
     expect(preserved?.artifactKey).toBe('real/agent/artifact.json')
+  })
+
+  it('commits neither pointer row when the artifact upload fails', async () => {
+    const s3 = service.app.get(S3Service)
+    // What S3Service.uploadFile raises for any S3 ServiceException it does not
+    // map to a 4xx — the class the PermanentRedirect in the incident fell into.
+    vi.spyOn(s3, 'uploadFile').mockRejectedValue(
+      new BadGatewayException('Error communicating with AWS service'),
+    )
+
+    const res = await service.client.post(
+      `${BASE}/briefings/seed`,
+      seedBody(),
+      eoHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+
+    // Nothing may survive a failed upload. A MeetingBriefing row is a promise
+    // that an object exists at (artifactBucket, artifactKey); committing one
+    // first and uploading second turned a single failed PUT into a briefing
+    // that 404s or 502s on every read forever, with no code path able to
+    // notice or repair it.
+    const briefings = await service.prisma.meetingBriefing.findMany({
+      where: { electedOfficeId: eoId },
+    })
+    expect(briefings).toEqual([])
+    const runs = await service.prisma.experimentRun.findMany({
+      where: { organizationSlug: eoOrgSlug },
+    })
+    expect(runs).toEqual([])
+  })
+
+  it('mints no run when a seed over a real agent briefing fails to upload', async () => {
+    const realRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: eoOrgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'real-bucket',
+        artifactKey: 'real/agent/artifact.json',
+      },
+    })
+    await service.prisma.meetingBriefing.create({
+      data: {
+        electedOfficeId: eoId,
+        meetingDate: parseIsoDateAsUTC(MEETING_DATE),
+        meetingTime: '18:00',
+        meetingTimezone: 'America/New_York',
+        experimentRunId: realRun.runId,
+        artifactBucket: 'real-bucket',
+        artifactKey: 'real/agent/artifact.json',
+        artifact: {},
+      },
+    })
+
+    const s3 = service.app.get(S3Service)
+    vi.spyOn(s3, 'uploadFile').mockRejectedValue(
+      new BadGatewayException('Error communicating with AWS service'),
+    )
+    const res = await service.client.post(
+      `${BASE}/briefings/seed`,
+      seedBody(),
+      eoHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+
+    // Seeding over a briefing the agent produced deliberately refuses to
+    // recycle that run, so this path takes the create branch. Committing the
+    // run before the upload left a COMPLETED meeting_briefing run advertising
+    // artifact pointers nothing had written and nothing referenced: the
+    // briefing row still points at the agent's run, so no later seed can find
+    // or reuse the stranded one.
+    const runs = await service.prisma.experimentRun.findMany({
+      where: { organizationSlug: eoOrgSlug },
+    })
+    expect(runs.map((r) => r.runId)).toEqual([realRun.runId])
+
+    const briefing = await service.prisma.meetingBriefing.findFirstOrThrow({
+      where: { electedOfficeId: eoId },
+    })
+    expect(briefing.artifactBucket).toBe('real-bucket')
+    expect(briefing.artifactKey).toBe('real/agent/artifact.json')
   })
 
   it('returns 403 when OTEL_SERVICE_ENVIRONMENT is a customer env (prod)', async () => {

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { v7 as uuidv7 } from 'uuid'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import {
   CommunityIssueCategory,
   CommunityIssueList,
@@ -608,7 +609,27 @@ describe('POST /v1/community-issues/seed', () => {
     ],
   })
 
+  // The seed lands its stub briefing artifact in S3 before writing the row
+  // that points at it, so the double has to behave like a bucket keyed on
+  // (bucket, key). One that only swallowed the PUT could not tell a pointer
+  // the seed can actually answer from the ("seed", "seed") pair it used to
+  // write, which no upload had ever populated.
+  const stubS3 = () => {
+    const objects = new Map<string, string>()
+    const s3 = service.app.get(S3Service)
+    vi.spyOn(s3, 'uploadFile').mockImplementation(async (bucket, body, key) => {
+      objects.set(`${bucket}/${key}`, String(body))
+      return `https://${bucket}.s3.amazonaws.com/${key}`
+    })
+    vi.spyOn(s3, 'getFile').mockImplementation(async (bucket, key) =>
+      objects.get(`${bucket}/${key}`),
+    )
+    return objects
+  }
+
   it('seeds issues for the caller org, readable via the list + detail reads', async () => {
+    stubS3()
+
     const seedRes = await service.client.post<{
       issues: { id: string; list: string; rank: number | null; title: string }[]
     }>(`${BASE}/seed`, seedBody(), eoHeaders())
@@ -648,6 +669,39 @@ describe('POST /v1/community-issues/seed', () => {
       'item-housing',
     )
     expect(detailRes.data.relatedBriefings[0]?.meetingDate).toBe('2026-07-01')
+  })
+
+  it('leaves the related briefing readable at GET /meetings/:date/briefing', async () => {
+    stubS3()
+    await service.client.post(`${BASE}/seed`, seedBody(), eoHeaders())
+
+    // The exact request that failed 768 times in seven days on dev. The seed's
+    // related-briefing row is an ordinary briefing pointer, and this endpoint
+    // fetches artifactBucket/artifactKey from S3 on every call — so a row
+    // naming a bucket nobody had uploaded to could only ever fail, for as long
+    // as the row existed. The e2e suite that drives this endpoint navigates to
+    // /dashboard/briefings/2026-07-01 at the end of its run, which is how a
+    // seeded row and an open browser tab found each other in the first place.
+    const briefing = await service.client.get<{
+      briefing_id: string
+      executive_summary: { items: { item_id: string; content: string }[] }
+    }>('/v1/meetings/2026-07-01/briefing', eoHeaders())
+
+    expect(briefing.status).toBe(HttpStatus.OK)
+    expect(briefing.data.executive_summary.items).toEqual([
+      { item_id: 'item-housing', content: 'Council discussed housing.' },
+    ])
+
+    // The seeded community-issue runs publish nothing to S3 — their issues go
+    // straight through upsertFromArtifact — so their pointers stay null rather
+    // than naming a bucket the admin run-detail view would then try to GET.
+    const runs = await service.prisma.experimentRun.findMany({
+      where: { organizationSlug: eoOrgSlug },
+    })
+    expect(runs.length).toBeGreaterThan(0)
+    expect(
+      runs.every((r) => r.artifactBucket === null && r.artifactKey === null),
+    ).toBe(true)
   })
 
   it('returns 403 when OTEL_SERVICE_ENVIRONMENT is a customer env (prod)', async () => {

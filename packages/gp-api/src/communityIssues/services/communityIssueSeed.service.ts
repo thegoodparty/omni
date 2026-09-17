@@ -2,6 +2,8 @@ import { ForbiddenException, Injectable } from '@nestjs/common'
 import { ElectedOffice, ExperimentRunStatus } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { parseIsoDateAsUTC } from 'src/shared/util/date.util'
+import { SEED_BUCKET } from '@/meetings/util/seedBucket'
+import { S3Service } from '@/vendors/aws/services/s3.service'
 import { CommunityIssuesArtifact } from '../communityIssueArtifact.validation'
 import { SeedRequestDto } from '../schemas/communityIssues.schema'
 import { CommunityIssueUpsertService } from './communityIssueUpsert.service'
@@ -31,7 +33,10 @@ const EXPERIMENT_TYPE_FOR_LIST: Record<'top_community' | 'trending', string> = {
 export class CommunityIssueSeedService extends createPrismaBase(
   MODELS.CommunityIssue,
 ) {
-  constructor(private readonly upsert: CommunityIssueUpsertService) {
+  constructor(
+    private readonly upsert: CommunityIssueUpsertService,
+    private readonly s3: S3Service,
+  ) {
     super()
   }
 
@@ -48,13 +53,19 @@ export class CommunityIssueSeedService extends createPrismaBase(
     // seeded rows are produced by the real write logic, not hand-rolled inserts.
     const runByList = new Map<string, string>()
     for (const list of lists) {
+      // No artifact pointers: this run's issues go straight into
+      // upsertFromArtifact below, so its artifact never reaches S3 and the
+      // columns have nothing truthful to hold. They are nullable precisely for
+      // this case, and every consumer already treats null as "nothing to
+      // fetch" (CommunityIssueService.onExperimentRunCompleted logs and
+      // returns; AdminAgentRunsService.detail skips the GET). Naming a bucket
+      // here instead would only give those readers a pointer that resolves to
+      // someone else's bucket.
       const run = await this.client.experimentRun.create({
         data: {
           organizationSlug: org,
           experimentType: EXPERIMENT_TYPE_FOR_LIST[list],
           status: ExperimentRunStatus.COMPLETED,
-          artifactBucket: 'seed',
-          artifactKey: 'seed',
         },
       })
       runByList.set(list, run.runId)
@@ -90,6 +101,31 @@ export class CommunityIssueSeedService extends createPrismaBase(
       const row = idByKey.get(`${issue.list}::${issue.title}`)
       if (!row) continue
       const { meetingDate, briefingItemId, content } = issue.relatedBriefing
+
+      // This row only exists to anchor the MeetingBriefingItemLink below, but
+      // it is a fully-fledged briefing pointer as far as every reader is
+      // concerned: `GET /meetings/:date/briefing` and the PDF renderer fetch
+      // artifactBucket/artifactKey from S3 unconditionally. Writing the literal
+      // bucket "seed" here pointed them at a real unrelated bucket in
+      // ap-south-1, and because the e2e suite that calls this endpoint seeds a
+      // fixed date and then opens /dashboard/briefings/<that date>, the dev
+      // deploy ended up with a briefing page that answered every poll with an
+      // S3 PermanentRedirect — 768 times over seven days from one open tab.
+      // Land the stub in the bucket we own, before the row that points at it,
+      // so the pointer is answerable from the moment it is committed.
+      const artifact = {
+        executive_summary: {
+          items: [{ item_id: briefingItemId, content }],
+        },
+      }
+      const artifactKey = `community-issue-seed/${electedOffice.id}/${meetingDate}.json`
+      await this.s3.uploadFile(
+        SEED_BUCKET,
+        JSON.stringify(artifact),
+        artifactKey,
+        { contentType: 'application/json' },
+      )
+
       const briefing = await this.client.meetingBriefing.upsert({
         where: {
           electedOfficeId_meetingDate: {
@@ -103,14 +139,14 @@ export class CommunityIssueSeedService extends createPrismaBase(
           meetingTime: '18:00',
           meetingTimezone: 'America/New_York',
           experimentRunId: runByList.get(issue.list) ?? '',
-          artifactBucket: 'seed',
-          artifactKey: 'seed',
-          artifact: {
-            executive_summary: {
-              items: [{ item_id: briefingItemId, content }],
-            },
-          },
+          artifactBucket: SEED_BUCKET,
+          artifactKey,
+          artifact,
         },
+        // A briefing that already exists keeps its own pointers — it may belong
+        // to a real agent run, and repointing it at this stub would strand that
+        // run's artifact. The upload above is then simply unreferenced, which
+        // costs a few hundred bytes in a non-prod bucket and nothing else.
         update: {},
       })
       await this.client.meetingBriefingItemLink.upsert({
