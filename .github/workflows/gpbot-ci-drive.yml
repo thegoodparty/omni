@@ -81,6 +81,14 @@ on:
     # burst of main-push runs. Three of the previous thirty crons went the same
     # way. The PR sat green-but-blocked with budget unspent, which reads exactly
     # like a bot that stopped caring.
+    #
+    # This filter reads the branch the TRIGGERING workflow ran on, which for the
+    # `pull_request` runs above is the PR's head branch. actions/runner#1628 —
+    # where the branch is not propagated and the filter matches the default
+    # branch instead — is about CHAINED workflow_run events, two or more levels
+    # deep. Every workflow watched above is triggered by a push or a pull
+    # request, and the gpbot-* workflows are excluded from that list, so nothing
+    # here is more than one level down.
     branches-ignore:
       - main
   schedule:
