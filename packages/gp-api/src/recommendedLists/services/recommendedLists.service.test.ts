@@ -11,6 +11,7 @@ import type { VoterFilterBase } from '@/shared/schemas/voterFilterBase.schema'
 import type { FilterData } from '@/peopleDb/schemas/filters.schema'
 import { DOOR_PRECINCT_COUNT } from '@/peopleDb/databricks/databricksRecommendedListsSql.util'
 import type { DbxDistrict } from '@/peopleDb/databricks/databricksVoterSql.util'
+import { ElectionCode } from '@/elections/types/elections.types'
 import type { Campaign, Organization } from '../../generated/prisma'
 import { VOTE_GOAL_FLOOR_SHARE } from '../recommendedLists.consts'
 import { RecommendedListsService } from './recommendedLists.service'
@@ -79,9 +80,12 @@ describe('RecommendedListsService.recommend', () => {
       precincts: rankedPrecincts(DOOR_PRECINCT_COUNT),
       totalVoters: 100 * DOOR_PRECINCT_COUNT,
     })
-    getRaceContext = vi
-      .fn()
-      .mockResolvedValue({ winNumberEffective: VOTES_NEEDED })
+    // A November general by default, so the propensity band these tests
+    // assert on is the wide one.
+    getRaceContext = vi.fn().mockResolvedValue({
+      winNumberEffective: VOTES_NEEDED,
+      electionCode: ElectionCode.General,
+    })
 
     service = new RecommendedListsService(
       { resolveEligibleDistrictId, resolveSavedFilterForQuery } as never,
@@ -319,7 +323,10 @@ describe('RecommendedListsService.recommend', () => {
     // one makes every list pass a floor of zero while reporting an infinite
     // or negative share.
     it('treats a non-positive win number as no vote goal', async () => {
-      getRaceContext.mockResolvedValue({ winNumberEffective: 0 })
+      getRaceContext.mockResolvedValue({
+        winNumberEffective: 0,
+        electionCode: ElectionCode.General,
+      })
       countForFilter.mockResolvedValue(3)
 
       const [first] = await service.recommend(
@@ -532,7 +539,10 @@ describe('RecommendedListsService.recommend', () => {
       }
       resolveEligibleDistrictId.mockImplementation(() => track(DISTRICT_ID))
       getRaceContext.mockImplementation(() =>
-        track({ winNumberEffective: VOTES_NEEDED }),
+        track({
+          winNumberEffective: VOTES_NEEDED,
+          electionCode: ElectionCode.General,
+        }),
       )
 
       await service.recommend(organization, campaign, 'sms', 'introduce')
@@ -805,6 +815,77 @@ describe('RecommendedListsService.recommend', () => {
       expect(countForFilter).not.toHaveBeenCalled()
       expect(first?.count).toBe(100)
       expect(first?.filter.precincts).toEqual(['ALLEGHENY|P0'])
+    })
+  })
+
+  // The band is only correct if the race's own electorate reaches the filter
+  // builder. These assert the wiring, not the band policy, which
+  // recommendedListsUniverse.util.test.ts covers.
+  describe('the propensity band follows the race electorate', () => {
+    it('serves the November band to a November general', async () => {
+      const [first] = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'introduce',
+      )
+
+      expect(first?.filter.voterStatus).toEqual(['Super', 'Likely'])
+    })
+
+    it('narrows the band for an off-cycle race', async () => {
+      getRaceContext.mockResolvedValue({
+        winNumberEffective: VOTES_NEEDED,
+        electionCode: ElectionCode.LocalOrMunicipal,
+      })
+
+      const [first] = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'introduce',
+      )
+
+      expect(first?.filter.voterStatus).toEqual(['Super'])
+    })
+
+    // One election-api round-trip serves both the vote goal and the band.
+    it('resolves the electorate and the vote goal from one call', async () => {
+      await service.recommend(organization, campaign, 'sms', 'persuade')
+
+      expect(getRaceContext).toHaveBeenCalledTimes(1)
+      expect(getRaceContext).toHaveBeenCalledWith(RACE_ID)
+    })
+
+    // The documented fallback: an unresolved race keeps today's behaviour
+    // rather than having its recommendations quietly narrowed.
+    it('keeps the November band when election-api is unavailable', async () => {
+      getRaceContext.mockRejectedValue(new Error('election-api down'))
+
+      const [first] = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'introduce',
+      )
+
+      expect(first?.filter.voterStatus).toEqual(['Super', 'Likely'])
+    })
+
+    it('keeps the November band when the race carries no election code', async () => {
+      getRaceContext.mockResolvedValue({
+        winNumberEffective: VOTES_NEEDED,
+        electionCode: null,
+      })
+
+      const [first] = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'introduce',
+      )
+
+      expect(first?.filter.voterStatus).toEqual(['Super', 'Likely'])
     })
   })
 })

@@ -93,6 +93,9 @@ describe('ElectionApiService', () => {
       officialOfficeName: 'Anytown Council',
       officeLevel: 'Local',
       officeType: 'Council',
+      // `validResponse` carries no `election_code`, which is the
+      // older-election-api case the field's `nullish` parse exists for.
+      electionCode: null,
       primaryElectionDate: '2026-06-01',
       generalElectionDate: '2026-11-01',
       relevantElectionDate: '2026-06-01',
@@ -127,6 +130,22 @@ describe('ElectionApiService', () => {
       ],
     })
   })
+
+  // The electorate the race's own projection was drawn for. Read off the
+  // race row rather than derived from a date, so it has to survive the
+  // wire intact -- the recommended-lists propensity band keys on it.
+  it.each(['General', 'LocalOrMunicipal', 'Primary'])(
+    'carries the %s election code through to the race context',
+    async (code) => {
+      mockHttpPost.mockReturnValue(
+        of({ data: { ...validResponse, election_code: code }, status: 200 }),
+      )
+
+      const result = await service.getRaceContext(BR_HASH)
+
+      expect(result.electionCode).toBe(code)
+    },
+  )
 
   it('throws BadGateway when the HTTP call fails', async () => {
     mockHttpPost.mockReturnValue(

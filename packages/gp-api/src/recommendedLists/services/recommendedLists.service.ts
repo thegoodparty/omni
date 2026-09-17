@@ -11,6 +11,7 @@ import {
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { CampaignIdeologyService } from '@/campaignIdeology/services/campaignIdeology.service'
 import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
+import { ElectionCode } from '@/elections/types/elections.types'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { VoterRecommendedListsService } from '@/peopleDb/services/voterRecommendedLists.service'
 import {
@@ -181,24 +182,25 @@ export class RecommendedListsService {
       (variant) => RECOMMENDED_LISTS_REGISTRY[variant].requiresIdeologyBucket,
     )
 
-    const [districtId, ideologyBucket, savedFilters, votesNeededToWin] =
-      await Promise.all([
-        this.contacts.resolveEligibleDistrictId(organization),
-        // Never throws: a classification failure returns null, which hides
-        // the ideology variants. That is the common case, not the edge one.
-        needsIdeology ? this.ideology.bucketForCampaign(campaign.id) : null,
-        // Loaded with `activityConditions` included, which the dedupe
-        // comparison reads straight off the row. Rows without the relation
-        // all look condition-free, so two lists differing only in their
-        // conditions would compare equal and the candidate would be handed
-        // someone else's audience.
-        this.voterFileFilters.findByOrganizationSlug(organization.slug),
-        // Once per request, and inside this fan-out rather than ahead of it:
-        // it gates the size floor so it has to land before the counts, but
-        // it is an election-api round-trip and nothing else here waits on
-        // it.
-        this.votesNeededToWin(campaign),
-      ])
+    const [districtId, ideologyBucket, savedFilters, race] = await Promise.all([
+      this.contacts.resolveEligibleDistrictId(organization),
+      // Never throws: a classification failure returns null, which hides
+      // the ideology variants. That is the common case, not the edge one.
+      needsIdeology ? this.ideology.bucketForCampaign(campaign.id) : null,
+      // Loaded with `activityConditions` included, which the dedupe
+      // comparison reads straight off the row. Rows without the relation
+      // all look condition-free, so two lists differing only in their
+      // conditions would compare equal and the candidate would be handed
+      // someone else's audience.
+      this.voterFileFilters.findByOrganizationSlug(organization.slug),
+      // Once per request, and inside this fan-out rather than ahead of it:
+      // it gates the size floor and the propensity band so it has to land
+      // before the counts, but it is an election-api round-trip and
+      // nothing else here waits on it.
+      this.raceSizingContext(campaign),
+    ])
+
+    const { votesNeededToWin, electionCode } = race
 
     const district = await this.reads.resolveDistrict(districtId)
 
@@ -207,7 +209,12 @@ export class RecommendedListsService {
     const drafts = variants
       .map((variant) => ({
         variant,
-        filter: buildVariantFilter(variant, channel, ideologyBucket),
+        filter: buildVariantFilter(
+          variant,
+          channel,
+          ideologyBucket,
+          electionCode,
+        ),
       }))
       .filter((draft): draft is VariantDraft => draft.filter !== null)
 
@@ -260,34 +267,49 @@ export class RecommendedListsService {
     }))
   }
 
-  // The race's vote goal, and null for every way it can fail to resolve — no
-  // raceId on the campaign, no Race row in election-api, an election-api
-  // outage, or a non-positive number. Null is a supported outcome, not an
-  // error: it drops `voteGoalShare` from the response and exempts the
-  // variants from the size floor, so a race we can't price still gets
-  // recommendations.
+  // The two things about the race that shape a recommendation: the vote goal
+  // it is sized against, and the electorate it draws. One election-api call
+  // for both, since they come off the same race row and a second round-trip
+  // for the election code would double this request's only remote dependency.
+  //
+  // Both are null for every way the lookup can fail — no raceId on the
+  // campaign, no Race row in election-api, an outage — and each is
+  // independently null when the race row simply has no value. Null is a
+  // supported outcome, not an error: a race we cannot price still gets
+  // recommendations, it just loses `voteGoalShare` and its size floor, and
+  // keeps the default propensity band.
   //
   // `win_number_effective` ASSUMES A SINGLE SEAT, so an at-large or
   // multi-seat race overstates it and the floor is correspondingly more
   // permissive there. Known and accepted — see
   // docs/features/recommended-lists.md.
-  private async votesNeededToWin(campaign: Campaign): Promise<number | null> {
+  private async raceSizingContext(campaign: Campaign): Promise<{
+    votesNeededToWin: number | null
+    electionCode: ElectionCode | null
+  }> {
     const parsed = CampaignRaceSchema.safeParse(campaign.details)
     const raceId = parsed.success ? (parsed.data.raceId ?? '').trim() : ''
-    if (raceId.length === 0) return null
+    if (raceId.length === 0) {
+      return { votesNeededToWin: null, electionCode: null }
+    }
 
     try {
-      const { winNumberEffective } =
+      const { winNumberEffective, electionCode } =
         await this.electionApi.getRaceContext(raceId)
-      return winNumberEffective && winNumberEffective > 0
-        ? winNumberEffective
-        : null
+      return {
+        votesNeededToWin:
+          winNumberEffective && winNumberEffective > 0
+            ? winNumberEffective
+            : null,
+        electionCode: electionCode ?? null,
+      }
     } catch (error) {
       this.logger.warn(
         { err: error, campaignId: campaign.id, raceId },
-        'Vote goal unavailable; omitting voteGoalShare and its size floor',
+        'Race context unavailable; omitting voteGoalShare and its size floor, ' +
+          'and falling back to the default propensity band',
       )
-      return null
+      return { votesNeededToWin: null, electionCode: null }
     }
   }
 
