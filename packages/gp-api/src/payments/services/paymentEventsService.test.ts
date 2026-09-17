@@ -1,4 +1,7 @@
-import { BadRequestException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ServiceUnavailableException,
+} from '@nestjs/common'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { Campaign, User } from '../../generated/prisma'
 import Stripe from 'stripe'
@@ -48,6 +51,8 @@ describe('PaymentEventsService', () => {
     retryHoldFailedForAttachedCard: vi.fn(),
   }
   const moduleRef = { get: vi.fn() }
+
+  const nowSeconds = () => Math.floor(Date.now() / 1000)
 
   const mockUser = { id: 1, email: 'test@example.com' } as User
   const mockCampaign = {
@@ -635,6 +640,9 @@ describe('PaymentEventsService', () => {
             id: 'sub_test_unmatched',
             customer: 'cus_test_unmatched',
             status: 'canceled',
+            // Old enough that the fulfillment write that links a subscription
+            // has long since either landed or failed.
+            created: nowSeconds() - 86_400,
             cancel_at: null,
             canceled_at: 1_757_289_600,
             cancellation_details: { reason: 'cancellation_requested' },
@@ -666,6 +674,23 @@ describe('PaymentEventsService', () => {
       expect(
         emailService.sendCancellationRequestConfirmationEmail,
       ).toHaveBeenCalledOnce()
+    })
+
+    // The id this lookup reads is written by our own fulfillment, seconds after
+    // checkout, and Stripe delivers a subscription's sibling events
+    // concurrently with that write. Acknowledging a miss this young would drop
+    // a first-time Pro upgrade's events and report the new customer as one we
+    // are charging for nothing.
+    it('asks Stripe to redeliver an unmatched subscription minted moments ago', async () => {
+      campaignsService.findBySubscriptionId.mockResolvedValue(null)
+
+      await expect(
+        service.customerSubscriptionUpdatedHandler(
+          updatedEvent({ status: 'active', created: nowSeconds() - 5 }),
+        ),
+      ).rejects.toThrow(ServiceUnavailableException)
+
+      expect(logger.error).not.toHaveBeenCalled()
     })
 
     it('acknowledges an unmatched subscription instead of leaving Stripe to retry it', async () => {
@@ -763,6 +788,7 @@ describe('PaymentEventsService', () => {
             id: 'sub_test_unmatched',
             customer: 'cus_test_unmatched',
             status: 'canceled',
+            created: nowSeconds() - 86_400,
             cancel_at: null,
             canceled_at: 1_757_289_600,
             cancellation_details: { reason: 'payment_failed' },
@@ -794,6 +820,25 @@ describe('PaymentEventsService', () => {
         campaignsService.persistCampaignProCancellation,
       ).toHaveBeenCalledOnce()
       expect(slackService.message).toHaveBeenCalledOnce()
+    })
+
+    // A cancellation that beat its own checkout's fulfillment write is the one
+    // miss redelivery can still fix — acknowledging it would leave the campaign
+    // Pro with nothing left to un-Pro it.
+    it('asks Stripe to redeliver a cancellation that arrived before the link was written', async () => {
+      campaignsService.findBySubscriptionId.mockResolvedValue(null)
+
+      await expect(
+        service.customerSubscriptionDeletedHandler(
+          deletedEvent({ created: nowSeconds() - 5 }),
+        ),
+      ).rejects.toThrow(ServiceUnavailableException)
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ subscriptionId: 'sub_test_unmatched' }),
+        expect.stringContaining('redeliver'),
+      )
+      expect(logger.error).not.toHaveBeenCalled()
     })
 
     it('acknowledges an unmatched cancellation instead of retrying it for three days', async () => {

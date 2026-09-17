@@ -86,10 +86,12 @@ failure, and Stripe's 7 retries over ~68h re-run the same query against the
 same rows, raising one alert per attempt.
 
 `PaymentEventsService.reportUnmatchedSubscription` owns the classification.
-Three conditions hide behind one lookup miss, and only one of them is harmless:
+Four conditions hide behind one lookup miss; only one is harmless, and only one
+is worth retrying:
 
 | Subscription status | Account behind the customer id | Log | Why |
 | --- | --- | --- | --- |
+| any, **created < 10 min ago** | not consulted | `warn` + **503** | The only miss redelivery can fix. `checkout.session.completed` / `customer.subscription.created` write `details.subscriptionId`, and Stripe delivers a subscription's sibling events concurrently with that write, so a fresh subscription may be unlinked rather than orphaned. The window closes on its own — a genuine orphan falls through to the rows below on a later attempt. |
 | billable — `active`, `trialing`, `past_due`, `unpaid`, `incomplete`, `paused` | not consulted | `error` — "still billable" | Someone is being charged with no campaign carrying their sub id. `UsersService.deleteUser` cancels before deleting, so this can never be deletion residue. Repair as ENG-10771. |
 | `canceled` / `incomplete_expired` | user found, not `metaData.isDeleted` | `error` — "cancellation was never applied" | The de-Pro never ran, so the campaign may still be Pro — or its sub id was orphaned by a duplicate checkout (ENG-11084). Money stopped, fulfillment did not follow. |
 | `canceled` / `incomplete_expired` | no user, or `metaData.isDeleted` | `warn` — "consistent with account deletion" | Account deletion removes campaign and user together and cancels Stripe afterwards, so the event lands with nothing left to un-Pro. No redelivery and no human can act. |

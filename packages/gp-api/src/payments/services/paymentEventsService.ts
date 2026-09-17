@@ -5,6 +5,7 @@ import {
   Inject,
   Injectable,
   InternalServerErrorException,
+  ServiceUnavailableException,
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
 import { CheckoutSessionMode, WebhookEventType } from '../payments.types'
@@ -42,6 +43,14 @@ const UNBILLABLE_SUBSCRIPTION_STATUSES = new Set<Stripe.Subscription.Status>([
   'canceled',
   'incomplete_expired',
 ])
+
+// How long after Stripe mints a subscription an unmatched lookup is still
+// assumed to be racing our own fulfillment write rather than describing a
+// genuine orphan. checkout.session.completed and customer.subscription.created
+// are what store details.subscriptionId, and Stripe delivers sibling events
+// concurrently with that write, not after it — ten minutes covers a slow
+// finalize and a couple of redeliveries with room to spare.
+const SUBSCRIPTION_WRITE_RACE_WINDOW_SECONDS = 10 * 60
 
 @Injectable()
 export class PaymentEventsService {
@@ -269,9 +278,15 @@ export class PaymentEventsService {
   // and redelivery re-runs the same query against the same rows, so Stripe spent
   // 7 attempts over ~68h raising one alert each on a state that cannot change.
   //
-  // Acknowledging is what stops that, but acknowledging silently would bury the
-  // reason the miss matters. One lookup failure covers three conditions with
-  // three very different costs, and the event payload separates them:
+  // Acknowledging is right only because no redelivery can change the answer,
+  // which is true of every miss EXCEPT one: the write that stores
+  // details.subscriptionId is ours and lands seconds after checkout, so a
+  // subscription minted minutes ago may simply not be linked yet. That one
+  // keeps its retry (see below).
+  //
+  // Acknowledging silently would bury the reason the miss matters. One lookup
+  // failure covers three conditions with three very different costs, and the
+  // event payload separates them:
   //
   // - Still billable. The customer is being charged and no campaign is being
   //   served. UsersService.deleteUser cancels the subscription, so a billable
@@ -307,6 +322,29 @@ export class PaymentEventsService {
       cancelAt: subscription.cancel_at,
       canceledAt: subscription.canceled_at,
       cancellationReason: subscription.cancellation_details?.reason ?? null,
+    }
+
+    // The one miss redelivery can still fix. Our own fulfillment writes the id
+    // this lookup reads, and Stripe delivers a subscription's sibling events
+    // concurrently with that write rather than after it, so a freshly minted
+    // subscription may be unlinked for a few seconds rather than orphaned.
+    // Keeping the retry here is what stops a cancellation that beat its own
+    // checkout from being dropped, and a first-time Pro upgrade from being
+    // reported as an unserved paying customer. 503 rather than the old 502:
+    // this is our state catching up, not a Stripe failure (#1937). The window
+    // closes on its own, so a genuine orphan minted minutes ago falls through
+    // to the classification below on a later attempt instead of retrying for
+    // three days.
+    const subscriptionAgeSeconds = Date.now() / 1000 - subscription.created
+    if (subscriptionAgeSeconds < SUBSCRIPTION_WRITE_RACE_WINDOW_SECONDS) {
+      this.logger.warn(
+        { ...context, subscriptionAgeSeconds },
+        '[WEBHOOK] Unmatched Stripe subscription is younger than the ' +
+          'fulfillment write that links it — asking Stripe to redeliver',
+      )
+      throw new ServiceUnavailableException(
+        'Subscription is not linked to a campaign yet',
+      )
     }
 
     if (!UNBILLABLE_SUBSCRIPTION_STATUSES.has(subscription.status)) {
