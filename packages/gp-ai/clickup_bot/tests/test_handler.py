@@ -3341,7 +3341,7 @@ def test_sweep_is_idempotent_because_dedup_declines(monkeypatch, sweep_comments)
     resp = handler.handler(sweep_event(), None)
 
     body = json.loads(resp["body"])
-    assert body == {"swept": 2, "triggered": 0, "skipped": 2}
+    assert body == {"intake_tagged": 0, "swept": 2, "triggered": 0, "skipped": 2}
 
 
 def test_sweep_caps_how_many_runs_one_pass_can_start(monkeypatch, sweep_calls, sweep_comments):
@@ -3586,7 +3586,7 @@ def test_a_ticket_analyzed_yesterday_is_never_swept_again(monkeypatch, sweep_cal
     resp = handler.handler(sweep_event(), None)
 
     assert sweep_calls == []
-    assert json.loads(resp["body"]) == {"swept": 1, "triggered": 0, "skipped": 1}
+    assert json.loads(resp["body"]) == {"intake_tagged": 0, "swept": 1, "triggered": 0, "skipped": 1}
 
 
 def test_repeated_sweeps_of_an_analyzed_ticket_never_re_run_it(monkeypatch, sweep_calls, sweep_comments):
@@ -4246,3 +4246,289 @@ def test_deleting_the_marker_returns_the_ticket_to_its_list(fake_clickup, fake_e
     handler.handler(make_event(tag_updated_body(tags=("gpbot-analyze",))), None)
 
     assert engineer_agent_env(fake_ecs.run_task_calls[0])["TARGET_REPO"] == handler.OMNI_REPO
+
+
+# ---------------------------------------------------------------------------
+# INTAKE SWEEP: tagging the tickets nobody tagged.
+#
+# The gap this closes was measured, not imagined. ENG-11112 was filed by hand
+# into Win > Bugs and sat untouched for 20 hours; ENG-11113 was filed by HubSpot
+# into the same list 17 minutes later and was analysed in seconds. The
+# difference is the production-bug tag HubSpot applies and the ClickUp
+# Automation that watches for it, so every bug a colleague reports directly is
+# invisible to a system whose two entry points are both tag queries.
+# ---------------------------------------------------------------------------
+
+
+def intake_task(task_id="86new", list_id=None, tags=(), status_type="open", custom_id="ENG-11112"):
+    return {
+        "id": task_id,
+        "custom_id": custom_id,
+        "name": "Candidate profile reverting to unclaimed external record",
+        "list": {"id": list_id if list_id is not None else handler.WIN_BUGS_LIST_ID, "name": "Bugs"},
+        "tags": [{"name": t} for t in tags],
+        "status": {"status": "to do", "type": status_type},
+    }
+
+
+@pytest.fixture
+def intake_listing(monkeypatch):
+    """Controls what the intake pass sees as recently created."""
+    box = {"tasks": []}
+    monkeypatch.setattr(handler, "list_recently_created_intake_tasks", lambda since: box["tasks"])
+    return box
+
+
+@pytest.fixture
+def tag_writes(monkeypatch):
+    """Records every tag the intake pass applies."""
+    writes = []
+    monkeypatch.setattr(handler, "add_task_tag", lambda tid, tag: writes.append((tid, tag)))
+    return writes
+
+
+def test_a_hand_filed_bug_is_taken_in(monkeypatch, intake_listing, tag_writes, sweep_calls, sweep_comments):
+    # ENG-11112 itself: in a bug list, no tags at all, nobody has looked at it.
+    intake_listing["tasks"] = [intake_task()]
+    stub_listing(monkeypatch, [])
+
+    resp = handler.handler(sweep_event(), None)
+
+    assert tag_writes == [("86new", handler.ANALYZE_TAG)]
+    assert json.loads(resp["body"])["intake_tagged"] == 1
+
+
+def test_a_hubspot_ticket_is_not_tagged_twice(monkeypatch, intake_listing, tag_writes, sweep_comments):
+    # The path that already works. Tagging again would be a no-op to ClickUp but
+    # a second date_updated bump, which is what the sweep's window keys on.
+    intake_listing["tasks"] = [intake_task(tags=("hs ticket", "production-bug", handler.ANALYZE_TAG))]
+    stub_listing(monkeypatch, [])
+
+    handler.handler(sweep_event(), None)
+
+    assert tag_writes == []
+
+
+def test_a_human_can_call_the_bot_off(monkeypatch, intake_listing, tag_writes, sweep_comments):
+    # Without an opt-out, the only way to refuse the bot is to remove the tag,
+    # and a scheduled tagger would put it straight back — an argument a human
+    # cannot win and, worse, cannot see the other side of.
+    intake_listing["tasks"] = [intake_task(tags=(handler.INTAKE_OPT_OUT_TAG,))]
+    stub_listing(monkeypatch, [])
+
+    handler.handler(sweep_event(), None)
+
+    assert tag_writes == []
+
+
+def test_removing_the_tag_after_an_answer_is_respected(monkeypatch, intake_listing, tag_writes, sweep_comments):
+    # The re-tagging loop, which is the way this feature could plausibly become
+    # a menace: the bot answers, a human removes the tag to close it out, and
+    # the next pass 15 minutes later sees an untagged ticket in a bug list.
+    intake_listing["tasks"] = [intake_task(task_id="answered")]
+    sweep_comments["answered"] = [bot_comment(age_seconds=86400)]
+    stub_listing(monkeypatch, [])
+
+    handler.handler(sweep_event(), None)
+
+    assert tag_writes == []
+
+
+def test_a_ticket_someone_only_commented_on_is_still_taken_in(monkeypatch, intake_listing, tag_writes, sweep_comments):
+    # The guard above is "has the BOT spoken", not "has anyone spoken". A ticket
+    # a colleague chased in the comments and nobody fixed is exactly the ticket
+    # worth analysing.
+    intake_listing["tasks"] = [intake_task(task_id="chased")]
+    sweep_comments["chased"] = [human_comment()]
+    stub_listing(monkeypatch, [])
+
+    handler.handler(sweep_event(), None)
+
+    assert tag_writes == [("chased", handler.ANALYZE_TAG)]
+
+
+def test_a_backlog_is_not_a_bug_report(monkeypatch, intake_listing, tag_writes, sweep_comments):
+    # Serve > Backlog and Platform Backlog hold planned work nobody reported as
+    # broken. Tagging them would buy an agent run per grooming decision.
+    intake_listing["tasks"] = [intake_task(list_id="901318405462")]
+    stub_listing(monkeypatch, [])
+
+    handler.handler(sweep_event(), None)
+
+    assert tag_writes == []
+
+
+def test_a_task_outside_the_intake_lists_is_never_tagged(monkeypatch, intake_listing, tag_writes, sweep_comments):
+    # THE WIDENING FAILURE, and the reason the list bound is checked twice.
+    # ClickUp ignores a filter it does not recognise rather than erroring, so if
+    # `list_ids[]` ever stopped being understood, the endpoint would answer with
+    # every recently created task in the workspace. The tag query upstairs would
+    # waste a listing; this pass WRITES, and would tag every new task in the
+    # company, each one an agent run.
+    intake_listing["tasks"] = [intake_task(list_id="901999999999", custom_id="MKT-1")]
+    stub_listing(monkeypatch, [])
+
+    handler.handler(sweep_event(), None)
+
+    assert tag_writes == []
+
+
+def test_a_bug_someone_already_fixed_is_not_analysed(monkeypatch, intake_listing, tag_writes, sweep_comments):
+    # ENG-11089 was sitting in Win > Bugs at status "done", fixed by hand and
+    # never tagged. include_closed=false does not cover it, because "done" is a
+    # separate status type in ClickUp from "closed".
+    intake_listing["tasks"] = [intake_task(status_type="done")]
+    stub_listing(monkeypatch, [])
+
+    handler.handler(sweep_event(), None)
+
+    assert tag_writes == []
+
+
+@pytest.mark.parametrize("status_type", ["custom", "done", "closed"])
+def test_a_ticket_someone_is_already_working_on_is_left_alone(
+    monkeypatch, intake_listing, tag_writes, sweep_comments, status_type
+):
+    # "in progress", "in review" and "ready to ship" are all type "custom" in
+    # these lists, so they are indistinguishable by type from "blocked" — which
+    # is why this is an allow-list of "open" and not a deny-list of finished
+    # states. Someone is on all of them; none needs the bot's opinion.
+    intake_listing["tasks"] = [intake_task(status_type=status_type)]
+    stub_listing(monkeypatch, [])
+
+    handler.handler(sweep_event(), None)
+
+    assert tag_writes == []
+
+
+def test_an_unreadable_status_is_not_tagged(monkeypatch, intake_listing, tag_writes, sweep_comments):
+    # Fails toward not writing, the safe direction. A response drift must not be
+    # resolved by starting an agent run.
+    intake_listing["tasks"] = [
+        {"id": "no-status", "list": {"id": handler.WIN_BUGS_LIST_ID}, "tags": []},
+        {"id": "odd-status", "list": {"id": handler.WIN_BUGS_LIST_ID}, "tags": [], "status": "to do"},
+    ]
+    stub_listing(monkeypatch, [])
+
+    handler.handler(sweep_event(), None)
+
+    assert tag_writes == []
+
+
+def test_the_cap_bounds_what_one_pass_can_set_running(monkeypatch, intake_listing, tag_writes, sweep_comments):
+    # Every tag here becomes an agent run, and on omni a `fix` verdict escalates
+    # to an implement run that opens a PR. A bulk import into a bug list must
+    # not be able to become a wave of pull requests before anyone notices.
+    monkeypatch.setenv("INTAKE_MAX_TAGS", "2")
+    intake_listing["tasks"] = [intake_task(task_id=f"t{i}") for i in range(10)]
+    stub_listing(monkeypatch, [])
+
+    resp = handler.handler(sweep_event(), None)
+
+    assert len(tag_writes) == 2
+    assert json.loads(resp["body"])["intake_tagged"] == 2
+
+
+def test_the_ticket_it_just_tagged_runs_in_the_same_pass(monkeypatch, tag_writes, sweep_calls, sweep_comments):
+    # Why the intake pass runs FIRST rather than alongside. The tag query that
+    # follows it keys on date_updated, so a tag written a moment ago is in the
+    # window — and the ticket is analysed now instead of waiting for the next
+    # pass, on a webhook this system already knows drops exactly this class of
+    # ticket.
+    monkeypatch.setattr(handler, "list_recently_created_intake_tasks", lambda since: [intake_task(task_id="fresh")])
+    monkeypatch.setattr(
+        handler,
+        "list_recently_updated_tagged_tasks",
+        lambda tag, since: [{"id": tid} for tid, _ in tag_writes],
+    )
+
+    handler.handler(sweep_event(), None)
+
+    assert [c[0] for c in sweep_calls] == ["fresh"]
+
+
+def test_a_broken_intake_listing_still_leaves_the_sweep_working(monkeypatch, sweep_calls, sweep_comments):
+    # The intake pass is new and sits at the top of a function this system has
+    # depended on for months. A ClickUp blip while taking in new tickets must
+    # not also stop the sweep rescuing the tickets that are already tagged.
+    def boom(since):
+        raise RuntimeError("clickup 502")
+
+    monkeypatch.setattr(handler, "list_recently_created_intake_tasks", boom)
+    stub_listing(monkeypatch, [{"id": "already-tagged"}])
+
+    resp = handler.handler(sweep_event(), None)
+
+    assert [c[0] for c in sweep_calls] == ["already-tagged"]
+    assert resp["statusCode"] == 200
+    assert json.loads(resp["body"])["intake_tagged"] == 0
+
+
+def test_one_unwritable_ticket_does_not_strand_the_window(monkeypatch, intake_listing, sweep_calls, sweep_comments):
+    written = []
+
+    def flaky(task_id, tag):
+        if task_id == "locked":
+            raise RuntimeError("clickup 403")
+        written.append(task_id)
+
+    monkeypatch.setattr(handler, "add_task_tag", flaky)
+    intake_listing["tasks"] = [intake_task(task_id="locked"), intake_task(task_id="fine")]
+    stub_listing(monkeypatch, [])
+
+    resp = handler.handler(sweep_event(), None)
+
+    assert written == ["fine"]
+    # The failed one is not counted as taken in, so it stays a candidate next
+    # pass rather than being quietly written off.
+    assert json.loads(resp["body"])["intake_tagged"] == 1
+
+
+def test_unreadable_tickets_are_dropped_rather_than_tagged(monkeypatch, intake_listing, tag_writes, sweep_comments):
+    # Shape-defensive in the SAFE direction: a response drift must not be
+    # resolved by writing to a ticket we cannot describe.
+    # Each entry is otherwise complete, so the named defect is the only reason
+    # it is dropped — a fixture missing two things would pass this test even if
+    # one of the two guards were deleted.
+    open_status = {"status": "to do", "type": "open"}
+    win = {"id": handler.WIN_BUGS_LIST_ID}
+    intake_listing["tasks"] = [
+        "not a dict",
+        {"custom_id": "ENG-1", "list": win, "tags": [], "status": open_status},  # no id
+        {"id": "", "list": win, "tags": [], "status": open_status},  # empty id
+        {"id": "no-list", "tags": [], "status": open_status},  # no list
+        {"id": "no-tags", "list": win, "status": open_status},  # tags unreadable
+    ]
+    stub_listing(monkeypatch, [])
+
+    handler.handler(sweep_event(), None)
+
+    assert tag_writes == []
+
+
+def test_the_query_asks_only_for_the_bug_lists(fake_clickup):
+    handler.list_recently_created_intake_tasks(1789500000000)
+
+    url = fake_clickup.calls[0][1]
+    for list_id in handler.INTAKE_LIST_IDS:
+        assert f"list_ids[]={list_id}" in url
+    # Literal brackets, matching the tag query's reasoning: ClickUp currently
+    # normalises the escaped form, but an unrecognised filter is ignored rather
+    # than rejected, and this pass writes.
+    assert "list_ids%5B%5D" not in url
+    assert "date_created_gt=1789500000000" in url
+    assert "include_closed=false" in url
+
+
+def test_the_intake_lists_and_the_out_of_scope_lists_never_overlap():
+    # A list cannot be both "file bugs here for the bot" and "the bot must not
+    # do code work here". If one is ever added to both, the intake pass would
+    # tag tickets the implement path is documented to refuse.
+    assert not (handler.INTAKE_LIST_IDS & handler.OUT_OF_SCOPE_LIST_IDS)
+
+
+def test_the_marketing_list_is_covered_too():
+    # It already has a working Automation. It is in here because that Automation
+    # is the single point of failure this whole function exists to answer for:
+    # if someone deletes it, the list goes quiet and nothing says so.
+    assert handler.MARKETING_SITE_BUGS_LIST_ID in handler.INTAKE_LIST_IDS

@@ -958,6 +958,13 @@ def get_task(task_id: str) -> dict:
     return clickup_request("GET", f"/task/{task_id}")
 
 
+def add_task_tag(task_id: str, tag_name: str) -> None:
+    # quote() because the tag name is a PATH SEGMENT here, not a query value.
+    # Today's callers pass a constant with no special characters, so this is
+    # about the next caller rather than this one.
+    clickup_request("POST", f"/task/{task_id}/tag/{quote(tag_name)}")
+
+
 # RECONCILIATION SWEEP.
 #
 # Webhooks are not sufficient, and this is measured rather than assumed. On
@@ -999,6 +1006,73 @@ CLICKUP_PAGE_SIZE = 100
 DEFAULT_SWEEP_MAX_TRIGGERS = 5
 
 
+# INTAKE SWEEP.
+#
+# The sweep above rescues a ticket that HAS the tag and never got a run. This
+# one covers the larger gap underneath it: a ticket that never got the tag at
+# all, and so was invisible to every part of this system — the webhook listens
+# for the tag being applied, and the sweep above is itself a tag query.
+#
+# Measured on 2026-09-17, prompted by ENG-11112 sitting untouched for 20 hours.
+# Across the last 100 tickets in Win > Bugs the correlation is exact: every
+# ticket carrying gpbot-analyze also carries production-bug, and every ticket
+# without production-bug carries no gpbot-analyze. The ClickUp Automation on
+# that list triggers on production-bug, which HubSpot applies to tickets it
+# creates — so a bug a GoodParty employee files by hand in ClickUp reaches
+# nobody. ENG-11112 and ENG-11113 are the control pair: filed 17 minutes apart
+# into the same list, the HubSpot one was analysed within seconds and the
+# hand-filed one was never seen.
+#
+# This is the missing Automation, written here instead of in the ClickUp UI
+# because it is testable here, because the filters below are more than
+# "when task created" can express, and because ClickUp Automations cannot be
+# created through the API and are invisible to code review.
+#
+# TAGS RATHER THAN TRIGGERING, deliberately. Applying the tag is what the
+# Automation would have done, and it reuses the whole existing path instead of
+# adding a second way to start a run: dedup, routing, the verdict, the
+# escalation, and the coverage metric all key off the tag. It also leaves the
+# reason visible on the ticket. The intake pass runs FIRST inside handle_sweep,
+# so the tag query that follows it in the same pass picks up what it just
+# tagged — no waiting on a webhook this system already knows drops work.
+WIN_BUGS_LIST_ID = "901321761872"
+PLATFORM_BUGS_LIST_ID = "901320540273"
+SERVE_BUGS_LIST_ID = "901328720152"
+
+# Bug INTAKE lists only. Serve > Backlog and Platform Backlog are deliberately
+# absent: a backlog holds planned work that nobody reported as broken, and
+# tagging it would buy an agent run per grooming decision.
+#
+# Marketing Site Bugs is included even though it already has a working
+# "when task created -> add gpbot-analyze" Automation, because that Automation
+# is exactly the single point of failure this whole function exists to answer
+# for. If someone deletes it, the list goes quiet and nothing says so.
+INTAKE_LIST_IDS = frozenset(
+    {
+        WIN_BUGS_LIST_ID,
+        PLATFORM_BUGS_LIST_ID,
+        SERVE_BUGS_LIST_ID,
+        MARKETING_SITE_BUGS_LIST_ID,
+    }
+)
+
+# An escape hatch for a human who wants this specific ticket left alone. Without
+# it the only way to stop the bot is to remove the tag, and a scheduled tagger
+# would simply put it back — an argument the human cannot win and cannot see.
+INTAKE_OPT_OUT_TAG = "gpbot-skip"
+
+# Creation time, not update time: the question is "was this ticket ever taken
+# in", which is answered once, at the beginning. Windowing on updates would
+# re-ask it every time anyone touched an old ticket, and put the ~90 untagged
+# historical tickets in these lists permanently in range.
+DEFAULT_INTAKE_LOOKBACK_HOURS = 24.0
+# Lower than the trigger cap above because this one is upstream of it: every tag
+# written here becomes an agent run, and on omni a `fix` verdict escalates to an
+# implement run that opens a PR. A bulk import into a bug list must not be able
+# to turn into a wave of pull requests before anyone notices.
+DEFAULT_INTAKE_MAX_TAGS = 3
+
+
 def _positive_float_env(name: str, default: float) -> float:
     raw = os.environ.get(name)
     if raw is None:
@@ -1020,6 +1094,14 @@ def sweep_lookback_ms() -> int:
 
 def sweep_max_triggers() -> int:
     return int(_positive_float_env("SWEEP_MAX_TRIGGERS", DEFAULT_SWEEP_MAX_TRIGGERS))
+
+
+def intake_lookback_ms() -> int:
+    return int(_positive_float_env("INTAKE_LOOKBACK_HOURS", DEFAULT_INTAKE_LOOKBACK_HOURS) * 3600 * 1000)
+
+
+def intake_max_tags() -> int:
+    return int(_positive_float_env("INTAKE_MAX_TAGS", DEFAULT_INTAKE_MAX_TAGS))
 
 
 def list_recently_updated_tagged_tasks(tag: str, since_ms: int) -> list[dict]:
@@ -1059,6 +1141,97 @@ def list_recently_updated_tagged_tasks(tag: str, since_ms: int) -> list[dict]:
         if len(batch) < CLICKUP_PAGE_SIZE:
             break
     return tasks
+
+
+def list_recently_created_intake_tasks(since_ms: int) -> list[dict]:
+    """Everything filed into a bug intake list inside the window, tagged or not.
+
+    Unlike the tag query above, this one cannot ask ClickUp for what it actually
+    wants: the API filters on the presence of a tag and has no way to ask for its
+    absence. So it fetches the window and `untagged_intake_candidates` does the
+    rest, on a set the list and date bounds keep to a handful.
+    """
+    tasks: list[dict] = []
+    for page in range(SWEEP_MAX_PAGES):
+        query = urlencode(
+            [
+                # sorted() only so the query string is stable enough to assert
+                # on — frozenset iteration order is not.
+                *[("list_ids[]", list_id) for list_id in sorted(INTAKE_LIST_IDS)],
+                ("date_created_gt", since_ms),
+                ("include_closed", "false"),
+                ("subtasks", "true"),
+                ("page", page),
+            ],
+            quote_via=quote,
+            safe="[]",
+        )
+        result = clickup_request("GET", f"/team/{CLICKUP_TEAM_ID}/task?{query}")
+        batch = result.get("tasks", [])
+        if not isinstance(batch, list):
+            break
+        tasks.extend(t for t in batch if isinstance(t, dict))
+        if len(batch) < CLICKUP_PAGE_SIZE:
+            break
+    return tasks
+
+
+def untagged_intake_candidates(tasks: list[dict]) -> list[dict]:
+    """The subset that should be tagged, decided without trusting the query.
+
+    The list bound is re-checked here rather than left to `list_ids[]`, and that
+    is the point of the function existing separately. An unrecognised filter is
+    not an error to ClickUp — it is ignored — so if that parameter ever stopped
+    being understood, the endpoint would answer with every recently created task
+    in the workspace. For the tag query above, the cost of that is a wasted
+    listing. Here the caller goes on to WRITE, and the blast radius would be a
+    tag on every new task in the company, each one an agent run.
+
+    Shape-defensive in the safe direction throughout: anything unreadable is
+    dropped rather than tagged.
+    """
+    candidates: list[dict] = []
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        task_id = task.get("id")
+        if not isinstance(task_id, str) or not task_id:
+            continue
+
+        task_list = task.get("list")
+        if not isinstance(task_list, dict) or task_list.get("id") not in INTAKE_LIST_IDS:
+            continue
+
+        tags = task.get("tags")
+        if not isinstance(tags, list):
+            # Cannot prove it is untagged, so cannot justify tagging it.
+            continue
+        tag_names = {t.get("name") for t in tags if isinstance(t, dict)}
+        if ANALYZE_TAG in tag_names or INTAKE_OPT_OUT_TAG in tag_names:
+            continue
+
+        # NOT-STARTED ONLY. This pass stands in for "when task created", so the
+        # ticket it wants is one nobody has picked up. Anything further along
+        # already has a human on it, and an analysis of a bug being fixed — or
+        # already fixed — is pure cost.
+        #
+        # Allow-list rather than a deny-list of finished states, because the
+        # deny-list version silently mis-sorts the middle: `include_closed=false`
+        # does not cover "done" (a separate status type — ENG-11089 sat in Win >
+        # Bugs at "done", fixed by hand and never tagged), and "in review" and
+        # "ready to ship" are type "custom", indistinguishable by type from
+        # "blocked". Verified against all four intake lists on 2026-09-17: each
+        # one's first status is "to do" with type "open", and the later ones are
+        # custom/done/closed.
+        #
+        # An unreadable status therefore fails toward NOT tagging, which is the
+        # safe direction for a write.
+        status = task.get("status")
+        if not isinstance(status, dict) or status.get("type") != "open":
+            continue
+
+        candidates.append(task)
+    return candidates
 
 
 def out_of_scope_reason(task: Any) -> str | None:
@@ -1780,6 +1953,60 @@ def sweep_should_skip(task_id: str) -> bool:
         return True
 
 
+def run_intake_pass() -> int:
+    """Tag bug-list tickets that never got taken in. Returns how many it tagged.
+
+    Never raises. This runs at the top of handle_sweep, and the tag query that
+    follows it is the behaviour this system has depended on for months — a
+    ClickUp blip while taking in a new ticket must not also stop the sweep from
+    rescuing the tickets already tagged.
+    """
+    since_ms = int(time.time() * 1000) - intake_lookback_ms()
+    try:
+        tasks = list_recently_created_intake_tasks(since_ms)
+    except Exception as e:
+        # Not ERROR-prefixed: the alarm metric filter matches "ERROR" anywhere
+        # in this log group, and the sweep proper is still about to run. The
+        # failure that deserves an alarm is the sweep going quiet, not one
+        # listing being unavailable for 15 minutes.
+        print(f"Intake pass could not list new tickets, skipping this pass: {e}")
+        return 0
+
+    candidates = untagged_intake_candidates(tasks)
+    if not candidates:
+        return 0
+
+    cap = intake_max_tags()
+    tagged = 0
+    for task in candidates:
+        task_id = task["id"]
+        if tagged >= cap:
+            print(
+                f"ERROR: Intake pass hit its cap of {cap} tags; "
+                f"{len(candidates)} untagged in window, remainder deferred to the next pass"
+            )
+            break
+
+        # The same permanent check the sweep uses, and here it is what keeps a
+        # human's decision from being overruled on a schedule. Someone who
+        # removes the tag after a run has spoken is ending the conversation;
+        # without this the next pass would re-tag and re-run, every 15 minutes,
+        # and they would have no way to tell where it was coming from.
+        if sweep_should_skip(task_id):
+            continue
+
+        try:
+            add_task_tag(task_id, ANALYZE_TAG)
+        except Exception as e:
+            # One unwritable ticket must not strand the rest of the window.
+            print(f"Intake pass failed to tag {task_id}: {e}")
+            continue
+        tagged += 1
+        print(f"Intake pass tagged {task_id} ({task.get('custom_id') or 'no custom id'}) with {ANALYZE_TAG}")
+
+    return tagged
+
+
 def launched_a_run(result: Any) -> bool:
     # Did dedup_check_then_trigger actually start an agent, or did it decline?
     # Every decline path returns a "skipped" key; only a real launch does not.
@@ -1804,7 +2031,15 @@ def handle_sweep(event: dict) -> dict:
     dedup_check_then_trigger, so the ack-comment check and the DynamoDB
     conditional write decide whether anything actually runs. A ticket the
     webhook already handled is claimed and skipped here.
+
+    Takes in untagged bug-list tickets first (see run_intake_pass), because a
+    ticket nobody tagged is invisible to the tag query below. Doing it in this
+    order means the listing that follows sees what was just tagged, so a new
+    ticket is analysed in the same pass rather than waiting 15 minutes for the
+    next one.
     """
+    intake_tagged = run_intake_pass()
+
     since_ms = int(time.time() * 1000) - sweep_lookback_ms()
     try:
         tasks = list_recently_updated_tagged_tasks(SWEEP_TAG, since_ms)
@@ -1852,10 +2087,20 @@ def handle_sweep(event: dict) -> dict:
 
     # Quiet on the common path (everything already claimed), because this runs
     # on a schedule forever and its normal state is "nothing to do".
-    print(f"Sweep complete: {len(tasks)} tagged in window, {triggered} triggered, {skipped} already handled")
+    print(
+        f"Sweep complete: {intake_tagged} newly taken in, {len(tasks)} tagged in window, "
+        f"{triggered} triggered, {skipped} already handled"
+    )
     return {
         "statusCode": 200,
-        "body": json.dumps({"swept": len(tasks), "triggered": triggered, "skipped": skipped}),
+        "body": json.dumps(
+            {
+                "intake_tagged": intake_tagged,
+                "swept": len(tasks),
+                "triggered": triggered,
+                "skipped": skipped,
+            }
+        ),
     }
 
 
