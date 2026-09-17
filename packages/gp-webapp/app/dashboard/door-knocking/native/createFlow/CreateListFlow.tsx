@@ -236,6 +236,12 @@ interface CreateListFlowProps {
   // spend it. This flow is unmounted every time the create surface closes, so
   // it cannot remember on its own that the id has already been used.
   onPreselectApplied?: () => void
+  // A recommendation the candidate arrived on `?recommended=` with, from a
+  // voter data page card that is not a saved list yet. Asked for on this
+  // channel (so it carries its precinct cut) and applied exactly as tapping
+  // its card would; reported the same way the list above is.
+  preselectedRecommendedVariant?: RecommendedListVariant
+  onRecommendedPreselectApplied?: () => void
   // Which saved list the who step is currently attached to. The draft is
   // booleans, and a list's support-status, activity and precinct clauses are
   // not, so the surface above cannot assemble the address-preview request from
@@ -352,6 +358,8 @@ export default function CreateListFlow({
   orgSlug,
   preselectedListId,
   onPreselectApplied,
+  preselectedRecommendedVariant,
+  onRecommendedPreselectApplied,
   onSelectedListChange,
 }: CreateListFlowProps) {
   const queryClient = useQueryClient()
@@ -519,7 +527,7 @@ export default function CreateListFlow({
         trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
           variant: recommendation.variant,
           channel: 'doorKnocking',
-          intent: recommendedListIntent as RecommendedListIntent,
+          intent: recommendation.intent,
           count: recommendation.count,
           voteGoalShare: recommendation.voteGoalShare,
           modified: false,
@@ -551,21 +559,16 @@ export default function CreateListFlow({
       setRecommendedSupportStatus(supportStatus)
       setRecommendedMeta({
         variant: recommendation.variant,
-        // Only reachable while the recommendations query below is enabled,
-        // which requires a non-null intent.
-        intent: recommendedListIntent as RecommendedListIntent,
+        // The variant's own intent, not this flow's purpose: a recommendation
+        // carried in from the voter data page belongs to whichever intent the
+        // registry says, whatever goal the candidate picked here.
+        intent: recommendation.intent,
         filter: recommendation.filter,
         count: recommendation.count,
         voteGoalShare: recommendation.voteGoalShare,
       })
     },
-    [
-      onFiltersChange,
-      onPrecinctsChange,
-      selectList,
-      savedLists,
-      recommendedListIntent,
-    ],
+    [onFiltersChange, onPrecinctsChange, selectList, savedLists],
   )
 
   // A list carried in from the outreach hub's door-knocking tile, so "start a
@@ -641,7 +644,62 @@ export default function CreateListFlow({
     enabled: recommendationsVisible && recommendedListIntent !== null,
     staleTime: 0,
   })
-  const recommendations = recommendationsQuery.data ?? []
+
+  // The carried-in recommendation, asked for on this channel so it arrives
+  // with door knocking's precinct cut rather than the global universe the
+  // voter data page showed. Fetched from mount rather than from the who step
+  // — the candidate already saw it, and waiting on a warehouse aggregate here
+  // would be waiting twice. Serve never asks: the endpoint refuses an eo- org.
+  const preselectedRecommendationQuery = useQuery({
+    queryKey: [
+      'door-knocking-preselected-recommendation',
+      orgSlug,
+      preselectedRecommendedVariant,
+    ],
+    queryFn: async () => {
+      const { data } = await clientRequest(
+        'GET /v1/campaigns/mine/recommended-lists',
+        {
+          channel: 'doorKnocking',
+          // Guarded by `enabled` below.
+          variant: preselectedRecommendedVariant,
+        },
+      )
+      return data[0] ?? null
+    },
+    enabled: !serveMode && preselectedRecommendedVariant !== undefined,
+    refetchOnWindowFocus: false,
+  })
+  const preselectedRecommendation = preselectedRecommendationQuery.data ?? null
+  // Applied once per mount, as `preselectApplied` is for the list above; the
+  // page spends it across mounts through onRecommendedPreselectApplied. The
+  // recommendation is kept here once applied: spending it drops the prop, and
+  // with it the query above, while the card still has to be on screen.
+  const [carriedRecommendation, setCarriedRecommendation] =
+    useState<RecommendedList | null>(null)
+  useEffect(() => {
+    if (carriedRecommendation || !preselectedRecommendation) return
+    setCarriedRecommendation(preselectedRecommendation)
+    applyRecommendation(preselectedRecommendation)
+    onRecommendedPreselectApplied?.()
+  }, [
+    carriedRecommendation,
+    preselectedRecommendation,
+    applyRecommendation,
+    onRecommendedPreselectApplied,
+  ])
+
+  // Listed whatever this goal's own recommendations are, so the candidate
+  // sees the card they arrived with — once, if the goal already offers it.
+  const goalRecommendations = recommendationsQuery.data ?? []
+  const recommendations =
+    carriedRecommendation &&
+    !goalRecommendations.some(
+      (recommendation) =>
+        recommendation.variant === carriedRecommendation.variant,
+    )
+      ? [carriedRecommendation, ...goalRecommendations]
+      : goalRecommendations
 
   // How narrow the audience was cut.
   const activeFilterCount = Object.values(filters).filter((value) =>

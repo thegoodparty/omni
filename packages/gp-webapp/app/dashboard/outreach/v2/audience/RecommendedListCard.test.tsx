@@ -7,6 +7,7 @@ import { RecommendedListCard } from './RecommendedListCard'
 
 const RECOMMENDATION: RecommendedList = {
   variant: 'persuadeAffinity',
+  intent: 'persuade',
   filter: { independentAffinity: true, voterStatus: ['Super', 'Likely'] },
   count: 19000,
   voteGoalShare: 0.48,

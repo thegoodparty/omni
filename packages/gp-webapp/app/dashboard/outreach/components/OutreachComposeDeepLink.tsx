@@ -68,10 +68,13 @@ export const OutreachComposeDeepLink = ({
   )
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
   const consumedRef = useRef(false)
-  const listIdConsumedRef = useRef(false)
+  const bareParamConsumedRef = useRef(false)
 
   const composeType = COMPOSE_TYPES[searchParams?.get('compose') ?? '']
   const listIdParam = searchParams?.get('listId')
+  // `?recommended=` is the voter data page's other arrival: a recommendation
+  // not saved yet, read server-side the same way listId is.
+  const bareAudienceParam = listIdParam || searchParams?.get('recommended')
   // ENG-10762 (delegate follow-up): when compose and listId arrive together,
   // this component resolves the preselected list itself and hands it to the
   // hub with the rest of the seeds, rather than relying on the
@@ -88,14 +91,14 @@ export const OutreachComposeDeepLink = ({
   useEffect(() => {
     // Re-arm when the param goes absent (post-strip), same as consumedRef
     // below, so a second ?listId= navigation while mounted still strips.
-    if (!listIdParam) {
-      listIdConsumedRef.current = false
+    if (!bareAudienceParam) {
+      bareParamConsumedRef.current = false
       return
     }
-    if (composeType || listIdConsumedRef.current) return
-    listIdConsumedRef.current = true
+    if (composeType || bareParamConsumedRef.current) return
+    bareParamConsumedRef.current = true
     router.replace('/dashboard/outreach', { scroll: false })
-  }, [listIdParam, composeType, router])
+  }, [bareAudienceParam, composeType, router])
 
   useEffect(() => {
     // Once router.replace strips the params, composeType goes falsy: re-arm

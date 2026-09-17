@@ -18,7 +18,10 @@ import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSingleEffect } from '@shared/hooks/useSingleEffect'
 import type { Campaign, TcrCompliance } from 'helpers/types'
-import type { OutreachDetail } from '@goodparty_org/contracts'
+import type {
+  OutreachDetail,
+  RecommendedListVariant,
+} from '@goodparty_org/contracts'
 import { ChannelTileGrid } from './ChannelTileGrid'
 import { OutreachHistoryTable } from './OutreachHistoryTable'
 import { OutreachDetailsDrawer } from './OutreachDetailsDrawer'
@@ -28,6 +31,7 @@ import { PhoneBankingFlow } from './phone-banking/PhoneBankingFlow'
 import { SmsFlow } from './sms/SmsFlow'
 import { useSeedOutreachDetail } from './useOutreachDetail'
 import type { HistoryRow } from './historyStatus.util'
+import type { AudiencePreselect } from './audiencePreselect'
 
 export interface OutreachHubPageProps {
   pathname: string
@@ -35,6 +39,9 @@ export interface OutreachHubPageProps {
   outreaches?: Outreach[]
   tcrCompliance?: TcrCompliance
   preselectedListId?: number
+  // ?recommended= off a voter data page recommended card: a recommendation
+  // not saved yet, which the chosen flow's audience step saves.
+  preselectedRecommendedVariant?: RecommendedListVariant
   // ?outreachId= deep link (activity feed "View outreach"): in the v2 hub it
   // opens the details drawer instead of highlighting a table row.
   initialOutreachId?: number
@@ -43,10 +50,14 @@ export interface OutreachHubPageProps {
 const OutreachHubContent = ({
   tcrCompliance,
   preselectedListId,
+  preselectedRecommendedVariant,
   initialOutreachId,
 }: Pick<
   OutreachHubPageProps,
-  'tcrCompliance' | 'preselectedListId' | 'initialOutreachId'
+  | 'tcrCompliance'
+  | 'preselectedListId'
+  | 'preselectedRecommendedVariant'
+  | 'initialOutreachId'
 >) => {
   const router = useRouter()
   const [outreaches, setOutreaches] = useOutreach()
@@ -54,11 +65,12 @@ const OutreachHubContent = ({
   const [socialFlowOpen, setSocialFlowOpen] = useState(false)
   const [robocallFlowOpen, setRobocallFlowOpen] = useState(false)
   const [phoneBankingFlowOpen, setPhoneBankingFlowOpen] = useState(false)
-  // The list id the tile click handed over (a ?listId= deep link the grid
-  // consumed on hand-off) — set per open, so a later open without one starts
-  // clean.
-  const [phoneBankingPreselectedListId, setPhoneBankingPreselectedListId] =
-    useState<number | undefined>(undefined)
+  // The audience the tile click handed over (a ?listId= or ?recommended=
+  // deep link the grid spent on hand-off) — set per open and cleared on
+  // close, so a later open without one starts clean.
+  const [tilePreselect, setTilePreselect] = useState<AudiencePreselect | null>(
+    null,
+  )
   const [smsFlowOpen, setSmsFlowOpen] = useState(false)
   // Seeds a `?compose=` deep link handed over (a tracker/manager task's due
   // date, Know Your Opponent's suggested message, a CRM list). Held per open
@@ -144,11 +156,18 @@ const OutreachHubContent = ({
       <ChannelTileGrid
         tcrCompliance={tcrCompliance}
         preselectedListId={preselectedListId}
+        preselectedRecommendedVariant={preselectedRecommendedVariant}
         onCreateSocial={() => setSocialFlowOpen(true)}
-        onCreateSms={() => setSmsFlowOpen(true)}
-        onCreateRobocall={() => setRobocallFlowOpen(true)}
-        onCreatePhoneBanking={(listId) => {
-          setPhoneBankingPreselectedListId(listId)
+        onCreateSms={(preselect) => {
+          setTilePreselect(preselect ?? null)
+          setSmsFlowOpen(true)
+        }}
+        onCreateRobocall={(preselect) => {
+          setTilePreselect(preselect ?? null)
+          setRobocallFlowOpen(true)
+        }}
+        onCreatePhoneBanking={(preselect) => {
+          setTilePreselect(preselect ?? null)
           setPhoneBankingFlowOpen(true)
         }}
       />
@@ -162,28 +181,36 @@ const OutreachHubContent = ({
         onClose={() => {
           setRobocallFlowOpen(false)
           setComposeSeeds(null)
+          setTilePreselect(null)
         }}
         onScheduled={refetchOutreaches}
         campaignPlanDueDate={composeSeeds?.due}
-        preselectedListId={composeSeeds?.listId}
+        preselectedListId={composeSeeds?.listId ?? tilePreselect?.listId}
+        preselectedRecommendedVariant={tilePreselect?.recommendedVariant}
       />
       <PhoneBankingFlow
         open={phoneBankingFlowOpen}
-        onClose={() => setPhoneBankingFlowOpen(false)}
+        onClose={() => {
+          setPhoneBankingFlowOpen(false)
+          setTilePreselect(null)
+        }}
         onSaved={handlePhoneBankingSaved}
-        preselectedListId={phoneBankingPreselectedListId}
+        preselectedListId={tilePreselect?.listId}
+        preselectedRecommendedVariant={tilePreselect?.recommendedVariant}
       />
       <SmsFlow
         open={smsFlowOpen}
         onClose={() => {
           setSmsFlowOpen(false)
           setComposeSeeds(null)
+          setTilePreselect(null)
         }}
         onScheduled={refetchOutreaches}
         tcrCompliance={tcrCompliance}
         campaignPlanDueDate={composeSeeds?.due}
         initialScript={composeSeeds?.script}
-        preselectedListId={composeSeeds?.listId}
+        preselectedListId={composeSeeds?.listId ?? tilePreselect?.listId}
+        preselectedRecommendedVariant={tilePreselect?.recommendedVariant}
       />
       <Suspense>
         <OutreachComposeDeepLink
@@ -211,6 +238,7 @@ export const OutreachHubPage = ({
   outreaches = [],
   tcrCompliance,
   preselectedListId,
+  preselectedRecommendedVariant,
   initialOutreachId,
 }: OutreachHubPageProps) => {
   useSingleEffect(() => {
@@ -225,7 +253,12 @@ export const OutreachHubPage = ({
         navHeader={{ label: NAV_LABELS.voterOutreach }}
       >
         <OutreachHubContent
-          {...{ tcrCompliance, preselectedListId, initialOutreachId }}
+          {...{
+            tcrCompliance,
+            preselectedListId,
+            preselectedRecommendedVariant,
+            initialOutreachId,
+          }}
         />
       </DashboardLayout>
     </OutreachProvider>

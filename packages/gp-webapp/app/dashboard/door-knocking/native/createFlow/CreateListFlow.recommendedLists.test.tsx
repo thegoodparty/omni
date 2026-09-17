@@ -116,6 +116,7 @@ const renderAtWho = (
 
 const RECOMMENDATION = {
   variant: 'introNeverIded' as const,
+  intent: 'introduce' as const,
   filter: {
     voterStatus: ['Super', 'Likely'],
     precincts: ['Cook|101', 'Cook|102'],
@@ -132,6 +133,7 @@ const RECOMMENDATION = {
 const EXISTING_RECOMMENDATION = {
   ...RECOMMENDATION,
   variant: 'persuadeAffinity' as const,
+  intent: 'persuade' as const,
   copy: {
     title: 'Persuadable independents',
     criteriaSummary: 'Moderate to high propensity independents',
@@ -151,6 +153,63 @@ const acceptedCalls = () =>
     .mock.calls.filter(
       ([name]) => name === EVENTS.Outreach.RecommendedList.Accepted,
     )
+
+// The far end of a voter data page "Send outreach" that picked door knocking:
+// `?recommended=` carries a variant, which the flow asks for on its own
+// channel and applies exactly as tapping its card would.
+describe('CreateListFlow — a recommendation carried in on ?recommended=', () => {
+  it('fetches the variant for door knocking and applies it', async () => {
+    const queries: Record<string, unknown>[] = []
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => {
+      queries.push(query)
+      return {
+        status: 200,
+        data: query.variant === 'introNeverIded' ? [RECOMMENDATION] : [],
+      }
+    })
+    const onFiltersChange = vi.fn()
+    const onRecommendedPreselectApplied = vi.fn()
+    renderAtWho({
+      onFiltersChange,
+      preselectedRecommendedVariant: 'introNeverIded',
+      onRecommendedPreselectApplied,
+    })
+
+    await waitFor(() =>
+      expect(onFiltersChange).toHaveBeenCalledWith({
+        audienceSuperVoters: true,
+        audienceLikelyVoters: true,
+        precincts: true,
+      }),
+    )
+    expect(queries).toContainEqual(
+      expect.objectContaining({
+        channel: 'doorKnocking',
+        variant: 'introNeverIded',
+      }),
+    )
+    expect(onRecommendedPreselectApplied).toHaveBeenCalledTimes(1)
+    // Still on screen, so the candidate sees what they arrived with.
+    expect(
+      await screen.findByTestId('recommended-list-card'),
+    ).toHaveTextContent('Voters you have not met')
+  })
+
+  it('asks for nothing on the Serve surface', async () => {
+    const queries: Record<string, unknown>[] = []
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => {
+      queries.push(query)
+      return { status: 200, data: [RECOMMENDATION] }
+    })
+    renderAtWho(
+      { preselectedRecommendedVariant: 'introNeverIded' },
+      { serveMode: true },
+    )
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(queries).toHaveLength(0)
+  })
+})
 
 describe('CreateListFlow — recommended lists', () => {
   // Door knocking is ONE route for both rails, and Serve's purpose cards
@@ -382,7 +441,7 @@ describe('CreateListFlow — recommended lists', () => {
     expect(acceptedCalls()[0]?.[1]).toEqual({
       variant: 'persuadeAffinity',
       channel: 'doorKnocking',
-      intent: 'introduce',
+      intent: 'persuade',
       count: 4200,
       voteGoalShare: 0.28,
       modified: false,

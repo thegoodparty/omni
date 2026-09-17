@@ -73,6 +73,13 @@ interface UseOutreachAudienceParams {
   // preselection, never a broken step, the same rule door knocking's
   // CreateListFlow applies to the id it carries.
   preselectedListId?: number
+  // A recommendation carried in from the voter data page (`?recommended=`),
+  // not saved yet. Fetched for THIS channel from open — so it is cut and
+  // priced the way the flow will send it, and ready by the audience step —
+  // and handed to the step, which applies it on arrival the way a tap on its
+  // card would. Whether that has happened lives here rather than in the
+  // step, which unmounts between steps.
+  preselectedRecommendedVariant?: RecommendedListVariant
 }
 
 export interface OutreachAudience {
@@ -148,6 +155,11 @@ export interface OutreachAudience {
   // handle that case (each flow attaches its own side effects to selecting
   // a list), so the accept has to be reported from the same branch.
   trackRecommendationReused: (recommendation: RecommendedList) => void
+  // The carried-in recommendation, once fetched for this channel, and
+  // whether the audience step has applied it yet.
+  preselectedRecommendation: RecommendedList | null
+  preselectedRecommendationApplied: boolean
+  markPreselectedRecommendationApplied: () => void
 }
 
 export const useOutreachAudience = ({
@@ -157,6 +169,7 @@ export const useOutreachAudience = ({
   countOverlay,
   recommendedListIntent = null,
   preselectedListId,
+  preselectedRecommendedVariant,
 }: UseOutreachAudienceParams): OutreachAudience => {
   const [mode, setMode] = useState<OutreachAudienceMode>('picker')
   const [selectedListId, setSelectedListId] = useState<number | null>(null)
@@ -166,6 +179,11 @@ export const useOutreachAudience = ({
   >([])
   const [builderPrecincts, setBuilderPrecincts] = useState<string[]>([])
   const [builderName, setBuilderName] = useState('')
+  // Which carried-in variant the audience step has already applied. Held
+  // here and not in the step because the step unmounts between steps, and
+  // Back into it must not reopen a naming drawer the candidate dismissed.
+  const [appliedPreselectedVariant, setAppliedPreselectedVariant] =
+    useState<RecommendedListVariant | null>(null)
   // Provenance of the current builder selection, when it originated from a
   // recommendation. gp-api persists variant/channel/intent on the created
   // filter and diffs the submitted filter against `filter` (the
@@ -223,6 +241,31 @@ export const useOutreachAudience = ({
     enabled:
       open && active && mode === 'picker' && recommendedListIntent !== null,
     staleTime: 0,
+  })
+
+  // Fetched from open rather than from the audience step, so the candidate
+  // never waits on a warehouse aggregate they already saw on the voter data
+  // page. Cut for this channel: the count and price are the flow's own.
+  const preselectedRecommendationQuery = useQuery({
+    queryKey: [
+      'outreach-audience-preselected-recommendation',
+      orgSlug,
+      reachabilityKey,
+      preselectedRecommendedVariant,
+    ],
+    queryFn: async () => {
+      const { data } = await clientRequest(
+        'GET /v1/campaigns/mine/recommended-lists',
+        {
+          channel: reachabilityKey,
+          // Guarded by `enabled` below.
+          variant: preselectedRecommendedVariant,
+        },
+      )
+      return data[0] ?? null
+    },
+    enabled: open && preselectedRecommendedVariant !== undefined,
+    refetchOnWindowFocus: false,
   })
 
   const listsQuery = useQuery({
@@ -393,6 +436,7 @@ export const useOutreachAudience = ({
     setMode('picker')
     setSelectedListId(null)
     appliedPreselectRef.current = undefined
+    setAppliedPreselectedVariant(null)
     setBuilderFilters({})
     setBuilderSupportStatus([])
     setBuilderPrecincts([])
@@ -420,15 +464,16 @@ export const useOutreachAudience = ({
       setRecommendedMeta({
         variant: recommendation.variant,
         channel: reachabilityKey,
-        // Only called while recommendations are loaded, which only happens
-        // with a non-null intent (the query's own `enabled` gate).
-        intent: recommendedListIntent as RecommendedListIntent,
+        // The variant's own intent, not this flow's purpose: a recommendation
+        // carried in from the voter data page belongs to whichever intent
+        // the registry says, whatever purpose the candidate picked here.
+        intent: recommendation.intent,
         filter: recommendation.filter,
         count: recommendation.count,
         voteGoalShare: recommendation.voteGoalShare,
       })
     },
-    [reachabilityKey, recommendedListIntent],
+    [reachabilityKey],
   )
 
   // The other half of the conversion measurement. A recommendation the
@@ -443,16 +488,14 @@ export const useOutreachAudience = ({
       trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
         variant: recommendation.variant,
         channel: reachabilityKey,
-        // Only reachable while recommendations are rendered, which requires
-        // a non-null intent (the query's own `enabled` gate).
-        intent: recommendedListIntent as RecommendedListIntent,
+        intent: recommendation.intent,
         count: recommendation.count,
         voteGoalShare: recommendation.voteGoalShare,
         modified: false,
         reusedExistingList: true,
       })
     },
-    [reachabilityKey, recommendedListIntent],
+    [reachabilityKey],
   )
 
   // Seeds the builder from a recommendation, then POSTs the create with an
@@ -481,14 +524,14 @@ export const useOutreachAudience = ({
           ...(precincts.length ? { precincts } : {}),
           recommendedVariant: recommendation.variant,
           recommendedChannel: reachabilityKey,
-          recommendedIntent: recommendedListIntent as RecommendedListIntent,
+          recommendedIntent: recommendation.intent,
           recommendedFilter: recommendation.filter,
         },
       )
       trackEvent(EVENTS.Outreach.RecommendedList.Accepted, {
         variant: recommendation.variant,
         channel: reachabilityKey,
-        intent: recommendedListIntent as RecommendedListIntent,
+        intent: recommendation.intent,
         count: recommendation.count,
         voteGoalShare: recommendation.voteGoalShare,
         modified: data.recommendedModified ?? false,
@@ -507,7 +550,6 @@ export const useOutreachAudience = ({
     [
       seedFromRecommendation,
       reachabilityKey,
-      recommendedListIntent,
       queryClient,
       resetBuilder,
       orgSlug,
@@ -585,10 +627,20 @@ export const useOutreachAudience = ({
     resetBuilder,
     reset,
     recommendations: recommendationsQuery.data ?? [],
-    recommendationsLoading: recommendationsQuery.isLoading,
+    // The carried-in recommendation shares the landing skeleton: applying it
+    // is the first thing the step does, so the picker must not paint first.
+    recommendationsLoading:
+      recommendationsQuery.isLoading ||
+      preselectedRecommendationQuery.isLoading,
     recommendationsError: recommendationsQuery.isError,
     recommendedListsChannel: reachabilityKey,
     createRecommendedList,
     trackRecommendationReused,
+    preselectedRecommendation: preselectedRecommendationQuery.data ?? null,
+    preselectedRecommendationApplied:
+      preselectedRecommendedVariant !== undefined &&
+      appliedPreselectedVariant === preselectedRecommendedVariant,
+    markPreselectedRecommendationApplied: () =>
+      setAppliedPreselectedVariant(preselectedRecommendedVariant ?? null),
   }
 }

@@ -8,6 +8,7 @@ import { WhoStep } from './WhoStep'
 // is what exercises this component's own render guards.
 const RECOMMENDATION = {
   variant: 'introNeverIded' as const,
+  intent: 'introduce' as const,
   filter: { voterStatus: ['Super'], precincts: ['Cook|101'] },
   count: 4200,
   voteGoalShare: 0.28,

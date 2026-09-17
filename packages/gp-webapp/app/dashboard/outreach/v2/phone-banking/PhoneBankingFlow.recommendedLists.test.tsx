@@ -19,6 +19,7 @@ vi.mock('@shared/organization-picker', () => ({
 
 const RECOMMENDATION = {
   variant: 'persuadeAffinity' as const,
+  intent: 'persuade' as const,
   filter: { independentAffinity: true, voterStatus: ['Super', 'Likely'] },
   count: 8000,
   voteGoalShare: 0.22,
@@ -77,7 +78,8 @@ describe('PhoneBankingFlow (Win surface) — recommended lists', () => {
     expect(filterCalls[0]).toMatchObject({
       recommendedVariant: 'persuadeAffinity',
       recommendedChannel: 'phoneBanking',
-      recommendedIntent: 'introduce',
+      // The variant's own intent, not the purpose picked to reach it.
+      recommendedIntent: 'persuade',
     })
   })
 })

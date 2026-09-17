@@ -212,6 +212,20 @@ describe('OutreachComposeDeepLink', () => {
     expect(onCompose).not.toHaveBeenCalled()
   })
 
+  // The voter data page's recommended cards carry ?recommended=<variant>
+  // the same way; the server reads it, so it is stripped the same way.
+  it('strips a bare recommended param from the address bar on mount', async () => {
+    mockSearchParams = new URLSearchParams('recommended=persuadeAffinity')
+    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+
+    await waitFor(() =>
+      expect(mockReplace).toHaveBeenCalledWith('/dashboard/outreach', {
+        scroll: false,
+      }),
+    )
+    expect(onCompose).not.toHaveBeenCalled()
+  })
+
   it('re-arms after the strip so a second listId navigation strips again', async () => {
     mockSearchParams = new URLSearchParams('listId=123')
     const view = renderDeepLink({

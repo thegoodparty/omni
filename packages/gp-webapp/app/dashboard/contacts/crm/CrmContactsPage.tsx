@@ -18,6 +18,7 @@ import { useContactsTable } from './ContactsTableProvider'
 import CreateListWizard from './wizard/CreateListWizard'
 import DistrictStatCard from './DistrictStatCard'
 import ListsIndex from './lists/ListsIndex'
+import RecommendedListsSection from './recommended/RecommendedListsSection'
 import ListDetailSheet from './lists/ListDetailSheet'
 import CrmAssistant from './assistant/CrmAssistant'
 import VoterDataUnavailableState from './VoterDataUnavailableState'
@@ -173,6 +174,7 @@ export const CrmContactsPage = () => {
                   />
                 </div>
 
+                <RecommendedListsSection />
                 <ListsIndex />
               </>
             )}

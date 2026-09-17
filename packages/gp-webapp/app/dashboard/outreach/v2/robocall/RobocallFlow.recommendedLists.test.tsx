@@ -16,6 +16,7 @@ vi.mock('@shared/organization-picker', () => ({
 
 const RECOMMENDATION = {
   variant: 'persuadeAffinity' as const,
+  intent: 'persuade' as const,
   filter: { independentAffinity: true, voterStatus: ['Super', 'Likely'] },
   count: 12000,
   voteGoalShare: 0.31,
@@ -44,6 +45,49 @@ const openToAudience = async () => {
     await screen.findByText(/Choose a voter list|View your lists here/),
   ).toBeInTheDocument()
 }
+
+describe('RobocallFlow — a recommendation carried in from the voter data page', () => {
+  it('selects the saved list on the audience step when the variant already exists', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 501, name: 'Persuadable independents' }],
+    })
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => ({
+      status: 200,
+      data:
+        query.variant === 'persuadeAffinity'
+          ? [{ ...RECOMMENDATION, existingFilterId: 501 }]
+          : [],
+    }))
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        demographics: { people: 12000, avgAge: null, avgIncome: null },
+        reachability: {
+          sms: null,
+          robocall: 9000,
+          phoneBanking: null,
+          doorKnocking: null,
+          polls: null,
+        },
+        outreachHistory: [],
+      },
+    })
+    render(
+      <RobocallFlow
+        open
+        onClose={vi.fn()}
+        preselectedRecommendedVariant="persuadeAffinity"
+      />,
+    )
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
+
+    expect(
+      await screen.findByText(/Reach 9,000 supporters with landlines/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Name this list')).not.toBeInTheDocument()
+  })
+})
 
 describe('RobocallFlow — recommended lists', () => {
   it('shows a card and carries its variant, channel and intent through to the created filter', async () => {
@@ -79,7 +123,8 @@ describe('RobocallFlow — recommended lists', () => {
     expect(filterCalls[0]).toMatchObject({
       recommendedVariant: 'persuadeAffinity',
       recommendedChannel: 'robocall',
-      recommendedIntent: 'introduce',
+      // The variant's own intent, not the purpose picked to reach it.
+      recommendedIntent: 'persuade',
     })
   })
 

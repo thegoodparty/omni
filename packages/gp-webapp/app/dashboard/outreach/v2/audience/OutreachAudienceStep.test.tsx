@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import type { RecommendedList } from '@goodparty_org/contracts'
@@ -22,6 +22,7 @@ const COPY: OutreachAudienceCopy = {
 
 const RECOMMENDATION: RecommendedList = {
   variant: 'persuadeAffinity',
+  intent: 'persuade',
   filter: { independentAffinity: true },
   count: 19000,
   voteGoalShare: 0.48,
@@ -35,6 +36,7 @@ const RECOMMENDATION: RecommendedList = {
 const EXISTING_RECOMMENDATION: RecommendedList = {
   ...RECOMMENDATION,
   variant: 'persuadeUndecided',
+  intent: 'persuade',
   copy: {
     title: 'Undecided persuadables',
     criteriaSummary: 'Undecided voters',
@@ -176,5 +178,88 @@ describe('OutreachAudienceStep — recommended lists', () => {
     // This branch never reaches createList, so it is where the accept has
     // to be reported from or reuse goes uncounted.
     expect(onRecommendationReused).toHaveBeenCalledWith(EXISTING_RECOMMENDATION)
+  })
+})
+
+// A recommendation carried in from the voter data page (`?recommended=`):
+// the step applies it on arrival exactly as tapping its card would, and
+// keeps the card on screen so the candidate sees what they arrived with.
+describe('OutreachAudienceStep — a preselected recommendation', () => {
+  it('opens the naming drawer on arrival for one that is not saved yet', async () => {
+    const onPreselectedRecommendationApplied = vi.fn()
+    const onCreateRecommendedList = vi.fn(async () => undefined)
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        preselectedRecommendation={RECOMMENDATION}
+        preselectedRecommendationApplied={false}
+        onPreselectedRecommendationApplied={onPreselectedRecommendationApplied}
+        onCreateRecommendedList={onCreateRecommendedList}
+      />,
+    )
+
+    expect(
+      await screen.findByRole('textbox', { name: 'List name' }),
+    ).toHaveValue('Persuadable independents')
+    expect(onPreselectedRecommendationApplied).toHaveBeenCalledTimes(1)
+    expect(onCreateRecommendedList).not.toHaveBeenCalled()
+    // The card stays listed even though this purpose's own recommendations
+    // did not include it.
+    expect(screen.getByTestId('recommended-list-card')).toHaveTextContent(
+      'Persuadable independents',
+    )
+  })
+
+  it('selects the saved list on arrival for one the candidate already has', async () => {
+    const onSelect = vi.fn()
+    const onRecommendationReused = vi.fn()
+    const onPreselectedRecommendationApplied = vi.fn()
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        lists={[{ id: 501, name: 'Undecided persuadables' }]}
+        preselectedRecommendation={EXISTING_RECOMMENDATION}
+        preselectedRecommendationApplied={false}
+        onPreselectedRecommendationApplied={onPreselectedRecommendationApplied}
+        onSelect={onSelect}
+        onRecommendationReused={onRecommendationReused}
+      />,
+    )
+
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith(501))
+    expect(onRecommendationReused).toHaveBeenCalledWith(EXISTING_RECOMMENDATION)
+    expect(onPreselectedRecommendationApplied).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('textbox', { name: 'List name' })).toBeNull()
+  })
+
+  // Spent is the hook's memory, not this step's: the step unmounts between
+  // steps, and Back into it must not reopen a drawer the candidate closed.
+  it('does nothing on arrival once the preselection has been applied', () => {
+    const onPreselectedRecommendationApplied = vi.fn()
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        preselectedRecommendation={RECOMMENDATION}
+        preselectedRecommendationApplied
+        onPreselectedRecommendationApplied={onPreselectedRecommendationApplied}
+      />,
+    )
+
+    expect(screen.queryByRole('textbox', { name: 'List name' })).toBeNull()
+    expect(onPreselectedRecommendationApplied).not.toHaveBeenCalled()
+    expect(screen.getByTestId('recommended-list-card')).toBeInTheDocument()
+  })
+
+  it('does not list the carried card twice when the purpose already offers it', () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        recommendations={[RECOMMENDATION]}
+        preselectedRecommendation={RECOMMENDATION}
+        preselectedRecommendationApplied
+      />,
+    )
+
+    expect(screen.getAllByTestId('recommended-list-card')).toHaveLength(1)
   })
 })

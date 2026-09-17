@@ -42,6 +42,7 @@ vi.mock('@shared/hooks/useUser', () => ({
 
 const RECOMMENDATION = {
   variant: 'persuadeAffinity' as const,
+  intent: 'persuade' as const,
   filter: { independentAffinity: true, voterStatus: ['Super', 'Likely'] },
   count: 19000,
   voteGoalShare: 0.48,
@@ -91,6 +92,85 @@ const openToAudience = async () => {
   ).toBeGreaterThan(0)
 }
 
+// Arriving from the voter data page with `?recommended=`: the flow asks for
+// that one variant cut for SMS, and the audience step applies it on arrival.
+describe('SmsFlow — a recommendation carried in from the voter data page', () => {
+  it('fetches the variant for this channel and opens the naming drawer on the audience step', async () => {
+    const queries: Record<string, unknown>[] = []
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => {
+      queries.push(query)
+      return {
+        status: 200,
+        data:
+          query.variant === 'electionDayAffinity'
+            ? [
+                {
+                  ...RECOMMENDATION,
+                  variant: 'electionDayAffinity' as const,
+                  intent: 'electionDay' as const,
+                  copy: {
+                    title: 'Turn out independent-leaning voters',
+                    criteriaSummary: 'Moderate propensity independents',
+                  },
+                },
+              ]
+            : [],
+      }
+    })
+    api.mock('POST /v1/contacts/count', { status: 200, data: { count: 19000 } })
+    const filterCalls: Record<string, unknown>[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      filterCalls.push(body)
+      return {
+        status: 200,
+        data: { id: 88, name: body.name, recommendedModified: false },
+      }
+    })
+    render(
+      <SmsFlow
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        preselectedRecommendedVariant="electionDayAffinity"
+      />,
+    )
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
+
+    // Cut for this channel, regardless of the purpose just picked.
+    expect(
+      await screen.findByRole('textbox', { name: 'List name' }),
+    ).toHaveValue('Turn out independent-leaning voters')
+    expect(queries).toContainEqual(
+      expect.objectContaining({
+        channel: 'sms',
+        variant: 'electionDayAffinity',
+      }),
+    )
+    expect(screen.getByTestId('recommended-list-card')).toHaveTextContent(
+      'Turn out independent-leaning voters',
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Continue' }),
+    )
+
+    // Provenance is the variant's own intent, not the purpose the candidate
+    // happened to pick to get here.
+    expect(filterCalls).toHaveLength(1)
+    expect(filterCalls[0]).toMatchObject({
+      recommendedVariant: 'electionDayAffinity',
+      recommendedChannel: 'sms',
+      recommendedIntent: 'electionDay',
+    })
+    await waitFor(() => expect(acceptedCalls()).toHaveLength(1))
+    expect(acceptedCalls()[0]?.[1]).toMatchObject({
+      variant: 'electionDayAffinity',
+      channel: 'sms',
+      intent: 'electionDay',
+    })
+  })
+})
+
 describe('SmsFlow — recommended lists', () => {
   it('shows a card and carries its variant through to the created filter', async () => {
     api.mock('GET /v1/campaigns/mine/recommended-lists', {
@@ -135,7 +215,8 @@ describe('SmsFlow — recommended lists', () => {
     expect(filterCalls[0]).toMatchObject({
       recommendedVariant: 'persuadeAffinity',
       recommendedChannel: 'sms',
-      recommendedIntent: 'introduce',
+      // The variant's own intent, not the purpose picked to reach it.
+      recommendedIntent: 'persuade',
     })
 
     // Fires only here, after the create response carries gp-api's
@@ -145,7 +226,7 @@ describe('SmsFlow — recommended lists', () => {
     expect(acceptedCalls()[0]?.[1]).toEqual({
       variant: 'persuadeAffinity',
       channel: 'sms',
-      intent: 'introduce',
+      intent: 'persuade',
       count: 19000,
       voteGoalShare: 0.48,
       modified: true,
@@ -201,7 +282,7 @@ describe('SmsFlow — recommended lists', () => {
     expect(acceptedCalls()[0]?.[1]).toEqual({
       variant: 'persuadeUndecided',
       channel: 'sms',
-      intent: 'introduce',
+      intent: 'persuade',
       count: 19000,
       voteGoalShare: 0.48,
       modified: false,

@@ -5,6 +5,7 @@ import { format } from 'date-fns'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
   OutreachReceipt,
+  RecommendedListVariant,
   SmsDraftRequest,
   SmsPurpose,
   SocialTone,
@@ -108,6 +109,9 @@ interface SmsFlowProps {
   // a draft immediately overwrites.
   initialScript?: string
   preselectedListId?: number
+  // `?recommended=` off the voter data page: a recommendation not saved yet,
+  // which the audience step saves on arrival (see useOutreachAudience).
+  preselectedRecommendedVariant?: RecommendedListVariant
 }
 
 const successDate = (d: Date) =>
@@ -251,6 +255,7 @@ export const SmsFlow = ({
   campaignPlanDueDate,
   initialScript,
   preselectedListId,
+  preselectedRecommendedVariant,
 }: SmsFlowProps) => {
   const [campaign] = useCampaign()
   const [user] = useUser()
@@ -306,6 +311,7 @@ export const SmsFlow = ({
     countOverlay: SMS_COUNT_OVERLAY,
     recommendedListIntent,
     preselectedListId,
+    preselectedRecommendedVariant,
   })
   const { reset: resetAudience } = audience
   const selectedList = audience.selectedList
@@ -858,6 +864,13 @@ export const SmsFlow = ({
               setStepId('schedule')
             }}
             onRecommendationReused={audience.trackRecommendationReused}
+            preselectedRecommendation={audience.preselectedRecommendation}
+            preselectedRecommendationApplied={
+              audience.preselectedRecommendationApplied
+            }
+            onPreselectedRecommendationApplied={
+              audience.markPreselectedRecommendationApplied
+            }
             reachableCount={reachableCount}
             reachableLoading={audience.reachableLoading}
             pricePerContact={PRICE_PER_MESSAGE}

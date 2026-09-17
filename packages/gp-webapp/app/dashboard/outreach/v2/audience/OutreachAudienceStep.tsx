@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Card,
   cn,
@@ -95,6 +95,16 @@ interface OutreachAudienceStepProps {
   // recommendation the candidate has taken before is still measured — it
   // never reaches `createList`, which is where the other kind is counted.
   onRecommendationReused: (recommendation: RecommendedList) => void
+  // A recommendation carried in from the voter data page (`?recommended=`),
+  // already cut for this channel by useOutreachAudience. On arrival the step
+  // does what a tap on its card would — select the saved list it resolves
+  // to, or open the naming drawer — then reports it applied; the hook
+  // remembers that across this step's unmounts. Listed under "Recommended
+  // for you" whatever the purpose's own recommendations are, so the
+  // candidate sees what they arrived with.
+  preselectedRecommendation?: RecommendedList | null
+  preselectedRecommendationApplied?: boolean
+  onPreselectedRecommendationApplied?: () => void
   // The saved list's reachable count for THIS channel (reachability[key] from
   // the list detail): null while loading or when the aggregate failed
   // server-side, in which case we show "couldn't count" rather than zero.
@@ -146,6 +156,9 @@ export const OutreachAudienceStep = ({
   recommendedListsChannel,
   onCreateRecommendedList,
   onRecommendationReused,
+  preselectedRecommendation = null,
+  preselectedRecommendationApplied = false,
+  onPreselectedRecommendationApplied,
   reachableCount,
   reachableLoading,
   selectedListTotal = null,
@@ -179,6 +192,57 @@ export const OutreachAudienceStep = ({
   // the picker's own root div — and scroll works.
   const pickerRootRef = useRef<HTMLDivElement | null>(null)
   const active = lists.find((l) => l.id === selectedId) ?? null
+
+  // The carried-in recommendation, applied once the picker can act on it:
+  // its saved list selected when the picker has that row, the naming drawer
+  // otherwise — an existingFilterId whose row is gone (deleted in the CRM
+  // since) falls through to building it, which is what it described anyway.
+  // The hook's `applied` flag is the guard between renders; the ref covers
+  // the same commit, since the callbacks below are fresh closures per render.
+  const appliedVariantRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (
+      mode !== 'picker' ||
+      !preselectedRecommendation ||
+      preselectedRecommendationApplied ||
+      appliedVariantRef.current === preselectedRecommendation.variant ||
+      listsLoading ||
+      recommendationsLoading
+    ) {
+      return
+    }
+    appliedVariantRef.current = preselectedRecommendation.variant
+    const { existingFilterId } = preselectedRecommendation
+    if (
+      existingFilterId !== null &&
+      lists.some((list) => list.id === existingFilterId)
+    ) {
+      onRecommendationReused(preselectedRecommendation)
+      onSelect(existingFilterId)
+    } else {
+      setPendingRecommendation(preselectedRecommendation)
+    }
+    onPreselectedRecommendationApplied?.()
+  }, [
+    mode,
+    preselectedRecommendation,
+    preselectedRecommendationApplied,
+    listsLoading,
+    recommendationsLoading,
+    lists,
+    onRecommendationReused,
+    onSelect,
+    onPreselectedRecommendationApplied,
+  ])
+
+  const cards =
+    preselectedRecommendation &&
+    !recommendations.some(
+      (recommendation) =>
+        recommendation.variant === preselectedRecommendation.variant,
+    )
+      ? [preselectedRecommendation, ...recommendations]
+      : recommendations
 
   if (mode === 'name') {
     return (
@@ -271,9 +335,7 @@ export const OutreachAudienceStep = ({
         body={copy.pickerBody}
       />
 
-      {(recommendationsLoading ||
-        recommendationsError ||
-        recommendations.length > 0) && (
+      {(recommendationsLoading || recommendationsError || cards.length > 0) && (
         <div className="space-y-2">
           <p className="text-xs font-bold uppercase text-primary">
             Recommended for you
@@ -295,7 +357,7 @@ export const OutreachAudienceStep = ({
             </p>
           ) : (
             <div className="space-y-2">
-              {recommendations.map((recommendation) => (
+              {cards.map((recommendation) => (
                 <RecommendedListCard
                   key={recommendation.variant}
                   recommendation={recommendation}
@@ -336,7 +398,7 @@ export const OutreachAudienceStep = ({
                       // instructing the candidate to ignore what they
                       // were just offered. Same conditional door
                       // knocking's WhoStep already applies.
-                      (recommendations.length > 0
+                      (cards.length > 0
                         ? 'View your lists here'
                         : 'Choose a voter list'))}
                 </p>

@@ -11,6 +11,7 @@ import {
   type PhoneBankingCreateResponse,
   type PhoneBankingPurpose,
   type PhoneBankingScriptDraftRequest,
+  type RecommendedListVariant,
   type ServePhoneBankingCreate,
   type ServePhoneBankingPurpose,
   type ServePhoneBankingScriptDraftRequest,
@@ -222,6 +223,9 @@ interface PhoneBankingFlowProps {
   // A ?listId= deep link's saved list, handed over by the hub tile's click —
   // applied to the who step's picker once the saved lists resolve.
   preselectedListId?: number
+  // `?recommended=` off the voter data page: a recommendation not saved yet,
+  // which the who step saves on arrival (see useOutreachAudience).
+  preselectedRecommendedVariant?: RecommendedListVariant
 }
 
 // Flow state is flat client state owned here (phase 1 TDD, same convention
@@ -234,6 +238,7 @@ export const PhoneBankingFlow = ({
   onSaved,
   surface = WIN_PHONE_BANKING_SURFACE,
   preselectedListId,
+  preselectedRecommendedVariant,
 }: PhoneBankingFlowProps) => {
   const router = useRouter()
   const [stepId, setStepId] = useState<StepId>('purpose')
@@ -281,6 +286,7 @@ export const PhoneBankingFlow = ({
     reachabilityKey: 'phoneBanking',
     countOverlay: PHONE_BANKING_COUNT_OVERLAY,
     recommendedListIntent,
+    preselectedRecommendedVariant,
   })
   const {
     reset: resetAudience,
@@ -670,6 +676,13 @@ export const PhoneBankingFlow = ({
               setStepId('script')
             }}
             onRecommendationReused={audience.trackRecommendationReused}
+            preselectedRecommendation={audience.preselectedRecommendation}
+            preselectedRecommendationApplied={
+              audience.preselectedRecommendationApplied
+            }
+            onPreselectedRecommendationApplied={
+              audience.markPreselectedRecommendationApplied
+            }
             reachableCount={audience.reachableCount}
             reachableLoading={audience.reachableLoading}
             selectedListTotal={audience.selectedListTotal}

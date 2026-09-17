@@ -17,10 +17,17 @@ vi.mock('@shared/hooks/useElectedOffice', () => ({
 }))
 vi.mock('./NativeDoorKnockingPage', () => ({
   __esModule: true,
-  default: ({ preselectedListId }: { preselectedListId?: number }) => (
+  default: ({
+    preselectedListId,
+    preselectedRecommendedVariant,
+  }: {
+    preselectedListId?: number
+    preselectedRecommendedVariant?: string
+  }) => (
     <div
       data-testid="native-door-knocking"
       data-preselected-list={String(preselectedListId)}
+      data-preselected-variant={String(preselectedRecommendedVariant)}
     />
   ),
 }))
@@ -137,6 +144,20 @@ describe('DoorKnockingPageGate', () => {
     expect(screen.getByTestId('native-door-knocking')).toHaveAttribute(
       'data-preselected-list',
       '42',
+    )
+  })
+
+  it('hands a carried recommended variant to the native experience', () => {
+    setState({ ready: true, enabled: true })
+    render(
+      <DoorKnockingPageGate
+        {...props}
+        preselectedRecommendedVariant="persuadeAffinity"
+      />,
+    )
+    expect(screen.getByTestId('native-door-knocking')).toHaveAttribute(
+      'data-preselected-variant',
+      'persuadeAffinity',
     )
   })
 

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { addDays } from 'date-fns'
 import { useMutation } from '@tanstack/react-query'
 import {
+  type RecommendedListVariant,
   type RobocallAuthorizeResponse,
   type RobocallComplianceRequest,
   type RobocallScriptDraftRequest,
@@ -103,6 +104,9 @@ interface RobocallFlowProps {
   // pay step creates, matching what the p2p create has always done.
   campaignPlanDueDate?: string
   preselectedListId?: number
+  // `?recommended=` off the voter data page: a recommendation not saved yet,
+  // which the audience step saves on arrival (see useOutreachAudience).
+  preselectedRecommendedVariant?: RecommendedListVariant
 }
 
 // Flow state is flat client state owned here (phase 1 TDD pattern): no server
@@ -113,6 +117,7 @@ export const RobocallFlow = ({
   onScheduled,
   campaignPlanDueDate,
   preselectedListId,
+  preselectedRecommendedVariant,
 }: RobocallFlowProps) => {
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<RobocallPurpose | null>(null)
@@ -141,6 +146,7 @@ export const RobocallFlow = ({
     countOverlay: ROBOCALL_COUNT_OVERLAY,
     recommendedListIntent,
     preselectedListId,
+    preselectedRecommendedVariant,
   })
   const { reset: resetAudience } = audience
 
@@ -612,6 +618,13 @@ export const RobocallFlow = ({
               goToSchedule()
             }}
             onRecommendationReused={audience.trackRecommendationReused}
+            preselectedRecommendation={audience.preselectedRecommendation}
+            preselectedRecommendationApplied={
+              audience.preselectedRecommendationApplied
+            }
+            onPreselectedRecommendationApplied={
+              audience.markPreselectedRecommendationApplied
+            }
             reachableCount={audience.reachableCount}
             reachableLoading={audience.reachableLoading}
             pricePerContact={PRICE_PER_CONTACT}
