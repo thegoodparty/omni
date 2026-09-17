@@ -5,7 +5,7 @@ import {
   PRO_FILTERING_REQUIRED_MESSAGE,
   type ContactsService,
 } from '@/contacts/services/contacts.service'
-import { buildListPrecinctsTool } from './listPrecincts.tool'
+import { buildListPrecinctsTool, NO_PRECINCT_LABEL } from './listPrecincts.tool'
 
 const ORGANIZATION = { slug: 'eo-1' } as Organization
 
@@ -31,8 +31,36 @@ describe('buildListPrecinctsTool', () => {
         {
           county: 'GRAND TRAVERSE',
           precinct: '01',
-          voters: 812,
+          label: '01',
+          people: 812,
           value: 'GRAND TRAVERSE|01',
+        },
+      ],
+      truncated: false,
+    })
+  })
+
+  // The voter file leaves this bucket's name blank, and it is selectable
+  // like any other — in New Hampshire it is every single record. Unlabelled,
+  // a model either drops it or invents a name for it.
+  it('labels the no-precinct-on-file bucket without altering its value', async () => {
+    const getPrecincts = vi.fn(() =>
+      Promise.resolve({
+        options: [{ county: 'HILLSBOROUGH', precinct: '', voters: 91_284 }],
+        truncated: false,
+      }),
+    )
+    const result = await buildTool(getPrecincts).execute({})
+    expect(result).toEqual({
+      precincts: [
+        {
+          county: 'HILLSBOROUGH',
+          precinct: '',
+          label: NO_PRECINCT_LABEL,
+          people: 91_284,
+          // The filter still needs the encoded pair exactly as it is, blank
+          // side and all — labelling it must not change what gets sent.
+          value: 'HILLSBOROUGH|',
         },
       ],
       truncated: false,

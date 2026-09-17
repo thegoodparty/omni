@@ -178,6 +178,7 @@ const PRECINCT_RULES = `PRECINCT RULES (apply whenever you call \`list_precincts
 - Precinct is the one dimension describe_filter_dimensions does not carry, because its values are per-district rather than fixed. Call list_precincts to learn them; never guess a precinct name.
 - Pass each chosen precinct's \`value\` verbatim into the \`precincts\` filter field. It is an encoded pair, so a name you assemble yourself matches nobody while looking perfectly reasonable.
 - Precinct is a real boundary, not an approximation of a neighbourhood. If they asked for a named neighbourhood and you are answering with precincts, say which precincts you used and that they are the nearest thing the data has.
+- A precinct whose name is blank is that county's no-precinct-on-file bucket. Call it what the \`label\` says, never drop it, and never present it as a place: it can be most of a district, and in some states it is all of it.
 - If the result says it was truncated, say so before quoting a number: the list you filtered on is not all of them.`
 
 const COMMUNITY_ISSUES_RULES = `COMMUNITY ISSUES RULES (apply whenever you call \`read_community_issues\`):
@@ -200,7 +201,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   count_contacts:
     'count the constituents matching a contact filter (aggregate only)',
   list_precincts:
-    'list this district’s precincts with their counties and voter counts',
+    'list this district’s precincts with their counties and sizes',
   crud_saved_filters:
     'manage saved contact lists (list/create/update/delete); returns ids, names, and counts only',
   search_help_center:
