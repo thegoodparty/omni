@@ -2017,7 +2017,12 @@ describe('UsersService', () => {
       expect(trackSpy).not.toHaveBeenCalled()
     })
 
-    it('does not cancel Stripe subscription when Clerk deletion fails and transaction rolls back', async () => {
+    // Clerk is deleted last, once billing is provably stopped, so a Clerk
+    // failure rolls the deletion back with the subscription already canceled.
+    // The reverse order destroys the login first, and a rolled-back deletion
+    // restores the row with its old clerkId — which findOrProvisionByClerk
+    // refuses to rebind, so the user could never sign in again.
+    it('rolls the deletion back when Clerk deletion fails, having already stopped billing', async () => {
       const targetUser = await service.prisma.user.create({
         data: {
           email: 'stripe-rollback@example.com',
@@ -2036,7 +2041,7 @@ describe('UsersService', () => {
           userId: targetUser.id,
           slug: `stripe-rollback-${targetUser.id}`,
           organizationSlug: `org-stripe-rollback-${targetUser.id}`,
-          details: { subscriptionId: 'sub_should_not_cancel' },
+          details: { subscriptionId: 'sub_clerk_failure' },
         },
       })
 
@@ -2045,17 +2050,59 @@ describe('UsersService', () => {
       )
       const cancelSpy = vi
         .spyOn(stripeService, 'cancelSubscription')
-        .mockResolvedValue(undefined as never)
+        .mockResolvedValue(null)
 
       await expect(
         usersService.deleteUser(targetUser.id, service.user.id),
       ).rejects.toThrow(BadGatewayException)
 
-      expect(cancelSpy).not.toHaveBeenCalled()
+      expect(cancelSpy).toHaveBeenCalledWith('sub_clerk_failure')
       const found = await service.prisma.user.findUnique({
         where: { id: targetUser.id },
       })
       expect(found).not.toBeNull()
+    })
+
+    it('deletes the Clerk identity only after the subscription is canceled', async () => {
+      const targetUser = await service.prisma.user.create({
+        data: {
+          email: 'cancel-before-clerk@example.com',
+          clerkId: 'clerk_cancel_ordering_id',
+        },
+      })
+      await service.prisma.organization.create({
+        data: {
+          slug: `org-cancel-before-clerk-${targetUser.id}`,
+          ownerId: targetUser.id,
+          positionId: 'br-pos-cancel-before-clerk',
+        },
+      })
+      await service.prisma.campaign.create({
+        data: {
+          userId: targetUser.id,
+          slug: `cancel-before-clerk-${targetUser.id}`,
+          organizationSlug: `org-cancel-before-clerk-${targetUser.id}`,
+          details: { subscriptionId: 'sub_before_clerk' },
+        },
+      })
+      vi.spyOn(analyticsService, 'track').mockResolvedValue(
+        {} as Awaited<ReturnType<typeof analyticsService.track>>,
+      )
+      const callOrder: string[] = []
+      vi.spyOn(stripeService, 'cancelSubscription').mockImplementation(
+        async () => {
+          callOrder.push('stripe')
+          return null
+        },
+      )
+      vi.spyOn(clerkClient.users, 'deleteUser').mockImplementation(async () => {
+        callOrder.push('clerk')
+        return {} as Awaited<ReturnType<typeof clerkClient.users.deleteUser>>
+      })
+
+      await usersService.deleteUser(targetUser.id, service.user.id)
+
+      expect(callOrder).toEqual(['stripe', 'clerk'])
     })
 
     // The campaign row carrying details.subscriptionId is what the resulting

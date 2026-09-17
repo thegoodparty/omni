@@ -56,7 +56,7 @@ const CLERK_PAGE_SIZE = 500
 
 const SIGN_IN_LINK_TTL_SECONDS = 3600
 
-const DELETE_USER_TX_TIMEOUT_MS = 60_000
+const DELETE_USER_TX_TIMEOUT_MS = 180_000
 
 // Refusal shown to sales when an EO magic link targets an email that already
 // belongs to a real, self-owned GoodParty login (password set or owns a
@@ -567,24 +567,6 @@ export class UsersService extends createPrismaBase(MODELS.User) {
         await tx.user.delete({ where: { id } })
         this.logger.info({ userId: id }, 'User deleted from database')
 
-        if (user?.clerkId) {
-          try {
-            await this.clerkClient.users.deleteUser(user.clerkId)
-            this.logger.info(
-              { userId: id, clerkId: user.clerkId },
-              'User deleted from Clerk',
-            )
-          } catch (error) {
-            this.logger.error(
-              { error },
-              `Failed to delete Clerk user ${user.clerkId} during account deletion`,
-            )
-            throw new BadGatewayException(
-              `Failed to delete Clerk user during account deletion`,
-            )
-          }
-        }
-
         // Cancelling before the commit, rather than after it, is the
         // money-critical ordering. Campaign cascade-deletes with the user and
         // details.subscriptionId is the only record we keep of the
@@ -612,11 +594,41 @@ export class UsersService extends createPrismaBase(MODELS.User) {
             throw err
           }
         }
+
+        // Clerk goes last because it is the one step nothing can undo, and a
+        // rolled-back deletion restores the user row with its old clerkId:
+        // findOrProvisionByClerk refuses to rebind a row that already carries
+        // a Clerk identity, so a fresh Clerk sign-up under the same email
+        // could never reach that row again. Destroying the login before
+        // billing is provably stopped therefore risks a user who can neither
+        // sign in nor stop being charged, which is why the Stripe loop runs
+        // first. A Clerk failure costs the subscription instead, and the
+        // subscription can be bought again.
+        if (user?.clerkId) {
+          try {
+            await this.clerkClient.users.deleteUser(user.clerkId)
+            this.logger.info(
+              { userId: id, clerkId: user.clerkId },
+              'User deleted from Clerk',
+            )
+          } catch (error) {
+            this.logger.error(
+              { error },
+              `Failed to delete Clerk user ${user.clerkId} during account deletion`,
+            )
+            throw new BadGatewayException(
+              `Failed to delete Clerk user during account deletion`,
+            )
+          }
+        }
       },
       // Two external calls run inside this transaction by design, so the
-      // budget must absorb both. A timeout that fires after Clerk has already
-      // deleted the identity is the worst outcome available, and the locks are
-      // confined to the rows of the one user being deleted.
+      // budget must absorb both. What it is really sized against is the one
+      // window that costs something: a timeout firing between Clerk's success
+      // and the commit strands the login the same way a reversed order would,
+      // so the budget is far wider than Stripe's and Clerk's own latencies
+      // need. The locks are confined to the rows of the one user being
+      // deleted.
       { timeout: DELETE_USER_TX_TIMEOUT_MS },
     )
 
