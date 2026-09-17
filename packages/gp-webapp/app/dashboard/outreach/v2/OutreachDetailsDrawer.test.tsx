@@ -552,6 +552,24 @@ describe('OutreachDetailsDrawer — assignees (ENG-11056 / ENG-11059)', () => {
     expect(screen.queryByText('Assign someone')).not.toBeInTheDocument()
   })
 
+  // Team accounts are a Win feature — the roles being assigned are campaign
+  // roles — so an elected official is offered no assignment at all rather
+  // than one labelled in Win's vocabulary. Asserted with the flag ON, since
+  // the flag alone would hide it either way.
+  it('does not render the Assignees section on serve, even with the flag on', async () => {
+    render(
+      <OutreachDetailsDrawer
+        row={inProgressRow}
+        onOpenChange={vi.fn()}
+        isServe
+      />,
+    )
+
+    await screen.findByText('92 of 480 reached')
+    expect(screen.queryByText('Assigned to')).not.toBeInTheDocument()
+    expect(screen.queryByText('Assign someone')).not.toBeInTheDocument()
+  })
+
   it('opens the assign modal titled with the row name, and lets an owner-inclusive roster be assigned', async () => {
     const user = userEvent.setup()
     api.mock('GET /v1/organizations/team', {

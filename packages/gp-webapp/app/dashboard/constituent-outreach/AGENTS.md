@@ -81,7 +81,20 @@ generation services, the spine scoping — are in
   `PhoneBankingList.isServe`, derived server-side from the owning org's `eo-`
   slug prefix, to point at this page instead of the Win hub (ENG-10996).
   Anything else on that page that needs to know its surface should read the
-  same field, not the referrer.
+  same field, not the referrer — and three things now do. The outcome form
+  asks Serve's own engaged-call question (`Do they need follow-up?`, where Win
+  asks support then will-vote) and persists it to `followUp`; the call-sheet
+  PDF swaps the same column's heading and tick boxes off `callSheetRows(entries,
+  isServe)` / `answerHeading(isServe)`, because paper is the only thing a
+  volunteer has on the call and must ask what the app asks; and the script's
+  contact-name token is `[constituent name]` rather than `[voter name]`. A list
+  frozen before any of this still carries the Win token, so every reader
+  accepts either (`CONTACT_NAME_TOKENS`).
+- **Team accounts are Win-only here.** `OutreachDetailsDrawer` takes `isServe`
+  and renders no assignees section for it: the roles the assign modal offers
+  are campaign roles, so an elected official gets no assignment rather than
+  one in Win's vocabulary. The `win-team-accounts` flag would usually hide it
+  anyway — this is the product rule, not the flag.
 - **Org switching must not replay detail queries.** `outreachDetailQueryKey`
   is not org-scoped, and the org picker's switch invalidation runs before
   `router.push` unmounts this page — a plain `invalidateQueries` refired every

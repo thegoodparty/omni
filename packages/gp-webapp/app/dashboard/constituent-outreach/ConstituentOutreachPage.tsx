@@ -122,6 +122,7 @@ const ConstituentOutreachContent = () => {
           if (!open) setDetailsRow(null)
         }}
         detailFetcher={fetchServeOutreachDetail}
+        isServe
       />
     </div>
   )

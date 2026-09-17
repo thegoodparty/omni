@@ -145,6 +145,10 @@ interface OutreachDetailsDrawerProps {
   // Serve caller threads its org-scoped sibling the same bound-function way
   // SocialFlow's `surface` does, so this drawer never forks per surface.
   detailFetcher?: OutreachDetailFetcher
+  // Serve has no team-accounts surface: an elected official's org has no
+  // campaign roles to assign a list to, so the assignees section is not
+  // rendered there at all rather than relabelled.
+  isServe?: boolean
 }
 
 interface DetailRow extends HistoryRow {
@@ -157,6 +161,7 @@ export const OutreachDetailsDrawer = ({
   row,
   onOpenChange,
   detailFetcher = fetchOutreachDetail,
+  isServe = false,
 }: OutreachDetailsDrawerProps) => {
   const isSocial = row?.outreachType === OUTREACH_TYPES.socialMedia
   const isPhoneBanking = row?.outreachType === OUTREACH_TYPES.nativePhoneBanking
@@ -729,8 +734,12 @@ export const OutreachDetailsDrawer = ({
                 flag-gated inside the section itself so this renders nothing
                 extra when win-team-accounts is off. Volunteers never open
                 this drawer (their whole surface is /volunteer's own
-                assignments page), so there's no second gate here. */}
-            {(isPhoneBanking || isDoorKnocking) && (
+                assignments page), so there's no second gate for them.
+                Serve is excluded outright: team accounts are a Win feature
+                (the roles are campaign roles), so an elected official is
+                offered no assignment rather than one labelled in Win's
+                vocabulary. */}
+            {(isPhoneBanking || isDoorKnocking) && !isServe && (
               <OutreachAssigneesSection
                 outreachId={row.id}
                 outreachName={row.name || row.title || undefined}

@@ -80,6 +80,21 @@ export const RecordPhoneBankingCallSchema = z
       path: ['followUp'],
     },
   )
+  // The surfaces are alternatives, not a superset and a subset: one request
+  // carries Serve's answer or Win's two, never both. Enforced here rather
+  // than left to the clients, because the route accepts any HTTP caller and
+  // nothing between this parse and the upsert would reject the combination —
+  // which is what would let a Win row persist a followUp, or a Serve row a
+  // support answer, and make this column's meaning depend on who wrote it.
+  .refine(
+    (v) =>
+      v.followUp === undefined ||
+      (v.supportAnswer === undefined && v.willVote === undefined),
+    {
+      message: 'followUp is mutually exclusive with supportAnswer and willVote',
+      path: ['followUp'],
+    },
+  )
   .refine(
     (v) =>
       !v.markHouseholdDone ||
