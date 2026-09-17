@@ -85,6 +85,7 @@ describe('DomainsService', () => {
     updateDomainAlias: ReturnType<typeof vi.fn>
   }
   let mockQueue: { sendMessage: ReturnType<typeof vi.fn> }
+  let mockLogger: PinoLogger
   let mockPrisma: {
     domain: {
       findMany: ReturnType<typeof vi.fn>
@@ -184,6 +185,8 @@ describe('DomainsService', () => {
       ),
     }
 
+    mockLogger = createMockLogger()
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         { provide: PrismaService, useValue: mockPrisma },
@@ -194,7 +197,7 @@ describe('DomainsService', () => {
         { provide: ForwardEmailService, useValue: mockForwardEmail },
         { provide: QueueProducerService, useValue: mockQueue },
         { provide: AnalyticsService, useValue: mockAnalytics },
-        { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: PinoLogger, useValue: mockLogger },
         DomainsService,
       ],
     }).compile()
@@ -375,6 +378,39 @@ describe('DomainsService', () => {
 
       expect(mockPrisma.domain.findUnique).toHaveBeenCalledWith(
         expect.objectContaining({ where: { name: 'test-domain.com' } }),
+      )
+    })
+
+    it('records the issuance, attributed to the requesting admin', async () => {
+      await service.getDomainTransferAuthCode('test-domain.com', mockUser)
+
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          domain: 'test-domain.com',
+          campaignId: 42,
+          requestedByUserId: mockUser.id,
+        }),
+        'Domain transfer auth code issued',
+      )
+    })
+
+    it('does not record an issuance when Vercel refuses', async () => {
+      // A rejected attempt logged identically to a successful one would leave
+      // an auditor unable to tell who actually walked away with a code.
+      mockVercel.getDomainAuthCode.mockRejectedValue(
+        buildVercelError(
+          DomainCannotBeTransferedOutUntil,
+          'The domain cannot be transfered out until 2026-05-02.',
+          HttpStatus.CONFLICT,
+        ),
+      )
+
+      await expect(
+        service.getDomainTransferAuthCode('brand-new.run', mockUser),
+      ).rejects.toBeInstanceOf(ConflictException)
+      expect(mockLogger.info).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'Domain transfer auth code issued',
       )
     })
 

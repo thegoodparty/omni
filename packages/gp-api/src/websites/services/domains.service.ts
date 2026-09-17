@@ -452,21 +452,26 @@ export class DomainsService
       )
     }
 
-    // WHOIS registrant on these domains is a GoodParty identity rather than the
-    // candidate, so we are the only party who can produce this code. Record who
-    // asked, since the request is what hands control of the domain away.
-    this.logger.info(
-      {
-        domain: domainName,
-        domainStatus: campaignDomain.status,
-        campaignId: campaignDomain.website.campaignId,
-        requestedByUserId: requestedBy.id,
-      },
-      'Domain transfer auth code requested',
-    )
-
     try {
-      return await this.vercel.getDomainAuthCode(domainName)
+      const authCode = await this.vercel.getDomainAuthCode(domainName)
+
+      // WHOIS registrant on these domains is a GoodParty identity rather than
+      // the candidate, so we are the only party who can produce this code.
+      // Logged only once Vercel has actually returned one: control of the
+      // domain changes hands on issuance, not on asking, and the attempt
+      // itself is already covered by AdminAuditInterceptor and by the error
+      // VercelService logs when the registrar refuses.
+      this.logger.info(
+        {
+          domain: domainName,
+          domainStatus: campaignDomain.status,
+          campaignId: campaignDomain.website.campaignId,
+          requestedByUserId: requestedBy.id,
+        },
+        'Domain transfer auth code issued',
+      )
+
+      return authCode
     } catch (error) {
       // A row exists but the registrar disagrees, so our records are out of
       // step with Vercel rather than the candidate being wrong about the name.
