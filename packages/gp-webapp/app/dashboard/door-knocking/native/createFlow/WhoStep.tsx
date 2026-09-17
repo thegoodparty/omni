@@ -354,7 +354,9 @@ export const WhoStep = ({
                       // invites the choice.
                       recommendations.length > 0
                       ? 'View your lists here'
-                      : 'Choose a voter list'}
+                      : isServeOrg
+                        ? 'Choose a constituent list'
+                        : 'Choose a voter list'}
                 </span>
                 {showsPickerSelection ? (
                   active.sub ? (

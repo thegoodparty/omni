@@ -1,6 +1,10 @@
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { SERVE_PHONE_BANKING_PURPOSE_VALUES } from '@goodparty_org/contracts'
+import {
+  CONSTITUENT_NAME_TOKEN,
+  SERVE_PHONE_BANKING_PURPOSE_VALUES,
+  VOTER_NAME_TOKEN,
+} from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { LlmService } from '@/llm/services/llm.service'
@@ -82,14 +86,14 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
 
       expect(systemPrompt).toContain('elected official')
       expect(systemPrompt).not.toMatch(/candidate/i)
-      expect(systemPrompt).not.toMatch(/\bvoters\b/i)
+      expect(systemPrompt).not.toMatch(/\bvoters?\b/i)
       expect(userPrompt).not.toMatch(/candidate/i)
-      expect(userPrompt).not.toMatch(/\bvoters\b/i)
+      expect(userPrompt).not.toMatch(/\bvoters?\b/i)
     },
   )
 
-  it('carries the opener-token floor rule (literal [your name] and voter-name tokens) in the system prompt', async () => {
-    mockDraft('You: Hi. Voter: Hello.')
+  it('carries the opener-token floor rule with the constituent-name token, never the voter one', async () => {
+    mockDraft('You: Hi. Constituent: Hello.')
 
     const res = await postDraft({ purpose: 'event_invite', tone: 'warm' })
     expect(res.status).toBe(HttpStatus.CREATED)
@@ -97,7 +101,24 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
     const { systemPrompt } = promptsFor(jsonCompletion.mock.calls[0]?.[0])
     expect(systemPrompt).toContain(SERVE_PHONE_BANKING_VOICE.openerRule)
     expect(systemPrompt).toContain('[your name]')
-    expect(systemPrompt).toContain('[voter name]')
+    expect(systemPrompt).toContain(CONSTITUENT_NAME_TOKEN)
+    expect(systemPrompt).not.toContain(VOTER_NAME_TOKEN)
+  })
+
+  // The dialogue speaker label is the one part of the script format a human
+  // reads, so it is Serve vocabulary too — an official's volunteer must not be
+  // handed a script with "Voter:" lines in it.
+  it('formats the serve script as You:/Constituent: lines', async () => {
+    mockDraft('You: Hi. Constituent: Hello.')
+
+    const res = await postDraft({ purpose: 'community_input', tone: 'warm' })
+    expect(res.status).toBe(HttpStatus.CREATED)
+
+    const { systemPrompt, userPrompt } = promptsFor(
+      jsonCompletion.mock.calls[0]?.[0],
+    )
+    expect(`${systemPrompt}${userPrompt}`).toContain('You:/Constituent:')
+    expect(`${systemPrompt}${userPrompt}`).not.toContain('Voter:')
   })
 
   it('rejects a Win-only purpose slug without calling the LLM', async () => {

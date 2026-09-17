@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  FollowUpAnswerSchema,
   PhoneBankCallOutcomeSchema,
   SupportAnswerSchema,
   WillVoteAnswerSchema,
@@ -16,6 +17,9 @@ export const PhoneBankingInteractionSchema = z.object({
   outcome: PhoneBankCallOutcomeSchema,
   supportAnswer: SupportAnswerSchema.nullable(),
   willVote: WillVoteAnswerSchema.nullable(),
+  // Serve's answered-call answer; null on every Win row (see
+  // RecordPhoneBankingCallSchema) and on anything logged before it existed.
+  followUp: FollowUpAnswerSchema.nullable(),
   occurredAt: zCoerceDate(),
 })
 export type PhoneBankingInteraction = z.infer<

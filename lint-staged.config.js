@@ -53,4 +53,20 @@ module.exports = {
   // Runs once for the whole commit, not per file, hence the ignored argument.
   'packages/{gp-webapp/app/dashboard/shared/DashboardMenu.tsx,gp-api/src/chats/general/product-knowledge/productMap.ts}':
     () => 'npm run product-map:check',
+  // Serve copy must not use Win-only vocabulary (docs/product-vocabulary.md).
+  // Scoped to the staged files rather than the whole package: the checker
+  // takes paths, and a commit should be judged on what it changed. Paths
+  // arrive absolute and the checker normalizes them.
+  'packages/gp-webapp/app/**/*.{ts,tsx}': (files) => {
+    const scannable = files.filter(
+      (file) => !/\.(?:test|stories)\.tsx?$/.test(file),
+    )
+    return scannable.length === 0
+      ? []
+      : [
+          `npm run check:serve-vocabulary -w packages/gp-webapp -- ${scannable
+            .map((file) => `'${file}'`)
+            .join(' ')}`,
+        ]
+  },
 }

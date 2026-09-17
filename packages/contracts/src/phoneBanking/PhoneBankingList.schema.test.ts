@@ -39,7 +39,7 @@ describe('PhoneBankingListSchema', () => {
     expect(() => PhoneBankingListSchema.parse(list)).not.toThrow()
   })
 
-  it('accepts a logged interaction with a nullable supportAnswer/willVote', () => {
+  it('accepts a logged interaction with nullable answer fields', () => {
     const list = {
       id: 1,
       name: 'GOTV week 1',
@@ -60,6 +60,7 @@ describe('PhoneBankingListSchema', () => {
                 outcome: 'answered',
                 supportAnswer: null,
                 willVote: null,
+                followUp: null,
                 occurredAt: '2026-08-20T12:05:00Z',
               },
             },

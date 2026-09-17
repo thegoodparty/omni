@@ -114,6 +114,7 @@ const ConstituentOutreachContent = () => {
         onRowClick={setDetailsRow}
         rowClickable={isDrawerRow}
         detailFetcher={fetchServeOutreachDetail}
+        isServe
       />
       <OutreachDetailsDrawer
         row={detailsRow}

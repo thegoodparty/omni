@@ -58,6 +58,7 @@ const renderPanel = (
       onNext={noop}
       hasPrev={false}
       hasNext={false}
+      isServe={false}
       open
       onOpenChange={noop}
       onSaved={noop}
@@ -120,6 +121,7 @@ describe('<PhoneBankingEntryPanel>', () => {
           script={SCRIPT_WITH_TOKEN}
           entry={entry}
           entryIndex={1}
+          isServe={false}
           activePersonId={activePersonId}
           onActivePersonChange={setActivePersonId}
           onPrev={noop}

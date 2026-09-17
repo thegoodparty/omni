@@ -81,6 +81,7 @@ describe('totalPeopleCount / calledPeopleCount / outcomeCounts', () => {
               outcome: 'answered',
               supportAnswer: 'supporter',
               willVote: 'yes',
+              followUp: null,
               occurredAt: new Date(),
             },
           }),
@@ -124,6 +125,7 @@ describe('isEntrySuppressed', () => {
             outcome: 'wrong_number',
             supportAnswer: null,
             willVote: null,
+            followUp: null,
             occurredAt: new Date(),
           },
         }),
@@ -141,6 +143,7 @@ describe('isEntrySuppressed', () => {
             outcome: 'disconnected',
             supportAnswer: null,
             willVote: null,
+            followUp: null,
             occurredAt: new Date(),
           },
         }),
@@ -162,6 +165,7 @@ describe('isEntrySuppressed', () => {
             outcome: 'hung_up',
             supportAnswer: null,
             willVote: null,
+            followUp: null,
             occurredAt: new Date(),
           },
         }),
@@ -244,6 +248,7 @@ describe('cascade state machine (draftWith*)', () => {
         outcome: 'answered',
         supportAnswer: 'supporter',
         willVote: 'unsure',
+        followUp: null,
         occurredAt: new Date(),
       }),
     ).toEqual({
@@ -260,6 +265,7 @@ describe('cascade state machine (draftWith*)', () => {
         outcome: 'answered',
         supportAnswer: null,
         willVote: null,
+        followUp: null,
         occurredAt: new Date(),
       }),
     ).toEqual({ outcome: 'answered' })
@@ -270,6 +276,7 @@ describe('cascade state machine (draftWith*)', () => {
       outcome: 'refused',
       supportAnswer: null,
       willVote: null,
+      followUp: null,
       occurredAt: new Date(),
     })
     expect(draft).toEqual({ outcome: 'answered', engagement: 'refused' })
@@ -285,6 +292,7 @@ describe('cascade state machine (draftWith*)', () => {
       outcome: 'hung_up',
       supportAnswer: null,
       willVote: null,
+      followUp: null,
       occurredAt: new Date(),
     })
     expect(draft).toEqual({ outcome: 'answered', engagement: 'hung_up' })
@@ -298,37 +306,75 @@ describe('cascade state machine (draftWith*)', () => {
 
 describe('isDraftComplete (terminal states that reveal Save/Cancel)', () => {
   it('is false with no outcome and true for any non-answered outcome', () => {
-    expect(isDraftComplete({})).toBe(false)
-    expect(isDraftComplete({ outcome: 'no_answer' })).toBe(true)
-    expect(isDraftComplete({ outcome: 'refused' })).toBe(true)
+    expect(isDraftComplete({}, false)).toBe(false)
+    expect(isDraftComplete({ outcome: 'no_answer' }, false)).toBe(true)
+    expect(isDraftComplete({ outcome: 'refused' }, false)).toBe(true)
   })
 
   it('answered is incomplete until the whole engaged cascade is answered', () => {
-    expect(isDraftComplete({ outcome: 'answered' })).toBe(false)
+    expect(isDraftComplete({ outcome: 'answered' }, false)).toBe(false)
     expect(
-      isDraftComplete({ outcome: 'answered', engagement: 'engaged' }),
+      isDraftComplete({ outcome: 'answered', engagement: 'engaged' }, false),
     ).toBe(false)
     expect(
-      isDraftComplete({
-        outcome: 'answered',
-        engagement: 'engaged',
-        supportAnswer: 'supporter',
-      }),
+      isDraftComplete(
+        {
+          outcome: 'answered',
+          engagement: 'engaged',
+          supportAnswer: 'supporter',
+        },
+        false,
+      ),
     ).toBe(false)
     expect(
-      isDraftComplete({
-        outcome: 'answered',
-        engagement: 'engaged',
-        supportAnswer: 'supporter',
-        willVote: 'yes',
-      }),
+      isDraftComplete(
+        {
+          outcome: 'answered',
+          engagement: 'engaged',
+          supportAnswer: 'supporter',
+          willVote: 'yes',
+        },
+        false,
+      ),
     ).toBe(true)
   })
 
   it('answered + engage refused is terminal on its own', () => {
     expect(
-      isDraftComplete({ outcome: 'answered', engagement: 'refused' }),
+      isDraftComplete({ outcome: 'answered', engagement: 'refused' }, false),
     ).toBe(true)
+  })
+
+  // Serve asks one question where Win asks two, so the surfaces reach a
+  // terminal engaged state on different answers — and neither is satisfied
+  // by the other's.
+  it('serve is terminal on followUp alone, and never on the win answers', () => {
+    expect(
+      isDraftComplete({ outcome: 'answered', engagement: 'engaged' }, true),
+    ).toBe(false)
+    expect(
+      isDraftComplete(
+        { outcome: 'answered', engagement: 'engaged', followUp: 'no' },
+        true,
+      ),
+    ).toBe(true)
+    expect(
+      isDraftComplete(
+        {
+          outcome: 'answered',
+          engagement: 'engaged',
+          supportAnswer: 'supporter',
+          willVote: 'yes',
+        },
+        true,
+      ),
+    ).toBe(false)
+    expect(
+      isDraftComplete(
+        { outcome: 'answered', engagement: 'engaged', followUp: 'yes' },
+        false,
+      ),
+    ).toBe(false)
   })
 })
 
@@ -417,6 +463,7 @@ describe('applyCallResults (fan-out rendering)', () => {
           outcome: 'no_answer',
           supportAnswer: null,
           willVote: null,
+          followUp: null,
           occurredAt,
         },
       },
@@ -426,6 +473,7 @@ describe('applyCallResults (fan-out rendering)', () => {
           outcome: 'no_answer',
           supportAnswer: null,
           willVote: null,
+          followUp: null,
           occurredAt,
         },
       },
@@ -451,6 +499,7 @@ describe('applyCallResults (fan-out rendering)', () => {
           outcome: 'voicemail',
           supportAnswer: null,
           willVote: null,
+          followUp: null,
           occurredAt: new Date(),
         },
       },

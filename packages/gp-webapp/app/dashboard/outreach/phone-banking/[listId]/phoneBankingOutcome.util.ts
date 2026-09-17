@@ -1,4 +1,5 @@
 import type {
+  FollowUpAnswer,
   PhoneBankCallOutcome,
   PhoneBankingCallResult,
   PhoneBankingInteraction,
@@ -60,6 +61,15 @@ export const WILL_VOTE_ANSWER_LABEL: Record<WillVoteAnswer, string> = {
   yes: 'Yes',
   no: 'No',
   unsure: 'Unsure',
+}
+
+// Binary where support and will-vote are three-way, for the reason
+// door-knocking's FOLLOW_UP_OPTIONS gives: a caller either owes this
+// constituent something afterwards or does not, and an "Unsure" would only be
+// a way of not writing the note.
+export const FOLLOW_UP_ANSWER_LABEL: Record<FollowUpAnswer, string> = {
+  yes: 'Yes',
+  no: 'No',
 }
 
 export const NOT_CALLED_LABEL = 'Not called'
@@ -134,8 +144,11 @@ export type PhoneBankingEngagement = 'engaged' | 'refused' | 'hung_up'
 export interface PhoneBankingOutcomeDraft {
   outcome?: PhoneBankCallOutcome
   engagement?: PhoneBankingEngagement
+  // Win's two conversation answers. A Serve draft never carries either.
   supportAnswer?: SupportAnswer
   willVote?: WillVoteAnswer
+  // Serve's one, in their place — see RecordPhoneBankingCallSchema.
+  followUp?: FollowUpAnswer
 }
 
 export const EMPTY_DRAFT: PhoneBankingOutcomeDraft = {}
@@ -154,6 +167,7 @@ export const draftWithOutcome = (
         engagement: undefined,
         supportAnswer: undefined,
         willVote: undefined,
+        followUp: undefined,
       }
 
 export const draftWithEngagement = (
@@ -167,6 +181,7 @@ export const draftWithEngagement = (
         engagement,
         supportAnswer: undefined,
         willVote: undefined,
+        followUp: undefined,
       }
 
 export const draftWithSupportAnswer = (
@@ -178,6 +193,11 @@ export const draftWithWillVote = (
   draft: PhoneBankingOutcomeDraft,
   willVote: WillVoteAnswer | undefined,
 ): PhoneBankingOutcomeDraft => ({ ...draft, willVote })
+
+export const draftWithFollowUp = (
+  draft: PhoneBankingOutcomeDraft,
+  followUp: FollowUpAnswer | undefined,
+): PhoneBankingOutcomeDraft => ({ ...draft, followUp })
 
 // Reading a persisted row back into the cascade: an answered row that
 // carries conversation answers must have come through the engaged path; a
@@ -201,7 +221,9 @@ export const draftFromInteraction = (
             : interaction.outcome,
         engagement:
           interaction.outcome === 'answered' &&
-          (interaction.supportAnswer || interaction.willVote)
+          (interaction.supportAnswer ||
+            interaction.willVote ||
+            interaction.followUp)
             ? 'engaged'
             : interaction.outcome === 'refused'
               ? 'refused'
@@ -210,23 +232,28 @@ export const draftFromInteraction = (
                 : undefined,
         supportAnswer: interaction.supportAnswer ?? undefined,
         willVote: interaction.willVote ?? undefined,
+        followUp: interaction.followUp ?? undefined,
       }
     : EMPTY_DRAFT
 
 // The design renders Save/Cancel only once the cascade reaches a terminal
 // state: immediately for a number-level outcome, after engage = Refused, or
 // after every question on the engaged path.
-export const isDraftComplete = (draft: PhoneBankingOutcomeDraft): boolean => {
+export const isDraftComplete = (
+  draft: PhoneBankingOutcomeDraft,
+  isServe: boolean,
+): boolean => {
   if (!draft.outcome) return false
   if (draft.outcome !== 'answered') return true
   if (draft.engagement === 'refused' || draft.engagement === 'hung_up') {
     return true
   }
-  return (
-    draft.engagement === 'engaged' &&
-    draft.supportAnswer !== undefined &&
-    draft.willVote !== undefined
-  )
+  if (draft.engagement !== 'engaged') return false
+  // The engaged path is where the two surfaces diverge: Serve asks one
+  // question and Win asks two, so each is terminal on its own answers.
+  return isServe
+    ? draft.followUp !== undefined
+    : draft.supportAnswer !== undefined && draft.willVote !== undefined
 }
 
 // Builds the exact POST body for one Save. `markHouseholdDone` only ever
@@ -250,12 +277,16 @@ export const buildRecordCallRequest = (
   if (draft.engagement === 'hung_up') {
     return { entryId, outcome: 'hung_up', personId: activePersonId }
   }
+  // Whichever answers the draft actually carries: a Serve draft holds
+  // followUp alone and a Win draft the other two, so the surface never has to
+  // be named again here.
   return {
     entryId,
     outcome: 'answered',
     personId: activePersonId,
-    supportAnswer: draft.supportAnswer,
-    willVote: draft.willVote,
+    ...(draft.supportAnswer ? { supportAnswer: draft.supportAnswer } : {}),
+    ...(draft.willVote ? { willVote: draft.willVote } : {}),
+    ...(draft.followUp ? { followUp: draft.followUp } : {}),
     ...(markHouseholdDone ? { markHouseholdDone: true } : {}),
   }
 }

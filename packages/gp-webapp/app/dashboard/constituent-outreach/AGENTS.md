@@ -8,6 +8,15 @@ forked. If you're changing a flow, the table, the drawer, or the audience
 step, the code lives in `outreach/v2/` and BOTH surfaces feel it — read
 `app/dashboard/outreach/AGENTS.md` first.
 
+**Vocabulary.** This surface has regressed four times on one bug: Win nouns
+reaching an elected official. They have constituents, an office and a term —
+never voters, an election, a candidate or a ballot, and "campaign" only in the
+outreach sense ("Campaign name" is fine, "your campaign tone" is not). Every
+string here is Serve copy, and everything under `outreach/v2/` is shared, so
+fix a shared string with a mode-keyed copy object rather than a rename. The
+rule, the models, and the check that gates it:
+**`docs/product-vocabulary.md`**.
+
 ## Files
 
 | File                          | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |

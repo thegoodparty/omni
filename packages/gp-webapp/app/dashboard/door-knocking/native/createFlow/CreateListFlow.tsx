@@ -1405,6 +1405,7 @@ export default function CreateListFlow({
 
         {stage === 'points' && (
           <TalkingPointsStep
+            isServe={serveMode}
             intro={previewIntro}
             // The name they gave the list one step ago, which says more about
             // who is being walked than any summary of the pills would.

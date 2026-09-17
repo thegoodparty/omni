@@ -588,6 +588,7 @@ export class PhoneBankingListService extends createPrismaBase(
           outcome: interaction.outcome,
           supportAnswer: interaction.supportAnswer,
           willVote: interaction.willVote,
+          followUp: interaction.followUp,
           occurredAt: interaction.occurredAt,
         },
       ]),

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  FollowUpAnswerSchema,
   PhoneBankCallOutcomeSchema,
   SupportAnswerSchema,
   WillVoteAnswerSchema,
@@ -24,6 +25,7 @@ export const RecordPhoneBankingCallSchema = z
     personId: z.string().optional(),
     supportAnswer: SupportAnswerSchema.optional(),
     willVote: WillVoteAnswerSchema.optional(),
+    followUp: FollowUpAnswerSchema.optional(),
     note: z.string().max(PHONE_BANKING_CALL_NOTE_MAX_LENGTH).optional(),
     // After an answered upsert, log the entry's remaining un-logged
     // household members as answered too, in the same request.
@@ -67,6 +69,15 @@ export const RecordPhoneBankingCallSchema = z
     {
       message: 'willVote is only valid when outcome is answered',
       path: ['willVote'],
+    },
+  )
+  .refine(
+    (v) =>
+      v.followUp === undefined ||
+      v.outcome === PhoneBankCallOutcomeSchema.enum.answered,
+    {
+      message: 'followUp is only valid when outcome is answered',
+      path: ['followUp'],
     },
   )
   .refine(
