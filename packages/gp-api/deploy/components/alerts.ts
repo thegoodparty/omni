@@ -127,6 +127,28 @@ const CONTROLLER_OWNERS: Partial<
   'voters/voter-file': BOTH,
   chats: BOTH,
   'error-logger': BOTH,
+
+  // Sales-initiated onboarding, shared because the funnel is the link's `kind`
+  // and not its route: one `magic-link/resolve/:slug` serves both the SERVE
+  // link a rep mints from admin/elected-office and the WIN link from
+  // admin/campaign. Naming one owner would leave the other team to find out
+  // from the rep.
+  //
+  // Both are unauthenticated and both are the only path their feature has, so
+  // neither can afford to fail quietly. A 5xx on `resolve/:slug` is every
+  // texted link dead at once — the lead sees a broken page and the rep hears
+  // about it before we do. A 5xx on `sinch/inbound` is worse than an outage:
+  // Sinch retries, but a STOP we never record is a message we keep sending to
+  // someone who asked us to stop, which is a TCPA exposure rather than a bug.
+  //
+  // Neither needs a SERVER_ERRORS_ONLY entry. Their designed 4xx are a 404 for
+  // an expired or unknown slug and a 401 for an unsigned callback, and
+  // EXCLUDED_STATUS_CODES already drops both on every controller. Everything
+  // else `sinch/inbound` does with a payload it cannot use answers
+  // `{ ok: true }` on purpose, so the wide filter has nothing of theirs to
+  // misread.
+  'magic-link': BOTH,
+  sinch: BOTH,
 }
 
 const ownedBy = (group: SlackGroup): ControllerName[] =>

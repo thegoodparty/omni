@@ -23,9 +23,9 @@ export class MagicLinkService extends createPrismaBase(MODELS.MagicLink) {
 
   /**
    * Records (or re-records, on resend) that a link was sent to a lead. Upserts
-   * on (userId, kind) so a resend overwrites the URL/expiry while preserving
-   * any redeemed/onboarding progress already captured — and so a send down the
-   * OTHER funnel creates its own row instead of overwriting this one.
+   * on (userId, kind) so a resend replaces the previous link for that funnel —
+   * URL, expiry and lifecycle alike — while a send down the OTHER funnel
+   * creates its own row instead of overwriting this one.
    *
    * The slug rotates with the URL, so a resend retires the previously texted
    * short link rather than leaving two live entry points to one ticket.
@@ -58,6 +58,25 @@ export class MagicLinkService extends createPrismaBase(MODELS.MagicLink) {
         sentAt,
         expiresAt: args.expiresAt,
         kind,
+        // Cleared, because these describe the LINK and the link is new. They
+        // used to survive a resend, which quietly broke the only flow that
+        // resends: both admin controllers mint and then immediately text, and
+        // `textActiveLink` re-reads the row, where `computeMagicLinkStatus`
+        // reads a non-null `redeemedAt` as 'redeemed' and refuses to send.
+        // A rep re-sending to a lead who had already clicked once got back
+        // "there is no active sign-in link to text — generate a new one
+        // first", about the link they had just generated.
+        //
+        // No lead progress is lost with them. Both are mirrors of state that
+        // lives elsewhere — `ElectedOffice.onboardingCompletedAt` for serve,
+        // campaign launch for win — kept here only so the sales card can show
+        // a lifecycle, and `buildMagicLinkContactProperties` already sends ''
+        // for a cleared timestamp precisely so a regenerated link does not
+        // leave a stale redeemed/completed date on the HubSpot contact. That
+        // it was written to expect this is the tell that not clearing them
+        // here was the oversight.
+        redeemedAt: null,
+        onboardingCompletedAt: null,
       },
     })
     await this.mirror(record)

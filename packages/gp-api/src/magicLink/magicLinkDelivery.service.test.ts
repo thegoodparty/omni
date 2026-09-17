@@ -181,6 +181,69 @@ describe('MagicLinkDeliveryService.textActiveLink', () => {
     })
   })
 
+  // Consent used to be written before the link was read, so a rep asserting it
+  // against an expired or missing link left the lead marked as having opted in
+  // during a session that texted nothing — a consent record standing on a send
+  // that never happened.
+  it('does not bank consent when there is no link to text', async () => {
+    for (const link of [
+      null,
+      { ...activeLink, expiresAt: anHourAgo() },
+      { ...activeLink, slug: null },
+    ]) {
+      const { service, users, sms } = makeService({
+        user: { id: 1, smsConsentAt: null, smsOptedOutAt: null },
+        link,
+      })
+
+      const result = await send(service, { smsConsent: true })
+
+      expect(result.smsSent).toBe(false)
+      expect(users.updateUser).not.toHaveBeenCalled()
+      expect(sms.sendSms).not.toHaveBeenCalled()
+    }
+  })
+
+  // The consent questions stay ahead of the link read, which is why the fix
+  // above moved only the write. An opted-out lead has to hear about the
+  // opt-out: answering "generate a new one first" would send the rep to mint a
+  // link and try again, which is the loop the opt-out exists to end.
+  it('reports the opt-out, not the stale link, when both are true', async () => {
+    const { service, sms } = makeService({
+      user: { id: 1, smsConsentAt: new Date(), smsOptedOutAt: new Date() },
+      link: null,
+    })
+
+    await expect(send(service, { smsConsent: true })).resolves.toEqual({
+      smsSent: false,
+      smsError: SMS_OPTED_OUT_ERROR,
+    })
+    expect(sms.sendSms).not.toHaveBeenCalled()
+  })
+
+  // Order matters in the other direction too: the row has to carry consent
+  // before the first message goes out, so a vendor success can never be the
+  // thing that outruns the record of why we were allowed to send it.
+  it('records consent before calling Sinch, not after', async () => {
+    const calls: string[] = []
+    const { service, users, sms } = makeService({
+      user: { id: 1, smsConsentAt: null, smsOptedOutAt: null },
+    })
+    users.updateUser.mockImplementation(() => {
+      calls.push('consent')
+      return Promise.resolve(undefined)
+    })
+    sms.sendSms.mockImplementation(() => {
+      calls.push('sms')
+      return Promise.resolve({ sent: true, messageId: 'msg_1' })
+    })
+
+    await expect(send(service, { smsConsent: true })).resolves.toEqual({
+      smsSent: true,
+    })
+    expect(calls).toEqual(['consent', 'sms'])
+  })
+
   it('refuses a pre-short-link row rather than texting the long URL', async () => {
     const { service, sms } = makeService({
       link: { ...activeLink, slug: null },

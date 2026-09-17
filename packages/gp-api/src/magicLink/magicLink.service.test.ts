@@ -4,13 +4,14 @@ import { ElectedOfficeController } from '../electedOffice/electedOffice.controll
 import { useTestService } from '../test-service'
 import { MagicLinkKind } from '../generated/prisma'
 import { MagicLinkService } from './magicLink.service'
+import { computeMagicLinkStatus } from './util/magicLinkStatus.util'
 
 const service = useTestService()
 
 const inAWeek = () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
 
 describe('MagicLinkService', () => {
-  it('recordSent keeps one row per user and kind, preserving progress on resend', async () => {
+  it('recordSent keeps one row per user and kind, and a resend is textable again', async () => {
     const svc = service.app.get(MagicLinkService)
     const userId = service.user.id
 
@@ -32,8 +33,14 @@ describe('MagicLinkService', () => {
     })
 
     expect(second.url).toContain('tok2')
-    // Resend overwrites the URL but never resets captured progress.
-    expect(second.redeemedAt).not.toBeNull()
+
+    // The resend is a new link, so it carries the previous one's lifecycle
+    // nowhere. This is what lets the mint-then-text flow work for a returning
+    // lead: both admin controllers text straight after recordSent, and
+    // textActiveLink refuses to send anything whose status is not 'sent'.
+    expect(second.redeemedAt).toBeNull()
+    expect(second.onboardingCompletedAt).toBeNull()
+    expect(computeMagicLinkStatus(second)).toBe('sent')
 
     const count = await service.prisma.magicLink.count({ where: { userId } })
     expect(count).toBe(1)
