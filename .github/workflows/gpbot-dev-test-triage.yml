@@ -309,9 +309,15 @@ jobs:
           CLICKUP_OUTCOME: ${{ steps.clickup.outcome }}
         run: |
           set -euo pipefail
+          # exit 1, not the `exit 0` this carried. An unset token and a Slack
+          # refusal have the identical observable outcome — no disposition, so
+          # nobody learns what the triage decided — and the refusal path below
+          # already fails the run for exactly that reason. Exiting 0 here made
+          # the missing-credential case the one way left for this workflow to
+          # be silent and green, which is the shape of bug it exists to end.
           if [ -z "${SLACK_TOKEN:-}" ] || [ -z "${SLACK_CHANNEL_ID:-}" ]; then
-            echo "::warning::GPBOT_SLACK_BOT_TOKEN or SLACK_URGENT_CHANNEL_ID unset; disposition not posted."
-            exit 0
+            echo "::error::GPBOT_SLACK_BOT_TOKEN or SLACK_URGENT_CHANNEL_ID unset — disposition not posted and nobody was told what the triage decided. Failing loudly."
+            exit 1
           fi
 
           if [ "$SHARDS_RAN" != "true" ]; then
