@@ -491,15 +491,17 @@ whose demographics and reachability come from `POST /v1/contacts/list-detail`
 endpoint already accepts. No download and no outreach history: neither exists
 for a list that has not been saved.
 
-**Send outreach** saves nothing. It links to the outreach hub with `?listId=`
-when the recommendation already matches a saved list, and with
-`?recommended=<variant>` otherwise. The hub hands whichever arrived to the tile
-the candidate presses (every audience-taking tile, door knocking via its URL),
-and the chosen flow fetches the variant for its own channel from open. On its
-audience step the recommendation is applied the way a tap on its card would be
-— the saved list selected if the candidate already has it, the naming drawer
-otherwise — and the list is created only when the candidate confirms. The card
-is listed under "Recommended for you" whatever purpose was picked.
+**Send outreach** saves nothing. It opens the page's "Choose a channel" sheet
+(`crm/shared/channelPicker/`), which lists every channel with how many of the
+list it can reach and what that costs, and each row links into the outreach
+hub with that flow named (`?compose=text|robocall|phoneBanking|social`, door
+knocking straight to its create flow) and the audience beside it: `?listId=`
+when the recommendation already matches a saved list, `?recommended=<variant>`
+otherwise. The chosen flow fetches the variant for its own channel from open.
+On its audience step the recommendation is applied the way a tap on its card
+would be — the saved list selected if the candidate already has it, the naming
+drawer otherwise — and the list is created only when the candidate confirms.
+The card is listed under "Recommended for you" whatever purpose was picked.
 
 ### Dedupe against existing lists
 

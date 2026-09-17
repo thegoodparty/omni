@@ -9,6 +9,8 @@ import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreac
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveListId.util'
+import { parseRecommendedListVariant } from 'app/dashboard/outreach/util/parseRecommendedListVariant.util'
+import type { RecommendedListVariant } from '@goodparty_org/contracts'
 import type { ComposeSource } from 'app/dashboard/outreach/util/composeOutreachHref.util'
 import type { TcrCompliance } from 'helpers/types'
 
@@ -23,6 +25,9 @@ export interface ComposeRequest {
   script?: string
   due?: string
   listId?: number
+  // A voter data page recommendation not saved yet (`?recommended=`), which
+  // the flow's audience step saves on arrival.
+  recommendedVariant?: RecommendedListVariant
 }
 
 interface OutreachComposeDeepLinkProps {
@@ -33,10 +38,13 @@ interface OutreachComposeDeepLinkProps {
 // Deep-linkable compose types. The Campaign Tracker and Campaign Manager link
 // their text/robocall tasks here so the flow opens with the task's due date
 // attached (the due date rides the outreach record into the Slack
-// notification).
+// notification). The voter data page's channel picker opens every flow the
+// same way, so phone banking and social are reachable too.
 const COMPOSE_TYPES: Record<string, OutreachType> = {
   text: OUTREACH_TYPES.text,
   robocall: OUTREACH_TYPES.robocall,
+  phoneBanking: OUTREACH_TYPES.phoneBanking,
+  social: OUTREACH_TYPES.socialMedia,
 }
 
 const DUE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -48,6 +56,7 @@ const DUE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const COMPOSE_SOURCES: ComposeSource[] = [
   'campaign_manager',
   'campaign_tracker',
+  'voter_data',
 ]
 const parseComposeSource = (value: string | null | undefined): string =>
   COMPOSE_SOURCES.includes(value as ComposeSource)
@@ -80,6 +89,9 @@ export const OutreachComposeDeepLink = ({
   // hub with the rest of the seeds, rather than relying on the
   // server-threaded prop the channel tiles read.
   const preselectedListId = parsePositiveListId(listIdParam)
+  const recommendedVariant = parseRecommendedListVariant(
+    searchParams?.get('recommended'),
+  )
 
   // ENG-10762: the CRM "Send outreach" link carries ?listId=<id> so the
   // server (page.tsx) can read it and thread preselectedListId down to the
@@ -132,12 +144,35 @@ export const OutreachComposeDeepLink = ({
           script: message || undefined,
           due,
           listId: preselectedListId,
+          recommendedVariant,
         })
       }
       return
     }
-    // Robocall (and any future non-text compose type) is Pro-gated the same
-    // way the outreach create cards gate it.
+    // Social has no gate and no audience: unlocked for everyone, like its
+    // tile.
+    if (composeType === OUTREACH_TYPES.socialMedia) {
+      onCompose({ type: composeType })
+      return
+    }
+    // Phone banking's upgrade-at-entry, exactly as its tile does it: the Pro
+    // upgrade wizard rather than a modal.
+    if (composeType === OUTREACH_TYPES.phoneBanking) {
+      if (!campaign.isPro) {
+        trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, {
+          type: composeType,
+        })
+        router.push('/dashboard/pro-upgrade')
+        return
+      }
+      onCompose({
+        type: composeType,
+        listId: preselectedListId,
+        recommendedVariant,
+      })
+      return
+    }
+    // Robocall is Pro-gated the same way the outreach create cards gate it.
     if (!campaign.isPro) {
       trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceStarted, {
         source: composeSource,
@@ -145,7 +180,12 @@ export const OutreachComposeDeepLink = ({
       setShowProUpgradeModal(true)
       return
     }
-    onCompose({ type: composeType, due, listId: preselectedListId })
+    onCompose({
+      type: composeType,
+      due,
+      listId: preselectedListId,
+      recommendedVariant,
+    })
   }, [
     composeType,
     campaign,
@@ -153,6 +193,7 @@ export const OutreachComposeDeepLink = ({
     router,
     runTextGate,
     preselectedListId,
+    recommendedVariant,
     onCompose,
     composeSource,
   ])

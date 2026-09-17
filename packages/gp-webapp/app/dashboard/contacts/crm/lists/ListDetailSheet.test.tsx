@@ -32,6 +32,10 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
 vi.mock('../shared/useContactsDownload', () => ({
   useContactsDownload: vi.fn(),
 }))
+const openChannelPicker = vi.fn()
+vi.mock('../shared/channelPicker/ChannelPickerProvider', () => ({
+  useOpenChannelPicker: () => openChannelPicker,
+}))
 // The real DropdownMenuItem depends on Radix context provided by its
 // DropdownMenu/DropdownMenuContent ancestors (createContextScope) and throws
 // without them — so the kebab menu's Delete trigger is mocked down to plain
@@ -395,7 +399,7 @@ describe('ListDetailSheet — universe mode (ENG-10778)', () => {
     // ENG-10809: the universe row's own card carries Send outreach — the
     // sheet footer must never duplicate it, unlike the saved-list branch.
     expect(
-      screen.queryByRole('link', { name: 'Send outreach' }),
+      screen.queryByRole('button', { name: 'Send outreach' }),
     ).not.toBeInTheDocument()
   })
 
@@ -441,19 +445,29 @@ describe('ListDetailSheet — universe mode (ENG-10778)', () => {
 // for an eo- org, so the sheet footer's outreach CTA is Win-only. The
 // Download affordance stays for both modes.
 describe('ListDetailSheet — ENG-10749 footer Send outreach is Win-only', () => {
-  it('shows the Send outreach footer link for Win', async () => {
+  // The prototype closes the details drawer and opens "Choose a channel" in
+  // its place — two full-height sheets never stack.
+  it('closes the sheet and opens the channel picker on this list for Win', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
       data: [{ id: 42, name: 'GOTV text list' }],
     })
+    const onClose = vi.fn()
 
-    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    render(<ListDetailSheet listId="42" onClose={onClose} />)
 
-    // ENG-10762: the footer link carries the saved list's id so the
-    // outreach page can preselect it.
-    expect(
-      await screen.findByRole('link', { name: 'Send outreach' }),
-    ).toHaveAttribute('href', '/dashboard/outreach?listId=42')
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Send outreach' }),
+    )
+    expect(onClose).toHaveBeenCalled()
+    expect(openChannelPicker).toHaveBeenCalledWith({
+      kind: 'list',
+      segment: expect.objectContaining({ id: 42 }),
+    })
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.VoterData.SendOutreachClicked,
+      { listId: 42, surface: 'listDetail' },
+    )
   })
 
   it('hides Send outreach for Serve while keeping Download', async () => {
@@ -469,7 +483,7 @@ describe('ListDetailSheet — ENG-10749 footer Send outreach is Win-only', () =>
       await screen.findByRole('button', { name: 'Download list' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('link', { name: 'Send outreach' }),
+      screen.queryByRole('button', { name: 'Send outreach' }),
     ).not.toBeInTheDocument()
   })
 
@@ -484,7 +498,7 @@ describe('ListDetailSheet — ENG-10749 footer Send outreach is Win-only', () =>
 
     await screen.findByText('GOTV text list')
     expect(
-      screen.queryByRole('link', { name: 'Send outreach' }),
+      screen.queryByRole('button', { name: 'Send outreach' }),
     ).not.toBeInTheDocument()
   })
 })
@@ -804,7 +818,7 @@ describe('ListDetailSheet — ENG-10767 viewed + management analytics', () => {
     expect(eventCalls(EVENTS.Contacts.SegmentViewed)).toHaveLength(0)
   })
 
-  it('fires Send Outreach Clicked with surface listDetail + listId from the footer link', async () => {
+  it('fires Send Outreach Clicked with surface listDetail + listId from the footer button', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
       data: [unlockedSegment],
@@ -813,7 +827,9 @@ describe('ListDetailSheet — ENG-10767 viewed + management analytics', () => {
 
     render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
 
-    await user.click(await screen.findByRole('link', { name: 'Send outreach' }))
+    await user.click(
+      await screen.findByRole('button', { name: 'Send outreach' }),
+    )
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.VoterData.SendOutreachClicked,
       { listId: 42, surface: 'listDetail' },

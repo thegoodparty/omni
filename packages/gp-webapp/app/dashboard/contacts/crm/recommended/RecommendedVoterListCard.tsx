@@ -1,10 +1,7 @@
-import Link from 'next/link'
 import { Button, Card, SparklesIcon, UserCheckIcon } from '@styleguide'
 import type { RecommendedList } from '@goodparty_org/contracts'
-import {
-  recommendedListOutreachHref,
-  trackRecommendedSendOutreach,
-} from './recommendedListOutreach.util'
+import { useOpenChannelPicker } from '../shared/channelPicker/ChannelPickerProvider'
+import { trackRecommendedSendOutreach } from './recommendedListOutreach.util'
 
 interface RecommendedVoterListCardProps {
   recommendation: RecommendedList
@@ -19,6 +16,7 @@ export default function RecommendedVoterListCard({
   onDetails,
 }: RecommendedVoterListCardProps) {
   const { copy, count } = recommendation
+  const openChannelPicker = useOpenChannelPicker()
 
   return (
     <Card
@@ -48,15 +46,15 @@ export default function RecommendedVoterListCard({
           >
             Details
           </Button>
-          <Button size="small" className="h-8 px-3.5 text-xs" asChild>
-            <Link
-              href={recommendedListOutreachHref(recommendation)}
-              onClick={() =>
-                trackRecommendedSendOutreach(recommendation, 'recommendedCard')
-              }
-            >
-              Send outreach
-            </Link>
+          <Button
+            size="small"
+            className="h-8 px-3.5 text-xs"
+            onClick={() => {
+              trackRecommendedSendOutreach(recommendation, 'recommendedCard')
+              openChannelPicker({ kind: 'recommended', recommendation })
+            }}
+          >
+            Send outreach
           </Button>
         </div>
       </div>

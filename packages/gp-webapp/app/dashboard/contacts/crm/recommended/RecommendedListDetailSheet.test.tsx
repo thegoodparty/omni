@@ -18,6 +18,10 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
 }))
+const openChannelPicker = vi.fn()
+vi.mock('../shared/channelPicker/ChannelPickerProvider', () => ({
+  useOpenChannelPicker: () => openChannelPicker,
+}))
 
 const RECOMMENDATION: RecommendedList = {
   variant: 'persuadeAffinity',
@@ -123,22 +127,25 @@ describe('RecommendedListDetailSheet', () => {
     )
   })
 
-  it('sends outreach from the footer with the detail surface', async () => {
+  it('closes and opens the channel picker from the footer with the detail surface', async () => {
     api.mock('POST /v1/contacts/list-detail', { status: 200, data: DETAIL })
+    const onClose = vi.fn()
 
     render(
       <RecommendedListDetailSheet
         recommendation={RECOMMENDATION}
-        onClose={vi.fn()}
+        onClose={onClose}
       />,
     )
 
-    const link = await screen.findByRole('link', { name: 'Send outreach' })
-    expect(link).toHaveAttribute(
-      'href',
-      '/dashboard/outreach?recommended=persuadeAffinity',
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Send outreach' }),
     )
-    await userEvent.click(link)
+    expect(onClose).toHaveBeenCalled()
+    expect(openChannelPicker).toHaveBeenCalledWith({
+      kind: 'recommended',
+      recommendation: RECOMMENDATION,
+    })
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.VoterData.SendOutreachClicked,
       { surface: 'recommendedDetail', variant: 'persuadeAffinity' },

@@ -22,6 +22,10 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
 }))
+const openChannelPicker = vi.fn()
+vi.mock('../shared/channelPicker/ChannelPickerProvider', () => ({
+  useOpenChannelPicker: () => openChannelPicker,
+}))
 vi.mock('./RecommendedListDetailSheet', () => ({
   default: ({
     recommendation,
@@ -147,7 +151,9 @@ describe('RecommendedListsSection', () => {
     ).toBeInTheDocument()
   })
 
-  it('links Send outreach to the hub with the variant for an unsaved recommendation', async () => {
+  // Send outreach opens the prototype's "Choose a channel" drawer over the
+  // page on this recommendation; nothing is saved here.
+  it('opens the channel picker on the recommendation from Send outreach', async () => {
     api.mock('GET /v1/campaigns/mine/recommended-lists', {
       status: 200,
       data: [NEW_RECOMMENDATION],
@@ -155,20 +161,21 @@ describe('RecommendedListsSection', () => {
 
     render(<RecommendedListsSection />)
 
-    const link = await screen.findByRole('link', { name: 'Send outreach' })
-    expect(link).toHaveAttribute(
-      'href',
-      '/dashboard/outreach?recommended=introNeverIded',
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Send outreach' }),
     )
 
-    await userEvent.click(link)
+    expect(openChannelPicker).toHaveBeenCalledWith({
+      kind: 'recommended',
+      recommendation: NEW_RECOMMENDATION,
+    })
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.VoterData.SendOutreachClicked,
       { surface: 'recommendedCard', variant: 'introNeverIded' },
     )
   })
 
-  it('links Send outreach with the saved list id when the recommendation already exists', async () => {
+  it('reports the saved list id when the recommendation already exists', async () => {
     api.mock('GET /v1/campaigns/mine/recommended-lists', {
       status: 200,
       data: [EXISTING_RECOMMENDATION],
@@ -176,10 +183,14 @@ describe('RecommendedListsSection', () => {
 
     render(<RecommendedListsSection />)
 
-    const link = await screen.findByRole('link', { name: 'Send outreach' })
-    expect(link).toHaveAttribute('href', '/dashboard/outreach?listId=501')
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Send outreach' }),
+    )
 
-    await userEvent.click(link)
+    expect(openChannelPicker).toHaveBeenCalledWith({
+      kind: 'recommended',
+      recommendation: EXISTING_RECOMMENDATION,
+    })
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.VoterData.SendOutreachClicked,
       { surface: 'recommendedCard', variant: 'persuadeAffinity', listId: 501 },

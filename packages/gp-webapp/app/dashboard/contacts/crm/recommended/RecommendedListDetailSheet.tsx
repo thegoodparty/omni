@@ -1,4 +1,3 @@
-import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import {
   Button,
@@ -8,19 +7,15 @@ import {
   UsersRoundIcon,
 } from '@styleguide'
 import type { RecommendedList } from '@goodparty_org/contracts'
-import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
-import { builderFiltersFromRecommendation } from 'app/dashboard/outreach/v2/audience/recommendedListMapping.util'
 import { getContactsLabels } from '../../../shared/contactsLabels'
 import { useContactsTable } from '../ContactsTableProvider'
 import CrmSheet from '../shared/CrmSheet'
-import { transformVoterFileFiltersForBackend } from '../shared/voterFileFilterTransform.util'
+import { useOpenChannelPicker } from '../shared/channelPicker/ChannelPickerProvider'
 import ReachabilityGrid from '../lists/ReachabilityGrid'
 import { SectionLabel, StatTile } from '../lists/ListDetailSection'
-import {
-  recommendedListOutreachHref,
-  trackRecommendedSendOutreach,
-} from './recommendedListOutreach.util'
+import { recommendedListDetailQueryOptions } from './recommendedListDetail.query'
+import { trackRecommendedSendOutreach } from './recommendedListOutreach.util'
 
 interface RecommendedListDetailSheetProps {
   recommendation: RecommendedList | null
@@ -41,27 +36,24 @@ export default function RecommendedListDetailSheet({
   const { canUseProFeatures, isWinContext, voterDataUnavailable } =
     useContactsTable()
   const labels = getContactsLabels(isWinContext)
+  const openChannelPicker = useOpenChannelPicker()
 
   const detailQuery = useQuery({
-    queryKey: ['recommended-list-detail', orgSlug, recommendation?.variant],
-    queryFn: async () => {
-      // Guarded by `enabled` below.
-      if (!recommendation) throw new Error('No recommendation open')
-      const { filter } = recommendation
-      const { data } = await clientRequest('POST /v1/contacts/list-detail', {
-        ...transformVoterFileFiltersForBackend(
-          builderFiltersFromRecommendation(filter),
-        ),
-        ...(filter.supportStatus?.length
-          ? { supportStatus: filter.supportStatus }
-          : {}),
-        ...(filter.precincts?.length ? { precincts: filter.precincts } : {}),
-      })
-      return data
-    },
+    ...recommendedListDetailQueryOptions(
+      orgSlug,
+      // A closed sheet has no recommendation; the placeholder only shapes
+      // the disabled query's key and is never fetched.
+      recommendation ?? {
+        variant: 'introNeverIded',
+        intent: 'introduce',
+        filter: {},
+        count: 0,
+        copy: { title: '', criteriaSummary: '' },
+        existingFilterId: null,
+      },
+    ),
     enabled:
       recommendation !== null && canUseProFeatures && !voterDataUnavailable,
-    refetchOnWindowFocus: false,
   })
 
   const demographics = detailQuery.data?.demographics
@@ -81,18 +73,17 @@ export default function RecommendedListDetailSheet({
       }
       footer={
         recommendation ? (
-          <Button className="h-11 w-full text-sm" asChild>
-            <Link
-              href={recommendedListOutreachHref(recommendation)}
-              onClick={() =>
-                trackRecommendedSendOutreach(
-                  recommendation,
-                  'recommendedDetail',
-                )
-              }
-            >
-              Send outreach
-            </Link>
+          <Button
+            className="h-11 w-full text-sm"
+            onClick={() => {
+              trackRecommendedSendOutreach(recommendation, 'recommendedDetail')
+              // The prototype swaps this drawer for "Choose a channel"; two
+              // full-height sheets never stack.
+              onClose()
+              openChannelPicker({ kind: 'recommended', recommendation })
+            }}
+          >
+            Send outreach
           </Button>
         ) : undefined
       }

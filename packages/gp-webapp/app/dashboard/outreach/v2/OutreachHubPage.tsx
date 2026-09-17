@@ -86,6 +86,14 @@ const OutreachHubContent = ({
       setSmsFlowOpen(true)
       return
     }
+    if (request.type === OUTREACH_TYPES.phoneBanking) {
+      setPhoneBankingFlowOpen(true)
+      return
+    }
+    if (request.type === OUTREACH_TYPES.socialMedia) {
+      setSocialFlowOpen(true)
+      return
+    }
     setRobocallFlowOpen(true)
   }, [])
 
@@ -173,7 +181,10 @@ const OutreachHubContent = ({
       />
       <SocialFlow
         open={socialFlowOpen}
-        onClose={() => setSocialFlowOpen(false)}
+        onClose={() => {
+          setSocialFlowOpen(false)
+          setComposeSeeds(null)
+        }}
         onSaved={handleSocialSaved}
       />
       <RobocallFlow
@@ -186,17 +197,22 @@ const OutreachHubContent = ({
         onScheduled={refetchOutreaches}
         campaignPlanDueDate={composeSeeds?.due}
         preselectedListId={composeSeeds?.listId ?? tilePreselect?.listId}
-        preselectedRecommendedVariant={tilePreselect?.recommendedVariant}
+        preselectedRecommendedVariant={
+          composeSeeds?.recommendedVariant ?? tilePreselect?.recommendedVariant
+        }
       />
       <PhoneBankingFlow
         open={phoneBankingFlowOpen}
         onClose={() => {
           setPhoneBankingFlowOpen(false)
+          setComposeSeeds(null)
           setTilePreselect(null)
         }}
         onSaved={handlePhoneBankingSaved}
-        preselectedListId={tilePreselect?.listId}
-        preselectedRecommendedVariant={tilePreselect?.recommendedVariant}
+        preselectedListId={composeSeeds?.listId ?? tilePreselect?.listId}
+        preselectedRecommendedVariant={
+          composeSeeds?.recommendedVariant ?? tilePreselect?.recommendedVariant
+        }
       />
       <SmsFlow
         open={smsFlowOpen}
@@ -210,7 +226,9 @@ const OutreachHubContent = ({
         campaignPlanDueDate={composeSeeds?.due}
         initialScript={composeSeeds?.script}
         preselectedListId={composeSeeds?.listId ?? tilePreselect?.listId}
-        preselectedRecommendedVariant={tilePreselect?.recommendedVariant}
+        preselectedRecommendedVariant={
+          composeSeeds?.recommendedVariant ?? tilePreselect?.recommendedVariant
+        }
       />
       <Suspense>
         <OutreachComposeDeepLink

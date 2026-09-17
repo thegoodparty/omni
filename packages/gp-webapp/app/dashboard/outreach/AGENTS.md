@@ -41,9 +41,14 @@ the one that never AI-drafts, so a preset message is not immediately drafted
 over), and `preselectedListId` (applied once its row arrives in the picker; an
 id naming no list of yours is a missed preselection, never a broken step).
 
-The voter data page's "Send outreach" links arrive with a bare `?listId=` (a
-saved list) or `?recommended=<variant>` (a recommended list not saved yet —
-`docs/features/recommended-lists.md`). Both are read server-side in `page.tsx`
+The voter data page's "Choose a channel" picker (`contacts/crm/shared/channelPicker/`)
+links here with the flow named — `?compose=text|robocall|phoneBanking|social&source=voter_data`
+— and the audience beside it as `?listId=` (a saved list) or `?recommended=<variant>`
+(a recommended list not saved yet — `docs/features/recommended-lists.md`). The
+deep link opens that flow on arrival with the audience seeded, exactly as a
+task CTA does; phone banking's non-Pro path is the tile's upgrade-at-entry
+redirect, social has no gate. A bare `?listId=`/`?recommended=` with no
+compose still lands on the tile grid. Both are read server-side in `page.tsx`
 (`util/parsePositiveListId.util.ts` / `util/parseRecommendedListVariant.util.ts`,
 anything unknown ignored) and handed to `ChannelTileGrid` as the carried
 audience (`v2/audiencePreselect.ts`'s `AudiencePreselect`). Every
@@ -95,7 +100,7 @@ to discard, reopening starts fresh. Nothing persists until Save.
 | File                                     | Role                                                                                                                                                                                    |
 | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `hooks/OutreachContext.tsx`              | Feature-level context — outreach rows (read/written by the hub)                                                                                                                         |
-| `components/OutreachComposeDeepLink.tsx` | Consumes `?compose=text\|robocall` (+ `?message=`, `?due=`, `?listId=`, `?source=`) — runs the channel gate, hands the hub a `ComposeRequest`, then strips the params (consume-once via `router.replace`). A bare `?listId=` or `?recommended=` (the voter data page's links, read server-side) is stripped the same way |
+| `components/OutreachComposeDeepLink.tsx` | Consumes `?compose=text\|robocall\|phoneBanking\|social` (+ `?message=`, `?due=`, `?listId=`, `?recommended=`, `?source=`) — runs the channel gate (text: the 10DLC gate; robocall: the Pro modal; phone banking: the tile's `/dashboard/pro-upgrade` redirect; social: none), hands the hub a `ComposeRequest`, then strips the params (consume-once via `router.replace`). A bare `?listId=` or `?recommended=` (read server-side) is stripped the same way |
 | `hooks/useTextOutreachGate.tsx`          | Single source for the text-channel gate (non-Pro → `P2PUpgradeModal`, Pro non-compliant → `ComplianceModal`, else pass) — the deep link and the SMS tile both call it                   |
 | `util/composeOutreachHref.util.ts`       | Builds a task CTA's `?compose=` link into the hub, carrying the channel, the press site (`?source=`) and the task's due date                                                          |
 | `hooks/`                                 | Feature-local hooks (audience fetching, scheduling)                                                                                                                                     |
