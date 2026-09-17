@@ -547,6 +547,17 @@ export const GLOBAL_ALERTS: Alert[] = [
     // the query returns no data, which grafana.ts maps to OK (noDataState),
     // not Alerting. The cost is that a large drop in traffic (e.g. if
     // gp-marketing starts caching this call) silences the alert.
+    //
+    // KNOWN GAP, written down rather than left to be rediscovered: unlike the
+    // generated rules and unlike public-person-profiles-error-ratio below,
+    // this one does not admit `response_statusCode = ""`, so a request the
+    // gateway kills mid-flight is invisible to it — see noStatusFilter in
+    // controller-alerts.ts for why that is the one failure a status range
+    // cannot see. A pure timeout wave on this route would score 0% and page
+    // nobody. Closing it is a one-line change on each half, but it moves the
+    // firing profile of a live rule, and the numbers quoted above were
+    // measured against the narrow expression; it wants its own replay over
+    // real traffic rather than being changed in passing here.
     expr: [
       '( sum(count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
@@ -797,35 +808,51 @@ export const GLOBAL_ALERTS: Alert[] = [
     // it was invisible to every 5xx rule at the time. Over the quiet week of
     // 09-09 the expression returns a single datapoint, 0.036%, which is 274x
     // under the threshold. So: roughly two pages a month, and nothing to mute.
+    //
+    // Both halves admit `response_statusCode = ""` for the reason
+    // controller-alerts.ts spells out at `noStatusFilter`: a request the
+    // gateway kills mid-flight completes with a null status, Loki's json
+    // parser drops a null field, and every status-RANGE filter therefore
+    // misses it. The generated rules were widened after two door-knocking
+    // pack timeouts went unseen that way in August; written the narrow way
+    // here, a wave of gateway timeouts on voter-density would be scored 0%
+    // and page nobody — the same endpoint, the same silence, one release
+    // after this rule was added to end it.
+    //
+    // It has to be added to the denominator too, not just the numerator. A
+    // rule that counted no-status requests as failures but not as traffic
+    // would read over 100% during a pure timeout wave, and the volume floor
+    // would be measuring a smaller population than the ratio it guards.
     expr: [
       '( sum by (request_endpoint) (count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
       '|= "Request completed" | json',
       '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
-      '| response_statusCode >= 500',
+      '| ( response_statusCode >= 500 ) or ( response_statusCode = "" )',
       '[10m]))',
       '/',
       'sum by (request_endpoint) (count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
       '|= "Request completed" | json',
       '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
-      '| response_statusCode != 404',
+      '| ( response_statusCode != 404 ) or ( response_statusCode = "" )',
       '[10m])) )',
       'and',
       '( sum by (request_endpoint) (count_over_time(',
       '{service_name="gp-api", deployment_environment_name="$ENV"}',
       '|= "Request completed" | json',
       '| request_endpoint =~ `^[A-Z]+ /v1/public-person-profiles(/.*)?$`',
-      '| response_statusCode != 404',
+      '| ( response_statusCode != 404 ) or ( response_statusCode = "" )',
       '[10m])) > 20 )',
     ].join(' '),
     threshold: 0.1,
     for: '10m',
     summaryDetail: '`{{ $labels.request_endpoint }}`',
     message: [
-      'More than 10% of the requests to `{{ $labels.request_endpoint }}` that did not legitimately miss returned a server error in the last 10 minutes.',
+      'More than 10% of the requests to `{{ $labels.request_endpoint }}` that did not legitimately miss returned a server error, or no status at all, in the last 10 minutes (status ≥ 500 or null).',
       'These routes back the public candidate profiles on the marketing site. 404s are excluded because most requests here are meant to miss: the caller asks about every candidate, and a person who maps to no L2 district has no heat map to return.',
       'Click *View in Grafana* to find the failing requests. Check which Prisma client raised the error before assuming the main database: the voter-density route reads people-db through a second client (see peopleDb/AGENTS.md), and its tables are populated by the data team rather than by a migration in this repo — so a table this repo has a migration for can still be absent in the database.',
+      'A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Check `responseTimeMs` on those lines — a cluster at ~120,000ms is the timeout rather than the handler, and points at how long the query takes rather than at what it returned.',
     ].join('\n\n'),
     knownCauses: [
       {

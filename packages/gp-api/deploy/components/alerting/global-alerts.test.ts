@@ -159,6 +159,40 @@ describe('public-person-profiles-error-ratio', () => {
   it('covers routes added to the controller later', () => {
     expect(alert!.expr).toContain('/v1/public-person-profiles(/.*)?$')
   })
+
+  // The worst answer a route can give is none, and it is the one a status
+  // range cannot see: a request the gateway kills mid-flight completes with a
+  // null status, which Loki's json parser drops, so `>= 500` misses it. The
+  // generated rules learned this from two door-knocking timeouts that went
+  // unseen in August (see noStatusFilter in controller-alerts.ts), and a
+  // hand-written rule gets no benefit from that unless it says so itself.
+  it('counts a request that was killed before it could answer', () => {
+    expect(alert!.expr).toContain(
+      '( response_statusCode >= 500 ) or ( response_statusCode = "" )',
+    )
+  })
+
+  // And in the denominator too. Failures that are not also traffic push the
+  // ratio above 100% during a pure timeout wave, and leave the volume floor
+  // guarding a smaller population than the ratio it is supposed to qualify.
+  // Three occurrences: once as a failure, and once in each of the two places
+  // the non-404 population is counted — the ratio, and the floor.
+  it('counts that request as traffic as well as as a failure', () => {
+    expect(alert!.expr).toContain(
+      '( response_statusCode != 404 ) or ( response_statusCode = "" )',
+    )
+
+    const occurrences = alert!.expr.match(/response_statusCode = ""/g) ?? []
+    expect(occurrences.length).toBe(3)
+  })
+
+  // The prose is what the responder reads at 3am, and a rule that pages on a
+  // null status while describing itself as a server-error rule sends them
+  // looking for an exception that was never raised.
+  it('tells the reader that a null status is one of the things it counts', () => {
+    expect(alert!.message).toContain('null')
+    expect(alert!.message).toContain('responseTimeMs')
+  })
 })
 
 /**
