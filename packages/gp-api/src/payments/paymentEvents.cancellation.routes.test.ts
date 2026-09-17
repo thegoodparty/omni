@@ -183,6 +183,7 @@ describe('POST /v1/payments/events — customer.subscription.deleted', () => {
     const campaign = await seedProCampaign(CANCELLATION_REQUESTED_SUB)
     const slackMessage = spyOnSlack()
     const canceledAt = nowInSeconds()
+    const deliveredAt = Date.now()
 
     const res = await deliverStripeEvent(
       subscriptionEvent({
@@ -203,7 +204,20 @@ describe('POST /v1/payments/events — customer.subscription.deleted', () => {
     // concerned: the pointer a renewal webhook would resolve through is gone,
     // and the cancellation is stamped.
     expect(updated.details.subscriptionId).toBeNull()
-    expect(updated.details.subscriptionCanceledAt).toEqual(expect.any(Number))
+    // Pinned as a millisecond-scale instant around this delivery, which is what
+    // the handler writes (`Date.now()`) — deliberately NOT the event's
+    // `canceled_at`, which Stripe sends in seconds. The two disagree by ×1000
+    // and the `updated` handler stores the seconds value under this same key,
+    // so this assertion states the unit the `deleted` handler uses today
+    // without claiming it is the right one. Anything a thousand times off — or
+    // a `0` — fails, and so does a future change to the unit, which is the
+    // point: that change should have to update this line.
+    expect(updated.details.subscriptionCanceledAt).toBeGreaterThanOrEqual(
+      deliveredAt,
+    )
+    expect(updated.details.subscriptionCanceledAt).toBeLessThanOrEqual(
+      Date.now(),
+    )
 
     // The notification the team never received. Asserted on content, not just
     // on the call, because `PRO PLAN CANCELLATION` is the string the team
