@@ -59,7 +59,11 @@ const LOCKED_FILTER_ERROR =
 // in advance either. The word list is short and case-insensitive on
 // purpose, not a place-name dictionary: a false positive only costs the
 // assistant one rename, and the resulting name is still accurate.
-const PLACE_WORDS = [
+// Exported so voterFilterBase.schema.test.ts can assert no schema field
+// ever represents one of these as a real, named-vocabulary narrowing
+// without this list (and isUnfilteredPlaceName's precincts-only
+// assumption) being revisited in the same change.
+export const PLACE_WORDS = [
   'county',
   'city',
   'town',
