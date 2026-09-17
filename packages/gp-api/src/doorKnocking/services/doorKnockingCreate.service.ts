@@ -8,7 +8,10 @@ import {
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ContactStatusService } from '@/contactInteraction/services/contactStatus.service'
-import { GeoapifyRoutePlannerService } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
+import {
+  GeoapifyRoutePlannerService,
+  RoutePlanRejectedError,
+} from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 import type {
   LngLat,
   RoutePlannerPlan,
@@ -31,6 +34,7 @@ import {
   type BlockFace,
   coordinateKey,
   groupIntoBlockFaces,
+  metersBetween,
   representativeOf,
   sequenceBlockFaces,
 } from '../utils/blockFace.util'
@@ -55,6 +59,35 @@ const CREATE_TX_TIMEOUT_MS = 120_000
 // way and totalled for everything else. The two rates have nothing in common,
 // so a single number here would be a number nobody could take apart again.
 type RouteCredits = Record<GeoapifyApi, number>
+
+// Geoapify rejects a WALKING request whose locations span more than this, with
+// a 400 that our client would otherwise re-raise as a 502 — blaming the vendor
+// for a request we should never have sent, and telling the candidate to wait
+// for something that will never change. Measured against the live API rather
+// than read off the docs: 99 km plans, 101 km returns "Too long distance
+// between locations. Distance should not exceed 100000 meters for a regular
+// API call". Driving has no equivalent cliff (120 km plans normally), so this
+// gates one mode only.
+const WALK_SPREAD_LIMIT_METERS = 100_000
+
+// How many addresses a refusal names before it stops listing them. Long enough
+// to show a pattern, short enough to stay a sentence.
+const MAX_NAMED_UNROUTABLE = 3
+
+// O(n²) over at most MAX_STOPS face representatives — about 11k equirectangular
+// distances at the ceiling, which is nothing beside the vendor round trip it
+// stands in front of. The approximation is the one metersBetween documents, and
+// a threshold this coarse has no use for a better one.
+const maxPairwiseMeters = (points: PlannedStop[]): number => {
+  let max = 0
+  for (let i = 0; i < points.length; i += 1) {
+    for (let j = i + 1; j < points.length; j += 1) {
+      const meters = metersBetween(points[i]!, points[j]!)
+      if (meters > max) max = meters
+    }
+  }
+  return max
+}
 
 // The answer a one-face turf's vendor call would have had, had the vendor been
 // able to give one — see planStops. The single face is job 0 and there is no
@@ -475,10 +508,22 @@ export class DoorKnockingCreateService extends createPrismaBase(
     // ORDER, which is `[0]` when there is one face, and its legs and totals
     // are discarded and re-derived below in either case. `locations: 0` is
     // what keeps the ledger honest: no call was made, so nothing was billed.
-    const plan =
-      faces.length < 2
-        ? SINGLE_FACE_PLAN
-        : await this.orderFaces(faces, stops, request)
+    let plan: RoutePlannerPlan
+    try {
+      plan =
+        faces.length < 2
+          ? SINGLE_FACE_PLAN
+          : await this.orderFaces(faces, stops, request)
+    } catch (error) {
+      // A refusal is about these coordinates and will be the same refusal
+      // tomorrow, so it becomes a 400 naming the addresses rather than a 502
+      // asking the candidate to wait. Anything else — a timeout, a vendor 5xx,
+      // a response we could not read — keeps the status planRoute gave it.
+      if (error instanceof RoutePlanRejectedError) {
+        throw this.unroutableTurfError(error, faces, stops, request)
+      }
+      throw error
+    }
 
     const sequenced = sequenceBlockFaces({
       stops,
@@ -504,6 +549,57 @@ export class DoorKnockingCreateService extends createPrismaBase(
     }
   }
 
+  // Turns the vendor's opaque job ids back into addresses a candidate can find
+  // on the map and redraw around.
+  //
+  // A job is a block FACE, and the vendor only ever saw that face's
+  // representative — so the refusal is about that one coordinate, not about
+  // every door on the street. Naming the representative is therefore the
+  // honest answer, and naming all of the face's doors would invent a problem
+  // for addresses nothing was ever asked about.
+  private unroutableTurfError(
+    error: RoutePlanRejectedError,
+    faces: BlockFace[],
+    stops: PlannedStop[],
+    request: RouteRequest,
+  ): BadRequestException {
+    const addresses = error.unroutableJobIds
+      .map((jobId) => faces[Number(jobId)])
+      .filter((face): face is BlockFace => face !== undefined)
+      .map((face) => stops[representativeOf(face, stops)]!.displayAddress)
+
+    // Kept as a log line as well as a message: 400s are excluded from the
+    // route alerts by design (docs/observability.md § Server-errors-only
+    // controllers), so without this the only record that the vendor could not
+    // reach one of our geocodes would be the one the candidate reads and
+    // closes.
+    this.logger.warn(
+      {
+        unroutableJobIds: error.unroutableJobIds,
+        addresses,
+        mode: request.mode,
+      },
+      'door-knocking turf contains stops the route planner cannot reach',
+    )
+
+    const travel = request.mode === 'walk' ? 'on foot' : 'by road'
+    if (!addresses.length) {
+      return new BadRequestException(
+        `We couldn't build a route for this turf. Some of these addresses may ` +
+          `not be reachable ${travel} — try drawing a slightly different area.`,
+      )
+    }
+
+    const named = addresses.slice(0, MAX_NAMED_UNROUTABLE).join(', ')
+    const rest = addresses.length - MAX_NAMED_UNROUTABLE
+    const list = rest > 0 ? `${named} and ${rest} more` : named
+    const them = addresses.length > 1 ? 'them' : 'it'
+    return new BadRequestException(
+      `We couldn't find a way to reach ${list} ${travel}. Redraw the turf to ` +
+        `leave ${them} out, then build the route again.`,
+    )
+  }
+
   // The billed call: which face to walk next, asked of the road network.
   private async orderFaces(
     faces: BlockFace[],
@@ -516,11 +612,29 @@ export class DoorKnockingCreateService extends createPrismaBase(
       location: [stops[stopIndex]!.lng, stops[stopIndex]!.lat] as LngLat,
     }))
 
-    // Anchors are deterministic, never random, and are now placed on face
+    // Anchors are deterministic, never random, and are placed on face
     // representatives for the same reasons they were placed on stops. Loop:
     // start = end at the first by address (a closed tour is the same cycle
-    // from anywhere, so the anchor is cost-free). Open: end-only anchor at the
-    // face farthest from the centroid, letting the vendor pick the best start.
+    // from anywhere, so the anchor is cost-free). Open: end-only anchor,
+    // letting the vendor pick the best start.
+    //
+    // The open anchor sits on the face NEAREST the centroid, and the one thing
+    // it must not be is the farthest — which is what it used to be, chosen so
+    // the walk ended at the turf's far edge. The farthest face from the centre
+    // is also exactly where a bad geocode lands, and an anchor the road network
+    // cannot reach is the worst input this API takes: measured against the live
+    // Route Planner, an unreachable anchor makes it sit on the request until its
+    // own gateway gives up at 120s (3 of 3 attempts, HTTP 504), which our 30s
+    // deadline turns into a timeout nobody can act on. Worse, when it does
+    // answer it marks EVERY job unassigned, so the one broken address is
+    // indistinguishable from a turf that cannot be walked at all.
+    //
+    // Anchoring at the centre costs almost nothing and buys the diagnosis. On
+    // an 8-face Lincoln Park turf: 2366s/2658m from the far edge against
+    // 2403s/2698m from the centre, 1.6% slower. With one unroutable stop added,
+    // the far-edge anchor returns no plan and all 9 jobs unassigned, while the
+    // central anchor returns the other 8 planned and `unassigned_jobs: [8]` —
+    // the single address to name, which is what makes the 400 below possible.
     const anchorStops = representatives.map((stopIndex) => stops[stopIndex]!)
     let agent: { start_location?: LngLat; end_location?: LngLat }
     if (request.loop) {
@@ -544,9 +658,24 @@ export class DoorKnockingCreateService extends createPrismaBase(
       const anchorIndex = anchorStops.reduce((best, stop, index) => {
         const d = (s: PlannedStop) =>
           (s.lat - centroidLat) ** 2 + (s.lng - centroidLng) ** 2
-        return d(stop) > d(anchorStops[best]!) ? index : best
+        return d(stop) < d(anchorStops[best]!) ? index : best
       }, 0)
       agent = { end_location: jobs[anchorIndex]!.location }
+    }
+
+    // Checked here rather than on the stop list, because these are the
+    // coordinates the request actually carries, and before the call rather
+    // than after it, because the vendor's answer to this is a 400 we would
+    // have to pay for and then mistranslate.
+    if (request.mode === 'walk') {
+      const spread = maxPairwiseMeters(anchorStops)
+      if (spread > WALK_SPREAD_LIMIT_METERS) {
+        throw new BadRequestException(
+          `This turf spans about ${Math.round(spread / 1000)} km, which is too ` +
+            `far apart to plan as a walk. Draw a smaller area, or switch to ` +
+            `driving.`,
+        )
+      }
     }
 
     return this.geoapify.planRoute({

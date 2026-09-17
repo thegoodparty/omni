@@ -69,7 +69,7 @@ Auth state is enforced globally via three guards registered in order. Most route
   when an actor claim is present, not the impersonated user. Audit logging
   needs both — pull the real admin from `effectiveUser`, the impersonated
   subject from `req.user`.
-- `AdminAudit.interceptor.ts` only fires when explicitly applied — it is **not** global. Routes that mutate user data should opt in.
+- `AdminAudit.interceptor.ts` is registered **globally** as an `APP_INTERCEPTOR` in `app.module.ts` and fires on every route whose `@Roles()` includes `admin` — no opt-in needed. It logs `userId`/`userEmail` from `effectiveUser` (the accountable admin), adding `impersonatedUserId`/`impersonatedUserEmail` only while impersonating, and `unresolvedActorSub` when an `act` claim did not resolve to a local user. A couple of controllers also list it in `@UseInterceptors()`; that is redundant, not load-bearing.
 - The `services/` directory exists but is empty. Don't be surprised; the only service lives at the module root for historical reasons.
 - **The sign-up phone arrives in Clerk `unsafeMetadata`, not as a Clerk
   phone attribute.** Enabling the real attribute would force SMS
@@ -82,8 +82,11 @@ Auth state is enforced globally via three guards registered in order. Most route
   backfill — a number the user edited in their profile always wins.
 - **Google signups take a different route to the same field.** OAuth can't
   carry a phone, so the webapp's `/sign-up/phone` step collects it after the
-  handshake and `PUT`s it to `/v1/users/me` directly — it does not rely on
-  the provisioning read above, because `SessionGuard.resolveUser` returns
+  handshake and `PUT`s it to `/v1/users/me` directly. Clerk sends a completed
+  OAuth sign-up straight to the `redirectUrlComplete` the form passed and
+  skips the SSO callback page, so the sign-up form and `/login` both name the
+  phone step there, not only on the callback's redirect props. The step does
+  not rely on the provisioning read above, because `SessionGuard.resolveUser` returns
   early on a `clerkId` hit and never re-reads the Clerk profile once the row
   exists. Both paths land the number before `POST /v1/users/me/crm-registration`
   fires, which is what puts it on the HubSpot contact.

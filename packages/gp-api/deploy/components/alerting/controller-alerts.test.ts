@@ -4,7 +4,12 @@ import {
   ControllerName,
   ROUTE_MAP,
 } from '../../../src/generated/route-types'
-import { SERVER_ERRORS_ONLY } from '../alerts'
+import {
+  ALERT_OWNERSHIP,
+  CONTROLLERS_WITHOUT_ROUTE_ALERTS,
+  GLOBAL_ALERTS,
+  SERVER_ERRORS_ONLY,
+} from '../alerts'
 import { controllerAlerts } from './controller-alerts'
 
 /**
@@ -33,7 +38,8 @@ const onlyAlert = (controller: ControllerName) => {
 const outsideServerErrorsOnly = (): ControllerName => {
   const name = CONTROLLER_NAMES.find(
     (candidate) =>
-      !SERVER_ERRORS_ONLY.includes(candidate) && ROUTE_MAP[candidate].length > 0,
+      !SERVER_ERRORS_ONLY.includes(candidate) &&
+      ROUTE_MAP[candidate].length > 0,
   )
   if (!name) {
     // Not a skip: with every controller on the list there is no 4xx path left
@@ -99,10 +105,23 @@ describe('controllerAlerts', () => {
     }
   })
 
-  // A controller with no public routes (currently `mcp`) has nothing to watch,
-  // and grafana.ts skips empty rule groups rather than fail preview.
-  it('builds nothing for a controller with no routes', () => {
-    expect(controllerAlerts('mcp')).toHaveLength(0)
+  // `mcp` generated no rule at all until 2026-09-17. Its only handler is
+  // `@All()`, which generate-route-types.ts did not recognise, so the
+  // controller reached CONTROLLER_NAMES with an empty ROUTE_MAP and the loop
+  // below it had nothing to iterate — while POST /v1/mcp served 24,736 requests
+  // in 30 days and GET another 69,016.
+  //
+  // Both live methods are named rather than just asserting a rule exists: the
+  // generator expands `@All()` across every method fastify registers, and a
+  // regression to one of them would still produce a rule that looks right and
+  // watches half the endpoint.
+  it('watches every method the mcp @All() handler answers', () => {
+    const alert = onlyAlert('mcp')
+
+    expect(alert.expr).toContain('GET /v1/mcp')
+    expect(alert.expr).toContain('POST /v1/mcp')
+    expect(alert.disabled).toBe(false)
+    expect([alert.notify ?? []].flat()).toEqual(['serve-bugs', 'win-bugs'])
   })
 
   // The rule now reads the whole gp-api stream, so the endpoint pattern is the
@@ -259,6 +278,40 @@ describe('controllerAlerts', () => {
     }
   })
 
+  // "We never answered" covers two things, and only one is a fault: the gateway
+  // gave up on us, or the caller did. The second is not actionable and is four
+  // fifths of the volume — 2,345 of 2,348 null statuses in dev over the 30 days
+  // to 2026-09-17 ran under 30s, which is the E2E suite aborting requests as it
+  // navigates, logged at `info` with `bytes: null`. Without a floor this clause
+  // pages on users closing tabs, and across every controller that is the kind
+  // of alert someone mutes.
+  it('ignores a null status the caller caused by hanging up', () => {
+    for (const alert of alerts) {
+      expect(alert.expr).toMatch(/responseTimeMs > \d+/)
+    }
+  })
+
+  // The floor has to sit between the two populations it separates: above any
+  // real handler, and below the gateway's ~120s idle timeout, or it discards
+  // the timeouts the clause exists to catch along with the aborts.
+  it('puts the floor under the gateway timeout it has to catch', () => {
+    for (const alert of alerts) {
+      const floor = Number(/responseTimeMs > (\d+)/.exec(alert.expr)?.[1])
+
+      expect(floor).toBeGreaterThan(5_000)
+      expect(floor).toBeLessThan(120_000)
+    }
+  })
+
+  // The message tells whoever is paged what to look for, so it has to state the
+  // floor. Reading "the request was killed in flight" and then finding nothing
+  // under 30s in the logs is how someone concludes the alert is broken.
+  it('says that short no-status requests are excluded', () => {
+    for (const alert of alerts) {
+      expect(alert.message).toMatch(/30 seconds/)
+    }
+  })
+
   // It has to catch the timeout without dragging the 4xx vocabulary back in —
   // a null status is the absence of one, so it can't overlap with 429 or 400.
   it('admits no 4xx alongside the null-status clause', () => {
@@ -272,5 +325,184 @@ describe('controllerAlerts', () => {
     for (const alert of alerts) {
       expect(alert.expr).toContain('( response_statusCode >= 500 ) or (')
     }
+  })
+})
+
+// The gap these guard is not a wrong alert but an absent one, which is the
+// failure mode no alert can report. `controllerAlerts` sets
+// `disabled: !owners.length`, so a controller nobody lists is silently opted
+// out. CONTROLLERS_WITHOUT_ROUTE_ALERTS makes that a declaration rather than an
+// oversight, and these are what make the declaration mandatory.
+describe('every controller is accounted for', () => {
+  const owned = new Set(Object.values(ALERT_OWNERSHIP).flat())
+  const unmonitored = new Set(CONTROLLERS_WITHOUT_ROUTE_ALERTS)
+
+  // The one that matters: a controller added tomorrow lands in neither list and
+  // fails here, so the author picks an owner or writes down that they did not
+  // want one. Without this, a new public endpoint inherits silence by default
+  // and nothing says so — which is how public-person-profiles/voter-density
+  // served 1,498,324 consecutive 500s over four days in August 2026 without
+  // paging anyone.
+  it('requires a new controller to choose an owner or opt out', () => {
+    const unaccounted = CONTROLLER_NAMES.filter(
+      (controller) => !owned.has(controller) && !unmonitored.has(controller),
+    )
+
+    expect(
+      unaccounted,
+      'these controllers are in neither ALERT_OWNERSHIP nor CONTROLLERS_WITHOUT_ROUTE_ALERTS, so they have no route alerting and nothing records that',
+    ).toEqual([])
+  })
+
+  // The new shape's own silent default. `disabled` is derived from how many
+  // groups own a controller, so an entry left as `[]` — a half-finished edit, a
+  // group removed without picking a replacement — reads as owned in
+  // CONTROLLER_OWNERS while provisioning the alert disabled. That is precisely
+  // the failure this block exists to prevent, wearing a costume: the map looks
+  // right and the route is silent.
+  it('never claims an owner it does not name', () => {
+    const ownerless = CONTROLLER_NAMES.filter((controller) => {
+      if (ROUTE_MAP[controller].length === 0) return false
+      const [alert] = controllerAlerts(controller)
+      const owners = [alert?.notify ?? []].flat()
+      return owners.length === 0 && !unmonitored.has(controller)
+    })
+
+    expect(
+      ownerless,
+      'these controllers have an empty owner list, so their alert is provisioned disabled while the map reads as owned',
+    ).toEqual([])
+  })
+
+  // A fifth of these controllers are shared, and `notify` only became a list so
+  // that could be said out loud. If a later edit collapses them to one group,
+  // the alert still fires and still looks owned — the other team just silently
+  // stops being told, which is the same class of bug as the `find` this
+  // replaced.
+  it('still tags both groups where a controller is shared', () => {
+    const shared = CONTROLLER_NAMES.filter((controller) => {
+      if (ROUTE_MAP[controller].length === 0) return false
+      const [alert] = controllerAlerts(controller)
+      return [alert?.notify ?? []].flat().length > 1
+    })
+
+    expect(
+      shared.length,
+      'no controller notifies more than one group, so either the shared surfaces lost an owner or notify stopped carrying lists',
+    ).toBeGreaterThan(0)
+
+    for (const controller of shared) {
+      const [alert] = controllerAlerts(controller)
+      const owners = [alert?.notify ?? []].flat()
+
+      expect(new Set(owners).size, `${controller} names a group twice`).toBe(
+        owners.length,
+      )
+    }
+  })
+
+  // Listing a controller in both reads as "owned" here and "deliberately
+  // silent" there, and the code would honour the first while a reviewer
+  // believes the second.
+  it('never claims a controller is both owned and opted out', () => {
+    const both = CONTROLLERS_WITHOUT_ROUTE_ALERTS.filter((controller) =>
+      owned.has(controller),
+    )
+
+    expect(both).toEqual([])
+  })
+
+  // Keeps the list honest in the other direction: an entry that no longer names
+  // a real controller is a claim about nothing, and would quietly absorb a
+  // future controller that reused the name. `ControllerName` catches a typo at
+  // compile time, but not an entry left behind when a controller is deleted.
+  it('names only controllers that exist', () => {
+    const stale = CONTROLLERS_WITHOUT_ROUTE_ALERTS.filter(
+      (controller) => !CONTROLLER_NAMES.includes(controller),
+    )
+
+    expect(stale).toEqual([])
+  })
+
+  // The list has to describe what the generator actually does, or it documents
+  // an intention the code does not implement.
+  it('matches which alerts are really provisioned disabled', () => {
+    for (const controller of CONTROLLER_NAMES) {
+      if (ROUTE_MAP[controller].length === 0) continue
+
+      const [alert] = controllerAlerts(controller)
+      expect(alert?.disabled, `${controller}`).toBe(unmonitored.has(controller))
+    }
+  })
+
+  // The two public controllers and the hand-written rule each one carries in
+  // addition to its generated route alert.
+  //
+  // These were opted OUT until 2026-09, on the argument that a threshold-0 rule
+  // would fire permanently on their traffic. Measuring said otherwise — 2 hours
+  // out of 168 contained a qualifying error — so they now have both an owner
+  // and a ratio rule, and the pairing below is about keeping the second half.
+  const BESPOKE_COVERAGE: ReadonlyArray<readonly [ControllerName, string]> = [
+    ['public-campaigns', 'public-campaigns-lookup-error-ratio'],
+    ['public-person-profiles', 'public-person-profiles-error-ratio'],
+  ]
+
+  // Both halves do different jobs, and the reason for keeping the ratio rule is
+  // the weaker of the two claims, so it is the one that needs a test: the
+  // generated rule is what would survive deleting it, which makes the deletion
+  // look free. It is not — the ratio rule is what still works if these routes'
+  // error volume returns to where it was when the generated rule was judged
+  // unusable, and it is where the known causes live.
+  it('keeps both layers on the two public controllers', () => {
+    const slugs = new Set(GLOBAL_ALERTS.map((alert) => alert.slug))
+
+    for (const [controller, slug] of BESPOKE_COVERAGE) {
+      expect(
+        owned.has(controller),
+        `${controller} is public and should have an owner, so its generated route alert is enabled`,
+      ).toBe(true)
+
+      expect(
+        slugs.has(slug),
+        `${slug} is gone from GLOBAL_ALERTS, leaving ${controller} with only a threshold-0 rule — which is the rule that gets muted if this route's error volume returns`,
+      ).toBe(true)
+    }
+  })
+
+  /** The paths a controller answers on, without their HTTP verbs. */
+  const routePaths = (controller: ControllerName) =>
+    ROUTE_MAP[controller]
+      .map(({ endpoint }) => endpoint.split(' ')[1])
+      .filter((path): path is string => Boolean(path))
+
+  // The inverse, and the one that keeps the pairing above from going stale:
+  // it only protects what it lists, so a third controller handed a bespoke
+  // rule and not listed here is back in the state this block exists to end —
+  // one deletion away from silence with nothing to say so.
+  //
+  // Asks the question by reading what the rules query rather than by how they
+  // are spelled. Matching a slug prefix against the controller name is the
+  // obvious shortcut and it is wrong: `health-check-probe-failure` starts with
+  // `health`, and is the ECS probe alert rather than anything to do with the
+  // `health` controller's routes. That test fails the day it is written, and
+  // the only way to green it is to record in the pairing that the health
+  // controller has bespoke route coverage, which is a lie the next reader
+  // inherits. Querying a controller's own paths is the thing actually being
+  // claimed, so it is what gets checked.
+  it('lists every opted-out controller a hand-written rule already covers', () => {
+    const declared = new Set(BESPOKE_COVERAGE.map(([controller]) => controller))
+
+    const undeclared = CONTROLLERS_WITHOUT_ROUTE_ALERTS.filter(
+      (controller) =>
+        !declared.has(controller) &&
+        GLOBAL_ALERTS.some((alert) =>
+          routePaths(controller).some((path) => alert.expr.includes(path)),
+        ),
+    )
+
+    expect(
+      undeclared,
+      "a hand-written rule in GLOBAL_ALERTS already queries these controllers' routes, but nothing pairs the two — delete that rule and the controller goes silent with every test still green",
+    ).toEqual([])
   })
 })

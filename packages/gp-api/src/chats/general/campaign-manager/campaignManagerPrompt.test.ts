@@ -121,6 +121,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(on).toContain('count_contacts')
     expect(on).toContain('describe_filter_dimensions')
     expect(on).toContain('Pro upgrade')
+    expect(on).toContain('say so before quoting any numbers')
 
     // Flag on but no org row resolved = tools not registered, so no block.
     const noOrg = buildCampaignManagerSystemPrompt(
@@ -150,6 +151,7 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(withWrites).toContain('40 characters')
     expect(withWrites).toContain('duplicated')
     expect(withWrites).toContain('confirm the size')
+    expect(withWrites).toContain('report the count crud_saved_filters returned')
   })
 
   it('runs the Campaign Story intake, one question at a time, when incomplete', () => {
@@ -211,6 +213,30 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain('generating')
     expect(prompt).toContain('failed')
     expect(prompt.toLowerCase()).toContain('never call it an error')
+  })
+
+  it('pins the failed-reason guidance and the no-guessing rule', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        story: {
+          why: 'w',
+          background: 'b',
+          positions: [{ title: 't', description: 'd' }],
+          complete: true,
+          missing: [],
+        },
+      }),
+    )
+    expect(prompt).toContain('race_lookup_failed')
+    expect(prompt).toContain('attempts_exhausted')
+    expect(prompt).toContain('queue_failed')
+    const lower = prompt.toLowerCase()
+    expect(lower).toContain('race lookup failed')
+    expect(lower).toContain('cannot be regenerated automatically')
+    expect(lower).toContain('offer to try again')
+    expect(lower).toContain(
+      'never state or imply a cause the tool did not return',
+    )
   })
 
   it('does not re-run the intake once the story is complete', () => {
@@ -388,6 +414,43 @@ describe('buildCampaignManagerSystemPrompt', () => {
       expect(prompt).not.toContain('web_search')
       expect(prompt).toContain('no web-search tool on this turn')
       expect(prompt).toContain('Never fill a gap from memory')
+    }
+  })
+
+  it('marks search-derived facts inline, not only in a footnote', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ webSearchEnabled: true }),
+    )
+    expect(prompt).toContain('not only in a footnote')
+    expect(prompt).toContain(
+      'every search, not only questions about the ballot',
+    )
+  })
+
+  it('adds a verify line to public-facing drafts built from search results', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ webSearchEnabled: true }),
+    )
+    expect(prompt).toContain(
+      'Double-check these numbers and names before you use them.',
+    )
+  })
+
+  it('carries no search-provenance rule when search is off', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ webSearchEnabled: false }),
+    )
+    expect(prompt).not.toContain('not only in a footnote')
+    expect(prompt).not.toContain(
+      'Double-check these numbers and names before you use them.',
+    )
+  })
+
+  it('says which part of advice is an assumption, on or off search', () => {
+    for (const webSearchEnabled of [true, false]) {
+      const prompt = buildCampaignManagerSystemPrompt(ctx({ webSearchEnabled }))
+      expect(prompt).toContain('rests on an assumption')
+      expect(prompt).toContain('say plainly which part is the assumption')
     }
   })
 

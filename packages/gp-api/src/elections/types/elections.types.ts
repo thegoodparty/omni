@@ -48,6 +48,11 @@ export enum ElectionCode {
   General = 'General',
   LocalOrMunicipal = 'LocalOrMunicipal',
   ConsolidatedGeneral = 'ConsolidatedGeneral',
+  // Added to close a drift: the election-api enum has carried `Primary`
+  // since the primary-day model shipped, and any consumer that parses an
+  // election code off the wire fails on it while this enum is short a
+  // member.
+  Primary = 'Primary',
 }
 
 export type ProjectedTurnout = {
@@ -209,6 +214,12 @@ export type CampaignStrategyContextResponse = {
   candidates: CampaignStrategyContextCandidate[]
   civics_win_number: number | null
   contacts_needed_estimate: number | null
+  // The electorate `projected_turnout` was drawn for. Nothing on this path
+  // reads it yet — `RaceContextFromApi` is where the recommended-lists
+  // engine picks it up — but it is on the response, and an untyped field is
+  // how the next reader concludes it isn't. Optional for the same reason as
+  // the prediction bounds below: an older election-api omits it.
+  election_code?: ElectionCode | null
   general_election_date: string | null
   number_of_seats: number | null
   office_level: string | null

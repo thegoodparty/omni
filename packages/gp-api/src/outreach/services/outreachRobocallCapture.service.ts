@@ -13,6 +13,7 @@ import {
   RobocallSettleState,
 } from '../../generated/prisma'
 import { RobocallOrphanedHoldService } from './robocallOrphanedHold.service'
+import { OutreachNotificationService } from './outreachNotification.service'
 import { OutreachRobocallSingleSendService } from './outreachRobocallSingleSend.service'
 
 // Capture runs after completion (:09,:19,…) records the count, so it sits three
@@ -54,6 +55,7 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
     private readonly analytics: AnalyticsService,
     private readonly orphanedHolds: RobocallOrphanedHoldService,
     private readonly robocallSingleSend: OutreachRobocallSingleSendService,
+    private readonly notification: OutreachNotificationService,
   ) {
     super()
   }
@@ -378,7 +380,8 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
     // canceled/failed/already-completed row — mirrors markSpineScheduled/
     // markSpineInProgress/markSpineFailed. A miss only leaves stale history; the
     // money already committed, so it must never throw out of the capture path.
-    await this.markSpineCompleted(outreachId)
+    const completed = await this.markSpineCompleted(outreachId)
+    if (completed) await this.notifyCompleted(outreachId, capturedAmountInCents)
     if (userId == null) {
       this.logger.error(
         { outreachId },
@@ -405,9 +408,9 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
   // dialed run settles + captures. CAS-guarded on the pre-terminal visible states
   // (pending/in_progress) so it never overrides canceled/failed and is idempotent
   // on an already-completed row. Best-effort, like the sibling markSpine* helpers.
-  private async markSpineCompleted(outreachId: number): Promise<void> {
+  private async markSpineCompleted(outreachId: number): Promise<boolean> {
     try {
-      await this.client.outreach.updateMany({
+      const res = await this.client.outreach.updateMany({
         where: {
           id: outreachId,
           status: {
@@ -416,10 +419,42 @@ export class OutreachRobocallCaptureService extends createPrismaBase(
         },
         data: { status: OutreachStatus.completed },
       })
+      return res.count > 0
     } catch (err) {
       this.logger.error(
         { err, outreachId },
         'robocall: failed to advance spine to completed',
+      )
+      return false
+    }
+  }
+
+  // A short CAS "completed" line, only on the real transition to completed so it
+  // fires once per run. Best-effort: the money already captured, so a Slack or
+  // context-load failure must never throw out of the capture path.
+  private async notifyCompleted(
+    outreachId: number,
+    capturedAmountInCents: number,
+  ): Promise<void> {
+    try {
+      const row = await this.model.findUnique({
+        where: { outreachId },
+        select: {
+          billableCount: true,
+          outreach: { select: { campaign: { select: { slug: true } } } },
+        },
+      })
+      if (!row) return
+      await this.notification.notifyRobocallCompleted(
+        row.outreach.campaign?.slug ?? 'unknown',
+        outreachId,
+        row.billableCount,
+        capturedAmountInCents,
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, outreachId },
+        'robocall: CAS completed notify failed',
       )
     }
   }

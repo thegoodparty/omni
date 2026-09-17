@@ -22,6 +22,7 @@ import { GoogleIcon } from './GoogleIcon'
 
 const SIGN_UP_REDIRECT = '/post-auth-redirect?source=signup'
 const SSO_CALLBACK_URL = '/sign-up/sso-callback'
+const PHONE_STEP_URL = '/sign-up/phone'
 
 /**
  * The classic Clerk hook throws a `ClerkAPIResponseError` (whose `errors[]`
@@ -149,12 +150,15 @@ export default function SignUpForm() {
     if (!clerk.isLoaded || submitting) return
     setError(null)
     try {
-      // No phone gate here — Google stays one click, and the SSO callback
-      // forwards to /sign-up/phone to collect it after the handshake.
+      // No phone gate here — Google stays one click and the phone step
+      // collects it afterwards. Clerk sends a sign-up that completes with no
+      // further requirements straight to redirectUrlComplete and never loads
+      // the SSO callback, so this, not the callback's redirect props, is what
+      // decides where a new Google account lands.
       await clerk.signUp.authenticateWithRedirect({
         strategy: 'oauth_google',
         redirectUrl: SSO_CALLBACK_URL,
-        redirectUrlComplete: SIGN_UP_REDIRECT,
+        redirectUrlComplete: PHONE_STEP_URL,
       })
     } catch (err) {
       setError(messageFrom(err))

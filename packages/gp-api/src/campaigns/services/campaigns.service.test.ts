@@ -1663,6 +1663,22 @@ describe('CampaignsService - findActiveByUserId', () => {
   })
 })
 
+// The single jsonb-merge parameter patchCampaignDetails binds into its raw
+// UPDATE. Bound values arrive after the template strings, and the patch is the
+// first of the two ($1 = the JSON patch, $2 = the campaign id).
+const patchFromExecuteRawCall = (
+  call: unknown[],
+): PrismaJson.CampaignDetails => {
+  const [, patchJson] = call
+  if (typeof patchJson !== 'string') {
+    throw new Error(
+      `patchCampaignDetails bound a non-string jsonb patch: ${String(patchJson)}`,
+    )
+  }
+
+  return JSON.parse(patchJson) as PrismaJson.CampaignDetails
+}
+
 const buildSetIsProModule = async () => {
   const mockCampaignUpdate = vi.fn(
     async ({ data }: { data: Record<string, unknown> }) => ({
@@ -1674,6 +1690,11 @@ const buildSetIsProModule = async () => {
   )
   const mockTxCampaignFindUnique = vi.fn()
   const mockCampaignFindFirst = vi.fn()
+  // Rowcount, as $executeRaw returns. 1 = the campaign row was patched.
+  const mockExecuteRaw = vi.fn().mockResolvedValue(1)
+  const mockCampaignFindUniqueOrThrow = vi
+    .fn()
+    .mockResolvedValue({ id: 1, userId: 7, isPro: true, details: {} })
   const mockTransaction = vi.fn(
     async (callback: Parameters<PrismaClient['$transaction']>[0]) => {
       const tx = {
@@ -1692,9 +1713,11 @@ const buildSetIsProModule = async () => {
 
   const mockPrismaService = {
     $transaction: mockTransaction,
+    $executeRaw: mockExecuteRaw,
     campaign: {
       findFirst: mockCampaignFindFirst,
       findUnique: vi.fn(),
+      findUniqueOrThrow: mockCampaignFindUniqueOrThrow,
     },
   }
 
@@ -1739,20 +1762,16 @@ const buildSetIsProModule = async () => {
     configurable: true,
   })
 
-  // Every `campaign.update` that carries a `details` payload — i.e. the writes
-  // routed through patchCampaignDetails, not the isPro scalar flip.
+  // Every details patch setIsPro issued. These go out as the jsonb-merge
+  // parameter of patchCampaignDetails' raw UPDATE, not as a `campaign.update`
+  // payload; the isPro scalar flip still runs through `campaign.update` and is
+  // deliberately not counted here.
   const detailsWrites = () =>
-    mockCampaignUpdate.mock.calls
-      .map(([args]) => args.data)
-      .filter(
-        (data): data is { details: PrismaJson.CampaignDetails } =>
-          'details' in data,
-      )
+    mockExecuteRaw.mock.calls.map(patchFromExecuteRawCall)
 
   return {
     service,
     mockTxCampaignFindUnique,
-    mockCampaignFindFirst,
     detailsWrites,
   }
 }
@@ -1761,41 +1780,28 @@ describe('CampaignsService - setIsPro / isProUpdatedAt', () => {
   const PRIOR_UPGRADE_DATE = '2026-01-15T00:00:00Z'
 
   it('stamps isProUpdatedAt when a campaign transitions to Pro', async () => {
-    const {
-      service,
-      mockTxCampaignFindUnique,
-      mockCampaignFindFirst,
-      detailsWrites,
-    } = await buildSetIsProModule()
+    const { service, mockTxCampaignFindUnique, detailsWrites } =
+      await buildSetIsProModule()
     mockTxCampaignFindUnique.mockResolvedValue({
       isPro: false,
       hasFreeTextsOffer: false,
       freeTextsOfferRedeemedAt: null,
     })
-    mockCampaignFindFirst.mockResolvedValue({ id: 1, details: {} })
 
     await service.setIsPro(1, true, false)
 
     const writes = detailsWrites()
     expect(writes).toHaveLength(1)
-    expect(firstOrThrow(writes).details.isProUpdatedAt).toBeDefined()
+    expect(firstOrThrow(writes).isProUpdatedAt).toBeDefined()
   })
 
   it('leaves isProUpdatedAt untouched when a Pro campaign is downgraded', async () => {
-    const {
-      service,
-      mockTxCampaignFindUnique,
-      mockCampaignFindFirst,
-      detailsWrites,
-    } = await buildSetIsProModule()
+    const { service, mockTxCampaignFindUnique, detailsWrites } =
+      await buildSetIsProModule()
     mockTxCampaignFindUnique.mockResolvedValue({
       isPro: true,
       hasFreeTextsOffer: false,
       freeTextsOfferRedeemedAt: null,
-    })
-    mockCampaignFindFirst.mockResolvedValue({
-      id: 1,
-      details: { isProUpdatedAt: PRIOR_UPGRADE_DATE },
     })
 
     await service.setIsPro(1, false, false)
@@ -1804,20 +1810,12 @@ describe('CampaignsService - setIsPro / isProUpdatedAt', () => {
   })
 
   it('leaves isProUpdatedAt untouched when an already-Pro campaign is re-written', async () => {
-    const {
-      service,
-      mockTxCampaignFindUnique,
-      mockCampaignFindFirst,
-      detailsWrites,
-    } = await buildSetIsProModule()
+    const { service, mockTxCampaignFindUnique, detailsWrites } =
+      await buildSetIsProModule()
     mockTxCampaignFindUnique.mockResolvedValue({
       isPro: true,
       hasFreeTextsOffer: true,
       freeTextsOfferRedeemedAt: null,
-    })
-    mockCampaignFindFirst.mockResolvedValue({
-      id: 1,
-      details: { isProUpdatedAt: PRIOR_UPGRADE_DATE },
     })
 
     await service.setIsPro(1, true, false)
@@ -1826,28 +1824,167 @@ describe('CampaignsService - setIsPro / isProUpdatedAt', () => {
   })
 
   it('re-stamps isProUpdatedAt when a cancelled campaign upgrades again', async () => {
-    const {
-      service,
-      mockTxCampaignFindUnique,
-      mockCampaignFindFirst,
-      detailsWrites,
-    } = await buildSetIsProModule()
+    const { service, mockTxCampaignFindUnique, detailsWrites } =
+      await buildSetIsProModule()
     mockTxCampaignFindUnique.mockResolvedValue({
       isPro: false,
       hasFreeTextsOffer: true,
       freeTextsOfferRedeemedAt: new Date(),
-    })
-    mockCampaignFindFirst.mockResolvedValue({
-      id: 1,
-      details: { isProUpdatedAt: PRIOR_UPGRADE_DATE },
     })
 
     await service.setIsPro(1, true, false)
 
     const writes = detailsWrites()
     expect(writes).toHaveLength(1)
-    expect(firstOrThrow(writes).details.isProUpdatedAt).not.toBe(
-      PRIOR_UPGRADE_DATE,
-    )
+    expect(firstOrThrow(writes).isProUpdatedAt).not.toBe(PRIOR_UPGRADE_DATE)
+  })
+})
+
+// A stand-in for the one `campaign` row these writes contend over. The
+// $executeRaw handler applies `details || patch` the way Postgres does under
+// the statement's own row lock — merge onto whatever is committed at the
+// moment the statement runs — while `campaign.update` overwrites the column
+// with whatever blob the caller computed. Both defer past a macrotask so two
+// concurrent patchCampaignDetails calls really do interleave: with
+// `Promise.all` both reach their first await before either resolves.
+const buildDetailsRowModule = async (
+  initialDetails: PrismaJson.CampaignDetails | null = {},
+) => {
+  const row: { details: PrismaJson.CampaignDetails | null } = {
+    details: initialDetails,
+  }
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  const mockExecuteRaw = vi.fn(async (...call: unknown[]) => {
+    await tick()
+    if (row.details === null || typeof row.details !== 'object') return 0
+    row.details = { ...row.details, ...patchFromExecuteRawCall(call) }
+    return 1
+  })
+  const mockCampaignFindFirst = vi.fn(async () => {
+    await tick()
+    return { id: 1, userId: 7, details: row.details }
+  })
+  const mockCampaignUpdate = vi.fn(
+    async ({ data }: { data: { details?: PrismaJson.CampaignDetails } }) => {
+      await tick()
+      if (data.details !== undefined) row.details = data.details
+      return { id: 1, userId: 7, details: row.details }
+    },
+  )
+  const mockTransaction = vi.fn(
+    async (callback: Parameters<PrismaClient['$transaction']>[0]) =>
+      callback({
+        campaign: { update: mockCampaignUpdate, findUnique: vi.fn() },
+      } as unknown as Parameters<
+        Parameters<PrismaClient['$transaction']>[0]
+      >[0]),
+  ) as MockedFunction<PrismaClient['$transaction']>
+
+  const mockPrismaService = {
+    $transaction: mockTransaction,
+    $executeRaw: mockExecuteRaw,
+    campaign: {
+      findFirst: mockCampaignFindFirst,
+      findUnique: vi.fn(),
+      findUniqueOrThrow: vi.fn(async () => ({
+        id: 1,
+        userId: 7,
+        details: row.details,
+      })),
+    },
+  }
+
+  const module: TestingModule = await Test.createTestingModule({
+    providers: [
+      { provide: PrismaService, useValue: mockPrismaService },
+      { provide: UsersService, useValue: {} },
+      { provide: CrmCampaignsService, useValue: { trackCampaign: vi.fn() } },
+      { provide: SegmentService, useValue: {} },
+      {
+        provide: AnalyticsService,
+        useValue: { track: vi.fn(), identify: vi.fn() },
+      },
+      { provide: CampaignPlanVersionsService, useValue: {} },
+      { provide: StripeService, useValue: {} },
+      { provide: GooglePlacesService, useValue: {} },
+      { provide: ElectionsService, useValue: {} },
+      { provide: BallotReadyService, useValue: {} },
+      { provide: OrganizationsService, useValue: {} },
+      { provide: SlackService, useValue: {} },
+      { provide: CampaignTasksService, useValue: {} },
+      { provide: CampaignTrackerTasksService, useValue: {} },
+      { provide: PinoLogger, useValue: createMockLogger() },
+      CampaignsService,
+    ],
+  }).compile()
+
+  const service = module.get<CampaignsService>(CampaignsService)
+  Object.defineProperty(service, '_prisma', {
+    get: () => mockPrismaService,
+    configurable: true,
+  })
+  Object.defineProperty(service, 'logger', {
+    get: () => createMockLogger(),
+    configurable: true,
+  })
+
+  return { service, row, mockExecuteRaw, mockTransaction }
+}
+
+describe('CampaignsService - patchCampaignDetails write contention', () => {
+  // The bug, reduced to its two requests. Prod 2026-09-15T07:42:51Z: Stripe
+  // delivered customer.subscription.created and checkout.session.completed 9ms
+  // apart for one subscription; the first patched details.subscriptionId, the
+  // second came through setIsPro to stamp details.isProUpdatedAt. Reading the
+  // blob before the write means the loser overwrites the winner's key from a
+  // snapshot taken before it existed — P2034 when Postgres catches the overlap,
+  // and a silent lost update with a 200 when it does not.
+  // Asserted against the row, not either call's return value: each returns the
+  // row as it read it back, so the one that finishes first legitimately has not
+  // seen the other's key yet. What must hold is that the row keeps both.
+  it('keeps both keys when two patches of the same campaign interleave', async () => {
+    const { service, row } = await buildDetailsRowModule({})
+
+    await Promise.all([
+      service.patchCampaignDetails(1, { subscriptionId: 'sub_A' }),
+      service.patchCampaignDetails(1, {
+        isProUpdatedAt: '2026-09-15T07:42:51Z',
+      }),
+    ])
+
+    expect(row.details).toEqual({
+      subscriptionId: 'sub_A',
+      isProUpdatedAt: '2026-09-15T07:42:51Z',
+    })
+  })
+
+  // The merge has to be the database's, in the statement, or the interleaving
+  // above is only accidentally safe. No transaction is opened at all: there is
+  // nothing left in here that needs one, and so nothing left to abort with a
+  // P2034.
+  it('sends only the patch keys and opens no transaction', async () => {
+    const { service, mockExecuteRaw, mockTransaction } =
+      await buildDetailsRowModule({
+        subscriptionId: 'sub_existing',
+      })
+
+    await service.patchCampaignDetails(1, { isProUpdatedAt: 'T' })
+
+    expect(mockTransaction).not.toHaveBeenCalled()
+    expect(mockExecuteRaw).toHaveBeenCalledTimes(1)
+    expect(patchFromExecuteRawCall(firstOrThrow(mockExecuteRaw.mock.calls))) //
+      .toEqual({ isProUpdatedAt: 'T' })
+  })
+
+  // Unchanged behaviour, restated against the new plumbing: the old code threw
+  // this when its pre-read found no row or a details column that was not an
+  // object. Both now surface as a zero rowcount from the guarded UPDATE.
+  it('throws when the UPDATE matches no campaign row', async () => {
+    const { service } = await buildDetailsRowModule(null)
+
+    await expect(
+      service.patchCampaignDetails(404, { subscriptionId: 'sub_A' }),
+    ).rejects.toThrow('Campaign 404 has no details JSON')
   })
 })

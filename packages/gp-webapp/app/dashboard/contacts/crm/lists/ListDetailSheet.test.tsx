@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -542,6 +542,7 @@ describe('ListDetailSheet — DeleteListDialog (unlocked list)', () => {
       data: {},
     })
     const user = userEvent.setup()
+    const removeQueries = vi.spyOn(testQueryClient, 'removeQueries')
 
     render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
     await user.click(await screen.findByTestId('list-detail-delete-trigger'))
@@ -555,6 +556,13 @@ describe('ListDetailSheet — DeleteListDialog (unlocked list)', () => {
     )
     await vi.waitFor(() => expect(selectList).toHaveBeenCalledWith(null))
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    // A deleted list's members outlive it otherwise: the global staleTime is
+    // five minutes, so re-opening /lists/42 inside that window would redraw
+    // the deleted list's constituents from cache with no request. Removed
+    // rather than invalidated — there is nothing to re-read once it is gone.
+    expect(removeQueries).toHaveBeenCalledWith({
+      queryKey: ['list-people', 'test-org', '42'],
+    })
   })
 
   it('delete raced 409: locked-message error snackbar, dialog closes, no navigation', async () => {

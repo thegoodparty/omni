@@ -474,11 +474,16 @@ jobs:
       - name: apply dev/engineer-agent-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
-      - name: apply dev/shared-infra
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/shared-infra
 
       - wait-all:
+
+      # Same reasoning as prod below: dev/shared-infra reads
+      # ddhq-matcher-fargate and serve-analyze-fargate state, so it applies
+      # after them rather than alongside. Dev has no alert-filter root and so
+      # did not break, but it is the same unordered read, and it is only a
+      # question of which environment the next such root lands in first.
+      - name: apply dev/shared-infra
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/shared-infra
 
       - name: reverify dev/agent-experiment-metadata
         background: true
@@ -528,12 +533,37 @@ jobs:
           bad=0
           shopt -s nullglob
           files=("$PLAN_DIR"/*.code)
-          expected=$(find packages/gp-ai/infrastructure/environments/dev -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
-          if [ "${#files[@]}" -ne "$expected" ]; then
-            echo "::error::expected $expected re-plan results but found ${#files[@]}; a root produced no output and its convergence is unknown"
+          # BY NAME, not by count. Comparing totals answers a weaker question
+          # than this step is here to answer: N results and N roots can agree
+          # while being different sets, because one root re-planned twice
+          # overwrites a single result file and covers for another that
+          # produced none. That is not hypothetical — release 35240376865 ran
+          # 15 reverify steps, wrote 14 files, and reported "all 14 roots
+          # converged" because prod/alert-filter was declared twice and both
+          # copies wrote alert-filter.code. It converged anyway, so the count
+          # was right by luck rather than by construction.
+          #
+          # `dev-` PREFIXED, because that is the name ci-plan-root.sh writes:
+          # it is called with `dev/<root>` and slugs its argument whole
+          # (`slug="${root//\//-}"`), so dev/shared-infra lands in PLAN_DIR as
+          # dev-shared-infra.code. Comparing against the bare directory name
+          # matched nothing at all — release 35273516196 held all 13 result
+          # files, reported all 13 roots as having "produced no re-plan
+          # result", and failed the job, which skipped all eight Promote jobs
+          # and blocked prod on a filename. The `got:` list below is printed
+          # for exactly this: it named every file, each one `dev-` prefixed.
+          missing=()
+          while IFS= read -r root; do
+            [ -f "$PLAN_DIR/dev-$root.code" ] || missing+=("dev-$root")
+          done < <(find packages/gp-ai/infrastructure/environments/dev -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
+          if [ "${#missing[@]}" -ne 0 ]; then
+            for root in "${missing[@]}"; do
+              echo "::error::$root produced no re-plan result, so its convergence is unknown"
+            done
             for f in "${files[@]}"; do echo "  got: $(basename "$f" .code)"; done
             exit 1
           fi
+          expected=$(find packages/gp-ai/infrastructure/environments/dev -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
           for f in "${files[@]}"; do
             root=$(basename "$f" .code)
             code=$(cat "$f")
@@ -1141,11 +1171,28 @@ jobs:
       - name: apply prod/engineer-agent-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
-      - name: apply prod/shared-infra
+      - name: apply prod/alert-filter
         background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/shared-infra
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/alert-filter
 
       - wait-all:
+
+      # shared-infra applies alone, after everything above, because it is the
+      # only root that consumes other roots' outputs: it reads the lambda ARN
+      # and name out of alert-filter, clickup-bot and ddhq-matcher-fargate state
+      # to build a target group and permission for each. Nothing reads
+      # shared-infra in turn, so it is free to go last.
+      #
+      # It used to apply inside the batch above, which worked only because those
+      # states already existed — an unordered read returns whatever the previous
+      # release wrote, one release stale, and nobody noticed because a lambda ARN
+      # rarely changes. Adding a root broke that: `terraform_remote_state` on a
+      # key with no object is a hard plan failure, not an empty result, so
+      # `prod/shared-infra: plan failed` took down every release for a day and
+      # blocked all prod gp-ai infrastructure, not just the new root. Ordering it
+      # after its inputs means the next root to be added cannot do that again.
+      - name: apply prod/shared-infra
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/shared-infra
 
       - name: reverify prod/agent-experiment-metadata
         background: true
@@ -1183,6 +1230,9 @@ jobs:
       - name: reverify prod/engineer-agent-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
+      - name: reverify prod/alert-filter
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/alert-filter
       - name: reverify prod/shared-infra
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/shared-infra
@@ -1194,12 +1244,24 @@ jobs:
           set -uo pipefail
           shopt -s nullglob
           files=("$PLAN_DIR"/*.code)
-          expected=$(find packages/gp-ai/infrastructure/environments/prod -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
-          if [ "${#files[@]}" -ne "$expected" ]; then
-            echo "::error::expected $expected re-plan results but found ${#files[@]}; a root produced no output and its convergence is unknown"
+          # By name rather than by count, for the reason spelled out on the
+          # dev job's copy of this step: equal totals do not mean equal sets,
+          # and a duplicated root hides a missing one.
+          # `prod-` prefixed, for the reason on the dev job's copy: the result
+          # files are named after ci-plan-root.sh's whole slugged argument, not
+          # after the root directory.
+          missing=()
+          while IFS= read -r root; do
+            [ -f "$PLAN_DIR/prod-$root.code" ] || missing+=("prod-$root")
+          done < <(find packages/gp-ai/infrastructure/environments/prod -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
+          if [ "${#missing[@]}" -ne 0 ]; then
+            for root in "${missing[@]}"; do
+              echo "::error::$root produced no re-plan result, so its convergence is unknown"
+            done
             for f in "${files[@]}"; do echo "  got: $(basename "$f" .code)"; done
             exit 1
           fi
+          expected=$(find packages/gp-ai/infrastructure/environments/prod -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
           bad=0
           for f in "${files[@]}"; do
             root=$(basename "$f" .code)

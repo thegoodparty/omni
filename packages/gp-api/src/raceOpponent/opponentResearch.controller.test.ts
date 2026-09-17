@@ -103,6 +103,7 @@ const stubRaceContext = (candidates: string[]) =>
       officialOfficeName: 'Fayetteville City Council',
       officeLevel: null,
       officeType: null,
+      electionCode: null,
       primaryElectionDate: null,
       generalElectionDate: '2026-11-03',
       relevantElectionDate: null,
