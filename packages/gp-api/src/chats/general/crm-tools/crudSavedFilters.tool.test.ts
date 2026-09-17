@@ -122,7 +122,12 @@ describe('crud_saved_filters execute', () => {
         name: 'Likely County Voters',
       }),
     )
-    expect(result).toEqual({ error: expect.stringContaining('place') })
+    expect(result).toEqual({
+      error: expect.stringContaining('no precinct narrowing'),
+    })
+    expect(result).toEqual({
+      error: expect.stringContaining('precincts are the one filter'),
+    })
     expect(deps.contacts.countContacts).not.toHaveBeenCalled()
     expect(deps.voterFileFilters.create).not.toHaveBeenCalled()
   })
@@ -190,7 +195,40 @@ describe('crud_saved_filters execute', () => {
     const result = await tool.execute(
       tool.inputSchema.parse({ action: 'update', id: 4, name: 'City Voters' }),
     )
-    expect(result).toEqual({ error: expect.stringContaining('place') })
+    expect(result).toEqual({
+      error: expect.stringContaining('no precinct narrowing'),
+    })
+    expect(result).toEqual({
+      error: expect.stringContaining('precincts are the one filter'),
+    })
+    expect(
+      deps.voterFileFilters.updateByIdAndOrganizationSlug,
+    ).not.toHaveBeenCalled()
+  })
+
+  it('refuses a rename that clears precincts back to an unfiltered place', async () => {
+    const { deps, tool } = buildTool({
+      voterFileFilters: {
+        findByIdAndOrganizationSlug: vi.fn(() =>
+          Promise.resolve({
+            id: 4,
+            name: 'Old name',
+            precincts: ['Franklin|12'],
+          }),
+        ) as never,
+      },
+    })
+    const result = await tool.execute(
+      tool.inputSchema.parse({
+        action: 'update',
+        id: 4,
+        name: 'City Voters',
+        precincts: [],
+      }),
+    )
+    expect(result).toEqual({
+      error: expect.stringContaining('no precinct narrowing'),
+    })
     expect(
       deps.voterFileFilters.updateByIdAndOrganizationSlug,
     ).not.toHaveBeenCalled()

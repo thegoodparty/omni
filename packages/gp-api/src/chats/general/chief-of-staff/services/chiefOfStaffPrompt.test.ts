@@ -182,6 +182,19 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain(FILTER_DIMENSION_PROVENANCE_RULES)
   })
 
+  it('tells the assistant to disclose a missing filter dimension and report the real saved count', () => {
+    const prompt = buildChiefOfStaffSystemPrompt({
+      ctx: baseCtx(),
+      toolNames: [
+        'describe_filter_dimensions',
+        'count_contacts',
+        'crud_saved_filters',
+      ],
+    })
+    expect(prompt).toContain('say so before quoting any numbers')
+    expect(prompt).toContain('report the count crud_saved_filters returned')
+  })
+
   it('omits the provenance rules when the CRM tools are not registered', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),

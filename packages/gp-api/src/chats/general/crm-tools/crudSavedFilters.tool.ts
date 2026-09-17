@@ -175,9 +175,15 @@ export const buildCrudSavedFiltersTool = (deps: {
         }
       }
       if (action === 'update') {
+        // `??`, not `||`: an explicit `precincts: []` in this call must
+        // override a non-empty existing value (clearing the narrowing is a
+        // real edit), while an absent key falls back to what's persisted.
         if (
           name !== undefined &&
-          isUnfilteredPlaceName(name, filter.precincts ?? existing.precincts)
+          isUnfilteredPlaceName(
+            name,
+            filter.precincts ?? existing.precincts ?? [],
+          )
         ) {
           return { error: UNFILTERED_PLACE_NAME_ERROR }
         }
