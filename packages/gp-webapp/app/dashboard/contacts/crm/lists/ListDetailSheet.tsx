@@ -41,6 +41,7 @@ import { useContactsTable } from '../ContactsTableProvider'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { OUTREACH_CHANNEL_NOUNS } from '../shared/outreachChannelLabels'
 import CrmSheet from '../shared/CrmSheet'
+import ListMapSection from '../map/ListMapSection'
 import ListFilterSummary from './ListFilterSummary'
 import ReachabilityGrid from './ReachabilityGrid'
 import DeleteListDialog from './DeleteListDialog'
@@ -345,6 +346,17 @@ export default function ListDetailSheet({
               segment={segment}
               isElectedOfficial={isElectedOfficial}
             />
+          )}
+
+          {/* Serve only, and not because of the Pro gate — an elected office
+              always clears that. Everywhere else in the CRM a list is a filter
+              summary and a set of counts, never the people themselves, and
+              putting names on a map is a different thing to reveal. An
+              officeholder is being asked to go and talk to these constituents,
+              so where they are IS the answer; a candidate's list is an
+              audience to send to and has no such use for it. */}
+          {!isUniverse && segment && isElectedOfficial && (
+            <ListMapSection listId={segment.id} />
           )}
 
           <div className="flex flex-col gap-2">
