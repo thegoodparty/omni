@@ -14,6 +14,9 @@ export interface ContactPoints {
   unmappable: number
 }
 
+const isBlank = (value: string | null | undefined): boolean =>
+  value == null || value.trim() === ''
+
 // Grouped by coordinate, NOT by address string. Every unit in an apartment
 // building shares one lat/lon in the voter file, so grouping by address stacks
 // a dozen coincident dots on one building and hides that it is one building
@@ -30,10 +33,18 @@ export const toContactPoints = (people: Person[]): ContactPoints => {
   for (const person of people) {
     const rawLat = person.address?.latitude
     const rawLng = person.address?.longitude
-    if (!rawLat || !rawLng) {
+    // Blank-checked before parsing, and deliberately not by truthiness.
+    // `Number` maps null, '' and '   ' all to 0, which is finite, so a
+    // missing coordinate that reaches the parse comes out as a real point on
+    // the equator. Truthiness alone got '' right and '   ' wrong; testing
+    // only for null gets both wrong. The trim is what separates "no value"
+    // from the value zero.
+    if (isBlank(rawLat) || isBlank(rawLng)) {
       unmappable += 1
       continue
     }
+    // '0' survives the check above and lands here, which is the point: zero
+    // is a coordinate, not an absence.
     const lat = Number(rawLat)
     const lng = Number(rawLng)
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {

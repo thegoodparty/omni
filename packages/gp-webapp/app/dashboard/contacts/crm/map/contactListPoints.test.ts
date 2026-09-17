@@ -48,6 +48,29 @@ describe('toContactPoints', () => {
     expect(unmappable).toBe(2)
   })
 
+  // Zero is a coordinate, not an absence. Truthiness said otherwise, which
+  // would have dropped anyone on the equator or the prime meridian.
+  it('plots a coordinate of exactly zero', () => {
+    const { points, unmappable } = toContactPoints([
+      person('nullIsland', '0', '0'),
+    ])
+    expect(unmappable).toBe(0)
+    expect(points).toHaveLength(1)
+    expect(points[0]).toMatchObject({ lat: 0, lng: 0 })
+  })
+
+  // The trap underneath that one: Number('') and Number('   ') are both 0 and
+  // both finite, so a blank that reaches the parse becomes a real point off
+  // the coast of Africa rather than a missing value.
+  it('treats a whitespace-only coordinate as missing, not as zero', () => {
+    const { points, unmappable } = toContactPoints([
+      person('blank', '   ', '-85.61'),
+      person('empty', '', '-85.61'),
+    ])
+    expect(points).toHaveLength(0)
+    expect(unmappable).toBe(2)
+  })
+
   it('counts an unparseable coordinate as unmappable', () => {
     const { points, unmappable } = toContactPoints([
       person('bad', 'not-a-number', '-85.61'),
