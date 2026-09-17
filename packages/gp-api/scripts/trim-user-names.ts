@@ -6,10 +6,16 @@
  * in one or both name columns. That bug is fixed on the write side, but
  * the historical rows are still dirty and need a one-shot cleanup.
  *
- * Selection is the same predicate as the analysis query:
- *   TRIM(first_name) <> first_name OR TRIM(last_name) <> last_name
- * so nulls (SQL TRIM(null) = null) are skipped naturally and re-runs on
- * an already-clean row are no-ops.
+ * Selection widens the analysis query's default-TRIM predicate to every
+ * character JavaScript's String.prototype.trim() strips, since a few rows
+ * carry tab / newline whitespace rather than a plain space and Postgres
+ * TRIM(x) without an explicit character set only strips ASCII 0x20. In
+ * practice this catches at least the 6.3k rows the analysis found and,
+ * if any tab/newline-only rows exist, cleans those too.
+ *   first_name ~ '(^[[:space:]])|([[:space:]]$)'
+ *     OR last_name ~ '(^[[:space:]])|([[:space:]]$)'
+ * NULL fields are skipped naturally (a NULL ~ pattern comparison is NULL,
+ * i.e. false in WHERE) and re-runs on an already-clean row are no-ops.
  *
  * ─── Deployment behavior ─────────────────────────────────────────────
  * This is a one-shot backfill. Merging + deploying ships this file into
@@ -123,7 +129,10 @@ const fetchNextBatch = async (
            last_name  AS "lastName"
     FROM "user"
     WHERE id > ${afterId}
-      AND (TRIM(first_name) <> first_name OR TRIM(last_name) <> last_name)
+      AND (
+        first_name ~ '(^[[:space:]])|([[:space:]]$)'
+        OR last_name ~ '(^[[:space:]])|([[:space:]]$)'
+      )
     ORDER BY id
     LIMIT ${batchSize}
   `
