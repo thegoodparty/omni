@@ -65,7 +65,7 @@ export default function PhoneBankingOutcomeForm({
   onSaved,
 }: PhoneBankingOutcomeFormProps): React.JSX.Element {
   const [draft, setDraft] = useState<PhoneBankingOutcomeDraft>(() =>
-    draftFromInteraction(interaction),
+    draftFromInteraction(interaction, isServe),
   )
   // Summary state once something is saved; the cascade form reopens only on
   // Edit — mirrors the canvas's sticky log-call bar.
@@ -106,7 +106,7 @@ export default function PhoneBankingOutcomeForm({
   })
 
   const handleCancel = () => {
-    setDraft(draftFromInteraction(interaction))
+    setDraft(draftFromInteraction(interaction, isServe))
     setIsEditing(!interaction)
   }
 

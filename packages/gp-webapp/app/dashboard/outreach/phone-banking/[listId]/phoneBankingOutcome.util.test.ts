@@ -9,6 +9,7 @@ import {
   buildRecordCallRequest,
   calledPeopleCount,
   draftFromInteraction,
+  draftWithFollowUp,
   draftWithEngagement,
   draftWithOutcome,
   draftWithSupportAnswer,
@@ -242,15 +243,18 @@ describe('cascade state machine (draftWith*)', () => {
   })
 
   it('draftFromInteraction seeds from a logged interaction, and empty from none', () => {
-    expect(draftFromInteraction(null)).toEqual({})
+    expect(draftFromInteraction(null, false)).toEqual({})
     expect(
-      draftFromInteraction({
-        outcome: 'answered',
-        supportAnswer: 'supporter',
-        willVote: 'unsure',
-        followUp: null,
-        occurredAt: new Date(),
-      }),
+      draftFromInteraction(
+        {
+          outcome: 'answered',
+          supportAnswer: 'supporter',
+          willVote: 'unsure',
+          followUp: null,
+          occurredAt: new Date(),
+        },
+        false,
+      ),
     ).toEqual({
       outcome: 'answered',
       engagement: 'engaged',
@@ -259,26 +263,78 @@ describe('cascade state machine (draftWith*)', () => {
     })
   })
 
+  // Serve phone banking shipped asking support and will-vote, so its existing
+  // rows carry both. Reading them into a Serve draft would leave a row whose
+  // follow-up is unanswered — Save/Cancel would never appear, stranding the
+  // caller mid-edit — and, answered, a body the write schema now refuses for
+  // mixing the two vocabularies. The engagement still comes off the
+  // interaction, so the row correctly reopens as engaged.
+  it('a serve draft drops the win answers a legacy row carries, keeping engaged', () => {
+    const legacyServeRow = {
+      outcome: 'answered' as const,
+      supportAnswer: 'supporter' as const,
+      willVote: 'unsure' as const,
+      followUp: null,
+      occurredAt: new Date(),
+    }
+
+    const draft = draftFromInteraction(legacyServeRow, true)
+    expect(draft).toEqual({ outcome: 'answered', engagement: 'engaged' })
+
+    // Answering Serve's question alone makes it terminal and saves clean.
+    const answered = draftWithFollowUp(draft, 'no')
+    expect(isDraftComplete(answered, true)).toBe(true)
+    expect(buildRecordCallRequest(5, answered, 'active-person', false)).toEqual(
+      {
+        entryId: 5,
+        outcome: 'answered',
+        personId: 'active-person',
+        followUp: 'no',
+      },
+    )
+  })
+
+  it('a win draft drops a followUp the row carries', () => {
+    expect(
+      draftFromInteraction(
+        {
+          outcome: 'answered',
+          supportAnswer: null,
+          willVote: null,
+          followUp: 'yes',
+          occurredAt: new Date(),
+        },
+        false,
+      ),
+    ).toEqual({ outcome: 'answered', engagement: 'engaged' })
+  })
+
   it('a bare answered row (household fill) reopens with the engage question unanswered', () => {
     expect(
-      draftFromInteraction({
-        outcome: 'answered',
-        supportAnswer: null,
-        willVote: null,
-        followUp: null,
-        occurredAt: new Date(),
-      }),
+      draftFromInteraction(
+        {
+          outcome: 'answered',
+          supportAnswer: null,
+          willVote: null,
+          followUp: null,
+          occurredAt: new Date(),
+        },
+        false,
+      ),
     ).toEqual({ outcome: 'answered' })
   })
 
   it('a persisted refused reopens as answered + engage Refused so an unchanged re-save stays person-attributed', () => {
-    const draft = draftFromInteraction({
-      outcome: 'refused',
-      supportAnswer: null,
-      willVote: null,
-      followUp: null,
-      occurredAt: new Date(),
-    })
+    const draft = draftFromInteraction(
+      {
+        outcome: 'refused',
+        supportAnswer: null,
+        willVote: null,
+        followUp: null,
+        occurredAt: new Date(),
+      },
+      false,
+    )
     expect(draft).toEqual({ outcome: 'answered', engagement: 'refused' })
     expect(buildRecordCallRequest(5, draft, 'active-person', false)).toEqual({
       entryId: 5,
@@ -288,13 +344,16 @@ describe('cascade state machine (draftWith*)', () => {
   })
 
   it('a persisted hung_up reopens as answered + engage Hung up so an unchanged re-save stays person-attributed', () => {
-    const draft = draftFromInteraction({
-      outcome: 'hung_up',
-      supportAnswer: null,
-      willVote: null,
-      followUp: null,
-      occurredAt: new Date(),
-    })
+    const draft = draftFromInteraction(
+      {
+        outcome: 'hung_up',
+        supportAnswer: null,
+        willVote: null,
+        followUp: null,
+        occurredAt: new Date(),
+      },
+      false,
+    )
     expect(draft).toEqual({ outcome: 'answered', engagement: 'hung_up' })
     expect(buildRecordCallRequest(5, draft, 'active-person', false)).toEqual({
       entryId: 5,

@@ -212,6 +212,7 @@ export const draftWithFollowUp = (
 // active person's.
 export const draftFromInteraction = (
   interaction: PhoneBankingInteraction | null,
+  isServe: boolean,
 ): PhoneBankingOutcomeDraft =>
   interaction
     ? {
@@ -230,9 +231,19 @@ export const draftFromInteraction = (
               : interaction.outcome === 'hung_up'
                 ? 'hung_up'
                 : undefined,
-        supportAnswer: interaction.supportAnswer ?? undefined,
-        willVote: interaction.willVote ?? undefined,
-        followUp: interaction.followUp ?? undefined,
+        // Only this surface's own answers are read back. Serve phone banking
+        // shipped asking support and will-vote, so its existing rows carry
+        // both — reading those into a Serve draft would leave a row that can
+        // never be completed (its follow-up is unanswered) and, if it were,
+        // a body the write schema refuses for mixing the two vocabularies.
+        // The engagement above still reads the interaction, so a legacy row
+        // correctly reopens as engaged and is simply re-asked Serve's
+        // question.
+        supportAnswer: isServe
+          ? undefined
+          : (interaction.supportAnswer ?? undefined),
+        willVote: isServe ? undefined : (interaction.willVote ?? undefined),
+        followUp: isServe ? (interaction.followUp ?? undefined) : undefined,
       }
     : EMPTY_DRAFT
 
