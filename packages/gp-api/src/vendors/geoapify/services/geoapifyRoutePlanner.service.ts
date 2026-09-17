@@ -101,6 +101,27 @@ type PathGeometryFetch = {
   billedWaypoints: number
 }
 
+// Geoapify answered, and the answer is that it will not plan THIS request.
+// Distinct from a BadGateway because nothing is broken and nothing is
+// retryable: the same coordinates produce the same refusal every time, so a
+// caller that turns this into "try again in a moment" is lying to someone.
+// The caller owns the HTTP status, because only the caller knows what the job
+// ids mean — here they are opaque strings.
+//
+// `unroutableJobIds` is the reconciliation's answer (requested minus planned),
+// not `issues.unassigned_jobs`, so a stop the vendor drops without mentioning
+// is named too. Empty when the vendor planned nothing at all and there is
+// therefore no subset to blame.
+export class RoutePlanRejectedError extends Error {
+  constructor(
+    message: string,
+    readonly unroutableJobIds: string[] = [],
+  ) {
+    super(message)
+    this.name = 'RoutePlanRejectedError'
+  }
+}
+
 @Injectable()
 export class GeoapifyRoutePlannerService {
   constructor(private readonly logger: PinoLogger) {
@@ -178,8 +199,12 @@ export class GeoapifyRoutePlannerService {
     const issues = result.getRaw().properties?.issues
     const agentPlan = result.getAgentPlans()[0]
     if (!agentPlan) {
-      this.logger.error({ issues }, 'Geoapify returned no agent plan')
-      throw new BadGatewayException('Route optimization returned no plan')
+      // A 200 carrying no plan is a verdict on the input, not a fault: the
+      // vendor read the request and declined it. Measured against the live API,
+      // the way to provoke this is to give the agent an anchor the road network
+      // cannot reach, at which point every job comes back unassigned too.
+      this.logger.warn({ issues }, 'Geoapify returned no agent plan')
+      throw new RoutePlanRejectedError('Route optimization returned no plan')
     }
 
     const actions = agentPlan.getActions()
@@ -223,16 +248,25 @@ export class GeoapifyRoutePlannerService {
       planned.size !== args.jobs.length ||
       orderedJobIds.length !== args.jobs.length
     ) {
-      this.logger.error(
+      // Which ones, so the caller can name them. A job the network cannot
+      // reach — a geocode in open water, a parcel with no way to it — comes
+      // back here while every other stop plans normally, so this is a fact
+      // about a handful of addresses rather than about the turf.
+      const unroutableJobIds = args.jobs
+        .map((job) => job.id)
+        .filter((id) => !planned.has(id))
+      this.logger.warn(
         {
           requested: args.jobs.length,
           planned: orderedJobIds.length,
+          unroutableJobIds,
           issues,
         },
         'Geoapify plan does not cover every stop',
       )
-      throw new BadGatewayException(
+      throw new RoutePlanRejectedError(
         'Route optimization did not cover every stop',
+        unroutableJobIds,
       )
     }
 

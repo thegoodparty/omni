@@ -26,13 +26,17 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
  *
  * This list needs to carry less than it used to. Door knocking's other
  * designed 4xx — an empty or oversized turf, an ineligible district the
- * webapp renders as a state — are 400s, and EXCLUDED_STATUS_CODES now drops
- * those on every controller. 429 is what still requires the entry. A
- * controller whose only designed 4xx is a 400 does not belong here.
+ * webapp renders as a state, a turf holding an address the road network
+ * cannot reach — are 400s, and EXCLUDED_STATUS_CODES now drops those on every
+ * controller. 429 is what still requires the entry. A controller whose only
+ * designed 4xx is a 400 does not belong here.
  *
  * What is worth waking someone for is the 5xx range: a missing
- * GEOAPIFY_API_KEY (502), a Route Planner outage or a plan that doesn't cover
- * every stop (502), and unhandled 500s.
+ * GEOAPIFY_API_KEY (502), a Route Planner outage (502), and unhandled 500s. A
+ * plan that skips a stop is NOT in that range any more — the vendor is
+ * working and the turf is the problem, so it answers 400 naming the address.
+ * Its only trace is the `door-knocking turf contains stops the route planner
+ * cannot reach` warn line, which is deliberate: it is a data fix, not a page.
  *
  * And, since 2026-08-25, a completion with NO status — see `noStatusFilter` in
  * alerting/controller-alerts.ts. That is a request gp-api never answered, so
