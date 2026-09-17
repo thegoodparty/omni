@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common'
@@ -104,6 +105,106 @@ describe('PollPurchaseHandlerService', () => {
         service.handlePollPostPurchase('sess_1', rawMetadata),
       ).rejects.toThrow(BadRequestException)
       expect(pollsService.expandPoll).not.toHaveBeenCalled()
+    })
+  })
+
+  // The duplicate arrives because completeCheckoutSession can run twice for one
+  // payment: the Stripe webhook and the browser redirect both call it, and the
+  // postPurchaseCompletedAt marker is only written after the handler returns.
+  // Both attempts carry the same client-minted pollId, so the second insert
+  // trips the poll primary key.
+  describe('handlePollPostPurchase - new poll duplicate fulfillment', () => {
+    const rawMetadata = {
+      pollPurchaseType: 'new',
+      pollId: POLL_ID,
+      name: 'Top Community Issues',
+      message: 'What matters most to you?',
+      audienceSize: 500,
+      scheduledDate: '2026-09-20T00:00:00.000Z',
+      userId: '1',
+    }
+
+    const uniqueConstraintError = () =>
+      Object.assign(
+        new Error('Unique constraint failed on the fields: (`id`)'),
+        {
+          name: 'PrismaClientKnownRequestError',
+          code: 'P2002',
+          meta: { target: ['id'] },
+        },
+      )
+
+    beforeEach(() => {
+      usersService.findUser.mockResolvedValue({ id: 1 })
+      electedOfficeService.findFirst.mockResolvedValue({ id: 'eo-1' })
+    })
+
+    it('creates the poll with the checkout pollId on the first fulfillment', async () => {
+      pollsService.create.mockResolvedValue({ id: POLL_ID })
+
+      await service.handlePollPostPurchase('sess_1', rawMetadata)
+
+      expect(pollsService.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: POLL_ID,
+          electedOfficeId: 'eo-1',
+          targetAudienceSize: 500,
+        }),
+      )
+    })
+
+    it('swallows the duplicate-create P2002 when the poll is already the buyer own', async () => {
+      pollsService.create.mockRejectedValue(uniqueConstraintError())
+      pollsService.findUnique.mockResolvedValue({
+        id: POLL_ID,
+        electedOfficeId: 'eo-1',
+      })
+
+      await expect(
+        service.handlePollPostPurchase('sess_1', rawMetadata),
+      ).resolves.toBeUndefined()
+    })
+
+    it('rejects permanently when the pollId belongs to another elected office', async () => {
+      pollsService.create.mockRejectedValue(uniqueConstraintError())
+      pollsService.findUnique.mockResolvedValue({
+        id: POLL_ID,
+        electedOfficeId: 'eo-victim',
+      })
+
+      // BadRequestException specifically: paymentEventsService acknowledges
+      // BadRequest and retries everything else, and a client-chosen id owned by
+      // another office is identical on every redelivery.
+      await expect(
+        service.handlePollPostPurchase('sess_1', rawMetadata),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('stays retryable when the conflicting poll cannot be re-read', async () => {
+      pollsService.create.mockRejectedValue(uniqueConstraintError())
+      pollsService.findUnique.mockResolvedValue(null)
+
+      const error = await service
+        .handlePollPostPurchase('sess_1', rawMetadata)
+        .catch((e: unknown) => e)
+
+      expect(error).toBeInstanceOf(ConflictException)
+      // Not a BadRequest, so the webhook rethrows and Stripe redelivers rather
+      // than acknowledging a purchase that fulfilled nothing.
+      expect(error).not.toBeInstanceOf(BadRequestException)
+    })
+
+    it('rethrows non-P2002 Prisma failures instead of reporting fulfillment', async () => {
+      const poolTimeout = Object.assign(new Error('pool timeout'), {
+        name: 'PrismaClientKnownRequestError',
+        code: 'P2024',
+      })
+      pollsService.create.mockRejectedValue(poolTimeout)
+
+      await expect(
+        service.handlePollPostPurchase('sess_1', rawMetadata),
+      ).rejects.toThrow('pool timeout')
+      expect(pollsService.findUnique).not.toHaveBeenCalled()
     })
   })
 })
