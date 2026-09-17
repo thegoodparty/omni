@@ -144,7 +144,7 @@ export function buildSlackBlocks({
                 },
                 {
                   type: SlackMessageType.TEXT,
-                  text: String(phone),
+                  text: phone || 'N/A',
                 },
               ],
             },

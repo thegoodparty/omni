@@ -149,3 +149,28 @@ describe('buildSlackBlocks - text count', () => {
     expect(findLabeledValue(blocks, '# of Billable Texts: ')).toBe('N/A')
   })
 })
+
+describe('buildSlackBlocks - phone', () => {
+  const baseParams = {
+    type: OutreachType.text,
+    formattedAudience: [],
+  }
+
+  it('renders the phone when provided', () => {
+    const { blocks } = buildSlackBlocks({ ...baseParams, phone: '8286063703' })
+
+    expect(findLabeledValue(blocks, 'Phone: ')).toBe('8286063703')
+  })
+
+  it('renders "N/A" when phone is omitted', () => {
+    const { blocks } = buildSlackBlocks(baseParams)
+
+    expect(findLabeledValue(blocks, 'Phone: ')).toBe('N/A')
+  })
+
+  it('renders "N/A" when phone is an empty string', () => {
+    const { blocks } = buildSlackBlocks({ ...baseParams, phone: '' })
+
+    expect(findLabeledValue(blocks, 'Phone: ')).toBe('N/A')
+  })
+})

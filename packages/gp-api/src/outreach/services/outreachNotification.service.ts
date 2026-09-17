@@ -207,11 +207,13 @@ export class OutreachNotificationService {
 
     // Best-effort: a lookup failure must not suppress the Slack notification.
     let peerlyIdentityId: string | undefined
+    let filingPhone: string | undefined
     try {
       const tcr = await this.tcrCompliance.findFirst({
         where: { campaignId: campaign.id },
       })
       peerlyIdentityId = tcr?.peerlyIdentityId ?? undefined
+      filingPhone = tcr?.phone || undefined
     } catch (err) {
       this.logger.error(
         { err, campaignId: campaign.id },
@@ -222,7 +224,12 @@ export class OutreachNotificationService {
     return buildSlackBlocks({
       name: `${(user.firstName || '').trim()} ${(user.lastName || '').trim()}`,
       email: user.email,
-      ...(user.phone ? { phone: user.phone } : {}),
+      // Google sign-ups reached the product without a phone for months, so
+      // the 10DLC filing number is often the only one we hold. Label it so
+      // CAS knows it is the compliance contact, not the account phone.
+      phone:
+        user.phone ||
+        (filingPhone ? `${filingPhone} (10DLC filing)` : undefined),
       assignedPa,
       crmCompanyId,
       voterFileUrl,
