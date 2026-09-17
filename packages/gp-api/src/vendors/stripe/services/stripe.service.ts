@@ -769,13 +769,26 @@ export class StripeService {
   // rejects that as StripeInvalidRequestError, which would surface as a 502
   // and abort the caller's DB write — leaving the campaign stuck as Pro. Read
   // status first and treat an already-canceled sub as success.
+  //
+  // The status read cannot stand alone, because it is a check against state
+  // that a concurrent request can change between the two calls: two overlapping
+  // de-Pro requests both retrieve `active`, both proceed, and the second cancel
+  // is the one Stripe rejects. The idempotency key closes that window — within
+  // Stripe's 24-hour replay window the second cancel returns the first one's
+  // response instead of erroring — and keys off the subscription id so every
+  // retry for the same subscription is the same request. It matches every other
+  // mutating call in this service for the same reason.
   async cancelSubscription(subscriptionId: string) {
     try {
       const existing = await this.stripe.subscriptions.retrieve(subscriptionId)
       if (existing.status === 'canceled') {
         return existing
       }
-      return await this.stripe.subscriptions.cancel(subscriptionId)
+      return await this.stripe.subscriptions.cancel(
+        subscriptionId,
+        {},
+        { idempotencyKey: `cancel-subscription-${subscriptionId}` },
+      )
     } catch (e) {
       if (e instanceof Error) {
         this.logger.error(e, `Failed to cancel subscription ${subscriptionId}`)

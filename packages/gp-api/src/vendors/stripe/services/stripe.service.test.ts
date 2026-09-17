@@ -527,8 +527,61 @@ describe('StripeService.cancelSubscription', () => {
 
     const result = await service.cancelSubscription('sub_live')
 
-    expect(subscriptionsCancel).toHaveBeenCalledWith('sub_live')
+    expect(subscriptionsCancel).toHaveBeenCalledWith(
+      'sub_live',
+      {},
+      { idempotencyKey: 'cancel-subscription-sub_live' },
+    )
     expect(result).toMatchObject({ id: 'sub_live', status: 'canceled' })
+  })
+
+  // The status read above is a check against state a concurrent request can
+  // change: two overlapping de-Pro clicks both retrieve `active`, so both reach
+  // the cancel and the already-canceled branch never fires for the second one.
+  // Only a key Stripe recognises as the same request makes that second cancel
+  // replay instead of raising StripeInvalidRequestError, so what matters is that
+  // the key is derived from the subscription rather than from the attempt.
+  it('sends the same idempotency key for overlapping cancels of one subscription', async () => {
+    subscriptionsRetrieve.mockResolvedValue({
+      id: 'sub_live',
+      status: 'active',
+    })
+    subscriptionsCancel.mockResolvedValue({
+      id: 'sub_live',
+      status: 'canceled',
+    })
+
+    await Promise.all([
+      service.cancelSubscription('sub_live'),
+      service.cancelSubscription('sub_live'),
+    ])
+
+    const keys = subscriptionsCancel.mock.calls.map(
+      ([, , options]) => options?.idempotencyKey,
+    )
+    expect(keys).toHaveLength(2)
+    expect(new Set(keys).size).toBe(1)
+    expect(keys[0]).toBe('cancel-subscription-sub_live')
+  })
+
+  it('keys each subscription separately so one cancel cannot replay for another', async () => {
+    subscriptionsRetrieve.mockImplementation((id: string) =>
+      Promise.resolve({ id, status: 'active' }),
+    )
+    subscriptionsCancel.mockImplementation((id: string) =>
+      Promise.resolve({ id, status: 'canceled' }),
+    )
+
+    await service.cancelSubscription('sub_one')
+    await service.cancelSubscription('sub_two')
+
+    const keys = subscriptionsCancel.mock.calls.map(
+      ([, , options]) => options?.idempotencyKey,
+    )
+    expect(keys).toEqual([
+      'cancel-subscription-sub_one',
+      'cancel-subscription-sub_two',
+    ])
   })
 
   // Race between a retried de-Pro click and the customer.subscription.deleted
