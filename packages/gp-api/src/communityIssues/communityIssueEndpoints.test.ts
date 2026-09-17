@@ -1,5 +1,5 @@
 import { useTestService } from '@/test-service'
-import { HttpStatus } from '@nestjs/common'
+import { BadGatewayException, HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { v7 as uuidv7 } from 'uuid'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
@@ -853,6 +853,57 @@ describe('POST /v1/community-issues/seed', () => {
       'meeting_briefing/019826f4-0000-7000-8000-00000000000a/artifact.json',
     )
     expect(after.artifact).toEqual({ executive_summary: { items: [] } })
+  })
+
+  it('refuses a date the briefing seed already owns', async () => {
+    stubS3()
+    // The row BriefingSeedService writes, identified by its deterministic key.
+    await seedExistingBriefing(
+      'meeting-pipeline-dev',
+      `briefing-seed/${eoId}/2026-07-01.json`,
+    )
+
+    const res = await service.client.post(
+      `${BASE}/seed`,
+      seedBody(),
+      eoHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+
+    // Without the guard this returned 200 and wrote a link row whose
+    // briefingItemId appears nowhere in the briefing seed's artifact, and
+    // CommunityIssueService drops every such link — so the issue's related
+    // briefing was gone from every reader with nothing logged. The link rows
+    // must not be written at all.
+    const links = await service.prisma.meetingBriefingItemLink.findMany({
+      where: { meetingBriefing: { electedOfficeId: eoId } },
+    })
+    expect(links).toEqual([])
+  })
+
+  it('commits no briefing row when the stub artifact upload fails', async () => {
+    const s3 = service.app.get(S3Service)
+    vi.spyOn(s3, 'uploadFile').mockRejectedValue(
+      new BadGatewayException('Error communicating with AWS service'),
+    )
+
+    const res = await service.client.post(
+      `${BASE}/seed`,
+      seedBody(),
+      eoHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.BAD_GATEWAY)
+
+    // Pins the write order, which is the whole point of this branch: a
+    // MeetingBriefing row is a promise that an object exists at
+    // (artifactBucket, artifactKey), and both read paths GET it
+    // unconditionally. Committing the row first turned one failed PUT into a
+    // briefing that 502s on every read forever with no code path able to
+    // repair it — 768 times in seven days on dev.
+    const briefings = await service.prisma.meetingBriefing.findMany({
+      where: { electedOfficeId: eoId },
+    })
+    expect(briefings).toEqual([])
   })
 
   it('returns 403 when OTEL_SERVICE_ENVIRONMENT is a customer env (prod)', async () => {

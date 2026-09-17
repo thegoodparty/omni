@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable } from '@nestjs/common'
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common'
 import { ElectedOffice, ExperimentRunStatus } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { parseIsoDateAsUTC } from 'src/shared/util/date.util'
@@ -165,6 +169,26 @@ export class CommunityIssueSeedService extends createPrismaBase(
       // meeting_briefing where artifact_bucket = 'seed'` and delete it.
       const repairsPreFixPointer =
         existing?.artifactBucket === 'seed' && existing.artifactKey === 'seed'
+
+      // The other seed owns this (office, date) if the row carries its
+      // deterministic key, and falling through to `update: {}` would be the
+      // silent failure this file already guards in the other direction. The
+      // upload is skipped, the row keeps pointing at an artifact listing only
+      // seed-item-N, and the link rows below still get written with the
+      // caller's briefingItemIds — which CommunityIssueService drops, every
+      // one, because they are absent from that artifact. The issues would lose
+      // their related briefing with nothing logged.
+      //
+      // One row holds one seed's artifact, so the collision has to surface on
+      // the call that causes it. Only BriefingSeedService writes this prefix,
+      // and a false positive costs a spurious 409 rather than a dropped link,
+      // so the prefix alone is the check — no need to also pin the bucket,
+      // which MEETING_PIPELINE_BUCKET can legitimately vary per deploy.
+      if (existing?.artifactKey.startsWith('briefing-seed/')) {
+        throw new ConflictException(
+          `A briefing seeded by POST /v1/meetings/briefings/seed already exists for ${meetingDate}; seed the two from different meeting dates`,
+        )
+      }
 
       // The row this creates only exists to anchor the MeetingBriefingItemLink
       // below, but it is a fully-fledged briefing pointer as far as every
