@@ -33,11 +33,32 @@ name: gpbot review gap alert
 # because it answers "did a human look?" — a different question from "is this
 # waiting on a word nobody knows to say?".
 #
-# Reads only. Like the other two gpbot alerts, this MUST NEVER merge, close, or
-# approve anything. It does not send `delegate review` itself either: replying
-# on the author's behalf would re-check a head they may still be working on,
-# and the reply is a claim that the blockers were addressed. That is theirs to
-# make.
+# SO IT ASKS, AND ONLY NAMES A PERSON WHEN THERE IS SOMETHING FOR THEM TO DO.
+# The first version of this file reported every gap to Slack and sent nothing
+# itself, on the grounds that `delegate review` is a claim that the blockers
+# were addressed and that claim is the author's to make. True — when there are
+# blockers. Most of these PRs have none: delegate commented, the author fixed
+# it and pushed, and the approval that would have followed was never asked for.
+# There is no claim to make there, and no reason a person should be the one
+# saying two fixed words.
+#
+# What that cost, on the run that prompted this: #1890 and #1137 were both
+# reported with zero delegate threads open, so @melecia-gp was asked to do
+# something already done and @app/dependabot — which cannot read Slack — was
+# asked at all. Only #1877 had real blockers (three) and belonged in the
+# channel. Two thirds of the message was noise addressed to the wrong actor.
+#
+# Delegate has no commenter filter (ops/delegate/lambdas/github.ts —
+# shouldDispatchReReview checks the event, the action, PR-openness, the trigger
+# regex and a repo allowlist, and nothing about who commented), so an ask from
+# github-actions[bot] is honoured exactly like a human's.
+#
+# The objection about re-checking a head the author may still be editing
+# survives, and is answered by GRACE_MINUTES: this only acts on a head that has
+# been still for two hours.
+#
+# Still NEVER merges, closes, or approves anything, like the other two gpbot
+# alerts. Posting `delegate review` is the one write it makes.
 
 on:
   schedule:
@@ -49,7 +70,9 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
+  # Posting `delegate review`. Still no `checks`, no `contents: write` and no
+  # approval scope — the one write this job makes is a comment.
+  pull-requests: write
 
 concurrency:
   group: gpbot-review-gap-alert
@@ -69,6 +92,23 @@ env:
   # BOT_REVIEWERS. Getting this wrong matches nothing and the job goes green
   # reporting no gaps, which is the failure this repo keeps re-learning.
   REVIEWER: 'delegate-reviewer[bot]'
+  # Matches the CI drive's MAX_REVIEW_REQUESTS, and for the same reason: a
+  # reviewer that has been asked twice against a still head and has not
+  # answered is not going to answer on the third ask, and by then the problem
+  # is delegate rather than the PR.
+  #
+  # Counted off the PR's own comments rather than tallied anywhere, exactly as
+  # clickup_bot/ci_triage.py does it — see _coerce_asks there. The ask IS a
+  # comment, so the comments are the ledger and an ask that failed to post is
+  # an ask that does not count.
+  ASK_CAP: '2'
+  # The whole body of an ask, and the string the count above matches on. Both
+  # ends have to agree or the cap silently resets, and delegate's own trigger
+  # is a WHOLE-LINE regex (`/^\s*delegate[ \t]+review\s*$/im` in
+  # ops/delegate/lambdas/github.ts), so an extra word here means it is never
+  # honoured at all. This is why the reviews it posts — which contain the
+  # phrase in backticks, mid-sentence — do not trigger it recursively.
+  ASK_BODY: 'delegate review'
 
 jobs:
   alert:
@@ -96,7 +136,7 @@ jobs:
           # commit's date is fetched per candidate below, after the cheap
           # filters have cut the list down.
           gh pr list --repo "$REPO" --state open --limit 200 \
-            --json number,title,url,isDraft,headRefOid,createdAt,author,reviews \
+            --json number,title,url,isDraft,headRefOid,createdAt,author,reviews,headRefName \
             > prs.json
 
           # Two exclusions, both of which would otherwise be false alarms:
@@ -127,10 +167,19 @@ jobs:
           # `.reviews[].state` here is GraphQL's, which is why the author login
           # in it is bare while REVIEWER below carries `[bot]` — the two halves
           # of this job read two different APIs. See gpbot-stale-pr-alert.yml.
+          # A THIRD EXCLUSION: PRs the CI drive owns. gpbot-ci-drive.yml reaches
+          # the same decision about the same PRs with far more context — it asks
+          # only once conflicts, checks and findings are settled, because an
+          # approval names a commit and its own fix run is about to move the
+          # head. Two automated actors asking would buy delegate runs against a
+          # head that is still moving, and the drive escalates to Slack by
+          # itself, so these are not reported here either. Same predicate the
+          # drive uses to pick them up.
           jq -r '
             .[]
             | select(.isDraft | not)
             | select([.reviews[]? | select(.state == "APPROVED")] | length == 0)
+            | select((.title | startswith("[GP-Bot]")) or (.headRefName | contains("/gp-bot_")) | not)
             | "\(.number)\t\(.headRefOid)\t\(.createdAt)\t\(.author.login // "unknown")\t\(.url)\t\(.title)"
           ' prs.json > candidates.tsv
 
@@ -144,7 +193,9 @@ jobs:
           # was stamped e6b042bda, which `git merge-base --is-ancestor` puts
           # nowhere in the branch's history at all, because a force-push had
           # orphaned it four minutes before the review was posted.
-          : > gaps.txt
+          : > blocked.txt
+          : > unanswered.txt
+          asked=0
           while IFS=$'\t' read -r num head created author url title; do
             [ -n "${num:-}" ] || continue
 
@@ -200,20 +251,109 @@ jobs:
               | jq -s --arg r "$REVIEWER" --arg h "$head" \
                 '(add // []) | [.[] | select(.user.login == $r and .commit_id == $h)] | length')"
 
-            if [ "$reviewed" = "0" ]; then
-              echo "gap: #$num ($author) head ${head:0:9}"
-              printf '• <%s|#%s> %s — @%s\n' "$url" "$num" "$title" "$author" >> gaps.txt
+            [ "$reviewed" = "0" ] || continue
+            echo "gap: #$num ($author) head ${head:0:9}"
+
+            # WHETHER DELEGATE IS STILL HOLDING A BLOCKER IS THE WHOLE
+            # DISTINCTION, because it is what decides whether `delegate review`
+            # would be a true statement. With a thread open the reply asserts
+            # something only the author knows; with none open it asserts
+            # nothing and asks for a verdict on code already pushed.
+            #
+            # GraphQL, so the login is bare (`delegate-reviewer`) where REVIEWER
+            # above carries `[bot]` — the third API this one job reads. Matched
+            # by prefix so both spellings count, because matching neither is
+            # this repo's recurring way of going green while doing nothing.
+            #
+            # `isOutdated` counts as cleared: a thread against a line the branch
+            # no longer has is not something the author can resolve.
+            # shellcheck disable=SC2016  # $owner/$name/$num are GraphQL
+            # variables bound by the -F flags below, not shell expansions, so
+            # the single quotes are the point.
+            blockers="$(gh api graphql \
+              -f query='query($owner:String!,$name:String!,$num:Int!){
+                repository(owner:$owner,name:$name){
+                  pullRequest(number:$num){
+                    reviewThreads(last:100){
+                      nodes{ isResolved isOutdated comments(first:1){ nodes{ author{ login } } } }
+                    }
+                  }
+                }
+              }' \
+              -F owner="${REPO%%/*}" -F name="${REPO##*/}" -F num="$num" \
+              --jq '[.data.repository.pullRequest.reviewThreads.nodes[]
+                     | select(.isResolved == false and .isOutdated == false)
+                     | select(((.comments.nodes[0].author.login) // "") | startswith("delegate-reviewer"))]
+                    | length' 2>/dev/null)" || blockers=''
+            if [ -z "$blockers" ]; then
+              echo "::warning::could not read the review threads of #$num; skipped this run"
+              continue
+            fi
+
+            if [ "$blockers" != "0" ]; then
+              # The one case that is genuinely a person's. Reported with the
+              # count, because "delegate is holding 3 blockers open" is a
+              # different sentence from "nobody asked", and the old message
+              # said the second to authors in the first situation.
+              echo "  blocked: #$num has $blockers open delegate thread(s); leaving it to $author"
+              printf '• <%s|#%s> %s — @%s (%s open)\n' "$url" "$num" "$title" "$author" "$blockers" >> blocked.txt
+              continue
+            fi
+
+            # Same slurp-and-add shape as the reviews read above, and the same
+            # empty-vs-`[]` care: a PR with no comments answers `[]`, a failed
+            # call answers nothing, and conflating them would read as "never
+            # asked" and uncap the asking.
+            raw_comments="$(gh api "repos/$REPO/issues/$num/comments" --paginate 2>/dev/null)" || raw_comments=''
+            if [ -z "$raw_comments" ]; then
+              echo "::warning::could not read the comments of #$num; skipped this run"
+              continue
+            fi
+            asks="$(printf '%s' "$raw_comments" \
+              | jq -s --arg body "$ASK_BODY" \
+                '(add // []) | [.[]
+                  | select(.user.login == "github-actions[bot]")
+                  | select((((.body) // "") | gsub("^\\s+|\\s+$"; "")) == $body)] | length')"
+
+            if [ "$asks" -ge "$ASK_CAP" ]; then
+              # Asked twice against a still head and still nothing. That is not
+              # the author's problem to solve, so the line says so rather than
+              # telling them to send a third.
+              echo "  unanswered: #$num asked $asks time(s) already"
+              printf '• <%s|#%s> %s — asked %s time(s), still no review\n' "$url" "$num" "$title" "$asks" >> unanswered.txt
+              continue
+            fi
+
+            echo "  asking: #$num (ask $((asks + 1)) of $ASK_CAP)"
+            if gh api -X POST "repos/$REPO/issues/$num/comments" -f body="$ASK_BODY" >/dev/null 2>&1; then
+              asked=$((asked + 1))
+            else
+              # Nothing is spent by a failed ask — no comment, nothing to count
+              # — so the next pass tries again. Warn rather than fail: one PR
+              # that could not be commented on must not stop the rest, and this
+              # job's remaining value is the Slack post.
+              echo "::warning::could not ask for a review on #$num"
             fi
           done < candidates.tsv
 
-          count="$(grep -c '^•' gaps.txt || true)"
-          echo "found $count PR(s) with no $REVIEWER review against the current head"
-          cat gaps.txt
+          blocked_count="$(grep -c '^•' blocked.txt || true)"
+          unanswered_count="$(grep -c '^•' unanswered.txt || true)"
+          echo "asked $asked PR(s); $blocked_count waiting on an author; $unanswered_count unanswered after $ASK_CAP ask(s)"
+          cat blocked.txt unanswered.txt
 
-          echo "count=$count" >> "$GITHUB_OUTPUT"
+          # Only the two buckets a person can act on reach Slack. The asks do
+          # not: the ask is visible on the PR, it resolves itself within
+          # minutes, and announcing every one of them is how this channel
+          # becomes the one people mute.
           {
-            echo 'list<<GAPS_EOF'
-            cat gaps.txt
+            echo "count=$((blocked_count + unanswered_count))"
+            echo "blocked_count=$blocked_count"
+            echo "unanswered_count=$unanswered_count"
+            echo 'blocked<<GAPS_EOF'
+            cat blocked.txt
+            echo 'GAPS_EOF'
+            echo 'unanswered<<GAPS_EOF'
+            cat unanswered.txt
             echo 'GAPS_EOF'
           } >> "$GITHUB_OUTPUT"
 
@@ -223,19 +363,39 @@ jobs:
       - name: Post to Slack
         if: steps.scan.outputs.count != '0' && env.SLACK_TOKEN != '' && env.CHANNEL != ''
         env:
-          GAP_LIST: ${{ steps.scan.outputs.list }}
-          COUNT: ${{ steps.scan.outputs.count }}
+          BLOCKED: ${{ steps.scan.outputs.blocked }}
+          UNANSWERED: ${{ steps.scan.outputs.unanswered }}
+          BLOCKED_COUNT: ${{ steps.scan.outputs.blocked_count }}
+          UNANSWERED_COUNT: ${{ steps.scan.outputs.unanswered_count }}
         run: |
           set -euo pipefail
+
+          # Two sections, because they need two different things, and the old
+          # single section told everyone the wrong one. Each is omitted when
+          # empty rather than printed as a zero.
+          text=''
+          if [ "$BLOCKED_COUNT" != "0" ]; then
+            text="*${BLOCKED_COUNT} PR(s) are waiting on their author.* \`${REVIEWER}\` has blockers still open against the current head, so nobody can merge them. The bot does not send \`delegate review\` on these: that reply asserts the blockers were addressed, and only you know whether they were. Push the fix and it is asked for you automatically."
+            text="${text}"$'\n'"${BLOCKED}"
+          fi
+          if [ "$UNANSWERED_COUNT" != "0" ]; then
+            # A plain `if`, not `[ -n "$text" ] && text=...`: that is an AND-OR
+            # list whose failing test makes the list's status non-zero, which
+            # `set -e` takes as the step failing. Same trap as the `since`
+            # comparison in the scan step.
+            if [ -n "$text" ]; then
+              text="${text}"$'\n\n'
+            fi
+            text="${text}*${UNANSWERED_COUNT} PR(s) have been asked ${ASK_CAP}x and \`${REVIEWER}\` still has not reviewed the current head* after ${GRACE_MINUTES}m. Nothing is blocking on the author here — this one is delegate, and it needs someone to look at why."
+            text="${text}"$'\n'"${UNANSWERED}"
+          fi
+
           # chat.postMessage answers HTTP 200 when it refuses the message, so
           # the `jq -e .ok` is what actually proves delivery. Without it this
           # step goes green while nobody is told — the precise shape of the bug
           # that made #1918 necessary.
-          jq -n \
-            --arg channel "$CHANNEL" \
-            --arg header "*${COUNT} PR(s) have no \`${REVIEWER}\` review against their current head, and have been that way over ${GRACE_MINUTES}m.* Delegate only re-checks a moved head when asked: *reply \`delegate review\` on the PR* once the blockers are addressed. Its approval is the only thing satisfying the ruleset on most PRs, so until then nobody can merge these." \
-            --arg list "$GAP_LIST" \
-            '{channel: $channel, text: ($header + "\n" + $list)}' \
+          jq -n --arg channel "$CHANNEL" --arg text "$text" \
+            '{channel: $channel, text: $text}' \
             | curl -sS -X POST https://slack.com/api/chat.postMessage \
                 -H "Authorization: Bearer $SLACK_TOKEN" \
                 -H 'Content-type: application/json; charset=utf-8' \
