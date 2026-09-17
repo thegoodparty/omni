@@ -43,7 +43,7 @@ describe('PeerlyMediaService', () => {
     const uploadCall = appendSpy.mock.calls.find(
       ([field]) => field === 'initial_file_upload',
     )
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+
     const options = uploadCall?.[2] as { filename: string }
     return options.filename
   }

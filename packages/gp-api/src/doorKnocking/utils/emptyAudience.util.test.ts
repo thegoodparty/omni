@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EMPTY_TURF_MESSAGE, emptyAudienceMessage } from './emptyAudience.util'
+import { emptyAudienceMessage, emptyTurfMessage } from './emptyAudience.util'
 import type { ContactsFilterResolutionInput } from '@/contacts/services/contacts.service'
 
 const filter = (
@@ -8,7 +8,9 @@ const filter = (
 
 describe('emptyAudienceMessage', () => {
   it('names the criterion a list was cut by', () => {
-    expect(emptyAudienceMessage(filter({ supportStatus: ['supporter'] }))).toBe(
+    expect(
+      emptyAudienceMessage(filter({ supportStatus: ['supporter'] }), false),
+    ).toBe(
       "No voters match this list's support status filters — edit the list or pick a different audience",
     )
   })
@@ -23,17 +25,18 @@ describe('emptyAudienceMessage', () => {
           { outreachType: 'text', outreachId: 1, actions: ['responded'] },
         ] as ContactsFilterResolutionInput['activityConditions'],
       }),
+      false,
     )
     expect(message).toContain('previous outreach')
   })
 
   it('reads contacts made off any of its six bucket columns', () => {
-    expect(emptyAudienceMessage(filter({ contactsMade5Plus: true }))).toContain(
-      'contacts made',
-    )
-    expect(emptyAudienceMessage(filter({ contactsMade0: true }))).toContain(
-      'contacts made',
-    )
+    expect(
+      emptyAudienceMessage(filter({ contactsMade5Plus: true }), false),
+    ).toContain('contacts made')
+    expect(
+      emptyAudienceMessage(filter({ contactsMade0: true }), false),
+    ).toContain('contacts made')
   })
 
   it('lists every criterion in play, since the empty set is their intersection', () => {
@@ -47,6 +50,7 @@ describe('emptyAudienceMessage', () => {
           { outreachType: 'text', outreachId: 1, actions: ['responded'] },
         ] as ContactsFilterResolutionInput['activityConditions'],
       }),
+      false,
     )
     expect(message).toContain(
       'support status, previous outreach and contacts made',
@@ -57,7 +61,7 @@ describe('emptyAudienceMessage', () => {
     // Should not be reachable: a list carrying none of the three resolves to
     // a column predicate, and no rows back is the polygon case. Worth a
     // sentence rather than an empty one if it ever is.
-    expect(emptyAudienceMessage(filter({ partyDemocrat: true }))).toBe(
+    expect(emptyAudienceMessage(filter({ partyDemocrat: true }), false)).toBe(
       "No voters match this list's filters — edit the list or pick a different audience",
     )
   })
@@ -70,14 +74,37 @@ describe('emptyAudienceMessage', () => {
       filter({ contactsMade0: true }),
       filter({}),
     ]) {
-      expect(emptyAudienceMessage(input)).not.toContain('turf')
-      expect(emptyAudienceMessage(input)).not.toContain('widen the area')
+      expect(emptyAudienceMessage(input, false)).not.toContain('turf')
+      expect(emptyAudienceMessage(input, false)).not.toContain('widen the area')
     }
   })
 
   it('stays distinct from the polygon message', () => {
-    expect(EMPTY_TURF_MESSAGE).not.toBe(
-      emptyAudienceMessage(filter({ supportStatus: ['supporter'] })),
+    expect(emptyTurfMessage(false)).not.toBe(
+      emptyAudienceMessage(filter({ supportStatus: ['supporter'] }), false),
     )
+  })
+
+  // These sentences are the ones a create failure puts in front of a user, so
+  // they carry the surface's noun — an elected official is never told about
+  // voters. The diagnosis each one makes is unchanged.
+  it('says constituents on serve, in all three sentences', () => {
+    const named = emptyAudienceMessage(
+      filter({ supportStatus: ['supporter'] }),
+      true,
+    )
+    expect(named).toBe(
+      "No constituents match this list's support status filters — edit the list or pick a different audience",
+    )
+    expect(emptyAudienceMessage(filter(), true)).toBe(
+      "No constituents match this list's filters — edit the list or pick a different audience",
+    )
+    expect(emptyTurfMessage(true)).toBe(
+      'No matching constituents inside this turf — widen the area or the filters',
+    )
+
+    for (const message of [named, emptyTurfMessage(true)]) {
+      expect(message).not.toMatch(/\bvoters?\b/i)
+    }
   })
 })

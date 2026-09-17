@@ -66,7 +66,9 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
   it.each(freshServePurposes)(
     'drafts the %s purpose with the verbatim CSV prompt and no candidate/election framing',
     async (purpose) => {
-      mockDraft('You: Hi, is this [voter name]? Voter: Yes, speaking.')
+      mockDraft(
+        'You: Hi, is this [constituent name]? Constituent: Yes, speaking.',
+      )
 
       const res = await postDraft({ purpose, tone: 'warm' })
       expect(res.status).toBe(HttpStatus.CREATED)
@@ -145,7 +147,7 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
     expect(noDraft.status).toBe(HttpStatus.BAD_REQUEST)
     expect(jsonCompletion).not.toHaveBeenCalled()
 
-    mockDraft('You: Adapted words. Voter: Sounds good.')
+    mockDraft('You: Adapted words. Constituent: Sounds good.')
     const withDraft = await postDraft({
       purpose: 'custom',
       tone: 'warm',
@@ -185,7 +187,7 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
   })
 
   it('improves every serve purpose (polish mode) via currentDraft', async () => {
-    mockDraft('You: A polished version. Voter: Great, thanks.')
+    mockDraft('You: A polished version. Constituent: Great, thanks.')
 
     const res = await postDraft({
       purpose: 'share_resource',
@@ -206,7 +208,7 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
     const campaignsService = service.app.get(CampaignsService)
     const fetchSpy = vi.spyOn(campaignsService, 'fetchLiveRaceTargetMetrics')
 
-    mockDraft('You: Hi. Voter: Hello.')
+    mockDraft('You: Hi. Constituent: Hello.')
 
     const res = await postDraft({ purpose: 'community_input', tone: 'direct' })
     expect(res.status).toBe(HttpStatus.CREATED)
@@ -226,7 +228,7 @@ describe('POST /v1/outreach/serve/phone-banking/draft', () => {
 
 describe('Public Profile grounding (ENG-10982)', () => {
   it('includes the Public Profile blocks in the phone-banking draft prompt', async () => {
-    mockDraft('You: Hi. Voter: Hello.')
+    mockDraft('You: Hi. Constituent: Hello.')
     await service.prisma.personProfile.create({
       data: {
         personId: `person-${Date.now()}`,
@@ -259,7 +261,7 @@ describe('Public Profile grounding (ENG-10982)', () => {
   })
 
   it('degrades to the exact baseline prompt for an official with no PersonProfile row', async () => {
-    mockDraft('You: Hi. Voter: Hello.')
+    mockDraft('You: Hi. Constituent: Hello.')
 
     const res = await postDraft({ purpose: 'introduce_myself', tone: 'warm' })
     expect(res.status).toBe(HttpStatus.CREATED)
