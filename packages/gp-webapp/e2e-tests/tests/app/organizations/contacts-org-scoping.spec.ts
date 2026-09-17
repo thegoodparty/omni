@@ -60,8 +60,19 @@ test.describe('Contacts Organization Scoping', () => {
 
     const panel = await openPersonViaTypeahead(page, person!)
     await expect(panel.getByText('Political Party')).not.toBeVisible()
-    await expect(panel.getByText('Registered Voter')).toBeVisible()
-    await expect(panel.getByText('Voter Status')).toBeVisible()
+    // The two voter-file rows survive on Serve — whether this person can take
+    // part, and how reliably they turn out, are facts about them whoever is
+    // asking — but the card states them in Serve's own words. This spec used
+    // to assert the Win labels, which is how "Voter Demographics / Registered
+    // Voter / Voter Status" outlived a vocabulary pass on the one surface
+    // named Constituent Data.
+    await expect(panel.getByText('Registered to vote')).toBeVisible()
+    await expect(panel.getByText('Turnout likelihood')).toBeVisible()
+    await expect(panel.getByText('Registered Voter')).not.toBeVisible()
+    await expect(panel.getByText('Voter Status')).not.toBeVisible()
+    // Support Status rendered here for Serve only, and could only ever read
+    // "Support unknown" — an elected official never asks for a stance.
+    await expect(panel.getByText('Support Status')).not.toBeVisible()
     await closePersonPanel(panel)
   })
 
