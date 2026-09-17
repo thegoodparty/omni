@@ -61,6 +61,7 @@ interface NotifySuccessParams {
   campaignPlanDueDate?: string
   textCount?: number
   billableTextCount?: number
+  callCount?: number
 }
 
 interface NotifyFailureParams {
@@ -172,6 +173,7 @@ export class OutreachNotificationService {
     user: User,
     campaign: Campaign,
     outreach: OutreachWithVoterFileFilter,
+    callCount?: number,
   ): Promise<void> {
     if (outreach.outreachType !== OutreachType.robocall) return
     try {
@@ -181,6 +183,7 @@ export class OutreachNotificationService {
           campaign,
           outreach,
           campaignPlanDueDate: outreach.campaignPlanDueDate ?? undefined,
+          callCount,
         }),
         TARGET_CHANNEL,
       )
@@ -249,6 +252,7 @@ export class OutreachNotificationService {
       campaignPlanDueDate,
       textCount,
       billableTextCount,
+      callCount,
     }: NotifySuccessParams,
     headerText?: string,
   ) {
@@ -318,6 +322,7 @@ export class OutreachNotificationService {
       campaignPlanDueDate,
       textCount,
       billableTextCount,
+      callCount,
       headerText,
     })
   }
