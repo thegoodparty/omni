@@ -187,3 +187,38 @@
   oracle: constraint
   runs: 1
   severity_if_failed: high
+
+- id: B09
+  title: Issue-driven segment build (method case)
+  prompt: There's a vote coming up on a new apartment development near downtown. I want to text people about it. Who should I be reaching out to?
+  expected_route: count_contacts
+  expected_intent:
+    note: exercises BUILDING A SEGMENT — the channel-dependent reach gate, the
+      gate order, per-issue dimension choice, and the coverage check. No anchor
+      geography exists, so the segment has to be built from the dimensions the
+      catalog actually has.
+  gold_sql: null   # gold is behavioral; recover the filters from the trace
+  required_behavior:
+    - the stated channel is texting, so the segment is gated on hasCellPhone
+      from the FIRST count, not added afterwards as a caveat
+    - says why each dimension is in, in terms of what this issue does to
+      people (new units favour renters; the direction is argued, not assumed)
+    - checks fill on any thin dimension (a count with its unknown value
+      against the count without) before letting it carry the segment
+    - states which way the unknown group went
+  forbidden_behavior:
+    - gating a texting list on hasAnyPhone or hasLandline; a landline cannot
+      receive a text, so those people are unreachable on the stated channel
+    - reusing a previous issue's dimension set without re-arguing it
+    - scoring tenure as if owners and renters were affected the same way
+    - inventing neighbourhood or distance-to-site geography (see B08)
+    - saving a segment under ~100 people without flagging it as too narrow
+  notes: >
+    The tenure direction is the specific trap: on a development NEXT DOOR the
+    owners carry the risk, on NEW UNITS the renters stand to gain. Same
+    dimension, opposite direction, and copying the last issue is how it goes
+    wrong. Grade the argument, not the answer — either direction can be
+    defended, silence cannot.
+  oracle: rubric
+  runs: 1
+  severity_if_failed: high

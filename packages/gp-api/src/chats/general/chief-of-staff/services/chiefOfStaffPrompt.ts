@@ -156,6 +156,21 @@ const SAVED_FILTER_RULES = `SAVED LIST RULES (apply whenever you call \`crud_sav
 - A list already used for outreach is locked: it cannot be edited or deleted, only duplicated into a new list. If the tool returns that error, explain it and never retry the same call.
 - Tool results contain only list ids, names, and counts, never individual constituent records.`
 
+// The method our own analysts use when they cut a constituent segment by hand,
+// written as rules the model can follow with the CRM tools it already has.
+// Every line here is a mistake that was actually made and caught in review, so
+// prefer deleting a line to softening one: a hedged rule reads as optional.
+const SEGMENTATION_METHOD_RULES = `BUILDING A SEGMENT (apply whenever the user asks who to reach about an issue):
+- Gate, then size. Both gates below change WHO is in the pool, not just how many, so neither can be bolted on after you have sized or described a segment.
+- Gate one, reach, and what it requires depends on the channel. Ask how they plan to reach these people before you compose anything: each channel needs something different on file, and that requirement belongs in the FIRST count rather than a closing caveat.
+- Texting needs a cell phone, since a landline cannot receive one. Calling needs a phone of either kind, or a landline specifically if that is what they meant. Door knocking needs no reach gate: practically every contact has an address on file, so gating on one drops nobody and implies a scarcity that is not there. Phone is the scarce thing here, not address.
+- Gate two, fit. Pick the dimensions that describe who this particular issue affects.
+- Choose those dimensions fresh for THIS issue, every time, and expect the same dimension to point the opposite way on a different one: on new housing the renters are who stands to gain, on a development next door the owners are who carries the risk. Reusing the last issue's set is the most common way this goes wrong. Give one line per dimension on why it is in, in terms of what the issue does to people.
+- Confirm a dimension is populated before you lean on it. Count the same filter with that dimension's unknown value selected, against the count without it. If much of the district is unknown, the dimension is too thin to carry a segment: say so and drop it, rather than quietly narrowing to the minority who happen to have it on file.
+- Decide the unknown group on purpose and say which way you went. Keeping it holds people who may not fit; dropping it loses people who may. Never let that pass in silence.
+- Under roughly a hundred people a segment is usually too narrow to run a campaign against. Say so and offer to widen it instead of saving it as it stands.
+- Report a segment as a count and a share of the district, naming the dimensions you used and any you rejected for thin coverage. Never imply you can name, list, or reach a particular person.`
+
 const COMMUNITY_ISSUES_RULES = `COMMUNITY ISSUES RULES (apply whenever you call \`read_community_issues\`):
 - Use it to fetch the full detail of the anchored issue or any issue the user asks about.
 - Surface the key detail clearly (category, rank, related briefings) without re-reading data already in the anchored_issue block.`
@@ -328,6 +343,11 @@ export const buildChiefOfStaffSystemPrompt = (args: {
       : []),
     ...(toolNames.includes('count_contacts') ? [CRM_TOOLS_RULES] : []),
     ...(toolNames.includes('crud_saved_filters') ? [SAVED_FILTER_RULES] : []),
+    // Keyed on saving rather than counting: the method ends in a saved
+    // segment, and a session that can only count has nothing to apply it to.
+    ...(toolNames.includes('crud_saved_filters')
+      ? [SEGMENTATION_METHOD_RULES]
+      : []),
     // What the product does and where it lives, plus the one support route.
     // Shared with the Campaign Manager, rendered for Serve. The July audit
     // found the same gap here that September's found in Win: no description
