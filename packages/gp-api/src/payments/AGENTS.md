@@ -87,6 +87,28 @@ to find which app user actually paid — trust it over the email on the Stripe
 customer (users enter arbitrary emails/names at checkout, which also creates
 cross-account confusion when one person has two app users).
 
+**Start with the reconciliation report when the question is "who else?".**
+Every recipe below starts from one reported account. `scripts/stripe-campaign-reconcile.ts`
+starts from Stripe and walks every Pro subscription against the campaign rows,
+which is the only way to find the cases nobody reported — Loki holds 30 days,
+and `campaign.details.subscriptionId` has no constraint, no history, and no
+second copy, so a linkage lost before that window leaves no trace anywhere but
+the divergence itself. It is strictly read-only (GETs and SELECTs; it refuses to
+put any other verb on the wire) and reports five drift classes that map onto the
+recipes here:
+
+| Class               | Shape                                                    | Recipe                                      |
+| ------------------- | -------------------------------------------------------- | ------------------------------------------- |
+| `ORPHANED_ACTIVE`   | Billing at Stripe, no campaign holds the id              | Re-link by `metadata.userId`, else refund   |
+| `DUPLICATE`         | One customer, >1 non-canceled Pro sub                    | "Charged twice", below                      |
+| `MISMATCH`          | Stored `subscriptionId` belongs to another customer      | Fix `customerId`; subs can't be reparented  |
+| `STALE_PRO`         | `isPro` with no live subscription behind it              | "Cancelled Pro but Stripe kept billing"     |
+| `ORPHANED_CANCELED` | Not collecting, no campaign — usually account deletion   | None; read `cancellation_details.reason`    |
+
+`npx tsx scripts/stripe-campaign-reconcile.ts` (add `--json` to pipe it). Full
+operator procedure, including which credentials to use and what remediation each
+class implies: `packages/runbooks/books/reconcile-stripe-subscriptions.md`.
+
 **"Charged twice" (ENG-10771 shape; recurred as ENG-11083).** First check
 for TWO Stripe customers under one email (pre-ENG-11084 checkouts minted one
 per completed session), then list subs per customer. Known chain: duplicate
