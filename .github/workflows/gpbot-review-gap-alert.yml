@@ -6,32 +6,38 @@ name: gpbot review gap alert
 # all, nothing says anything, and the PR cannot be merged by anyone — there is
 # no approval to act on and no red check to investigate. It just stops.
 #
-# That happened twice on 2026-09-17, in two different ways:
+# THIS IS NOT A BUG IN DELEGATE, and the first version of this file said it
+# was. Delegate re-checks a moved head only when asked: every review it posts
+# ends "Reply `delegate review` after fixing", and when the tip moves while it
+# is still reviewing it says so outright. Its review on #1898 read:
 #
-#   - #1898 was force-pushed at 14:14:14. delegate's 14:17:42 review is stamped
-#     e6b042bda, a commit the force-push had already orphaned out of the
-#     branch — `git merge-base --is-ancestor` puts it nowhere in the history.
-#     It had reviewed a SHA that no longer existed and never re-queued: not for
-#     the next push, not for a re-review request, not for a close/reopen, not
-#     for a rebase force-push onto a brand-new head. It had to be reopened as
-#     #1918 to get looked at.
-#   - #1910 was never force-pushed and was simply skipped, sitting un-reviewed
-#     while delegate approved #1911 through #1914 either side of it.
+#   the PR tip moved while this review ran (e6b042bd -> 129d2f6f) so
+#   auto-approval is blocked; reply `delegate review` to re-check against
+#   the new head
 #
-# Both were invisible for hours. gpbot-stale-pr-alert.yml cannot catch either:
-# it only looks at [GP-Bot] PRs, it waits 48h, and it deliberately EXCLUDES
-# delegate from counting as attention — it answers "did a human look?", which
-# is a different question from "can this PR be merged by anyone at all?".
+# That is a complete and accurate account of the state, delivered at 14:17:42.
+# #1898 then sat for two hours anyway, through a push, a re-review request
+# (impossible for an App: the REST call accepts `delegate-reviewer[bot]` and
+# silently returns an empty requested_reviewers), a close/reopen, and a rebase
+# force-push — because nobody read that line. It was eventually reopened as
+# #1918, which was never necessary; two words in a comment would have done it.
 #
-# So this asks the second question, on a timescale that matches how fast
-# delegate normally works (four to seven minutes, measured across #1903 and
-# #1906-#1914).
+# So the failure this catches is discoverability, not reliability. A PR waiting
+# on `delegate review` is indistinguishable, from the outside, from a PR that is
+# merely unreviewed: no approval to act on, no red check to investigate, and no
+# notification after the day it opened. Five open PRs were in that state when
+# this was written, across four authors.
+#
+# gpbot-stale-pr-alert.yml cannot catch it: it only looks at [GP-Bot] PRs, it
+# waits 48h, and it deliberately EXCLUDES delegate from counting as attention,
+# because it answers "did a human look?" — a different question from "is this
+# waiting on a word nobody knows to say?".
 #
 # Reads only. Like the other two gpbot alerts, this MUST NEVER merge, close, or
-# approve anything. Re-requesting an App's review is not possible in any case:
-# the REST call accepts `delegate-reviewer[bot]` and silently returns an empty
-# `requested_reviewers`. The fix for a gap is a human reopening the PR, which
-# is a decision, not a cleanup.
+# approve anything. It does not send `delegate review` itself either: replying
+# on the author's behalf would re-check a head they may still be working on,
+# and the reply is a claim that the blockers were addressed. That is theirs to
+# make.
 
 on:
   schedule:
@@ -50,11 +56,14 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Long enough that a slow queue is never reported as a gap. delegate's
-  # observed worst case on a healthy day is seven minutes; the two real gaps
-  # were still empty at 95 and 50 minutes, so anything from ~20 up separates
-  # them cleanly and 45 leaves room for a bad afternoon.
-  GRACE_MINUTES: '45'
+  # Two hours, which is a deliberate compromise rather than a measurement.
+  # Delegate answers a fresh PR in four to seven minutes, so anything over ~20
+  # would catch a genuine stall. But most PRs in this state are waiting on an
+  # author who is mid-fix on a real blocker, and telling them about it forty
+  # minutes in is nagging — the fastest way to make this alert the one people
+  # mute. Two hours is long enough to mean "this looks parked" and short enough
+  # that it does not cost the author their afternoon, as #1898 did.
+  GRACE_MINUTES: '120'
   # REST, not GraphQL, so the login carries the suffix. gpbot-stale-pr-alert.yml
   # needs the bare form for the opposite reason — see the note on its
   # BOT_REVIEWERS. Getting this wrong matches nothing and the job goes green
@@ -116,7 +125,10 @@ jobs:
           # GraphQL's review objects do not carry the reviewed commit, and the
           # reviewed commit is the only thing that distinguishes "reviewed this
           # code" from "reviewed something this branch no longer contains".
-          # That distinction is exactly what #1898 turned on.
+          # That distinction is exactly what #1898 turned on — its one review
+          # was stamped e6b042bda, which `git merge-base --is-ancestor` puts
+          # nowhere in the branch's history at all, because a force-push had
+          # orphaned it four minutes before the review was posted.
           : > gaps.txt
           while IFS=$'\t' read -r num head created author url title; do
             [ -n "${num:-}" ] || continue
@@ -206,7 +218,7 @@ jobs:
           # that made #1918 necessary.
           jq -n \
             --arg channel "$CHANNEL" \
-            --arg header "*${COUNT} PR(s) have no \`${REVIEWER}\` review against their current head, past the ${GRACE_MINUTES}m grace.* Its approval is the only thing satisfying the ruleset on most PRs, so these cannot be merged by anyone until it reviews — reopening the PR is what re-triggers it." \
+            --arg header "*${COUNT} PR(s) have no \`${REVIEWER}\` review against their current head, and have been that way over ${GRACE_MINUTES}m.* Delegate only re-checks a moved head when asked: *reply \`delegate review\` on the PR* once the blockers are addressed. Its approval is the only thing satisfying the ruleset on most PRs, so until then nobody can merge these." \
             --arg list "$GAP_LIST" \
             '{channel: $channel, text: ($header + "\n" + $list)}' \
             | curl -sS -X POST https://slack.com/api/chat.postMessage \
