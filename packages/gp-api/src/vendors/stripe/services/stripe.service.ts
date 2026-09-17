@@ -762,8 +762,19 @@ export class StripeService {
     }
   }
 
+  // Idempotent cancel: a retry after the DB write failed, a race with the
+  // customer.subscription.deleted webhook that clears details.subscriptionId,
+  // or an out-of-band cancel from the Stripe dashboard all leave the caller
+  // asking to cancel a subscription Stripe already shows as canceled. Stripe
+  // rejects that as StripeInvalidRequestError, which would surface as a 502
+  // and abort the caller's DB write — leaving the campaign stuck as Pro. Read
+  // status first and treat an already-canceled sub as success.
   async cancelSubscription(subscriptionId: string) {
     try {
+      const existing = await this.stripe.subscriptions.retrieve(subscriptionId)
+      if (existing.status === 'canceled') {
+        return existing
+      }
       return await this.stripe.subscriptions.cancel(subscriptionId)
     } catch (e) {
       if (e instanceof Error) {

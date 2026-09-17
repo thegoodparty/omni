@@ -17,6 +17,8 @@ const {
   paymentIntentsSearch,
   customersCreate,
   customersDel,
+  subscriptionsRetrieve,
+  subscriptionsCancel,
   MockStripeError,
   MockStripeCardError,
 } = vi.hoisted(() => ({
@@ -28,6 +30,8 @@ const {
   paymentIntentsSearch: vi.fn(),
   customersCreate: vi.fn(),
   customersDel: vi.fn(),
+  subscriptionsRetrieve: vi.fn(),
+  subscriptionsCancel: vi.fn(),
   MockStripeError: class StripeInvalidRequestError extends Error {},
   MockStripeCardError: class StripeCardError extends Error {
     payment_intent?: { id: string }
@@ -57,6 +61,10 @@ vi.mock('stripe', () => ({
       search: paymentIntentsSearch,
     }
     customers = { create: customersCreate, del: customersDel }
+    subscriptions = {
+      retrieve: subscriptionsRetrieve,
+      cancel: subscriptionsCancel,
+    }
   },
 }))
 
@@ -493,5 +501,57 @@ describe('StripeService.createManualCaptureHold', () => {
     await expect(
       service.createManualCaptureHold(holdArgs),
     ).rejects.toBeInstanceOf(BadGatewayException)
+  })
+})
+
+describe('StripeService.cancelSubscription', () => {
+  let service: StripeService
+
+  beforeEach(() => {
+    service = new StripeService(
+      { errorMessage: vi.fn() } as unknown as SlackService,
+      {} as unknown as UsersService,
+      createMockLogger(),
+    )
+  })
+
+  it('cancels an active subscription', async () => {
+    subscriptionsRetrieve.mockResolvedValue({
+      id: 'sub_live',
+      status: 'active',
+    })
+    subscriptionsCancel.mockResolvedValue({
+      id: 'sub_live',
+      status: 'canceled',
+    })
+
+    const result = await service.cancelSubscription('sub_live')
+
+    expect(subscriptionsCancel).toHaveBeenCalledWith('sub_live')
+    expect(result).toMatchObject({ id: 'sub_live', status: 'canceled' })
+  })
+
+  // Race between a retried de-Pro click and the customer.subscription.deleted
+  // webhook, or an out-of-band cancel from the Stripe dashboard, leaves the
+  // sub already canceled. Cancel must NOT rethrow — otherwise the caller's DB
+  // write is skipped and the campaign stays stuck as Pro (ENG-10660).
+  it('is idempotent when the subscription is already canceled', async () => {
+    subscriptionsRetrieve.mockResolvedValue({
+      id: 'sub_gone',
+      status: 'canceled',
+    })
+
+    const result = await service.cancelSubscription('sub_gone')
+
+    expect(subscriptionsCancel).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ id: 'sub_gone', status: 'canceled' })
+  })
+
+  it('maps a Stripe retrieve failure to a 502', async () => {
+    subscriptionsRetrieve.mockRejectedValue(new Error('stripe down'))
+
+    await expect(service.cancelSubscription('sub_live')).rejects.toBeInstanceOf(
+      BadGatewayException,
+    )
   })
 })
