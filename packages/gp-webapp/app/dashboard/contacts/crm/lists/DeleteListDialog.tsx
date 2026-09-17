@@ -21,6 +21,7 @@ import { LOCKED_LIST_MESSAGE } from '../shared/constants'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { useContactsTable } from '../ContactsTableProvider'
 import { outreachAudienceListsKey } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
+import { listPeopleQueryKey } from '../map/useListPeople'
 
 interface DeleteListDialogProps {
   segment: SegmentResponse
@@ -59,6 +60,19 @@ export default function DeleteListDialog({
       })
       await queryClient.invalidateQueries({
         queryKey: ['custom-segments', orgSlug],
+      })
+      // The map reads the members, and a deleted list's members outlive it:
+      // the global staleTime is 5 minutes, so re-opening /lists/<id> inside
+      // that window re-mounts the section and draws the deleted list's
+      // constituents from cache with no request. Scoped to this id rather
+      // than the whole key, since no other list's members changed.
+      // The map reads the members, and a deleted list's members outlive it:
+      // the global staleTime is 5 minutes, so re-opening /lists/<id> inside
+      // that window re-mounts the section and draws the deleted list's
+      // constituents from cache with no request. Scoped to this id rather
+      // than the whole key, since no other list's members changed.
+      await queryClient.invalidateQueries({
+        queryKey: listPeopleQueryKey(orgSlug, String(segment.id)),
       })
       // Same endpoint backs the outreach audience picker's list cache; drop the
       // deleted list there too so it can't be re-selected.
