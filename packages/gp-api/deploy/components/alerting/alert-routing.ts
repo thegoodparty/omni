@@ -1,0 +1,143 @@
+/**
+ * Which contact point a provisioned alert would actually be delivered to.
+ *
+ * WHY THIS EXISTS. Every alert in this repo is provisioned from code, and none
+ * of the routing was. The notification policy tree lived only in Grafana Cloud,
+ * hand-edited, and it contained this route:
+ *
+ *     alert_slug =~ ".*warning.*"   ->   receiver "dev-warnings"
+ *
+ * `dev-warnings` is a Slack channel created on 2026-03-19 with the description
+ * "For grafana alerts that are being tested". Nothing was ever posted to it.
+ * Two of the seventeen alert slugs match that pattern —
+ * `win-peerly-warnings` and `win-outreach-paid-not-scheduled-warning` — so both
+ * fired in production and notified nobody. Six firings in the seven days to
+ * 2026-09-17, and by the channel's age plausibly since March.
+ *
+ * It produced no error anywhere. Grafana was not failing to deliver; it was
+ * delivering exactly where it had been told. `alert-notification-delivery-
+ * failing` measures send failures, so it could not have caught this either, and
+ * a route that matches nothing dangerous today starts matching the moment
+ * somebody names an alert with the word "warning" in it.
+ *
+ * So the tree is snapshotted in `alert-routing.policy.json` next to this file,
+ * which makes routing reviewable in a diff, and these functions answer the
+ * question the snapshot exists for: given the tree, where does each alert go.
+ */
+
+/**
+ * A matcher as Grafana's provisioning API returns it: `[label, op, value]`.
+ *
+ * Typed as a plain array rather than a fixed-length tuple because that is what
+ * the API actually sends and what a JSON import of the snapshot infers. A tuple
+ * would only be honest if something validated the length, and `matches` below
+ * has to tolerate a malformed one anyway.
+ */
+export type ObjectMatcher = readonly string[]
+
+export interface PolicyRoute {
+  receiver?: string
+  object_matchers?: readonly ObjectMatcher[]
+  routes?: readonly PolicyRoute[]
+  /** When true, matching this route does not stop evaluation of its siblings. */
+  continue?: boolean
+}
+
+export interface PolicyTree extends PolicyRoute {
+  receiver: string
+}
+
+/**
+ * Whether one matcher holds for a set of labels.
+ *
+ * A MISSING LABEL IS AN EMPTY STRING, which is Alertmanager's rule and not an
+ * arbitrary choice: it is what makes `environment != prod` match an alert that
+ * carries no `environment` label at all. Treating absence as "no match" instead
+ * would silently route unlabelled alerts to the default receiver, which is the
+ * opposite of what the live tree's only remaining route intends.
+ */
+const matches = (matcher: ObjectMatcher, labels: Record<string, string>) => {
+  if (matcher.length !== 3) return false
+
+  const [label, op, value] = matcher
+  const actual = labels[label] ?? ''
+
+  switch (op) {
+    case '=':
+      return actual === value
+    case '!=':
+      return actual !== value
+    case '=~':
+      return new RegExp(`^(?:${value})$`).test(actual)
+    case '!~':
+      return !new RegExp(`^(?:${value})$`).test(actual)
+    default:
+      // An operator we do not model. Reported as not matching, because the
+      // caller treats "routes to the default" as the safe expectation and an
+      // unknown operator should not be able to manufacture a false pass.
+      return false
+  }
+}
+
+/**
+ * The receiver an alert with these labels lands on.
+ *
+ * FIRST MATCH WINS and the search is depth-first, which is Alertmanager's
+ * semantics: a child route that matches replaces its parent's receiver, and the
+ * first matching sibling ends the search unless it sets `continue`. Getting
+ * this wrong in either direction would make the guard lie — too eager and it
+ * reports misrouting that does not happen, too lax and it misses the case it
+ * was written for.
+ */
+export const receiverFor = (
+  tree: PolicyTree,
+  labels: Record<string, string>,
+): string => {
+  const walk = (route: PolicyRoute, inherited: string): string => {
+    const receiver = route.receiver || inherited
+
+    for (const child of route.routes ?? []) {
+      const applies = (child.object_matchers ?? []).every((matcher) =>
+        matches(matcher, labels),
+      )
+      if (!applies) continue
+
+      const resolved = walk(child, receiver)
+      if (!child.continue) return resolved
+    }
+
+    return receiver
+  }
+
+  return walk(tree, tree.receiver)
+}
+
+export interface Misrouting {
+  slug: string
+  receiver: string
+}
+
+/**
+ * Every alert that would be delivered somewhere other than an expected receiver.
+ *
+ * Takes slugs rather than whole alerts so it can be used against both the
+ * hand-written global list and the generated per-controller rules without
+ * either of them having to agree on a shape.
+ */
+export const misroutedAlerts = ({
+  tree,
+  slugs,
+  environment,
+  expected,
+}: {
+  tree: PolicyTree
+  slugs: readonly string[]
+  environment: string
+  expected: readonly string[]
+}): Misrouting[] =>
+  slugs
+    .map((slug) => ({
+      slug,
+      receiver: receiverFor(tree, { alert_slug: slug, environment }),
+    }))
+    .filter(({ receiver }) => !expected.includes(receiver))

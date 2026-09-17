@@ -10,6 +10,8 @@ import {
   KNOWN_CAUSES_ANNOTATION,
 } from './alerting/alert-notification'
 import { controllerAlerts } from './alerting/controller-alerts'
+import { misroutedAlerts, PolicyTree } from './alerting/alert-routing'
+import COMMITTED_POLICY_JSON from './alerting/alert-routing.policy.json'
 import { personProfilesDashboardConfigJson } from './personProfilesDashboard'
 import { CONTROLLER_NAMES } from '../../src/generated/route-types'
 
@@ -43,6 +45,97 @@ const datasourceConfig = {
  */
 export const ALERT_FILTER_WEBHOOK_URLS: Record<string, string> = {
   prod: 'https://ai.goodparty.org/grafana/alert-webhook',
+}
+
+// Kept in step with EXPECTED_PROD_RECEIVERS in alert-routing.test.ts, which is
+// the copy that gates PRs. Two names: where prod alerts go today, and where
+// they go once the filter is routed.
+const EXPECTED_RECEIVERS = ['dev-alerts', 'gpbot-alert-filter'] as const
+
+// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+const COMMITTED_POLICY = COMMITTED_POLICY_JSON as PolicyTree
+
+/**
+ * Check the live notification policy tree against what the repo believes.
+ *
+ * The snapshot in `alerting/alert-routing.policy.json` is what the tests assert
+ * against, and a snapshot is only worth having if something notices when
+ * reality moves away from it. The tree is hand-editable in Grafana Cloud — it
+ * is deliberately not provisioned, because the team needs to be able to change
+ * routing during an incident without shipping a deploy — so drift is expected
+ * to happen and just needs to be visible when it does.
+ *
+ * READ, NOT WRITTEN, and this function will never write. Taking ownership of
+ * the tree from here would make it read-only in the UI, which trades one
+ * failure mode for a worse one.
+ *
+ * Warns rather than fails. A deploy of unrelated application code should not be
+ * blocked because somebody edited routing an hour ago, and erroring here would
+ * mean exactly that. The trade-off is real and worth naming: the last warning
+ * this file emitted went unnoticed for weeks. This one is backed by the test
+ * suite, which fails on a PR if a newly added alert slug would be diverted
+ * under the snapshot; the warning covers only the case where the live tree and
+ * the snapshot disagree, which no test can see.
+ */
+const checkAlertRouting = async ({
+  environment,
+  slugs,
+}: {
+  environment: string
+  slugs: readonly string[]
+}) => {
+  const auth = process.env.GRAFANA_AUTH
+  const url = new pulumi.Config('grafana').get('url')
+  if (!auth || !url) return
+
+  let live: PolicyTree
+  try {
+    const response = await fetch(`${url}/api/v1/provisioning/policies`, {
+      headers: { Authorization: `Bearer ${auth}` },
+    })
+    if (!response.ok) {
+      pulumi.log.warn(
+        `Could not read the notification policy tree (${response.status}), so ` +
+          `routing was not checked this deploy.`,
+      )
+      return
+    }
+    // The provisioning API's documented response shape; `receiverFor` tolerates
+    // routes it cannot interpret rather than trusting this blindly.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    live = (await response.json()) as PolicyTree
+  } catch (error) {
+    pulumi.log.warn(
+      `Could not read the notification policy tree: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
+    )
+    return
+  }
+
+  if (JSON.stringify(live) !== JSON.stringify(COMMITTED_POLICY)) {
+    pulumi.log.warn(
+      `The live notification policy tree no longer matches ` +
+        `deploy/components/alerting/alert-routing.policy.json. Routing is ` +
+        `hand-editable by design, so this is not necessarily wrong — but the ` +
+        `snapshot is what the routing tests check, and it is now stale. ` +
+        `Re-snapshot it from GET /api/v1/provisioning/policies.`,
+    )
+  }
+
+  const misrouted = misroutedAlerts({
+    tree: live,
+    slugs,
+    environment,
+    expected: EXPECTED_RECEIVERS,
+  })
+
+  for (const { slug, receiver } of misrouted) {
+    pulumi.log.warn(
+      `Alert '${slug}' is routed to '${receiver}', which is not a destination ` +
+        `anyone reads. It will fire and notify nobody — this is what happened ` +
+        `to win-peerly-warnings for months via a stale ".*warning.*" route.`,
+    )
+  }
 }
 
 /**
@@ -332,6 +425,16 @@ export const createGrafanaResources = async ({
   })
 
   await alertFilterContactPoint({ environment })
+
+  await checkAlertRouting({
+    environment,
+    slugs: [
+      ...GLOBAL_ALERTS.map((alert) => alert.slug),
+      ...CONTROLLER_NAMES.flatMap((controller) =>
+        controllerAlerts(controller).map((alert) => alert.slug),
+      ),
+    ],
+  })
 
   const alertToRule = (
     alert: Alert,
