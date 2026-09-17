@@ -24,20 +24,23 @@ const ADVICE_SIGNALS: RegExp[] = [
   /\b(?:criminal|civil|legal) liability\b/i,
   /\b(?:criminally|civilly) liable\b/i,
   // Texting/robocall consent regimes and campaign-finance mechanics a
-  // candidate might ask a scope about directly. Six of these pair the term
-  // with a claim-shaped word next to it (consent, rules, applies, skip/miss,
+  // candidate might ask a scope about directly. All eight pair the term
+  // with a claim-shaped word next to it (consent, rules, applies, skip,
   // required/optional), since the bare noun alone (an opt-in rate, a 10DLC
-  // status update, a filing-deadline reminder) is ordinary Campaign Manager
-  // subject matter, not advice. TCPA and "disclaimer requirement" stay bare:
-  // neither shows up in routine operational chat the way the other six do.
+  // or TCPA status update, a routine disclaimer-requirement setting, a
+  // filing-deadline reminder) is ordinary Campaign Manager subject matter,
+  // not advice. "miss" was dropped from the filing-deadline pairing and
+  // "fine" from the robocall one: both read as a plain status report
+  // ("you'll miss it if you wait", "the robocall went fine"), not a claim
+  // about whether the deadline or the call itself is optional or permitted.
   /\bopt-?in consent\b/i,
-  /\bTCPA\b/i,
+  /\bTCPA\b[^.]{0,20}\b(?:rules?|laws?|consent|liability|violation|appl(?:y|ies)|required|exempt)\b/i,
   /\b10DLC\b[^.]{0,20}\b(?:required|optional|mandatory|rules?|laws?)\b/i,
-  /\brobocalls?\b[^.]{0,20}\b(?:rules?|laws?|consent|legal|allowed|fine)\b/i,
+  /\brobocalls?\b[^.]{0,20}\b(?:rules?|laws?|consent|legal|allowed)\b/i,
   /\bcontribution limits? (?:appl(?:y|ies)|does not apply|do not apply)\b/i,
   /\bcampaign finance (?:rules?|laws?|regulations?|requirements?)\b/i,
-  /\bdisclaimer requirements?\b/i,
-  /\b(?:skip|miss|waive|extend) (?:that |the |your )?filing deadlines?\b/i,
+  /\bdisclaimer requirements? (?:appl(?:y|ies)|(?:does|do) not apply|required|optional|mandatory|rules?|laws?)\b/i,
+  /\b(?:skip|waive|extend) (?:that |the |your )?filing deadlines?\b/i,
 ]
 
 // Don't double the line when the model already wrote its own disclaimer (the
@@ -54,6 +57,9 @@ const DISCLAIMER_PRESENT: RegExp[] = [
   // Requires the confirm-type verb near the office/attorney/board, not just
   // its name — naming the election office in passing (e.g. where to file
   // paperwork) is not a caution and must not suppress a real disclaimer.
+  // Also requires a "rely on" phrase after it, so an operational lookup
+  // ("check the election office's hours") doesn't read as a caution
+  // either — only a phrase shaped like the real thing does.
   // Kept to two verbs on purpose: under-matching here only risks a rare
   // harmless double-append (see the comment above), so there's no reason
   // to widen it the way ADVICE_SIGNALS widens for recall.
@@ -62,7 +68,7 @@ const DISCLAIMER_PRESENT: RegExp[] = [
   // line for unrelated advice elsewhere in the same reply. Tightening that
   // further needs to weigh the advice signal against the caution's position
   // in the text, not just its presence — out of scope for a regex pass.
-  /\b(?:confirm|check)\b[^.]{0,30}\b(?:election (?:office|bureau|attorney)|state election board)\b/i,
+  /\b(?:confirm|check)\b[^.]{0,30}\b(?:election (?:office|bureau|attorney)|state election board)\b[^.]{0,40}\brely on\b/i,
 ]
 
 // Returns the line to append (with a leading blank line) when the response

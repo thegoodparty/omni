@@ -43,7 +43,7 @@ describe('professionalAdviceDisclaimer', () => {
       'a robocall-compliance question',
       'Robocalls to this list are legal at that volume.',
     ],
-    ['a TCPA question', 'That call volume is fine under the TCPA.'],
+    ['a TCPA question', 'TCPA rules allow that many calls per day.'],
     [
       'a 10DLC question',
       '10DLC registration is required for a campaign this size.',
@@ -58,7 +58,8 @@ describe('professionalAdviceDisclaimer', () => {
     ],
     [
       'a disclaimer-requirement question',
-      'There is no disclaimer requirement on a text message that short.',
+      'That disclaimer requirement does not apply to a text message ' +
+        'this short.',
     ],
     [
       'a filing-deadline exemption question',
@@ -111,6 +112,12 @@ describe('professionalAdviceDisclaimer', () => {
       ),
     ).toBeNull()
     expect(
+      professionalAdviceDisclaimer('The robocall went out fine this time.'),
+    ).toBeNull()
+    expect(
+      professionalAdviceDisclaimer('Your TCPA registration is active.'),
+    ).toBeNull()
+    expect(
       professionalAdviceDisclaimer(
         'Your 10DLC registration cleared this morning, so your texts ' +
           'are sending now.',
@@ -123,7 +130,17 @@ describe('professionalAdviceDisclaimer', () => {
     ).toBeNull()
     expect(
       professionalAdviceDisclaimer(
+        "You'll miss the filing deadline if you wait much longer.",
+      ),
+    ).toBeNull()
+    expect(
+      professionalAdviceDisclaimer(
         'Your campaign finance report is due at the end of the quarter.',
+      ),
+    ).toBeNull()
+    expect(
+      professionalAdviceDisclaimer(
+        'The disclaimer requirement checkbox is enabled in your campaign.',
       ),
     ).toBeNull()
   })
@@ -141,8 +158,8 @@ describe('professionalAdviceDisclaimer', () => {
     expect(
       professionalAdviceDisclaimer(
         'That contribution limit does not apply to a self-funded loan. ' +
-          'Do not rely on my answer alone for a legal compliance ' +
-          'question; confirm with your state election board.',
+          'Confirm with your state election board before you rely on ' +
+          'this.',
       ),
     ).toBeNull()
     expect(
@@ -153,9 +170,8 @@ describe('professionalAdviceDisclaimer', () => {
     ).toBeNull()
     expect(
       professionalAdviceDisclaimer(
-        'There is no disclaimer requirement on a text message that ' +
-          'short. Confirm with your election office before you rely on ' +
-          'this.',
+        'TCPA rules allow that many calls per day. Confirm with your ' +
+          'election office before you rely on this.',
       ),
     ).toBeNull()
     expect(
@@ -169,8 +185,8 @@ describe('professionalAdviceDisclaimer', () => {
   it('skips the line when a reply says not to rely on it', () => {
     expect(
       professionalAdviceDisclaimer(
-        'That call volume is fine under the TCPA. Do not rely on my ' +
-          'answer alone for a legal compliance question; verify it with ' +
+        'TCPA rules allow that call volume. Do not rely on my answer ' +
+          'alone for a legal compliance question; verify it with ' +
           'support.',
       ),
     ).toBeNull()
@@ -180,7 +196,16 @@ describe('professionalAdviceDisclaimer', () => {
     expect(
       professionalAdviceDisclaimer(
         'The election office also handles yard-sign permits. Robocalls ' +
-          'are fine at that volume under the TCPA.',
+          'are legal at that volume.',
+      ),
+    ).toBe(appended)
+  })
+
+  it('still appends when the office check is only operational', () => {
+    expect(
+      professionalAdviceDisclaimer(
+        'Check the election office hours before you go. Robocalls are ' +
+          'legal at that volume.',
       ),
     ).toBe(appended)
   })
