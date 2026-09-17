@@ -285,6 +285,16 @@ export class ContactEngagementService {
         )
       : []
 
+    // A support answer and a turnout intention are Win facts about a person,
+    // and this feed is read on both surfaces — the walk's person sheet and the
+    // Constituent Data overlay. Nulled here rather than hidden per reader, the
+    // same way `politicalParty` is (`ContactsService.hasElectedOfficeAccess`):
+    // the `eo-` prefix is the whole rule, and one null fixes every reader at
+    // once instead of each one remembering to check. Serve's own answer has no
+    // field on these activity shapes yet, so a Serve row simply states its
+    // outcome, note and actor.
+    const isServe = organizationSlug.startsWith('eo-')
+
     const doorKnockActivities: DoorKnockConstituentActivity[] = doorKnocks.map(
       (activity) => ({
         type: ConstituentActivityType.DOOR_KNOCK,
@@ -292,7 +302,7 @@ export class ContactEngagementService {
         data: {
           activityId: activity.id,
           outcome: activity.outcome,
-          supportAnswer: activity.supportAnswer,
+          supportAnswer: isServe ? null : activity.supportAnswer,
           note: activity.note,
           manual: activity.manual,
           actorName: activity.actor
@@ -340,8 +350,8 @@ export class ContactEngagementService {
         data: {
           activityId: activity.id,
           outcome: activity.outcome,
-          supportAnswer: activity.supportAnswer,
-          willVote: activity.willVote,
+          supportAnswer: isServe ? null : activity.supportAnswer,
+          willVote: isServe ? null : activity.willVote,
           note: activity.note,
           manual: activity.manual,
           actorName: activity.actor

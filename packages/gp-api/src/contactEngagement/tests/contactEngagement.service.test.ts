@@ -730,6 +730,66 @@ describe('ContactEngagementService', () => {
         },
       ])
     })
+
+    // A support answer and a turnout intention are Win facts about a person,
+    // and this feed is read on the Serve surface too — the walk's person sheet
+    // and the Constituent Data overlay. Nulled here rather than hidden per
+    // reader, the same rule `politicalParty` follows: the `eo-` prefix decides
+    // it, so a Serve row states its outcome, note and actor and nothing about
+    // a question its canvasser never asked.
+    it('nulls the win answers for an elected-office org, keeping the rest', async () => {
+      mockContactInteractionDoorKnockService.findMany.mockResolvedValue([
+        {
+          id: 'dk-1',
+          occurredAt: new Date('2026-01-01T10:00:00Z'),
+          outcome: 'answered',
+          supportAnswer: 'supporter',
+          note: 'Friendly chat',
+          manual: true,
+          actorUserId: null,
+          actor: null,
+        },
+      ])
+      mockContactInteractionPhoneBankingService.findMany.mockResolvedValue([
+        {
+          id: 'pb-1',
+          occurredAt: new Date('2026-01-04T10:00:00Z'),
+          outcome: 'answered',
+          supportAnswer: 'supporter',
+          willVote: 'yes',
+          note: 'Confirmed will vote',
+          manual: false,
+          actorUserId: null,
+          actor: null,
+        },
+      ])
+
+      const result = await service.getIndividualActivities({
+        personId: 'person-123',
+        organizationSlug: 'eo-cheyenne-ward-1',
+        take: 20,
+      })
+
+      const phoneBanking = result.results.find(
+        (activity) => activity.type === ConstituentActivityType.PHONE_BANKING,
+      )
+      const doorKnock = result.results.find(
+        (activity) => activity.type === ConstituentActivityType.DOOR_KNOCK,
+      )
+
+      expect(phoneBanking?.data).toMatchObject({
+        supportAnswer: null,
+        willVote: null,
+        // Everything that is a fact about the call itself survives.
+        outcome: 'answered',
+        note: 'Confirmed will vote',
+      })
+      expect(doorKnock?.data).toMatchObject({
+        supportAnswer: null,
+        outcome: 'answered',
+        note: 'Friendly chat',
+      })
+    })
   })
 
   describe('getConstituentIssues', () => {
