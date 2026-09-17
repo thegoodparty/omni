@@ -66,7 +66,7 @@ test.describe('Win Contacts', () => {
       page.getByRole('heading', { name: 'Your Voter Universe' }),
     ).toBeVisible({ timeout: 20_000 })
     await expect(
-      page.getByRole('heading', { name: 'Voter Lists' }),
+      page.getByRole('heading', { name: 'Voter Lists', exact: true }),
     ).toBeVisible()
     await expect(listCard(page, 'All voters')).toBeVisible({
       timeout: 20_000,
