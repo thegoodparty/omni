@@ -393,10 +393,12 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
   // make one person's URL serve a different person:
   //   1. live person, exact slug match      — unambiguous
   //   2. retired id, exact slug match       — unambiguous; redirect
-  //   3. exactly one live person on the prefix    — the rename case
-  //   4. exactly one retired id on the prefix     — rename + purge
-  //   5. otherwise 404 — an ambiguous prefix is never guessed at
-  // Rungs 2 and 4 cost one extra indexed query, and only when rung 1 misses.
+  //   3. retired id, slug reconstructed from its survivor — same claim, for
+  //      rows that published no retiredSlug
+  //   4. exactly one live person on the prefix    — the rename case
+  //   5. exactly one retired id on the prefix     — rename + purge
+  //   6. otherwise 404 — an ambiguous prefix is never guessed at
+  // The merge rungs cost one extra indexed query, and only when rung 1 misses.
   async getPersonBySlug(slug: string) {
     const idPrefix = /^(?:.*-)?([0-9a-f]{8})$/.exec(slug)?.[1]
 
@@ -415,10 +417,10 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
     const exactLive = candidates.find((p) => p.slug === slug)
     if (exactLive) return this.attachOfficeContext(exactLive)
 
-    // Almost always empty. Fetched once and used for both merge rungs.
+    // Almost always empty. Fetched once and used for every merge rung.
     const merges = await this.client.personMerge.findMany({
       where: { retiredId: this.idPrefixRange(idPrefix) },
-      select: { survivingId: true, retiredSlug: true },
+      select: { retiredId: true, survivingId: true, retiredSlug: true },
     })
 
     // (2) An exact retired-slug match outranks an inexact live one: this URL
@@ -437,19 +439,64 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
       throw new NotFoundException(`Person not found for slug=${slug}`)
     }
 
-    // (3) One live person owns the prefix and the URL carries a stale name.
-    if (candidates.length === 1) {
+    // (3) The same claim as rung 2, reconstructed rather than published. A
+    // purged duplicate and its survivor are the same human, so the survivor's
+    // slug base is what the duplicate's own slug was minted from — recovering
+    // it costs a lookup we already know how to do and costs the data team
+    // nothing to maintain. Only same-name duplicates match, which is the common
+    // shape; a duplicate carrying a name variant falls through to the guard.
+    //
+    // This cannot take a live person's URL by mistake: rung 1 already claimed
+    // every request matching a live slug exactly, so reaching a match here
+    // implies the live person on this prefix is published under a different
+    // name than the survivor.
+    //
+    // Resolved once here because the lone-retired rung below needs the same
+    // lookup, and on the ordinary purge path — a retired id with no live
+    // neighbour — it would otherwise run twice for every request. A prefix
+    // virtually never carries more than one retired id.
+    const forwards = await Promise.all(
+      merges.map(async (merge) => ({
+        merge,
+        survivor: await this.loadMergeSurvivor(merge.survivingId),
+      })),
+    )
+
+    for (const { merge, survivor } of forwards) {
+      // A published slug is authoritative, and rung 2 already compared it. That
+      // it did not match is a real answer, not a gap to reconstruct around.
+      if (merge.retiredSlug !== null || !survivor) continue
+      if (this.mintedSlugFor(survivor.slug, merge.retiredId) !== slug) continue
+
+      return this.attachOfficeContext(survivor)
+    }
+
+    // A purged id that published no slug and did not reconstruct cannot be
+    // ruled out by name: reconstruction only ever proves a match, never a
+    // non-match, because a duplicate may carry a name variant its survivor does
+    // not. While one of those shares the prefix, we cannot tell whose URL this
+    // is.
+    const unresolvedRetired = merges.some((m) => m.retiredSlug === null)
+
+    // (4) One live person owns the prefix and the URL carries a stale name.
+    // Withheld while a purged id on the prefix is still unresolved: serving the
+    // live person would hand a purged person's URL to an unrelated human, and
+    // gp-marketing now answers that with a 308, which tells search engines the
+    // two are one page. A dead link is recoverable; a permanent redirect onto
+    // the wrong candidate is not.
+    if (candidates.length === 1 && !unresolvedRetired) {
       return this.attachOfficeContext(candidates[0]!)
     }
 
-    // (4) Same, for a purged person: one retired id owns the prefix. Covers
-    // backfilled rows that carry no retiredSlug to match on at rung 2.
-    if (merges.length === 1) {
-      const survivor = await this.loadMergeSurvivor(merges[0]!.survivingId)
+    // (5) Same, for a purged person: one retired id owns the prefix, and no
+    // live person contests it. Covers rows that carry no retiredSlug and whose
+    // survivor was renamed after the purge, so rung 3 could not reconstruct.
+    if (forwards.length === 1 && candidates.length === 0) {
+      const { survivor } = forwards[0]!
       if (survivor) return this.attachOfficeContext(survivor)
     }
 
-    // (5) Zero or ambiguous.
+    // (6) Zero or ambiguous.
     throw new NotFoundException(`Person not found for slug=${slug}`)
   }
 
@@ -483,6 +530,17 @@ export class PersonsService extends createPrismaBase(MODELS.Person) {
       current = next.survivingId
     }
     return current
+  }
+
+  // The slug a purged row would carry if it were published under its survivor's
+  // name: the survivor's slug base, with the purged id's own 8-hex suffix. The
+  // name part is optional on both sides — a name that slugifies to nothing
+  // leaves the suffix as the entire slug — so an empty base yields a bare
+  // suffix, exactly as the minting side produces it.
+  private mintedSlugFor(survivorSlug: string, retiredId: string): string {
+    const base = /^(.*)-[0-9a-f]{8}$/.exec(survivorSlug)?.[1] ?? ''
+    const suffix = retiredId.slice(0, 8)
+    return base ? `${base}-${suffix}` : suffix
   }
 
   // Half-open UUID range [<prefix>-0…, <next>-0…) covering every id whose text
