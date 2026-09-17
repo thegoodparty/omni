@@ -12,7 +12,11 @@ import {
   KNOWN_CAUSES_ANNOTATION,
 } from './alerting/alert-notification'
 import { controllerAlerts } from './alerting/controller-alerts'
-import { misroutedAlerts, PolicyTree } from './alerting/alert-routing'
+import {
+  EXPECTED_PROD_RECEIVERS,
+  misroutedAlerts,
+  PolicyTree,
+} from './alerting/alert-routing'
 import { personProfilesDashboardConfigJson } from './personProfilesDashboard'
 import { CONTROLLER_NAMES } from '../../src/generated/route-types'
 
@@ -47,11 +51,6 @@ const datasourceConfig = {
 export const ALERT_FILTER_WEBHOOK_URLS: Record<string, string> = {
   prod: 'https://ai.goodparty.org/grafana/alert-webhook',
 }
-
-// Kept in step with EXPECTED_PROD_RECEIVERS in alert-routing.test.ts, which is
-// the copy that gates PRs. Two names: where prod alerts go today, and where
-// they go once the filter is routed.
-const EXPECTED_RECEIVERS = ['dev-alerts', 'gpbot-alert-filter'] as const
 
 /**
  * The snapshot, read rather than imported.
@@ -136,7 +135,7 @@ const checkAlertRouting = async ({
   // The misrouting check is prod-only, because the tree is prod-centric: the
   // `environment != prod` route sends everything else to 'nowhere', which is
   // correct and is what keeps dev out of Slack. Checking a dev deploy against
-  // EXPECTED_RECEIVERS would therefore report all seventeen slugs as
+  // EXPECTED_PROD_RECEIVERS would therefore report all seventeen slugs as
   // misrouted, and a warning that always fires is one nobody reads — the exact
   // failure this function exists to catch. Drift above is still checked
   // everywhere, since the tree is global and a dev deploy can see it move.
@@ -146,7 +145,7 @@ const checkAlertRouting = async ({
     tree: live,
     slugs,
     environment,
-    expected: EXPECTED_RECEIVERS,
+    expected: EXPECTED_PROD_RECEIVERS,
   })
 
   for (const { slug, receiver } of misrouted) {

@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { misroutedAlerts, PolicyTree, receiverFor } from './alert-routing'
+import {
+  EXPECTED_PROD_RECEIVERS,
+  misroutedAlerts,
+  PolicyTree,
+  receiverFor,
+} from './alert-routing'
 import { GLOBAL_ALERTS } from '../alerts'
 import { controllerAlerts } from './controller-alerts'
 import { CONTROLLER_NAMES } from '../../../src/generated/route-types'
@@ -12,16 +17,6 @@ const POLICY: PolicyTree = JSON.parse(
   // are what check it still says what this file assumes.
   // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
 ) as PolicyTree
-
-/**
- * The receiver a production alert is supposed to reach.
- *
- * One entry, not a list, because there is currently exactly one destination for
- * prod alerts. `gpbot-alert-filter` joins it when the filter is routed, and the
- * point of naming them is that adding one is a reviewed change rather than a
- * thing that happens by a slug matching a pattern nobody remembers writing.
- */
-const EXPECTED_PROD_RECEIVERS = ['dev-alerts', 'gpbot-alert-filter'] as const
 
 const allSlugs = () => [
   ...GLOBAL_ALERTS.map((alert) => alert.slug),
@@ -211,5 +206,42 @@ describe('matcher semantics', () => {
   // pass by being treated as "matches nothing dangerous".
   it('does not silently honour an operator it cannot evaluate', () => {
     expect(receiverFor(tree(['k', '???', 'v']), { k: 'v' })).toBe('default')
+  })
+
+  // The tree is hand-edited, so an uncompilable pattern is a realistic thing to
+  // read back from Grafana. This runs inside a Pulumi deploy, outside the
+  // try/catch that guards the fetch, so a SyntaxError here would abort the
+  // deploy instead of warning.
+  it.each(['=~', '!~'])(
+    'treats a regex it cannot compile as no match rather than throwing (%s)',
+    (op) => {
+      expect(() =>
+        receiverFor(tree(['k', op, '[']), { k: 'anything' }),
+      ).not.toThrow()
+      expect(receiverFor(tree(['k', op, '[']), { k: 'anything' })).toBe(
+        'default',
+      )
+    },
+  )
+
+  // A whole-tree version of the above: the deploy path calls misroutedAlerts,
+  // and it must come back with an answer, not an exception.
+  it('still reports a verdict when the live tree holds a broken pattern', () => {
+    const broken: PolicyTree = {
+      receiver: 'dev-alerts',
+      routes: [
+        { receiver: 'nowhere', object_matchers: [['alert_slug', '=~', '(']] },
+      ],
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    } as PolicyTree
+
+    expect(
+      misroutedAlerts({
+        tree: broken,
+        slugs: allSlugs(),
+        environment: 'prod',
+        expected: EXPECTED_PROD_RECEIVERS,
+      }),
+    ).toEqual([])
   })
 })

@@ -48,6 +48,28 @@ export interface PolicyTree extends PolicyRoute {
 }
 
 /**
+ * An anchored matcher regex, or null if Grafana is holding a pattern that
+ * JavaScript cannot compile.
+ *
+ * NEVER THROWS, and that is the whole point. The tree is hand-edited in Grafana
+ * Cloud, so `=~ "["` is a realistic thing to find in it, and `new RegExp` on it
+ * raises a `SyntaxError`. This module is called from a Pulumi deploy, outside
+ * the try/catch that guards the fetch, so a throw here would abort the deploy —
+ * the opposite of what the caller promises, which is to warn and never fail.
+ *
+ * A pattern that cannot be compiled is reported as not matching, the same
+ * contract `matches` applies to an operator it does not model: an
+ * uninterpretable matcher must not be able to manufacture a route.
+ */
+const anchored = (value: string) => {
+  try {
+    return new RegExp(`^(?:${value})$`)
+  } catch {
+    return null
+  }
+}
+
+/**
  * Whether one matcher holds for a set of labels.
  *
  * A MISSING LABEL IS AN EMPTY STRING, which is Alertmanager's rule and not an
@@ -67,10 +89,14 @@ const matches = (matcher: ObjectMatcher, labels: Record<string, string>) => {
       return actual === value
     case '!=':
       return actual !== value
-    case '=~':
-      return new RegExp(`^(?:${value})$`).test(actual)
-    case '!~':
-      return !new RegExp(`^(?:${value})$`).test(actual)
+    case '=~': {
+      const pattern = anchored(value)
+      return pattern !== null && pattern.test(actual)
+    }
+    case '!~': {
+      const pattern = anchored(value)
+      return pattern !== null && !pattern.test(actual)
+    }
     default:
       // An operator we do not model. Reported as not matching, because the
       // caller treats "routes to the default" as the safe expectation and an
@@ -111,6 +137,25 @@ export const receiverFor = (
 
   return walk(tree, tree.receiver)
 }
+
+/**
+ * The receiver a production alert is supposed to reach.
+ *
+ * ONE COPY, exported, because the deploy-time check in `grafana.ts` and the
+ * test suite both need it and two arrays kept in step by a comment is the
+ * failure this whole file exists to prevent: add a receiver to the test's copy
+ * only and the suite goes green while the deploy applies different membership,
+ * or add it to the deploy's copy only and a real misrouting stops failing PRs.
+ *
+ * Two names, not one: where prod alerts go today, and where they go once the
+ * alert filter is routed. Naming them is the point — adding a destination is a
+ * reviewed change, rather than something that happens because a slug matched a
+ * pattern nobody remembers writing.
+ */
+export const EXPECTED_PROD_RECEIVERS = [
+  'dev-alerts',
+  'gpbot-alert-filter',
+] as const
 
 export interface Misrouting {
   slug: string
