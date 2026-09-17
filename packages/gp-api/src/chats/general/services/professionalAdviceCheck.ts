@@ -48,6 +48,9 @@ const DISCLAIMER_PRESENT: RegExp[] = [
   /\b(?:not|isn'?t|is not) a substitute for\b/i,
   /\bqualified professional\b/i,
   /\bseek (?:professional|legal|medical|financial|tax) (?:advice|counsel|help)\b/i,
+  // A reply that tells the reader not to rely on it for a legal or
+  // compliance question is itself the caution, whoever it points them to.
+  /\b(?:do not|don'?t) rely on (?:my|this) (?:answer|reply|response)\b/i,
   // Requires the confirm-type verb near the office/attorney/board, not just
   // its name — naming the election office in passing (e.g. where to file
   // paperwork) is not a caution and must not suppress a real disclaimer.

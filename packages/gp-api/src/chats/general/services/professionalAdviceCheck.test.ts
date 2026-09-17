@@ -166,6 +166,16 @@ describe('professionalAdviceDisclaimer', () => {
     ).toBeNull()
   })
 
+  it('skips the line when a reply says not to rely on it', () => {
+    expect(
+      professionalAdviceDisclaimer(
+        'That call volume is fine under the TCPA. Do not rely on my ' +
+          'answer alone for a legal compliance question; verify it with ' +
+          'support.',
+      ),
+    ).toBeNull()
+  })
+
   it('still appends despite an unrelated office mention', () => {
     expect(
       professionalAdviceDisclaimer(
