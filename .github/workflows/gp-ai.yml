@@ -53,6 +53,12 @@ jobs:
             infra:
               - 'packages/gp-ai/infrastructure/**'
               - '.github/workflows/gp-ai.yml'
+              # The release train is where these roots are actually applied, so
+              # editing its apply steps is an infra change even though the file
+              # lives elsewhere. Without this, deleting an apply step touches no
+              # path this filter matches, and the coverage check below — the one
+              # thing that would notice — never runs.
+              - '.github/workflows/release.yml'
             python:
               - 'packages/gp-ai/**/*.py'
               - 'packages/gp-ai/pyproject.toml'
@@ -317,6 +323,14 @@ jobs:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
+
+      # First, before the credentials and the terraform install, because it needs
+      # neither and it catches the one defect this job structurally cannot: it
+      # plans dev roots only, so a prod-only root gets no coverage here at all.
+      # That is how prod/alert-filter merged with no apply step and took the
+      # release train down for a day. Runs in about a second.
+      - name: Check every terraform root is deployed
+        run: bash packages/gp-ai/infrastructure/scripts/ci-check-root-coverage.sh
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v5
