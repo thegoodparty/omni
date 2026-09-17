@@ -2,7 +2,24 @@ import { ControllerName } from '../../src/generated/route-types'
 import { Alert, SlackGroup } from './alerting/alerts.types'
 import { geoapifyBudgetAlerts } from './alerting/geoapify-budget-alerts'
 
-/** Map of slack group to controllers */
+/**
+ * Map of slack group to controllers.
+ *
+ * Being in here is what enables a controller's generated route alert at all —
+ * `controllerAlerts` ends with `disabled: !slackGroupName`. That has been true
+ * since 2026-03-01, and the map was seeded on 2026-03-05 with the five
+ * `serve-bugs` entries below and an empty `win-bugs`. In the six months since,
+ * one controller has been added (`door-knocking`, ahead of its pilot) while
+ * gp-api went from 40 controllers to 99. So the coverage below is not a set of
+ * decisions about what needs watching; it is where two teams happened to opt
+ * in once, and every controller written since has been born silent.
+ *
+ * The group split is also no longer real — it is one team now. Collapsing
+ * these two keys into a single rotation is wanted, and is deliberately NOT
+ * done here: it changes who is paged for everything in one commit, which is
+ * its own change with its own blast radius. Until then, which key a controller
+ * sits under carries less meaning than the fact that it sits under one.
+ */
 export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
   'serve-bugs': [
     'elected-office',
@@ -10,6 +27,19 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
     'contacts',
     'contact-engagement',
     'organizations',
+    // The two public controllers behind the marketing site. Added after the
+    // 2026-08 voter-density outage, and grouped here only because one of the
+    // two existing keys had to be picked — see the note above.
+    //
+    // They also keep their hand-written ratio rules in GLOBAL_ALERTS, which do
+    // a different job: the generated rule answers "did anything fail" within a
+    // minute, the ratio rule answers "is this route substantially broken" and
+    // carries the known causes. A real outage trips both, which is two
+    // notifications for one event — accepted, because the generated rule is
+    // the one that catches a first error fast and the ratio rule is the one
+    // that survives the volume growing.
+    'public-campaigns',
+    'public-person-profiles',
   ],
   'win-bugs': ['door-knocking'],
 }
@@ -22,29 +52,32 @@ export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
  * is written down: `controllerAlerts` sets `disabled: !slackGroupName`, so
  * until now a controller was opted out of alerting by nobody ever mentioning
  * it, and nothing anywhere recorded that this had happened or to how many.
- * It is 71 of 77.
+ *
+ * It is 68 of the 76 controllers that answer anything — and controllers are
+ * the wrong unit to count in, because they hold several routes each. In routes
+ * it is 320 of 382, so roughly 84% of the API cannot report its own failure.
+ * Count in routes when quoting this; per-controller reads far smaller than it
+ * is.
  *
  * The cost of that default is measurable. GET /v1/public-person-profiles
  * /voter-density served 1,498,324 consecutive 500s between 2026-08-24 and
  * 2026-08-28 — every request it received, for four days — and paged nobody,
- * because `public-person-profiles` is on this list. It was noticed a fortnight
- * later while reading unrelated logs.
+ * because its controller was on this list. It was noticed a fortnight later
+ * while reading unrelated logs, and it stopped when the table it reads was
+ * created rather than when anyone responded.
  *
  * So the point of the list is the test that reads it: a NEW controller has to
  * appear here or in ALERT_OWNERSHIP, and a reviewer sees which one the author
  * chose. Being on it is a statement that no route alert is wanted, not that
- * none was considered.
+ * none was considered. That matters more than the list's current contents:
+ * gp-api roughly doubled after the ownership map was seeded — 40 `@Controller`
+ * decorators then, 99 now — and the map gained exactly one entry over the same
+ * period, so most of what is below arrived by default rather than by decision.
  *
- * Two entries are alerted on by other means, and should stay here because the
- * statement is about the generated rule specifically: `public-campaigns` and
- * `public-person-profiles` both carry hand-written rate-aware rules in
- * GLOBAL_ALERTS below. Both were written after that kind of outage rather than
- * before, and the generated all-or-nothing rule is the wrong tool for a
- * high-traffic public route either way — it fires on a single error in the
- * window, so on a route serving ~2 req/s it fires forever and gets muted.
- *
- * Shortening this list is the work. Anything user-facing on it is an endpoint
- * that can fail completely without telling anyone.
+ * Shortening this list is the work, and it is not gated on the generated rule
+ * being the right tool: for the two public controllers it was not, and they
+ * got hand-written ratio rules AND an owner. Anything user-facing still on
+ * this list is an endpoint that can fail completely without telling anyone.
  */
 export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   'authentication',
@@ -94,7 +127,6 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   'meetings/:date/briefing/review-verdict',
   'campaigns/tracker-tasks',
   'eligibility',
-  'public-campaigns',
   'campaigns/:id/positions',
   'campaigns/tasks',
   'campaigns/tcr-compliance',
@@ -104,7 +136,6 @@ export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
   'meetings',
   'ordinances',
   'person-profiles',
-  'public-person-profiles',
   'queue',
   'speech/transcribe',
   'speech',
@@ -531,12 +562,22 @@ export const GLOBAL_ALERTS: Alert[] = [
     slug: 'public-campaigns-lookup-error-ratio',
     name: '[People] Public campaign lookup failing',
     type: 'log',
-    // `public-campaigns` is not in ALERT_OWNERSHIP, so its generated per-route
-    // alert is provisioned `disabled`. That is why 5k+ daily 500s on a public
-    // endpoint paged nobody. It is deliberately still not opted in: the
-    // generated rule fires on a single error in the window, and this route
-    // serves ~2 req/s, so it would have been firing continuously and been
-    // muted. This is the rate-aware replacement.
+    // Written when `public-campaigns` was not in ALERT_OWNERSHIP and its
+    // generated per-route alert was therefore provisioned `disabled` — which
+    // is why 5k+ daily 500s on a public endpoint paged nobody. It was left out
+    // of the ownership map on the grounds that the generated rule fires on a
+    // single error in the window, so on a route serving ~2 req/s it would fire
+    // continuously and be muted.
+    //
+    // It is in the map as of 2026-09, because that stopped being true: in the
+    // seven days to 09-17 this route produced ZERO errors the generated rule
+    // would fire on, and the 5k-a-day era it was reasoning from is over. The
+    // two rules now stack rather than substitute — the generated one answers
+    // "did anything fail at all" within a minute, this one answers "is the
+    // route substantially broken" and carries the known causes below.
+    //
+    // Keep this rule anyway. It is the one that still works if the volume
+    // returns, and the argument above becomes true again the moment it does.
     //
     // Denominator is lookups that resolved to a campaign (non-404), not all
     // traffic. ~95% of requests are 404s — gp-marketing asks "has this
@@ -774,11 +815,19 @@ export const GLOBAL_ALERTS: Alert[] = [
     // generated rule is provisioned disabled. It ended when the table it reads
     // was created, not when anyone responded.
     //
-    // Same shape as public-campaigns-lookup-error-ratio above, and for the same
-    // reason: opting the controller into ALERT_OWNERSHIP instead would give it
-    // the generated rule, which fires on one error in the window. These routes
-    // serve ~4 req/s, so that rule fires more or less permanently and ends up
-    // muted — which is indistinguishable from what we have now.
+    // Same shape as public-campaigns-lookup-error-ratio above. This controller
+    // is ALSO in ALERT_OWNERSHIP, so it has a generated route alert too, and
+    // the two are not redundant: the generated rule trips on the first error
+    // and this one only when a route is substantially broken, so the pair
+    // separates "something failed" from "this route is down" without either
+    // having to guess which it is.
+    //
+    // The case for not opting the controller in — that a threshold-0 rule on a
+    // route serving ~4 req/s would fire permanently and get muted — was worth
+    // testing rather than assuming, and did not hold. Over the seven days to
+    // 2026-09-17 the errors the generated rule fires on fell in 2 hours out of
+    // 168: a 52-error burst and one stray. So it pages about twice a week at
+    // worst, and the muting risk was theoretical.
     //
     // `sum by (request_endpoint)` rather than one ratio for the controller:
     // Grafana turns each returned series into its own alert instance, so a

@@ -342,33 +342,36 @@ describe('every controller is accounted for', () => {
     }
   })
 
-  // The two controllers that are on the list and still alerted on, paired with
-  // the hand-written rule that does it. Being on the list means "no generated
-  // rule", which for these two is a choice about the tool rather than about
-  // whether anyone watches — so the rule they were traded for has to exist.
+  // The two public controllers and the hand-written rule each one carries in
+  // addition to its generated route alert.
+  //
+  // These were opted OUT until 2026-09, on the argument that a threshold-0 rule
+  // would fire permanently on their traffic. Measuring said otherwise — 2 hours
+  // out of 168 contained a qualifying error — so they now have both an owner
+  // and a ratio rule, and the pairing below is about keeping the second half.
   const BESPOKE_COVERAGE: ReadonlyArray<readonly [ControllerName, string]> = [
     ['public-campaigns', 'public-campaigns-lookup-error-ratio'],
     ['public-person-profiles', 'public-person-profiles-error-ratio'],
   ]
 
-  // Until now the trade was only prose, in the comment on
-  // CONTROLLERS_WITHOUT_ROUTE_ALERTS. Deleting either rule from GLOBAL_ALERTS
-  // took a public controller back to no alerting at all with every test still
-  // green, which is the state this PR exists to make impossible to reach
-  // quietly. Pairing the two halves means removing one without the other is a
-  // failure that names what it costs.
-  it('keeps the hand-written rules the two public controllers rely on', () => {
+  // Both halves do different jobs, and the reason for keeping the ratio rule is
+  // the weaker of the two claims, so it is the one that needs a test: the
+  // generated rule is what would survive deleting it, which makes the deletion
+  // look free. It is not — the ratio rule is what still works if these routes'
+  // error volume returns to where it was when the generated rule was judged
+  // unusable, and it is where the known causes live.
+  it('keeps both layers on the two public controllers', () => {
     const slugs = new Set(GLOBAL_ALERTS.map((alert) => alert.slug))
 
     for (const [controller, slug] of BESPOKE_COVERAGE) {
       expect(
-        unmonitored.has(controller),
-        `${controller} is covered by ${slug} instead of a generated rule, so it belongs in CONTROLLERS_WITHOUT_ROUTE_ALERTS`,
+        owned.has(controller),
+        `${controller} is public and should have an owner, so its generated route alert is enabled`,
       ).toBe(true)
 
       expect(
         slugs.has(slug),
-        `${controller} has no generated route alert, and ${slug} is no longer in GLOBAL_ALERTS — nothing alerts on it at all`,
+        `${slug} is gone from GLOBAL_ALERTS, leaving ${controller} with only a threshold-0 rule — which is the rule that gets muted if this route's error volume returns`,
       ).toBe(true)
     }
   })
