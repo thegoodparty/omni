@@ -474,11 +474,16 @@ jobs:
       - name: apply dev/engineer-agent-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
-      - name: apply dev/shared-infra
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/shared-infra
 
       - wait-all:
+
+      # Same reasoning as prod below: dev/shared-infra reads
+      # ddhq-matcher-fargate and serve-analyze-fargate state, so it applies
+      # after them rather than alongside. Dev has no alert-filter root and so
+      # did not break, but it is the same unordered read, and it is only a
+      # question of which environment the next such root lands in first.
+      - name: apply dev/shared-infra
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh dev/shared-infra
 
       - name: reverify dev/agent-experiment-metadata
         background: true
@@ -1149,11 +1154,28 @@ jobs:
       - name: apply prod/engineer-agent-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
-      - name: apply prod/shared-infra
+      - name: apply prod/alert-filter
         background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/shared-infra
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/alert-filter
 
       - wait-all:
+
+      # shared-infra applies alone, after everything above, because it is the
+      # only root that consumes other roots' outputs: it reads the lambda ARN
+      # and name out of alert-filter, clickup-bot and ddhq-matcher-fargate state
+      # to build a target group and permission for each. Nothing reads
+      # shared-infra in turn, so it is free to go last.
+      #
+      # It used to apply inside the batch above, which worked only because those
+      # states already existed — an unordered read returns whatever the previous
+      # release wrote, one release stale, and nobody noticed because a lambda ARN
+      # rarely changes. Adding a root broke that: `terraform_remote_state` on a
+      # key with no object is a hard plan failure, not an empty result, so
+      # `prod/shared-infra: plan failed` took down every release for a day and
+      # blocked all prod gp-ai infrastructure, not just the new root. Ordering it
+      # after its inputs means the next root to be added cannot do that again.
+      - name: apply prod/shared-infra
+        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/shared-infra
 
       - name: reverify prod/agent-experiment-metadata
         background: true
@@ -1194,6 +1216,9 @@ jobs:
       - name: reverify prod/engineer-agent-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/engineer-agent-fargate engineer-agent-${{ needs.await-checks.outputs.sha }}
+      - name: reverify prod/alert-filter
+        background: true
+        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/alert-filter
       - name: reverify prod/shared-infra
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/shared-infra
