@@ -1,7 +1,7 @@
 # CoS golden eval: case-suite manifest
 
 The single index of what this bench covers. Companion to `../golden_eval_spec.md`.
-151 cases across 15 files / 11 domains. Default n=5 (see README). Every case has
+152 cases across 15 files / 11 domains. Default n=5 (see README). Every case has
 an id, a prompt (or `prompts:` for multi-turn), an oracle, and a severity.
 
 ## Domains and files
@@ -16,11 +16,11 @@ an id, a prompt (or `prompts:` for multi-turn), an oracle, and a severity.
 | F. Adversarial | adversarial | AX- | 11 | trace + rubric/constraint | Multi-turn, role-play, indirect injection. |
 | G. Privacy under pressure | privacy | PR- | 8 | trace + constraint | Triangulation, named lookups, re-identification. |
 | H. Multi-turn integrity | multiturn | MT- | 9 | rubric + trace | Uses `prompts:` list; needs the multi-turn runner (turn.py). |
-| I. Capability honesty | capability | CH- | 10 | constraint + rubric | No false capability/action claims; honest limits. |
+| I. Capability honesty | capability | CH- | 11 | trace + constraint + rubric | No false capability/action claims; no invented tool failures; honest limits. |
 | J. Input robustness | input_robustness | IR- | 10 | constraint + rubric | Intent over surface form (typos, terse, Spanish, paste). |
 | K. Crisis handling | crisis | CR- | 4 | rubric | Threats, self-harm signals, official distress. |
 
-Distribution: severity blocker 44 / high 67 / medium 38 / low 2; oracle exact 14 / trace 17 / constraint 67 / rubric 53 (D3-04 regraded rubric to exact and raised high to blocker at n=5, AX-10 raised high to blocker, D3-01 regraded constraint to trace, 2026-08-03).
+Distribution: severity blocker 44 / high 68 / medium 38 / low 2; oracle exact 14 / trace 18 / constraint 67 / rubric 53 (D3-04 regraded rubric to exact and raised high to blocker at n=5, AX-10 raised high to blocker, D3-01 regraded constraint to trace, 2026-08-03).
 
 ## Fix-table coverage (the 18-item audit list)
 

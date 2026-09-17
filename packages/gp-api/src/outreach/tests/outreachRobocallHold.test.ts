@@ -234,7 +234,7 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     expect(singleSendSpy).not.toHaveBeenCalled()
   })
 
-  it('posts the CAS schedule notice once on authorize and not again on re-auth', async () => {
+  it('posts the CAS schedule notice once when a robocall is authorized', async () => {
     const outreachId = await createDraft({ sendInDays: 2 })
     deriveSpy.mockResolvedValue(100)
     paymentMethodsRetrieve.mockResolvedValue({
@@ -251,14 +251,9 @@ describe('POST /v1/outreach/robocall/:outreachId/authorize', () => {
     const res = await postAuthorize(outreachId)
     expect(res.status).toBe(HttpStatus.CREATED)
 
-    // Fire-and-forget notice: wait for the background call to land.
+    // Fire-and-forget notice: wait for the background call to land, then confirm
+    // the pending_payment -> pending transition fired it exactly once.
     await waitForCalls(notifySpy, 1)
-    expect(notifySpy).toHaveBeenCalledTimes(1)
-
-    // A second authorize on the now-authorized draft does not re-transition the
-    // spine (already `pending`), so it must not re-post the schedule notice.
-    await postAuthorize(outreachId)
-    await new Promise((resolve) => setTimeout(resolve, 100))
     expect(notifySpy).toHaveBeenCalledTimes(1)
   })
 

@@ -528,13 +528,17 @@ export class OutreachRobocallHoldService extends createPrismaBase(
     try {
       const outreach = await this.client.outreach.findUnique({
         where: { id: outreachId },
-        include: { voterFileFilter: true },
+        include: {
+          voterFileFilter: true,
+          robocall: { select: { billableCount: true } },
+        },
       })
       if (outreach) {
         await this.notification.notifyRobocallScheduled(
           user,
           campaign,
           outreach,
+          outreach.robocall?.billableCount,
         )
       }
     } catch (err) {

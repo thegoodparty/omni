@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { BadGatewayException } from '@nestjs/common'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { AdminCampaignsService } from './adminCampaigns.service'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
+import { CrmCampaignsService } from '../../campaigns/services/crmCampaigns.service'
+import { StripeService } from '../../vendors/stripe/services/stripe.service'
 import { Campaign } from '../../generated/prisma'
 
 describe('AdminCampaignsService.proNoVoterFile', () => {
@@ -24,6 +27,7 @@ describe('AdminCampaignsService.proNoVoterFile', () => {
       {
         getDistrictAndBallotLevelForOrgSlug,
       } as unknown as OrganizationsService,
+      {} as never,
       logger,
     )
 
@@ -92,5 +96,105 @@ describe('AdminCampaignsService.proNoVoterFile', () => {
       null,
       'CITY',
     )
+  })
+})
+
+describe('AdminCampaignsService.update — Stripe subscription cancel on de-Pro', () => {
+  const findUniqueOrThrow = vi.fn()
+  const update = vi.fn()
+  const trackCampaign = vi.fn()
+  const cancelSubscription = vi.fn()
+  const track = vi.fn()
+  const logger = createMockLogger()
+
+  const buildService = () =>
+    new AdminCampaignsService(
+      {} as never,
+      {} as never,
+      {
+        findUniqueOrThrow,
+        update,
+      } as unknown as CampaignsService,
+      {} as never,
+      { trackCampaign } as unknown as CrmCampaignsService,
+      {} as never,
+      { track } as never,
+      {} as never,
+      { cancelSubscription } as unknown as StripeService,
+      logger,
+    )
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    update.mockResolvedValue({ id: 42, userId: 7 })
+    trackCampaign.mockResolvedValue(undefined)
+    cancelSubscription.mockResolvedValue({ id: 'sub_test' })
+    track.mockResolvedValue(undefined)
+  })
+
+  it('cancels the Stripe subscription when admin sets isPro:false on a paying campaign', async () => {
+    findUniqueOrThrow.mockResolvedValue({
+      id: 42,
+      details: { subscriptionId: 'sub_live_123' },
+    })
+
+    await buildService().update(42, { isPro: false })
+
+    expect(cancelSubscription).toHaveBeenCalledWith('sub_live_123')
+    // DB write still happens after a successful cancel so admin state moves
+    // immediately; the webhook then clears details.subscriptionId.
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 42 },
+      data: expect.objectContaining({ isPro: false }),
+    })
+  })
+
+  it('does not touch Stripe for a comped campaign (isPro:false without subscriptionId)', async () => {
+    findUniqueOrThrow.mockResolvedValue({
+      id: 42,
+      details: {},
+    })
+
+    await buildService().update(42, { isPro: false })
+
+    expect(cancelSubscription).not.toHaveBeenCalled()
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 42 },
+      data: expect.objectContaining({ isPro: false }),
+    })
+  })
+
+  it('surfaces a 502 and skips the DB update when Stripe cancel fails', async () => {
+    findUniqueOrThrow.mockResolvedValue({
+      id: 42,
+      details: { subscriptionId: 'sub_live_123' },
+    })
+    cancelSubscription.mockRejectedValue(
+      new BadGatewayException('Failed to cancel subscription sub_live_123'),
+    )
+
+    await expect(buildService().update(42, { isPro: false })).rejects.toThrow(
+      BadGatewayException,
+    )
+
+    // The whole point: if Stripe failed, we must NOT have written isPro:false.
+    // Otherwise DB says non-Pro while Stripe keeps billing — the exact
+    // divergence this ticket is closing.
+    expect(update).not.toHaveBeenCalled()
+    expect(trackCampaign).not.toHaveBeenCalled()
+  })
+
+  it('does not read the campaign or touch Stripe when isPro is not being changed to false', async () => {
+    await buildService().update(42, { isVerified: true })
+
+    expect(findUniqueOrThrow).not.toHaveBeenCalled()
+    expect(cancelSubscription).not.toHaveBeenCalled()
+  })
+
+  it('does not touch Stripe when isPro is being set to true', async () => {
+    await buildService().update(42, { isPro: true })
+
+    expect(findUniqueOrThrow).not.toHaveBeenCalled()
+    expect(cancelSubscription).not.toHaveBeenCalled()
   })
 })
