@@ -450,12 +450,17 @@ describe('CampaignsService.patchCampaignDetails', () => {
     ).rejects.toThrow(InternalServerErrorException)
   })
 
-  it('throws for a campaign id that does not exist', async () => {
+  // The other cause of a zero rowcount, and the only one that happens in
+  // practice — `details` is NOT NULL with a `{}` default. The pre-read this
+  // replaced reported it as the same 500 as the malformed column above, which
+  // told whoever was paging through the logs that the row was broken when the
+  // id was simply wrong.
+  it('404s on a campaign id that does not resolve', async () => {
     const campaigns = service.app.get(CampaignsService)
 
     await expect(
       campaigns.patchCampaignDetails(999999, { subscriptionId: 'sub_A' }),
-    ).rejects.toThrow(InternalServerErrorException)
+    ).rejects.toBeInstanceOf(NotFoundException)
   })
 
   // Prod 2026-09-15T07:42:51Z, reproduced against real Postgres. Stripe

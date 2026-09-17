@@ -844,10 +844,19 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
         AND jsonb_typeof(details) = 'object'
     `
 
-    // Reproduces the previous `!currentCampaign?.details` guard exactly: zero
-    // rows means either no such campaign or a `details` that is not a JSON
-    // object, which are the two cases that threw before.
+    // Zero rows has two causes, and the `!currentCampaign?.details` pre-read
+    // this replaced collapsed both into one 500. `details` is NOT NULL with a
+    // `{}` default, so the case that actually happens is a campaign id that
+    // does not resolve — a 404. A column that is not a JSON object means the
+    // row is malformed rather than the request, so it keeps the 500 it had.
     if (updatedCount === 0) {
+      const campaign = await this.model.findUnique({
+        where: { id: campaignId },
+        select: { id: true },
+      })
+      if (!campaign) {
+        throw new NotFoundException(`Campaign ${campaignId} not found`)
+      }
       throw new InternalServerErrorException(
         `Campaign ${campaignId} has no details JSON`,
       )
