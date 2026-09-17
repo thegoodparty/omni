@@ -52,6 +52,13 @@ export default function ContactListMap({
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const overlayRef = useRef<MapboxOverlay | null>(null)
+  // Same guard VoterMapCanvas carries, for the same reason: the key is empty
+  // rather than absent when unset, so without this the style URL goes out as
+  // `?apiKey=`, the tile CDN 401s, and the surface renders as a blank panel
+  // with nothing to explain it. On an environment that has no key — a preview
+  // or a fresh local box — that is indistinguishable from the feature being
+  // broken, which is exactly how it was first reported.
+  const hasTilesKey = NEXT_PUBLIC_GEOAPIFY_TILES_KEY.length > 0
   // Which multi-resident dot the user opened, if any. A single-resident dot
   // selects its person directly and never lands here.
   const [openPoint, setOpenPoint] = useState<ContactPoint | null>(null)
@@ -62,7 +69,7 @@ export default function ContactListMap({
   )
 
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return
+    if (!containerRef.current || mapRef.current || !hasTilesKey) return
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: STYLE_URL,
@@ -88,7 +95,7 @@ export default function ContactListMap({
       mapRef.current = null
       map.remove()
     }
-  }, [])
+  }, [hasTilesKey])
 
   useEffect(() => {
     const overlay = overlayRef.current
@@ -148,6 +155,15 @@ export default function ContactListMap({
       { padding: FIT_PADDING_PX, duration: 0, maxZoom: 16 },
     )
   }, [points])
+
+  if (!hasTilesKey) {
+    return (
+      <div className="flex h-full w-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
+        Set NEXT_PUBLIC_GEOAPIFY_TILES_KEY (a domain-restricted Geoapify tiles
+        key) to render the map.
+      </div>
+    )
+  }
 
   return (
     <div className="relative h-full w-full">
