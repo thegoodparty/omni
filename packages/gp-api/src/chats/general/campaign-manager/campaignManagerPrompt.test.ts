@@ -415,6 +415,43 @@ describe('buildCampaignManagerSystemPrompt', () => {
     }
   })
 
+  it('marks search-derived facts inline, not only in a footnote', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ webSearchEnabled: true }),
+    )
+    expect(prompt).toContain('not only in a footnote')
+    expect(prompt).toContain(
+      'every search, not only questions about the ballot',
+    )
+  })
+
+  it('adds a verify line to public-facing drafts built from search results', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ webSearchEnabled: true }),
+    )
+    expect(prompt).toContain(
+      'Double-check these numbers and names before you use them.',
+    )
+  })
+
+  it('carries no search-provenance rule when search is off', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({ webSearchEnabled: false }),
+    )
+    expect(prompt).not.toContain('not only in a footnote')
+    expect(prompt).not.toContain(
+      'Double-check these numbers and names before you use them.',
+    )
+  })
+
+  it('says which part of advice is an assumption, on or off search', () => {
+    for (const webSearchEnabled of [true, false]) {
+      const prompt = buildCampaignManagerSystemPrompt(ctx({ webSearchEnabled }))
+      expect(prompt).toContain('rests on an assumption')
+      expect(prompt).toContain('say plainly which part is the assumption')
+    }
+  })
+
   it('never invents facts (candidate-in-control guardrail)', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx()).toLowerCase()
     expect(prompt).toContain('never invent')
