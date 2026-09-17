@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common'
+import { BadGatewayException, HttpStatus, Injectable } from '@nestjs/common'
 import { Vercel } from '@vercel/sdk'
 import type {
   GetRecordsResponseBody,
@@ -236,6 +236,16 @@ export class VercelService {
           teamId: VERCEL_TEAM_ID,
         },
       )
+
+      // The SDK's inbound schema coerces a null or absent authCode to '' and
+      // still types it as string, so a partial 200 would hand support an empty
+      // credential that only fails later, at the candidate's new registrar.
+      if (!authCode) {
+        throw new BadGatewayException(
+          `Vercel returned an empty auth code for domain ${domainName}`,
+        )
+      }
+
       return authCode
     } catch (error) {
       // Unlike the sibling methods, never log the success payload — the auth
