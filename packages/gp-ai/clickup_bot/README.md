@@ -470,8 +470,9 @@ run exits there. If CI then failed, nothing happened. PR #1306 was opened
 
 `.github/workflows/gpbot-ci-drive.yml` closes that gap. It fires when a CI
 workflow completes, waits until every check on a `[GP-Bot]` PR has resolved, and
-then acts on whichever of three things is outstanding: a branch that no longer
-merges, a red check, or a review finding nobody answered.
+then acts on whichever of four things is outstanding: a branch that no longer
+merges, a red check, a review finding nobody answered, or an approval nobody
+asked for.
 
 **Triage comes before action, and that ordering is the whole design.** Most
 bot-PR check failures we have actually observed were infrastructure, not
@@ -558,7 +559,7 @@ answer", because silently dropping a real finding is the bug this exists to fix:
 | Resolved | Someone dealt with it |
 | Outdated | The lines it points at have changed. This is the natural stop after a fix push: GitHub marks the thread outdated by itself |
 | A human has replied | A person owns the thread and the bot must not talk over them. Nobody had replied on #1306, which is why it qualified |
-| Raised by `delegate-reviewer` | It withholds approval until its blockers are fixed, which already gates the merge, and it runs a `delegate review` reply protocol a second automated actor would fight |
+| Raised by `delegate-reviewer` | It withholds approval until its blockers are fixed, which already gates the merge. Its threads are read for a different purpose — see below, where an open one stops the drive asking for a re-review |
 
 **A finding gets one fix run and never a second.** The state comment banks the
 thread ids a run was pointed at, so a finding still open afterwards goes to a
@@ -574,17 +575,108 @@ run answers every open thread at once, so cost does not grow with how much
 Bugbot found. Parsing a severity string out of a comment body to decide what to
 ignore would fail in the direction that just cost us a production regression.
 
+### An approval nobody asked for
+
+The failure mode with no symptom. PR #1905 was green, unconflicted, had every
+Bugbot thread answered, sat inside its budget, and was **permanently
+unmergeable** — because `delegate-reviewer` approves a PR when it opens and
+after that only when asked, never on a push. The drive's own fix run pushed a
+commit at 15:16, which is exactly what invalidated the approval, and nothing
+replaced it. It stayed `REVIEW_REQUIRED` with a clear board and its full budget
+unspent, and every counter read healthy, so nothing escalated and nothing
+alerted.
+
+That is worse than a red check, which is at least visible. An approval names a
+commit, so the drive now reads whether the reviewer has approved **this** commit
+rather than whether it ever approved the PR, and treats a missing one as work.
+
+**Asking is the cheap move**, the counterpart of a re-run on a red board, and it
+is right for the same reason: the usual cause is not a reviewer who disagrees
+but one who was never asked. The drive posts `delegate review` — the same two
+words a human sends, and the ones delegate's own review asks for.
+
+**It is settled last**, after conflicts, checks and findings, because an
+approval names a commit and asking for one while any work is left is asking for
+a verdict the next push throws away.
+
+**It stands down when the reviewer is still holding a blocker open.**
+`delegate review` claims the blockers were addressed; delegate's own threads are
+outside the findings path above, so reaching this step does not mean they were.
+On #1905 the fix run answered Bugbot and explicitly left delegate's
+idempotency-key thread alone as "not mine to resolve". Asking there would assert
+something false and buy a re-review that returns the same blocker, so that case
+goes straight to a human instead.
+
+**It only ever happens on the bot's own PRs**, and nothing covers the same gap
+anywhere else. `delegate review` is a claim that the blockers were addressed,
+made against a head that may still be moving; both halves are fine here and
+only here, because the drive **is** the author of the commit and has just
+established the board is green with nothing in flight.
+
+`gpbot-review-gap-alert.yml` used to report this gap across every PR in the
+repo, and was deleted rather than narrowed to bot PRs — narrowing it would only
+have duplicated this. Its Slack post named the PR's author, and on the run that
+retired it two of the three names had nothing to do: one author's blockers were
+already addressed and pushed, and the other was Dependabot, which cannot read
+Slack. Their PRs were waiting on two fixed words, not on them. Asking on their
+behalf instead is a different overreach, so the answer was neither: other
+people's PRs are other people's.
+
+A missing approval **fails toward asking**, the opposite of the `UNKNOWN`
+mergeability default, because the costs are not symmetric: a wrong "approved" is
+silent and permanent, while a wrong "not approved" costs one capped comment.
+
+**The asks are counted off the PR, not tallied in the state comment.** Every
+other budget here is a number the drive writes down before it acts, which is
+what caps it: if the job dies mid-action the round is recorded as spent. That
+ordering is wrong for this one. The ask *is* a comment, so a `POST` that failed
+after the counter was written spent an ask nobody received — and with two in the
+budget, two such failures escalated a PR that had never actually been asked
+about. So the drive counts its own `delegate review` comments instead. The
+action leaves its own permanent, countable record, and a record it cannot
+diverge from is worth more than a counter kept for it. Nothing needs rolling
+back. A human's `delegate review` is a different login and does not spend the
+bot's budget.
+
+The exact body is therefore load-bearing: `delegate review` and nothing else.
+An unreadable count is treated as **spent**, unlike the ask itself, and hands
+the PR to a human — a drive that cannot tell how many times it has asked is
+exactly the one that should not ask again, because the alternative is the same
+comment every 30 minutes for as long as the PR stays open.
+
+**And they are counted against the current head, not the whole PR.** This is
+the difference between a cap and a trap. An approval names a commit, so every
+push is a new question — and on these PRs the pushes are the drive's own fix
+runs. Two asks for the life of a PR that spends its two fix runs leaves the
+final commit unable to ask at all, and the PR then escalates as "the reviewer
+will not approve" when the reviewer was never asked about that code. Delegate
+also answers a mid-review push with *"the PR tip moved during review
+(`a884375b` → `b11ce98c`) ... reply `delegate review` to re-check"*, which is an
+instruction rather than a refusal; counted per-PR that exchange spends an ask
+and produces no review.
+
+The anchor is the head commit's committer date, with one skew in the safe
+direction: after a rebase that date can be newer than an ask that preceded it,
+so the ask counts against the new head. That spends an ask early rather than
+asking too often.
+
 ### Caps, and where they live
 
 | Cap | Value | Why |
 |---|---|---|
 | Re-runs | 3 | Costs CI minutes and no model spend, so the number is set by observation rather than price: #1319 hit the same apt-get hang **twice in a row**, so 1 or 2 would have escalated a pure flake to a human |
 | Fix runs | 2 | Matches ship-pr Phase 3's "stop after 2 check-fix rounds". At $1.50-$5 a run this holds the feature to ~$10 per PR, on top of the ~$30 an escalated ticket may already have spent |
+| Review requests | 2 **per head** | Asking costs one comment, but what follows is a real review. A reviewer that declined twice about the same commit is making a judgement rather than flaking, and a third ask would only be louder. Counted off the PR's comments rather than the state block |
 
 The fix-run budget is **shared** between conflicts, failing checks and review
 findings, because what it bounds is money rather than any one activity. A PR
 that keeps colliding with `main` after spending it is one a human should look
 at, not one to keep paying to rebase.
+
+Review requests count **separately**, because they are not that kind of cost: a
+comment is not a Fargate task. Sharing the budget would let an unapproved PR eat
+the money set aside for a red board — and it would mean a PR that spent its fix
+runs could never be asked about at all, which is the exact state #1905 was in.
 
 Both are **per-PR and cumulative for the life of the PR**, deliberately not
 per-commit. A fix run pushes a commit, and resetting on a new commit would let a
@@ -610,6 +702,27 @@ On exhaustion the drive stops and announces in `#bugs` through the same
 `vars.GPBOT_PR_CHANNEL_ID` / `secrets.GPBOT_SLACK_BOT_TOKEN` path as the other
 two gpbot workflows. Nothing the bot does clears an escalation; a human deletes
 the marker comment to hand it back.
+
+### The backstop, and what was cancelling it
+
+The 30-minute schedule is the only trigger a **quiet** PR ever gets. The
+`workflow_run` triggers fire when a watched workflow completes, so once every
+check on a commit has resolved, nothing will fire again for it — and a PR can
+still have work outstanding in that state: one waiting out a fix-run grace
+window, or one green but not yet approved.
+
+That backstop was being cancelled by the drive's own no-op runs. A commit pushed
+to `main` belongs to no open PR, so those runs resolve no candidate and exit —
+but they enter the repo-wide concurrency group first, and the group keeps only
+the newest queued run. A busy afternoon on `main` therefore evicted the pending
+scheduled run.
+
+Measured on 2026-09-17: #1905's fix-run grace expired at 16:00:55, the 16:08
+cron that would have acted was cancelled seven seconds in by a burst of
+main-push runs, and three of the previous thirty crons had gone the same way.
+The fix is `branches-ignore: [main]` on the `workflow_run` trigger, so the runs
+that could only ever exit are never created. Dropping them is a correctness fix,
+not a saving.
 
 ### Why `workflow_run` and not `check_suite`
 

@@ -9,6 +9,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { outreachAudienceListsKey } from 'app/dashboard/outreach/v2/audience/useOutreachAudience'
+import { listPeopleQueryKey } from '../map/useListPeople'
 import { useContactsTable } from '../ContactsTableProvider'
 import { getContactsLabels } from '../../../shared/contactsLabels'
 import CrmSheet from '../shared/CrmSheet'
@@ -450,6 +451,11 @@ export default function CreateListWizard({
     if (!editingSegment) return
     await queryClient.invalidateQueries({
       queryKey: ['list-detail', orgSlug, editingSegment.id],
+    })
+    // Same reason as list-detail: re-cutting a list changes WHO is in it, and
+    // the map draws the members rather than the summary.
+    await queryClient.invalidateQueries({
+      queryKey: listPeopleQueryKey(orgSlug, String(editingSegment.id)),
     })
     await queryClient.invalidateQueries({
       queryKey: outreachAudienceListsKey(orgSlug),

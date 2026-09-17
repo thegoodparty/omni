@@ -10,7 +10,7 @@ interface TextingComplianceApprovedProps {
 
 export default function TextingComplianceApproved({
   title = 'Your campaign is compliant',
-  description = 'Claim up to 5,000 free texts in your first campaign. Schedule your introduction text message today.',
+  description = 'Schedule your introduction text message to voters today.',
 }: TextingComplianceApprovedProps = {}): React.JSX.Element {
   return (
     <Card

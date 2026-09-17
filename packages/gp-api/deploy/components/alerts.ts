@@ -2,122 +2,178 @@ import { ControllerName } from '../../src/generated/route-types'
 import { Alert, SlackGroup } from './alerting/alerts.types'
 import { geoapifyBudgetAlerts } from './alerting/geoapify-budget-alerts'
 
-/** Map of slack group to controllers */
+/**
+ * Which product's users each controller serves, and therefore who hears about
+ * it when it breaks.
+ *
+ * Being in here is what enables a controller's generated route alert at all —
+ * `controllerAlerts` ends with `disabled: !owners.length`. That has been true
+ * since 2026-03-01, and the map was seeded on 2026-03-05 with five `serve-bugs`
+ * entries and an empty `win-bugs`. It gained exactly one entry in the six months
+ * after, while gp-api went from 40 `@Controller` decorators to 99 — so what used
+ * to be here was not a set of decisions about what needs watching, it was where
+ * two teams happened to opt in once. 320 of 382 routes could not report their
+ * own failure, which is how GET /v1/public-person-profiles/voter-density served
+ * 1,498,324 consecutive 500s over four days without paging anyone.
+ *
+ * One line per controller, rather than two lists to keep in sync: a fifth of
+ * these are owned by both products, and expressing that as membership in two
+ * arrays means 22 entries duplicated by hand. ALERT_OWNERSHIP is derived below
+ * and keeps its old shape, so nothing downstream changes.
+ *
+ * `BOTH` is the honest answer for a shared surface, not a hedge. Auth, users,
+ * payments and elections are used by both products, and naming one owner means
+ * the other finds out second-hand. It is also the safe direction to be wrong in:
+ * over-tagging costs someone a glance, under-tagging costs an outage.
+ *
+ * The assignments come from guards and module docs rather than from names —
+ * `@UseCampaign()` for Win, `@UseElectedOffice()` for Serve, an explicit `eo-`
+ * organization rejection, or an AGENTS.md that says outright who a feature is
+ * for. Three are weaker and worth revisiting if they ever page the wrong team:
+ * `content` (mixed content types, no webapp caller), `subscribe` (no caller in
+ * the monorepo at all — presumably the marketing site), and the two public
+ * controllers, whose callers live in gp-marketing.
+ *
+ * The group split is itself on the way out — it is one team now, and a single
+ * rotation is wanted. That is deliberately NOT done here, because it changes
+ * who is paged for everything in one commit. Until then, which key a controller
+ * sits under matters less than that it sits under one.
+ */
+const SERVE = 'serve-bugs' satisfies SlackGroup
+const WIN = 'win-bugs' satisfies SlackGroup
+const BOTH = [SERVE, WIN] satisfies SlackGroup[]
+
+const CONTROLLER_OWNERS: Partial<
+  Record<ControllerName, readonly SlackGroup[]>
+> = {
+  // Serve — officeholders governing. Almost all of these carry
+  // `@UseElectedOffice()`; the briefing, ordinance and annotation surfaces are
+  // the Chief of Staff product.
+  'elected-office': [SERVE],
+  polls: [SERVE],
+  contacts: [SERVE],
+  'contact-engagement': [SERVE],
+  organizations: [SERVE],
+  'dashboard/cards': [SERVE],
+  'dashboard/onboarding-cards': [SERVE],
+  'organizations/:slug/ordinance-code': [SERVE],
+  'outreach/serve': [SERVE],
+  priorities: [SERVE],
+  'admin/briefings': [SERVE],
+  'admin/elected-office': [SERVE],
+  annotations: [SERVE],
+  'meetings/:date/briefing/annotations': [SERVE],
+  'ordinances/:slug/annotations': [SERVE],
+  'meetings/:date/briefing/feedback': [SERVE],
+  'meetings/:date/briefing/items/:itemId/feedback': [SERVE],
+  'meetings/:date/briefing/review-verdict': [SERVE],
+  'community-issues': [SERVE],
+  briefings: [SERVE],
+  meetings: [SERVE],
+  ordinances: [SERVE],
+  'briefing-chats': [SERVE],
+  speech: [SERVE],
+
+  // Win — candidates campaigning. `@UseCampaign()`, a CampaignOwner guard, or a
+  // Prisma model that only relates to `Campaign`.
+  'door-knocking': [WIN],
+  campaigns: [WIN],
+  'campaign-plan-shares': [WIN],
+  'campaigns/mine/story': [WIN],
+  campaignStrategy: [WIN],
+  crm: [WIN],
+  'organizations/team': [WIN],
+  outreach: [WIN],
+  'outreach/admin/sms': [WIN],
+  'campaigns/mine/race-opponent': [WIN],
+  'campaigns/mine/recommended-lists': [WIN],
+  'campaigns/tracker-tasks': [WIN],
+  'campaigns/:id/positions': [WIN],
+  'campaigns/tasks': [WIN],
+  'campaigns/tcr-compliance': [WIN],
+  'campaigns/mine/update-history': [WIN],
+  'admin/campaign': [WIN],
+  'admin/campaigns': [WIN],
+  positions: [WIN],
+  ecanvasser: [WIN],
+  p2p: [WIN],
+  domains: [WIN],
+  websites: [WIN],
+  'campaigns/ai/chat': [WIN],
+  'campaigns/ai': [WIN],
+
+  // Shared. Platform surfaces, onboarding steps both flows render, and the two
+  // dual-product profile features.
+  authentication: BOTH,
+  content: BOTH,
+  elections: BOTH,
+  experiment: BOTH,
+  'onboarding/contacts': BOTH,
+  'onboarding/local-news': BOTH,
+  'onboarding/voter-issues': BOTH,
+  payments: BOTH,
+  'payments/purchase': BOTH,
+  'phone-banking': BOTH,
+  subscribe: BOTH,
+  'top-issues': BOTH,
+  users: BOTH,
+  'admin/agent-runs': BOTH,
+  'admin/users': BOTH,
+  eligibility: BOTH,
+  'person-profiles': BOTH,
+  'public-person-profiles': BOTH,
+  'public-campaigns': BOTH,
+  'speech/transcribe': BOTH,
+  'voters/voter-file': BOTH,
+  chats: BOTH,
+  'error-logger': BOTH,
+}
+
+const ownedBy = (group: SlackGroup): ControllerName[] =>
+  (Object.keys(CONTROLLER_OWNERS) as ControllerName[]).filter((controller) =>
+    CONTROLLER_OWNERS[controller]?.includes(group),
+  )
+
+/** Map of slack group to controllers, derived from {@link CONTROLLER_OWNERS}. */
 export const ALERT_OWNERSHIP: Record<SlackGroup, ControllerName[]> = {
-  'serve-bugs': [
-    'elected-office',
-    'polls',
-    'contacts',
-    'contact-engagement',
-    'organizations',
-  ],
-  'win-bugs': ['door-knocking'],
+  'serve-bugs': ownedBy(SERVE),
+  'win-bugs': ownedBy(WIN),
 }
 
 /**
- * Controllers whose generated route alert is provisioned `disabled`, because
- * nothing in ALERT_OWNERSHIP claims them.
+ * Controllers deliberately left without a route alert.
  *
- * This list does not change what is alerted on. It exists so that the silence
- * is written down: `controllerAlerts` sets `disabled: !slackGroupName`, so
- * until now a controller was opted out of alerting by nobody ever mentioning
- * it, and nothing anywhere recorded that this had happened or to how many.
- * It is 71 of 77.
+ * Every other controller is now owned in CONTROLLER_OWNERS above. This list is
+ * what is left over, and it is short on purpose — each entry is a claim that
+ * failure here is not worth waking anyone for, and the tests make a new
+ * controller land in one place or the other rather than defaulting to silence.
  *
- * The cost of that default is measurable. GET /v1/public-person-profiles
- * /voter-density served 1,498,324 consecutive 500s between 2026-08-24 and
- * 2026-08-28 — every request it received, for four days — and paged nobody,
- * because `public-person-profiles` is on this list. It was noticed a fortnight
- * later while reading unrelated logs.
+ * `health` is covered better elsewhere. `health-check-probe-failure` watches it
+ * with a synthetic probe from outside, which tests reachability rather than just
+ * whether the handler threw, so a log-based route alert on the same endpoint
+ * would duplicate it and add nothing.
  *
- * So the point of the list is the test that reads it: a NEW controller has to
- * appear here or in ALERT_OWNERSHIP, and a reviewer sees which one the author
- * chose. Being on it is a statement that no route alert is wanted, not that
- * none was considered.
+ * `test-fixtures` returns 404 outside dev and preview, so prod traffic to it is
+ * by definition not ours; paging on it means paging for a broken test, which CI
+ * already reports.
  *
- * Two entries are alerted on by other means, and should stay here because the
- * statement is about the generated rule specifically: `public-campaigns` and
- * `public-person-profiles` both carry hand-written rate-aware rules in
- * GLOBAL_ALERTS below. Both were written after that kind of outage rather than
- * before, and the generated all-or-nothing rule is the wrong tool for a
- * high-traffic public route either way — it fires on a single error in the
- * window, so on a route serving ~2 req/s it fires forever and gets muted.
+ * `version` echoes the build version and `queue` is a method literally named
+ * `testQueue()` that enqueues a hardcoded `test-slug` — a development poke, not
+ * a product route. Nothing downstream depends on either answering.
  *
- * Shortening this list is the work. Anything user-facing on it is an endpoint
- * that can fail completely without telling anyone.
+ * `mcp` is here for a different reason: it has no entries in ROUTE_MAP, so
+ * `controllerAlerts` returns nothing for it and there is no rule to enable. It
+ * is listed so the coverage test can account for it, not because a decision was
+ * made about it. That it serves real traffic — 19 no-status timeouts on
+ * POST /v1/mcp in prod over 30 days — while being invisible to the route-type
+ * generator is a separate gap, and one this list cannot close.
  */
 export const CONTROLLERS_WITHOUT_ROUTE_ALERTS: ControllerName[] = [
-  'authentication',
-  'campaigns',
-  'campaign-plan-shares',
-  'campaigns/mine/story',
-  'campaignStrategy',
-  'content',
-  'crm',
-  'dashboard/cards',
-  'dashboard/onboarding-cards',
-  'elections',
-  'error-logger',
-  'experiment',
   'health',
-  'version',
-  'mcp',
-  'onboarding/contacts',
-  'onboarding/local-news',
-  'onboarding/voter-issues',
-  'organizations/:slug/ordinance-code',
-  'organizations/team',
-  'outreach',
-  'outreach/serve',
-  'outreach/admin/sms',
-  'payments',
-  'payments/purchase',
-  'phone-banking',
-  'priorities',
-  'campaigns/mine/race-opponent',
-  'campaigns/mine/recommended-lists',
-  'subscribe',
   'test-fixtures',
-  'top-issues',
-  'users',
-  'admin/agent-runs',
-  'admin/briefings',
-  'admin/campaign',
-  'admin/campaigns',
-  'admin/elected-office',
-  'admin/users',
-  'annotations',
-  'meetings/:date/briefing/annotations',
-  'ordinances/:slug/annotations',
-  'meetings/:date/briefing/feedback',
-  'meetings/:date/briefing/items/:itemId/feedback',
-  'meetings/:date/briefing/review-verdict',
-  'campaigns/tracker-tasks',
-  'eligibility',
-  'public-campaigns',
-  'campaigns/:id/positions',
-  'campaigns/tasks',
-  'campaigns/tcr-compliance',
-  'campaigns/mine/update-history',
-  'community-issues',
-  'briefings',
-  'meetings',
-  'ordinances',
-  'person-profiles',
-  'public-person-profiles',
+  'version',
   'queue',
-  'speech/transcribe',
-  'speech',
-  'positions',
-  'ecanvasser',
-  'p2p',
-  'voters/voter-file',
-  'domains',
-  'websites',
-  'campaigns/ai/chat',
-  'campaigns/ai',
-  'briefing-chats',
-  'chats',
+  'mcp',
 ]
 
 /**
@@ -491,52 +547,101 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join('\n\n'),
   },
   {
-    slug: 'people-completion-request-no-email-ratio',
-    name: '[People] Profile completion nudges undeliverable',
+    slug: 'people-claim-request-crm-sync-failing',
+    name: '[People] Candidate profile request counter not syncing',
     type: 'metric',
-    // `no_email` is normally a large, stable share: the person feed only carries
-    // an address where a source had one, and notify exists for the people we
-    // hold the least data on. So this does NOT alert on the level — it alerts on
-    // the level going almost total, which is the shape of a regression rather
-    // than of data coverage (election-api's contact-email route answering
-    // `{email: null}` for everyone, the M2M credential failing open to null, or
-    // the person feed dropping the column). That failure emits no `failed`
-    // samples at all, so the alert above cannot see it.
+    // person_profile.claim_request_crm_sync.count{result="failed"} — the
+    // `candidate_profile_requests` write on the subject's HubSpot contact.
     //
-    // 24h window because the volume is small; the `and` clause is a floor,
-    // since a ratio over a handful of submissions is noise. Under the floor the
-    // query returns no data, which grafana.ts maps to OK, not Alerting.
-    expr: [
-      '( sum(increase(person_profile_completion_request_event_count_total{service_name="gp-api", deployment_environment_name="$ENV", result="no_email"}[24h]))',
-      '/',
-      'sum(increase(person_profile_completion_request_event_count_total{service_name="gp-api", deployment_environment_name="$ENV"}[24h])) )',
-      'and',
-      '( sum(increase(person_profile_completion_request_event_count_total{service_name="gp-api", deployment_environment_name="$ENV"}[24h])) > 20 )',
-    ].join(' '),
-    threshold: 0.95,
-    for: '0m',
-    // The [24h] vector is only fully visible if the fetch window matches it.
-    timeRangeSeconds: 86400,
-    // A day-long window does not need minute resolution, and re-reading 24h
-    // every 60s for no added signal is the cost mistake documented on this
-    // field.
-    evaluationIntervalSeconds: 3600,
+    // THERE WAS NO RULE ON THIS METRIC AT ALL until now, which is how it sat at
+    // a 100% failure rate in prod while the only people alert that did fire
+    // fired about a downstream symptom and named the wrong cause. Both halves
+    // of the claim-request CRM side-effect are independent, and this is the
+    // half nothing was watching.
+    //
+    // `no_contact` and `unresolved` are ordinary skips (the CRM has never heard
+    // of most of the civics spine, and the warehouse is unconfigured off-prod),
+    // so only `failed` is a fault. Volume is low enough that a sustained
+    // failure is worth a look without needing a ratio.
+    expr: 'sum(rate(person_profile_claim_request_crm_sync_count_total{service_name="gp-api", deployment_environment_name="$ENV", result="failed"}[5m]))',
+    threshold: 0,
+    for: '15m',
     message: [
-      'Over 95% of profile completion requests in the last 24 hours found no email address for the subject, across at least 20 submissions.',
-      'Some share here is normal — the civics person feed only holds an address where a source had one — but near-total means the lookup itself is likely broken rather than the data being thin. This fails silently: no address means no event, which is a deliberate skip, so no error is raised anywhere.',
-      'Click *View in Grafana*, then verify GET /v1/persons/:personId/contact-email on election-api returns an address for a person you know has one, and check the log line "Person contact email lookup failed" for M2M auth failures.',
+      "gp-api has been failing to write `candidate_profile_requests` to candidates' HubSpot contacts for 15 minutes.",
+      "Visitors' asks are still being stored in `person_profile_claim_request` and the public endpoint is unaffected — this is a detached side-effect. But the counter marketing segments on is drifting, and because the same lookup establishes whether HubSpot holds a contact for the subject at all, nothing downstream can tell an absent contact from an unread one while this is failing.",
+      'Click *View in Grafana*, then check the log line "candidate_profile_requests sync failed (non-fatal)" for the underlying error. The counter is a computed total rather than an increment, so it self-heals on the next submission once the cause is fixed — no replay is needed.',
+    ].join('\n\n'),
+    knownCauses: [
+      {
+        id: 'databricks-invalid-client',
+        summary:
+          "The shared Serve Databricks service principal is being rejected, so the person-mart read that resolves the subject's HubSpot contact id never runs.",
+        evidence: [
+          '{service_name="gp-api", deployment_environment_name="$ENV"}',
+          '|= "candidate_profile_requests sync failed"',
+          '|= "invalid_client"',
+        ].join(' '),
+        confirmedBy:
+          'Every matched line carries `invalid_client (Client authentication failed)` and names `DatabricksOAuthManager.getTokenM2M` in its stack. A matched line missing either is a different sync failure and this is not the cause. What this confirms is narrow but useful: the token endpoint rejected the DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET pair from the GP_API_PROD secret, which is authentication and happens before any warehouse or table grant is consulted — so a permission change cannot be the cause and a deploy cannot be the fix. It does NOT say which of expired, replaced, mistyped, or never-valid-for-this-workspace applies; check the service principal in Databricks against the client id actually in the secret before assuming a rotation is what is needed.',
+        action: 'annotate',
+      },
+    ],
+  },
+  {
+    slug: 'people-person-contact-email-lookup-failing',
+    name: '[People] Person contact email lookup failing',
+    type: 'log',
+    // REPLACES `people-completion-request-no-email-ratio`, which was deleted
+    // rather than retuned because both halves of it were unsound:
+    //
+    //  - It alerted on a share that is ~100% in the steady state. The `sent`
+    //    counter has never once been non-zero in prod, so "over 95% of nudges
+    //    undeliverable" is this feature's normal condition, not a regression.
+    //    A rule that is always true the moment it has volume gets muted.
+    //  - Its `> 20` volume floor never was one. It summed increase() over a
+    //    counter whose series conflated both prod tasks, so 4 real submissions
+    //    read as 1,702 and the floor was cleared by arithmetic rather than by
+    //    traffic — which is how it fired in the first place. See the
+    //    service.instance.id comment in src/otel.ts.
+    //
+    // What that rule was reaching for, and could not see, is the lookup
+    // ERRORING: resolveContactEmail returns null both for "no address on file"
+    // (ordinary, and most of the spine) and for a 404, and logs this line only
+    // for a genuine fault — M2M auth, a 5xx, or election-api unreachable. That
+    // is the actionable signal. Address coverage is a data question and belongs
+    // on the dashboard, not in #dev-alerts.
+    expr: [
+      'count_over_time({service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Person contact email lookup failed" [5m])',
+    ].join(' '),
+    threshold: 0,
+    for: '15m',
+    message: [
+      "gp-api has been unable to read subjects' contact addresses from election-api for 15 minutes.",
+      "Every profile-completion nudge in this window was skipped for want of an address, which is indistinguishable from ordinary thin coverage in the metric — this log line is the only thing that separates the two. Visitors' asks are unaffected and remain stored in `person_profile_claim_request`.",
+      'Click *View in Grafana*, then read the `status` and `reason` fields on the matched lines. A 401/403 is the gp-api → election-api M2M credential; a 5xx or a connection error is election-api itself. Note the response body is deliberately not logged, because on this route the body IS the address.',
     ].join('\n\n'),
   },
   {
     slug: 'public-campaigns-lookup-error-ratio',
     name: '[People] Public campaign lookup failing',
     type: 'log',
-    // `public-campaigns` is not in ALERT_OWNERSHIP, so its generated per-route
-    // alert is provisioned `disabled`. That is why 5k+ daily 500s on a public
-    // endpoint paged nobody. It is deliberately still not opted in: the
-    // generated rule fires on a single error in the window, and this route
-    // serves ~2 req/s, so it would have been firing continuously and been
-    // muted. This is the rate-aware replacement.
+    // Written when `public-campaigns` was not in ALERT_OWNERSHIP and its
+    // generated per-route alert was therefore provisioned `disabled` — which
+    // is why 5k+ daily 500s on a public endpoint paged nobody. It was left out
+    // of the ownership map on the grounds that the generated rule fires on a
+    // single error in the window, so on a route serving ~2 req/s it would fire
+    // continuously and be muted.
+    //
+    // It is in the map as of 2026-09, because that stopped being true: in the
+    // seven days to 09-17 this route produced ZERO errors the generated rule
+    // would fire on, and the 5k-a-day era it was reasoning from is over. The
+    // two rules now stack rather than substitute — the generated one answers
+    // "did anything fail at all" within a minute, this one answers "is the
+    // route substantially broken" and carries the known causes below.
+    //
+    // Keep this rule anyway. It is the one that still works if the volume
+    // returns, and the argument above becomes true again the moment it does.
     //
     // Denominator is lookups that resolved to a campaign (non-404), not all
     // traffic. ~95% of requests are 404s — gp-marketing asks "has this
@@ -774,11 +879,19 @@ export const GLOBAL_ALERTS: Alert[] = [
     // generated rule is provisioned disabled. It ended when the table it reads
     // was created, not when anyone responded.
     //
-    // Same shape as public-campaigns-lookup-error-ratio above, and for the same
-    // reason: opting the controller into ALERT_OWNERSHIP instead would give it
-    // the generated rule, which fires on one error in the window. These routes
-    // serve ~4 req/s, so that rule fires more or less permanently and ends up
-    // muted — which is indistinguishable from what we have now.
+    // Same shape as public-campaigns-lookup-error-ratio above. This controller
+    // is ALSO in ALERT_OWNERSHIP, so it has a generated route alert too, and
+    // the two are not redundant: the generated rule trips on the first error
+    // and this one only when a route is substantially broken, so the pair
+    // separates "something failed" from "this route is down" without either
+    // having to guess which it is.
+    //
+    // The case for not opting the controller in — that a threshold-0 rule on a
+    // route serving ~4 req/s would fire permanently and get muted — was worth
+    // testing rather than assuming, and did not hold. Over the seven days to
+    // 2026-09-17 the errors the generated rule fires on fell in 2 hours out of
+    // 168: a 52-error burst and one stray. So it pages about twice a week at
+    // worst, and the muting risk was theoretical.
     //
     // `sum by (request_endpoint)` rather than one ratio for the controller:
     // Grafana turns each returned series into its own alert instance, so a

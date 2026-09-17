@@ -5,10 +5,12 @@ import { AuthenticateWithRedirectCallback } from '@clerk/nextjs'
  * sign-up form (`authenticateWithRedirect`). The Clerk component finishes the
  * handshake and forwards the user on.
  *
- * New accounts go to `/sign-up/phone` first: the email/password form collects
- * a phone up front, but OAuth can't, and that step forwards to the same
- * post-auth resolver once it has one. A Google *sign-in* takes the
- * sign-in URL below and is never asked.
+ * Clerk only loads this page when the flow needs another step (a transfer to
+ * sign-in, missing requirements); a sign-up that completes outright goes
+ * straight to the `redirectUrlComplete` the form passed, which is the phone
+ * step. The props below cover the cases that do come through here: a new
+ * account still goes to `/sign-up/phone`, and a Google *sign-in* takes the
+ * sign-in URL and is never asked.
  */
 export default function SignUpSSOCallback() {
   return (

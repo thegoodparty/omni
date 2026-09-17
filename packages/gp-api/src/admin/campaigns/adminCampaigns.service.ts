@@ -13,6 +13,7 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { PinoLogger } from 'nestjs-pino'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { StripeService } from 'src/vendors/stripe/services/stripe.service'
 
 @Injectable()
 export class AdminCampaignsService {
@@ -25,6 +26,7 @@ export class AdminCampaignsService {
     private readonly auth: AuthenticationService,
     private readonly analytics: AnalyticsService,
     private readonly organizations: OrganizationsService,
+    private readonly stripe: StripeService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(AdminCampaignsService.name)
@@ -120,6 +122,23 @@ export class AdminCampaignsService {
     }
     if (typeof tier !== 'undefined') {
       attributes.tier = tier
+    }
+
+    // Admin de-Pro must cancel the live Stripe subscription too (ENG-10660).
+    // Without this, `isPro` flips to false while Stripe keeps billing and
+    // details.subscriptionId stays populated — the exact "charged in Stripe,
+    // invisible in product" state ENG-10657 documented. Cancel Stripe FIRST
+    // so a Stripe failure surfaces a 502 before the DB write and leaves both
+    // sides intact; the resulting customer.subscription.deleted webhook then
+    // runs persistCampaignProCancellation to clear subscriptionId.
+    if (isPro === false) {
+      const existing = await this.campaigns.findUniqueOrThrow({
+        where: { id },
+      })
+      const subscriptionId = existing.details?.subscriptionId
+      if (subscriptionId) {
+        await this.stripe.cancelSubscription(subscriptionId)
+      }
     }
 
     const updatedCampaign = await this.campaigns.update({

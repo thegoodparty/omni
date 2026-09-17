@@ -29,7 +29,25 @@ log="$log_dir/$slug.txt"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dir="$here/environments/$root"
 
-fail() { echo "::error::$root: $1"; echo "$1" >>"$log"; exit 1; }
+fail() {
+  echo "::error::$root: $1"
+  echo "$1" >>"$log"
+  # THE REASON, NOT JUST THE VERDICT. Every terraform call below writes to $log
+  # and, on this path, nothing ever reads it: `wait-all` short-circuits on a
+  # failed apply, so the convergence check in release.yml that would have
+  # tailed it never runs. That left `prod/shared-infra: plan failed` as the
+  # entire public record of a red release train on 2026-09-16 — accurate, and
+  # of no use to the human or the bot that has to act on it. Terraform redacts
+  # sensitive values itself and the convergence check already tails these same
+  # logs into the job output, so there is nothing here that was not already
+  # printable.
+  if [ -s "$log" ]; then
+    echo "::group::$root: last 60 lines of $log"
+    tail -60 "$log"
+    echo "::endgroup::"
+  fi
+  exit 1
+}
 
 [ -d "$dir" ] || fail "no such root"
 cd "$dir" || fail "cannot cd into $dir"

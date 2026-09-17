@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common'
+import { BadGatewayException, HttpStatus, Injectable } from '@nestjs/common'
 import { Vercel } from '@vercel/sdk'
 import type {
   GetRecordsResponseBody,
@@ -219,6 +219,41 @@ export class VercelService {
       })
     } catch (error) {
       this.logger.error({ error }, `Error getting registrar order ${orderId}:`)
+      throw error
+    }
+  }
+
+  /**
+   * Retrieve the EPP/auth code a registrant needs to transfer a domain away
+   * from Vercel to another registrar.
+   * @see https://vercel.com/docs/domains/registrar-api
+   */
+  async getDomainAuthCode(domainName: string): Promise<string> {
+    try {
+      const { authCode } = await this.client.domainsRegistrar.getDomainAuthCode(
+        {
+          domain: domainName,
+          teamId: VERCEL_TEAM_ID,
+        },
+      )
+
+      // The SDK's inbound schema coerces a null or absent authCode to '' and
+      // still types it as string, so a partial 200 would hand support an empty
+      // credential that only fails later, at the candidate's new registrar.
+      if (!authCode) {
+        throw new BadGatewayException(
+          `Vercel returned an empty auth code for domain ${domainName}`,
+        )
+      }
+
+      return authCode
+    } catch (error) {
+      // Unlike the sibling methods, never log the success payload — the auth
+      // code is a bearer credential for taking the domain off our account.
+      this.logger.error(
+        { error },
+        `Error getting auth code for domain ${domainName}:`,
+      )
       throw error
     }
   }

@@ -125,6 +125,11 @@ function AssistantConversation({
           void queryClient.invalidateQueries({
             queryKey: ['list-detail', orgSlug],
           })
+          // The map reads the list's members, not its summary, so it needs
+          // its own key dropped or it keeps drawing the pre-edit set.
+          void queryClient.invalidateQueries({
+            queryKey: ['list-people', orgSlug],
+          })
         }
         return false
       },
