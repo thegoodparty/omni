@@ -20,6 +20,7 @@ If logic only runs once and lives elsewhere, it doesn't belong here. If it's reu
 | `amplitude-flag-cohort.ts`                                        | Adds a list of emails to an Amplitude Experiment flag's targeting segment (dry-run default, `--execute` to apply)                  |
 | `requeue-stranded-compliance-runs.ts`                             | Flips compliance_setup runs stuck FAILED at `pending_website_live` back to AWAITING_RESUME (dry-run default, `--execute` to apply) |
 | `backfill-voter-file-filter-orgs.ts`                              | Migration helper for the org-scoping change on `VoterFileFilter`                                                                   |
+| `load-affected-residents.ts`                                      | Validates an affected-residents list and uploads it to `AFFECTED_RESIDENTS_BUCKET` (dry-run default, `--execute` to apply)          |
 | `find-stale-preview-stacks.ts`                                    | Lists Pulumi preview stacks with no matching open PR                                                                               |
 | `dispatch-experiment.ts` / `trigger-poll.ts` / `complete-poll.ts` | Manual queue producers for testing async flows                                                                                     |
 | `test-weekly-tasks-digest-event.ts`                               | Locally fires the weekly tasks digest handler                                                                                      |

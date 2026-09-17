@@ -112,6 +112,28 @@ fixture. An unset bucket serves no list rather than failing.
   issue would hold every office's constituents in memory. Entries are immutable
   per run, so eviction only costs a re-fetch.
 
+### Getting a list into the bucket
+
+`scripts/load-affected-residents.ts`, dry-run by default:
+
+```bash
+npx tsx scripts/load-affected-residents.ts \
+  --file <path to the built list, outside this repo> \
+  --issue <communityIssueId> \
+  --execute
+```
+
+It validates against the same schema the service uses, checks `--issue` against
+the payload's own `communityIssueId`, and recomputes every resident's
+affectedness score from the declared factor weights before it will upload. That
+last check is not redundant: the schema does not know the arithmetic, and a
+list whose printed score disagrees with its own factors is not one to hand an
+officeholder.
+
+Fail here rather than at read time. The service refuses an invalid list and
+logs an error, which on the page is indistinguishable from "this office has no
+list" — a silent nothing rather than a build error.
+
 ## Activity gate
 
 `dispatchTypeForOrg` (shared by the cron and `dispatchIfNeeded`) checks
