@@ -4,6 +4,7 @@ import { SmsOutreachAdminResource } from './resources/SmsOutreachAdminResource'
 import { AdminResource } from './resources/AdminResource'
 import { CampaignsResource } from './resources/CampaignsResource'
 import { CommunityIssuesResource } from './resources/CommunityIssuesResource'
+import { DomainsResource } from './resources/DomainsResource'
 import { EcanvasserResource } from './resources/EcanvasserResource'
 import { MeetingBriefingsResource } from './resources/MeetingBriefingsResource'
 import { ElectedOfficesResource } from './resources/ElectedOfficesResource'
@@ -31,6 +32,7 @@ export class GoodPartyClient {
   readonly personProfiles: PersonProfilesResource
   readonly meetingBriefings: MeetingBriefingsResource
   readonly communityIssues: CommunityIssuesResource
+  readonly domains: DomainsResource
   private clerkService: ClerkService
 
   private constructor(clerkService: ClerkService, gpApiRootUrl: string) {
@@ -48,6 +50,7 @@ export class GoodPartyClient {
     this.personProfiles = new PersonProfilesResource(httpClient)
     this.meetingBriefings = new MeetingBriefingsResource(httpClient)
     this.communityIssues = new CommunityIssuesResource(httpClient)
+    this.domains = new DomainsResource(httpClient)
   }
 
   static create = async (
