@@ -21,19 +21,23 @@ from ci_triage import (
     ACTION_HOLD,
     ACTION_NONE,
     ACTION_REPORT,
+    ACTION_REQUEST_REVIEW,
     ACTION_RERUN,
     FIX_RUN_GRACE_SECONDS,
     INFRA,
     MAX_FIX_RUNS,
     MAX_RERUNS,
+    MAX_REVIEW_REQUESTS,
     PRE_EXISTING,
     UNKNOWN,
     classify_check,
     decide,
+    is_approved,
     is_conflicted,
     open_findings,
     parse_state,
     render_state,
+    reviewer_is_blocking,
 )
 
 # PR #1306, run 32086655082 attempt 1, job 95562468914 — the failure this whole
@@ -55,7 +59,14 @@ PR_1306_E2E_SHARD_1 = {
     ),
 }
 
-FRESH_STATE = {"reruns": 0, "fixes": 0, "escalated": False, "fix_started_at": 0, "findings_attempted": []}
+FRESH_STATE = {
+    "reruns": 0,
+    "fixes": 0,
+    "reviews_requested": 0,
+    "escalated": False,
+    "fix_started_at": 0,
+    "findings_attempted": [],
+}
 
 # PR #1306 again, this time the half nobody acted on. Cursor Bugbot posted this
 # three minutes after the PR opened; delegate-reviewer approved two minutes
@@ -81,6 +92,29 @@ PR_1306_BUGBOT_FINDING = {
 # no longer merges, and for one that does.
 CONFLICTED = {"mergeable": "CONFLICTING", "merge_state": "DIRTY"}
 CLEAN = {"mergeable": "MERGEABLE", "merge_state": "CLEAN"}
+
+# PR #1905's two commits. The first is what delegate reviewed; the second is what
+# the drive's own fix run pushed, which is the commit that had no review and made
+# the PR unmergeable while every counter read healthy.
+HEAD_SHA = "e986988b9c4fd0ff1a02a2a4a0a9a2e1dbe0a5f2"
+EARLIER_SHA = "67da5216503fe69fdd77dcf97b78243eede86a43"
+
+APPROVED = [{"author": "delegate-reviewer[bot]", "state": "APPROVED", "commit": HEAD_SHA}]
+
+# The actual shape of #1905: delegate looked at the previous commit, said it had
+# one blocker, and was never asked again.
+STALE_COMMENT = [{"author": "delegate-reviewer[bot]", "state": "COMMENTED", "commit": EARLIER_SHA}]
+
+# delegate's own thread, which is NOT driven as a finding — answering it is a
+# judgement the bot declined to make on #1905.
+DELEGATE_THREAD = {
+    "id": "PRRT_kwDOdelegate",
+    "author": "delegate-reviewer",
+    "resolved": False,
+    "outdated": False,
+    "human_replied": False,
+    "excerpt": "`cancelSubscription` carries no idempotency key.\n",
+}
 
 # A fixed instant, so the in-flight window is asserted against arithmetic rather
 # than against how long the test suite happened to take.
@@ -282,7 +316,7 @@ class TestCapsBoundTheSpend:
         assert decision["action"] == ACTION_NONE
 
     def test_no_failing_checks_means_no_action(self):
-        decision = decide([], FRESH_STATE)
+        decision = decide([], FRESH_STATE, reviews=APPROVED, head_sha=HEAD_SHA)
 
         assert decision["action"] == ACTION_NONE
 
@@ -350,6 +384,7 @@ class TestStateSurvivesBetweenInvocations:
         state = {
             "reruns": 2,
             "fixes": 1,
+            "reviews_requested": 1,
             "escalated": False,
             "fix_started_at": NOW,
             # Carried across too. A round trip that dropped these would let an
@@ -387,8 +422,16 @@ class TestMalformedInputCannotCrashTheDrive:
         assert classify_check(None)["classification"] == UNKNOWN
 
     def test_non_list_checks_and_non_dict_state_are_survivable(self):
-        assert decide(None, None)["action"] == ACTION_NONE
-        assert decide("nope", "nope")["action"] == ACTION_NONE
+        # Unreadable input resolves to "no checks", and with no readable approval
+        # either the cheapest possible move is to ask for one. What matters is
+        # that nothing raises and nothing expensive is reached — an agent run
+        # must never come out of input we could not parse.
+        for decision in (decide(None, None), decide("nope", "nope")):
+            assert decision["action"] == ACTION_REQUEST_REVIEW
+            assert decision["action"] not in (ACTION_FIX, ACTION_FIX_FINDINGS, ACTION_FIX_CONFLICTS)
+
+    def test_malformed_input_with_an_approval_settles(self):
+        assert decide(None, None, reviews=APPROVED, head_sha=HEAD_SHA)["action"] == ACTION_NONE
 
     def test_the_cli_emits_a_decision_a_shell_can_read(self):
         # The workflow shells out to this and reads `action` with jq, so the
@@ -415,7 +458,7 @@ class TestABranchThatNoLongerMergesIsWork:
         assert decision["next_state"]["fixes"] == 1
 
     def test_a_clean_branch_with_nothing_outstanding_does_nothing(self):
-        assert decide([], FRESH_STATE, [], CLEAN)["action"] == ACTION_NONE
+        assert decide([], FRESH_STATE, [], CLEAN, reviews=APPROVED, head_sha=HEAD_SHA)["action"] == ACTION_NONE
 
     def test_the_conflict_is_settled_before_the_red_checks(self):
         # A conflicted branch does not merge however green it gets, and the
@@ -482,7 +525,8 @@ class TestOnlyACertainConflictSpendsMoney:
 
     def test_an_unknown_verdict_never_buys_a_run(self):
         assert not is_conflicted({"mergeable": "UNKNOWN", "merge_state": "UNKNOWN"})
-        assert decide([], FRESH_STATE, [], {"mergeable": "UNKNOWN"})["action"] == ACTION_NONE
+        decision = decide([], FRESH_STATE, [], {"mergeable": "UNKNOWN"}, reviews=APPROVED, head_sha=HEAD_SHA)
+        assert decision["action"] == ACTION_NONE
 
     def test_a_mergeable_branch_is_not_conflicted(self):
         assert not is_conflicted(CLEAN)
@@ -535,6 +579,7 @@ class TestEvidenceIsReportedToHumans:
             ACTION_REPORT,
             ACTION_ESCALATE,
             ACTION_HOLD,
+            ACTION_REQUEST_REVIEW,
             ACTION_NONE,
         }
         states = [
@@ -617,8 +662,9 @@ class TestUnansweredReviewFindingsAreWork:
         assert decision["action"] == ACTION_FIX_FINDINGS
 
     def test_a_green_board_with_nothing_outstanding_does_nothing(self):
-        assert decide([], FRESH_STATE, [], now=NOW)["action"] == ACTION_NONE
-        assert decide([], FRESH_STATE, None, now=NOW)["action"] == ACTION_NONE
+        for findings in ([], None):
+            decision = decide([], FRESH_STATE, findings, now=NOW, reviews=APPROVED, head_sha=HEAD_SHA)
+            assert decision["action"] == ACTION_NONE
 
     def test_a_red_board_is_settled_before_any_finding_is_paid_for(self):
         # A run that answers a finding pushes code that still has to pass CI, so
@@ -765,3 +811,166 @@ class TestCapsAreDeliberate:
         # judgement; it must not quietly grant itself a larger budget than the
         # human-driven process it is modelled on.
         assert ci_triage.MAX_FIX_RUNS == 2
+
+
+class TestAnUnapprovedPRIsNotFinished:
+    """PR #1905: green, unconflicted, every thread answered — and unmergeable.
+
+    The drive's fix run pushed a commit, which invalidated the only approval
+    delegate would ever give unasked, and nothing replaced it. Every counter
+    read healthy, so nothing escalated and nothing alerted. This is the state
+    these tests exist to make impossible.
+    """
+
+    def test_an_approval_for_an_earlier_commit_does_not_count(self):
+        # The heart of it. GitHub stops counting an approval when the branch
+        # moves, so "delegate approved this PR" is the wrong question and
+        # answering it is what made #1905 look finished.
+        assert is_approved(APPROVED, HEAD_SHA)
+        assert not is_approved(
+            [{"author": "delegate-reviewer[bot]", "state": "APPROVED", "commit": EARLIER_SHA}], HEAD_SHA
+        )
+
+    def test_a_green_board_without_an_approval_asks_for_one(self):
+        decision = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=STALE_COMMENT, head_sha=HEAD_SHA)
+
+        assert decision["action"] == ACTION_REQUEST_REVIEW
+        assert decision["next_state"]["reviews_requested"] == 1
+        assert decision["approved"] is False
+
+    def test_a_pr_nobody_ever_reviewed_is_asked_about_too(self):
+        decision = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA)
+
+        assert decision["action"] == ACTION_REQUEST_REVIEW
+
+    def test_asking_costs_neither_a_rerun_nor_a_fix_run(self):
+        # The budgets are separate because the costs are: a re-run is CI minutes
+        # and a fix run is $1.50-$5, while this is one comment. Sharing a budget
+        # would let an unapproved PR eat the money set aside for a red board.
+        decision = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA)
+
+        assert decision["next_state"]["reruns"] == 0
+        assert decision["next_state"]["fixes"] == 0
+
+    def test_the_ask_is_capped_and_then_handed_over(self):
+        spent = dict(FRESH_STATE, reviews_requested=MAX_REVIEW_REQUESTS)
+        decision = decide([], spent, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA)
+
+        assert decision["action"] == ACTION_ESCALATE
+        assert decision["next_state"]["escalated"] is True
+
+    def test_a_reviewer_still_holding_a_blocker_is_never_asked_again(self):
+        # #1905 exactly: delegate raised one blocker, the fix run answered
+        # Bugbot's thread and left delegate's alone as "not mine to resolve".
+        # `delegate review` asserts the blockers were addressed, so sending it
+        # here would be a false claim, and would buy a re-review that returns
+        # the same blocker. This is the one case that goes straight to a human.
+        assert reviewer_is_blocking([DELEGATE_THREAD])
+        decision = decide([], FRESH_STATE, [DELEGATE_THREAD], CLEAN, now=NOW, reviews=STALE_COMMENT, head_sha=HEAD_SHA)
+
+        assert decision["action"] == ACTION_HOLD
+        assert decision["next_state"]["reviews_requested"] == 0, "an ask was spent on a reviewer who already answered"
+        assert decision["next_state"]["escalated"] is True
+
+    def test_a_resolved_reviewer_thread_does_not_block_the_ask(self):
+        for cleared in ({"resolved": True}, {"outdated": True}):
+            findings = [dict(DELEGATE_THREAD, **cleared)]
+            assert not reviewer_is_blocking(findings)
+            decision = decide([], FRESH_STATE, findings, CLEAN, now=NOW, reviews=STALE_COMMENT, head_sha=HEAD_SHA)
+            assert decision["action"] == ACTION_REQUEST_REVIEW
+
+    def test_a_bugbot_thread_is_still_answered_before_the_review_is_asked_for(self):
+        # Ordering: an approval names a commit, so asking for one while a fix run
+        # is about to push is asking for a verdict that the push throws away.
+        decision = decide([], FRESH_STATE, [PR_1306_BUGBOT_FINDING], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA)
+
+        assert decision["action"] == ACTION_FIX_FINDINGS
+
+    def test_a_red_board_is_settled_before_the_review_is_asked_for(self):
+        decision = decide([a_check()], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA)
+
+        assert decision["action"] == ACTION_RERUN
+
+    def test_a_conflict_is_settled_before_the_review_is_asked_for(self):
+        decision = decide([], FRESH_STATE, [], CONFLICTED, now=NOW, reviews=[], head_sha=HEAD_SHA)
+
+        assert decision["action"] == ACTION_FIX_CONFLICTS
+
+    def test_an_escalated_pr_is_not_asked_about(self):
+        escalated = dict(FRESH_STATE, escalated=True)
+        decision = decide([], escalated, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA)
+
+        assert decision["action"] == ACTION_NONE
+
+    def test_a_fix_run_in_flight_is_waited_out_before_asking(self):
+        # Its push will invalidate any approval anyway.
+        in_flight = dict(FRESH_STATE, fix_started_at=int(NOW))
+        decision = decide([], in_flight, [], CLEAN, now=NOW + 60, reviews=[], head_sha=HEAD_SHA)
+
+        assert decision["action"] == ACTION_NONE
+        assert decision["next_state"]["reviews_requested"] == 0
+
+    def test_an_unreadable_review_list_reads_as_unapproved(self):
+        # Fails toward asking, the opposite direction from is_conflicted, because
+        # a wrong "approved" is silent and permanent while a wrong "not approved"
+        # costs one capped comment.
+        for junk in (None, "nope", [None], [{"author": None}], [{"author": "delegate-reviewer", "state": "APPROVED"}]):
+            assert not is_approved(junk, HEAD_SHA)
+
+    def test_an_approval_from_anyone_else_does_not_count(self):
+        # A human approval is welcome but is not what the ruleset is waiting on,
+        # and counting it would have the bot stop driving a PR that still cannot
+        # merge.
+        others = [{"author": "oakinh", "state": "APPROVED", "commit": HEAD_SHA}]
+        assert not is_approved(others, HEAD_SHA)
+
+    def test_a_missing_head_sha_never_reads_as_approved(self):
+        for sha in (None, "", "   ", 7):
+            assert not is_approved(APPROVED, sha)
+
+    def test_two_blanks_are_not_a_match(self):
+        # The case that makes the head-sha guard load-bearing rather than
+        # decorative: if a blank sha were allowed through to the comparison, a
+        # review whose commit came back blank would equal it, and an API blip on
+        # both fields at once would read as a valid approval.
+        blank = [{"author": "delegate-reviewer[bot]", "state": "APPROVED", "commit": ""}]
+        assert not is_approved(blank, None)
+        assert not is_approved(blank, "")
+
+    def test_the_suffix_on_the_reviewer_login_does_not_matter(self):
+        # REST says `delegate-reviewer[bot]`, GraphQL says `delegate-reviewer`.
+        # The reviews come from REST and the threads from GraphQL, so both forms
+        # reach this module and matching only one would silently match nothing.
+        bare = [{"author": "delegate-reviewer", "state": "APPROVED", "commit": HEAD_SHA}]
+        assert is_approved(bare, HEAD_SHA)
+        assert reviewer_is_blocking([dict(DELEGATE_THREAD, author="delegate-reviewer[bot]")])
+
+    def test_an_older_marker_comment_does_not_read_as_out_of_asks(self):
+        # Every PR open when this shipped has a state block written without the
+        # counter. Reading those as exhausted would escalate exactly the PRs the
+        # counter was added for, on their first pass, without ever asking.
+        legacy = '<!-- gpbot-ci-state: {"escalated": false, "fixes": 0, "reruns": 0} -->'
+        assert parse_state(legacy)["reviews_requested"] == 0
+
+        decision = decide([], parse_state(legacy), [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA)
+        assert decision["action"] == ACTION_REQUEST_REVIEW
+
+    def test_a_tampered_ask_counter_is_still_treated_as_exhausted(self):
+        # Absent is forgiven above; present-but-wrong is not, or the cap is
+        # bypassable by anyone who can post a comment.
+        for junk in (-1, True, "2", 1.5):
+            tampered = f'<!-- gpbot-ci-state: {{"reviews_requested": {json.dumps(junk)}}} -->'
+            assert parse_state(tampered)["reviews_requested"] >= MAX_REVIEW_REQUESTS
+
+    def test_the_ask_counter_round_trips_through_the_marker_comment(self):
+        state = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA)["next_state"]
+        body = ci_triage.render_comment({"action": ACTION_REQUEST_REVIEW, "next_state": state, "reason": "asked"})
+
+        assert parse_state(body)["reviews_requested"] == 1
+
+    def test_the_comment_says_what_it_did(self):
+        decision = decide([], FRESH_STATE, [], CLEAN, now=NOW, reviews=[], head_sha=HEAD_SHA)
+        body = ci_triage.render_comment(decision)
+
+        assert "review" in body.lower()
+        assert f"of {MAX_REVIEW_REQUESTS}" in body

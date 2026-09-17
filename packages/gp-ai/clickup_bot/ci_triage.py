@@ -28,10 +28,21 @@ sets strict_required_status_checks_policy false, so an out-of-date branch still
 merges; updating one on every push to main would spend a full CI cycle per bot
 PR per merge to change nothing about whether it can land.
 
-delegate-reviewer's own findings are deliberately NOT driven here. It withholds
-approval until its blockers are fixed, which already gates the merge, and it
-runs a reply-and-re-review protocol (`delegate review`) that a second automated
-actor would fight.
+THE FOURTH HALF: the approval itself. An approval names a commit, and delegate
+reviews a PR when it opens and then only when asked — never on a push. So the
+moment this module launches a fix run, it destroys the only approval the PR was
+ever given and nothing replaces it. PR #1905 ended up green, unconflicted, with
+every thread answered, inside budget, unescalated and permanently unmergeable,
+because the one remaining gate was a review nobody re-requested. That is the
+worst failure mode in this file, since every counter reads healthy. Asking for
+the re-review is therefore work too, settled last, after everything a push
+could invalidate.
+
+delegate-reviewer's own findings are still deliberately NOT driven here: it
+withholds approval until its blockers are fixed, which already gates the merge,
+and answering them is the findings path's job via an agent run. What is driven
+is only the request itself — `delegate review`, the same phrase a human uses —
+which starts delegate's protocol rather than fighting it.
 
 WHY IT IS NOT JUST "ASK THE MODEL TO FIX CI": most bot-PR check failures we have
 actually observed were infrastructure, not regressions. #1306's failing
@@ -87,7 +98,18 @@ ACTION_FIX_CONFLICTS = "fix-conflicts"
 ACTION_REPORT = "report"
 ACTION_ESCALATE = "escalate"
 ACTION_HOLD = "hold"
+ACTION_REQUEST_REVIEW = "request-review"
 ACTION_NONE = "none"
+
+# The reviewer whose approval the branch ruleset counts. Matched after
+# lowercasing and stripping a trailing "[bot]", the same normalisation
+# FINDING_AUTHORS uses, because REST and GraphQL disagree on the suffix.
+APPROVING_REVIEWER = "delegate-reviewer"
+
+# What to say to ask for a re-review. delegate-reviewer watches PR comments for
+# this exact phrase; see .claude/skills/ship-pr/SKILL.md, which drives the same
+# reviewer by hand.
+REVIEW_TRIGGER_PHRASE = "delegate review"
 
 # Review authors whose unresolved threads count as work. Compared after
 # lowercasing and stripping a trailing "[bot]", because the same account is
@@ -128,6 +150,27 @@ MAX_TRACKED_FINDINGS = 50
 # A finding's title as shown to a human in Slack. Bugbot's own heading is one
 # short line, so this only ever truncates a malformed body.
 MAX_FINDING_TITLE_CHARS = 120
+
+# How many times to ask for a re-review before handing the PR to a human.
+#
+# WHY ASKING IS NEEDED AT ALL: delegate-reviewer reviews a PR when it opens and
+# then only when asked. It does not re-review a push. So a fix run — which
+# exists to push a commit — invalidates the only approval the PR will ever get
+# and nothing replaces it, because an approval is anchored to a commit id. The
+# PR then sits green, in budget, unescalated and permanently unmergeable, which
+# is the worst of the three because every counter says the bot is fine.
+#
+# Observed on PR #1905: delegate approved #1904, #1906 and #1907 on their first
+# pass and they merged. #1905 drew one blocker, so delegate COMMENTED instead of
+# approving; the drive's fix run answered the board and pushed, and the review
+# was never asked for again. It stayed REVIEW_REQUIRED for an hour with a clear
+# board and its full budget unspent.
+#
+# Two, not three, and it is worth being clear this is not a re-run: asking costs
+# a comment, but what follows it is a real review, and a reviewer that declined
+# twice is making a judgement rather than flaking. A third ask would just be
+# louder.
+MAX_REVIEW_REQUESTS = 2
 
 # How long a launched fix run is assumed to still be working.
 #
@@ -357,6 +400,80 @@ def is_conflicted(mergeability: Any) -> bool:
     return isinstance(value, str) and value.strip().upper() == "CONFLICTING"
 
 
+def reviewer_is_blocking(findings: Any) -> bool:
+    """Whether the approving reviewer has a thread still open on the PR.
+
+    This is the question that decides whether asking for a re-review is honest.
+    `delegate review` means "the blockers are addressed, look again". If
+    delegate's own thread is still open, that sentence is false, and the bot
+    would be asserting something about a judgement it declined to act on — its
+    threads are deliberately outside the findings path (see the module
+    docstring), so reaching the review step does not mean they were answered.
+
+    Exactly the case on #1905: delegate raised one blocker, the fix run answered
+    Bugbot's thread and explicitly left delegate's alone as "not mine to
+    resolve", and the board went green with the blocker standing. Asking there
+    would buy a re-review that returns the same blocker.
+
+    Same filters as open_findings and for the same reasons — resolved and
+    outdated both clear a thread, and only an explicit `true` counts, so an
+    unreadable thread stays in scope. `human_replied` is NOT excluded here: a
+    person joining delegate's thread is the strongest possible signal that the
+    decision is a human's, and this function only ever decides to stand down.
+    """
+    for finding in findings if isinstance(findings, list) else []:
+        if not isinstance(finding, dict):
+            continue
+        author = finding.get("author")
+        author = author.strip().lower().removesuffix("[bot]") if isinstance(author, str) else ""
+        if author != APPROVING_REVIEWER:
+            continue
+        if finding.get("resolved") is True or finding.get("outdated") is True:
+            continue
+        return True
+    return False
+
+
+def is_approved(reviews: Any, head_sha: Any) -> bool:
+    """Whether the reviewer the ruleset counts has approved THIS commit.
+
+    ANCHORED TO THE HEAD SHA, which is the whole point. An approval is a
+    statement about one commit, and GitHub stops counting it once the branch
+    moves — so "delegate approved this PR at some point" is not the question,
+    and answering that one instead is what let #1905 read as fine. The stale
+    approval is not merely uncounted, it is actively misleading: the PR shows a
+    review from delegate and a green board, and only mergeStateStatus disagrees.
+
+    ONLY AN EXPLICIT APPROVED AT HEAD COUNTS, and everything unreadable — a
+    missing sha, a shape we do not recognise, an API blip returning nothing —
+    reads as NOT approved. That direction is deliberate and it is the opposite
+    of is_conflicted's, because the costs are not symmetric. A wrong "approved"
+    is silent and permanent: the drive concludes there is nothing to do and the
+    PR never merges. A wrong "not approved" costs one comment asking for a
+    review that was already there, which the cap below bounds at two.
+
+    A dismissed or stale review is not special-cased. GitHub keeps returning it
+    with its original commit id, so the sha comparison already excludes it.
+    """
+    if not isinstance(head_sha, str) or not head_sha.strip():
+        return False
+    head = head_sha.strip()
+    for review in reviews if isinstance(reviews, list) else []:
+        if not isinstance(review, dict):
+            continue
+        author = review.get("author")
+        author = author.strip().lower().removesuffix("[bot]") if isinstance(author, str) else ""
+        if author != APPROVING_REVIEWER:
+            continue
+        state = review.get("state")
+        if not isinstance(state, str) or state.strip().upper() != "APPROVED":
+            continue
+        commit = review.get("commit")
+        if isinstance(commit, str) and commit.strip() == head:
+            return True
+    return False
+
+
 def _coerce_count(value: Any) -> int:
     # A hand-edited or drifted marker comment must not crash the drive, and must
     # not read as "nothing spent yet" either — that would silently uncap the
@@ -364,6 +481,21 @@ def _coerce_count(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return MAX_RERUNS + MAX_FIX_RUNS
     return value
+
+
+def _coerce_review_count(value: Any) -> int:
+    """Like _coerce_count, but ABSENT means zero rather than exhausted.
+
+    The difference is not a weakening. For the other counters, absent can only
+    mean a state block that drifted, because they have always been written. This
+    one is new: every marker comment already on an open PR omits it, and reading
+    those as exhausted would disable the ask on precisely the PRs that motivated
+    it — the old ones, still waiting. Present-but-unreadable is still exhausted.
+
+    It is also the counter where erring open costs least: a spent round here is
+    one comment, not a Fargate task.
+    """
+    return 0 if value is None else _coerce_count(value)
 
 
 def _coerce_timestamp(value: Any) -> int:
@@ -396,12 +528,20 @@ def parse_state(comment_body: Any) -> dict:
     exhausted = {
         "reruns": MAX_RERUNS,
         "fixes": MAX_FIX_RUNS,
+        "reviews_requested": MAX_REVIEW_REQUESTS,
         "escalated": True,
         "fix_started_at": 0,
         "findings_attempted": [],
     }
     if not isinstance(comment_body, str) or not comment_body.strip():
-        return {"reruns": 0, "fixes": 0, "escalated": False, "fix_started_at": 0, "findings_attempted": []}
+        return {
+            "reruns": 0,
+            "fixes": 0,
+            "reviews_requested": 0,
+            "escalated": False,
+            "fix_started_at": 0,
+            "findings_attempted": [],
+        }
 
     match = _STATE_PATTERN.search(comment_body)
     if not match:
@@ -416,6 +556,7 @@ def parse_state(comment_body: Any) -> dict:
     return {
         "reruns": _coerce_count(parsed.get("reruns")),
         "fixes": _coerce_count(parsed.get("fixes")),
+        "reviews_requested": _coerce_review_count(parsed.get("reviews_requested")),
         "escalated": parsed.get("escalated") is True,
         "fix_started_at": _coerce_timestamp(parsed.get("fix_started_at")),
         "findings_attempted": _coerce_ids(parsed.get("findings_attempted")),
@@ -426,7 +567,15 @@ def render_state(state: dict) -> str:
     return "<!-- gpbot-ci-state: " + json.dumps(state, sort_keys=True) + " -->"
 
 
-def decide(checks: Any, state: Any, findings: Any = None, mergeability: Any = None, now: float | None = None) -> dict:
+def decide(
+    checks: Any,
+    state: Any,
+    findings: Any = None,
+    mergeability: Any = None,
+    now: float | None = None,
+    reviews: Any = None,
+    head_sha: Any = None,
+) -> dict:
     """Turn classified failures plus what has already been spent into one action.
 
     One action for the whole PR, not one per check: a re-run re-runs every failed
@@ -434,35 +583,43 @@ def decide(checks: Any, state: Any, findings: Any = None, mergeability: Any = No
     check. Ordering is cheap-first — a re-run that clears the board costs no model
     spend and no code change.
 
-    CONFLICTS ARE SETTLED FIRST, then checks, then findings. A conflicted branch
-    cannot merge however green it is, so re-running its checks or answering its
-    review threads spends CI minutes and model tokens to arrive at a PR that
-    still cannot land. Resolving the conflict pushes a commit, which re-runs the
-    checks anyway — so the cheaper-looking order is also the wasteful one.
+    CONFLICTS ARE SETTLED FIRST, then checks, then findings, then the review. A
+    conflicted branch cannot merge however green it is, so re-running its checks
+    or answering its review threads spends CI minutes and model tokens to arrive
+    at a PR that still cannot land. Resolving the conflict pushes a commit, which
+    re-runs the checks anyway — so the cheaper-looking order is also the wasteful
+    one.
 
     CHECKS ARE SETTLED BEFORE FINDINGS. A run that answers a finding pushes code
     that has to pass CI anyway, so paying for one while the board is red spends
     money to arrive at a PR that is still red.
 
+    THE REVIEW IS SETTLED LAST, for the same reason and more sharply: an approval
+    names a commit, so asking for one while there is any work left is asking for a
+    verdict the next push will throw away.
+
     `now` is injected so the in-flight window below is exercised by tests at
     fixed instants rather than by whatever the clock happens to say.
     """
     conflicted = is_conflicted(mergeability)
-    decision = _decide(checks, state, findings, conflicted, now)
+    approved = is_approved(reviews, head_sha)
+    decision = _decide(checks, state, findings, conflicted, approved, now)
     # Stamped once on the way out rather than by each branch, for the same
     # reason next_state exists: eleven branches each restating the whole shape
     # is eleven chances to omit a field, and an omitted `conflicted` would drop
     # the conflict from the summary a human reads on escalation.
     decision["conflicted"] = conflicted
+    decision["approved"] = approved
     return decision
 
 
-def _decide(checks: Any, state: Any, findings: Any, conflicted: bool, now: float | None) -> dict:
+def _decide(checks: Any, state: Any, findings: Any, conflicted: bool, approved: bool, now: float | None) -> dict:
     now = time.time() if now is None else now
     if not isinstance(state, dict):
         state = {}
     reruns = _coerce_count(state.get("reruns"))
     fixes = _coerce_count(state.get("fixes"))
+    reviews_requested = _coerce_review_count(state.get("reviews_requested"))
     already_escalated = state.get("escalated") is True
     fix_started_at = _coerce_timestamp(state.get("fix_started_at"))
     attempted = _coerce_ids(state.get("findings_attempted"))
@@ -475,6 +632,7 @@ def _decide(checks: Any, state: Any, findings: Any, conflicted: bool, now: float
         *,
         reruns: int = reruns,
         fixes: int = fixes,
+        reviews_requested: int = reviews_requested,
         escalated: bool = False,
         fix_started_at: int = fix_started_at,
         findings_attempted: list[str] = attempted,
@@ -482,6 +640,7 @@ def _decide(checks: Any, state: Any, findings: Any, conflicted: bool, now: float
         return {
             "reruns": reruns,
             "fixes": fixes,
+            "reviews_requested": reviews_requested,
             "escalated": escalated,
             "fix_started_at": fix_started_at,
             "findings_attempted": findings_attempted,
@@ -490,7 +649,11 @@ def _decide(checks: Any, state: Any, findings: Any, conflicted: bool, now: float
     classifications = [classify_check(check) for check in (checks if isinstance(checks, list) else [])]
     unanswered = open_findings(findings)
 
-    if not classifications and not unanswered and not conflicted:
+    # APPROVAL IS PART OF "NOTHING LEFT TO DO", not a separate concern checked
+    # somewhere else. It is the difference between a PR that is finished and one
+    # that merely looks finished, and it was the absence of it from this line
+    # that let #1905 read as done while GitHub called it BLOCKED.
+    if not classifications and not unanswered and not conflicted and approved:
         # next_state is INERT on every ACTION_NONE branch. gpbot-ci-drive.yml
         # `continue`s on `none` before it reaches the comment write, so nothing
         # here is ever persisted and this cannot clear or set a flag. It is
@@ -502,7 +665,10 @@ def _decide(checks: Any, state: Any, findings: Any, conflicted: bool, now: float
         # A human deletes the marker comment to hand it back.
         return {
             "action": ACTION_NONE,
-            "reason": "the branch merges cleanly, no failing checks and no unanswered review findings",
+            "reason": (
+                "the branch merges cleanly, no failing checks, no unanswered review findings "
+                "and the reviewer has approved this commit"
+            ),
             "classifications": [],
             "findings": [],
             "next_state": next_state(escalated=already_escalated),
@@ -542,7 +708,10 @@ def _decide(checks: Any, state: Any, findings: Any, conflicted: bool, now: float
     if classifications:
         return _decide_checks(classifications, unanswered, reruns, fixes, now, next_state)
 
-    return _decide_findings(unanswered, attempted, fixes, now, classifications, next_state)
+    if unanswered:
+        return _decide_findings(unanswered, attempted, fixes, now, classifications, next_state)
+
+    return _decide_review(reviews_requested, reviewer_is_blocking(findings), next_state)
 
 
 def _decide_conflicts(classifications: list, unanswered: list, fixes: int, now: float, next_state: Any) -> dict:
@@ -732,6 +901,74 @@ def _decide_findings(
     }
 
 
+def _decide_review(reviews_requested: int, reviewer_blocking: bool, next_state: Any) -> dict:
+    """What to do about a PR that is finished except that nobody has approved it.
+
+    Reached only with the board green, no conflict and no unanswered Bugbot
+    finding — so the PR is complete work that cannot land, and the missing
+    approval is the only thing between it and a human's merge button.
+
+    ASKING IS THE CHEAP MOVE, the counterpart of a re-run on a red board, and it
+    is the right first move for the same reason: the common cause is not a
+    reviewer who disagrees but a reviewer who was never asked. delegate reviews
+    on open and on request, never on push, so any fix run this drive launched
+    invalidated the approval and left nothing in its place.
+
+    WHY THIS MAY ASK WHEN gpbot-review-gap-alert.yml DELIBERATELY WILL NOT.
+    That workflow reports the same gap across the whole repo and refuses to send
+    `delegate review` itself, because on a human's PR the reply is a claim about
+    blockers only the author can make, against a head they may still be editing.
+    Both halves of that objection dissolve here and only here: the drive IS the
+    author of this commit, and it has just established that the board is green
+    and nothing is in flight. It is asking for a verdict on its own work, not
+    speaking for somebody else. The alert still covers every PR this does not.
+
+    AND IT STANDS DOWN WHEN THE REVIEWER IS STILL BLOCKING, which is the other
+    half of keeping that claim true — see reviewer_is_blocking. Then the PR is
+    not waiting on a word nobody said; it is waiting on a decision the bot
+    already declined to make, and the only useful move is to name it to a human.
+
+    A SECOND DECLINE IS A JUDGEMENT, not a flake, which is what separates this
+    cap from MAX_RERUNS. If delegate has looked at this commit twice and still
+    withholds approval, escalating names the PR to a human rather than leaving
+    it to the stale-PR alert to notice days later.
+    """
+    if reviewer_blocking:
+        return {
+            "action": ACTION_HOLD,
+            "reason": (
+                "the board is green but the reviewer is still holding a blocker open, and answering it "
+                "is not this bot's call to make; a human has to settle it"
+            ),
+            "classifications": [],
+            "findings": [],
+            "next_state": next_state(escalated=True),
+        }
+
+    if reviews_requested < MAX_REVIEW_REQUESTS:
+        return {
+            "action": ACTION_REQUEST_REVIEW,
+            "reason": (
+                "everything else on this PR is settled but the reviewer has not approved this commit "
+                f"(ask {reviews_requested + 1} of {MAX_REVIEW_REQUESTS})"
+            ),
+            "classifications": [],
+            "findings": [],
+            "next_state": next_state(reviews_requested=reviews_requested + 1),
+        }
+
+    return {
+        "action": ACTION_ESCALATE,
+        "reason": (
+            f"the board is green but the reviewer has still not approved after {reviews_requested} request(s); "
+            "it needs a human to approve or say why not"
+        ),
+        "classifications": [],
+        "findings": [],
+        "next_state": next_state(escalated=True),
+    }
+
+
 def render_summary(decision: dict) -> str:
     """One human-readable paragraph: what was decided about each check, and why.
 
@@ -767,11 +1004,13 @@ def render_comment(decision: dict) -> str:
         ACTION_REPORT: "Stopping: this is already broken on `main`.",
         ACTION_ESCALATE: "Stopping and handing this to a human.",
         ACTION_HOLD: "Stopping: the review findings need a human.",
+        ACTION_REQUEST_REVIEW: "Asking the reviewer to look at this commit.",
         ACTION_NONE: "No action.",
     }.get(action, "No action.")
 
     spent = f"Spent so far on this PR: {next_state.get('reruns', 0)} re-run(s) of "
-    spent += f"{MAX_RERUNS}, {next_state.get('fixes', 0)} fix run(s) of {MAX_FIX_RUNS}."
+    spent += f"{MAX_RERUNS}, {next_state.get('fixes', 0)} fix run(s) of {MAX_FIX_RUNS}, "
+    spent += f"{next_state.get('reviews_requested', 0)} review request(s) of {MAX_REVIEW_REQUESTS}."
 
     footer = ""
     if action in (ACTION_ESCALATE, ACTION_REPORT, ACTION_HOLD):
@@ -811,6 +1050,11 @@ def main() -> int:
     `mergeability` is `gh pr view`'s mergeable and mergeStateStatus verbatim, on
     the same principle: whether UNKNOWN means "fine" is a judgement, and it is
     made in is_conflicted where a test can pin it.
+
+    `reviews` and `head_sha` are handed over the same way — every review on the
+    PR, unfiltered, plus the commit they have to match. Which reviewer counts and
+    whether a review anchored to an older commit still means anything are both
+    judgements, and they are made in is_approved.
     """
     try:
         payload = json.load(sys.stdin)
@@ -825,7 +1069,14 @@ def main() -> int:
     if state is None:
         state = parse_state(payload.get("state_comment"))
 
-    decision = decide(payload.get("checks"), state, payload.get("findings"), payload.get("mergeability"))
+    decision = decide(
+        payload.get("checks"),
+        state,
+        payload.get("findings"),
+        payload.get("mergeability"),
+        reviews=payload.get("reviews"),
+        head_sha=payload.get("head_sha"),
+    )
     decision["comment_body"] = render_comment(decision)
     decision["summary"] = render_summary(decision)
 
