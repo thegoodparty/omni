@@ -864,34 +864,34 @@ describe('CampaignManagerHandler.maybeCannedReply', () => {
     )
     expect(reply).toContain(PRODUCT_OVERVIEW_OPENER)
   })
+})
 
-  describe('finalizeAssistantText (professional-advice backstop)', () => {
-    it('appends the disclaimer to a texting-consent answer', () => {
-      const handler = buildHandler()
-      const answer =
-        'No, you do not need opt-in consent before texting your list.'
-      expect(handler.finalizeAssistantText(answer)).toBe(
-        `\n\n${PROFESSIONAL_ADVICE_DISCLAIMER}`,
-      )
-    })
+describe('CampaignManagerHandler.finalizeAssistantText', () => {
+  it('appends the disclaimer to a texting-consent answer', () => {
+    const handler = buildHandler()
+    const answer =
+      'No, you do not need opt-in consent before texting your list.'
+    expect(handler.finalizeAssistantText(answer)).toBe(
+      `\n\n${PROFESSIONAL_ADVICE_DISCLAIMER}`,
+    )
+  })
 
-    it('leaves an ordinary campaign answer untouched', () => {
-      const handler = buildHandler()
-      expect(
-        handler.finalizeAssistantText(
-          'Your top three tasks this week are calls, a canvass, and a post.',
-        ),
-      ).toBeNull()
-    })
+  it('leaves an ordinary campaign answer untouched', () => {
+    const handler = buildHandler()
+    expect(
+      handler.finalizeAssistantText(
+        'Your top three tasks this week are calls, a canvass, and a post.',
+      ),
+    ).toBeNull()
+  })
 
-    it("does not double the model's own disclaimer", () => {
-      const handler = buildHandler()
-      expect(
-        handler.finalizeAssistantText(
-          'That contribution limit is $1,000. Confirm with your state ' +
-            'election board before you rely on this.',
-        ),
-      ).toBeNull()
-    })
+  it("does not double the model's own disclaimer", () => {
+    const handler = buildHandler()
+    expect(
+      handler.finalizeAssistantText(
+        'That contribution limit does not apply to a self-funded loan. ' +
+          'Confirm with your state election board before you rely on this.',
+      ),
+    ).toBeNull()
   })
 })

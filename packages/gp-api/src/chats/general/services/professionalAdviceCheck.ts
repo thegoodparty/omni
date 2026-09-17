@@ -24,14 +24,16 @@ const ADVICE_SIGNALS: RegExp[] = [
   /\b(?:criminal|civil|legal) liability\b/i,
   /\b(?:criminally|civilly) liable\b/i,
   // Texting/robocall consent regimes and campaign-finance mechanics a
-  // candidate might ask a scope about directly. Four of these pair the term
-  // with a claim-shaped word next to it (consent, rules, applies, skip/miss),
-  // since the bare noun alone (an opt-in rate, a filing-deadline reminder) is
-  // ordinary Campaign Manager subject matter, not advice.
+  // candidate might ask a scope about directly. Six of these pair the term
+  // with a claim-shaped word next to it (consent, rules, applies, skip/miss,
+  // required/optional), since the bare noun alone (an opt-in rate, a 10DLC
+  // status update, a filing-deadline reminder) is ordinary Campaign Manager
+  // subject matter, not advice. TCPA and "disclaimer requirement" stay bare:
+  // neither shows up in routine operational chat the way the other six do.
   /\bopt-?in consent\b/i,
-  /\bTCPA\b/,
-  /\b10DLC\b/i,
-  /\brobocalls?\b/i,
+  /\bTCPA\b/i,
+  /\b10DLC\b[^.]{0,20}\b(?:required|optional|mandatory|rules?|laws?)\b/i,
+  /\brobocalls?\b[^.]{0,20}\b(?:rules?|laws?|consent|legal|allowed|fine)\b/i,
   /\bcontribution limits? (?:appl(?:y|ies)|does not apply|do not apply)\b/i,
   /\bcampaign finance (?:rules?|laws?|regulations?|requirements?)\b/i,
   /\bdisclaimer requirements?\b/i,
@@ -49,7 +51,15 @@ const DISCLAIMER_PRESENT: RegExp[] = [
   // Requires the confirm-type verb near the office/attorney/board, not just
   // its name — naming the election office in passing (e.g. where to file
   // paperwork) is not a caution and must not suppress a real disclaimer.
-  /\b(?:confirm|check|verify|consult|contact)\b[^.]{0,30}\b(?:election (?:office|bureau|attorney)|state (?:election )?board)\b/i,
+  // Kept to two verbs on purpose: under-matching here only risks a rare
+  // harmless double-append (see the comment above), so there's no reason
+  // to widen it the way ADVICE_SIGNALS widens for recall.
+  // Still whole-text, not localized to the advice itself, same as the three
+  // phrases above: a real caution about one topic can still suppress the
+  // line for unrelated advice elsewhere in the same reply. Tightening that
+  // further needs to weigh the advice signal against the caution's position
+  // in the text, not just its presence — out of scope for a regex pass.
+  /\b(?:confirm|check)\b[^.]{0,30}\b(?:election (?:office|bureau|attorney)|state election board)\b/i,
 ]
 
 // Returns the line to append (with a leading blank line) when the response

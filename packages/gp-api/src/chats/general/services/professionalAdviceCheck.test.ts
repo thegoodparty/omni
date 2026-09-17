@@ -34,34 +34,39 @@ describe('professionalAdviceDisclaimer', () => {
     ).toBe(appended)
   })
 
-  it('appends on texting/robocall compliance terms', () => {
-    expect(
-      professionalAdviceDisclaimer(
-        'No, you do not need opt-in consent before texting your list.',
-      ),
-    ).toBe(appended)
-    expect(
-      professionalAdviceDisclaimer(
-        'Robocalls to this list are fine under the TCPA at that volume, ' +
-          'and 10DLC registration is optional for a campaign this size.',
-      ),
-    ).toBe(appended)
-  })
-
-  it('appends on campaign-finance and filing-deadline terms', () => {
-    expect(
-      professionalAdviceDisclaimer(
-        'That contribution limit does not apply to a self-funded loan, ' +
-          'and campaign finance rules skip the disclaimer requirement on ' +
-          'a text that short.',
-      ),
-    ).toBe(appended)
-    expect(
-      professionalAdviceDisclaimer(
-        'You can skip that filing deadline since the office reopens it ' +
-          'every cycle.',
-      ),
-    ).toBe(appended)
+  it.each([
+    [
+      'a texting opt-in-consent question',
+      'No, you do not need opt-in consent before texting your list.',
+    ],
+    [
+      'a robocall-compliance question',
+      'Robocalls to this list are legal at that volume.',
+    ],
+    ['a TCPA question', 'That call volume is fine under the TCPA.'],
+    [
+      'a 10DLC question',
+      '10DLC registration is required for a campaign this size.',
+    ],
+    [
+      'a contribution-limit exemption question',
+      'That contribution limit does not apply to a self-funded loan.',
+    ],
+    [
+      'a campaign-finance-rules question',
+      'Campaign finance rules require a report every quarter.',
+    ],
+    [
+      'a disclaimer-requirement question',
+      'There is no disclaimer requirement on a text message that short.',
+    ],
+    [
+      'a filing-deadline exemption question',
+      'You can skip that filing deadline since the office reopens it ' +
+        'every cycle.',
+    ],
+  ])('appends on %s', (_label, input) => {
+    expect(professionalAdviceDisclaimer(input)).toBe(appended)
   })
 
   it('stays quiet on ordinary office prose', () => {
@@ -102,6 +107,17 @@ describe('professionalAdviceDisclaimer', () => {
     ).toBeNull()
     expect(
       professionalAdviceDisclaimer(
+        'Your robocall to 500 voters went out this morning.',
+      ),
+    ).toBeNull()
+    expect(
+      professionalAdviceDisclaimer(
+        'Your 10DLC registration cleared this morning, so your texts ' +
+          'are sending now.',
+      ),
+    ).toBeNull()
+    expect(
+      professionalAdviceDisclaimer(
         'Your filing deadline is March 1, about six weeks away.',
       ),
     ).toBeNull()
@@ -124,9 +140,9 @@ describe('professionalAdviceDisclaimer', () => {
   it('skips the line when a reply names an election contact', () => {
     expect(
       professionalAdviceDisclaimer(
-        'That contribution limit is $1,000. Do not rely on my answer ' +
-          'alone for a legal compliance question; confirm with your ' +
-          'state election board.',
+        'That contribution limit does not apply to a self-funded loan. ' +
+          'Do not rely on my answer alone for a legal compliance ' +
+          'question; confirm with your state election board.',
       ),
     ).toBeNull()
     expect(
@@ -137,12 +153,20 @@ describe('professionalAdviceDisclaimer', () => {
     ).toBeNull()
     expect(
       professionalAdviceDisclaimer(
-        'Confirm with your election office before you rely on this.',
+        'There is no disclaimer requirement on a text message that ' +
+          'short. Confirm with your election office before you rely on ' +
+          'this.',
+      ),
+    ).toBeNull()
+    expect(
+      professionalAdviceDisclaimer(
+        'Campaign finance rules require a report every quarter. Check ' +
+          'with your election bureau before you rely on this.',
       ),
     ).toBeNull()
   })
 
-  it('still appends when the election office is named for an unrelated reason', () => {
+  it('still appends despite an unrelated office mention', () => {
     expect(
       professionalAdviceDisclaimer(
         'The election office also handles yard-sign permits. Robocalls ' +
