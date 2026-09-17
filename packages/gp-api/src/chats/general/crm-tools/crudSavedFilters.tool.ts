@@ -52,6 +52,40 @@ const LOCKED_FILTER_ERROR =
   'be edited or deleted, only duplicated into a new list. Explain this to ' +
   'the user instead of retrying.'
 
+// Silent, last-resort backstop: the prompt is what should stop this case
+// (it tells the model to disclose a missing filter before saving), but
+// this catches it anyway if that guidance doesn't hold, the same way the
+// Pro-access and locked-list checks below are never explained to the model
+// in advance either. The word list is short and case-insensitive on
+// purpose, not a place-name dictionary: a false positive only costs the
+// assistant one rename, and the resulting name is still accurate.
+const PLACE_WORDS = [
+  'county',
+  'city',
+  'town',
+  'township',
+  'village',
+  'borough',
+  'parish',
+  'zip',
+  'ward',
+  'neighborhood',
+]
+const PLACE_WORD_PATTERN = new RegExp(`\\b(${PLACE_WORDS.join('|')})\\b`, 'i')
+
+const UNFILTERED_PLACE_NAME_ERROR =
+  'This name includes a place, but the filter has no precinct narrowing, ' +
+  'so it actually covers the whole district: rename it without the ' +
+  'place word and tell the candidate that. If they want real geographic ' +
+  'narrowing, precincts are the one filter that provides it.'
+
+// True only when the name claims a geographic narrowing the filter didn't
+// apply. Precincts is the one real geographic filter key (county/city/zip
+// don't exist in the data), so its presence is what makes a place name
+// honest.
+const isUnfilteredPlaceName = (name: string, precincts: string[]): boolean =>
+  PLACE_WORD_PATTERN.test(name) && precincts.length === 0
+
 // Business-rule rejections (pro gate, incomplete-outreach activity condition,
 // Serve party rejection) come back as structured tool errors the model can
 // relay; anything else (people-api outages -> BadGatewayException) propagates
@@ -116,6 +150,9 @@ export const buildCrudSavedFiltersTool = (deps: {
       await voterFileFilters.filterAccessCheck(organization.slug)
       if (action === 'create') {
         if (!name) return { error: 'create requires name' }
+        if (isUnfilteredPlaceName(name, filter.precincts ?? [])) {
+          return { error: UNFILTERED_PLACE_NAME_ERROR }
+        }
         // Count before creating so a filter the org cannot count (non-Pro,
         // Serve party rejection, people-api outage) never leaves an orphan
         // list behind; the count is the same live number the route path
@@ -138,6 +175,12 @@ export const buildCrudSavedFiltersTool = (deps: {
         }
       }
       if (action === 'update') {
+        if (
+          name !== undefined &&
+          isUnfilteredPlaceName(name, filter.precincts ?? existing.precincts)
+        ) {
+          return { error: UNFILTERED_PLACE_NAME_ERROR }
+        }
         const payload = { ...filter, ...(name !== undefined && { name }) }
         if (Object.keys(payload).length === 0) {
           return {
