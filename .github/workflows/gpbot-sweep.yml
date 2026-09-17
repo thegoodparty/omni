@@ -1,12 +1,19 @@
 name: gpbot reconciliation sweep
 
-# Trigger for the clickup-bot Lambda's reconciliation sweep, which finds
-# gpbot-tagged tickets that no ClickUp webhook ever delivered. See the SWEEP
-# block in packages/gp-ai/clickup_bot/lambda/handler.py for why a poller is
-# needed at all: a HubSpot-filed ticket whose tag arrives inside the create call
-# emits no subscribable event, and a webhook ClickUp suspends stops delivering
-# silently (it did, for two weeks from 2026-07-31, while every dashboard read
-# healthy).
+# Trigger for the clickup-bot Lambda's reconciliation sweep, which does two
+# things. It finds gpbot-tagged tickets that no ClickUp webhook ever delivered.
+# And it takes in tickets in the bug lists that never got the tag in the first
+# place, which is the larger gap: the webhook listens for the tag being applied
+# and the rescue pass is itself a tag query, so an untagged bug is invisible to
+# both. The Automation that applies the tag keys on production-bug, which only
+# HubSpot sets — so a bug a colleague files by hand reaches nobody (ENG-11112,
+# 20 hours untouched).
+#
+# See the SWEEP and INTAKE SWEEP blocks in
+# packages/gp-ai/clickup_bot/lambda/handler.py for why a poller is needed at
+# all: a HubSpot-filed ticket whose tag arrives inside the create call emits no
+# subscribable event, and a webhook ClickUp suspends stops delivering silently
+# (it did, for two weeks from 2026-07-31, while every dashboard read healthy).
 #
 # WHY THE SCHEDULE IS HERE AND NOT IN TERRAFORM: the deploy role
 # (github-actions-pulumi-deploy) grants lambda:* but no `events:` action at all,
@@ -112,6 +119,9 @@ jobs:
             exit 1
           fi
 
+          # intake_tagged first because it is the number that answers "is the
+          # bot seeing hand-filed bugs at all". The others describe the rescue
+          # of tickets that were already tagged.
           jq -r '.body | fromjson
-                 | "swept=\(.swept) triggered=\(.triggered) skipped=\(.skipped)"' \
+                 | "intake_tagged=\(.intake_tagged) swept=\(.swept) triggered=\(.triggered) skipped=\(.skipped)"' \
             /tmp/sweep-response.json >> "$GITHUB_STEP_SUMMARY"

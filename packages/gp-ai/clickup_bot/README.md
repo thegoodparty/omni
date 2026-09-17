@@ -217,6 +217,51 @@ To turn it off, disable the `gpbot reconciliation sweep` workflow — but unders
 what that restores: bugs filed by HubSpot with the tag applied at creation will
 silently never be analyzed.
 
+## The intake pass (tickets that never got the tag)
+
+The sweep above rescues a ticket that **has** the tag. This covers the larger gap
+underneath it: a ticket that never got the tag at all, and so is invisible to
+every part of this system — the webhook listens for the tag being *applied*, and
+the sweep is itself a tag query.
+
+Measured on 2026-09-17, prompted by `ENG-11112` sitting untouched for 20 hours.
+Across the last 100 tickets in Win > Bugs the correlation is exact: **every**
+ticket carrying `gpbot-analyze` also carries `production-bug`, and **every**
+ticket without `production-bug` carries no `gpbot-analyze`. The ClickUp
+Automation on that list triggers on `production-bug`, which HubSpot applies to
+tickets it files — so a bug a GoodParty employee reports by hand in ClickUp
+reaches nobody.
+
+`ENG-11112` and `ENG-11113` are the control pair: filed 17 minutes apart into the
+same list, the HubSpot one was analyzed within seconds and the hand-filed one was
+never seen.
+
+| | Reaches the bot |
+|---|---|
+| Filed by HubSpot (gets `production-bug`) | yes, in seconds |
+| Filed by a colleague in ClickUp | **no — until this pass** |
+
+`run_intake_pass` runs **first** inside `handle_sweep`, so the tag query that
+follows it in the same invocation picks up what it just tagged: a new ticket is
+analyzed in that pass rather than waiting for the next one, and without leaning
+on a webhook this system already knows drops exactly this class of ticket.
+
+**It applies the tag rather than triggering a run.** That is what the missing
+Automation would have done, and it reuses one path instead of adding a second way
+to start a run — dedup, repo routing, the verdict, escalation and the coverage
+metric all key off the tag. It also leaves the reason visible on the ticket.
+
+| Guard | Why |
+|---|---|
+| `INTAKE_LIST_IDS` (bug lists only) | Serve > Backlog and Platform Backlog are deliberately absent: a backlog holds planned work nobody reported as broken, so tagging it buys an agent run per grooming decision |
+| List bound re-checked in code | ClickUp **ignores** a filter it does not recognize rather than erroring. If `list_ids[]` ever stopped being understood, the endpoint would answer with every recently created task in the workspace — and this pass *writes*, so the blast radius would be a tag, and an agent run, on every new task in the company |
+| `status.type == "open"` only | An allow-list, not a deny-list of finished states. `include_closed=false` does not cover `done` (a separate status type — `ENG-11089` sat at "done", fixed by hand and never tagged), and "in review"/"ready to ship" are type `custom`, indistinguishable by type from "blocked". Verified against all four intake lists on 2026-09-17 |
+| `has_any_bot_comment` (permanent) | Stops the re-tagging loop. Someone who removes the tag after the bot has answered is ending the conversation; without this the next pass would re-tag and re-run every 15 minutes, with no visible source |
+| `gpbot-skip` tag | The escape hatch for a ticket a human wants left alone *before* the bot has spoken. ClickUp tags are space-scoped, so it must exist in the space to appear in the dropdown |
+| `INTAKE_LOOKBACK_HOURS` (default 24) | Windowed on **creation**, not update: "was this ticket ever taken in" is asked once. Windowing on updates would re-ask it whenever anyone touched an old ticket, putting every untagged historical ticket permanently in range |
+| `INTAKE_MAX_TAGS` (default 3) | Lower than `SWEEP_MAX_TRIGGERS` because this is upstream of it. Every tag becomes an agent run, and on omni a `fix` verdict escalates to a PR — a bulk import into a bug list must not become a wave of pull requests before anyone notices |
+| A listing failure never fails the sweep | This pass is new and sits at the top of a function the bot has depended on for months. A ClickUp blip taking in new tickets must not also stop the rescue of tickets already tagged |
+
 ## Why both events (`taskTagUpdated` and `taskCreated`)
 
 > **Read the sweep section above first.** `taskCreated` remains worth subscribing
