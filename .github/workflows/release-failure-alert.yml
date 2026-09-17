@@ -16,6 +16,31 @@ name: release-failure-alert
 # easy to misread: a failed "Dev <service>" job SKIPS the E2E shards and the
 # run's red gate job is still named "E2E" — during the Sep incident that got
 # a deploy-role IAM failure triaged as an e2e problem.
+#
+# THIS WORKFLOW HAS NO QUIET FAILURE PATH, because it shipped with one and
+# that path hid the alert completely. It also shipped carrying
+# `secrets.SLACK_APP_BOT_TOKEN` — the ANALYTICS app, a member of
+# #product-analytics and nothing else — so Slack answered `not_in_channel` to
+# every alert it ever produced: all 18 the train earned between 2026-09-14 and
+# 2026-09-17, each one downgraded to a `::warning::` on the theory that a red
+# alert run beside every red release run would be noise. The train then sat red
+# from 2026-09-16 15:07Z with nobody told, which is the exact incident this
+# workflow exists for, while every one of its own runs was green.
+#
+# Three things follow, and none of them is optional:
+#   - the app is gp_ai_bot, the one the humans' channels actually contain (see
+#     the job's env block, and the same warning in gpbot-pr-triage.yml);
+#   - a `not_in_channel` it can fix — a public channel it has not joined — it
+#     fixes, rather than waiting to be noticed;
+#   - an alert it cannot deliver fails the run, which is the only signal left
+#     that this alert exists at all.
+#
+# #1909 reached the second point independently and landed first, by having the
+# analytics app self-join #bot-urgent. That is replaced here rather than kept:
+# joining fixes the membership but leaves the posting app wrong, and the repo
+# already standardises these channels on gp_ai_bot. It also kept the
+# `::warning::` downgrade, so an undeliverable alert stayed green — the half of
+# the bug that made the original silence last three days.
 
 on:
   workflow_run:
@@ -36,7 +61,14 @@ jobs:
     steps:
       - name: Post to Slack
         env:
-          SLACK_APP_BOT_TOKEN: ${{ secrets.SLACK_APP_BOT_TOKEN }}
+          # gp_ai_bot, the app every gpbot workflow carries — and NOT
+          # secrets.SLACK_APP_BOT_TOKEN, which is what this shipped with. That
+          # one is the analytics app: a member of #product-analytics only, so
+          # it cannot post here at all. The two secrets differ by one word and
+          # the wrong one is the one whose name reads like "the Slack app",
+          # which is how this was picked; gpbot-pr-triage.yml has carried a
+          # comment warning about precisely this swap since August.
+          SLACK_TOKEN: ${{ secrets.GPBOT_SLACK_BOT_TOKEN }}
           CHANNEL_ID: ${{ vars.SLACK_URGENT_CHANNEL_ID }}
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.event.workflow_run.id }}
@@ -46,8 +78,8 @@ jobs:
           CONCLUSION: ${{ github.event.workflow_run.conclusion }}
         run: |
           set -euo pipefail
-          if [ -z "$SLACK_APP_BOT_TOKEN" ] || [ -z "$CHANNEL_ID" ]; then
-            echo "::error::SLACK_APP_BOT_TOKEN or SLACK_URGENT_CHANNEL_ID unset — cannot alert on a failed release run. Failing loudly."
+          if [ -z "$SLACK_TOKEN" ] || [ -z "$CHANNEL_ID" ]; then
+            echo "::error::GPBOT_SLACK_BOT_TOKEN or SLACK_URGENT_CHANNEL_ID unset — cannot alert on a failed release run. Failing loudly."
             exit 1
           fi
 
@@ -83,34 +115,63 @@ jobs:
             --arg sha "${HEAD_SHA:0:9}" \
             '":red_circle: Release train failed at: \($phase). Prod is not shipping until a run goes green.\nRun: <\($url)|\($title)> (\($sha))\nFailed jobs: \($failed)"')
 
-          # chat.postMessage needs the TOKEN'S OWN app to be a channel member,
-          # and SLACK_APP_BOT_TOKEN is the analytics app (analytics-event-bot),
-          # not the goodparty app — see gpbot-pr-triage.yml. That distinction
-          # dropped every alert from 09-14 to 09-17: the channel had the
-          # goodparty app invited, the wiring was verified with the goodparty
-          # app's token, and this workflow's posts all died not_in_channel.
-          # #bot-urgent is public, so join instead of waiting on an invite;
-          # best effort — the post's own error handling below reports.
-          jq -n --arg c "$CHANNEL_ID" '{channel: $c}' | \
-            curl -sS --max-time 10 -X POST https://slack.com/api/conversations.join \
-              -H "Authorization: Bearer $SLACK_APP_BOT_TOKEN" \
-              -H "Content-type: application/json; charset=utf-8" \
-              --data @- >/dev/null || true
+          payload=$(jq -n --arg c "$CHANNEL_ID" --arg t "$text" '{channel: $c, text: $t}')
 
-          resp=$(jq -n --arg c "$CHANNEL_ID" --arg t "$text" '{channel: $c, text: $t}' | \
-            curl -sf -X POST https://slack.com/api/chat.postMessage \
-              -H "Authorization: Bearer $SLACK_APP_BOT_TOKEN" \
+          # `-sS` rather than the `-sf` this used to carry: every Slack refusal
+          # worth reading arrives as HTTP 200 with `ok:false`, and `-f` throws
+          # the body away on the ones that do not — which is the error string
+          # the decision below is made on.
+          #
+          # ALWAYS PRINTS ONE JSON OBJECT, so nothing downstream has to wonder.
+          # A proxy error page or a dropped connection is not JSON, and feeding
+          # it to jq kills this step under `set -e` with a parse error for its
+          # only output — red, correctly, but saying nothing about the alert it
+          # just failed to deliver. Normalising here is what lets the checks
+          # below be written once and read as the reasons they are.
+          slack() {
+            local resp
+            resp=$(curl -sS --max-time 20 -X POST "https://slack.com/api/$1" \
+              -H "Authorization: Bearer $SLACK_TOKEN" \
               -H "Content-type: application/json; charset=utf-8" \
-              --data @-)
-          if [ "$(echo "$resp" | jq -r .ok)" != "true" ]; then
-            err=$(echo "$resp" | jq -r .error)
-            # not_in_channel = the bot invite is pending; a red alert run next
-            # to every red release run would be noise, not signal. Everything
-            # else (bad token, deleted channel, rate limit) fails loudly.
-            if [ "$err" = "not_in_channel" ]; then
-              echo "::warning::Slack not_in_channel and self-join failed — invite the app behind SLACK_APP_BOT_TOKEN (analytics-event-bot, NOT the goodparty app) to #bot-urgent. Alert not sent."
+              --data @-) || resp=''
+            if jq -e . <<<"$resp" >/dev/null 2>&1; then
+              printf '%s' "$resp"
             else
-              echo "::error::Slack rejected the alert: $err"
+              # jq assembles the stand-in so a body carrying quotes or
+              # backslashes cannot break the one object this promises to print.
+              jq -nc --arg ep "$1" --arg body "${resp:0:200}" \
+                '{ok: false, error: ($ep + " answered something that is not JSON: " + $body)}'
+            fi
+          }
+          error_of() { jq -r 'if .ok then "" else (.error // "unknown") end' <<<"$1"; }
+
+          resp=$(printf '%s' "$payload" | slack chat.postMessage)
+          err=$(error_of "$resp")
+
+          # THE ONE FAILURE THIS CAN FIX ITSELF. `not_in_channel` on a public
+          # channel needs no invitation — joining is a call this app can make —
+          # and waiting for a human to notice is what cost three days. Reactive
+          # rather than an unconditional join before the post, because the alert
+          # is the fast half of the pair and the healthy path should stay one
+          # round trip. (gpbot-dev-test-triage.yml joins up front instead: it
+          # also has to READ the channel, so it needs membership before its
+          # first call rather than after a refused one.)
+          if [ "$err" = "not_in_channel" ]; then
+            join=$(jq -nc --arg c "$CHANNEL_ID" '{channel: $c}' | slack conversations.join)
+            if [ "$(jq -r '.ok // false' <<<"$join")" != "true" ]; then
+              echo "::error::Not in $CHANNEL_ID and could not join it ($(error_of "$join")). Grant the app the channels:join scope, or invite it to #bot-urgent by hand. THE ALERT WAS NOT SENT and prod is not shipping."
               exit 1
             fi
+            echo "::notice::The app was not in $CHANNEL_ID; joined it and re-sent the alert."
+            resp=$(printf '%s' "$payload" | slack chat.postMessage)
+            err=$(error_of "$resp")
+          fi
+
+          # Everything else — a bad token, a deleted channel, a rate limit, a
+          # join that Slack accepted but that did not take — is a human who was
+          # never told about a train that is not shipping. A red run here is the
+          # only remaining signal that this alert exists at all.
+          if [ -n "$err" ]; then
+            echo "::error::Slack rejected the alert: $err. THE ALERT WAS NOT SENT and prod is not shipping."
+            exit 1
           fi

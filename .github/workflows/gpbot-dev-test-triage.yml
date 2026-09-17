@@ -80,7 +80,13 @@ jobs:
       CLICKUP_LIST_ID: ${{ vars.CLICKUP_DEV_TEST_LIST_ID || '901320540273' }}
       CLICKUP_TEAM_ID: '90132012119'
       DEV_TEST_TAG: gpbot-dev-test
-      SLACK_APP_BOT_TOKEN: ${{ secrets.SLACK_APP_BOT_TOKEN }}
+      # gp_ai_bot, like every other gpbot workflow — NOT
+      # secrets.SLACK_APP_BOT_TOKEN, which is the analytics app and is a member
+      # of #product-analytics only. This workflow shipped with that one, so
+      # Slack refused every disposition it tried to post with
+      # `not_in_channel`; release-failure-alert.yml shipped with the same
+      # mistake, which is how a red release train went three days unannounced.
+      SLACK_TOKEN: ${{ secrets.GPBOT_SLACK_BOT_TOKEN }}
       SLACK_CHANNEL_ID: ${{ vars.SLACK_URGENT_CHANNEL_ID }}
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -127,23 +133,51 @@ jobs:
         run: |
           set -euo pipefail
           results=report/test-results/results.json
-          # `null` rather than an empty object when the artifact never arrived,
-          # so the module reports "no readable report" instead of "the shards did
-          # not run". They are different facts and a human reading the Slack
-          # thread needs to be able to tell which one happened.
-          report_json=null
-          if [ -f "$results" ]; then
-            report_json=$(cat "$results")
-          else
+
+          # THE REPORT IS STREAMED FROM THE FILE AND NEVER PUT ON THE COMMAND
+          # LINE. `--argjson report "$(cat "$results")"` is what shipped here,
+          # and it could not have worked on a real release run: Linux caps a
+          # single argv entry at 128 KiB (MAX_ARG_STRLEN) regardless of
+          # ARG_MAX, and a full report is megabytes. Exec'ing jq therefore
+          # failed with `Argument list too long`, jq wrote nothing, and the
+          # module read empty stdin and exited 1 — so every triage between this
+          # workflow merging on 2026-09-16 and this fix died on this line,
+          # filed no ticket, started no agent run, and posted no disposition.
+          # `--slurpfile` reads the file directly, so its size stops mattering.
+          #
+          # A file holding `null` stands in for a report this step cannot use,
+          # so every such case takes the same route into the module: it has to
+          # be able to report "no readable report" separately from "the shards
+          # did not run", and a human reading the Slack thread needs to know
+          # which happened.
+          #
+          # THE SYNTAX CHECK IS NOT BELT-AND-BRACES. --slurpfile exits 2 on a
+          # file that is not valid JSON ("Bad JSON in --slurpfile"), and under
+          # `set -e` that kills this step exactly as the argv overflow did: no
+          # ticket, no disposition, nobody told. download-artifact only unzips,
+          # it does not validate, so a release job evicted or timed out
+          # mid-upload leaves a half-written results.json and hands this step a
+          # truncated file. Checking costs one parse and converts a silent death
+          # into a reported one.
+          if [ ! -f "$results" ]; then
             echo "::notice::No results.json in the release run's artifacts; the E2E job likely never ran."
+            results="$RUNNER_TEMP/unusable-report.json"
+            printf 'null\n' > "$results"
+          elif ! jq -e . "$results" >/dev/null 2>&1; then
+            echo "::warning::results.json is present but is not readable JSON (a truncated upload?); triaging it as an unreadable report rather than as a clean suite."
+            results="$RUNNER_TEMP/unusable-report.json"
+            printf 'null\n' > "$results"
           fi
 
+          # `$report[0]`: --slurpfile yields an array of the file's top-level
+          # values, so the `null` sentinel above arrives as null and a report
+          # arrives as itself.
           jq -n \
-            --argjson report "$report_json" \
+            --slurpfile report "$results" \
             --arg run_url "$RUN_URL" \
             --arg report_url "$REPORT_URL" \
             --arg head_sha "$HEAD_SHA" \
-            '{report: $report, run_url: $run_url, report_url: $report_url, head_sha: $head_sha}' \
+            '{report: $report[0], run_url: $run_url, report_url: $report_url, head_sha: $head_sha}' \
             | python3 packages/gp-ai/clickup_bot/dev_test_triage.py > triage.json
 
           jq -c '{shards_ran, total_specs, other_failures, count: (.failures | length), reason}' triage.json
@@ -151,6 +185,12 @@ jobs:
             echo "count=$(jq '.failures | length' triage.json)"
             echo "shards_ran=$(jq -r '.shards_ran' triage.json)"
             echo "other_failures=$(jq -r '.other_failures' triage.json)"
+            # Delimited rather than `key=value`: this one is prose written by
+            # the module, and a future reason containing a newline would
+            # otherwise corrupt every output after it.
+            echo 'reason<<REASON_EOF'
+            jq -r '.reason // ""' triage.json
+            echo 'REASON_EOF'
           } >> "$GITHUB_OUTPUT"
 
       # One ticket per distinct failing spec, deduped against the tickets this
@@ -261,6 +301,7 @@ jobs:
           SHARDS_RAN: ${{ steps.triage.outputs.shards_ran }}
           COUNT: ${{ steps.triage.outputs.count }}
           OTHER: ${{ steps.triage.outputs.other_failures }}
+          REASON: ${{ steps.triage.outputs.reason }}
           # This step runs on `always()`, so it also runs when the ClickUp step
           # died — and a disposition that lists the failures without saying they
           # went unticketed is the silent write failure this workflow exists to
@@ -268,24 +309,28 @@ jobs:
           CLICKUP_OUTCOME: ${{ steps.clickup.outcome }}
         run: |
           set -euo pipefail
-          if [ -z "${SLACK_APP_BOT_TOKEN:-}" ] || [ -z "${SLACK_CHANNEL_ID:-}" ]; then
-            echo "::warning::SLACK_APP_BOT_TOKEN or SLACK_URGENT_CHANNEL_ID unset; disposition not posted."
-            exit 0
+          # exit 1, not the `exit 0` this carried. An unset token and a Slack
+          # refusal have the identical observable outcome — no disposition, so
+          # nobody learns what the triage decided — and the refusal path below
+          # already fails the run for exactly that reason. Exiting 0 here made
+          # the missing-credential case the one way left for this workflow to
+          # be silent and green, which is the shape of bug it exists to end.
+          if [ -z "${SLACK_TOKEN:-}" ] || [ -z "${SLACK_CHANNEL_ID:-}" ]; then
+            echo "::error::GPBOT_SLACK_BOT_TOKEN or SLACK_URGENT_CHANNEL_ID unset — disposition not posted and nobody was told what the triage decided. Failing loudly."
+            exit 1
           fi
 
-          # SLACK_APP_BOT_TOKEN is the analytics app (analytics-event-bot),
-          # which is not invited anywhere near #bot-urgent by default — its
-          # posts and history reads both die not_in_channel unless the app is
-          # a member. The channel is public, so self-join; best effort, same
-          # as everything else in this step.
-          jq -n --arg c "$SLACK_CHANNEL_ID" '{channel: $c}' | \
-            curl -sS --max-time 10 -X POST https://slack.com/api/conversations.join \
-              -H "Authorization: Bearer $SLACK_APP_BOT_TOKEN" \
-              -H "Content-type: application/json; charset=utf-8" \
-              --data @- >/dev/null || true
-
           if [ "$SHARDS_RAN" != "true" ]; then
-            summary=":mag: dev-only E2E triage: the shards did not run, so there is nothing to triage. The failure is earlier in the train."
+            # THE MODULE'S OWN WORDS, because it separates two cases this used
+            # to announce as one. A report with no specs in it means the shards
+            # really were skipped and the failure is earlier in the train. A
+            # report that could not be read at all — absent, or truncated by an
+            # upload that died — means the shards may well have run and failed,
+            # and saying "the shards did not run" there points whoever is
+            # reading at the wrong half of the pipeline.
+            # A colon and not a dash: one of the two reasons carries an em dash
+            # of its own, and nesting them reads as a typo.
+            summary=":mag: dev-only E2E triage: nothing could be triaged: ${REASON:-the report could not be used, and the triage gave no reason}."
           elif [ "${COUNT:-0}" = "0" ]; then
             summary=":mag: dev-only E2E triage: no \`@dev-only\` spec failed. ${OTHER:-0} other spec(s) failed — those are visible on their authors' own PRs and are not ticketed."
           else
@@ -306,21 +351,70 @@ jobs:
             fi
           fi
 
+          # Both helpers always print one JSON object: a proxy error page or a
+          # dropped connection is not JSON, and handing it to jq would kill this
+          # step under `set -e` with a parse error as its only account of what
+          # went wrong. Same normalisation as release-failure-alert.yml, for the
+          # same reason.
+          as_json() {
+            if jq -e . <<<"$1" >/dev/null 2>&1; then
+              printf '%s' "$1"
+            else
+              # jq assembles the stand-in so a body carrying quotes or
+              # backslashes cannot break the one object this promises to print.
+              jq -nc --arg ep "$2" --arg body "${1:0:200}" \
+                '{ok: false, error: ($ep + " answered something that is not JSON: " + $body)}'
+            fi
+          }
+          slack_get() {
+            local resp
+            resp=$(curl -sS --max-time 20 -G "https://slack.com/api/$1" \
+              -H "Authorization: Bearer $SLACK_TOKEN" "${@:2}") || resp=''
+            as_json "$resp" "$1"
+          }
+          slack_post() {
+            local resp
+            resp=$(curl -sS --max-time 20 -X POST "https://slack.com/api/$1" \
+              -H "Authorization: Bearer $SLACK_TOKEN" \
+              -H "Content-type: application/json; charset=utf-8" --data @-) || resp=''
+            as_json "$resp" "$1"
+          }
+          error_of() { jq -r 'if .ok then "" else (.error // "unknown") end' <<<"$1"; }
+
+          # MEMBERSHIP IS ENSURED BEFORE EITHER CALL, because both of them need
+          # it and only one of them used to say so. An app that is not in the
+          # channel cannot read its history OR post to it, and #bot-urgent was
+          # created with no app in it — see the header of
+          # release-failure-alert.yml for the three days that cost. Unlike that
+          # workflow this one joins up front rather than after a refusal, since
+          # the history read comes first and a refused read silently costs the
+          # disposition its thread. conversations.join is idempotent and answers
+          # ok for a channel the app is already in, so this is one call a run.
+          #
+          # A WARNING AND NOT FATAL HERE: if the join fails, the post below
+          # still gets its own attempt and reports its own outcome, and that is
+          # the error worth failing on. Public channel only — a private one has
+          # to be invited by hand, and Slack says so in the error.
+          join=$(jq -nc --arg c "$SLACK_CHANNEL_ID" '{channel: $c}' | slack_post conversations.join)
+          if [ "$(jq -r '.ok // false' <<<"$join")" != "true" ]; then
+            echo "::warning::Could not join $SLACK_CHANNEL_ID ($(error_of "$join")); the disposition may not be deliverable."
+          fi
+
           # Threaded under release-failure-alert.yml's message for this same run
           # so one place shows what broke and what the bot did about it. Found by
           # searching for the run URL rather than passed between the workflows,
           # because they are independent listeners on the same event and neither
           # can hand the other a message id.
           #
-          # BEST EFFORT BY DESIGN. If the app lacks `channels:history`, or that
-          # alert has not landed yet, or it was never sent, this posts at top
-          # level instead. A disposition in the wrong place is worth having; a
-          # failed triage job because Slack threading did not work is not.
+          # THREADING IS BEST EFFORT BY DESIGN — delivery, below, is not. If the
+          # app lacks `channels:history`, or that alert has not landed yet, or
+          # it was never sent, this posts at top level instead. A disposition in
+          # the wrong place is worth having; a failed triage job because Slack
+          # threading did not work is not.
           thread_ts=""
-          hist=$(curl -sS --max-time 20 -G https://slack.com/api/conversations.history \
-            -H "Authorization: Bearer $SLACK_APP_BOT_TOKEN" \
+          hist=$(slack_get conversations.history \
             --data-urlencode "channel=$SLACK_CHANNEL_ID" \
-            --data-urlencode "limit=30" || echo '{}')
+            --data-urlencode "limit=30")
           if [ "$(jq -r '.ok // false' <<<"$hist")" = "true" ]; then
             thread_ts=$(jq -r --arg u "$RUN_URL" '[.messages[]? | select(.text | contains($u))] | .[0].ts // empty' <<<"$hist")
           else
@@ -330,11 +424,15 @@ jobs:
 
           resp=$(jq -n --arg c "$SLACK_CHANNEL_ID" --arg t "$summary" --arg ts "$thread_ts" \
             '{channel: $c, text: $t} + (if $ts == "" then {} else {thread_ts: $ts} end)' \
-            | curl -sS -X POST https://slack.com/api/chat.postMessage \
-              -H "Authorization: Bearer $SLACK_APP_BOT_TOKEN" \
-              -H "Content-type: application/json; charset=utf-8" --data @-)
-          if [ "$(jq -r '.ok' <<<"$resp")" != "true" ]; then
-            echo "::warning::Slack rejected the disposition: $(jq -r '.error' <<<"$resp")"
+            | slack_post chat.postMessage)
+          # RED, not a warning. This step exists because "a thread that says the
+          # shards never ran" is how anyone can tell this bot is working at all,
+          # so a disposition Slack refused is this workflow silently back to
+          # being the thing it was written to replace. The tickets above may
+          # well have been filed — the run going red says nobody was told.
+          if [ -n "$(error_of "$resp")" ]; then
+            echo "::error::Slack rejected the disposition: $(error_of "$resp"). The triage ran but nobody was told what it decided."
+            exit 1
           fi
 
       - name: Write summary
