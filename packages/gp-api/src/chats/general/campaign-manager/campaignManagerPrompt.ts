@@ -403,8 +403,8 @@ const GENERATE_STATUS_GUIDANCE = [
     'and do not claim it is being built.',
   "'failed' means it could not start. Check the result's reason: " +
     "'race_lookup_failed' means the race lookup failed, so tell the " +
-    'candidate that and point them to the race details on their profile, ' +
-    "or to support if that does not fix it; 'attempts_exhausted' means it " +
+    'candidate that and route them to support, since the race on their ' +
+    "record may need correcting; 'attempts_exhausted' means it " +
     'cannot be regenerated automatically, so tell the candidate that and ' +
     "route them to support; 'queue_failed' means the attempt to start did " +
     'not go through, so offer to try again now. With no reason, tell the ' +
