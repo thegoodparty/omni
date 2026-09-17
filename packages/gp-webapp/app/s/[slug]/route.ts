@@ -37,8 +37,16 @@ function isAllowedRedirectTarget(rawUrl: string): boolean {
   } catch {
     return false
   }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false
   const { hostname } = parsed
+  // `http:` only for localhost. What this forwards carries a single-use Clerk
+  // sign-in JWT in its query string, so an APP_ROOT that ever lost its `s` —
+  // a staging env file, a copied config — would put a live credential on the
+  // wire in cleartext, and the allowlist below would wave it through because
+  // the host is genuinely ours. The host being right is what makes this worth
+  // pinning: it is the case nothing else here would catch.
+  if (parsed.protocol !== 'https:') {
+    if (parsed.protocol !== 'http:' || hostname !== 'localhost') return false
+  }
   return (
     hostname === 'localhost' ||
     hostname === 'goodparty.org' ||

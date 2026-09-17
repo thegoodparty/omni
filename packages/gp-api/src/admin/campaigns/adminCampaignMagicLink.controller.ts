@@ -4,6 +4,8 @@ import { MagicLinkService } from '@/magicLink/magicLink.service'
 import {
   MagicLinkDeliveryService,
   SMS_NO_ACTIVE_LINK_ERROR,
+  SMS_PHONE_MISMATCH_ERROR,
+  SMS_RECORD_FAILED_ERROR,
 } from '@/magicLink/magicLinkDelivery.service'
 import { computeMagicLinkStatus } from '@/magicLink/util/magicLinkStatus.util'
 import { APP_ROOT } from '@/shared/util/appEnvironment.util'
@@ -83,6 +85,7 @@ export class AdminCampaignMagicLinkController {
     // HubSpot contact (win_* property set) so the Win sales card shows
     // persistent state. Best-effort — never fail link creation on state
     // tracking.
+    let recorded = true
     await this.magicLink
       .recordSent({
         userId: user.id,
@@ -92,21 +95,29 @@ export class AdminCampaignMagicLinkController {
         kind: MagicLinkKind.WIN,
       })
       .catch((err: unknown) => {
+        recorded = false
         this.logger.warn({ err }, 'Failed to record magic-link sent state')
       })
 
     // Text it in the same call when the rep supplied a phone — they clicked one
     // button. Best-effort like the email path: a delivery failure comes back as
     // `smsError` and the rep still has a copyable link.
-    const delivery = phone
-      ? await this.magicLinkDelivery.textActiveLink({
-          userId: user.id,
-          kind: MagicLinkKind.WIN,
-          phone,
-          smsConsent,
-          consentSource,
-        })
-      : undefined
+    //
+    // Skipped rather than attempted when the row above did not persist — see
+    // the same branch in adminElectedOffice.controller.ts. textActiveLink reads
+    // the row back, so with nothing written it would tell the rep to generate a
+    // new link, about the one in this response.
+    const delivery = !phone
+      ? undefined
+      : recorded
+        ? await this.magicLinkDelivery.textActiveLink({
+            userId: user.id,
+            kind: MagicLinkKind.WIN,
+            phone,
+            smsConsent,
+            consentSource,
+          })
+        : { smsSent: false, smsError: SMS_RECORD_FAILED_ERROR }
 
     this.logger.info(
       { userId: user.id, smsSent: delivery?.smsSent },
@@ -143,10 +154,16 @@ export class AdminCampaignMagicLinkController {
     if (!link) {
       return { smsSent: false, smsError: SMS_NO_ACTIVE_LINK_ERROR }
     }
+    // Pinned to the number already texted, for the reasons spelled out on the
+    // serve endpoint in adminElectedOffice.controller.ts: the caller picks both
+    // the lead and the destination, and what travels is a live sign-in ticket.
+    if (link.phone && link.phone !== body.phone) {
+      return { smsSent: false, smsError: SMS_PHONE_MISMATCH_ERROR }
+    }
     return this.magicLinkDelivery.textActiveLink({
       userId: link.userId,
       kind: link.kind,
-      phone: body.phone,
+      phone: link.phone ?? body.phone,
       smsConsent: body.smsConsent,
       consentSource: body.consentSource,
     })

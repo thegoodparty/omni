@@ -63,6 +63,30 @@ describe('GET /s/[slug]', () => {
     expect(res.headers.get('location')).toContain('/login?magicLinkExpired=1')
   })
 
+  it('refuses to put a sign-in ticket on the wire in cleartext', async () => {
+    // The host is ours, which is what makes this the dangerous one — an
+    // APP_ROOT that lost its `s` passes every other check here, and the ticket
+    // in that query string is a live credential.
+    serverRequest.mockResolvedValue({
+      data: { url: 'http://dev.goodparty.org/serve/welcome?__clerk_ticket=x' },
+    })
+
+    const res = await call()
+
+    expect(res.headers.get('location')).toContain('/login?magicLinkExpired=1')
+  })
+
+  it('still allows http on localhost, where there is no wire', async () => {
+    serverRequest.mockResolvedValue({
+      data: { url: 'http://localhost:4000/serve/welcome?__clerk_ticket=x' },
+    })
+
+    const res = await call()
+
+    expect(res.status).toBe(307)
+    expect(res.headers.get('location')).toContain('localhost:4000')
+  })
+
   it('allows the non-prod app origins links are minted against', async () => {
     // gp-api's APP_ROOT is dev.goodparty.org / qa.goodparty.org outside prod, so
     // a cross-host redirect here is expected and must keep working.

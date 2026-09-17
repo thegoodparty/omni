@@ -1,5 +1,9 @@
 import { BadRequestException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  SMS_PHONE_MISMATCH_ERROR,
+  SMS_RECORD_FAILED_ERROR,
+} from '@/magicLink/magicLinkDelivery.service'
 import { AdminElectedOfficeController } from './adminElectedOffice.controller'
 import {
   CreateMagicLinkDto,
@@ -113,6 +117,27 @@ describe('AdminElectedOfficeController.createMagicLink', () => {
     )
   })
 
+  // textActiveLink reads the row back rather than taking a URL, so with nothing
+  // written it answers "generate a new one first" — about the link in this very
+  // response. Don't ask it.
+  it('does not attempt the text when the lifecycle row did not persist', async () => {
+    ctx.magicLink.recordSent.mockRejectedValueOnce(new Error('db down'))
+
+    const result = await ctx.controller.createMagicLink(
+      dto({ phone: '5551234567' }),
+    )
+
+    expect(ctx.magicLinkDelivery.textActiveLink).not.toHaveBeenCalled()
+    expect(result).toEqual(
+      expect.objectContaining({
+        smsSent: false,
+        smsError: SMS_RECORD_FAILED_ERROR,
+      }),
+    )
+    // Still best-effort: the rep gets a copyable link either way.
+    expect(result.url).toContain('__clerk_ticket=tok')
+  })
+
   it('tracks the magic-link-sent event tagged as a serve link', async () => {
     await ctx.controller.createMagicLink(dto({}))
     expect(ctx.analytics.track).toHaveBeenCalledWith(
@@ -207,5 +232,71 @@ describe('AdminElectedOfficeController.getMagicLink', () => {
     await expect(
       ctx.controller.getMagicLink({ email: 'eo@example.com' } as never),
     ).resolves.toEqual({ url: null, status: 'expired' })
+  })
+})
+
+describe('AdminElectedOfficeController.sendMagicLinkSms', () => {
+  let ctx: ReturnType<typeof makeController>
+
+  const smsDto = (overrides = {}) =>
+    ({
+      email: 'eo@example.com',
+      phone: '5551234567',
+      ...overrides,
+    }) as never
+
+  beforeEach(() => {
+    ctx = makeController()
+  })
+
+  // The caller names the lead and the destination, and what gets delivered is a
+  // live single-use sign-in token. So a digit typed wrong texts a stranger a
+  // working sign-in for someone else's account.
+  it('refuses to text the link to a number it has not been texted to', async () => {
+    ctx.magicLink.getByEmail.mockResolvedValueOnce({
+      userId: 1,
+      kind: 'SERVE',
+      phone: '5551234567',
+    })
+
+    await expect(
+      ctx.controller.sendMagicLinkSms(smsDto({ phone: '5559999999' })),
+    ).resolves.toEqual({
+      smsSent: false,
+      smsError: SMS_PHONE_MISMATCH_ERROR,
+    })
+    expect(ctx.magicLinkDelivery.textActiveLink).not.toHaveBeenCalled()
+  })
+
+  it('texts the number on record, ignoring the one supplied', async () => {
+    ctx.magicLink.getByEmail.mockResolvedValueOnce({
+      userId: 1,
+      kind: 'SERVE',
+      phone: '5551234567',
+    })
+
+    await ctx.controller.sendMagicLinkSms(smsDto())
+
+    expect(ctx.magicLinkDelivery.textActiveLink).toHaveBeenCalledWith(
+      expect.objectContaining({ phone: '5551234567', kind: 'SERVE' }),
+    )
+  })
+
+  // Pinned once there is a number, not required — this endpoint is for the lead
+  // who was emailed the link and never got it, and `phone` is only written by a
+  // send that succeeded. Requiring one would break both that and a retry after
+  // Sinch failed.
+  it('accepts the supplied number when the link has never been texted', async () => {
+    ctx.magicLink.getByEmail.mockResolvedValueOnce({
+      userId: 1,
+      kind: 'SERVE',
+      phone: null,
+    })
+
+    await ctx.controller.sendMagicLinkSms(smsDto({ phone: '5557654321' }))
+
+    expect(ctx.magicLinkDelivery.textActiveLink).toHaveBeenCalledWith(
+      expect.objectContaining({ phone: '5557654321' }),
+    )
   })
 })

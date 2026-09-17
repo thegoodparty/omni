@@ -23,6 +23,10 @@ export const SMS_NO_ACTIVE_LINK_ERROR =
   'There is no active sign-in link to text — generate a new one first.'
 export const SMS_NO_SLUG_ERROR =
   'This link predates short links, so it cannot be texted. Generate a new one.'
+export const SMS_PHONE_MISMATCH_ERROR =
+  'This link has already been texted to a different number. Generate a new link to send it somewhere else.'
+export const SMS_RECORD_FAILED_ERROR =
+  'The link was created but could not be saved, so it could not be texted. Copy the link above, or try again.'
 
 /**
  * Shared SMS delivery for sales-sent magic links, used by both the serve (EO)

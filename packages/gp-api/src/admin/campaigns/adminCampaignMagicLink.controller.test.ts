@@ -1,5 +1,9 @@
 import { BadRequestException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  SMS_PHONE_MISMATCH_ERROR,
+  SMS_RECORD_FAILED_ERROR,
+} from '@/magicLink/magicLinkDelivery.service'
 import { AdminCampaignMagicLinkController } from './adminCampaignMagicLink.controller'
 import {
   CAMPAIGN_MAGIC_LINK_NAME_REQUIRED_ERROR,
@@ -112,6 +116,24 @@ describe('AdminCampaignMagicLinkController.createMagicLink', () => {
       expect.objectContaining({ userId: 1 }),
     )
   })
+
+  // textActiveLink reads the row back, so with nothing written it would tell
+  // the rep to generate a new link — about the one in this response.
+  it('does not attempt the text when the lifecycle row did not persist', async () => {
+    ctx.magicLink.recordSent.mockRejectedValueOnce(new Error('db down'))
+
+    const result = await ctx.controller.createMagicLink(
+      dto({ phone: '5551234567' }),
+    )
+
+    expect(ctx.magicLinkDelivery.textActiveLink).not.toHaveBeenCalled()
+    expect(result).toEqual(
+      expect.objectContaining({
+        smsSent: false,
+        smsError: SMS_RECORD_FAILED_ERROR,
+      }),
+    )
+  })
 })
 
 describe('AdminCampaignMagicLinkController.getMagicLink', () => {
@@ -170,5 +192,52 @@ describe('AdminCampaignMagicLinkController.getMagicLink', () => {
     await expect(
       ctx.controller.getMagicLink({ email: 'candidate@example.com' } as never),
     ).resolves.toEqual({ url: null, status: 'expired' })
+  })
+})
+
+describe('AdminCampaignMagicLinkController.sendMagicLinkSms', () => {
+  let ctx: ReturnType<typeof makeController>
+
+  const smsDto = (overrides = {}) =>
+    ({
+      email: 'candidate@example.com',
+      phone: '5551234567',
+      ...overrides,
+    }) as never
+
+  beforeEach(() => {
+    ctx = makeController()
+  })
+
+  // Same shape as the serve endpoint: the caller picks the lead and the
+  // destination, and a live sign-in token is what travels.
+  it('refuses to text the link to a number it has not been texted to', async () => {
+    ctx.magicLink.getByEmail.mockResolvedValueOnce({
+      userId: 1,
+      kind: 'WIN',
+      phone: '5551234567',
+    })
+
+    await expect(
+      ctx.controller.sendMagicLinkSms(smsDto({ phone: '5559999999' })),
+    ).resolves.toEqual({
+      smsSent: false,
+      smsError: SMS_PHONE_MISMATCH_ERROR,
+    })
+    expect(ctx.magicLinkDelivery.textActiveLink).not.toHaveBeenCalled()
+  })
+
+  it('accepts the supplied number when the link has never been texted', async () => {
+    ctx.magicLink.getByEmail.mockResolvedValueOnce({
+      userId: 1,
+      kind: 'WIN',
+      phone: null,
+    })
+
+    await ctx.controller.sendMagicLinkSms(smsDto({ phone: '5557654321' }))
+
+    expect(ctx.magicLinkDelivery.textActiveLink).toHaveBeenCalledWith(
+      expect.objectContaining({ phone: '5557654321', kind: 'WIN' }),
+    )
   })
 })
