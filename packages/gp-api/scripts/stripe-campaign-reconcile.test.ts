@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   assertReadOnlyRequest,
+  createReadOnlyHttpClient,
   createStripeReader,
   DRIFT_CLASSES_BY_PRIORITY,
   formatCents,
@@ -127,6 +128,57 @@ describe('assertReadOnlyRequest', () => {
     expect(() => assertReadOnlyRequest('post', '/v1/refunds')).toThrow(
       /read-only/,
     )
+  })
+})
+
+describe('createReadOnlyHttpClient', () => {
+  const stubDelegate = () => {
+    const makeRequest = vi.fn(async () => ({
+      getStatusCode: () => 200,
+      getHeaders: () => ({}),
+      getRawResponse: () => null,
+      toStream: () => null,
+      toJSON: async () => ({}),
+    }))
+    return { getClientName: () => 'stub', makeRequest }
+  }
+
+  it('lets a GET through to the real client', async () => {
+    const delegate = stubDelegate()
+
+    await createReadOnlyHttpClient(delegate).makeRequest(
+      'api.stripe.com',
+      443,
+      '/v1/subscriptions',
+      'GET',
+      {},
+      null,
+      'https',
+      80000,
+    )
+
+    expect(delegate.makeRequest).toHaveBeenCalledTimes(1)
+  })
+
+  // The whole point of wrapping the http client rather than listening on
+  // `stripe.on('request')`: the SDK emits that event AFTER handing the request
+  // to the client, so a listener can only watch a mutation leave.
+  it('stops a mutation before it reaches the socket', async () => {
+    const delegate = stubDelegate()
+
+    await expect(
+      createReadOnlyHttpClient(delegate).makeRequest(
+        'api.stripe.com',
+        443,
+        '/v1/refunds',
+        'POST',
+        {},
+        'payment_intent=pi_1',
+        'https',
+        80000,
+      ),
+    ).rejects.toThrow(/read-only/)
+    expect(delegate.makeRequest).not.toHaveBeenCalled()
   })
 })
 
@@ -575,6 +627,55 @@ describe('reconcile', () => {
       })
     })
 
+    // Two unlinked subscriptions on one customer are ONE billing incident.
+    // Reporting them as two orphans plus a duplicate would inflate the queue
+    // and count the same dollars twice in two different classes.
+    it('reports two unlinked subscriptions on one customer once, not three times', async () => {
+      const { reader } = stubReader({
+        subscriptions: [
+          snapshot({ id: 'sub_first', customerId: 'cus_double' }),
+          snapshot({ id: 'sub_second', customerId: 'cus_double' }),
+        ],
+        paidInvoiceCents: { sub_first: 5000, sub_second: 2000 },
+      })
+
+      const report = await reconcile(reader, [])
+
+      expect(report.summary).toMatchObject({
+        DUPLICATE: 1,
+        ORPHANED_ACTIVE: 0,
+      })
+      expect(report.findings).toHaveLength(1)
+      expect(report.findings[0].totalChargedCents).toBe(7000)
+      expect(report.findings[0].detail).toContain(
+        '2 of them (sub_first, sub_second) is not linked',
+      )
+    })
+
+    // The canceled one is not part of the duplicate, so suppressing the
+    // orphan rows must not swallow it.
+    it('still reports a canceled sibling as its own orphan', async () => {
+      const { reader } = stubReader({
+        subscriptions: [
+          snapshot({ id: 'sub_first', customerId: 'cus_double' }),
+          snapshot({ id: 'sub_second', customerId: 'cus_double' }),
+          snapshot({
+            id: 'sub_old',
+            customerId: 'cus_double',
+            status: 'canceled',
+          }),
+        ],
+      })
+
+      const report = await reconcile(reader, [])
+
+      expect(report.summary).toMatchObject({
+        DUPLICATE: 1,
+        ORPHANED_ACTIVE: 0,
+        ORPHANED_CANCELED: 1,
+      })
+    })
+
     it('does not flag a customer whose second subscription is canceled', async () => {
       const { reader } = stubReader({
         subscriptions: [
@@ -665,6 +766,56 @@ describe('reconcile', () => {
       ])
 
       expect(report.findings).toEqual([])
+    })
+
+    // A de-Pro'd campaign routinely keeps a stale subscriptionId pointing at a
+    // long-dead subscription. A disagreement about a customer nobody is
+    // billing is the ordinary residue of a cancellation, not a finding.
+    it('stays silent when the subscription is no longer collecting', async () => {
+      const { reader } = stubReader({
+        retrievable: {
+          sub_dead: snapshot({
+            id: 'sub_dead',
+            customerId: 'cus_actual',
+            status: 'canceled',
+          }),
+        },
+      })
+
+      const report = await reconcile(reader, [
+        campaignRow({
+          id: 34,
+          isPro: false,
+          subscriptionId: 'sub_dead',
+          customerId: 'cus_stored',
+        }),
+      ])
+
+      expect(report.findings).toEqual([])
+    })
+
+    // A campaign that is NOT Pro while a live subscription bills under a third
+    // customer is worse than the Pro case, not better — so `isPro` is reported
+    // rather than required.
+    it('reports a live mismatch on a campaign that is not Pro', async () => {
+      const { reader } = stubReader({
+        subscriptions: [snapshot({ id: 'sub_live', customerId: 'cus_actual' })],
+      })
+
+      const report = await reconcile(reader, [
+        campaignRow({
+          id: 35,
+          isPro: false,
+          subscriptionId: 'sub_live',
+          customerId: 'cus_stored',
+        }),
+      ])
+
+      expect(report.summary.MISMATCH).toBe(1)
+      expect(report.findings[0]).toMatchObject({
+        driftClass: 'MISMATCH',
+        campaignIsPro: false,
+      })
     })
 
     // A campaign whose owner has no stored customerId has nothing to disagree

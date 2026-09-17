@@ -5,9 +5,9 @@
  * nothing else. It never refunds, never cancels, never writes a row. Two
  * things enforce that rather than merely promising it: the only Stripe surface
  * the report can reach is `StripeReader`, whose four methods are all reads,
- * and every request the SDK puts on the wire passes `assertReadOnlyRequest`,
- * which throws the run away if the verb is not GET. The output is a report a
- * human acts on.
+ * and the SDK is handed an http client that runs `assertReadOnlyRequest` in
+ * front of the socket, so nothing but a GET can reach Stripe at all. The
+ * output is a report a human acts on.
  *
  * ─── Why this exists ─────────────────────────────────────────────────────
  * A campaign's Stripe subscription id lives only in the JSONB column
@@ -174,6 +174,7 @@ export interface Finding {
   customerEmail: string | null
   campaignId: number | null
   campaignSlug: string | null
+  campaignIsPro: boolean | null
   accountEmail: string | null
   // `user.metaData.customerId` — what we think the customer is.
   storedCustomerId: string | null
@@ -205,9 +206,9 @@ export const isLiveStatus = (status: Stripe.Subscription.Status): boolean =>
 export const isCanceledStatus = (status: Stripe.Subscription.Status): boolean =>
   CANCELED_STATUSES.includes(status)
 
-// Every request the SDK makes passes through here. The report only ever needs
-// GETs, so any other verb means an edit introduced a write against production
-// billing data — fail the run instead of letting it land.
+// The report only ever needs GETs, so any other verb means an edit introduced
+// a write against production billing data — fail the run instead of letting it
+// land.
 export const assertReadOnlyRequest = (method: string, path: string): void => {
   if (method.toUpperCase() !== 'GET') {
     throw new Error(
@@ -215,6 +216,55 @@ export const assertReadOnlyRequest = (method: string, path: string): void => {
     )
   }
 }
+
+/**
+ * Wraps Stripe's http client so the read-only check runs in front of the
+ * socket. The obvious hook, `stripe.on('request')`, cannot do this job:
+ * `RequestSender` calls `httpClient.makeRequest` and emits the event
+ * afterwards, so a listener there can only watch a mutation leave, not stop
+ * it. Here, a non-GET never reaches the wire.
+ */
+export const createReadOnlyHttpClient = (
+  delegate: Stripe.HttpClient,
+): Stripe.HttpClient => ({
+  getClientName: () => delegate.getClientName(),
+  // Async so a refusal surfaces as a rejected promise, the way every other
+  // failure out of this method does — a synchronous throw from something
+  // declared to return a promise is its own trap.
+  makeRequest: async (
+    host,
+    port,
+    path,
+    method,
+    headers,
+    requestData,
+    protocol,
+    timeout,
+  ) => {
+    // The SDK reads any throw from its http client as a connection fault: it
+    // burns the network retries and then reports its own "error occurred with
+    // our connection to Stripe", which would send an operator chasing a
+    // network problem that does not exist. Say what actually happened first.
+    try {
+      assertReadOnlyRequest(method, path)
+    } catch (error) {
+      process.stderr.write(
+        `${error instanceof Error ? error.message : String(error)}\n`,
+      )
+      throw error
+    }
+    return delegate.makeRequest(
+      host,
+      port,
+      path,
+      method,
+      headers,
+      requestData,
+      protocol,
+      timeout,
+    )
+  },
+})
 
 const idOf = (
   value: string | { id: string } | null | undefined,
@@ -368,6 +418,7 @@ const EMPTY_FINDING: Omit<Finding, 'driftClass' | 'detail'> = {
   customerEmail: null,
   campaignId: null,
   campaignSlug: null,
+  campaignIsPro: null,
   accountEmail: null,
   storedCustomerId: null,
   amountCents: null,
@@ -441,11 +492,38 @@ export const reconcile = async (
 
   const findings: Finding[] = []
 
+  // DUPLICATE grouping. One Stripe customer holding more than one live-ish Pro
+  // subscription; grouped over the Pro walk only, since a second subscription
+  // is a second sale and so is on the same product by construction. Computed
+  // before the orphan pass because a subscription belongs to exactly one
+  // finding: two unlinked subscriptions on one customer are ONE billing
+  // incident, and reporting them as three rows would both inflate the queue
+  // and count the same dollars twice.
+  const byCustomer = new Map<string, SubscriptionSnapshot[]>()
+  for (const subscription of subscriptions) {
+    if (!subscription.customerId) continue
+    if (isCanceledStatus(subscription.status)) continue
+    const existing = byCustomer.get(subscription.customerId)
+    if (existing) existing.push(subscription)
+    else byCustomer.set(subscription.customerId, [subscription])
+  }
+  const duplicateCustomerIds = new Set(
+    [...byCustomer]
+      .filter(([, customerSubscriptions]) => customerSubscriptions.length > 1)
+      .map(([customerId]) => customerId),
+  )
+
   // ORPHANED_ACTIVE / ORPHANED_CANCELED — at Stripe, nowhere in our database.
   for (const subscription of subscriptions) {
     if (campaignsBySubscriptionId.has(subscription.id)) continue
 
     const live = isLiveStatus(subscription.status)
+    // Reported under DUPLICATE instead, which carries every subscription id
+    // and the combined total. A canceled sibling is not in that set, so it
+    // still lands below as its own ORPHANED_CANCELED row.
+    if (live && subscription.customerId) {
+      if (duplicateCustomerIds.has(subscription.customerId)) continue
+    }
     const shared = {
       subscriptionId: subscription.id,
       subscriptionStatus: subscription.status,
@@ -489,20 +567,8 @@ export const reconcile = async (
     )
   }
 
-  // DUPLICATE — one Stripe customer holding more than one live-ish Pro
-  // subscription. Grouped over the Pro walk only: a second subscription is a
-  // second sale, so it is on the same product by construction.
-  const byCustomer = new Map<string, SubscriptionSnapshot[]>()
-  for (const subscription of subscriptions) {
-    if (!subscription.customerId) continue
-    if (isCanceledStatus(subscription.status)) continue
-    const existing = byCustomer.get(subscription.customerId)
-    if (existing) existing.push(subscription)
-    else byCustomer.set(subscription.customerId, [subscription])
-  }
-
-  for (const [customerId, customerSubscriptions] of byCustomer) {
-    if (customerSubscriptions.length < 2) continue
+  for (const customerId of duplicateCustomerIds) {
+    const customerSubscriptions = byCustomer.get(customerId) ?? []
 
     let totalChargedCents: number | null = null
     if (includeInvoiceTotals) {
@@ -512,6 +578,10 @@ export const reconcile = async (
       }
     }
 
+    const unlinked = customerSubscriptions.filter(
+      (subscription) => !campaignsBySubscriptionId.has(subscription.id),
+    )
+
     findings.push(
       buildFinding(
         'DUPLICATE',
@@ -519,7 +589,12 @@ export const reconcile = async (
           `Pro subscriptions (${customerSubscriptions
             .map((s) => `${s.id} ${s.status}`)
             .join(', ')}). This is the ENG-10771 / ENG-11083 ` +
-          `double-billing shape — treat as urgent.`,
+          `double-billing shape — treat as urgent. ` +
+          (unlinked.length === 0
+            ? 'Every one of them is linked to a campaign.'
+            : `${unlinked.length} of them (${unlinked
+                .map((s) => s.id)
+                .join(', ')}) is not linked to any campaign.`),
         {
           customerId,
           customerEmail: await stripe.retrieveCustomerEmail(customerId),
@@ -539,6 +614,7 @@ export const reconcile = async (
     const campaignFields = {
       campaignId: campaign.id,
       campaignSlug: campaign.slug,
+      campaignIsPro: campaign.isPro,
       accountEmail: campaign.email,
       storedCustomerId: campaign.customerId,
       subscriptionId: campaign.subscriptionId,
@@ -575,18 +651,26 @@ export const reconcile = async (
       }
     }
 
+    // Only while the subscription is still collecting. A de-Pro'd campaign
+    // routinely keeps a stale `subscriptionId` pointing at a long-dead
+    // subscription, and a disagreement about a customer nobody is billing is
+    // not a finding — it is the ordinary residue of a cancellation. `isPro`
+    // is reported rather than required, because a campaign that is NOT Pro
+    // while a live subscription bills under a third customer is worse, not
+    // better.
     if (
       subscription?.customerId &&
       campaign.customerId &&
-      subscription.customerId !== campaign.customerId
+      subscription.customerId !== campaign.customerId &&
+      isLiveStatus(subscription.status)
     ) {
       findings.push(
         buildFinding(
           'MISMATCH',
-          `Subscription ${subscription.id} belongs to Stripe customer ` +
-            `${subscription.customerId}, but the campaign's owner stores ` +
-            `${campaign.customerId}. One of the two pointers is wrong — the ` +
-            `billing portal opens the stored one.`,
+          `Subscription ${subscription.id} (${subscription.status}) belongs ` +
+            `to Stripe customer ${subscription.customerId}, but the ` +
+            `campaign's owner stores ${campaign.customerId}. One of the two ` +
+            `pointers is wrong — the billing portal opens the stored one.`,
           {
             ...campaignFields,
             customerId: subscription.customerId,
@@ -686,7 +770,9 @@ const toTableRow = (finding: Finding): Record<string, string | number> => {
       return {
         campaign: finding.campaignId ?? '',
         slug: finding.campaignSlug ?? '',
+        isPro: finding.campaignIsPro ? 'yes' : 'no',
         subscription: finding.subscriptionId ?? '',
+        status: finding.subscriptionStatus ?? '',
         subscriptionCustomer: finding.customerId ?? '',
         storedCustomer: finding.storedCustomerId ?? '',
       }
@@ -767,10 +853,8 @@ const main = async (): Promise<void> => {
 
   const stripe = new Stripe(secretKey, {
     maxNetworkRetries: MAX_NETWORK_RETRIES,
+    httpClient: createReadOnlyHttpClient(Stripe.createNodeHttpClient()),
   })
-  stripe.on('request', (event) =>
-    assertReadOnlyRequest(event.method, event.path),
-  )
 
   const prisma = new PrismaClient()
   try {

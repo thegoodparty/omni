@@ -117,6 +117,13 @@ than cancelled and keeps billing, and cancelling the _second_ one later fires
 `customer.subscription.deleted` and un-Pros the campaign while the first still
 charges.
 
+Each subscription is reported once. If neither of a customer's two live
+subscriptions is linked to a campaign, that is one billing incident and you get
+one DUPLICATE row naming both, not two ORPHANED_ACTIVE rows and a third — the
+detail line says how many of them no campaign carries, and `chargedToDate` is
+the combined total. A canceled third subscription on the same customer is not
+part of the duplicate and still gets its own ORPHANED_CANCELED row.
+
 Note that this class only sees duplicates that landed on the SAME Stripe
 customer. Before ENG-11084, an email-only checkout minted a fresh customer per
 completed session, so the older duplicates are two customers under one email and
@@ -134,6 +141,13 @@ whose customer is not the `metaData.customerId` stored on the campaign's owner.
 One of the two is wrong, and the billing portal opens the stored one — so the
 customer clicks Manage Subscription and lands on a Stripe customer that does not
 hold their subscription.
+
+Only reported while the subscription is still collecting. A de-Pro'd campaign
+routinely keeps a stale `subscriptionId` pointing at a long-dead subscription,
+and a disagreement about a customer nobody is billing is the ordinary residue of
+a cancellation rather than a finding. The campaign's `isPro` is a column in the
+output, not a filter on it: a campaign that is _not_ Pro while a live
+subscription bills under a third customer is worse, not better.
 
 Most often this is an ownership transfer (see `recover-campaign-ownership.md`
 Step 3, which explains why `recoverCustomerIdFromSubscription` can backfill the
