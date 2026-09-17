@@ -1110,14 +1110,6 @@ jobs:
           npm ci
           npm run build
 
-      # Foreground, ahead of the background batch: prod/shared-infra reads this
-      # root's outputs via terraform_remote_state to wire the ALB to the Lambda,
-      # so alert-filter must finish applying before shared-infra plans — a
-      # concurrent apply could hand shared-infra a stale state read. The state
-      # was bootstrapped by hand on 2026-09-17; this step keeps it applied.
-      - name: apply prod/alert-filter
-        run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/alert-filter
-
       - name: apply prod/agent-experiment-metadata
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-apply-root.sh prod/agent-experiment-metadata
@@ -1183,9 +1175,6 @@ jobs:
       - name: reverify prod/agent-run-inputs
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/agent-run-inputs
-      - name: reverify prod/alert-filter
-        background: true
-        run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/alert-filter
       - name: reverify prod/autopilot-agent-fargate
         background: true
         run: bash packages/gp-ai/infrastructure/scripts/ci-plan-root.sh prod/autopilot-agent-fargate autopilot-agent-${{ needs.await-checks.outputs.sha }} autopilot-agent-playwright-${{ needs.await-checks.outputs.sha }}
