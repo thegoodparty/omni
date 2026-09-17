@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { PhoneBankingListEntry } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
@@ -200,5 +200,102 @@ describe('<PhoneBankingEntryPanel>', () => {
     expect(
       within(dialog).getByText('Hi, remember to mention [event name] today.'),
     ).toBeInTheDocument()
+  })
+
+  // The engaged branch is where the two surfaces diverge, and the whole point
+  // of asking a constituent about follow-up rather than about support and
+  // turnout. Asserted at render, not just through the draft helpers: the
+  // question a volunteer reads is the deliverable, and the saved body is what
+  // proves the Win vocabulary never rides along with it.
+  describe('the engaged branch asks its own surface question', () => {
+    const engage = async (
+      user: ReturnType<typeof userEvent.setup>,
+      dialog: HTMLElement,
+    ) => {
+      await user.click(within(dialog).getByRole('radio', { name: 'Answered' }))
+      await user.click(within(dialog).getByRole('radio', { name: 'Engaged' }))
+    }
+
+    it('serve asks for follow-up, never support or turnout, and saves only that', async () => {
+      const user = userEvent.setup()
+      let capturedRequest: unknown
+      api.mock('POST /v1/phone-banking/lists/:id/calls', ({ body }) => {
+        capturedRequest = body
+        return {
+          status: 200,
+          data: {
+            entryId: 1,
+            results: [
+              {
+                personId: 'person-1',
+                interaction: {
+                  outcome: 'answered',
+                  supportAnswer: null,
+                  willVote: null,
+                  followUp: 'no',
+                  occurredAt: new Date(),
+                },
+              },
+            ],
+            envelopeCompleted: false,
+          },
+        }
+      })
+
+      renderPanel({ isServe: true })
+      const dialog = await screen.findByRole('dialog')
+      await engage(user, dialog)
+
+      expect(
+        within(dialog).getByText('Do they need follow-up?'),
+      ).toBeInTheDocument()
+      expect(
+        within(dialog).queryByText('Do they support you?'),
+      ).not.toBeInTheDocument()
+      expect(
+        within(dialog).queryByText('Will they vote this election?'),
+      ).not.toBeInTheDocument()
+      // Binary, so there is no third pill to mistake for "Unsure".
+      expect(
+        within(dialog).queryByRole('radio', { name: 'Unsure' }),
+      ).not.toBeInTheDocument()
+
+      // One answer is terminal here, where Win needs two.
+      await user.click(within(dialog).getByRole('radio', { name: 'No' }))
+      await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+      await waitFor(() => expect(capturedRequest).toBeDefined())
+      expect(capturedRequest).toMatchObject({
+        entryId: 1,
+        outcome: 'answered',
+        personId: 'person-1',
+        followUp: 'no',
+      })
+      expect(capturedRequest).not.toHaveProperty('supportAnswer')
+      expect(capturedRequest).not.toHaveProperty('willVote')
+    })
+
+    it('win still asks support then turnout, and never follow-up', async () => {
+      const user = userEvent.setup()
+      renderPanel()
+      const dialog = await screen.findByRole('dialog')
+      await engage(user, dialog)
+
+      expect(
+        within(dialog).getByText('Do they support you?'),
+      ).toBeInTheDocument()
+      expect(
+        within(dialog).queryByText('Do they need follow-up?'),
+      ).not.toBeInTheDocument()
+
+      // Turnout only appears once support is answered, and Save waits for it.
+      await user.click(within(dialog).getByRole('radio', { name: 'Yes' }))
+      expect(
+        await within(dialog).findByText('Will they vote this election?'),
+      ).toBeInTheDocument()
+      expect(
+        within(dialog).queryByRole('button', { name: 'Save' }),
+      ).not.toBeInTheDocument()
+    })
   })
 })
