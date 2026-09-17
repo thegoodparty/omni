@@ -5,6 +5,7 @@ import {
   startOfDay,
 } from 'date-fns'
 import { sanitizeUntrustedContent } from '@/ai/util/sanitizePromptInput.util'
+import { IS_NON_PROD_DEPLOY } from '@/shared/util/appEnvironment.util'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
 import { buildProductKnowledgeBlocks } from '../../product-knowledge/productKnowledgePrompt'
 import type { ChatAnchor } from '@goodparty_org/contracts'
@@ -345,7 +346,15 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     ...(toolNames.includes('crud_saved_filters') ? [SAVED_FILTER_RULES] : []),
     // Keyed on saving rather than counting: the method ends in a saved
     // segment, and a session that can only count has nothing to apply it to.
-    ...(toolNames.includes('crud_saved_filters')
+    //
+    // Held to non-prod while the method is still being exercised against real
+    // officials. The release train promotes every merge to prod unattended, so
+    // without this the first merge ships it to everyone. IS_NON_PROD_DEPLOY is
+    // an allowlist rather than !IS_PROD_DEPLOY, so an unset or unexpected
+    // environment withholds the block instead of ungating prod by accident.
+    // Replace with a per-user Amplitude flag (FeaturesService.isFeatureEnabled)
+    // when this is ready to reach an official, and delete this gate.
+    ...(toolNames.includes('crud_saved_filters') && IS_NON_PROD_DEPLOY
       ? [SEGMENTATION_METHOD_RULES]
       : []),
     // What the product does and where it lives, plus the one support route.

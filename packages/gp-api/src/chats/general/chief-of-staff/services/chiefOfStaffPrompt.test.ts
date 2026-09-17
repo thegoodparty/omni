@@ -1,5 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
 import { FILTER_DIMENSION_PROVENANCE_RULES } from '@/contacts/filterDimensions.catalog'
+
+// The segmentation method is held to non-prod deploys, so the suite drives
+// that gate directly rather than depending on the runner's environment.
+const { envNonProd } = vi.hoisted(() => ({ envNonProd: { value: true } }))
+vi.mock('@/shared/util/appEnvironment.util', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/shared/util/appEnvironment.util')>()
+  return {
+    ...actual,
+    get IS_NON_PROD_DEPLOY() {
+      return envNonProd.value
+    },
+  }
+})
+
 import {
   buildChiefOfStaffSystemPrompt,
   COS_GUARDRAIL_DECLINE,
@@ -201,6 +216,23 @@ describe('buildChiefOfStaffSystemPrompt', () => {
       ],
     })
     expect(prompt).toContain('BUILDING A SEGMENT')
+  })
+
+  // The release train promotes every merge to prod unattended, so this gate is
+  // the only thing keeping an unfinished method away from real officials.
+  it('withholds the method on a prod deploy even with the tool registered', () => {
+    envNonProd.value = false
+    try {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx(),
+        toolNames: ALL_TOOLS,
+      })
+      expect(prompt).not.toContain('BUILDING A SEGMENT')
+      // The rest of the saved-list surface is unaffected by the gate.
+      expect(prompt).toContain('SAVED LIST RULES')
+    } finally {
+      envNonProd.value = true
+    }
   })
 
   it('withholds the method from a session that can only count', () => {
