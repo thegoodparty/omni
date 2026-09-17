@@ -384,3 +384,125 @@ describe('CampaignsService.updateJsonFields — update did not resolve', () => {
     expect(trackSpy).not.toHaveBeenCalled()
   })
 })
+
+// A promise plus its resolver, so the concurrency test below can wait on
+// Postgres taking the row lock rather than guessing how long that takes.
+const deferred = () => {
+  let resolve!: () => void
+  const promise = new Promise<void>((r) => {
+    resolve = r
+  })
+  return { promise, resolve }
+}
+
+describe('CampaignsService.patchCampaignDetails', () => {
+  // patchCampaignDetails writes through raw SQL, so this is the only place its
+  // statement is ever executed. A unit test can assert the bound parameters and
+  // still pass happily against a typo'd column name, a missing cast, or a `||`
+  // that does not mean what the method assumes it means.
+  it('merges the patch in, leaving the keys it does not name alone', async () => {
+    const { campaign } = await seedCampaign()
+    const campaigns = service.app.get(CampaignsService)
+
+    await campaigns.patchCampaignDetails(campaign.id, {
+      subscriptionId: 'sub_A',
+    })
+
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.details).toEqual({ state: 'CA', subscriptionId: 'sub_A' })
+  })
+
+  // Raw SQL does not fire Prisma's `@updatedAt`, so the column is set by hand
+  // in the statement. This is what says so.
+  it('still bumps updatedAt', async () => {
+    const { campaign } = await seedCampaign()
+    const campaigns = service.app.get(CampaignsService)
+    // JS truncates the column to milliseconds, so guarantee the clock moves
+    // rather than relying on the call taking longer than 1ms.
+    await new Promise((resolve) => setTimeout(resolve, 5))
+
+    await campaigns.patchCampaignDetails(campaign.id, {
+      subscriptionId: 'sub_A',
+    })
+
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.updatedAt.getTime()).toBeGreaterThan(
+      campaign.updatedAt.getTime(),
+    )
+  })
+
+  // A details column holding JSON `null` rather than an object is the other
+  // case the pre-change pre-read threw on. Without the jsonb_typeof guard
+  // Postgres answers `invalid concatenation of jsonb objects` instead, so the
+  // guard is what keeps the method's own exception the one callers see.
+  it('throws when details holds JSON null rather than an object', async () => {
+    const { campaign } = await seedCampaign()
+    await service.prisma
+      .$executeRaw`UPDATE campaign SET details = 'null'::jsonb WHERE id = ${campaign.id}`
+    const campaigns = service.app.get(CampaignsService)
+
+    await expect(
+      campaigns.patchCampaignDetails(campaign.id, { subscriptionId: 'sub_A' }),
+    ).rejects.toThrow(InternalServerErrorException)
+  })
+
+  it('throws for a campaign id that does not exist', async () => {
+    const campaigns = service.app.get(CampaignsService)
+
+    await expect(
+      campaigns.patchCampaignDetails(999999, { subscriptionId: 'sub_A' }),
+    ).rejects.toThrow(InternalServerErrorException)
+  })
+
+  // Prod 2026-09-15T07:42:51Z, reproduced against real Postgres. Stripe
+  // delivered customer.subscription.created and checkout.session.completed 9ms
+  // apart for sub_1UFr0v1taBPnTqn4PH8LMj6R; the first patched
+  // details.subscriptionId and the second stamped details.isProUpdatedAt via
+  // setIsPro. Here the first writer is an open transaction still holding the
+  // row lock, so the second is guaranteed to arrive mid-flight rather than
+  // merely likely to — Postgres enforces the interleaving, no sleep decides it.
+  //
+  // Against the pre-change shape (read the blob outside the transaction, write
+  // the merged result inside a Serializable one) this raises the production
+  // error verbatim: P2034, `Transaction failed due to a write conflict or a
+  // deadlock`.
+  it('merges onto a concurrent writer rather than failing or overwriting it', async () => {
+    const { campaign } = await seedCampaign()
+    const campaigns = service.app.get(CampaignsService)
+
+    const rowLocked = deferred()
+    const lockReleased = deferred()
+
+    const concurrentWriter = service.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        UPDATE campaign
+        SET details = details || '{"subscriptionId":"sub_A"}'::jsonb
+        WHERE id = ${campaign.id}
+      `
+      rowLocked.resolve()
+      await lockReleased.promise
+    })
+
+    await rowLocked.promise
+    const patch = campaigns.patchCampaignDetails(campaign.id, {
+      isProUpdatedAt: '2026-09-15T07:42:51Z',
+    })
+    // Long enough for the patch's UPDATE to reach the row lock and block on it.
+    setTimeout(lockReleased.resolve, 250)
+
+    await Promise.all([concurrentWriter, patch])
+
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.details).toEqual({
+      state: 'CA',
+      subscriptionId: 'sub_A',
+      isProUpdatedAt: '2026-09-15T07:42:51Z',
+    })
+  })
+})
