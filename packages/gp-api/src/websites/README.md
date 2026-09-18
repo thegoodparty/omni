@@ -199,6 +199,18 @@ Used for very basic tracking of visitor views. Frontend generates a UUID in loca
 - Returns domain details straight from Vercel. Note this does **not** check our own `domain` table first, so it will answer for any domain in the Vercel team, including GoodParty infrastructure domains
 - Requires admin role
 
+#### Transfer Auth Code
+
+**GET** `/domains/auth-code`
+
+- Returns the registrar auth (EPP) code a candidate needs to transfer their domain to another registrar
+- **Query Parameters:**
+  - `domain`: Domain name to issue the code for
+  - `actorEmail`: Required only for machine-token callers, naming the admin on whose behalf the call is made
+- Unlike `GET /domains`, this **does** check our own `domain` table first and refuses any name not registered for a campaign, so GoodParty infrastructure domains cannot be pulled through it
+- `AdminOrM2MGuard` rather than `@Roles(admin)`, so `gp-admin` can reach it with its machine token. Every issuance is logged with the acting human's email
+- Issuing a code hands control of the domain to whoever holds it, and it cannot be revoked. Vercel refuses during ICANN's 60-day post-registration lock, which surfaces as a 4xx naming the date the lock lifts
+
 #### Domain Search
 
 **GET** `/domains/search`
@@ -241,14 +253,15 @@ Used for very basic tracking of visitor views. Frontend generates a UUID in loca
   4. Records the registrar order id as `operationId` and moves the domain to `submitted`
 - Idempotent per campaign via a Postgres advisory transaction lock, so it is safe to retry. A repeated call for the same domain returns `alreadyExisted: true`
 - `source` is recorded as `agentic` when the caller presents an agent token, otherwise `manual`
-- Returns 202. Poll `GET /domains/status` to watch it reach `registered` / `active`
+- Returns 202, and `submitted` is where this flow ends. Nothing advances the domain past `submitted` on its own, so a caller polling for `registered` is really waiting on `POST /domains/configure`
 
 #### Check Registration Status
 
 **GET** `/domains/status`
 
 - Reports the campaign's stored domain status alongside its Stripe payment status
-- Reads our own `domain` row and Stripe — it does **not** poll Vercel. Progression through `submitted` → `registered` is driven by the purchase flow's own registrar-order polling
+- Reads our own `domain` row and Stripe — it does **not** poll Vercel, so it only ever reports a transition some other call already wrote. The purchase flow's registrar-order polling drives `pending` → `submitted`; `POST /domains/configure` is the only writer of `registered`
+- `active` also maps to `SUCCESSFUL`, but nothing in the codebase ever sets it. `registered` is the terminal success state in practice
 - Returns `NO_DOMAIN` when the campaign has a website but no domain row
 
 #### Configure Domain
@@ -260,7 +273,7 @@ Used for very basic tracking of visitor views. Frontend generates a UUID in loca
   2. Updates domain status to `registered`
 - No DNS records are set by hand and no A record is pointed anywhere: the domain is registered through Vercel, so Vercel already holds the nameservers. Attaching the domain to the project happens during purchase, not here
 - Auto-renew is **not** disabled here or anywhere else. Domains stay on `autoRenew: true` for the life of our registration, on the grounds that a lapsed domain mid-campaign is worse than an unwanted renewal
-- To be called after registration is complete and domain is `registered`
+- Call this once the domain reaches `submitted`, i.e. once the registrar order has been accepted. Do **not** wait for `registered` first: this endpoint is the only code path that writes `registered`, so a caller polling for it before calling here waits forever
 
 #### Delete Domain
 
