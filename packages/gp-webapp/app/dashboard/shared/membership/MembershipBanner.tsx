@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ProBadge } from '@styleguide'
 import {
@@ -75,13 +75,17 @@ export const MembershipBanner = (): React.JSX.Element | null => {
     exposure(OUTREACH_PRO_GATING_V2_FLAG_KEY)
   }, [visible, exposure])
 
+  // One view per appearance: a texting transition while the banner stays on
+  // screen (PIN issued, review cleared) is not a second view.
+  const stateRef = useRef(state)
+  stateRef.current = state
   useEffect(() => {
     if (!visible) return
     trackEvent(EVENTS.ProUpgrade.Membership.BannerViewed, {
-      tier: state?.tier,
-      texting: state?.texting,
+      tier: stateRef.current?.tier,
+      texting: stateRef.current?.texting,
     })
-  }, [visible, state?.tier, state?.texting])
+  }, [visible])
 
   if (!visible || !state) return null
 

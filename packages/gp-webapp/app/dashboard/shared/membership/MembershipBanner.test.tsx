@@ -252,4 +252,28 @@ describe('MembershipBanner', () => {
       { tier: 'pro', texting: 'awaiting_pin' },
     )
   })
+
+  it('reports one view when texting changes while the banner stays on screen', () => {
+    const { rerender } = setup({
+      state: membership({ texting: 'needs_verification' }),
+    })
+    mockUseMembershipState.mockReturnValue({
+      ready: true,
+      state: membership({ texting: 'awaiting_pin' }),
+      tcrCompliance: { status: 'submitted' },
+    })
+    rerender(<MembershipBanner />)
+
+    const views = vi
+      .mocked(trackEvent)
+      .mock.calls.filter(
+        ([event]) => event === EVENTS.ProUpgrade.Membership.BannerViewed,
+      )
+    expect(views).toEqual([
+      [
+        EVENTS.ProUpgrade.Membership.BannerViewed,
+        { tier: 'pro', texting: 'needs_verification' },
+      ],
+    ])
+  })
 })
