@@ -272,6 +272,9 @@ jobs:
           fi
       - name: Build application
         if: steps.ecr-image.outputs.exists != 'true'
+        env:
+          # Same nest-build heap profile as the gp-api step above.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run build -w packages/election-api
       - name: Build and push Docker image
         if: steps.ecr-image.outputs.exists != 'true'
