@@ -242,6 +242,14 @@ resource "aws_ecs_task_definition" "agent" {
     cpu_architecture        = "ARM64"
   }
 
+  # Fargate's 20 GiB default is not enough for a story run: an omni clone
+  # plus a worktree's npm ci, workspace builds, and Prisma engines overflowed
+  # it live (ENOSPC ~37 minutes into the first Story 2 run, killing the run
+  # mid-implementation with nothing parked on the card).
+  ephemeral_storage {
+    size_in_gib = 60
+  }
+
   container_definitions = jsonencode([
     {
       name  = "autopilot-agent"
@@ -281,6 +289,12 @@ resource "aws_ecs_task_definition" "agent_playwright" {
   runtime_platform {
     operating_system_family = "LINUX"
     cpu_architecture        = "ARM64"
+  }
+
+  # Same ENOSPC reasoning as the base task definition above; qa runs clone
+  # the same repo and additionally carry the browser install.
+  ephemeral_storage {
+    size_in_gib = 60
   }
 
   container_definitions = jsonencode([
