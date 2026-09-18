@@ -1221,6 +1221,9 @@ describe('UsersService', () => {
       const result = await usersService.createSignInLink(service.user.id)
 
       expect(result.token).toBe('signin_token_abc')
+      // The controller stamps this onto the link URL as `uid` — the token
+      // itself carries no user claim.
+      expect(result.clerkId).toBe(service.user.clerkId)
       expect(clerkClient.signInTokens.createSignInToken).toHaveBeenCalledWith({
         userId: service.user.clerkId,
         expiresInSeconds: 3600,

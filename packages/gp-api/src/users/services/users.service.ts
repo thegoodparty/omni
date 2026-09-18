@@ -745,6 +745,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       }
       return {
         token,
+        clerkId: user.clerkId,
         expiresAt: addSeconds(new Date(), expiresInSeconds).toISOString(),
       }
     } catch (err) {

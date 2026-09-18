@@ -41,25 +41,6 @@ const RETRYABLE_MESSAGE =
   'Something went wrong while signing you in. Please go to login to try again, or request a new link from your GoodParty contact.'
 
 /**
- * Best-effort decode of the `sub` (user id) claim from the sign-in-token JWT so
- * we can tell whether the already-active session belongs to the person the
- * ticket is for. Purely an optimization — if the token can't be decoded we fall
- * through to the normal sign-out + redeem path, which is also correct.
- */
-function decodeTicketUserId(ticket: string): string | null {
-  try {
-    const payload = ticket.split('.')[1]
-    if (!payload) return null
-    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
-    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
-    const claims = JSON.parse(atob(padded)) as { sub?: unknown }
-    return typeof claims.sub === 'string' ? claims.sub : null
-  } catch {
-    return null
-  }
-}
-
-/**
  * Does a thrown error indicate the sign-in token itself is dead (single-use
  * ticket already consumed, expired, or otherwise invalid)? Only those warrant
  * the "request a new link" copy. We inspect the Clerk API error's code/messages
@@ -98,6 +79,13 @@ export default function ServeWelcomeContent() {
   const redeemingRef = useRef(false)
 
   const ticket = searchParams?.get('__clerk_ticket') ?? null
+  // The ticket's Clerk user id, stamped onto the URL by gp-api when it built
+  // the link. It CANNOT be read from the token itself — Clerk sign-in-token
+  // JWTs carry no `sub`/user claim — and without it a signed-in recipient who
+  // re-opens their own link would be signed out and shown "already used"
+  // (the ticket is single-use). Advisory only: Clerk re-verifies the token on
+  // redemption, so a forged value can't sign anyone in.
+  const ticketUserId = searchParams?.get('uid') ?? null
 
   // Top of the serve onboarding funnel: the recipient clicked the magic link
   // and landed on this redemption page. Landing-based firing is the most
@@ -132,10 +120,9 @@ export default function ServeWelcomeContent() {
     setError(null)
     setRedeeming(true)
 
-    const ticketUserId = decodeTicketUserId(ticket)
     // Whoever (if anyone) was signed in when this attempt began. Lets us detect
-    // a session that appears *during* the redeem even when the ticket's user id
-    // can't be decoded from the token.
+    // a session that appears *during* the redeem even when the link carries no
+    // `uid` to compare against.
     const initialUserId = clerk.user?.id ?? null
 
     // Has redemption effectively succeeded — i.e. is a session for the ticket's
@@ -150,11 +137,11 @@ export default function ServeWelcomeContent() {
       if (!currentUserId) return false
       // Preferred signal: the active session belongs to the ticket's user.
       if (ticketUserId) return currentUserId === ticketUserId
-      // Fallback when the token isn't a decodable JWT (no `sub` to compare): a
-      // session that appeared (or changed) since this attempt started is the
-      // one the exchange just established. Requiring a change from
-      // `initialUserId` avoids treating a pre-existing, not-yet-cleared
-      // different session as a successful redemption.
+      // Fallback for a link without a `uid` to compare: a session that
+      // appeared (or changed) since this attempt started is the one the
+      // exchange just established. Requiring a change from `initialUserId`
+      // avoids treating a pre-existing, not-yet-cleared different session as
+      // a successful redemption.
       return currentUserId !== initialUserId
     }
 

@@ -41,16 +41,20 @@ const POST_AUTH = `/post-auth-redirect?next=${encodeURIComponent(
   WIN_ONBOARDING_PATH,
 )}`
 
-// Build a minimal JWT (header.payload.signature) whose payload carries the
-// given claims, matching the shape `decodeTicketUserId` parses.
-function makeTicket(claims: Record<string, unknown>): string {
+// Build a minimal JWT (header.payload.signature) matching a real Clerk
+// sign-in token's payload — which carries NO user claim, only the ticket-type
+// claim. The ticket's user id travels as the `uid` query param gp-api stamps
+// onto the link.
+function makeTicket(): string {
   const b64 = (obj: Record<string, unknown>) =>
     Buffer.from(JSON.stringify(obj)).toString('base64url')
-  return `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64(claims)}.signature`
+  return `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64({
+    st: 'sign_in_token',
+  })}.signature`
 }
 
-const ticketFor = (sub: string) =>
-  new URLSearchParams({ __clerk_ticket: makeTicket({ sub }) })
+const ticketFor = (uid: string) =>
+  new URLSearchParams({ __clerk_ticket: makeTicket(), uid })
 
 const continueButton = () =>
   screen.getByRole('button', { name: /continue to goodparty/i })
@@ -144,10 +148,29 @@ describe('WinWelcomeContent', () => {
     fireEvent.click(continueButton())
 
     await waitFor(() => expect(window.location.href).toBe(POST_AUTH))
-    // Same user: we must NOT burn the one-time ticket, and must not error.
+    // Same user: we must NOT burn the one-time ticket, and must not error —
+    // and critically must NOT sign the recipient out of their own session
+    // (this is what a link re-open after a successful first redemption
+    // looks like).
     expect(mockSignInCreate).not.toHaveBeenCalled()
     expect(mockSignOut).not.toHaveBeenCalled()
     expect(screen.queryByText(/couldn’t sign you in/i)).not.toBeInTheDocument()
+  })
+
+  it('signs out and redeems on a legacy link without a uid when a session is active', async () => {
+    mockUser = { id: 'user_existing' }
+    mockSearchParams = new URLSearchParams({ __clerk_ticket: makeTicket() })
+
+    render(<WinWelcomeContent />)
+    fireEvent.click(continueButton())
+
+    await waitFor(() =>
+      expect(mockSetActive).toHaveBeenCalledWith({ session: 'sess-1' }),
+    )
+    // Without a uid there is no way to recognize the session as the ticket
+    // user's, so the pre-uid behavior (clear it, then redeem) is preserved.
+    expect(mockSignOut).toHaveBeenCalledTimes(1)
+    expect(window.location.href).toBe(POST_AUTH)
   })
 
   it('shows an error with a /login link when redemption fails on click', async () => {
