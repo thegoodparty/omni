@@ -185,9 +185,12 @@ describe('VoterFileController', () => {
       expect(mockVoterFileFilterService.filterAccessCheck).toHaveBeenCalledWith(
         baseOrg.slug,
       )
+      // The org rides along so a drawn boundary can be resolved against its
+      // district; a body with no geoPoly never reaches that path.
       expect(mockVoterFileFilterService.create).toHaveBeenCalledWith(
         baseOrg.slug,
         body,
+        baseOrg,
       )
       expect(result).toEqual(mockFilter)
     })
@@ -250,7 +253,7 @@ describe('VoterFileController', () => {
       ).toHaveBeenCalledWith(1, baseOrg.slug)
       expect(
         mockVoterFileFilterService.updateByIdAndOrganizationSlug,
-      ).toHaveBeenCalledWith(1, baseOrg.slug, body)
+      ).toHaveBeenCalledWith(1, baseOrg.slug, body, baseOrg)
       expect(result).toEqual(mockFilter)
     })
 

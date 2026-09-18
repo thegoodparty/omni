@@ -187,6 +187,7 @@ describe('ContactsService', () => {
 
       service = new ContactsService(
         mockVoterFileFilterService as never,
+        {} as never,
         mockElectionsService as never,
         mockCampaignsService as never,
         mockOrganizationsService as never,

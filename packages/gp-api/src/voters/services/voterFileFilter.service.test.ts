@@ -12,7 +12,9 @@ const filter = (overrides: Partial<VoterFileFilter>): VoterFileFilter =>
   }) as VoterFileFilter
 
 describe('voterFileFilterToAudience', () => {
-  const service = new VoterFileFilterService()
+  // Neither dependency is reachable from voterFileFilterToAudience — it is a
+  // pure mapping over the row's own columns.
+  const service = new VoterFileFilterService({} as never, {} as never)
 
   it('maps genderUnknown to the gender_unknown filter', async () => {
     const audience = await service.voterFileFilterToAudience(

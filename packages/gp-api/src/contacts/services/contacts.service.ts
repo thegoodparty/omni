@@ -50,6 +50,7 @@ import { ElectionsService } from 'src/elections/services/elections.service'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
+import { VoterFileFilterGeoService } from '@/voters/services/voterFileFilterGeo.service'
 import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
 import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
 import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.service'
@@ -241,6 +242,7 @@ export type ContactsFilterResolutionInput = Partial<
 export class ContactsService {
   constructor(
     private readonly voterFileFilterService: VoterFileFilterService,
+    private readonly voterFileFilterGeoService: VoterFileFilterGeoService,
     private readonly elections: ElectionsService,
     private readonly campaigns: CampaignsService,
     private readonly organizations: OrganizationsService,
@@ -482,6 +484,26 @@ export class ContactsService {
   // eo- org's filterInput carries no contactsMade selection
   // (assertNoContactsMadeFilterForElectedOffice), so hasElectedOfficeAccess
   // here is a defense-in-depth no-op, not the primary gate.
+  // A saved boundary, as an id set to intersect with everything else.
+  //
+  // Keyed on `geoPoly`, never on the member rows: a shape that enclosed
+  // nobody stores zero rows, and reading that as "no constraint" would serve
+  // the whole unrefined list — the one failure here that looks like success.
+  // An unsaved draft carries a shape but no `id` and so has nothing frozen
+  // to read; it resolves to empty for the same reason.
+  private async resolveGeoIdFilter(
+    filterInput: ContactsFilterResolutionInput,
+  ): Promise<IdFilterResolution> {
+    if (!filterInput.geoPoly) return { kind: 'none' }
+    if (typeof filterInput.id !== 'number') return { kind: 'empty' }
+    const personIds = await this.voterFileFilterGeoService.personIdsFor(
+      filterInput.id,
+    )
+    return personIds.length === 0
+      ? { kind: 'empty' }
+      : { kind: 'filter', idFilter: { in: personIds } }
+  }
+
   private async resolveIdFilterWithContactsMade(
     organization: Organization,
     filterInput: ContactsFilterResolutionInput,
@@ -489,12 +511,21 @@ export class ContactsService {
     idResolution: IdFilterResolution
     contactsMadeIdOverrides?: IdOverrides
   }> {
-    const idResolution = await this.activityConditionResolution.resolveIdFilter(
-      organization.slug,
-      {
-        activityConditions: filterInput.activityConditions,
-        supportStatus: filterInput.supportStatus,
-      },
+    const activityResolution =
+      await this.activityConditionResolution.resolveIdFilter(
+        organization.slug,
+        {
+          activityConditions: filterInput.activityConditions,
+          supportStatus: filterInput.supportStatus,
+        },
+      )
+    // Folded in BEFORE the elected-office return below, because a drawn
+    // boundary is a Serve feature and that return is the Serve path. Applied
+    // after it, the boundary would hold on the CSV and the counts and
+    // nowhere a holder actually looks.
+    const idResolution = intersectIdFilterResolutions(
+      activityResolution,
+      await this.resolveGeoIdFilter(filterInput),
     )
     if (this.hasElectedOfficeAccess(organization)) {
       return { idResolution }
@@ -882,12 +913,49 @@ export class ContactsService {
           geoPoly,
           resolved,
         )
-        return {
-          count: people.filter((person) =>
-            pointInPolygon(person.lng, person.lat, geoPoly),
-          ).length,
-          audienceEmpty: false,
-        }
+        const inside = people.filter((person) =>
+          pointInPolygon(person.lng, person.lat, geoPoly),
+        )
+        // Temporary, and deliberately at info: a drawn shape over visibly
+        // dense dots is returning zero, and the bbox read is the one link in
+        // this chain no test covers (every route test mocks `evaluate`).
+        // Which of the two numbers is zero says whether the query or the
+        // ray-cast is at fault. Remove once that is answered.
+        this.logger.info(
+          {
+            bbox: polygonBbox(geoPoly),
+            ringPoints: geoPoly.coordinates[0]?.length ?? 0,
+            evaluated: people.length,
+            insidePolygon: inside.length,
+          },
+          'polygon-preview diagnostic',
+        )
+        return { count: inside.length, audienceEmpty: false }
+      },
+    )
+  }
+
+  // Everyone a drawn boundary encloses, for freezing onto the list.
+  //
+  // Evaluated with NO demographic filters on purpose. The stored set is the
+  // geographic half of a list and nothing else: the criteria re-resolve on
+  // every read and intersect with it, so editing a list's filters can never
+  // invalidate a boundary nobody moved. Resolving it pre-filtered would tie
+  // the two together and make every criteria edit owe a fresh Databricks
+  // scan.
+  async resolveGeoMemberIds(
+    organization: Organization,
+    geoPoly: GeoJsonPolygon,
+  ): Promise<string[]> {
+    return this.withOrgDistrictResolution(
+      organization,
+      async ({ districtId }) => {
+        const { people } = await this.evaluateWithinBbox(districtId, geoPoly, {
+          filters: {},
+        })
+        return people
+          .filter((person) => pointInPolygon(person.lng, person.lat, geoPoly))
+          .map((person) => person.id)
       },
     )
   }
@@ -911,6 +979,12 @@ export class ContactsService {
           contactsMadeIdOverrides: resolved.contactsMadeIdOverrides,
           maxPeople: POLYGON_PREVIEW_MAX_PEOPLE,
         }),
+        // The contacts map draws every geocoded row, with no accuracy gate.
+        // Counting rooftop-only would answer about a different population
+        // than the one the holder just drew a shape around — every
+        // interpolated dot on their screen would be uncountable, which is
+        // how a shape over hundreds of visible dots came back as zero.
+        { requireRooftopAccuracy: false },
       )
     } catch (err) {
       // evaluate rejects rather than truncates past maxPeople, and the only

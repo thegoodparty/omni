@@ -165,11 +165,12 @@ export class VoterDoorKnockingService {
   // belongs beside the roster shaping rather than inside the query.
   async evaluate(
     dto: DoorKnockingEvaluateDTO,
+    opts?: { requireRooftopAccuracy?: boolean },
   ): Promise<DoorKnockingEvaluateResponse> {
     const rows = await this.readLog.measure({
       op: 'dk-evaluate',
       districtId: dto.districtId,
-      read: () => this.databricks.doorKnockingEvaluateRows(dto),
+      read: () => this.databricks.doorKnockingEvaluateRows(dto, opts),
     })
     return shapeEvaluate(rows, dto)
   }

@@ -122,7 +122,12 @@ describe('VoterDoorKnockingService', () => {
         op: 'dk-evaluate',
         districtId: DISTRICT_ID,
       })
-      expect(databricks.doorKnockingEvaluateRows).toHaveBeenCalledWith(dto)
+      // The second argument is the accuracy-gate option, forwarded verbatim;
+      // door knocking passes none and so keeps the rooftop default.
+      expect(databricks.doorKnockingEvaluateRows).toHaveBeenCalledWith(
+        dto,
+        undefined,
+      )
     })
 
     it('rejects instead of truncating when the cap is exceeded', async () => {

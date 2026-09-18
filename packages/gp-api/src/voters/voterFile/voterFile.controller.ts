@@ -93,6 +93,7 @@ export class VoterFileController {
     return this.voterFileFilterService.create(
       organization.slug,
       voterFileFilter,
+      organization,
     )
   }
 
@@ -139,6 +140,7 @@ export class VoterFileController {
       id,
       organization.slug,
       body,
+      organization,
     )
   }
 
