@@ -28,7 +28,7 @@ name: release-failure-alert
 # workflow exists for, while every one of its own runs was green.
 #
 # Three things follow, and none of them is optional:
-#   - the app is gp_ai_bot, the one the humans' channels actually contain (see
+#   - the app is gp_ai_bot, the one every other gpbot workflow posts with (see
 #     the job's env block, and the same warning in gpbot-pr-triage.yml);
 #   - a `not_in_channel` it can fix — a public channel it has not joined — it
 #     fixes, rather than waiting to be noticed;
@@ -41,6 +41,34 @@ name: release-failure-alert
 # already standardises these channels on gp_ai_bot. It also kept the
 # `::warning::` downgrade, so an undeliverable alert stayed green — the half of
 # the bug that made the original silence last three days.
+#
+# THE SELF-JOIN ABOVE STILL CANNOT SUCCEED, and it is worth knowing why before
+# reading it as dead code to delete. Dispatching the sibling triage against a
+# real failed run on 2026-09-17 answered:
+#
+#   Could not join C0C1JSUPPEX (missing_scope)
+#   Slack rejected the disposition: not_in_channel
+#
+# #bot-urgent is a public channel, so `conversations.join` is the right call —
+# but the gp_ai_bot app has not been granted `channels:join`, so it could
+# neither be in the channel nor let itself in. The channel held eight members
+# and every one was a human; no bot had ever been in it.
+#
+# Delivery was then fixed from the Slack side, by invite, and the identical
+# dispatch twelve minutes later posted and went green. So the token, the
+# channel id and this posting code are all proven end to end — what remains
+# unproven is only the message this file assembles, which needs a real failed
+# release to exercise.
+#
+# The join is kept because the scope is still ungranted: the next channel these
+# alerts are pointed at will land in exactly the state #bot-urgent was in, and
+# this branch is what fixes it without waiting to be noticed. Granting
+# `channels:join` at api.slack.com is what makes it work.
+#
+# That episode also retires the earlier claim here that gp_ai_bot is "the one
+# the humans' channels actually contain". It posts fine to GPBOT_PR_CHANNEL_ID
+# with this same token (gpbot-stale-pr-alert.yml has been green for days), and
+# that was the whole of the evidence the claim rested on.
 
 on:
   workflow_run:
