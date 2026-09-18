@@ -27,10 +27,17 @@ import {
   ChevronUpIcon,
   LogOutIcon,
   UserIcon,
+  UserMinusIcon,
 } from '@styleguide/components/ui/icons'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { clientRequest } from 'gpApi/typed-request'
+import type { Organization } from 'gpApi/api-endpoints'
+import { useSnackbar } from 'helpers/useSnackbar'
+import AlertDialog from '@shared/utils/AlertDialog'
 import { useUser } from '@shared/hooks/useUser'
 import { useHandleLogOut } from '@shared/user/handleLogOut'
 import {
+  ORGANIZATIONS_QUERY_KEY,
   useOrganization,
   useOrganizations,
   useSetOrganizationSlug,
@@ -61,11 +68,21 @@ const VolunteerSidebar = ({
   // treatment surface.
   const { enabled: teamAccountsEnabled } = useTeamAccountsFlag(false)
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  const [leaveOpen, setLeaveOpen] = useState(false)
+  const queryClient = useQueryClient()
+  const { errorSnackbar } = useSnackbar()
 
   // A single-campaign volunteer has nothing to switch to — the user block
   // stays a plain, non-interactive summary (requirement: still show the
   // campaign name, but no switch affordance or list).
   const canSwitchCampaigns = organizations.length > 1
+
+  const destinationFor = (destination: Organization | undefined) =>
+    teamAccountsEnabled && destination?.role === 'volunteer'
+      ? '/volunteer'
+      : destination?.electedOfficeId
+        ? '/dashboard/chief-of-staff'
+        : '/dashboard'
 
   // The list isn't filtered to volunteer-role orgs (a volunteer can also own
   // or manage other campaigns), so picking one can leave the shell that fits
@@ -78,15 +95,31 @@ const VolunteerSidebar = ({
   const handleOrgSelect = (slug: string) => {
     setOrganizationSlug(slug)
     setSwitcherOpen(false)
-    const destination = organizations.find((org) => org.slug === slug)
-    router.push(
-      teamAccountsEnabled && destination?.role === 'volunteer'
-        ? '/volunteer'
-        : destination?.electedOfficeId
-          ? '/dashboard/chief-of-staff'
-          : '/dashboard',
-    )
+    router.push(destinationFor(organizations.find((org) => org.slug === slug)))
   }
+
+  // ENG-11137: self-removal. On success, hop to the next remaining org under
+  // the switcher's own destination rule; with no org left, `/` hands the
+  // decision to the post-auth resolver (a member with no orgs is its case,
+  // not this shell's).
+  const leaveMutation = useMutation({
+    mutationFn: () =>
+      clientRequest('DELETE /v1/organizations/team/members/me', {}),
+    onSuccess: async () => {
+      setLeaveOpen(false)
+      await queryClient.invalidateQueries({
+        queryKey: ORGANIZATIONS_QUERY_KEY,
+      })
+      const next = organizations.find((org) => org.slug !== organization?.slug)
+      if (next) {
+        setOrganizationSlug(next.slug)
+        router.push(destinationFor(next))
+      } else {
+        router.push('/')
+      }
+    },
+    onError: () => errorSnackbar('Failed to leave the campaign'),
+  })
 
   return (
     <SidebarProvider className="min-h-svh">
@@ -196,12 +229,30 @@ const VolunteerSidebar = ({
           )}
           <SidebarMenu>
             <SidebarMenuItem>
+              <SidebarMenuButton onClick={() => setLeaveOpen(true)}>
+                <UserMinusIcon className="size-4" />
+                <span>Leave campaign</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
               <SidebarMenuButton onClick={handleLogOut}>
                 <LogOutIcon className="size-4" />
                 <span>Logout</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
+          <AlertDialog
+            open={leaveOpen}
+            handleClose={() => setLeaveOpen(false)}
+            handleProceed={() => {
+              if (!leaveMutation.isPending) leaveMutation.mutate()
+            }}
+            title="Leave this campaign?"
+            description={`You'll lose access to ${
+              organization?.name ?? 'this campaign'
+            } and any assignments.`}
+            proceedLabel="Leave campaign"
+          />
         </SidebarFooter>
       </Sidebar>
       <SidebarInset>

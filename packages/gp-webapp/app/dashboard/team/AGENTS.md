@@ -127,7 +127,10 @@ surface is inert, which is what lets all of this merge to `main` dark.
   page, caller/walk route wrappers). It's a distinct purpose-built surface,
   not a stripped dashboard; `candidateAccess()` bounces a volunteer's
   active org off `/dashboard` to `/volunteer` (print/PDF download routes
-  exempt). Post-auth routing keys on the server-verifiable org role, never
+  exempt). The sidebar's "Leave campaign" row is self-removal (ENG-11137,
+  `DELETE /v1/organizations/team/members/me`): confirm dialog, then hop to
+  the next remaining org under the switcher's destination rule, or `/`
+  (the post-auth resolver) when none remains. Post-auth routing keys on the server-verifiable org role, never
   a client flag read — the first authed Amplitude read can succeed with the
   wrong value (ENG-11073).
 - `app/dashboard/outreach/` (its `AGENTS.md`) — the assignees section, the
