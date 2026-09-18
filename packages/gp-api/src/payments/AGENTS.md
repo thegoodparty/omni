@@ -205,6 +205,40 @@ the sub to keep, fix `subscriptionId`/`customerId` by SQL, cancel/refund the
 other in Stripe. Refunds can be blocked on insufficient Stripe available
 balance — retry later.
 
+**Before repairing one of these, look for the sibling subscription.** The
+orphan is usually *not* the one the campaign carries: the duplicate checkout
+mints a second Stripe customer, the campaign ends up correctly linked to one of
+the pair, and the other bills invisibly. So cancelling the subscription a
+campaign *does* carry de-Pros a paying customer, which is the ENG-10771
+incident itself. Establish which is which first —
+`SELECT id, is_pro, details->>'subscriptionId' FROM campaign WHERE
+details->>'subscriptionId' = '<sub_id>'`; an empty result is what makes it an
+orphan. Current reconciled population, per-subscription exposure and per-case
+recommendations: `packages/runbooks/books/repair-orphaned-pro-subscriptions.md`.
+
+**A campaign that is `isPro` with no subscription behind it is a different
+class** from an orphaned subscription, and needs no Stripe key to find:
+`scripts/pro-without-subscription-drift.ts` reports it from `DATABASE_URL`
+alone. That matters because `GP_API_PROD` — which holds both the live Stripe
+key and the prod DB password — is NOT readable by the default `EngineerAccess`
+SSO role (`secretsmanager:GetSecretValue` is denied), so anything requiring it
+is an access request rather than a self-serve step. The sharpest signal is
+`details.subscriptionCanceledAt` later than `details.isProUpdatedAt` while
+`is_pro` is still true: the row contradicts itself, because
+`customerSubscriptionDeletedHandler` both stamps `subscriptionCanceledAt` (via
+its own `patchCampaignDetails` call) and sets `isPro = false` (via
+`persistCampaignProCancellation`, which does *not* write the stamp itself). It
+cannot distinguish a comped campaign — nothing in the schema records a comp —
+so treat the output as triage input, never as an input to a write.
+
+**`details.subscriptionCanceledAt` is not in a consistent unit.**
+`customerSubscriptionDeletedHandler` writes `Date.now()` (milliseconds);
+`customerSubscriptionUpdatedHandler` writes Stripe's `canceled_at` verbatim,
+which is Unix **seconds**. Both are in the column. Any query or script
+comparing that key to a date must normalise first — reading a seconds value as
+milliseconds silently lands in January 1970 and the comparison quietly fails
+rather than erroring.
+
 **Purchase error 400 `NO_ACTIVE_CAMPAIGN`.** `isActiveCampaign` requires: not
 demo, `primaryResult !== 'lost'`, `didWin === null`, valid future
 `details.electionDate` — across ALL the user's campaigns. Diagnose (read
