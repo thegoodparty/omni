@@ -63,20 +63,18 @@ vi.mock('app/dashboard/purchase/utils/purchaseFetch.utils', () => ({
 
 // The flow reads campaign (details/office, free-texts offer, ownerName) and
 // user (first name) from their providers; both are context-mocked at the
-// hook level. The campaign is a mutable ref so the team-member case can add
-// ownerName; the base deliberately has none, keeping the other tests on the
-// session-user fallback path.
+// hook level. The campaign is a mutable ref so the team-member case can swap
+// ownerName; the base is the owner-composing shape (session user Jane IS the
+// owner), matching the real GET /v1/campaigns/mine payload.
 const campaignState = vi.hoisted(() => {
   const base = () => ({
     id: 9,
     isPro: true,
     hasFreeTextsOffer: true,
+    ownerName: 'Jane Doe',
     details: { normalizedOffice: 'City Council' },
   })
-  return {
-    base,
-    campaign: base() as ReturnType<typeof base> & { ownerName?: string },
-  }
+  return { base, campaign: base() }
 })
 vi.mock('@shared/hooks/useCampaign', () => ({
   useCampaign: () => [campaignState.campaign, vi.fn()],

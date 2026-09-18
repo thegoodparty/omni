@@ -483,8 +483,8 @@ endpoint must subscribe to `payment_method.attached`.
 
 - **The candidate a message identifies is the campaign OWNER, never the
   requester.** With team accounts, `@ReqUser()` can be a Campaign Manager, so
-  the Win draft/generate endpoints (sms, social, phone banking, robocall) and
-  robocall's compliance self-ID check resolve the name via
+  the Win draft/generate endpoints (sms, social, phone banking, robocall,
+  door knocking) and robocall's compliance self-ID check resolve the name via
   `util/ownerCandidateName.util.ts` from the campaign's `user` relation
   (`@UseCampaign({ include: { user: true } })`) — the same source
   `requireCompliantScript` checks at scheduling. `@ReqUser()` remains correct

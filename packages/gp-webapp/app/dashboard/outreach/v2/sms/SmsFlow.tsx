@@ -385,10 +385,13 @@ export const SmsFlow = ({
   // The message identifies the CANDIDATE — the campaign owner, not whoever
   // is composing (a Campaign Manager's own name would fail the server-side
   // standards check at scheduling). Fall back to the session user only while
-  // ownerName is absent; for owners the two are the same person.
+  // the campaign hasn't resolved; a loaded campaign whose owner has no name
+  // (ownerName null) stays '', matching what the server grounds drafts in.
   const candidateFullName =
-    campaign?.ownerName ||
-    `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
+    campaign?.ownerName ??
+    (campaign == null
+      ? `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
+      : '')
   const candidateFirstName = candidateFullName.split(' ')[0] ?? ''
   const introFor = (t: SocialTone) =>
     identificationIntro(
