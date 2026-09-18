@@ -428,6 +428,48 @@ merge them, and that closing a weak one is the expected outcome.
 | `vars.GPBOT_PR_CHANNEL_ID` | `C022VR6PRQC` (`#bugs`) | Where the people who triage these bugs already are, and the home of the `@serve-bugs` / `@win-bugs` groups the message mentions |
 | `vars.GPBOT_DIGEST_CHANNEL_ID` | `#eng-prod-design` | The weekly digest only. It reports on whether the system is worth keeping rather than asking anyone to do something today, and that audience is not the bug rotation |
 | `secrets.GPBOT_SLACK_BOT_TOKEN` | `gp_ai_bot` | A member of both channels, with `chat:write` |
+| `bugs_channel_id` (Terraform) | `C022VR6PRQC` (`#bugs`) | The same channel again, for the half of the system that is not a workflow — see "When the bot hands a ticket back" below. Terraform cannot read a GitHub Actions variable, so the id is written in both places and only a human ever compares them |
+
+### When the bot hands a ticket back
+
+`needs-human` used to be the one outcome that told nobody. A `fix` tags the
+ticket, opens a PR, and `gpbot-pr-triage.yml` announces it and requests a
+review; a `no-code-change` needs nobody. `needs-human` wrote a long, correct
+analysis onto a ClickUp ticket that nothing then pointed at, and left the
+ticket in whatever status it already had.
+
+ENG-11112 is what that cost: reported 2026-09-15, analyzed 2026-09-17 13:53 UTC
+with a root cause and a five-step fix path, still `to do` and unassigned a day
+later. The only reason anyone read it was the reporter asking in Slack.
+
+So the agent now posts to `#bugs` itself, from
+`engineer_agent/agent/handoff.py`, at the end of any run where **no PR is
+coming and the bot believes there is something to do**:
+
+- verdict `needs-human`; or
+- verdict `fix` where no implementation run was queued — out of scope, a repo
+  still on the analyze-only ramp, or a failed tag write. Anything that is not
+  `escalated` / `already queued` / `disabled` counts, so a refusal reason added
+  to `escalation.py` later announces itself instead of silently dropping a
+  ticket that has a known fix.
+
+`no-code-change` is never announced, and neither is a run that did not finish —
+the same distrust `escalation.py` applies to an unfinished run's verdict.
+`disabled` is excluded on purpose: that is the kill switch, thrown when the bot
+is already misbehaving, and it should not also make the channel noisier.
+
+The message pings the owning rotation, which means the routing in
+`.github/gpbot-reviewers.json` exists twice. The agent cannot read that file —
+`engineer_agent/Dockerfile`'s build context is `packages/gp-ai`, so nothing
+under `.github/` is in the image — so `handoff.py` mirrors it and
+`engineer_agent/tests/test_handoff.py` fails CI if the two drift. Same
+arrangement, and the same reason, as the scope rules mirrored between the
+Lambda and `escalation.py`.
+
+Unsetting `bugs_channel_id` turns the announcement off, and the agent logs an
+**ERROR** every time it would have made one. That shape is deliberate: the
+silence this fixes must not be able to come back through an empty variable
+nobody noticed.
 
 `@serve-bugs` and `@win-bugs` are two-week on-call rotations holding one person
 at a time, so `gpbot-pr-triage.yml` reads the current holder out of the group
