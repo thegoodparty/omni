@@ -186,6 +186,12 @@ and the phase that died. Read the phase line before triaging: a failed
 `E2E` even when nothing e2e-related ran. Cancelled runs are the train coalescing
 a merge burst and do not alert.
 
+The first green run after a red one posts a recovery notice to the same channel.
+That half is edge-gated and the failure half is not: every red run alerts, so a
+multi-day outage stays visible, while a green run says nothing unless the run
+before it was red. Cancelled and skipped runs are transparent to that
+comparison rather than counting as green.
+
 The stages:
 
 1. **`await-checks`.** Waits for this commit's per-service check workflows
