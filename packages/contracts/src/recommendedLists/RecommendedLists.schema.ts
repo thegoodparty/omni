@@ -55,6 +55,31 @@ export type RecommendedListVariant = z.infer<
   typeof RecommendedListVariantSchema
 >
 
+// Which intent each universe belongs to. gp-api's registry builds the
+// filter from it; the webapp reads it to answer the outreach flow's purpose
+// step for a recommendation carried in from the voter data page, where the
+// card was picked before any purpose. The registry test asserts the two
+// agree, so a variant cannot be built for one intent and open a flow on
+// another's purpose.
+export const RECOMMENDED_LIST_VARIANT_INTENT: Record<
+  RecommendedListVariant,
+  RecommendedListIntent
+> = {
+  introNeverIded: 'introduce',
+  persuadeAffinity: 'persuade',
+  persuadeIdeology: 'persuade',
+  persuadeUndecided: 'persuade',
+  eventSupporters: 'event',
+  eventAffinity: 'event',
+  eventIdeology: 'event',
+  earlyVoteSupporters: 'earlyVote',
+  earlyVoteAffinity: 'earlyVote',
+  earlyVoteIdeology: 'earlyVote',
+  electionDaySupporters: 'electionDay',
+  electionDayAffinity: 'electionDay',
+  electionDayIdeology: 'electionDay',
+}
+
 // The unsaved `VoterFileFilter` shape a recommendation carries. Only the
 // fields the recommended-list universes ever populate — not the full
 // dozens-of-fields filter schema, which stays gp-api-local since nothing

@@ -891,13 +891,14 @@ describe('NativeDoorKnockingPage create flow', () => {
       { id: 7, name: 'Precinct 2 homeowners' },
     ])
 
-    fireEvent.click(
-      await screen.findByRole('button', { name: /Introduce myself/ }),
-    )
-
+    // The card answered the goal question, so the flow opens on the who
+    // stage with no goal cards to press.
     expect(
       await screen.findByTestId('recommended-list-card'),
     ).toHaveTextContent('Persuadable independents')
+    expect(
+      screen.queryByRole('button', { name: /Introduce myself/ }),
+    ).toBeNull()
     // Applied, not merely offered: the draft carries the universe's bands.
     await waitFor(() =>
       expect(

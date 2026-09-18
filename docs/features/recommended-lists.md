@@ -506,6 +506,11 @@ hub with that flow named (`?compose=text|robocall|phoneBanking|social`, door
 knocking straight to its create flow) and the audience beside it: `?listId=`
 when the recommendation already matches a saved list, `?recommended=<variant>`
 otherwise. The chosen flow fetches the variant for its own channel from open.
+It also skips "What do you want to do?": the card's intent is the answer,
+so the flow opens on its audience step with the purpose that intent maps
+onto (`purposeForRecommendedVariant`, the inverse of the purpose map, over
+the contracts' `RECOMMENDED_LIST_VARIANT_INTENT`), and a channel that drafts
+on purpose pick (phone banking) drafts for it exactly as a tap would.
 On its audience step the recommendation arrives already chosen, as the
 prototype has it: the saved list selected if the candidate already has it,
 otherwise its card reads pressed with Continue carrying the recommendation's

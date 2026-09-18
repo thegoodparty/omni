@@ -80,17 +80,17 @@ describe('RobocallFlow — a recommendation carried in from the voter data page'
         preselectedRecommendedVariant="persuadeAffinity"
       />,
     )
-    await userEvent.click(screen.getByText('Introduce myself to voters'))
 
     expect(
       await screen.findByText(/Reach 9,000 supporters with landlines/),
     ).toBeInTheDocument()
+    expect(screen.queryByText('Introduce myself to voters')).toBeNull()
     expect(screen.queryByText('Name this list')).not.toBeInTheDocument()
   })
 })
 
 describe('RobocallFlow — a recommendation carried in, not saved yet', () => {
-  it('arrives with the card selected and saves it under its own title on Continue', async () => {
+  it('opens on the audience step with the card selected and saves it under its own title on Continue', async () => {
     api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => ({
       status: 200,
       data: query.variant === 'persuadeAffinity' ? [RECOMMENDATION] : [],
@@ -107,8 +107,8 @@ describe('RobocallFlow — a recommendation carried in, not saved yet', () => {
         preselectedRecommendedVariant="persuadeAffinity"
       />,
     )
-    await userEvent.click(screen.getByText('Introduce myself to voters'))
 
+    expect(screen.queryByText('Introduce myself to voters')).toBeNull()
     const card = await screen.findByTestId('recommended-list-card')
     await waitFor(() => expect(card).toHaveAttribute('aria-pressed', 'true'))
     expect(screen.queryByText('Name this list')).not.toBeInTheDocument()

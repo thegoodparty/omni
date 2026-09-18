@@ -38,6 +38,7 @@ import {
   intentForOutreachPurpose,
   useOutreachAudience,
 } from '../audience/useOutreachAudience'
+import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
 import {
   PHONE_BANKING_PURPOSES,
   phoneBankingPurposeNameSuggestion,
@@ -340,8 +341,15 @@ export const PhoneBankingFlow = ({
   useEffect(() => {
     if (!open) return
     draftRequestRef.current += 1
-    setStepId('purpose')
-    setPurpose(null)
+    // A carried-in recommendation opens past the purpose picker, on the
+    // purpose its intent maps onto: the candidate answered that question by
+    // picking the card. It drafts for that purpose too, below, exactly as a
+    // tap on the card would.
+    const carriedPurpose = preselectedRecommendedVariant
+      ? purposeForRecommendedVariant(preselectedRecommendedVariant)
+      : null
+    setStepId(carriedPurpose ? 'who' : 'purpose')
+    setPurpose(carriedPurpose)
     setTone('warm')
     setScript('')
     setScriptManuallyEdited(false)
@@ -355,7 +363,30 @@ export const PhoneBankingFlow = ({
     resetDraftMutation()
     resetCreateMutation()
     resetAudience()
-  }, [open, resetDraftMutation, resetCreateMutation, resetAudience])
+    if (carriedPurpose) {
+      // requestDraft's own body, inlined: it reads the instructions state,
+      // which the reset above has not flushed yet, and this effect cannot
+      // depend on a closure that is fresh every render.
+      const requestId = ++draftRequestRef.current
+      draftMutate(
+        { purpose: carriedPurpose, tone: 'warm' },
+        {
+          onSuccess: (generated) => {
+            if (requestId !== draftRequestRef.current) return
+            setScript(generated)
+            setScriptManuallyEdited(false)
+          },
+        },
+      )
+    }
+  }, [
+    open,
+    resetDraftMutation,
+    resetCreateMutation,
+    resetAudience,
+    draftMutate,
+    preselectedRecommendedVariant,
+  ])
 
   // Applies the handed-over preselected list to the who step's picker once
   // the saved lists resolve — and only when the id matches a picker row, so

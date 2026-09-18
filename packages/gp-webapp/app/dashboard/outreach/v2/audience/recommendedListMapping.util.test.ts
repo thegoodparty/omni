@@ -1,8 +1,39 @@
 import { describe, expect, it } from 'vitest'
 import {
+  RECOMMENDED_LIST_VARIANT_INTENT,
+  RECOMMENDED_LIST_VARIANT_VALUES,
+} from '@goodparty_org/contracts'
+import {
   builderFiltersFromRecommendation,
   intentForOutreachPurpose,
+  purposeForRecommendedVariant,
 } from './recommendedListMapping.util'
+
+describe('purposeForRecommendedVariant', () => {
+  it('answers the purpose step with the variant’s own intent, round-tripping the purpose map', () => {
+    for (const variant of RECOMMENDED_LIST_VARIANT_VALUES) {
+      expect(
+        intentForOutreachPurpose(purposeForRecommendedVariant(variant)),
+      ).toBe(RECOMMENDED_LIST_VARIANT_INTENT[variant])
+    }
+  })
+
+  it('names the shared purpose slugs', () => {
+    expect(purposeForRecommendedVariant('introNeverIded')).toBe(
+      'introduce_myself',
+    )
+    expect(purposeForRecommendedVariant('persuadeAffinity')).toBe(
+      'persuade_voters',
+    )
+    expect(purposeForRecommendedVariant('eventSupporters')).toBe('event_invite')
+    expect(purposeForRecommendedVariant('earlyVoteAffinity')).toBe(
+      'early_voting',
+    )
+    expect(purposeForRecommendedVariant('electionDayIdeology')).toBe(
+      'election_day_turnout',
+    )
+  })
+})
 
 describe('intentForOutreachPurpose', () => {
   it('maps every non-custom purpose onto its recommended-list intent', () => {

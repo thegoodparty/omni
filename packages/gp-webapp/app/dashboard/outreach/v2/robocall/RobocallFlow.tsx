@@ -27,6 +27,7 @@ import {
   intentForOutreachPurpose,
   useOutreachAudience,
 } from '../audience/useOutreachAudience'
+import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { RobocallPurposeStep } from './RobocallPurposeStep'
 import { RobocallScheduleStep } from './RobocallScheduleStep'
@@ -280,8 +281,14 @@ export const RobocallFlow = ({
       resetAudioUpload()
       return
     }
-    setStepId('purpose')
-    setPurpose(null)
+    // A carried-in recommendation opens past the purpose picker, on the
+    // purpose its intent maps onto: the candidate answered that question by
+    // picking the card.
+    const carriedPurpose = preselectedRecommendedVariant
+      ? purposeForRecommendedVariant(preselectedRecommendedVariant)
+      : null
+    setStepId(carriedPurpose ? 'audience' : 'purpose')
+    setPurpose(carriedPurpose)
     setCampaignName('')
     lastAutoName.current = ''
     setScheduledDay(undefined)
@@ -304,6 +311,7 @@ export const RobocallFlow = ({
     resetAudioUpload,
     resetRent,
     resetCompliance,
+    preselectedRecommendedVariant,
   ])
 
   // Run the compliance check once a recording is saved (uploaded). Keyed on the

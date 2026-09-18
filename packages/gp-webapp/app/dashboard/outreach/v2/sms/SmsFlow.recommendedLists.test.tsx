@@ -92,10 +92,12 @@ const openToAudience = async () => {
   ).toBeGreaterThan(0)
 }
 
-// Arriving from the voter data page with `?recommended=`: the flow asks for
-// that one variant cut for SMS, and the audience step applies it on arrival.
+// Arriving from the voter data page with `?recommended=`: the card already
+// answered "What do you want to do?", so the flow opens on the audience step
+// with the variant's purpose picked, asks for that one variant cut for SMS,
+// and the audience step applies it on arrival.
 describe('SmsFlow — a recommendation carried in from the voter data page', () => {
-  it('fetches the variant for this channel and arrives with it selected, saving it on Continue', async () => {
+  it('skips the purpose step, fetches the variant for this channel and arrives with it selected, saving it on Continue', async () => {
     const queries: Record<string, unknown>[] = []
     api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => {
       queries.push(query)
@@ -134,11 +136,17 @@ describe('SmsFlow — a recommendation carried in from the voter data page', () 
         preselectedRecommendedVariant="electionDayAffinity"
       />,
     )
-    await userEvent.click(screen.getByText('Introduce myself to voters'))
 
-    // Cut for this channel, regardless of the purpose just picked — and
-    // already the chosen audience, as the prototype has it: the card reads
-    // pressed, nothing asks for a name, and Continue carries its count.
+    // No purpose question: the card carried its intent, and the audience
+    // step is the first thing on screen.
+    expect(
+      (await screen.findAllByText('Who do you want to reach?')).length,
+    ).toBeGreaterThan(0)
+    expect(screen.queryByText('Introduce myself to voters')).toBeNull()
+
+    // Cut for this channel — and already the chosen audience, as the
+    // prototype has it: the card reads pressed, nothing asks for a name, and
+    // Continue carries its count.
     const card = await screen.findByTestId('recommended-list-card')
     await waitFor(() => expect(card).toHaveAttribute('aria-pressed', 'true'))
     expect(screen.queryByRole('textbox', { name: 'List name' })).toBeNull()
@@ -200,7 +208,6 @@ describe('SmsFlow — a recommendation carried in from the voter data page', () 
         preselectedRecommendedVariant="persuadeAffinity"
       />,
     )
-    await userEvent.click(screen.getByText('Introduce myself to voters'))
 
     await userEvent.click(
       await screen.findByRole('button', { name: 'Continue (19,000)' }),

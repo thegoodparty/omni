@@ -57,8 +57,15 @@ through their open callbacks (the hub holds it as `tilePreselect` until the
 flow closes), door knocking in the URL it navigates to — so whichever channel
 the candidate picks receives what they arrived with. A recommendation is
 fetched by the flow for its own channel (`preselectedRecommendedVariant` →
-`useOutreachAudience`) and applied on the audience step exactly as tapping its
-card would be; the list is created only when the candidate confirms the name.
+`useOutreachAudience`) and answers the purpose step on its own: every variant
+belongs to one intent (the contracts' `RECOMMENDED_LIST_VARIANT_INTENT`, which
+gp-api's registry test asserts it agrees with), and
+`audience/recommendedListMapping.util.ts`'s `purposeForRecommendedVariant`
+inverts `intentForOutreachPurpose` to name the purpose, so each flow's
+fresh-open reset lands on the audience step with that purpose set — phone
+banking drafts its script for it there, as a tap on the card would — and the
+recommendation arrives as the selected card (see the audience step row below).
+The list is created when the candidate presses Continue.
 
 Phone banking's upgrade-at-entry: a non-Pro click on the tile redirects
 straight to `/dashboard/pro-upgrade` (firing

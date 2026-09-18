@@ -11,6 +11,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ChannelBadge } from 'app/dashboard/outreach/v2/channelMeta'
 import { OutreachFlowShell } from 'app/dashboard/outreach/v2/OutreachFlowShell'
 import { PurposeStep } from 'app/dashboard/outreach/v2/PurposeStep'
+import { purposeForRecommendedVariant } from 'app/dashboard/outreach/v2/audience/recommendedListMapping.util'
 import { Intro } from 'app/dashboard/outreach/v2/social/Intro'
 import {
   builderFiltersFromRecommendation,
@@ -375,8 +376,20 @@ export default function CreateListFlow({
   // this flow's purpose → who phase, and which of the two is on screen is
   // nobody else's business. Survives Back from the draw step because this
   // component stays mounted for the whole flow.
-  const [preDrawStage, setPreDrawStage] = useState<PreDrawStage>('purpose')
-  const [purpose, setPurpose] = useState<CreateFlowPurpose | null>(null)
+  // A carried-in recommendation opens on the who stage with the goal its
+  // intent maps onto: the candidate answered that question by picking the
+  // card. Initial state, not an effect — this component mounts fresh on
+  // every open, and Serve never carries one (the endpoint refuses it).
+  const carriedPurpose =
+    preselectedRecommendedVariant !== undefined && !serveMode
+      ? purposeForRecommendedVariant(preselectedRecommendedVariant)
+      : null
+  const [preDrawStage, setPreDrawStage] = useState<PreDrawStage>(
+    carriedPurpose ? 'who' : 'purpose',
+  )
+  const [purpose, setPurpose] = useState<CreateFlowPurpose | null>(
+    carriedPurpose,
+  )
   // The goal cards and the name they suggest are the surface's answer: Serve
   // carries its own vocabulary (no election mechanics), and door knocking has
   // ONE route for both rails, so this is the only place the two can differ.

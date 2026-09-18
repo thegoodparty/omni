@@ -47,6 +47,7 @@ import {
   intentForOutreachPurpose,
   useOutreachAudience,
 } from '../audience/useOutreachAudience'
+import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
 import { SmsPurposeStep } from './SmsPurposeStep'
 import { SmsScheduleStep, TIME_OPTIONS } from './SmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
@@ -331,9 +332,14 @@ export const SmsFlow = ({
     draftRequestRef.current += 1
     // A seeded message opens past the purpose picker on `custom`: the words
     // are already chosen, so asking what the candidate wants to do and then
-    // drafting over them would throw the seed away.
-    setStepId(initialScript ? 'audience' : 'purpose')
-    setPurpose(initialScript ? 'custom' : null)
+    // drafting over them would throw the seed away. A carried-in
+    // recommendation opens past it too, on the purpose its intent maps onto:
+    // the candidate answered that question by picking the card.
+    const carriedPurpose = preselectedRecommendedVariant
+      ? purposeForRecommendedVariant(preselectedRecommendedVariant)
+      : null
+    setStepId(initialScript || carriedPurpose ? 'audience' : 'purpose')
+    setPurpose(initialScript ? 'custom' : carriedPurpose)
     setTone('warm')
     setBody(initialScript ?? '')
     setManuallyEdited(Boolean(initialScript))
@@ -357,7 +363,13 @@ export const SmsFlow = ({
     setScheduled(false)
     setPaidSend(false)
     resetDraftMutation()
-  }, [open, resetDraftMutation, resetAudience, initialScript])
+  }, [
+    open,
+    resetDraftMutation,
+    resetAudience,
+    initialScript,
+    preselectedRecommendedVariant,
+  ])
 
   // Object URL lifecycle for the image preview.
   useEffect(() => {
