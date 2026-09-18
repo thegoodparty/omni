@@ -26,7 +26,7 @@ export default function ChatListMap({ listId, name }: ShowListMap) {
   const { people, total, truncated, isLoading, isError } = useListPeople(listId)
 
   return (
-    <div className="my-3 overflow-hidden rounded-lg border">
+    <div className="my-3 w-full overflow-hidden rounded-lg border">
       <div className="flex items-baseline justify-between gap-2 border-b px-3 py-2">
         <span className="truncate text-sm font-semibold">{name}</span>
         {!isLoading && !isError ? (

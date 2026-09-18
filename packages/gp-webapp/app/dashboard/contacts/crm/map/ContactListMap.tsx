@@ -16,6 +16,14 @@ import {
 // product read as one map rather than two products.
 const STYLE_URL = `https://maps.geoapify.com/v1/styles/osm-liberty/style.json?apiKey=${NEXT_PUBLIC_GEOAPIFY_TILES_KEY}`
 
+// No sources, no layers: a valid style that needs no network, used only to
+// replace one the tile host refused. See the error handler below.
+const EMPTY_STYLE: maplibregl.StyleSpecification = {
+  version: 8,
+  sources: {},
+  layers: [],
+}
+
 // `--primary` resolved to channels deck.gl can take, the way VoterMapCanvas
 // does it: nothing on a deck.gl canvas can reach a CSS variable, so the token
 // chain (--primary -> --color-brand-blue-500 -> #1e63ec) is written out and
@@ -104,9 +112,23 @@ export default function ContactListMap({
     // looks like a half-broken feature rather than a config problem. The
     // tiles key is domain-restricted (appEnv.ts), so any host not on its
     // allowlist — every Vercel preview — lands here.
+    let swappedToEmptyStyle = false
     map.on('error', (event) => {
       const status = (event.error as { status?: number } | undefined)?.status
-      if (status === 401 || status === 403) setBasemapBlocked(true)
+      if (status !== 401 && status !== 403) return
+      setBasemapBlocked(true)
+      // And give the map a style it CAN load, because the dots depend on it.
+      // A style that 401s leaves the map permanently unloaded, and the deck
+      // overlay takes its viewport from the map's render loop — so the camera
+      // moves to the list (fitBounds works fine) while the dots stay at the
+      // opening view over the middle of the country, piled into one blob.
+      // Panning the map by hand was the only thing that resynced them.
+      // Swapping in an empty style finishes the load and the dots land where
+      // the camera already is; setStyle preserves it, so there is nothing to
+      // re-fit. Guarded because the error fires per failed tile request.
+      if (swappedToEmptyStyle) return
+      swappedToEmptyStyle = true
+      map.setStyle(EMPTY_STYLE)
     })
     map.addControl(
       new maplibregl.AttributionControl({ compact: true }),

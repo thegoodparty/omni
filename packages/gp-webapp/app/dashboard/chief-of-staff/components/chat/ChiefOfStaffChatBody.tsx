@@ -707,7 +707,7 @@ export default function ChiefOfStaffChatBody({
           m.live === null ? (
             <UserBubble key={m.id}>{m.content}</UserBubble>
           ) : (
-            <AssistantRow key={m.id}>
+            <AssistantRow key={m.id} fullWidth={Boolean(m.listMap)}>
               <InlineSegments segments={m.live} toolLabel={toolLabel} />
               {m.listMap ? <ChatListMap {...m.listMap} /> : null}
               {showMessageActions && conversationId && m.content ? (
@@ -728,7 +728,7 @@ export default function ChiefOfStaffChatBody({
             event rather than pushing a segment, so gating the row on
             segments alone hid the map until the transcript reloaded. */}
         {visibleSegments.length > 0 || liveListMap ? (
-          <AssistantRow>
+          <AssistantRow fullWidth={Boolean(liveListMap)}>
             <InlineSegments segments={visibleSegments} toolLabel={toolLabel} />
             {liveListMap ? <ChatListMap {...liveListMap} /> : null}
           </AssistantRow>
