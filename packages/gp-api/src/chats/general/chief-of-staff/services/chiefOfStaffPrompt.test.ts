@@ -365,12 +365,30 @@ describe('buildChiefOfStaffSystemPrompt', () => {
     expect(prompt).toContain('do not explain the rule as a data gap')
   })
 
-  it('carries the ethnicity rule only where the CRM tools are registered', () => {
+  // Two rules, deliberately scoped differently. Cutting a list is a tool
+  // capability, so that rule rides with the CRM tools. Refusing to plan around
+  // who to hear from by ethnicity is a policy boundary that does not depend on
+  // which tools happen to be registered, so it sits with the guardrails.
+  it('carries the list-cutting rule only where the CRM tools are registered', () => {
     const prompt = buildChiefOfStaffSystemPrompt({
       ctx: baseCtx(),
       toolNames: ['crud_priorities'],
     })
     expect(prompt).not.toContain('Never segment constituents by ethnicity')
+  })
+
+  it('refuses exclusionary planning by ethnicity whatever the tools', () => {
+    for (const toolNames of [[], ['crud_priorities'], ['count_contacts']]) {
+      const prompt = buildChiefOfStaffSystemPrompt({
+        ctx: baseCtx(),
+        toolNames,
+      })
+      expect(prompt).toContain(
+        'Never help decide who to consult, hear from, reach, or skip on the basis of ethnicity',
+      )
+      expect(prompt).toContain('used as a proxy')
+      expect(prompt).toContain('in aggregate is a')
+    }
   })
 
   it('always includes the honest reporting rules', () => {

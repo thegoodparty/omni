@@ -532,6 +532,18 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain('do not explain the rule as a data gap')
   })
 
+  // Unlike the list-cutting rule above, this one is not hung off the CRM
+  // tools: it is a policy boundary, so it ships with the guardrails and holds
+  // for a candidate with no voter-file access at all.
+  it('refuses exclusionary planning by ethnicity without the CRM tools', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx())
+    expect(prompt).toContain(
+      'Never help decide who to reach or skip on the basis of ethnicity',
+    )
+    expect(prompt).toContain('used as a proxy')
+    expect(prompt).toContain('in aggregate is a')
+  })
+
   it('never invents facts (candidate-in-control guardrail)', () => {
     const prompt = buildCampaignManagerSystemPrompt(ctx()).toLowerCase()
     expect(prompt).toContain('never invent')
