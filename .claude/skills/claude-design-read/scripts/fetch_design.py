@@ -87,11 +87,12 @@ def call(tok, name, args, rid=1):
     return txt
 
 
-def _body_of(txt):
-    """Strip the wrapper, the continuation notice, and unescape entities."""
+def _raw_body(txt):
+    """Strip the wrapper and the continuation notice, leaving the body still
+    entity-encoded. The server's cap applies to these bytes, so the per-read-cap
+    check has to measure this, not the unescaped form."""
     body = CLOSE_RE.sub('', OPEN_RE.sub('', txt))
-    body = NOTE_RE.sub('', body.rstrip('\n')).rstrip('\n')
-    return html.unescape(body) + '\n'
+    return NOTE_RE.sub('', body.rstrip('\n')).rstrip('\n')
 
 
 def read_full(tok, project_id, path, verbose=True):
@@ -111,16 +112,18 @@ def read_full(tok, project_id, path, verbose=True):
             m = re.search(r'etag="([^"]+)"', head)
             etag = m.group(1) if m else None
         rng = re.search(r'lines="(\d+)-(\d+)"', head)
-        chunk = _body_of(txt)
+        raw = _raw_body(txt)
         # A single line >= the per-read cap is silently cut mid-line, and a
-        # line-count check cannot see it. Fail loudly instead.
-        longest = max((len(l) for l in chunk.split('\n')), default=0)
+        # line-count check cannot see it. Fail loudly instead. Measured on the
+        # ENCODED bytes: the cap applies before unescaping, and entity expansion
+        # (&amp; -> &) shrinks a line enough to slip under the cap after it.
+        longest = max((len(l) for l in raw.split('\n')), default=0)
         if longest >= CAP:
             raise RuntimeError(
-                f"{path}: contains a line of {longest:,} bytes, at/over the "
+                f"{path}: contains a line of {longest:,} encoded bytes, at/over the "
                 f"{CAP:,}-byte per-read cap. It is cut mid-line and CANNOT be "
                 f"retrieved in full by paging. Do not use this content.")
-        parts.append(chunk)
+        parts.append(html.unescape(raw) + '\n')
         if not rng:
             break
         last = int(rng.group(2))
@@ -147,6 +150,10 @@ if __name__ == "__main__":
     content, total, etag = read_full(token(), pid, path)
     open(out, "w").write(content)
     got = content.count("\n")
-    if total is not None and got != total:
+    if total is None:
+        sys.exit(
+            f"FAIL {out}: the server response carried no total_lines, so "
+            f"completeness cannot be verified. Not trusting this content.")
+    if got != total:
         sys.exit(f"FAIL {out}: got {got:,} lines, server reported {total:,}")
     print(f"{out}: {len(content):,} bytes, {got:,} lines  [OK]  etag={etag}")
