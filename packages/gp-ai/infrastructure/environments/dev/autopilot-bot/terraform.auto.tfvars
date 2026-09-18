@@ -10,7 +10,7 @@ autopilot_list_ids = "901329066225"
 # ClickUp user id the CLICKUP_API_KEY in AI_SECRETS_DEV belongs to
 # ("Collin Park"). The human-actor gate ignores this user's own writes, so
 # any OTHER human must be the one to move a card through a gate.
-autopilot_bot_user_id = "105985359"
+autopilot_bot_user_id = "150125283"
 
 # #autopilot Slack channel (not a secret — a channel id, not a credential).
 autopilot_slack_channel = "C0C1K9FBDG9"
