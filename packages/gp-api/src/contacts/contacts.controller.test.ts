@@ -226,6 +226,70 @@ describe('GET /v1/contacts authz', () => {
   })
 })
 
+// The recommended-list detail sheet: the same demographics/reachability
+// aggregates as a saved list, computed for an inline filter that has not
+// been saved yet.
+describe('POST /v1/contacts/list-detail', () => {
+  it('returns aggregates for an inline filter with no outreach history', async () => {
+    await seedOrgWithCampaign({
+      slug: WIN_SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    const payload: Awaited<ReturnType<ContactsService['getFilterDetail']>> = {
+      demographics: { people: 4200, avgAge: 44, avgIncome: 58000 },
+      reachability: {
+        sms: 2600,
+        robocall: 2900,
+        phoneBanking: 3100,
+        doorKnocking: 4200,
+        polls: 2600,
+      },
+      outreachHistory: [],
+    }
+    const getFilterDetail = vi
+      .spyOn(service.app.get(ContactsService), 'getFilterDetail')
+      .mockResolvedValue(payload)
+
+    const result = await service.client.post(
+      '/v1/contacts/list-detail',
+      { voterStatus: ['Super', 'Likely'], independentAffinity: true },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    expect(result.data).toEqual(payload)
+    expect(getFilterDetail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        voterStatus: ['Super', 'Likely'],
+        independentAffinity: true,
+      }),
+      expect.objectContaining({ slug: WIN_SLUG }),
+    )
+  })
+
+  it('rejects a filter key the saved-list schema does not know', async () => {
+    await seedOrgWithCampaign({
+      slug: WIN_SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    const getFilterDetail = vi.spyOn(
+      service.app.get(ContactsService),
+      'getFilterDetail',
+    )
+
+    const result = await service.client.post(
+      '/v1/contacts/list-detail',
+      { voterStatus: 'Super' },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(400)
+    expect(getFilterDetail).not.toHaveBeenCalled()
+  })
+})
+
 describe('GET /v1/contacts/precincts', () => {
   const PRECINCTS = {
     options: [

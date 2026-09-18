@@ -3,6 +3,7 @@ import { OutreachHubPage } from './v2/OutreachHubPage'
 import candidateAccess from '../shared/candidateAccess'
 import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
 import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveListId.util'
+import { parseRecommendedListVariant } from 'app/dashboard/outreach/util/parseRecommendedListVariant.util'
 import { serverFetch } from 'gpApi/serverFetch'
 import { apiRoutes } from 'gpApi/routes'
 import { redirect } from 'next/navigation'
@@ -30,7 +31,11 @@ export const metadata = meta
 export const dynamic = 'force-dynamic'
 
 interface PageParams {
-  searchParams: Promise<{ listId?: string; outreachId?: string }>
+  searchParams: Promise<{
+    listId?: string
+    recommended?: string
+    outreachId?: string
+  }>
 }
 
 export default async function Page({
@@ -43,11 +48,14 @@ export default async function Page({
     redirect(getMarketingUrl('/run-for-office'))
   }
 
-  const { listId, outreachId } = await searchParams
+  const { listId, recommended, outreachId } = await searchParams
   // ENG-10762: carries the saved list's id from a CRM "Send outreach" link.
   // Anything that isn't a positive integer (missing, malformed) is ignored
   // so the page behaves exactly as it did before the listId param existed.
   const preselectedListId = parsePositiveListId(listId)
+  // A voter data page recommended card that is not a saved list yet. Same
+  // stance: an unknown variant is ignored, never an error.
+  const preselectedRecommendedVariant = parseRecommendedListVariant(recommended)
   // ENG-10769: carries a campaign's id from the activity feed's "View
   // outreach" link so the table can scroll to and highlight its row. Same
   // positive-integer rule (the parser is id-agnostic despite its name).
@@ -70,6 +78,7 @@ export default async function Page({
         outreaches,
         tcrCompliance,
         preselectedListId,
+        preselectedRecommendedVariant,
         initialOutreachId: highlightOutreachId,
       }}
     />

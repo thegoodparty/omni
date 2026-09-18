@@ -103,7 +103,7 @@ test.describe('Contacts Organization Scoping', () => {
     // The Win lists index renders (its universe row proves the segments
     // fetch resolved) without the EO org's list.
     await expect(
-      page.getByRole('heading', { name: 'Voter Lists' }),
+      page.getByRole('heading', { name: 'Voter Lists', exact: true }),
     ).toBeVisible({ timeout: 20_000 })
     await expect(listCard(page, 'All voters')).toBeVisible({
       timeout: 20_000,

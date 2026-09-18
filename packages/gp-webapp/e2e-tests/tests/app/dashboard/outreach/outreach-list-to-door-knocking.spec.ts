@@ -2,14 +2,18 @@ import { expect, test } from '@playwright/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import { setupProCampaignUser } from 'src/helpers/organizations'
 import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
-import { gotoCrmContacts, listCard } from 'src/helpers/crm-contacts-e2e'
+import {
+  crmSheet,
+  gotoCrmContacts,
+  listCard,
+} from 'src/helpers/crm-contacts-e2e'
 import { createFlowStepHeading } from 'src/helpers/door-knocking-e2e'
 import { withGatewayRetry } from 'tests/utils/headless-user'
 
 // The cross-feature journey a candidate takes when they press "Send outreach"
-// on a voter list and pick door knocking: Voter Data → the outreach hub →
-// `/dashboard/door-knocking?listId=` → the create flow's who step, opened on
-// the list they came from.
+// on a voter list and pick door knocking: Voter Data → the "Choose a channel"
+// sheet → `/dashboard/door-knocking?create=1&listId=` → the create flow's who
+// step, opened on the list they came from.
 //
 // It pins the answer to "does Send outreach create a saved list in door
 // knocking?" — it does NOT, and must not. A `DoorKnockingTurf` requires a drawn
@@ -70,41 +74,27 @@ test.describe('outreach list handoff to door knocking', () => {
     const card = listCard(page, listName)
     await expect(card).toBeVisible({ timeout: 30_000 })
 
-    const sendOutreach = card.getByRole('link', {
-      name: 'Send outreach',
-      exact: true,
-    })
-    // The affordance carries the list's own id in the href — the contract the
-    // rest of this journey is built on, asserted before it is followed so a
-    // regression here fails as "the link stopped carrying the list" rather than
-    // as a missing preselection three navigations later.
-    await expect(sendOutreach).toHaveAttribute(
-      'href',
-      `/dashboard/outreach?listId=${list.id}`,
-    )
-    await sendOutreach.click()
+    await card
+      .getByRole('button', { name: 'Send outreach', exact: true })
+      .click()
 
-    // --- The outreach hub ---
+    // --- "Choose a channel", over the page ---
+    const channelPicker = crmSheet(page)
     await expect(
-      page.getByRole('heading', { name: 'Create an outreach campaign' }),
-    ).toBeVisible({ timeout: 30_000 })
-
-    // Wait for the hub to strip `?listId=` before pressing the tile, and wait
-    // for THAT rather than for the heading. The heading is server-rendered, so
-    // it is on screen before React has hydrated and a tile pressed on that
-    // frame is a button with no handler — the press is swallowed and the
-    // journey silently stops here. The strip is `OutreachComposeDeepLink`'s own
-    // client effect (a router.replace on mount), so its completion is proof the
-    // hub's client code is live AND that the deep link has been consumed. The
-    // id survives the strip in ChannelTileGrid's state, which is the whole
-    // reason it is held there.
-    await page.waitForURL((url) => !url.searchParams.has('listId'), {
-      timeout: 30_000,
+      channelPicker.getByRole('heading', { name: 'Choose a channel' }),
+    ).toBeVisible({ timeout: 15_000 })
+    const doorKnocking = channelPicker.getByRole('link', {
+      name: /^Door knocking/,
     })
-
-    await page
-      .getByRole('button', { name: /^Door knocking/ })
-      .click({ timeout: 15_000 })
+    // The row carries the list's own id in the href — the contract the rest
+    // of this journey is built on, asserted before it is followed so a
+    // regression here fails as "the row stopped carrying the list" rather
+    // than as a missing preselection a navigation later.
+    await expect(doorKnocking).toHaveAttribute(
+      'href',
+      `/dashboard/door-knocking?create=1&listId=${list.id}`,
+    )
+    await doorKnocking.click()
 
     // --- The handoff: the list travels as ?listId=, and is NOT stripped here.
     // Since 3.0 the create flow opens itself for an org with no lists, so the

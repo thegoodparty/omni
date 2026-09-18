@@ -16,19 +16,42 @@ import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { TcrCompliance } from 'helpers/types'
 import type { OutreachType } from 'gpApi/types/outreach.types'
+import type { RecommendedListVariant } from '@goodparty_org/contracts'
 import { voterPackQueryOptions } from 'app/dashboard/door-knocking/native/useVoterPack'
 import { quotaQueryOptions } from 'app/dashboard/door-knocking/native/turfQueries'
 import { DoorKnockingDailyLimitDialog } from 'app/dashboard/door-knocking/native/DoorKnockingDailyLimitDialog'
 import { CHANNEL_META } from './channelMeta'
+import type { AudiencePreselect } from './audiencePreselect'
 
 interface ChannelTileGridProps {
   tcrCompliance?: TcrCompliance
+  // `?listId=` / `?recommended=` off the voter data page, one or the other.
   preselectedListId?: number
+  preselectedRecommendedVariant?: RecommendedListVariant
   onCreateSocial: () => void
-  onCreateSms: () => void
-  onCreateRobocall: () => void
-  onCreatePhoneBanking: (preselectedListId?: number) => void
+  // Every audience-taking tile receives the carried audience on open; a
+  // channel that does not spend it (social) takes no argument.
+  onCreateSms: (preselect?: AudiencePreselect) => void
+  onCreateRobocall: (preselect?: AudiencePreselect) => void
+  onCreatePhoneBanking: (preselect?: AudiencePreselect) => void
 }
+
+const toPreselect = (
+  listId: number | undefined,
+  recommendedVariant: RecommendedListVariant | undefined,
+): AudiencePreselect | undefined =>
+  listId !== undefined
+    ? { listId }
+    : recommendedVariant !== undefined
+      ? { recommendedVariant }
+      : undefined
+
+// One string per distinct arrival, so the prop-sync below can tell "the same
+// arrival, re-rendered" from "a new deep link while mounted".
+const preselectKey = (
+  listId: number | undefined,
+  recommendedVariant: RecommendedListVariant | undefined,
+): string => `${listId ?? ''}|${recommendedVariant ?? ''}`
 
 // Hub tile order: social first (unlocked for everyone), then the Pro-locked
 // channels. Pricing sub-copy comes from OUTREACH_OPTIONS until phase 2 moves
@@ -44,6 +67,7 @@ const TILE_ORDER: OutreachType[] = [
 export const ChannelTileGrid = ({
   tcrCompliance,
   preselectedListId,
+  preselectedRecommendedVariant,
   onCreateSocial,
   onCreateSms,
   onCreateRobocall,
@@ -83,27 +107,36 @@ export const ChannelTileGrid = ({
     useElectedOffice()
   const canUseProFeatures = !!isPro || !!electedOffice
 
-  // Consume-once preselected list (ENG-10762 conventions): the deep-link
+  // Consume-once preselected audience (ENG-10762 conventions): the deep-link
   // strip's router.replace re-runs the force-dynamic page's server render
-  // without ?listId, reverting the prop to undefined — state on this
-  // instance survives that pass. Cleared as soon as a consuming channel has
-  // taken it, so a later-opened flow starts clean: on hand-off for phone
-  // banking, on navigation for door knocking, which applies it on the page
-  // it goes to. The two channels that apply a preselect are the only ones
-  // that spend it. The ref tracks the last PROP value already pulled in so
-  // clearing can't get re-synced back from an unchanged prop.
-  const [pendingPreselectedListId, setPendingPreselectedListId] =
-    useState(preselectedListId)
-  const lastSyncedPropListIdRef = useRef(preselectedListId)
+  // without the param, reverting the props to undefined — state on this
+  // instance survives that pass. Spent as soon as a consuming channel has
+  // taken it, so a later-opened flow starts clean: on hand-off for the flows
+  // the hub mounts, on navigation for door knocking, which applies it on the
+  // page it goes to. Every audience-taking tile spends it; social alone has
+  // no audience and leaves it for the next tile. The ref tracks the last PROP
+  // arrival already pulled in so spending can't get re-synced back from an
+  // unchanged prop.
+  const [pendingPreselect, setPendingPreselect] = useState(
+    toPreselect(preselectedListId, preselectedRecommendedVariant),
+  )
+  const lastSyncedPreselectKeyRef = useRef(
+    preselectKey(preselectedListId, preselectedRecommendedVariant),
+  )
   useEffect(() => {
-    if (
-      preselectedListId !== undefined &&
-      preselectedListId !== lastSyncedPropListIdRef.current
-    ) {
-      lastSyncedPropListIdRef.current = preselectedListId
-      setPendingPreselectedListId(preselectedListId)
+    const next = toPreselect(preselectedListId, preselectedRecommendedVariant)
+    const key = preselectKey(preselectedListId, preselectedRecommendedVariant)
+    if (next !== undefined && key !== lastSyncedPreselectKeyRef.current) {
+      lastSyncedPreselectKeyRef.current = key
+      setPendingPreselect(next)
     }
-  }, [preselectedListId])
+  }, [preselectedListId, preselectedRecommendedVariant])
+  const spendPreselect = (): AudiencePreselect | undefined => {
+    const spent = pendingPreselect
+    setPendingPreselect(undefined)
+    lastSyncedPreselectKeyRef.current = preselectKey(undefined, undefined)
+    return spent
+  }
 
   const handleTileClick = (type: OutreachType, requiresPro?: boolean) => {
     trackEvent(EVENTS.Outreach.ClickCreate, { type })
@@ -124,7 +157,10 @@ export const ChannelTileGrid = ({
         return
       }
       if (!runTextGate()) return
-      onCreateSms()
+      // Spent only once the gate has passed: a candidate sent to the
+      // compliance modal never entered the flow, so the carried audience must
+      // survive for whichever tile they press after coming back.
+      onCreateSms(spendPreselect())
       return
     }
     if (type === OUTREACH_TYPES.phoneBanking) {
@@ -136,16 +172,13 @@ export const ChannelTileGrid = ({
         return
       }
       // Consumed on hand-off, like door knocking: PhoneBankingFlow is
-      // mounted by the hub, not here, so the id travels through the open
-      // callback — and clearing it now is what keeps a later SMS/robocall
+      // mounted by the hub, not here, so the audience travels through the
+      // open callback — and spending it now is what keeps a later SMS/robocall
       // tile click from inheriting a list chosen for phone banking. The
       // Pro-redirect above deliberately does NOT spend it: the candidate
-      // never entered the flow, so the deep-linked list must survive for
+      // never entered the flow, so the deep-linked audience must survive for
       // whichever tile they press after coming back.
-      const phoneBankingListId = pendingPreselectedListId
-      setPendingPreselectedListId(undefined)
-      lastSyncedPropListIdRef.current = undefined
-      onCreatePhoneBanking(phoneBankingListId)
+      onCreatePhoneBanking(spendPreselect())
       return
     }
 
@@ -157,7 +190,7 @@ export const ChannelTileGrid = ({
       return
     }
     if (type === OUTREACH_TYPES.robocall) {
-      onCreateRobocall()
+      onCreateRobocall(spendPreselect())
       return
     }
     if (type === OUTREACH_TYPES.doorKnocking) {
@@ -174,11 +207,11 @@ export const ChannelTileGrid = ({
         return
       }
       // The one tile that navigates instead of opening a flow here, so the
-      // preselected list travels as `?listId=` — the same param the CRM's
-      // "Send outreach" links already use to reach this hub. The
-      // door-knocking page parses it with the same positive-integer rule and
-      // ignores anything else, so a stale id costs the preselection and
-      // nothing more.
+      // preselected audience travels in the URL — `?listId=` or
+      // `?recommended=`, the same params the voter data page's "Send
+      // outreach" links use to reach this hub. The door-knocking page parses
+      // them with the same rules and ignores anything else, so a stale value
+      // costs the preselection and nothing more.
       //
       // `?create=1` because this tile asks to START a walk, not to look at
       // the map. Landing on the rail and making the candidate find Create
@@ -191,9 +224,7 @@ export const ChannelTileGrid = ({
       // cache. Left set, a Back to this hub would hand the same id to
       // whichever tile was pressed next — a text campaign silently aimed at a
       // list the candidate chose for a walk.
-      const listId = pendingPreselectedListId
-      setPendingPreselectedListId(undefined)
-      lastSyncedPropListIdRef.current = undefined
+      const preselect = spendPreselect()
       // Start the district download here rather than on the far side of the
       // navigation. The pack is the slowest read the product has (p50 4.5s,
       // p95 33.6s in prod) and everything the create flow counts is derived
@@ -215,9 +246,11 @@ export const ChannelTileGrid = ({
         void queryClient.prefetchQuery(voterPackQueryOptions)
       }
       router.push(
-        listId === undefined
-          ? '/dashboard/door-knocking?create=1'
-          : `/dashboard/door-knocking?create=1&listId=${listId}`,
+        preselect?.listId !== undefined
+          ? `/dashboard/door-knocking?create=1&listId=${preselect.listId}`
+          : preselect?.recommendedVariant !== undefined
+            ? `/dashboard/door-knocking?create=1&recommended=${preselect.recommendedVariant}`
+            : '/dashboard/door-knocking?create=1',
       )
       return
     }

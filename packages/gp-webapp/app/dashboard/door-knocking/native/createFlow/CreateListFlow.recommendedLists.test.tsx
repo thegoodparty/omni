@@ -116,6 +116,7 @@ const renderAtWho = (
 
 const RECOMMENDATION = {
   variant: 'introNeverIded' as const,
+  intent: 'introduce' as const,
   filter: {
     voterStatus: ['Super', 'Likely'],
     precincts: ['Cook|101', 'Cook|102'],
@@ -132,6 +133,7 @@ const RECOMMENDATION = {
 const EXISTING_RECOMMENDATION = {
   ...RECOMMENDATION,
   variant: 'persuadeAffinity' as const,
+  intent: 'persuade' as const,
   copy: {
     title: 'Persuadable independents',
     criteriaSummary: 'Moderate to high propensity independents',
@@ -151,6 +153,133 @@ const acceptedCalls = () =>
     .mock.calls.filter(
       ([name]) => name === EVENTS.Outreach.RecommendedList.Accepted,
     )
+
+// The far end of a voter data page "Send outreach" that picked door knocking:
+// `?recommended=` carries a variant, which the flow asks for on its own
+// channel and applies exactly as tapping its card would. The card already
+// answered the goal question, so the flow opens on the who stage.
+const renderCarried = (
+  props: Partial<ComponentProps<typeof CreateListFlow>> = {},
+) => render(<CreateListFlow {...baseProps} step="filters" {...props} />)
+
+describe('CreateListFlow — a recommendation carried in on ?recommended=', () => {
+  it('skips the goal cards, fetches the variant for door knocking and applies it', async () => {
+    const queries: Record<string, unknown>[] = []
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => {
+      queries.push(query)
+      return {
+        status: 200,
+        data: query.variant === 'introNeverIded' ? [RECOMMENDATION] : [],
+      }
+    })
+    const onFiltersChange = vi.fn()
+    const onRecommendedPreselectApplied = vi.fn()
+    renderCarried({
+      onFiltersChange,
+      preselectedRecommendedVariant: 'introNeverIded',
+      onRecommendedPreselectApplied,
+    })
+
+    expect(
+      screen.queryByRole('button', { name: /Introduce myself/ }),
+    ).toBeNull()
+    // The goal is the card's: this intent's own recommendations are asked
+    // for alongside the carried variant.
+    await waitFor(() =>
+      expect(queries).toContainEqual(
+        expect.objectContaining({
+          channel: 'doorKnocking',
+          intent: 'introduce',
+        }),
+      ),
+    )
+    await waitFor(() =>
+      expect(onFiltersChange).toHaveBeenCalledWith({
+        audienceSuperVoters: true,
+        audienceLikelyVoters: true,
+        precincts: true,
+      }),
+    )
+    expect(queries).toContainEqual(
+      expect.objectContaining({
+        channel: 'doorKnocking',
+        variant: 'introNeverIded',
+      }),
+    )
+    expect(onRecommendedPreselectApplied).toHaveBeenCalledTimes(1)
+    // Still on screen, and reading as the chosen audience, so the candidate
+    // sees what they arrived with.
+    const card = await screen.findByTestId('recommended-list-card')
+    expect(card).toHaveTextContent('Voters you have not met')
+    await waitFor(() => expect(card).toHaveAttribute('aria-pressed', 'true'))
+  })
+
+  // `existingFilterId` names a saved list the picker has to hold before it
+  // can be selected, and the picker's rows arrive from their own query. Apply
+  // too early and the recommendation is built as a new list instead of
+  // selecting the one the candidate already has.
+  it('waits for the picker rows before selecting an existing list', async () => {
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => ({
+      status: 200,
+      data:
+        query.variant === 'persuadeAffinity' ? [EXISTING_RECOMMENDATION] : [],
+    }))
+    const onFiltersChange = vi.fn()
+    const onRecommendedPreselectApplied = vi.fn()
+    const { rerender } = renderCarried({
+      onFiltersChange,
+      savedLists: [],
+      preselectedRecommendedVariant: 'persuadeAffinity',
+      onRecommendedPreselectApplied,
+    })
+
+    // The card is on screen, nothing has been applied yet.
+    expect(
+      await screen.findByTestId('recommended-list-card'),
+    ).toHaveTextContent('Persuadable independents')
+    expect(onFiltersChange).not.toHaveBeenCalled()
+    expect(onRecommendedPreselectApplied).not.toHaveBeenCalled()
+
+    rerender(
+      <CreateListFlow
+        {...baseProps}
+        step="filters"
+        onFiltersChange={onFiltersChange}
+        savedLists={[
+          {
+            id: 501,
+            name: 'Persuadable independents',
+            households: 900,
+            filters: { partyDemocrat: true },
+          },
+        ]}
+        preselectedRecommendedVariant="persuadeAffinity"
+        onRecommendedPreselectApplied={onRecommendedPreselectApplied}
+      />,
+    )
+
+    // Selected, not rebuilt: the draft carries the saved list's own filters.
+    await waitFor(() =>
+      expect(onFiltersChange).toHaveBeenCalledWith({ partyDemocrat: true }),
+    )
+    expect(onRecommendedPreselectApplied).toHaveBeenCalledTimes(1)
+  })
+
+  it('asks for nothing on the Serve surface', async () => {
+    const queries: Record<string, unknown>[] = []
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => {
+      queries.push(query)
+      return { status: 200, data: [RECOMMENDATION] }
+    })
+    renderAtWho(
+      { preselectedRecommendedVariant: 'introNeverIded' },
+      { serveMode: true },
+    )
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(queries).toHaveLength(0)
+  })
+})
 
 describe('CreateListFlow — recommended lists', () => {
   // Door knocking is ONE route for both rails, and Serve's purpose cards
@@ -382,7 +511,7 @@ describe('CreateListFlow — recommended lists', () => {
     expect(acceptedCalls()[0]?.[1]).toEqual({
       variant: 'persuadeAffinity',
       channel: 'doorKnocking',
-      intent: 'introduce',
+      intent: 'persuade',
       count: 4200,
       voteGoalShare: 0.28,
       modified: false,
