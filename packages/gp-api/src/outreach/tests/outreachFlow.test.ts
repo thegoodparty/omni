@@ -764,7 +764,7 @@ describe('Outreach submission flow — single API call contract', () => {
       expect(peerlyCreatePeerlyP2pJob).not.toHaveBeenCalled()
     })
 
-    it('a draftOutreachId is inert on create: 201 and never a 500', async () => {
+    it('a draftOutreachId with no such draft 404s and writes nothing', async () => {
       const res = await submitOutreach({
         outreachType: OutreachType.p2p,
         script: draftScript,
@@ -773,15 +773,13 @@ describe('Outreach submission flow — single API call contract', () => {
         draft: true,
         draftOutreachId: 4242,
       })
-      expect(res.status).toBe(201)
+      expect(res.status).toBe(404)
 
-      const row = firstOrThrow(
-        await service.prisma.outreach.findMany({
+      expect(
+        await service.prisma.outreach.count({
           where: { campaignId: campaign.id },
         }),
-      )
-      expect(row.status).toBe(OutreachStatus.pending_payment)
-      expect(row.phoneListId).toBe(3180213)
+      ).toBe(0)
     })
 
     it('a client-set status of draft → 400, no DB row', async () => {

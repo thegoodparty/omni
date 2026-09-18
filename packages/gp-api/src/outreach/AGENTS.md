@@ -104,6 +104,17 @@ shared teardown (also used by the expiry job): S3 objects first, then the row,
 so a failed object delete leaves the row for the next attempt instead of
 orphaning bytes.
 
+Resume converts that row IN PLACE, never inserting a second one: `POST
+/outreach` with `draftOutreachId` (p2p, no file — the row's saved `imageUrl`
+stands) and `POST /outreach/robocall` with `draftOutreachId` re-run the
+fresh-create gates (Peerly identity + script compliance; the compliance/ETag
+bind, schedule guards and server-derived billing, shared via
+`resolveScheduleGates`) and move the same row `draft → pending_payment` — 404
+for another campaign's row, 409 once it is no longer a draft. A bare robocall
+create that reuses a draft's `audioKey` 409s with that draft's `existingId`
+(`findExistingDraft` scopes `draft` + `pending_payment`) instead of tripping
+the unique index: scheduling a saved draft has to be explicit.
+
 ## Robocall payment (hold + run-window settlement)
 
 Robocall billing is a hold-then-capture model: authorize a hold on the estimate

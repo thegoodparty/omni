@@ -67,8 +67,15 @@ export class OutreachController {
 
     const { outreachType, date } = createOutreachDto
 
+    // Resuming a saved draft: the row already holds the image the candidate
+    // uploaded, so the client sends no file — and an unexpected one is
+    // ignored rather than uploaded, which would orphan a second object.
+    const isDraftConversion =
+      outreachType === OutreachType.p2p && !!createOutreachDto.draftOutreachId
+
     const requiresImage =
-      outreachType === OutreachType.text || outreachType === OutreachType.p2p
+      !isDraftConversion &&
+      (outreachType === OutreachType.text || outreachType === OutreachType.p2p)
     if (requiresImage) {
       if (!image) {
         throw new BadRequestException(
@@ -85,23 +92,24 @@ export class OutreachController {
       }
     }
 
-    const imageUrl = image
-      ? await this.s3.uploadFile(
-          ASSET_DOMAIN,
-          image.data,
-          this.s3.buildKey(
-            `scheduled-campaign/${campaign.slug}/${outreachType}/${date}`,
-            image.filename,
-          ),
-          {
-            contentType: image.mimetype,
-            cacheControl: `${CacheControls.MAX_AGE}=${31_536_000}`,
-            baseUrl: `https://${ASSET_DOMAIN}`,
-          },
-        )
-      : undefined
+    const imageUrl =
+      image && !isDraftConversion
+        ? await this.s3.uploadFile(
+            ASSET_DOMAIN,
+            image.data,
+            this.s3.buildKey(
+              `scheduled-campaign/${campaign.slug}/${outreachType}/${date}`,
+              image.filename,
+            ),
+            {
+              contentType: image.mimetype,
+              cacheControl: `${CacheControls.MAX_AGE}=${31_536_000}`,
+              baseUrl: `https://${ASSET_DOMAIN}`,
+            },
+          )
+        : undefined
 
-    if (outreachType === OutreachType.p2p && !imageUrl) {
+    if (outreachType === OutreachType.p2p && !imageUrl && !isDraftConversion) {
       throw new BadRequestException('Failed to upload image for P2P outreach')
     }
 

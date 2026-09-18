@@ -20,8 +20,17 @@ import { HttpStatus } from '@nestjs/common'
 import FormData from 'form-data'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
+import { AreaCodeFromZipService } from '@/ai/util/areaCodeFromZip.util'
+import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
+import { ContactsService } from '@/contacts/services/contacts.service'
+import { PeopleListResponse } from '@/contacts/schemas/person.schema'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { ASSET_DOMAIN } from '@/shared/util/appEnvironment.util'
+import {
+  calcRobocallTotalInCents,
+  ROBOCALL_NUMBER_FEE_CENTS,
+} from '@/shared/util/robocallPricing.util'
+import { firstOrThrow } from '@/shared/test-utils/arrays.util'
 import {
   OutreachStatus,
   OutreachType,
@@ -37,6 +46,20 @@ const IMAGE_KEY = 'scheduled-campaign/jane-doe/p2p/draft/image.png'
 
 const uploadFile = vi.fn()
 const deleteObject = vi.fn()
+const tcrFindFirstOrThrow = vi.fn()
+const findContactsForFilter = vi.fn()
+
+const peopleListWithTotal = (totalResults: number): PeopleListResponse => ({
+  people: [],
+  pagination: {
+    totalResults,
+    currentPage: 1,
+    pageSize: 1,
+    totalPages: totalResults > 0 ? 1 : 0,
+    hasNextPage: false,
+    hasPreviousPage: false,
+  },
+})
 
 let orgSlug: string
 let filterId: number
@@ -448,5 +471,231 @@ describe('DELETE /v1/outreach/:id', () => {
         where: { id: foreignDraft.id },
       }),
     ).not.toBeNull()
+  })
+})
+
+/**
+ * Resume: the candidate saved a draft while they could not send, then became
+ * Pro (and, for texting, cleared). Scheduling it converts THAT row —
+ * `draft → pending_payment` — instead of inserting a second one, so the image,
+ * script, and audience they saved are what gets sent.
+ */
+describe('resuming a draft', () => {
+  const resumeScript =
+    'Hello {first_name}, this is Johnny Goodparty. Vote for me. ' +
+    'Paid for by Friends of Johnny. Reply STOP to opt out.'
+
+  const sendAt = new Date(Date.now() + 7 * 86_400_000).toISOString()
+
+  beforeEach(async () => {
+    // The whole point of a resume: the candidate is Pro by now.
+    await service.prisma.campaign.update({
+      where: { id: CAMPAIGN_ID },
+      data: { isPro: true },
+    })
+
+    const tcr = service.app.get(CampaignTcrComplianceService)
+    vi.spyOn(tcr, 'findFirstOrThrow').mockImplementation(tcrFindFirstOrThrow)
+    tcrFindFirstOrThrow.mockResolvedValue({ peerlyIdentityId: '11538886' })
+
+    const areaCodes = service.app.get(AreaCodeFromZipService)
+    vi.spyOn(areaCodes, 'getAreaCodeFromZip').mockResolvedValue(['512'])
+
+    const contacts = service.app.get(ContactsService)
+    vi.spyOn(contacts, 'findContactsForFilter').mockImplementation(
+      findContactsForFilter,
+    )
+    findContactsForFilter.mockResolvedValue(peopleListWithTotal(400))
+  })
+
+  // The body the webapp's review step sends on a resume: today's create body
+  // plus draftOutreachId, and no file.
+  const resumeP2p = (draftOutreachId: number) => {
+    const form = new FormData()
+    form.append('campaignId', String(CAMPAIGN_ID))
+    form.append('outreachType', 'p2p')
+    form.append('script', resumeScript)
+    form.append('phoneListId', '3180213')
+    form.append('voterFileFilterId', String(filterId))
+    form.append('date', sendAt)
+    form.append('scheduledLocalTime', '18:00')
+    form.append('textCount', '5200')
+    form.append('billableTextCount', '200')
+    form.append('campaignPlanDueDate', '2026-04-19')
+    form.append('draft', 'true')
+    form.append('draftOutreachId', String(draftOutreachId))
+    return service.client.post('/v1/outreach', form, {
+      headers: { ...orgHeaders().headers, ...form.getHeaders() },
+    })
+  }
+
+  const postRobocall = (body: object) =>
+    service.client.post('/v1/outreach/robocall', body, orgHeaders())
+
+  const robocallCreateBody = () => ({
+    voterFileFilterId: filterId,
+    audioKey: AUDIO_KEY,
+    callbackNumber: '+15125550123',
+    scheduledAt: sendAt.replace('Z', '+00:00'),
+    script: 'This is Jane, candidate for city council. Paid for by Jane.',
+  })
+
+  const createRobocallDraft = () =>
+    service.client.post(
+      '/v1/outreach/drafts',
+      robocallDraftBody(),
+      orgHeaders(),
+    )
+
+  it('converts the p2p draft in place, with no file and no second row', async () => {
+    const draft = await createP2pDraft()
+    expect(draft.status).toBe(HttpStatus.CREATED)
+    uploadFile.mockClear()
+
+    const res = await resumeP2p(draft.data.id)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.id).toBe(draft.data.id)
+    expect(res.data.status).toBe(OutreachStatus.pending_payment)
+    // The draft's saved image is the one that sends; nothing re-uploads.
+    expect(res.data.imageUrl).toBe(`https://${ASSET_DOMAIN}/${IMAGE_KEY}`)
+    expect(uploadFile).not.toHaveBeenCalled()
+
+    const rows = await service.prisma.outreach.findMany({
+      where: { campaignId: CAMPAIGN_ID },
+    })
+    expect(rows).toHaveLength(1)
+    const row = firstOrThrow(rows)
+    expect(row.status).toBe(OutreachStatus.pending_payment)
+    expect(row.phoneListId).toBe(3180213)
+    expect(row.identityId).toBe('11538886')
+    expect(row.date).not.toBeNull()
+    expect(row.scheduledLocalDate).toBe(sendAt.slice(0, 10))
+    expect(row.scheduledLocalTime).toBe('18:00')
+    expect(row.textCount).toBe(5200)
+    expect(row.billableTextCount).toBe(200)
+    expect(row.campaignPlanDueDate).toBe('2026-04-19')
+    expect(row.script).toBe(resumeScript)
+    expect(row.message).toBe(resumeScript)
+  })
+
+  it('409s a p2p row that is no longer a draft', async () => {
+    const pending = await service.prisma.outreach.create({
+      data: {
+        campaignId: CAMPAIGN_ID,
+        organizationSlug: orgSlug,
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.pending_payment,
+        name: 'Already scheduled',
+      },
+    })
+
+    const res = await resumeP2p(pending.id)
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+    expect(await service.prisma.outreach.count()).toBe(1)
+  })
+
+  it("404s another campaign's p2p draft", async () => {
+    await service.prisma.organization.create({
+      data: {
+        slug: 'resume-other-org',
+        ownerId: service.user.id,
+        positionId: 'pos-9',
+      },
+    })
+    const other = await service.prisma.campaign.create({
+      data: {
+        id: CAMPAIGN_ID + 2,
+        organizationSlug: 'resume-other-org',
+        userId: service.user.id,
+        slug: 'john-roe',
+        details: {},
+        data: {},
+        aiContent: {},
+      },
+    })
+    const foreignDraft = await service.prisma.outreach.create({
+      data: {
+        campaignId: other.id,
+        organizationSlug: 'resume-other-org',
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.draft,
+        name: 'Not yours',
+      },
+    })
+
+    const res = await resumeP2p(foreignDraft.id)
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    const untouched = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: foreignDraft.id },
+    })
+    expect(untouched.status).toBe(OutreachStatus.draft)
+  })
+
+  it('converts the robocall draft in place and fills its billing', async () => {
+    const draft = await createRobocallDraft()
+    expect(draft.status).toBe(HttpStatus.CREATED)
+
+    const res = await postRobocall({
+      ...robocallCreateBody(),
+      draftOutreachId: draft.data.id,
+    })
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data).toEqual({
+      outreachId: draft.data.id,
+      billableCount: 400,
+      amountInCents: calcRobocallTotalInCents(400),
+      numberFeeInCents: ROBOCALL_NUMBER_FEE_CENTS,
+    })
+
+    expect(await service.prisma.outreach.count()).toBe(1)
+    const spine = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: draft.data.id },
+    })
+    expect(spine.status).toBe(OutreachStatus.pending_payment)
+    expect(spine.date).not.toBeNull()
+    expect(spine.scheduledLocalDate).toBe(sendAt.slice(0, 10))
+
+    const satellite = await service.prisma.outreachRobocall.findUniqueOrThrow({
+      where: { outreachId: draft.data.id },
+    })
+    expect(satellite.settleState).toBe(RobocallSettleState.pending_payment)
+    expect(satellite.billableCount).toBe(400)
+    expect(satellite.amountInCents).toBe(calcRobocallTotalInCents(400))
+    expect(satellite.audioKey).toBe(AUDIO_KEY)
+    expect(satellite.complianceAudioEtag).toBe(AUDIO_ETAG)
+    expect(satellite.compliancePassedAt).not.toBeNull()
+  })
+
+  it('409s a robocall create that reuses a draft recording without resuming it', async () => {
+    const draft = await createRobocallDraft()
+    expect(draft.status).toBe(HttpStatus.CREATED)
+
+    const res = await postRobocall(robocallCreateBody())
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+    const spine = await service.prisma.outreach.findUniqueOrThrow({
+      where: { id: draft.data.id },
+    })
+    expect(spine.status).toBe(OutreachStatus.draft)
+    expect(await service.prisma.outreach.count()).toBe(1)
+  })
+
+  it('409s a robocall row that is no longer a draft', async () => {
+    const draft = await createRobocallDraft()
+    await service.prisma.outreach.update({
+      where: { id: draft.data.id },
+      data: { status: OutreachStatus.pending },
+    })
+
+    const res = await postRobocall({
+      ...robocallCreateBody(),
+      draftOutreachId: draft.data.id,
+    })
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
   })
 })
