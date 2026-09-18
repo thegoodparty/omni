@@ -3837,6 +3837,106 @@ describe('door-knocking routes', () => {
         expect(events).toHaveLength(0)
       })
 
+      it('propagates a corrected follow-up answer on a re-synced knock', async () => {
+        const { slug: eoSlug, filterId, headers } = await serveOrg('fixup')
+        await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          {
+            voterFileFilterId: filterId,
+            name: 'EO follow-up correction turf',
+            color: '#3355ff',
+            geoPoly: GEO_POLY,
+            mode: 'walk',
+            loop: false,
+          },
+          headers,
+        )
+        const eoTarget =
+          await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+            orderBy: { id: 'asc' },
+          })
+
+        const recordEo = (followUp: string) =>
+          service.client.post(
+            '/v1/door-knocking/interactions',
+            {
+              stopTargetId: eoTarget.id,
+              clientKey: CLIENT_KEY,
+              outcome: 'answered',
+              followUp,
+            },
+            { headers: { 'x-organization-slug': eoSlug } },
+          )
+
+        expect((await recordEo('yes')).status).toBe(201)
+        expect((await recordEo('no')).status).toBe(201)
+
+        // The correction has to reach the projection, not just the column:
+        // on a stable-per-knock sourceId the second write collided with the
+        // first event and left the flag reading `requested` forever.
+        const current =
+          await service.prisma.contactCurrentStatus.findFirstOrThrow({
+            where: { organizationSlug: eoSlug, field: 'follow_up' },
+          })
+        expect(current.value).toBe('cleared')
+
+        const events = await service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: eoSlug, field: 'follow_up' },
+          orderBy: { createdAt: 'asc' },
+        })
+        expect(events.map((event) => event.toValue)).toEqual([
+          'requested',
+          'cleared',
+        ])
+      })
+
+      // Pinning a known limitation, not endorsing it (the likelihood twin
+      // has the same one): the sourceId is keyed to the knock and its
+      // answer, so a knock corrected BACK to an answer it already synced
+      // collides with its own first event. Telling that apart from a
+      // replayed sync needs a revision marker the row does not carry.
+      it('does not propagate a correction back to an already-synced answer', async () => {
+        const { slug: eoSlug, filterId, headers } = await serveOrg('flipback')
+        await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          {
+            voterFileFilterId: filterId,
+            name: 'EO follow-up flip-back turf',
+            color: '#3355ff',
+            geoPoly: GEO_POLY,
+            mode: 'walk',
+            loop: false,
+          },
+          headers,
+        )
+        const eoTarget =
+          await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+            orderBy: { id: 'asc' },
+          })
+
+        const recordEo = (followUp: string) =>
+          service.client.post(
+            '/v1/door-knocking/interactions',
+            {
+              stopTargetId: eoTarget.id,
+              clientKey: CLIENT_KEY,
+              outcome: 'answered',
+              followUp,
+            },
+            { headers: { 'x-organization-slug': eoSlug } },
+          )
+
+        await recordEo('yes')
+        await recordEo('no')
+        expect((await recordEo('yes')).status).toBe(201)
+
+        const current =
+          await service.prisma.contactCurrentStatus.findFirstOrThrow({
+            where: { organizationSlug: eoSlug, field: 'follow_up' },
+          })
+        expect(current.value).toBe('cleared')
+      })
+
       it('writes a follow_up event for an eo- (Serve) organization, and no duplicate on a replayed knock', async () => {
         const { slug: eoSlug, filterId, headers } = await serveOrg('followup')
         await service.client.post(

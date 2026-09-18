@@ -117,12 +117,10 @@ export class ContactInteractionDoorKnockService extends createPrismaBase(
   }
 
   // The Serve mirror, with the inverse `eo-` guard: the door's follow-up
-  // question is Serve's, and so is the standing flag it maintains. Same
-  // latest-answer-wins rule as the phone-banking twin
-  // (PhoneBankingCallService.emitFollowUpEvents) — a "no" clears a flag,
-  // including one set by hand on the contact card, because the flag reports
-  // what is STILL owed and the person who just stood at the door is the
-  // better evidence.
+  // question is Serve's, and so is the standing flag it maintains. A "no"
+  // clears a flag, including one set by hand on the contact card, because
+  // the flag reports what is STILL owed and the person who just stood at
+  // the door is the better evidence.
   private async emitFollowUpEvent(row: ContactInteractionDoorKnock) {
     if (!row.followUp) {
       return
@@ -140,9 +138,23 @@ export class ContactInteractionDoorKnockService extends createPrismaBase(
           : FollowUpStatus.cleared,
       source: ContactStatusSource.door_knock,
       actorUserId: row.actorUserId,
-      // Stable per synced knock, like the likelihood twin above: a replayed
-      // sync of the same knock must no-op rather than log a second event.
-      sourceId: row.sourceId ?? row.id,
+      // Keyed to the knock AND the answer. The knock half makes a replayed
+      // sync a no-op even when the flag has since been changed elsewhere —
+      // re-delivering an old offline knock must not resurrect its answer
+      // over a newer decision. The answer half is what lets a CORRECTED
+      // knock through: on a stable-per-knock key the corrected write
+      // collides with the original event, and because
+      // `attemptChangeStatus` updates `contact_current_status` only after
+      // the event insert succeeds, the flag would silently keep the old
+      // value. This cannot mint per-save the way the phone-banking twin
+      // does (`${row.id}:${row.updatedAt}`) — ContactInteractionDoorKnock
+      // carries no `updatedAt`.
+      //
+      // Residual limitation, same shape as the likelihood twin's: a knock
+      // corrected BACK to an answer it already synced (yes→no→yes) collides
+      // with its own first event and no-ops. Distinguishing that from a
+      // replay needs a revision marker the row does not have.
+      sourceId: `${row.sourceId ?? row.id}:${row.followUp}`,
       // Nobody is born flagged, so a "no" against no prior flag is a no-op
       // rather than a logged transition that never happened.
       fallbackFromValue: FollowUpStatus.cleared,
