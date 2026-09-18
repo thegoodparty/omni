@@ -265,6 +265,43 @@ describe('CreateListFlow — a recommendation carried in on ?recommended=', () =
     expect(onRecommendedPreselectApplied).toHaveBeenCalledTimes(1)
   })
 
+  // Same stale-cache race as the outreach flows: a copy fetched before the
+  // list was saved must not be applied while the fresh one is in flight.
+  it('waits for a fresh copy before applying a cached recommendation', async () => {
+    testQueryClient.setQueryData(
+      [
+        'door-knocking-preselected-recommendation',
+        'campaign-9',
+        'persuadeAffinity',
+      ],
+      { ...EXISTING_RECOMMENDATION, existingFilterId: null },
+    )
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => ({
+      status: 200,
+      data:
+        query.variant === 'persuadeAffinity' ? [EXISTING_RECOMMENDATION] : [],
+    }))
+    const onFiltersChange = vi.fn()
+    renderCarried({
+      onFiltersChange,
+      savedLists: [
+        {
+          id: 501,
+          name: 'Persuadable independents',
+          households: 900,
+          filters: { partyDemocrat: true },
+        },
+      ],
+      preselectedRecommendedVariant: 'persuadeAffinity',
+    })
+
+    // Selected, not rebuilt — and only ever once.
+    await waitFor(() =>
+      expect(onFiltersChange).toHaveBeenCalledWith({ partyDemocrat: true }),
+    )
+    expect(onFiltersChange).toHaveBeenCalledTimes(1)
+  })
+
   it('asks for nothing on the Serve surface', async () => {
     const queries: Record<string, unknown>[] = []
     api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => {

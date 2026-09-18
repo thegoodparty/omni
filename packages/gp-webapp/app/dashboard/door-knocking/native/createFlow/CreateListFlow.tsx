@@ -682,8 +682,16 @@ export default function CreateListFlow({
     },
     enabled: !serveMode && preselectedRecommendedVariant !== undefined,
     refetchOnWindowFocus: false,
+    // Always refetch on mount: whether the list exists yet can change
+    // between opens, and the carried copy below waits for the fresh one.
+    staleTime: 0,
   })
-  const preselectedRecommendation = preselectedRecommendationQuery.data ?? null
+  // Only a fresh copy: the cache outlives this flow, and a copy fetched
+  // before the list was saved still says existingFilterId null — applied
+  // during the refetch, it built the same list a second time.
+  const preselectedRecommendation = preselectedRecommendationQuery.isFetching
+    ? null
+    : (preselectedRecommendationQuery.data ?? null)
   // Held here the moment it arrives, so the card is on screen whatever else
   // happens: applying it spends the page's param, which drops the prop and
   // with it the query above.
@@ -1126,6 +1134,14 @@ export default function CreateListFlow({
       void queryClient.invalidateQueries({ queryKey: ['door-knocking-turfs'] })
       void queryClient.invalidateQueries({
         queryKey: ['door-knocking-saved-lists'],
+      })
+      // The saved list now exists, so every card describing it must learn
+      // its id before it is offered again.
+      void queryClient.invalidateQueries({
+        queryKey: ['door-knocking-recommendations', orgSlug],
+      })
+      void queryClient.invalidateQueries({
+        queryKey: ['door-knocking-preselected-recommendation', orgSlug],
       })
       // Both daily allowances just moved — this turf spent one campaign and
       // its stops — and the next press reads them to decide whether to open
