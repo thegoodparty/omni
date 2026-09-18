@@ -26,6 +26,7 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
 
 const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
 const goToPreviousStep = vi.fn()
+const exit = vi.fn()
 
 const CONTENT_ROUTE = 'GET /v1/campaigns/mine/filing-instructions' as const
 const EMAIL_ROUTE = 'POST /v1/campaigns/mine/filing-instructions/email' as const
@@ -48,9 +49,13 @@ describe('FilingInstructionsStep', () => {
     vi.clearAllMocks()
     mockUseProUpgradeWizard.mockReturnValue({
       currentStep: 'filing-instructions',
+      purchaseOnly: false,
+      channel: null,
       goToStep: vi.fn(),
       goToNextStep: vi.fn(),
       goToPreviousStep,
+      exit,
+      complete: vi.fn(),
     })
     api.mock(CONTENT_ROUTE, { status: 200, data: fullContent })
     api.mock(EMAIL_ROUTE, { status: 200, data: { success: true } })
@@ -146,7 +151,7 @@ describe('FilingInstructionsStep', () => {
     expect(screen.queryByText(/continue to payment/i)).not.toBeInTheDocument()
   })
 
-  it('routes to the dashboard when the exit is clicked', async () => {
+  it('exits the wizard when the exit is clicked', async () => {
     render(<FilingInstructionsStep />)
     await screen.findByText('June 1, 2026 – June 30, 2026')
 
@@ -154,7 +159,8 @@ describe('FilingInstructionsStep', () => {
       screen.getByRole('button', { name: 'Continue to dashboard' }),
     )
 
-    expect(router.push).toHaveBeenCalledWith('/dashboard')
+    expect(exit).toHaveBeenCalledTimes(1)
+    expect(router.push).not.toHaveBeenCalled()
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.FilingInstructionsExit,
     )

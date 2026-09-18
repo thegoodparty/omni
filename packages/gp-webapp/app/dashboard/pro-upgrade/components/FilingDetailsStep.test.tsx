@@ -235,9 +235,13 @@ describe('FilingDetailsStep', () => {
     vi.clearAllMocks()
     mockUseProUpgradeWizard.mockReturnValue({
       currentStep: 'filing-details',
+      purchaseOnly: false,
+      channel: null,
       goToStep: vi.fn(),
       goToNextStep,
       goToPreviousStep,
+      exit: vi.fn(),
+      complete: vi.fn(),
     })
     // Default: a local candidate with EIN already collected at the prior step.
     seedCampaign({ einNumber: CLEAN_EIN, ballotLevel: 'Local/Township/City' })

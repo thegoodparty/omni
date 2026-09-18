@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Button, ProBadge } from '@styleguide'
 import Body2 from '@shared/typography/Body2'
@@ -11,13 +10,7 @@ import {
 } from '@shared/hooks/CampaignProvider'
 import Confetti from 'app/dashboard/questions/components/Confetti'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-
-// Post-payment, the candidate lands on the Campaign Manager dashboard, where
-// `ProUpgrade3ComplianceCard` surfaces PIN entry (then review/approved/denied as
-// the TCR record progresses) once `isPro` flips. The same card also lives on the
-// profile page as a secondary location, but the dashboard is the primary
-// post-upgrade destination (ENG-10361).
-const DASHBOARD_PATH = '/dashboard'
+import { useProUpgradeWizard } from './ProUpgradeWizard'
 
 // `isPro` flips server-side only when the Stripe `checkout.session.completed`
 // webhook lands, which can lag the candidate arriving here. Poll the shared
@@ -33,7 +26,13 @@ const POLL_TIMEOUT_MS = 30000
 // reads the cached `isPro` — is already hidden when the candidate continues,
 // instead of lingering until a manual page refresh.
 const SuccessStep = (): React.JSX.Element => {
-  const router = useRouter()
+  // `complete` owns where the candidate goes next. On the standalone page that
+  // is the Campaign Manager dashboard, where `ProUpgrade3ComplianceCard`
+  // surfaces PIN entry (then review/approved/denied as the TCR record
+  // progresses) once `isPro` flips. The same card also lives on the profile
+  // page as a secondary location, but the dashboard is the primary
+  // post-upgrade destination (ENG-10361).
+  const { complete } = useProUpgradeWizard()
   const [pollExpired, setPollExpired] = useState(false)
 
   useEffect(() => {
@@ -55,7 +54,7 @@ const SuccessStep = (): React.JSX.Element => {
 
   const handleContinue = (): void => {
     trackEvent(EVENTS.ProUpgrade.Compliance.SuccessContinue)
-    router.push(DASHBOARD_PATH)
+    complete()
   }
 
   return (

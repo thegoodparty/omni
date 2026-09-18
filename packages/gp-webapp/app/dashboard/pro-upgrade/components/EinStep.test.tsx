@@ -57,9 +57,13 @@ describe('EinStep', () => {
     vi.clearAllMocks()
     mockUseProUpgradeWizard.mockReturnValue({
       currentStep: 'ein',
+      purchaseOnly: false,
+      channel: null,
       goToStep: vi.fn(),
       goToNextStep,
       goToPreviousStep,
+      exit: vi.fn(),
+      complete: vi.fn(),
     })
     // Default: no EIN on file yet, persistence succeeds.
     seedCampaign(undefined)

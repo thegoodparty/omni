@@ -389,7 +389,11 @@ import { dirname, join, relative } from 'node:path'
 // It reads React Query and the campaign/elected-office/TCR contexts, so it
 // can only run client-side; every surface consuming it is already a client
 // component.
-const BASELINE = 568
+// 2026-09-18: 568 -> 570 for the shared Pro wizard context
+// (proUpgradeWizardContext) and ProUpgradeFlow, the state-driven twin of the
+// route-based wizard. One holds a React context, the other holds the step
+// state and provides it, so neither can be a server component.
+const BASELINE = 570
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

@@ -37,9 +37,13 @@ describe('FilingStatusStep', () => {
     vi.clearAllMocks()
     mockUseProUpgradeWizard.mockReturnValue({
       currentStep: 'status',
+      purchaseOnly: false,
+      channel: null,
       goToStep,
       goToNextStep: vi.fn(),
       goToPreviousStep,
+      exit: vi.fn(),
+      complete: vi.fn(),
     })
     // Default: persistence succeeds and returns the updated campaign.
     mockUpdateCampaign.mockResolvedValue({ id: 1 } as never)

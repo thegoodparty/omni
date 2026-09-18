@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@styleguide'
 import {
@@ -42,8 +41,7 @@ const InstructionRow = ({
 )
 
 const FilingInstructionsStep = (): React.JSX.Element => {
-  const router = useRouter()
-  const { goToPreviousStep } = useProUpgradeWizard()
+  const { goToPreviousStep, exit } = useProUpgradeWizard()
   const { errorSnackbar, successSnackbar } = useSnackbar()
   const [emailing, setEmailing] = useState(false)
 
@@ -117,7 +115,7 @@ const FilingInstructionsStep = (): React.JSX.Element => {
 
   const handleExit = (): void => {
     trackEvent(EVENTS.ProUpgrade.Compliance.FilingInstructionsExit)
-    router.push('/dashboard')
+    exit()
   }
 
   return (

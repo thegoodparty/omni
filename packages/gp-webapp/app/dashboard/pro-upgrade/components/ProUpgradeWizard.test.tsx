@@ -5,6 +5,7 @@ import { router } from 'helpers/test-utils/router-mocking'
 import ProUpgradeWizard, { useProUpgradeWizard } from './ProUpgradeWizard'
 import { usePathname } from 'next/navigation'
 import { noop } from '@shared/utils/noop'
+import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 
 // The global setup mocks next/navigation with useRouter only; this component
 // also needs usePathname, so override the module for this file.
@@ -13,7 +14,12 @@ vi.mock('next/navigation', () => ({
   usePathname: vi.fn(),
 }))
 
+vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
+  useOutreachProGatingV2Flag: vi.fn(() => ({ ready: true, enabled: false })),
+}))
+
 const mockUsePathname = vi.mocked(usePathname)
+const mockUseFlag = vi.mocked(useOutreachProGatingV2Flag)
 
 // Context probe: the wizard chrome no longer renders Back itself (steps own
 // their footer Back buttons), so navigation behavior is exercised through the
@@ -32,6 +38,7 @@ describe('ProUpgradeWizard', () => {
     vi.clearAllMocks()
     vi.spyOn(window, 'scrollTo').mockImplementation(noop)
     mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/ein')
+    mockUseFlag.mockReturnValue({ ready: true, enabled: false })
   })
 
   it('renders the step children', () => {
@@ -100,6 +107,40 @@ describe('ProUpgradeWizard', () => {
       router.push?.mockClear()
       unmount()
     }
+  })
+
+  it('routes Back from the filing-status step to the value prop in the default order', () => {
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/status')
+
+    render(
+      <ProUpgradeWizard>
+        <BackProbe />
+      </ProUpgradeWizard>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'probe-back' }))
+
+    expect(router.push).toHaveBeenCalledWith(
+      '/dashboard/pro-upgrade/value-prop',
+    )
+  })
+
+  it('routes Back from the filing-status step to guidance in purchase-only mode', () => {
+    // Purchase-only drops the value prop (it lives in the Pro pitch dialog)
+    // and makes guidance the first ordered step.
+    mockUseFlag.mockReturnValue({ ready: true, enabled: true })
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/status')
+
+    render(
+      <ProUpgradeWizard>
+        <BackProbe />
+      </ProUpgradeWizard>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'probe-back' }))
+
+    expect(router.push).toHaveBeenCalledWith('/dashboard/pro-upgrade/guidance')
+    expect(router.back).not.toHaveBeenCalled()
   })
 
   it('does not show the stepper on payment or on steps outside the collection steps', () => {

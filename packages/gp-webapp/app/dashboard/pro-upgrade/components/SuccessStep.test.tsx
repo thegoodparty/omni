@@ -6,6 +6,8 @@ import { api } from 'helpers/test-utils/api-mocking'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { Campaign } from 'helpers/types'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { PRO_UPGRADE_STEP } from '../proUpgradeStep'
+import { ProUpgradeWizardContext } from './proUpgradeWizardContext'
 import SuccessStep from './SuccessStep'
 
 // The confetti overlay paints to a <canvas>, which jsdom can't render — stub it
@@ -26,6 +28,28 @@ const mockTrackEvent = vi.mocked(trackEvent)
 const campaign = (isPro: boolean): Campaign =>
   ({ id: 1, isPro }) as unknown as Campaign
 
+const exit = vi.fn()
+const complete = vi.fn()
+
+// The shell owns where Continue goes, so the step is exercised through the
+// wizard context both shells provide.
+const withWizard = (ui: React.ReactNode): React.JSX.Element => (
+  <ProUpgradeWizardContext.Provider
+    value={{
+      currentStep: PRO_UPGRADE_STEP.SUCCESS,
+      purchaseOnly: false,
+      channel: null,
+      goToStep: vi.fn(),
+      goToNextStep: vi.fn(),
+      goToPreviousStep: vi.fn(),
+      exit,
+      complete,
+    }}
+  >
+    {ui}
+  </ProUpgradeWizardContext.Provider>
+)
+
 describe('SuccessStep', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -36,7 +60,7 @@ describe('SuccessStep', () => {
   })
 
   it('renders the Welcome-to-Pro messaging and fires the viewed event', () => {
-    render(<SuccessStep />)
+    render(withWizard(<SuccessStep />))
 
     expect(
       screen.getByRole('heading', { name: 'Welcome to Pro!' }),
@@ -51,12 +75,13 @@ describe('SuccessStep', () => {
     )
   })
 
-  it('routes to the dashboard when Continue is clicked', () => {
-    render(<SuccessStep />)
+  it('completes the wizard when Continue is clicked', () => {
+    render(withWizard(<SuccessStep />))
 
     screen.getByRole('button', { name: /continue/i }).click()
 
-    expect(router.push).toHaveBeenCalledWith('/dashboard')
+    expect(complete).toHaveBeenCalledTimes(1)
+    expect(router.push).not.toHaveBeenCalled()
     expect(mockTrackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.SuccessContinue,
     )
@@ -65,7 +90,7 @@ describe('SuccessStep', () => {
   it('does not gate the success content on isPro — it renders with no campaign state', () => {
     // The screen takes no isPro/campaign input; rendering at all (the assertion
     // above) proves it can't get stuck waiting on the webhook-driven flip.
-    render(<SuccessStep />)
+    render(withWizard(<SuccessStep />))
 
     expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled()
   })
@@ -81,7 +106,7 @@ describe('SuccessStep', () => {
       { status: 200, data: campaign(true) },
     ])
 
-    render(<SuccessStep />)
+    render(withWizard(<SuccessStep />))
 
     await waitFor(
       () =>
@@ -105,7 +130,7 @@ describe('SuccessStep', () => {
         return { status: 200, data: campaign(false) }
       })
 
-      render(<SuccessStep />)
+      render(withWizard(<SuccessStep />))
 
       // Run through the full 30s cap (plus one interval of slack).
       await vi.advanceTimersByTimeAsync(32_000)

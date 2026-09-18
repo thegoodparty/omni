@@ -33,9 +33,13 @@ describe('GuidanceStep', () => {
     vi.clearAllMocks()
     mockUseProUpgradeWizard.mockReturnValue({
       currentStep: 'guidance',
+      purchaseOnly: false,
+      channel: null,
       goToStep,
       goToNextStep,
       goToPreviousStep,
+      exit: vi.fn(),
+      complete: vi.fn(),
     })
     mockUseCampaign.mockReturnValue([null])
   })

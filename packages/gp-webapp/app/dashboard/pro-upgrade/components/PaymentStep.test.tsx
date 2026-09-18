@@ -80,9 +80,13 @@ describe('PaymentStep', () => {
     confirmMock.mockResolvedValue({ type: 'success' })
     mockUseProUpgradeWizard.mockReturnValue({
       currentStep: 'payment',
+      purchaseOnly: false,
+      channel: null,
       goToStep,
       goToNextStep: vi.fn(),
       goToPreviousStep,
+      exit: vi.fn(),
+      complete: vi.fn(),
     })
   })
 
