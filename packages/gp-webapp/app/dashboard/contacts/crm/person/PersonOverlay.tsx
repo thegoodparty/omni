@@ -493,32 +493,23 @@ const PersonContent: React.FC<{
           <Field label="Cell Phone Number" value={person.cellPhone} />
           <Field label="Landline" value={person.landline} />
         </InfoSection>
-        <InfoSection
-          title={isServe ? 'Constituent Demographics' : 'Voter Demographics'}
-          icon={<LuClipboardList size={24} />}
-        >
-          {/* Support Status is Win's, and this was the only place Serve still
-              showed it: Win moved it to the StatusRow's editable dropdown
-              (ENG-10836) and left the read-only Field here for Serve. An
-              elected official never asks a constituent for a stance, so the
-              row could only ever read "Support unknown" — a question nobody
-              was asked, reported as a gap in the record. */}
-          <Field
-            label={isServe ? 'Registered to vote' : 'Registered Voter'}
-            value={person.registeredVoter}
-          />
-          {/* `Voter_Status` holds turnout propensity (Super / Likely /
-              Unreliable / Unlikely), not active-or-inactive registration —
-              Serve names the field for what it actually is, matching the door
-              sheet's own `voterDemographicFacts`. */}
-          <Field
-            label={isServe ? 'Turnout likelihood' : 'Voter Status'}
-            value={person.voterStatus}
-          />
-          {!isServe && (
+        {/* Win's voter-file card. Serve renders nothing here at all: the
+            three rows it used to carry were a support status Serve can never
+            set (gp-api rejects the write for an `eo-` org — ContactsService
+            .updateContactStatus, ENG-10833) plus registration and turnout
+            propensity, and an official does not ask whether a constituent
+            votes or how reliably. A card with no rows is not a card, so the
+            whole section is Win-only rather than an empty shell. */}
+        {!isServe && (
+          <InfoSection
+            title="Voter Demographics"
+            icon={<LuClipboardList size={24} />}
+          >
+            <Field label="Registered Voter" value={person.registeredVoter} />
+            <Field label="Voter Status" value={person.voterStatus} />
             <Field label="Political Party" value={person.politicalParty} />
-          )}
-        </InfoSection>
+          </InfoSection>
+        )}
 
         <InfoSection
           title="Demographic Information"

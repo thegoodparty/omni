@@ -59,20 +59,28 @@ test.describe('Contacts Organization Scoping', () => {
     expect(person).toBeTruthy()
 
     const panel = await openPersonViaTypeahead(page, person!)
-    await expect(panel.getByText('Political Party')).not.toBeVisible()
-    // The two voter-file rows survive on Serve — whether this person can take
-    // part, and how reliably they turn out, are facts about them whoever is
-    // asking — but the card states them in Serve's own words. This spec used
-    // to assert the Win labels, which is how "Voter Demographics / Registered
-    // Voter / Voter Status" outlived a vocabulary pass on the one surface
+    // The whole voter-file card is Win-only now. It carried a support status
+    // Serve can never set (gp-api rejects the write for an `eo-` org) plus
+    // registration and turnout propensity, and an official does not ask
+    // whether a constituent votes or how reliably — so there was nothing left
+    // to put in it. This spec used to assert the Win labels were VISIBLE
+    // here, which is how they outlived a vocabulary pass on the one surface
     // named Constituent Data.
-    await expect(panel.getByText('Registered to vote')).toBeVisible()
-    await expect(panel.getByText('Turnout likelihood')).toBeVisible()
-    await expect(panel.getByText('Registered Voter')).not.toBeVisible()
-    await expect(panel.getByText('Voter Status')).not.toBeVisible()
-    // Support Status rendered here for Serve only, and could only ever read
-    // "Support unknown" — an elected official never asks for a stance.
-    await expect(panel.getByText('Support Status')).not.toBeVisible()
+    for (const label of [
+      'Political Party',
+      'Support Status',
+      'Registered Voter',
+      'Registered to vote',
+      'Voter Status',
+      'Turnout likelihood',
+      'Voter Demographics',
+      'Constituent Demographics',
+    ]) {
+      await expect(panel.getByText(label)).not.toBeVisible()
+    }
+    // The personal-profile card below it is untouched on both surfaces, so a
+    // panel that rendered nothing at all would still fail here.
+    await expect(panel.getByText('Demographic Information')).toBeVisible()
     await closePersonPanel(panel)
   })
 

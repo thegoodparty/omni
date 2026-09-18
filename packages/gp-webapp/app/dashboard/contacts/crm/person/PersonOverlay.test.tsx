@@ -733,14 +733,13 @@ describe('<PersonOverlay>', () => {
     expect(activitiesFetchNextPage).toHaveBeenCalledTimes(1)
   })
 
-  describe('the demographics card reads in its own vocabulary', () => {
-    // This card was the last place Serve still said "voter", and it said it
-    // three times plus a support concept: Win moved Support Status to the
-    // StatusRow dropdown (ENG-10836) and left the read-only Field here for
-    // Serve, where the question is never asked — so it could only ever read
-    // "Support unknown", reporting a gap in the record for something nobody
-    // was ever asked.
-    it('serve names constituents and offers no support row', () => {
+  describe('the voter-file card is Win-only', () => {
+    // The three rows Serve used to carry were a support status it can never
+    // set (gp-api rejects the write for an `eo-` org) plus registration and
+    // turnout propensity — an official does not ask whether a constituent
+    // votes or how reliably. With nothing left to put in it, the card is not
+    // rendered at all rather than shown empty.
+    it('serve renders no voter-file card, whatever the record carries', () => {
       setContext({
         isElectedOfficial: true,
         selectedPerson: { person: makePerson({ supportStatus: 'supporter' }) },
@@ -748,19 +747,24 @@ describe('<PersonOverlay>', () => {
 
       render(<PersonOverlay />)
 
-      expect(screen.getByText('Constituent Demographics')).toBeInTheDocument()
-      expect(screen.getByText('Registered to vote')).toBeInTheDocument()
-      expect(screen.getByText('Turnout likelihood')).toBeInTheDocument()
+      for (const label of [
+        'Voter Demographics',
+        'Constituent Demographics',
+        'Support Status',
+        'Registered Voter',
+        'Registered to vote',
+        'Voter Status',
+        'Turnout likelihood',
+        'Political Party',
+      ]) {
+        expect(screen.queryByText(label)).not.toBeInTheDocument()
+      }
 
-      // Not even when the record carries one.
-      expect(screen.queryByText('Support Status')).not.toBeInTheDocument()
-      expect(screen.queryByText('Supporter')).not.toBeInTheDocument()
-      expect(screen.queryByText('Voter Demographics')).not.toBeInTheDocument()
-      expect(screen.queryByText('Registered Voter')).not.toBeInTheDocument()
-      expect(screen.queryByText('Voter Status')).not.toBeInTheDocument()
+      // The personal-profile card below it is untouched on both surfaces.
+      expect(screen.getByText('Demographic Information')).toBeInTheDocument()
     })
 
-    it('win keeps its own wording, and its support row still lives in the status row', () => {
+    it('win keeps the card, its wording, and all three rows', () => {
       setContext({
         isElectedOfficial: false,
         selectedPerson: { person: makePerson({ supportStatus: 'supporter' }) },
@@ -772,7 +776,7 @@ describe('<PersonOverlay>', () => {
       expect(screen.getByText('Registered Voter')).toBeInTheDocument()
       expect(screen.getByText('Voter Status')).toBeInTheDocument()
       expect(screen.getByText('Political Party')).toBeInTheDocument()
-      // ENG-10836: the StatusRow replaces this Field on Win.
+      // ENG-10836: the StatusRow carries support on Win, not this card.
       expect(screen.queryByText('Support Status')).not.toBeInTheDocument()
     })
   })
