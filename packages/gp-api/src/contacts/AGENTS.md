@@ -128,6 +128,7 @@ gating is per-action inside the services (see Access control).
 | `GET /v1/contacts/list-detail`                                                     | Saved-segment detail (`segment` param): demographics, reachable-by-channel (sms/robocall/phoneBanking/doorKnocking/polls), outreach history. Omitting `segment` returns the universe row's detail instead — the whole unfiltered district, `outreachHistory` always `[]` (ENG-10778). History excludes `doorKnocking` rows (the door-knock tool writes its own interaction rows) and orders null `date`s last with `createdAt` fallback fields (ENG-10776) |
 | `GET /v1/contacts/download`                                                        | Streaming CSV export: a curated ~76-column subset with friendly headers (`DOWNLOAD_COLUMNS`, ENG-10766, widened in DATA-2281), not the raw L2 columns. Serve downloads drop party, turnout propensity, and vote history **columns** entirely via projection (`SERVE_EXCLUDED_DOWNLOAD_COLUMNS`, which is `EXCLUDABLE_VOTER_COLUMNS` verbatim, ENG-10830) since a stream can't be post-processed                                                            |
 | `GET/POST /v1/contacts/:personId/notes`, `PATCH/DELETE /v1/contacts/notes/:noteId` | Notes CRUD, org-scoped (cross-org id = 404). `@AllowVolunteer()` (ENG-11057) — a volunteer gets full CRUD, but only on people reachable through an assigned outreach envelope; see Access control                                                                                                                                                                                                                                                          |
+| `PATCH /v1/contacts/:personId/follow-up`                                           | Serve's standing follow-up flag (`{ value: 'requested' \| 'cleared' }` → `{ followUp }`). 400s for a non-`eo-` org, the mirror of the status route's Serve rejection. Its own route rather than a third `field` on that one, whose response promises both of Win's editable statuses and which a Serve write can honestly supply neither of                                                                                                                       |
 | `POST /v1/contacts/:personId/interactions`                                         | Manual interaction log. **No webapp caller** (UI removed in ENG-10711); the API stays                                                                                                                                                                                                                                                                                                                                                                      |
 | `GET /v1/contact-engagement/:id/activities`                                        | Unified feed: interactions + polls + legacy outreach rows. Notes are deliberately excluded (ENG-10780) — they live only in the dedicated Notes section, never the feed                                                                                                                                                                                                                                                                                     |
 | `POST /v1/voters/voter-file/filter`, `GET /filters`, `GET/PUT/DELETE /filter/:id`  | Saved-filter CRUD; PUT/DELETE 409 once locked                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -476,6 +477,47 @@ so an `eo-` org can technically reach these write paths. The hook checks
 system-wide invariant that Serve never carries `voter_likelihood`
 overrides — a real (if currently UI-unreachable) gap in the shared module,
 not a speculative guard.
+
+### Serve's follow-up flag
+
+`ContactStatusField.follow_up` is the layered status model's fifth field and
+the only one Serve writes. It is deliberately not a column on the interaction
+tables: `contact_interaction_phone_banking.follow_up` and
+`contact_interaction_door_knock.follow_up` answer "did this ONE call or knock
+end owing this person something", which is immutable history, while this field
+answers "is anything still owed", which an official toggles as they work
+through people. Vocabulary is `FollowUpStatus { requested, cleared }`, with
+`cleared` a real value rather than a deleted row for the ADR 0007 reason —
+"who followed up, and when" is the question the feature exists to answer.
+
+Three writers, all through `ContactStatusService.changeStatus`:
+`ContactsService.updateFollowUp` (`source: manual`, `actorUserId` from
+`@ReqUser()`, no Pro gate — an `eo-` org clears `hasElectedOfficeAccess`
+outright), `PhoneBankingCallService.emitFollowUpEvents`
+(`source: phone_banking`, `sourceId` minted per save from
+`(interactionId, updatedAt)` so a corrected answer records a new event), and
+`ContactInteractionDoorKnockService.emitFollowUpEvent` (`source: door_knock`,
+`sourceId` stable per synced knock so a replay no-ops, same accepted
+correction limitation as the `willVote` twin above). Each carries the inverse
+of the likelihood writers' guard — `startsWith('eo-')` must be true — and
+`fallbackFromValue: FollowUpStatus.cleared`, since nothing derives this field
+and nobody is born flagged.
+
+**Latest answer wins**, including a caller's "no" clearing a flag set by hand
+on the contact card. Only-ever-raising was rejected: the flag's job is to say
+what is STILL owed, and a flag that only accumulates is one nobody trusts. The
+clear is its own event with its own actor.
+
+**No backfill** from the follow-up answers already on interaction rows —
+replaying history would raise flags on people whose request may long since
+have been met, and an official cannot tell a stale flag from a live one.
+
+`ContactEngagementService` filters the feed's `contact_status_event` read by
+field rather than skipping it for Serve: `field: follow_up` for an `eo-` org,
+`field: { not: follow_up }` otherwise, so neither surface can read back the
+answer to a question its own canvassers never asked. `findPerson` includes
+`followUp` on the person payload for `eo-` orgs only, the exact mirror of
+`voterLikelihood`'s Win-only inclusion.
 
 ### Saved-filter lifecycle
 

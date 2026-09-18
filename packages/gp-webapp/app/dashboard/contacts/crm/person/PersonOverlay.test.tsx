@@ -71,6 +71,23 @@ vi.mock('./StatusRow', () => ({
   ),
 }))
 
+// Same reasoning as StatusRow above — FollowUpRow.test.tsx covers its
+// self-gating, the toggle, its mutation and analytics.
+vi.mock('./FollowUpRow', () => ({
+  __esModule: true,
+  default: ({
+    person,
+    isServe,
+  }: {
+    person: { id: string }
+    isServe: boolean
+  }) => (
+    <div data-testid="follow-up-row-stub" data-is-serve={String(isServe)}>
+      {person.id}
+    </div>
+  ),
+}))
+
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 const mockedUseFlagOn = vi.mocked(useFlagOn)
 const mockedUseWinVoterContext = vi.mocked(useWinVoterContext)
@@ -793,6 +810,10 @@ describe('<PersonOverlay>', () => {
       const stub = screen.getByTestId('status-row-stub')
       expect(stub).toHaveTextContent('p_1')
       expect(stub).toHaveAttribute('data-hide-political-party', 'false')
+
+      const followUpStub = screen.getByTestId('follow-up-row-stub')
+      expect(followUpStub).toHaveTextContent('p_1')
+      expect(followUpStub).toHaveAttribute('data-is-serve', 'false')
     })
 
     it('passes hidePoliticalParty=true for Serve (elected official) records', () => {
@@ -965,6 +986,53 @@ describe('<PersonOverlay>', () => {
           "Jane Staffer changed Support Status from 'Support unknown' to 'Supporter'",
         ),
       ).toBeInTheDocument()
+    })
+
+    const followUpActivities: ConstituentActivity[] = [
+      {
+        type: 'STATUS_CHANGE',
+        date: '2026-09-18T15:30:00.000Z',
+        data: {
+          activityId: 'sce_2',
+          field: 'follow_up',
+          fromLabel: 'No',
+          toLabel: 'Yes',
+          actorName: 'Jane Staffer',
+          actorUserId: 7,
+          source: 'phone_banking',
+        },
+      },
+    ]
+
+    it('renders a follow-up STATUS_CHANGE entry in the Serve context', () => {
+      // Serve's feed is behind its own flag; the Win branch needs no flag.
+      mockedUseFlagOn.mockReturnValue({ ready: true, on: true })
+      setContext({
+        isElectedOfficial: true,
+        isWinContext: false,
+        selectedPersonId: 'p_42',
+        selectedPerson: { activities: followUpActivities },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Follow-up updated')).toBeInTheDocument()
+      expect(
+        screen.getByText("Jane Staffer changed Follow-up from 'No' to 'Yes'"),
+      ).toBeInTheDocument()
+    })
+
+    it('never renders a follow-up entry in the Win context', () => {
+      setContext({
+        isElectedOfficial: false,
+        isWinContext: true,
+        selectedPersonId: 'p_42',
+        selectedPerson: { activities: followUpActivities },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.queryByText('Follow-up updated')).not.toBeInTheDocument()
     })
 
     it('never renders a STATUS_CHANGE entry outside the Win context, even if the feed returned one', () => {

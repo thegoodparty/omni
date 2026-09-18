@@ -38,6 +38,7 @@ import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 import { InfoSection } from './InfoSection'
+import FollowUpRow from './FollowUpRow'
 import NotesSection from './NotesSection'
 import StatusRow from './StatusRow'
 import {
@@ -336,13 +337,17 @@ const ActivitiesContent: React.FC = () => {
             return <RobocallActivityRow key={idx} activity={activity} />
           case 'PHONE_BANKING':
             return <PhoneBankingActivityRow key={idx} activity={activity} />
-          case 'STATUS_CHANGE':
-            // Belt-and-suspenders: the feed itself never returns this type
-            // for a Serve context (gp-api gates it on electedOfficeId), but
-            // a Serve org must never render it even if that ever changed.
-            return isWinContext ? (
+          case 'STATUS_CHANGE': {
+            // Belt-and-suspenders mirror of the field filter gp-api already
+            // applies: Win's editable statuses are Win facts and follow-up is
+            // Serve's, so neither surface can render the answer to a question
+            // its own canvassers never asked. Held back until the mode has
+            // settled, since the default reads Win.
+            const isServeField = activity.data.field === 'follow_up'
+            return isWinContextReady && isWinContext !== isServeField ? (
               <StatusChangeActivityRow key={idx} activity={activity} />
             ) : null
+          }
           default:
             // Exhaustiveness guard: a new ConstituentActivityType added to
             // the contract without a render branch here fails the build
@@ -446,6 +451,9 @@ const PersonContent: React.FC<{
           render next to the name above. Self-gates on Win so Serve's
           rendering (the Field below, no opt-in display) is untouched. */}
       <StatusRow person={person} hidePoliticalParty={isServe} />
+      {/* Serve's only editable per-contact status, self-gating the same way
+          StatusRow does for Win. */}
+      <FollowUpRow person={person} isServe={isServe} />
       <div className="flex flex-col gap-6">
         <NotesSection personId={person.id} />
 

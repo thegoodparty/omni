@@ -385,7 +385,11 @@ import { dirname, join, relative } from 'node:path'
 // the handshake — it reads the Clerk session through `useUser`, holds the
 // field's state, and redirects on success, none of which a server component
 // can do. Its page shell stays a server component.
-const BASELINE = 567
+// 2026-09-18: 567 -> 568 for FollowUpRow, the Serve contact card's follow-up
+// toggle. It owns a React Query mutation with an optimistic write, rollback
+// and a snackbar on failure, and reads the org from context — all client
+// state, and all of it inside an already-client overlay.
+const BASELINE = 568
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
