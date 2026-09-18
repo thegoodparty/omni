@@ -1,6 +1,10 @@
 import { ControllerName, ROUTE_MAP } from '../../../src/generated/route-types'
 import { Alert } from './alerts.types'
-import { ALERT_OWNERSHIP, SERVER_ERRORS_ONLY } from '../alerts'
+import {
+  ALERT_OWNERSHIP,
+  ROUTE_ERROR_THRESHOLDS,
+  SERVER_ERRORS_ONLY,
+} from '../alerts'
 
 // 400 is excluded because a 400 is never evidence of a fault on its own. In
 // this codebase it is overwhelmingly designed vocabulary — Zod rejecting a
@@ -119,6 +123,17 @@ export const controllerAlerts = (controller: ControllerName): Alert[] => {
 
   if (routes.length === 0) return []
 
+  // 0 keeps the default "one error pages" for every controller that has not
+  // measured a reason to want otherwise. See ROUTE_ERROR_THRESHOLDS.
+  const threshold = ROUTE_ERROR_THRESHOLDS[controller] ?? 0
+
+  // Grafana evaluates this as `> threshold`, so on a raised one the message has
+  // to say how many it took. Left to the default prose, a rule that needs three
+  // errors still reads "returned server errors", and the reader goes looking
+  // for the first one — which by then is 10 minutes of logs away from the
+  // window that actually fired.
+  const countProse = threshold > 0 ? `more than ${threshold} ` : ''
+
   // One rule per controller rather than one per route, because Loki bills the
   // bytes a query decompresses and only the stream selector and time range
   // decide that — `|= "Request completed" | json | request_endpoint = ...`
@@ -151,15 +166,15 @@ export const controllerAlerts = (controller: ControllerName): Alert[] => {
       name: `[${controller}] Route errors detected`,
       type: 'log' as const,
       expr: `sum by (request_endpoint) (count_over_time(${routeBase} | ${statusCodeFilter} [${LOOKBACK_RANGE}]))`,
-      threshold: 0,
+      threshold,
       for: '1m',
       // Grafana renders annotations per alert instance, so this is what turns
       // one rule back into a page that names the route that actually broke.
       summaryDetail: '`{{ $labels.request_endpoint }}`',
       message: [
         serverErrorsOnly
-          ? `\`{{ $labels.request_endpoint }}\` returned server errors, or no status at all, in the last ${LOOKBACK_PROSE} (status ≥ 500 or null). 4xx responses are deliberately excluded on this controller — see SERVER_ERRORS_ONLY in alerts.ts.`
-          : `\`{{ $labels.request_endpoint }}\` returned unexpected error responses, or no status at all, in the last ${LOOKBACK_PROSE} (status ≥ 400 excluding ${EXCLUDED_STATUS_PROSE}, or null).`,
+          ? `\`{{ $labels.request_endpoint }}\` returned ${countProse}server errors, or no status at all, in the last ${LOOKBACK_PROSE} (status ≥ 500 or null). 4xx responses are deliberately excluded on this controller — see SERVER_ERRORS_ONLY in alerts.ts.`
+          : `\`{{ $labels.request_endpoint }}\` returned ${countProse}unexpected error responses, or no status at all, in the last ${LOOKBACK_PROSE} (status ≥ 400 excluding ${EXCLUDED_STATUS_PROSE}, or null).`,
         'Click *View in Grafana* to find the failing requests, then examine their logs and stack traces to understand why errors are occurring and ship fixes.',
         `A **null** status means gp-api never wrote one: the request was killed in flight, usually by the gateway’s ~120s idle timeout. Only those running longer than ${NO_STATUS_PROSE} are counted — a shorter one is the caller hanging up, which is not a fault and is far more common. Check \`responseTimeMs\` on those lines; a cluster at ~120,000ms is the timeout, not the handler.`,
       ].join('\n\n'),

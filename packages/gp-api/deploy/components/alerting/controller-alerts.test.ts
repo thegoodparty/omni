@@ -8,6 +8,7 @@ import {
   ALERT_OWNERSHIP,
   CONTROLLERS_WITHOUT_ROUTE_ALERTS,
   GLOBAL_ALERTS,
+  ROUTE_ERROR_THRESHOLDS,
   SERVER_ERRORS_ONLY,
 } from '../alerts'
 import { controllerAlerts } from './controller-alerts'
@@ -504,5 +505,100 @@ describe('every controller is accounted for', () => {
       undeclared,
       "a hand-written rule in GLOBAL_ALERTS already queries these controllers' routes, but nothing pairs the two — delete that rule and the controller goes silent with every test still green",
     ).toEqual([])
+  })
+})
+
+// Raising a controller's threshold buys quiet by giving up the first error or
+// two, which is a trade worth making on exactly one kind of route and a way to
+// go silent everywhere else. These are what keep an entry honest.
+describe('route error thresholds', () => {
+  const raised = Object.keys(ROUTE_ERROR_THRESHOLDS) as ControllerName[]
+
+  // The default is the whole safety story for every controller not listed: one
+  // error still pages. If this inverts, a typo in the map silences the estate.
+  it('leaves an unlisted controller paging on a single error', () => {
+    for (const controller of CONTROLLER_NAMES) {
+      if (ROUTE_MAP[controller].length === 0) continue
+      if (controller in ROUTE_ERROR_THRESHOLDS) continue
+
+      expect(onlyAlert(controller).threshold, `${controller}`).toBe(0)
+    }
+  })
+
+  it('applies the configured threshold to the generated rule', () => {
+    for (const controller of raised) {
+      expect(onlyAlert(controller).threshold, `${controller}`).toBe(
+        ROUTE_ERROR_THRESHOLDS[controller],
+      )
+    }
+  })
+
+  // An entry of 0 is the default wearing a costume: it reads as "measured and
+  // tuned" in a diff while changing nothing, and the next person to widen it
+  // starts from a number nobody chose.
+  it('never lists a controller at the default', () => {
+    for (const controller of raised) {
+      const threshold = ROUTE_ERROR_THRESHOLDS[controller]
+      expect(threshold, `${controller}`).toBeGreaterThan(0)
+      expect(
+        Number.isInteger(threshold),
+        `${controller} is not a whole count`,
+      ).toBe(true)
+    }
+  })
+
+  // The map is keyed by ControllerName, so a typo fails to compile — but an
+  // entry outlives the controller it names, and a silent no-op entry would
+  // absorb a future controller that reused the name.
+  it('names only controllers that have routes', () => {
+    for (const controller of raised) {
+      expect(ROUTE_MAP[controller].length, `${controller}`).toBeGreaterThan(0)
+    }
+  })
+
+  // Raising the bar on a rule that is provisioned disabled is a claim about
+  // nothing, and reads in review as though the route were covered.
+  it('only raises the bar on a rule that is actually enabled', () => {
+    for (const controller of raised) {
+      expect(onlyAlert(controller).disabled, `${controller}`).toBe(false)
+    }
+  })
+
+  // THE ONE THAT MATTERS. Giving up the first errors is only safe because a
+  // second rule still answers "is this route substantially broken" — on
+  // public-person-profiles that is the ratio rule, and it is what would have
+  // caught the August outage on its first window. Delete it and this map
+  // quietly becomes the thing that hides the next one.
+  it('keeps a hand-written rule covering every controller it quiets', () => {
+    for (const controller of raised) {
+      const paths = ROUTE_MAP[controller]
+        .map(({ endpoint }) => endpoint.split(' ')[1])
+        .filter((path): path is string => Boolean(path))
+
+      expect(
+        GLOBAL_ALERTS.some((alert) =>
+          paths.some((path) => alert.expr.includes(path)),
+        ),
+        `${controller} has a raised route-error threshold and no hand-written rule querying its routes, so a fault below that threshold now pages nobody at all`,
+      ).toBe(true)
+    }
+  })
+
+  // The notification is read by someone deciding how urgent this is, and "it
+  // returned errors" and "it returned more than two errors" are different
+  // incidents. The prose is generated, so it can drift from the evaluator.
+  it('states the count it took to fire, and only when raised', () => {
+    for (const controller of CONTROLLER_NAMES) {
+      if (ROUTE_MAP[controller].length === 0) continue
+
+      const alert = onlyAlert(controller)
+      const expected =
+        alert.threshold > 0 ? `more than ${alert.threshold} ` : ''
+
+      expect(alert.message, `${controller}`).toContain(`returned ${expected}`)
+      if (alert.threshold === 0) {
+        expect(alert.message, `${controller}`).not.toContain('more than')
+      }
+    }
   })
 })
