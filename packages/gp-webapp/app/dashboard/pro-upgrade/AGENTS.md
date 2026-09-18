@@ -40,7 +40,7 @@ context. Everything else goes through `proUpgradeStepOrder(purchaseOnly)` and
 Exposure belongs to `app/dashboard/shared/membership/` — both `MembershipBanner`
 and `MembershipChip` fire it, and only once the surface is actually visible (a
 Serve org or a cleared Pro campaign renders neither, so neither is exposed). Every
-other caller reads the flag with `useOutreachProGatingV2Flag(false)`, and
+caller, the banner and chip included, reads the flag with `useOutreachProGatingV2Flag(false)`, and
 `/dashboard/campaign-verification` passes `trackExposure={false}` to its
 `FeatureFlagGuard` for the same reason.
 

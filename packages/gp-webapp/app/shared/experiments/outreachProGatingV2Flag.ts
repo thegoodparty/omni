@@ -8,8 +8,9 @@ interface UseOutreachProGatingV2FlagResult {
 }
 
 // One flag selects the purchase-only Pro wizard, the membership banner and
-// chip, and (milestone 2) the in-flow outreach gate. Pass trackExposure=false
-// on surfaces that only branch on it; the sidebar banner is the treatment.
+// chip, and (milestone 2) the in-flow outreach gate. Every caller passes
+// trackExposure=false; the membership banner and chip fire the exposure
+// themselves, once, only when they actually render for the candidate.
 export const useOutreachProGatingV2Flag = (
   trackExposure = true,
 ): UseOutreachProGatingV2FlagResult => {
