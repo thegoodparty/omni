@@ -93,6 +93,7 @@ def ecs_env(monkeypatch):
     monkeypatch.setenv("ECS_TASK_DEFINITION_PLAYWRIGHT", "autopilot-agent-playwright:1")
     monkeypatch.setenv("SUBNET_IDS", "subnet-1,subnet-2")
     monkeypatch.setenv("SECURITY_GROUP_ID", "sg-1")
+    monkeypatch.setenv("AUTOPILOT_SLACK_CHANNEL", "#autopilot-test")
 
 
 @pytest.fixture(autouse=True)
@@ -215,13 +216,34 @@ def test_claim_ttl_outlives_the_stages_own_deadline(fake_dynamodb):
 def test_qa_stage_uses_playwright_task_definition(fake_ecs):
     dispatch.dispatch_stage(TASK_ID, dispatch.QA_STAGE, TRANSITIONED_AT, envelope(stage=dispatch.QA_STAGE))
 
-    assert fake_ecs.run_task_calls[0]["taskDefinition"] == "autopilot-agent-playwright:1"
+    call = fake_ecs.run_task_calls[0]
+    assert call["taskDefinition"] == "autopilot-agent-playwright:1"
+    # The override must name the container the Playwright task definition
+    # actually declares — RunTask rejects an override for a container the
+    # definition doesn't have, which would fail every qa dispatch at launch.
+    assert call["overrides"]["containerOverrides"][0]["name"] == "autopilot-agent-playwright"
 
 
 def test_non_qa_stage_uses_base_task_definition(fake_ecs):
     dispatch.dispatch_stage(TASK_ID, STAGE, TRANSITIONED_AT, envelope())
 
-    assert fake_ecs.run_task_calls[0]["taskDefinition"] == "autopilot-agent:1"
+    call = fake_ecs.run_task_calls[0]
+    assert call["taskDefinition"] == "autopilot-agent:1"
+    assert call["overrides"]["containerOverrides"][0]["name"] == "autopilot-agent"
+
+
+def test_dispatch_refuses_when_slack_channel_unset(monkeypatch, fake_dynamodb, fake_ecs, capsys):
+    # Same fail-closed contract as the ECS config vars: the agent-side park
+    # and notify primitives hard-require the channel, and a dispatch without
+    # it fails inside the container after real work instead of here.
+    monkeypatch.delenv("AUTOPILOT_SLACK_CHANNEL", raising=False)
+
+    result = dispatch.dispatch_stage(TASK_ID, STAGE, TRANSITIONED_AT, envelope())
+
+    assert result["dispatched"] is False
+    assert result["error"] == "AUTOPILOT_SLACK_CHANNEL not configured; refusing dispatch"
+    assert fake_ecs.run_task_calls == []
+    assert "ERROR: AUTOPILOT_SLACK_CHANNEL not configured" in capsys.readouterr().out
 
 
 def test_qa_dispatch_refuses_when_playwright_task_definition_unset(monkeypatch, fake_dynamodb, fake_ecs, capsys):

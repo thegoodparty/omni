@@ -173,6 +173,16 @@ def launch_fargate_stage(envelope: StageEnvelope) -> dict:
         print(f"ERROR: {error_msg}")
         return {"launched": False, "error": error_msg}
 
+    # The agent-side feedback primitives (park, notify) hard-require this
+    # channel. A missing value doesn't fail here on its own — it fails inside
+    # the container, after the agent has already done real work, when the
+    # first park raises "No Slack channel". Fail closed with the rest of the
+    # ECS-critical config instead.
+    if not os.environ.get("AUTOPILOT_SLACK_CHANNEL", "").strip():
+        error_msg = "AUTOPILOT_SLACK_CHANNEL not configured; refusing dispatch"
+        print(f"ERROR: {error_msg}")
+        return {"launched": False, "error": error_msg}
+
     print(f"Launching Fargate stage={envelope.stage} for task_id={envelope.task_id}")
 
     try:
@@ -191,7 +201,12 @@ def launch_fargate_stage(envelope: StageEnvelope) -> dict:
             overrides={
                 "containerOverrides": [
                     {
-                        "name": "autopilot-agent",
+                        # RunTask rejects an override naming a container the
+                        # task definition doesn't have, and the Playwright
+                        # family's container is named after its own family —
+                        # a hardcoded "autopilot-agent" here fails every qa
+                        # dispatch at launch.
+                        "name": "autopilot-agent-playwright" if envelope.stage == QA_STAGE else "autopilot-agent",
                         "environment": envelope.to_environment(),
                     }
                 ]

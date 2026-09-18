@@ -81,6 +81,7 @@ def env(monkeypatch):
     monkeypatch.setenv("ECS_TASK_DEFINITION_PLAYWRIGHT", "autopilot-agent-playwright:1")
     monkeypatch.setenv("SUBNET_IDS", "subnet-1,subnet-2")
     monkeypatch.setenv("SECURITY_GROUP_ID", "sg-1")
+    monkeypatch.setenv("AUTOPILOT_SLACK_CHANNEL", "#autopilot-test")
 
 
 def make_event(
@@ -254,6 +255,7 @@ def test_container_overrides_carry_full_envelope_and_ceiling(fake_ecs):
         "AGENT_MAX_BUDGET_USD": "8.0",
         "AGENT_DEADLINE_SECONDS": str(30 * 60),
         "EPIC_TASK_ID": "epic-9",
+        "AUTOPILOT_SLACK_CHANNEL": "#autopilot-test",
     }
     call = fake_ecs.run_task_calls[0]
     assert call["launchType"] == "FARGATE"
