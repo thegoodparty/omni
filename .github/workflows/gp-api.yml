@@ -193,6 +193,17 @@ jobs:
 
       - name: Build application
         if: steps.ecr-image.outputs.exists != 'true'
+        env:
+          # Same failure the vercel-deploy action already caps for: `nest
+          # build` peaks near Node's default ~4GB heap and OOMs
+          # intermittently (exit 134), which fails this job and the E2E
+          # merge gate that waits on the preview. Only PRs run this step —
+          # it is skipped on pushes to main — so main stayed green while
+          # unrelated PRs failed together (2026-09-18, #1979 and #1971).
+          # Matched to that action's cap rather than raised further: the
+          # limit is per process, so a bigger number across several
+          # workers trips the kernel OOM killer instead.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run build -w ${{ env.WORKSPACE }}
 
       - name: Set up Docker Buildx
