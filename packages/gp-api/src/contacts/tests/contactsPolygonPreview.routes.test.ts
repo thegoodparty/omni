@@ -152,6 +152,26 @@ describe('POST /v1/contacts/polygon-preview', () => {
     expect(evaluateSpy).not.toHaveBeenCalled()
   })
 
+  // Emptiness is decided locally and needs no district, so the two gates are
+  // independent — and an org can trip both. Answering with the district error
+  // here would report a missing office as a missing audience, which sends the
+  // user to support over a shape they could simply move.
+  it('flags audienceEmpty even when the org resolves no district', async () => {
+    const slug = await setupServeOrg('empty-no-district', {})
+    const evaluateSpy = spyOnEvaluate([person(0.5, 0.5)])
+
+    const response = await preview(slug, {
+      geoPoly: SQUARE,
+      filters: {
+        activityConditions: [{ outreachType: 'doorKnocking', actions: [] }],
+      },
+    })
+
+    expect(response.status).toBe(201)
+    expect(response.data).toEqual({ count: 0, audienceEmpty: true })
+    expect(evaluateSpy).not.toHaveBeenCalled()
+  })
+
   // The other zero: the audience exists, the shape just does not hold any of
   // it. A caller that cannot tell these apart tells the holder to fix the
   // wrong thing.

@@ -861,11 +861,14 @@ export class ContactsService {
     // fix, and the criteria causing it are exactly the ones the map cannot
     // shade. Flagged rather than thrown: a shape mid-drag is allowed to
     // enclose nobody.
+    // Returned before the district gate, because this answer does not need a
+    // district: the local filters already matched nobody, so there is nothing
+    // to go and count. Inside the gate it was not "flagged rather than
+    // thrown" at all — an org whose office has no linked district got
+    // VOTER_DATA_UNAVAILABLE instead of the flag. Emptiness and district
+    // availability are unrelated, so one cannot stand in for the other.
     if (resolved.empty) {
-      return this.withOrgDistrictResolution(organization, async () => ({
-        count: 0,
-        audienceEmpty: true,
-      }))
+      return { count: 0, audienceEmpty: true }
     }
 
     return this.withOrgDistrictResolution(
