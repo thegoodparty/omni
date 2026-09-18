@@ -185,3 +185,15 @@ export const EXPLAINER_COPY = {
   dismissFree: 'Continue without Pro',
   dismissPro: 'Later',
 }
+
+// The gate's full-screen in-review / awaiting-PIN notice cards (task 8): no
+// dedicated design-canvas function covers these, so this is new copy
+// following the same pattern as the rest of this file. `backToNoun` is also
+// campaign verification's `completeLabel` when it is mounted inside the
+// gate, so the candidate lands back on the same word regardless of which
+// gate screen sent them there.
+export const GATE_NOTICE_COPY = {
+  inReviewSavedLine: (noun: string): string =>
+    `Your ${noun} stays saved. We tell you when it clears.`,
+  backToNoun: (noun: string): string => `Back to my ${noun}`,
+}

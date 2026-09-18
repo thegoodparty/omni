@@ -411,7 +411,7 @@ import { dirname, join, relative } from 'node:path'
 // routes on click) and CampaignVerificationSteps (the state machine
 // extracted from CampaignVerificationFlow so it can be mounted elsewhere;
 // CampaignVerificationFlow keeps its own 'use client' as the page wrapper).
-const BASELINE = 580
+const BASELINE = 584
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

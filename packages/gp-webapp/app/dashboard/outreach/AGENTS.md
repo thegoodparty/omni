@@ -102,6 +102,34 @@ modal. The predicate is `ChannelTileGrid`'s own `canUseProFeatures`
 Flow state is flat client state; no server drafts — closing a dirty flow asks
 to discard, reopening starts fresh. Nothing persists until Save.
 
+## Gate (milestone 2)
+
+`v2/gate/` holds the in-flow Pro/verification gate that pauses a channel flow
+until the candidate can send. `gateCopy.ts` is every string it (and the
+screens it mounts) use — never add gate copy elsewhere. `useOutreachGate.ts`
+is thin over `useOutreachProGatingV2Flag(false)` +
+`shared/membership/useMembershipState`, mapping flag + `MembershipState` to a
+`GateRequirement` (`'pro' | 'verify' | 'in_review' | 'pin' | null`) for one
+channel; a Serve org and texting already cleared both resolve to `null`, and
+only `sms` (`twoStep`) can ever reach `verify`/`in_review`/`pin` — every other
+channel needs Pro alone. `GateBanner.tsx` is the footer's tinted one-liner
+(`null` off `requirement`), tapping it opens `GateExplainerModal.tsx` (the
+same "what Pro/verification unlock" cards as the Pro wizard's
+`InterstitialStep`, duplicated rather than shared — WET). `OutreachGate.tsx`
+renders the paused-flow screen itself: `requirement === 'pro'` mounts
+`ProUpgradeFlow` on `PRO_UPGRADE_STEP.INTERSTITIAL`, whose `onComplete`
+re-checks the (by-then re-derived) membership and only calls the caller's
+`onComplete` when texting doesn't still need verification; `'verify'` mounts
+`CampaignVerificationSteps`; `'pin'` mounts `PinDialog` behind a short notice
+card; `'in_review'` renders its own notice card. Only the first screen a
+candidate can land on (the interstitial or the in-review notice) offers a
+ghost destructive Delete — verification renders its own, and PIN has nothing
+left to abandon. `OutreachFlowShell`'s `banner` slot renders whichever of
+these a mounting flow passes, above the CTA row, inside the footer — a
+banner alone still renders the footer. A later task mounts `useOutreachGate`
++ `GateBanner`/`OutreachGate` inside the SMS, robocall, phone banking and
+door knocking flows.
+
 ## Shared support files
 
 | File                                     | Role                                                                                                                                                                                    |
