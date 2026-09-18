@@ -584,6 +584,12 @@ export default function ChiefOfStaffChatBody({
     visibleMessages,
     visibleSegments,
     playback,
+    // The map is the one thing that can grow the transcript without any of
+    // the above changing: onEvent consumes the show_list_map call, so a turn
+    // that draws a map and says nothing pushes no segment and commits no
+    // message until it settles. Without this the card renders below the fold
+    // and the follow-scroll has nothing to react to.
+    liveListMap,
   ])
 
   // `liveListMap` counts as something on screen. onEvent consumes the
