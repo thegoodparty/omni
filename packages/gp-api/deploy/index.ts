@@ -1,6 +1,7 @@
 import * as aws from '@pulumi/aws'
 import * as pulumi from '@pulumi/pulumi'
 import { createAnnotationAttachmentsBucket } from './components/annotation-attachments-bucket'
+import { createChatAttachmentsBucket } from './components/chat-attachments-bucket'
 import { createCampaignPlanSharesBucket } from './components/campaign-plan-shares-bucket'
 import { createAssetsBucket } from './components/assets-bucket'
 import { createAssetsRouter } from './components/assets-router'
@@ -124,6 +125,14 @@ export = async () => {
     environment === 'preview'
       ? 'annotation-attachments-dev'
       : createAnnotationAttachmentsBucket({ environment }).bucket.bucket
+
+  // Private bucket for chief-of-staff chat attachments (PDFs, images, Word
+  // docs, URL snapshots). Browser POSTs via presigned POST; gp-api reads back
+  // for text extraction. Preview environments share the dev bucket.
+  const chatAttachmentsBucketName =
+    environment === 'preview'
+      ? 'chat-attachments-dev'
+      : createChatAttachmentsBucket({ environment }).bucket.bucket
 
   // Private bucket for shared campaign-plan PDFs. Preview shares the dev
   // bucket — no per-PR buckets.
@@ -377,6 +386,7 @@ export = async () => {
     tevynPollCsvsBucket.bucket,
     zipToAreaCodeBucket.bucket,
     annotationAttachmentsBucketName,
+    chatAttachmentsBucketName,
     campaignPlanSharesBucketName,
     robocallAudioBucketName,
     agentRunInputsBucketName,
@@ -517,6 +527,7 @@ export = async () => {
       TEVYN_POLL_CSVS_BUCKET: tevynPollCsvsBucket.bucket,
       ZIP_TO_AREA_CODE_BUCKET: zipToAreaCodeBucket.bucket,
       ANNOTATION_ATTACHMENTS_BUCKET: annotationAttachmentsBucketName,
+      CHAT_ATTACHMENTS_BUCKET: chatAttachmentsBucketName,
       CAMPAIGN_PLAN_SHARES_BUCKET: campaignPlanSharesBucketName,
       ROBOCALL_AUDIO_BUCKET: robocallAudioBucketName,
       API_PUBLIC_ROOT_URL: `https://${domain}`,
