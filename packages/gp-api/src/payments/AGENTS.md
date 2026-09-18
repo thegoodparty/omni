@@ -187,6 +187,27 @@ recipes here:
 operator procedure, including which credentials to use and what remediation each
 class implies: `packages/runbooks/books/reconcile-stripe-subscriptions.md`.
 
+**The data half of those recipes is scripted.**
+`scripts/repair-orphaned-pro-subscriptions.ts` takes that report's `--json` (or
+explicit `--subscription` ids) and performs the three repairs below that are
+pure Postgres corrections: re-linking a live orphan to its campaign (writing
+`details.subscriptionId`, `is_pro`, and `metaData.customerId` when the stored
+one disagrees), repointing a `MISMATCH`, and normalising
+`details.subscriptionCanceledAt` to milliseconds. Dry-run by default; `--apply`
+writes, one transaction per subscription, appending an audit line per field.
+
+Four things about it are load-bearing rather than incidental. It takes a
+**reviewed input list** and never derives its own population, because the
+classifications have been wrong once already. It **re-verifies every row**
+against Stripe and the database at plan time and re-asserts each precondition in
+the statement's own `WHERE`, so a stale file refuses rather than writes. It
+**never overwrites a non-null `subscriptionId`** — doing so orphans whatever it
+pointed at, which is the ENG-11084 mechanism reproduced by the repair meant to
+fix it. And it **refuses to de-Pro anything at all**, plus it cannot put
+anything but a GET on the wire to Stripe, so cancels and refunds stay human.
+Procedure: `packages/runbooks/books/repair-orphaned-pro-subscriptions.md`
+§ "The repair script".
+
 **"Charged twice" (ENG-10771 shape; recurred as ENG-11083).** First check
 for TWO Stripe customers under one email (pre-ENG-11084 checkouts minted one
 per completed session — the reconciliation report finds these by itself and
@@ -237,7 +258,25 @@ so treat the output as triage input, never as an input to a write.
 which is Unix **seconds**. Both are in the column. Any query or script
 comparing that key to a date must normalise first — reading a seconds value as
 milliseconds silently lands in January 1970 and the comparison quietly fails
-rather than erroring.
+rather than erroring. **Milliseconds is the canonical unit** (the key is typed
+`number` and the web app hands it to `new Date(...)`), and
+`repair-orphaned-pro-subscriptions.ts --normalize-canceled-at` rewrites the
+seconds-stamped rows. It is safe to re-run: the `< 1e11` predicate that selects
+a seconds value no longer matches the millisecond value it wrote, so nothing
+scales twice. Until the write side is fixed, the updated handler keeps creating
+them.
+
+**`details.isProUpdatedAt` is not in a consistent shape either.** `setIsPro`
+writes `formatISO(new Date())` — an ISO string — but only since #1682; before
+that it wrote `Date.now()`, and no migration ever backfilled those rows, which
+is why `campaign.jsonTypes.d.ts` types the key `string | number`. `->>` returns
+the legacy rows as digits, so a reader that treats the key as a date gets `NaN`
+in JS and, in SQL, either `invalid input syntax for type timestamp with time
+zone` (`'1751328000000'`) or a valid-but-unrelated date (`'20260701'`). Read
+digits as an epoch and never as a date. This matters most where an absent
+upgrade stamp is itself a signal: in the `subscriptionCanceledAt`-later-than-
+`isProUpdatedAt` comparison above, a legacy stamp read as absent turns a
+healthy cancel-then-resubscribe into a false "still Pro after cancellation".
 
 **Purchase error 400 `NO_ACTIVE_CAMPAIGN`.** `isActiveCampaign` requires: not
 demo, `primaryResult !== 'lost'`, `didWin === null`, valid future

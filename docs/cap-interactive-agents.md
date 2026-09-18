@@ -105,15 +105,27 @@ to rendering the partial locally.
 
 `src/chats/general/` is the architecture meant to generalize interactive chat.
 `ChatScopeHandler<TContext>` declares `scope`, `isSensitive`, `models`, and
-`resolveConversation / loadContext / buildSystemPrompt / buildTools`. Handlers
-register through the `CHAT_SCOPE_HANDLERS` DI token — adding a scope needs no
-controller/service change. `ChatScopeRegistry` **fails closed**: any `isSensitive`
-scope must use only `claude`-routed models, so tool outputs never leave Anthropic.
-Today **`chief_of_staff` and `ordinance_flow` are registered**;
-`briefing_annotation` and `campaign_assistant` exist as `ChatScope` enum values
-but briefing chat still runs through its own dedicated controller/service.
-Handlers may also declare an optional `maxSteps` to raise the tool-loop step
-budget (ordinance flow uses 8).
+`loadContext / buildSystemPrompt / buildTools`. Handlers register through the
+`CHAT_SCOPE_HANDLERS` DI token — adding a scope needs no controller/service
+change. `ChatScopeRegistry` **fails closed**: any `isSensitive` scope must use
+only `claude`-routed models, so tool outputs never leave Anthropic. Today
+**`chief_of_staff`, `campaign_assistant` and `ordinance_flow` are registered**;
+`briefing_annotation` exists as a `ChatScope` enum value but briefing chat still
+runs through its own dedicated controller/service. Handlers may also declare an
+optional `maxSteps` to raise the tool-loop step budget (ordinance flow uses 8).
+
+**The session model is shared, and stays that way.** `GeneralChatsService.
+resolveConversation` owns it: every open creates a NEW conversation, and
+resuming is a separate path (`GET /v1/chats` history → open by id →
+`listMessages` → stream). The webapp defers the create until the first message,
+so an open with nothing typed leaves no empty conversation behind. Chief of
+Staff and Campaign Manager both run on that default and declare no
+`resolveConversation` of their own — a per-scope copy is how the two drifted
+apart before (the manager spent a release resuming one ever-growing thread per
+candidate). A handler overrides it only for a genuinely different model:
+`ordinance_flow` keys one conversation to an (ordinance, step) anchor. A scope
+that needs something already in a new transcript implements `seedConversation`
+instead — Campaign Manager uses it to seed its greeting.
 
 ## Tools / function calling
 

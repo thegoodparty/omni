@@ -437,6 +437,7 @@ describe('POST /v1/organizations/team/invites', () => {
       expect(sendEmail).toHaveBeenCalledWith(
         expect.objectContaining({ id: invitee.id }),
         expect.any(String),
+        'campaignAdmin',
       )
 
       const rows = await service.prisma.organizationMembership.findMany({
@@ -624,9 +625,9 @@ describe('POST /v1/organizations/team/invites', () => {
       await createOrg()
       const outreach = await createOutreachForOrg()
       const invitee = await createMemberUser({ email: 'vol-known@x.com' })
-      vi.spyOn(stubEmail(), 'sendTeamMemberAddedEmail').mockResolvedValue(
-        undefined as never,
-      )
+      const sendEmail = vi
+        .spyOn(stubEmail(), 'sendTeamMemberAddedEmail')
+        .mockResolvedValue(undefined as never)
       const track = vi
         .spyOn(stubAnalytics(), 'track')
         .mockResolvedValue(undefined as never)
@@ -655,6 +656,11 @@ describe('POST /v1/organizations/team/invites', () => {
       })
       expect(assignments).toHaveLength(1)
       expect(assignments[0]?.assignedByUserId).toBe(service.user.id)
+      expect(sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ id: invitee.id }),
+        expect.any(String),
+        'volunteer',
+      )
       // Delegate review (round 2, PR #1738): the counterpart to the general
       // (no-outreach) volunteer invite's listScoped: false above.
       await vi.waitFor(() => expect(track).toHaveBeenCalled())
@@ -2329,6 +2335,107 @@ describe('DELETE /v1/organizations/team/members/:userId', () => {
     })
 
     expect(result.status).toBe(400)
+  })
+})
+
+// ENG-11137: self-removal. Same removal semantics as the owner-driven
+// delete above, with the caller as the target — the one route on this
+// controller a volunteer can write to besides their assignments.
+describe('DELETE /v1/organizations/team/members/me', () => {
+  it('a volunteer can leave, deleting their membership and assignments, and removal fires the analytics event', async () => {
+    await createOrg()
+    const member = await createMemberUser({
+      email: 'leaving-vol@x.com',
+      clerkId: 'user_leaving_vol',
+    })
+    await addMembership(member.id, OrganizationRole.volunteer)
+    const outreach = await createOutreachForOrg()
+    await service.prisma.outreachAssignment.create({
+      data: {
+        organizationSlug: ORG_SLUG,
+        outreachId: outreach.id,
+        assigneeUserId: member.id,
+      },
+    })
+    const track = vi
+      .spyOn(stubAnalytics(), 'track')
+      .mockResolvedValue(undefined as never)
+
+    const result = await service.client.delete(`${TEAM_PATH}/members/me`, {
+      headers: {
+        [ORG_SLUG_HEADER]: ORG_SLUG,
+        ...authHeaderFor('user_leaving_vol'),
+      },
+    })
+
+    expect(result.status).toBe(204)
+    expect(
+      await service.prisma.organizationMembership.count({
+        where: { organizationSlug: ORG_SLUG, userId: member.id },
+      }),
+    ).toBe(0)
+    expect(
+      await service.prisma.outreachAssignment.count({
+        where: { assigneeUserId: member.id },
+      }),
+    ).toBe(0)
+    await vi.waitFor(() => expect(track).toHaveBeenCalled())
+    expect(track).toHaveBeenCalledWith(member.id, 'Team - Member Removed', {
+      role: 'volunteer',
+    })
+  })
+
+  it('a campaignAdmin can leave', async () => {
+    await createOrg()
+    const admin = await createMemberUser({
+      email: 'leaving-admin@x.com',
+      clerkId: 'user_leaving_admin',
+    })
+    await addMembership(admin.id, OrganizationRole.campaignAdmin)
+
+    const result = await service.client.delete(`${TEAM_PATH}/members/me`, {
+      headers: {
+        [ORG_SLUG_HEADER]: ORG_SLUG,
+        ...authHeaderFor('user_leaving_admin'),
+      },
+    })
+
+    expect(result.status).toBe(204)
+    expect(
+      await service.prisma.organizationMembership.count({
+        where: { organizationSlug: ORG_SLUG, userId: admin.id },
+      }),
+    ).toBe(0)
+  })
+
+  it('400s for the owner — ownership transfer is the only way an owner leaves', async () => {
+    await createOrg()
+
+    const result = await service.client.delete(`${TEAM_PATH}/members/me`, {
+      headers: { [ORG_SLUG_HEADER]: ORG_SLUG },
+    })
+
+    expect(result.status).toBe(400)
+    expect(
+      await service.prisma.organization.count({ where: { slug: ORG_SLUG } }),
+    ).toBe(1)
+  })
+
+  it('404s for a non-member', async () => {
+    await createOrg()
+    await createMemberUser({
+      email: 'outsider-leave@x.com',
+      clerkId: 'user_outsider_leave',
+    })
+
+    const result = await service.client.delete(`${TEAM_PATH}/members/me`, {
+      headers: {
+        [ORG_SLUG_HEADER]: ORG_SLUG,
+        ...authHeaderFor('user_outsider_leave'),
+      },
+    })
+
+    expect(result.status).toBe(404)
   })
 })
 

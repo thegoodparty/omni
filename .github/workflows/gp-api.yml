@@ -193,14 +193,12 @@ jobs:
 
       - name: Build application
         if: steps.ecr-image.outputs.exists != 'true'
-        # `nest build` sits just under Node's default ~4GB heap and now tips
-        # over it on most runs — the failure is "Ineffective mark-compacts
-        # near heap limit" at ~4030MB, and it is not branch-specific
-        # (unrelated PRs fail the same way within a minute of each other).
-        # Raising the ceiling is the fix; the build did not suddenly start
-        # leaking, it just outgrew the default.
         env:
-          NODE_OPTIONS: --max_old_space_size=8192
+          # nest build's type-check peaks near Node's default ~4GB heap and
+          # OOMs intermittently on the 16GB runners (exit 134, first seen
+          # 2026-09-18, run 35374622414) — same failure mode and cap as the
+          # vercel-deploy action's `next build`.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run build -w ${{ env.WORKSPACE }}
 
       - name: Set up Docker Buildx

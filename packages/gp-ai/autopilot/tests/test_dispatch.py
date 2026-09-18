@@ -93,6 +93,7 @@ def ecs_env(monkeypatch):
     monkeypatch.setenv("ECS_TASK_DEFINITION_PLAYWRIGHT", "autopilot-agent-playwright:1")
     monkeypatch.setenv("SUBNET_IDS", "subnet-1,subnet-2")
     monkeypatch.setenv("SECURITY_GROUP_ID", "sg-1")
+    monkeypatch.setenv("AUTOPILOT_SLACK_CHANNEL", "#autopilot-test")
 
 
 @pytest.fixture(autouse=True)
@@ -116,7 +117,8 @@ def envelope(stage=STAGE, epic_task_id=None, max_budget_usd=15.0, deadline_secon
 # ---------------------------------------------------------------------------
 
 
-def test_envelope_carries_every_var():
+def test_envelope_carries_every_var(monkeypatch):
+    monkeypatch.delenv("AUTOPILOT_SLACK_CHANNEL", raising=False)
     env = envelope(epic_task_id="epic-1").to_environment()
     by_name = {e["name"]: e["value"] for e in env}
 
@@ -134,6 +136,24 @@ def test_envelope_omits_epic_task_id_when_none():
     env = envelope(epic_task_id=None).to_environment()
 
     assert "EPIC_TASK_ID" not in {e["name"] for e in env}
+
+
+def test_envelope_forwards_the_conductors_slack_channel(monkeypatch):
+    # The agent-side feedback primitives (park, notify) post to this channel,
+    # and the task definition carries no channel of its own — the envelope is
+    # the only path it can reach the container by.
+    monkeypatch.setenv("AUTOPILOT_SLACK_CHANNEL", "C0TEST")
+    env = envelope().to_environment()
+    by_name = {e["name"]: e["value"] for e in env}
+
+    assert by_name["AUTOPILOT_SLACK_CHANNEL"] == "C0TEST"
+
+
+def test_envelope_omits_a_blank_slack_channel(monkeypatch):
+    monkeypatch.setenv("AUTOPILOT_SLACK_CHANNEL", "   ")
+    env = envelope().to_environment()
+
+    assert "AUTOPILOT_SLACK_CHANNEL" not in {e["name"] for e in env}
 
 
 # ---------------------------------------------------------------------------
@@ -196,13 +216,41 @@ def test_claim_ttl_outlives_the_stages_own_deadline(fake_dynamodb):
 def test_qa_stage_uses_playwright_task_definition(fake_ecs):
     dispatch.dispatch_stage(TASK_ID, dispatch.QA_STAGE, TRANSITIONED_AT, envelope(stage=dispatch.QA_STAGE))
 
-    assert fake_ecs.run_task_calls[0]["taskDefinition"] == "autopilot-agent-playwright:1"
+    call = fake_ecs.run_task_calls[0]
+    assert call["taskDefinition"] == "autopilot-agent-playwright:1"
+    # The override must name the container the Playwright task definition
+    # actually declares — RunTask rejects an override for a container the
+    # definition doesn't have, which would fail every qa dispatch at launch.
+    assert call["overrides"]["containerOverrides"][0]["name"] == "autopilot-agent-playwright"
 
 
 def test_non_qa_stage_uses_base_task_definition(fake_ecs):
     dispatch.dispatch_stage(TASK_ID, STAGE, TRANSITIONED_AT, envelope())
 
-    assert fake_ecs.run_task_calls[0]["taskDefinition"] == "autopilot-agent:1"
+    call = fake_ecs.run_task_calls[0]
+    assert call["taskDefinition"] == "autopilot-agent:1"
+    assert call["overrides"]["containerOverrides"][0]["name"] == "autopilot-agent"
+
+
+def test_dispatch_refuses_when_slack_channel_unset(monkeypatch, fake_dynamodb, fake_ecs, capsys):
+    # Same fail-closed contract as the ECS config vars: the agent-side park
+    # and notify primitives hard-require the channel, and a dispatch without
+    # it fails inside the container after real work instead of here.
+    monkeypatch.delenv("AUTOPILOT_SLACK_CHANNEL", raising=False)
+
+    result = dispatch.dispatch_stage(TASK_ID, STAGE, TRANSITIONED_AT, envelope())
+
+    assert result["dispatched"] is False
+    assert result["error"] == "AUTOPILOT_SLACK_CHANNEL not configured; refusing dispatch"
+    assert fake_ecs.run_task_calls == []
+    out = capsys.readouterr().out
+    assert "ERROR: AUTOPILOT_SLACK_CHANNEL not configured" in out
+    # Same contract as test_qa_dispatch_refuses_when_playwright_task_definition_unset:
+    # the claim is written before the launch attempt and must survive the
+    # refusal, so a redelivery cannot re-drive this transition once the env is
+    # fixed — the sweep plus a fresh transition is the recovery path.
+    assert len(fake_dynamodb.items) == 1
+    assert "claim left in place" in out
 
 
 def test_qa_dispatch_refuses_when_playwright_task_definition_unset(monkeypatch, fake_dynamodb, fake_ecs, capsys):

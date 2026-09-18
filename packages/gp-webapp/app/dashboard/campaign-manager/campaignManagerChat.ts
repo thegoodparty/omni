@@ -9,13 +9,12 @@ export const CAMPAIGN_MANAGER_HISTORY_KEY = [
   'chat-history',
 ] as const
 
-// Fallback intro for the shared chat surface's `defaultIntro`. The manager
-// normally opens straight into its persisted conversation (whose first message
-// is the server-seeded, resume-aware greeting), so this only shows if resolving
-// that conversation fails and the body drops to a fresh deferred-create chat.
-// Mirrors gp-api's buildCampaignManagerGreeting (kept in sync by hand; it is
-// display copy, not a cross-service contract). First-name aware to match: the
-// server bakes the candidate's first name into its own seeded greeting.
+// The manager's opener, played by the chat body on every new chat while the
+// conversation create is still deferred. Mirrors gp-api's
+// buildCampaignManagerGreeting, which seeds the same copy as the conversation's
+// first message once it exists (kept in sync by hand; it is display copy, not a
+// cross-service contract). First-name aware to match: the server bakes the
+// candidate's first name into its own seeded greeting.
 export const buildCampaignManagerIntro = (
   firstName?: string | null,
 ): string[] => [

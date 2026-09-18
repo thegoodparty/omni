@@ -41,7 +41,11 @@ export type CampaignProRow = {
   isDemo: boolean
   subscriptionId: string | null
   customerId: string | null
-  /** `details.isProUpdatedAt` — an ISO-8601 string written by `setIsPro`. */
+  /**
+   * `details.isProUpdatedAt` — an ISO-8601 string for writes after #1682 and a
+   * legacy unix-**millisecond** number before it, which `->>` returns as
+   * digits. See {@link toEpochMs}.
+   */
   isProUpdatedAt: string | null
   /**
    * `details.subscriptionCanceledAt` — epoch, but in **either** seconds or
@@ -85,8 +89,18 @@ export type ProDriftFinding = {
 }
 
 /**
+ * Neither stamp this report compares is in one shape, and the two are wrong in
+ * different ways.
+ *
  * `details.isProUpdatedAt` is an ISO string (`formatISO(new Date())` in
- * `setIsPro`), so it parses directly.
+ * `setIsPro`) **only for writes after #1682**. Before that, `setIsPro` wrote
+ * `Date.now()`, and those rows were never backfilled — `campaign.jsonTypes.d.ts`
+ * still types the key `string | number` for exactly that reason. `->>` returns
+ * such a row as digits, and `Date.parse` on digits is `NaN`, so reading it as a
+ * date makes a real upgrade look absent. An absent upgrade is precisely what
+ * puts a row into PRO_AFTER_CANCELLATION, so a healthy cancel-then-resubscribe
+ * would be reported as a campaign to de-Pro — on a report whose output decides
+ * refunds and cancellations against live customers.
  *
  * `details.subscriptionCanceledAt` is written in **two different units** by
  * two different handlers, and both are in the column:
@@ -108,14 +122,42 @@ export type ProDriftFinding = {
 // either unit is on the correct side, and no plausible date is ambiguous.
 const SECONDS_CEILING = 1e11
 
+/** Puts a bare epoch onto milliseconds, whichever unit it was written in. */
+function scaleToMs(value: number): number {
+  return Math.abs(value) < SECONDS_CEILING ? value * 1000 : value
+}
+
+const BARE_INTEGER = /^\d+$/
+
+// Reinterpreting a string of digits as an epoch is a guess in a way that
+// reading a number is not, so it has to be corroborated rather than taken: the
+// scaled value must land where a real stamp lands. 1e12 ms is 2001-09-09 and
+// 1e13 ms is 2286-11-20 — i.e. exactly the 10-digit-seconds and
+// 13-digit-millisecond stamps, the only two magnitudes either handler has ever
+// written. `2026`, `20260701` and `0` are none of those: they stay `null`,
+// which this report reads as "no upgrade recorded" and so reports the row
+// rather than inventing a 1970 date and hiding it.
+const PLAUSIBLE_MS_MIN = 1e12
+const PLAUSIBLE_MS_MAX = 1e13
+
 export function toEpochMs(value: string | number | null): number | null {
   if (value === null || value === undefined) return null
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) return null
-    return Math.abs(value) < SECONDS_CEILING ? value * 1000 : value
+    return scaleToMs(value)
   }
   const trimmed = value.trim()
   if (!trimmed) return null
+  // A run of digits is a legacy stamp, never a date, so it is read as one
+  // before `Date.parse` gets a say. `Date.parse` only agrees by accident: it
+  // returns NaN for the 13-digit shape and, worse, a plausible-looking date
+  // for shorter runs (`'2026'` is a year, `'0'` is the year 2000).
+  if (BARE_INTEGER.test(trimmed)) {
+    const scaled = scaleToMs(Number(trimmed))
+    return scaled >= PLAUSIBLE_MS_MIN && scaled < PLAUSIBLE_MS_MAX
+      ? scaled
+      : null
+  }
   const parsed = Date.parse(trimmed)
   return Number.isNaN(parsed) ? null : parsed
 }

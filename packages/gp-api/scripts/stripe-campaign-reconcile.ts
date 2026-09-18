@@ -145,6 +145,13 @@ export interface RawSubscription {
   id: string
   customer: string | { id: string } | null
   status: Stripe.Subscription.Status
+  // A Pro checkout writes `userId` onto the checkout SESSION, not onto the
+  // subscription, so this is `{}` on every subscription the 2026-09-17
+  // reconciliation examined. It is carried anyway because it is the only
+  // ownership signal that does not go through an address a candidate typed at
+  // checkout, so where it IS present it outranks the customer's email — see
+  // repair-orphaned-pro-subscriptions.ts § resolveOwner.
+  metadata?: Stripe.Metadata | null
   currency?: string | null
   start_date?: number | null
   cancel_at?: number | null
@@ -166,6 +173,10 @@ export interface SubscriptionSnapshot {
   id: string
   customerId: string | null
   status: Stripe.Subscription.Status
+  // Never null, so a consumer reads a missing key rather than branching on an
+  // absent object. This report does not use it; the repair script resolves
+  // ownership from it.
+  metadata: Record<string, string>
   amountCents: number | null
   currency: string | null
   startDate: number | null
@@ -329,6 +340,7 @@ export const toSnapshot = (
     id: subscription.id,
     customerId: idOf(subscription.customer),
     status: subscription.status,
+    metadata: subscription.metadata ?? {},
     amountCents: item?.price?.unit_amount ?? null,
     currency: item?.price?.currency ?? subscription.currency ?? null,
     startDate: subscription.start_date ?? null,

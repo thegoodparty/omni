@@ -172,9 +172,8 @@ def test_valid_signature_self_invoke_carries_the_parsed_event(fake_lambda):
 
 
 def test_comment_posted_body_without_history_items_carries_event_ts(fake_lambda):
-    # Production taskCommentPosted deliveries have no history_items; the
-    # top-level date (int or str) must survive into the async payload so the
-    # router can key the resume dedup claim on it.
+    # A payload that does carry a top-level date (tests, console invokes, the
+    # async round trip) is trusted as-is.
     body = {
         "event": "taskCommentPosted",
         "task_id": "task-abc123",
@@ -190,6 +189,42 @@ def test_comment_posted_body_without_history_items_carries_event_ts(fake_lambda)
     assert payload["event_ts"] == "1700000099000"
     assert payload["current_status"] == "feedback needed"
     assert handler.AutopilotEvent.from_payload(payload).event_ts == "1700000099000"
+
+
+def test_real_comment_posted_delivery_reads_ts_and_actor_from_history_items(fake_lambda):
+    # The shape a REAL taskCommentPosted delivery has (per ClickUp's payload
+    # docs and the first live park): NO top-level date, the timestamp and the
+    # acting user only on the history items, whose field is a comment — so
+    # they parse to zero status transitions. The first live park's answer
+    # path was refused at dispatch because event_ts stayed None here.
+    body = {
+        "event": "taskCommentPosted",
+        "task_id": "task-abc123",
+        "list_id": IN_SCOPE_LIST_ID,
+        "history_items": [
+            {
+                "id": "hi-1",
+                "type": 1,
+                "field": "comment",
+                "date": "1700000099000",
+                "user": {"id": 150125283, "username": "Amanda White"},
+                "comment": {"id": "c-1", "date": "1700000099000"},
+            }
+        ],
+    }
+    handler.handler(make_event(body), None)
+
+    payload = fake_lambda.invoke_payloads[0]
+    assert payload["kind"] == "commentPosted"
+    # The comment history item parses to an inert None->None transition —
+    # the commentPosted route never reads transitions, and a None to-status
+    # matches neither the routing table nor a gate.
+    assert [t["to_status"] for t in payload["transitions"]] == [None]
+    assert payload["event_ts"] == "1700000099000"
+    assert payload["event_actor_id"] == "150125283"
+    restored = handler.AutopilotEvent.from_payload(payload)
+    assert restored.event_ts == "1700000099000"
+    assert restored.event_actor_id == "150125283"
 
 
 def test_numeric_history_item_date_normalizes(fake_lambda):
@@ -562,6 +597,7 @@ def test_async_worker_hydrates_comment_posted_current_status_from_live_read(monk
         list_id=None,
         transitions=[],
         event_ts="1700000099000",
+        event_actor_id="150125283",
     ).to_payload()
 
     resp = handler.handler(payload, None)
@@ -574,6 +610,10 @@ def test_async_worker_hydrates_comment_posted_current_status_from_live_read(monk
     # The delivery timestamp is the resume dedup key's only source — it must
     # survive hydration, not be replaced by anything from the task read.
     assert routed[0].event_ts == "1700000099000"
+    # And the delivery's actor must survive it too: every real delivery
+    # hydrates, so an actor dropped here reaches the comment-resume bot
+    # filter as None and the park self-resume loop comes back.
+    assert routed[0].event_actor_id == "150125283"
 
 
 def test_comment_posted_without_parent_hydrates_even_when_list_and_status_are_set(monkeypatch, fake_lambda):

@@ -61,6 +61,7 @@ const snapshot = (
 ): SubscriptionSnapshot => ({
   customerId: null,
   status: 'active',
+  metadata: {},
   amountCents: 1000,
   currency: 'usd',
   startDate: null,

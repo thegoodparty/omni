@@ -86,6 +86,11 @@ sweep unconditionally drives every epic sitting in `executing`, and folding
 it into `in progress` would let a sweep tick dispatch stories while
 epic-create is still mid-breakdown, before the human approved it.
 
+Every card arriving in `feedback needed` pings the Slack channel, park and
+finished breakdown alike — a park does it as part of the park primitive, and
+epic-create's handoff does it with `feedback notify` (the ping without the
+card writes). Nobody is expected to watch the board.
+
 **The two human gates.** A transition into `GATE_TO_STATUSES` only dispatches
 when the actor is a human — `router.py` checks the moving user against
 `AUTOPILOT_BOT_USER_ID` and refuses (never dispatches) when they match:
