@@ -290,31 +290,90 @@ WHERE id IN (325506, 325636);
 -- Expected from the logs: both subscription_id NULL; 325636 is_pro = true with
 -- is_pro_updated_at still 2026-07-01; 325506 is_pro = false.
 
--- 4. The whole class, not just the known ids.
---    Same logic as scripts/pro-without-subscription-drift.ts.
+-- 4. PRO_AFTER_CANCELLATION as a class, not just the known ids: is_pro with a
+--    recorded cancellation that postdates the recorded upgrade.
+--
+--    This is ONE of the two classes scripts/pro-without-subscription-drift.ts
+--    reports, not both. The filter on subscriptionCanceledAt below means it
+--    cannot see PRO_NO_SUBSCRIPTION_ID — the class campaign 325636 is in, three
+--    sections above. Query 5 covers that one; the script covers both in a pass.
+--
+--    NEITHER stamp is in one shape, and they are wrong in different ways.
 --
 --    subscriptionCanceledAt is NOT in a consistent unit: the deleted handler
 --    writes Date.now() (ms), the updated handler writes Stripe's canceled_at
 --    verbatim (SECONDS). Normalise, or every seconds-stamped row reads as
 --    1970 and silently fails the comparison. 1e11 as ms is 1973 and as
 --    seconds is the year 5138, so nothing real is ambiguous.
+--
+--    isProUpdatedAt is an ISO string only for writes after #1682; before it,
+--    setIsPro wrote Date.now(), those rows were never backfilled, and ->>
+--    returns them as digits. Casting digits to timestamptz is not merely
+--    lossy, it is two separate wrongs: a legacy ms value raises
+--    ERROR: date/time field value out of range and kills the whole query, so
+--    you get NO output rather than a wrong row, while '20260701' is a
+--    perfectly valid date literal meaning something else entirely. So digits
+--    are read as an epoch, in the same two units, and never as a date.
+--
+--    A run of digits that is no real stamp in either unit (1e12 ms is
+--    2001-09-09, 1e13 ms is 2286-11-20) is left NULL rather than turned into
+--    a 1970 date: NULL reports the row, and an operator then looks at it,
+--    which is the safe direction for a query that decides cancellations.
+--
+--    MATERIALIZED keeps the is_pro filter strictly ahead of the casts, so a
+--    non-Pro row carrying junk in either key cannot error the query.
+WITH pro_rows AS MATERIALIZED (
+  SELECT id, slug, user_id,
+         details->>'isProUpdatedAt'         AS upgraded_raw,
+         details->>'subscriptionCanceledAt' AS canceled_raw
+  FROM campaign
+  WHERE is_pro = true
+    AND COALESCE(is_demo, false) = false
+    AND jsonb_typeof(details) = 'object'
+    AND details->>'subscriptionCanceledAt' IS NOT NULL
+), normalised AS (
+  SELECT id, slug, user_id, upgraded_raw, canceled_raw,
+         to_timestamp(
+           CASE WHEN abs(canceled_raw::bigint) < 1e11
+                THEN canceled_raw::bigint
+                ELSE canceled_raw::bigint / 1000
+           END
+         ) AS canceled_at,
+         CASE
+           WHEN upgraded_raw ~ '^\d+$' THEN
+             CASE
+               WHEN upgraded_raw::numeric >= 1e9  AND upgraded_raw::numeric < 1e10
+                 THEN to_timestamp(upgraded_raw::numeric)
+               WHEN upgraded_raw::numeric >= 1e12 AND upgraded_raw::numeric < 1e13
+                 THEN to_timestamp(upgraded_raw::numeric / 1000)
+             END
+           ELSE upgraded_raw::timestamptz
+         END AS upgraded_at
+  FROM pro_rows
+)
 SELECT id, slug, user_id,
-       details->>'isProUpdatedAt'         AS is_pro_updated_at,
-       details->>'subscriptionCanceledAt' AS subscription_canceled_at
+       upgraded_raw AS is_pro_updated_at,
+       canceled_raw AS subscription_canceled_at
+FROM normalised
+WHERE upgraded_at IS NULL
+   OR canceled_at > upgraded_at;
+
+-- 5. The other class query 4 cannot see: PRO_NO_SUBSCRIPTION_ID, i.e. Pro with
+--    nothing behind it at all. Weaker evidence than query 4 — a campaign that
+--    was never paid for looks identical to one whose id was lost — so this is
+--    triage input, never an input to a write. Campaign 325636 is here.
+--
+--    No timestamp is read, so none of query 4's normalisation applies.
+SELECT id, slug, user_id,
+       details->>'isProUpdatedAt' AS is_pro_updated_at
 FROM campaign
 WHERE is_pro = true
   AND COALESCE(is_demo, false) = false
   AND jsonb_typeof(details) = 'object'
-  AND details->>'subscriptionCanceledAt' IS NOT NULL
-  AND (
-    details->>'isProUpdatedAt' IS NULL
-    OR to_timestamp(
-         CASE WHEN abs((details->>'subscriptionCanceledAt')::bigint) < 1e11
-              THEN (details->>'subscriptionCanceledAt')::bigint
-              ELSE (details->>'subscriptionCanceledAt')::bigint / 1000
-         END
-       ) > (details->>'isProUpdatedAt')::timestamptz
-  );
+  AND details->>'subscriptionCanceledAt' IS NULL
+  -- `->>` yields NULL for a JSON null and '' for an empty string; the script
+  -- treats both as no id, so NULLIF collapses them the same way.
+  AND NULLIF(details->>'subscriptionId', '') IS NULL;
 ```
 
 Or, equivalently and without hand-editing SQL:

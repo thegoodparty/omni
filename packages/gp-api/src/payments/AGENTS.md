@@ -239,6 +239,18 @@ comparing that key to a date must normalise first — reading a seconds value as
 milliseconds silently lands in January 1970 and the comparison quietly fails
 rather than erroring.
 
+**`details.isProUpdatedAt` is not in a consistent shape either.** `setIsPro`
+writes `formatISO(new Date())` — an ISO string — but only since #1682; before
+that it wrote `Date.now()`, and no migration ever backfilled those rows, which
+is why `campaign.jsonTypes.d.ts` types the key `string | number`. `->>` returns
+the legacy rows as digits, so a reader that treats the key as a date gets `NaN`
+in JS and, in SQL, either `invalid input syntax for type timestamp with time
+zone` (`'1751328000000'`) or a valid-but-unrelated date (`'20260701'`). Read
+digits as an epoch and never as a date. This matters most where an absent
+upgrade stamp is itself a signal: in the `subscriptionCanceledAt`-later-than-
+`isProUpdatedAt` comparison above, a legacy stamp read as absent turns a
+healthy cancel-then-resubscribe into a false "still Pro after cancellation".
+
 **Purchase error 400 `NO_ACTIVE_CAMPAIGN`.** `isActiveCampaign` requires: not
 demo, `primaryResult !== 'lost'`, `didWin === null`, valid future
 `details.electionDate` — across ALL the user's campaigns. Diagnose (read
