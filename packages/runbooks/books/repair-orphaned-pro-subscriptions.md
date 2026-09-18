@@ -290,8 +290,13 @@ WHERE id IN (325506, 325636);
 -- Expected from the logs: both subscription_id NULL; 325636 is_pro = true with
 -- is_pro_updated_at still 2026-07-01; 325506 is_pro = false.
 
--- 4. The whole class, not just the known ids.
---    Same logic as scripts/pro-without-subscription-drift.ts.
+-- 4. PRO_AFTER_CANCELLATION as a class, not just the known ids: is_pro with a
+--    recorded cancellation that postdates the recorded upgrade.
+--
+--    This is ONE of the two classes scripts/pro-without-subscription-drift.ts
+--    reports, not both. The filter on subscriptionCanceledAt below means it
+--    cannot see PRO_NO_SUBSCRIPTION_ID — the class campaign 325636 is in, three
+--    sections above. Query 5 covers that one; the script covers both in a pass.
 --
 --    NEITHER stamp is in one shape, and they are wrong in different ways.
 --
@@ -304,8 +309,9 @@ WHERE id IN (325506, 325636);
 --    isProUpdatedAt is an ISO string only for writes after #1682; before it,
 --    setIsPro wrote Date.now(), those rows were never backfilled, and ->>
 --    returns them as digits. Casting digits to timestamptz is not merely
---    lossy, it is two separate wrongs: '1751328000000' raises
---    "invalid input syntax" and kills the whole query, while '20260701' is a
+--    lossy, it is two separate wrongs: a legacy ms value raises
+--    ERROR: date/time field value out of range and kills the whole query, so
+--    you get NO output rather than a wrong row, while '20260701' is a
 --    perfectly valid date literal meaning something else entirely. So digits
 --    are read as an epoch, in the same two units, and never as a date.
 --
@@ -351,6 +357,23 @@ SELECT id, slug, user_id,
 FROM normalised
 WHERE upgraded_at IS NULL
    OR canceled_at > upgraded_at;
+
+-- 5. The other class query 4 cannot see: PRO_NO_SUBSCRIPTION_ID, i.e. Pro with
+--    nothing behind it at all. Weaker evidence than query 4 — a campaign that
+--    was never paid for looks identical to one whose id was lost — so this is
+--    triage input, never an input to a write. Campaign 325636 is here.
+--
+--    No timestamp is read, so none of query 4's normalisation applies.
+SELECT id, slug, user_id,
+       details->>'isProUpdatedAt' AS is_pro_updated_at
+FROM campaign
+WHERE is_pro = true
+  AND COALESCE(is_demo, false) = false
+  AND jsonb_typeof(details) = 'object'
+  AND details->>'subscriptionCanceledAt' IS NULL
+  -- `->>` yields NULL for a JSON null and '' for an empty string; the script
+  -- treats both as no id, so NULLIF collapses them the same way.
+  AND NULLIF(details->>'subscriptionId', '') IS NULL;
 ```
 
 Or, equivalently and without hand-editing SQL:
