@@ -306,6 +306,30 @@ export class RecommendedListsService {
     }))
   }
 
+  // The universe itself for one variant — what the voter data page downloads
+  // for a recommendation the candidate has not saved. No channel, so no
+  // contactability cut, and no count: the route streams whoever matches.
+  // Null is an ideology variant with no bucket to match against, the same
+  // way such a variant hides from the cards.
+  async globalFilterFor(
+    organization: Organization,
+    campaign: Campaign,
+    variant: RecommendedListVariant,
+  ): Promise<VoterFilterBase | null> {
+    if (organization.slug.startsWith('eo-')) {
+      throw new BadRequestException(
+        'Recommended lists are not available for this organization',
+      )
+    }
+    const [ideologyBucket, { electionCode }] = await Promise.all([
+      RECOMMENDED_LISTS_REGISTRY[variant].requiresIdeologyBucket
+        ? this.ideology.bucketForCampaign(campaign.id)
+        : null,
+      this.raceSizingContext(campaign),
+    ])
+    return buildVariantFilter(variant, null, ideologyBucket, electionCode)
+  }
+
   // The two things about the race that shape a recommendation: the vote goal
   // it is sized against, and the electorate it draws. One election-api call
   // for both, since they come off the same race row and a second round-trip

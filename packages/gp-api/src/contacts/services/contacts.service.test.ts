@@ -1527,6 +1527,56 @@ describe('ContactsService', () => {
       })
     })
 
+    describe('downloadFilter (CSV for an unsaved filter)', () => {
+      const makeReply = () =>
+        ({
+          raw: {
+            headersSent: false,
+            flushHeaders: vi.fn(),
+            setHeader: vi.fn(),
+            on: vi.fn(),
+          },
+        }) as never
+
+      it('throws when the organization is not pro, before streaming', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+
+        await expect(
+          service.downloadFilter(
+            { independentAffinity: true },
+            makeReply(),
+            org,
+          ),
+        ).rejects.toThrow(ForbiddenException)
+        expect(mockVoterDownloadService.streamPeopleCsv).not.toHaveBeenCalled()
+      })
+
+      it('streams the inline filter as individual voters, never households', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        const res = makeReply()
+
+        await service.downloadFilter({ independentAffinity: true }, res, org)
+
+        expect(mockVoterDownloadService.streamPeopleCsv).toHaveBeenCalledOnce()
+        expect(mockVoterDownloadService.streamPeopleCsv).toHaveBeenCalledWith(
+          expect.objectContaining({
+            districtId: OVERRIDE_DISTRICT_ID,
+            groupByHousehold: false,
+          }),
+          res,
+          expect.objectContaining({ filename: 'contacts.csv' }),
+        )
+      })
+    })
+
     describe('getFilterDetail (aggregates for an unsaved filter)', () => {
       it('throws when the organization is not pro, before querying', async () => {
         const org = makeOrganization({

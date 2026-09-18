@@ -486,10 +486,18 @@ and its own error node on a 502/504.
 
 **Details** on a card that already matches a saved list opens that list's own
 detail sheet. Otherwise it opens a sheet built from the recommendation itself,
-whose demographics and reachability come from `POST /v1/contacts/list-detail`
-— the same aggregates as a saved list, computed for the inline filter the count
-endpoint already accepts. No download and no outreach history: neither exists
-for a list that has not been saved.
+with every section the saved-list sheet has: the filter summary, demographics
+and reachability from `POST /v1/contacts/list-detail` (the same aggregates as
+a saved list, computed for the inline filter the count endpoint already
+accepts), the two history tiles and the history section reading empty (nothing
+has been sent to a list that does not exist), and a Download. That Download is
+`GET /v1/campaigns/mine/recommended-lists/:variant/download`: the route
+resolves the variant's global universe (`RecommendedListsService.globalFilterFor`
+— ideology bucket and election code included, so it is the same universe the
+card counted) and streams it through `ContactsService.downloadFilter`, the
+saved-list CSV path fed an inline filter, always as individual voters. It
+refuses an `eo-` org, 400s an unknown variant, and 404s an ideology variant
+the campaign has no bucket for.
 
 **Send outreach** saves nothing. It opens the page's "Choose a channel" sheet
 (`crm/shared/channelPicker/`), which lists every channel with how many of the

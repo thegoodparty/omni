@@ -129,6 +129,7 @@ beforeEach(() => {
   setContext()
   mockedUseContactsDownload.mockReturnValue({
     download: downloadFn,
+    downloadFromHref: vi.fn(),
     isPreparing: false,
   })
   api.mock('GET /v1/contacts/list-detail', {

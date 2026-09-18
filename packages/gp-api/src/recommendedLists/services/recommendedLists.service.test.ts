@@ -949,6 +949,40 @@ describe('RecommendedListsService.recommend', () => {
     })
   })
 
+  // The voter data page downloads a recommendation it has not saved, so the
+  // route needs the universe itself, not a sized card.
+  describe('globalFilterFor', () => {
+    it('returns the global universe with no contactability cut', async () => {
+      const filter = await service.globalFilterFor(
+        organization,
+        campaign,
+        'persuadeAffinity',
+      )
+
+      expect(filter).toEqual({
+        voterStatus: ['Super', 'Likely'],
+        independentAffinity: true,
+      })
+      expect(countForFilter).not.toHaveBeenCalled()
+    })
+
+    it('returns null for an ideology variant with no bucket', async () => {
+      const filter = await service.globalFilterFor(
+        organization,
+        campaign,
+        'persuadeIdeology',
+      )
+
+      expect(filter).toBeNull()
+    })
+
+    it('refuses an elected-office org', async () => {
+      await expect(
+        service.globalFilterFor(electedOffice, campaign, 'persuadeAffinity'),
+      ).rejects.toBeInstanceOf(BadRequestException)
+    })
+  })
+
   describe('door knocking', () => {
     it('takes the count from the ranking, not a second query', async () => {
       rankPrecincts.mockResolvedValue({

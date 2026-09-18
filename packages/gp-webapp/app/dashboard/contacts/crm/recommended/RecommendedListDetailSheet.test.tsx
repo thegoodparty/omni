@@ -6,6 +6,7 @@ import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContactsTable } from '../ContactsTableProvider'
+import { useContactsDownload } from '../shared/useContactsDownload'
 import RecommendedListDetailSheet from './RecommendedListDetailSheet'
 
 vi.mock('../ContactsTableProvider', () => ({
@@ -22,6 +23,13 @@ const openChannelPicker = vi.fn()
 vi.mock('../shared/channelPicker/ChannelPickerProvider', () => ({
   useOpenChannelPicker: () => openChannelPicker,
 }))
+// Same reason ListDetailSheet.test mocks it: the cookie-poll mechanics are
+// covered by useContactsDownload.test.ts, and here the confirm callback is
+// invoked directly to reach the analytics branch.
+vi.mock('../shared/useContactsDownload', () => ({
+  useContactsDownload: vi.fn(),
+}))
+const downloadFromHref = vi.fn()
 
 const RECOMMENDATION: RecommendedList = {
   variant: 'persuadeAffinity',
@@ -57,6 +65,11 @@ beforeEach(() => {
     isWinContextReady: true,
     voterDataUnavailable: false,
   } as unknown as ReturnType<typeof useContactsTable>)
+  vi.mocked(useContactsDownload).mockReturnValue({
+    download: vi.fn(),
+    downloadFromHref,
+    isPreparing: false,
+  })
 })
 
 describe('RecommendedListDetailSheet', () => {
@@ -105,8 +118,51 @@ describe('RecommendedListDetailSheet', () => {
       audienceLikelyVoters: true,
       independentAffinity: true,
     })
-    // Nothing has been sent to a list that does not exist yet.
-    expect(screen.queryByText('Outreach campaign history')).toBeNull()
+    // Every section the saved-list sheet has. Nothing has been sent to a
+    // list that does not exist yet, so the history tiles and section read
+    // empty rather than disappearing.
+    expect(screen.getByText('Last outreach')).toBeInTheDocument()
+    expect(screen.getByText('Last method')).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Outreach campaign history' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('No outreach yet.')).toBeInTheDocument()
+  })
+
+  // The saved-list sheet's Download, backed by the variant download route
+  // since there is no saved segment to name.
+  it('downloads the recommendation by variant and reports the export once confirmed', async () => {
+    api.mock('POST /v1/contacts/list-detail', { status: 200, data: DETAIL })
+    let confirm: (() => void) | undefined
+    downloadFromHref.mockImplementation((_href, _props, onConfirmed) => {
+      confirm = onConfirmed
+    })
+
+    render(
+      <RecommendedListDetailSheet
+        recommendation={RECOMMENDATION}
+        onClose={vi.fn()}
+      />,
+    )
+
+    await screen.findAllByText('42,468')
+    await userEvent.click(screen.getByRole('button', { name: 'Download list' }))
+    expect(downloadFromHref).toHaveBeenCalledWith(
+      '/api/v1/campaigns/mine/recommended-lists/persuadeAffinity/download',
+      { context: 'win' },
+      expect.any(Function),
+    )
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.VoterData.ListExported,
+      expect.anything(),
+    )
+
+    confirm?.()
+
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListExported, {
+      listSize: 42468,
+      surface: 'recommendedDetail',
+    })
   })
 
   it('reads Unavailable when the aggregates fail', async () => {
