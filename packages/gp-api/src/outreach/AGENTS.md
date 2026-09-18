@@ -102,7 +102,10 @@ the insert's `Serializable` transaction (with a cheap `preflight` copy before
 the image upload, so a rejected create orphans no S3 object). `deleteDraftRow` is the
 shared teardown (also used by the expiry job): S3 objects first, then the row,
 so a failed object delete leaves the row for the next attempt instead of
-orphaning bytes.
+orphaning bytes. `OutreachDraftExpiryService` (daily `@Cron`, `37 4 * * *`
+ET, `CronLockService`) deletes any `draft` row older than
+`DRAFT_RETENTION_DAYS` (90) via that same teardown, isolating one row's
+delete failure from the rest of the sweep.
 
 Resume converts that row IN PLACE, never inserting a second one: `POST
 /outreach` with `draftOutreachId` (p2p, no file — the row's saved `imageUrl`
@@ -881,3 +884,8 @@ services and `S3Service.getFileBytesWithContentType`;
   foreign-voter-list rejections, the draft appearing in `GET /outreach`, and
   delete (204 + S3 image/audio deletes + verdict cleared, an off-asset-domain
   imageUrl left alone, 409 on a `pending` row, 404 on another campaign's).
+  `services/outreachDraftExpiry.service.test.ts` covers the daily expiry
+  sweep: a row past `DRAFT_RETENTION_DAYS` deleted and a fresher one kept,
+  the cron-lock no-op and the two-invocations-one-slot case, one row's
+  delete failure not blocking another's, and completion sealed in `finally`
+  even when the scan itself throws.

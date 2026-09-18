@@ -1,6 +1,7 @@
 import { HttpModule } from '@nestjs/axios'
 import { forwardRef, Module } from '@nestjs/common'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { CronModule } from '@/cron/cron.module'
 import { CrmModule } from '@/crm/crmModule'
 import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
@@ -41,6 +42,7 @@ import { OutreachMaterializationService } from './services/outreachMaterializati
 import { OutreachAssignmentService } from './services/outreachAssignment.service'
 import { OutreachService } from './services/outreach.service'
 import { OutreachDraftService } from './services/outreachDraft.service'
+import { OutreachDraftExpiryService } from './services/outreachDraftExpiry.service'
 import { OutreachSocialService } from './services/outreachSocial.service'
 import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
 import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
@@ -105,6 +107,8 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
     // For HubspotSingleSendService, the robocall payment/receipt single-send
     // cutover (ENG-11035).
     CrmModule,
+    // For CronLockService, guarding the draft expiry job below.
+    CronModule,
   ],
   controllers: [
     OutreachController,
@@ -124,6 +128,7 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
   providers: [
     OutreachService,
     OutreachDraftService,
+    OutreachDraftExpiryService,
     OutreachSmsAdminService,
     OutreachSocialService,
     OutreachSocialGenerationService,
