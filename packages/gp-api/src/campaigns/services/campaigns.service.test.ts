@@ -1696,12 +1696,19 @@ const buildSetIsProModule = async () => {
   const mockCampaignFindFirst = vi.fn()
   // Rowcount, as $executeRaw returns. 1 = the campaign row was patched.
   const mockExecuteRaw = vi.fn().mockResolvedValue(1)
+  // The same, on the transaction client the flip runs on. Separate from the
+  // one above so a test can tell a write that committed with the flip from one
+  // issued on the pool after it.
+  const mockTxExecuteRaw = vi.fn().mockResolvedValue(1)
+  const mockTxQueryRaw = vi.fn().mockResolvedValue([{ id: 1 }])
   const mockCampaignFindUniqueOrThrow = vi
     .fn()
     .mockResolvedValue({ id: 1, userId: 7, isPro: true, details: {} })
   const mockTransaction = vi.fn(
     async (callback: Parameters<PrismaClient['$transaction']>[0]) => {
       const tx = {
+        $executeRaw: mockTxExecuteRaw,
+        $queryRaw: mockTxQueryRaw,
         campaign: {
           findUnique: mockTxCampaignFindUnique,
           update: mockCampaignUpdate,
@@ -1767,15 +1774,25 @@ const buildSetIsProModule = async () => {
   })
 
   // Every details patch setIsPro issued. These go out as the jsonb-merge
-  // parameter of patchCampaignDetails' raw UPDATE, not as a `campaign.update`
-  // payload; the isPro scalar flip still runs through `campaign.update` and is
-  // deliberately not counted here.
+  // parameter of a raw UPDATE, not as a `campaign.update` payload; the isPro
+  // scalar flip still runs through `campaign.update` and is deliberately not
+  // counted here. Collected from both clients on purpose, so the four
+  // semantics tests below stay about WHICH transitions stamp and say nothing
+  // about where the statement runs — they have to keep passing across that
+  // move. Where it runs is asserted separately.
   const detailsWrites = () =>
-    mockExecuteRaw.mock.calls.map(patchFromExecuteRawCall)
+    [...mockTxExecuteRaw.mock.calls, ...mockExecuteRaw.mock.calls].map(
+      patchFromExecuteRawCall,
+    )
 
   return {
     service,
     mockTxCampaignFindUnique,
+    mockCampaignUpdate,
+    mockTransaction,
+    mockTxExecuteRaw,
+    mockTxQueryRaw,
+    mockExecuteRaw,
     detailsWrites,
   }
 }
@@ -1841,6 +1858,57 @@ describe('CampaignsService - setIsPro / isProUpdatedAt', () => {
     const writes = detailsWrites()
     expect(writes).toHaveLength(1)
     expect(firstOrThrow(writes).isProUpdatedAt).not.toBe(PRIOR_UPGRADE_DATE)
+  })
+
+  // Where the stamp runs, which the four tests above deliberately do not say.
+  // It has to be the flip's own transaction client: a statement on the pool
+  // commits separately, and the integration test shows what a separate commit
+  // costs when it fails.
+  it('issues the stamp on the flip transaction, not on the pool after it', async () => {
+    const {
+      service,
+      mockTxCampaignFindUnique,
+      mockTxExecuteRaw,
+      mockExecuteRaw,
+    } = await buildSetIsProModule()
+    mockTxCampaignFindUnique.mockResolvedValue({
+      isPro: false,
+      hasFreeTextsOffer: false,
+      freeTextsOfferRedeemedAt: null,
+    })
+
+    await service.setIsPro(1, true, false)
+
+    expect(mockTxExecuteRaw).toHaveBeenCalledTimes(1)
+    expect(mockExecuteRaw).not.toHaveBeenCalled()
+  })
+
+  // The lock, and the isolation level that makes it usable. Serializable is
+  // what turned a concurrent duplicate delivery into P2034 instead of a
+  // recomputed becamePro=false; `FOR UPDATE` has to precede the read it
+  // protects, or the read still sees a snapshot taken before the wait.
+  it('locks the campaign row before reading it, at the default isolation level', async () => {
+    const {
+      service,
+      mockTxCampaignFindUnique,
+      mockTransaction,
+      mockTxQueryRaw,
+    } = await buildSetIsProModule()
+    mockTxCampaignFindUnique.mockResolvedValue({
+      isPro: false,
+      hasFreeTextsOffer: false,
+      freeTextsOfferRedeemedAt: null,
+    })
+
+    await service.setIsPro(1, true, false)
+
+    expect(firstOrThrow(mockTransaction.mock.calls)).toHaveLength(1)
+    expect(firstOrThrow(mockTxQueryRaw.mock.calls).join(' ')).toContain(
+      'FOR UPDATE',
+    )
+    expect(firstOrThrow(mockTxQueryRaw.mock.invocationCallOrder)).toBeLessThan(
+      firstOrThrow(mockTxCampaignFindUnique.mock.invocationCallOrder),
+    )
   })
 })
 

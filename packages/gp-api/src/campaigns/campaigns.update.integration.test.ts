@@ -1,9 +1,10 @@
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { CrmCampaignsService } from '@/campaigns/services/crmCampaigns.service'
+import { CampaignTasksService } from '@/campaigns/tasks/services/campaignTasks.service'
 import { isActiveCampaign } from '@/campaigns/util/eligibility.util'
 import { useTestService } from '@/test-service'
 import { InternalServerErrorException, NotFoundException } from '@nestjs/common'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
 
@@ -648,5 +649,237 @@ describe('CampaignsService.getStatus', () => {
     await expect(campaigns.getStatus(campaign)).rejects.toThrow(
       NotFoundException,
     )
+  })
+})
+
+describe('CampaignsService.setIsPro', () => {
+  // The real CampaignTasksService would post to Slack. Its own
+  // `proUpgradeSlackNotifiedAt` guard is not what these tests are about.
+  const buildService = () => {
+    vi.spyOn(
+      service.app.get(CampaignTasksService),
+      'notifySlackOnProUpgrade',
+    ).mockResolvedValue(undefined)
+    return service.app.get(CampaignsService)
+  }
+
+  // The transient failure the bug needs, and nothing more: raise on any
+  // statement that changes `details`, so the isPro flip still succeeds and the
+  // stamp is the one write that fails. Postgres enforces it, so it lands
+  // identically whether the stamp runs inside the flip's transaction or on the
+  // pool after it — the same injection proves the old shape broken and the new
+  // one sound, with no test-only branch deciding which.
+  const failDetailsWrites = async () => {
+    await service.prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION test_fail_details_write() RETURNS trigger AS $$
+      BEGIN RAISE EXCEPTION 'details write failed'; END;
+      $$ LANGUAGE plpgsql
+    `)
+    await service.prisma.$executeRawUnsafe(`
+      CREATE TRIGGER test_fail_details_write
+      BEFORE UPDATE OF details ON campaign
+      FOR EACH ROW WHEN (NEW.details IS DISTINCT FROM OLD.details)
+      EXECUTE FUNCTION test_fail_details_write()
+    `)
+  }
+  const allowDetailsWrites = () =>
+    service.prisma.$executeRawUnsafe(
+      'DROP TRIGGER IF EXISTS test_fail_details_write ON campaign',
+    )
+
+  // Forces the two deliveries below to overlap, and lets Postgres rather than
+  // a sleep in the test decide the interleaving: whoever wins holds its
+  // transaction open inside pg_sleep while the loser is still arriving. It
+  // fires only on a real isPro change, so the loser — which by then finds the
+  // campaign already Pro — is not slowed in turn.
+  //
+  // Both shapes overlap under it, and that is the point. On the pre-change
+  // shape nothing locks the loser's read, so it gets in before the winner
+  // commits and its update then raises 40001. On this one the loser is still
+  // waiting for the row lock and reads only after the commit.
+  const slowTheProFlip = async () => {
+    await service.prisma.$executeRawUnsafe(`
+      CREATE OR REPLACE FUNCTION test_slow_pro_flip() RETURNS trigger AS $$
+      BEGIN PERFORM pg_sleep(0.4); RETURN NEW; END;
+      $$ LANGUAGE plpgsql
+    `)
+    await service.prisma.$executeRawUnsafe(`
+      CREATE TRIGGER test_slow_pro_flip
+      BEFORE UPDATE OF is_pro ON campaign
+      FOR EACH ROW WHEN (NEW.is_pro IS DISTINCT FROM OLD.is_pro)
+      EXECUTE FUNCTION test_slow_pro_flip()
+    `)
+  }
+
+  // DDL outlives the row cleanup between tests.
+  afterEach(async () => {
+    await allowDetailsWrites()
+    await service.prisma.$executeRawUnsafe(
+      'DROP TRIGGER IF EXISTS test_slow_pro_flip ON campaign',
+    )
+  })
+
+  // Two real concurrent deliveries, which is the semantics this change is
+  // actually about: not that the loser fails more gracefully, but that it
+  // stops failing and reaches the correct answer instead.
+  //
+  // Exactly one transition, and every one-time side effect hanging off it
+  // fires exactly once — the Slack announcement, the free-texts grant and the
+  // isProUpdatedAt stamp. Against the pre-change shape the loser raises the
+  // production error verbatim: P2034, `Transaction failed due to a write
+  // conflict or a deadlock`. The gate was never really computing
+  // becamePro=false for a duplicate; it was relying on Stripe to redeliver
+  // into a row that had become Pro in the meantime.
+  it('lets a duplicate delivery succeed with becamePro=false, firing the one-time effects once', async () => {
+    const { campaign } = await seedCampaign()
+    const slack = vi
+      .spyOn(service.app.get(CampaignTasksService), 'notifySlackOnProUpgrade')
+      .mockResolvedValue(undefined)
+    const campaigns = service.app.get(CampaignsService)
+    await slowTheProFlip()
+
+    const deliveries = await Promise.all([
+      campaigns.setIsPro(campaign.id, true, false),
+      campaigns.setIsPro(campaign.id, true, false),
+    ])
+
+    expect(deliveries.map((d) => d.becamePro).sort()).toEqual([false, true])
+    expect(slack).toHaveBeenCalledExactlyOnceWith(campaign.id)
+
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.isPro).toBe(true)
+    expect(row.hasFreeTextsOffer).toBe(true)
+    expect(row.freeTextsOfferRedeemedAt).toBeNull()
+    expect(row.details.isProUpdatedAt).toEqual(expect.any(String))
+  })
+
+  // The one that matters. This is not "two writes, either of which can fail" —
+  // it is a state that closes its own repair path behind it.
+  // `isBecomingProFirstTime` is derived from the PRIOR isPro, so once the flip
+  // has committed alone, every redelivery Stripe makes reads isPro=true,
+  // computes false, and skips the stamp. At-least-once delivery cannot heal a
+  // state it can no longer recognise as incomplete: the campaign is Pro
+  // forever with no `isProUpdatedAt` and no Slack announcement, and the CRM
+  // sync publishes it to HubSpot as Pro with no `pro_upgrade_date`. A
+  // transient failure becomes permanent.
+  it('leaves the transition for a redelivery to re-run when the stamp fails', async () => {
+    const { campaign } = await seedCampaign()
+    const campaigns = buildService()
+
+    await failDetailsWrites()
+    await expect(campaigns.setIsPro(campaign.id, true, false)).rejects.toThrow(
+      'details write failed',
+    )
+
+    // Stripe redelivers, into a database that has recovered.
+    await allowDetailsWrites()
+    const redelivery = await campaigns.setIsPro(campaign.id, true, false)
+
+    expect(redelivery.becamePro).toBe(true)
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.isPro).toBe(true)
+    expect(row.details.isProUpdatedAt).toEqual(expect.any(String))
+  })
+
+  // The same fact stated as the mechanism rather than the consequence: one
+  // commit, so a failed stamp takes the flip with it and there is no half
+  // state for a redelivery to misread.
+  it('rolls the flip back with the stamp instead of committing half of it', async () => {
+    const { campaign } = await seedCampaign()
+    const campaigns = buildService()
+
+    await failDetailsWrites()
+    await expect(campaigns.setIsPro(campaign.id, true, false)).rejects.toThrow(
+      'details write failed',
+    )
+
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.isPro).toBe(false)
+    expect(row.details.isProUpdatedAt).toBeUndefined()
+  })
+
+  // What the `jsonb_typeof` CASE is for. `patchCampaignDetails` answers a
+  // non-object `details` column with a 500, which was survivable when the
+  // stamp ran after the commit — the Pro flip had already landed. Inside the
+  // transaction that same 500 would roll back a paying customer's upgrade over
+  // a column shape that cannot occur (`Json @default("{}")`, NOT NULL), so the
+  // statement coerces instead of refusing.
+  //
+  // Two mutations. Against the pre-change shape the flip commits and the stamp
+  // 500s, unrepairably, exactly as in the first test. Dropping the CASE does
+  // not raise either — `jsonb` concatenates a scalar with an object into an
+  // ARRAY — so the column silently becomes `[null, {"isProUpdatedAt":...}]`
+  // and the read below finds no string there.
+  it('stamps onto a details column holding JSON null rather than failing the upgrade', async () => {
+    const { campaign } = await seedCampaign()
+    await service.prisma
+      .$executeRaw`UPDATE campaign SET details = 'null'::jsonb WHERE id = ${campaign.id}`
+    const campaigns = buildService()
+
+    const result = await campaigns.setIsPro(campaign.id, true, false)
+
+    expect(result.becamePro).toBe(true)
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.isPro).toBe(true)
+    expect(row.details.isProUpdatedAt).toEqual(expect.any(String))
+  })
+
+  // Stripe's at-least-once delivery, reduced to its two webhooks. The first
+  // delivery is an open transaction still holding the campaign row lock, so
+  // the second is guaranteed to arrive mid-flight rather than merely likely to
+  // — Postgres enforces the interleaving, no sleep decides it.
+  //
+  // Three mutations die here. Against the pre-change shape (Serializable, read
+  // taking no lock) it raises the production error verbatim: P2034,
+  // `Transaction failed due to a write conflict or a deadlock` — 1 prod and
+  // ~679 dev from this transaction in the 30 days to 2026-09-17, the dev
+  // figure inflated by the test-set-pro E2E route. Keeping Serializable
+  // alongside the new lock raises the same thing one statement earlier, from
+  // the lock. Dropping Serializable WITHOUT taking the lock is the silent
+  // variant: the read still sees its pre-wait snapshot, so becamePro comes
+  // back true for a duplicate and the stamp overwrites the first delivery's
+  // real upgrade date.
+  it('recognises a duplicate delivery instead of failing on it', async () => {
+    const { campaign } = await seedCampaign()
+    const campaigns = buildService()
+    const FIRST_DELIVERY_STAMP = '2026-09-15T07:42:51Z'
+
+    const rowLocked = deferred()
+    const lockReleased = deferred()
+
+    const firstDelivery = service.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        UPDATE campaign
+        SET is_pro = true,
+            details = details || ${JSON.stringify({
+              isProUpdatedAt: FIRST_DELIVERY_STAMP,
+            })}::jsonb
+        WHERE id = ${campaign.id}
+      `
+      rowLocked.resolve()
+      await lockReleased.promise
+    })
+
+    await rowLocked.promise
+    const secondDelivery = campaigns.setIsPro(campaign.id, true, false)
+    // Long enough for the second delivery's lock statement to reach the row
+    // lock and block on it.
+    setTimeout(lockReleased.resolve, 250)
+
+    const [, result] = await Promise.all([firstDelivery, secondDelivery])
+
+    expect(result.becamePro).toBe(false)
+    const row = await service.prisma.campaign.findUniqueOrThrow({
+      where: { id: campaign.id },
+    })
+    expect(row.details.isProUpdatedAt).toBe(FIRST_DELIVERY_STAMP)
   })
 })

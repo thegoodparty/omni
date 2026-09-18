@@ -47,7 +47,7 @@ Where Pro state lives (all of it — there is no subscription table):
 
 - `campaign.details.subscriptionId` / `subscriptionCanceledAt` — set by the
   `checkout.session.completed` / `customer.subscription.*` webhooks in
-  `paymentEventsService.ts`. `isPro` flips here too. All of these go through
+  `paymentEventsService.ts`. All of these go through
   `CampaignsService.patchCampaignDetails`, which merges the key server-side in
   one `UPDATE ... details || $1::jsonb`. That is not a style preference: these
   handlers patch DIFFERENT keys of the SAME blob milliseconds apart (Stripe
@@ -55,10 +55,15 @@ Where Pro state lives (all of it — there is no subscription table):
   together), and the read-modify-write this replaced dropped whichever key lost
   the race. `details.subscriptionId` is the only mapping from a live
   subscription back to an account, so a dropped key is a customer who keeps
-  being billed while every renewal webhook 502s. See `src/campaigns/AGENTS.md`
-  § Patterns before touching that write path — in particular, `setIsPro` is
-  still an unfixed contended writer, so a losing concurrent Pro upgrade still
-  raises P2034 out of these handlers and relies on Stripe redelivering.
+  being billed while every renewal webhook 502s.
+- `isPro` flips here too, through `CampaignsService.setIsPro`, which commits
+  the flip and the `details.isProUpdatedAt` stamp together and blocks on the
+  campaign row lock instead of failing a concurrent delivery with P2034. The
+  same at-least-once delivery matters here for a second reason: `becamePro` is
+  derived from the **prior** `isPro`, so a flip that commits without its stamp
+  cannot be repaired by a redelivery — the redelivery sees `isPro=true` and
+  skips it. See `src/campaigns/AGENTS.md` § Patterns before touching either
+  write path.
 - `user.metaData.customerId` — Stripe customer id (backfilled on boot, or
   on first Manage Subscription click via
   `PurchaseController.recoverCustomerIdFromSubscription` when the boot-time
@@ -216,14 +221,14 @@ user_id = <id>`. Known traps:
    `UPDATE campaign SET did_win = NULL WHERE id = <id> AND did_win = false;`
    and strip the stale prior-race keys so the result modals can't re-trap:
    `UPDATE campaign SET details = details - 'primaryElectionDate' -
-   'wonGeneral' WHERE id = <id>;`
+'wonGeneral' WHERE id = <id>;`
 2. **PrimaryResultModal trap** — a campaign whose BallotReady-sourced
    `details.primaryElectionDate` has passed re-opens the primary-result modal
    each session; independents with no primary answer "did not win" →
    `primary_result='lost'`. Repair needs BOTH writes or the modal re-traps on
    next dashboard load:
    `UPDATE campaign SET primary_result = NULL WHERE id = <id> AND
-   primary_result = 'lost';` and
+primary_result = 'lost';` and
    `UPDATE campaign SET details = details - 'primaryElectionDate' WHERE id = <id>;`
 3. **`did_win=false` with `details.wonGeneral` null** — nothing user-facing
    writes the `didWin` column (the election-result page writes
