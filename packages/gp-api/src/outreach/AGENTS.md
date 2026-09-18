@@ -126,7 +126,12 @@ DELIVERED run we could not capture and may still owe), and the
 `voided|cancelled|disputed|uncollectable` terminals) tracks the lifecycle, and
 the satellite carries the Stripe (customer / payment-method / authorization &
 charge intent / captured amount) and CallHub (campaign / dial-window) fields the
-later slices fill.
+later slices fill. A `draft` settleState sits outside that chain: it pairs with a
+spine `draft` and has no schedule, no hold and no billing, and every sweep above
+filters on its own settle state, so a draft is invisible to all of them.
+`billableCount` / `amountInCents` are therefore NULLABLE and null exactly while
+the spine is `draft` — billing is derived at resume, when the candidate schedules
+and pays — so every read of them outside the draft path guards on null.
 
 **Hold placement (pay time).** `POST /outreach/robocall/:outreachId/authorize`
 (`OutreachRobocallHoldService.authorizeHold`, Pro-gated + campaign-scoped like

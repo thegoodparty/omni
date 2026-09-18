@@ -674,6 +674,9 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     // draft is a flow selector, not an Outreach column.
     const outreachData = { ...createOutreachDto }
     delete outreachData.draft
+    // draftOutreachId likewise: the resume path consumes it, and Prisma would
+    // reject it as an unknown column.
+    delete outreachData.draftOutreachId
     return await this.model.create({
       data: {
         ...outreachData,

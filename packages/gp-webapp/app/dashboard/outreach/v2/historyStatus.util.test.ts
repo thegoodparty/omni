@@ -19,6 +19,12 @@ describe('getHistoryStatusLabel', () => {
   it('still returns null for a non-canceled p2p row with no vendor job', () => {
     expect(getHistoryStatusLabel(p2pRow({ status: 'pending' }))).toBeNull()
   })
+
+  it('labels a draft row Pro needed', () => {
+    expect(
+      getHistoryStatusLabel(p2pRow({ status: 'draft', phoneListId: null })),
+    ).toBe('Pro needed')
+  })
 })
 
 describe('getHistoryStatusLabel — active jobs follow their send window', () => {

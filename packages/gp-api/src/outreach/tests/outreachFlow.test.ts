@@ -135,6 +135,7 @@ interface SubmitOpts {
   voterFileFilterId?: number
   audienceRequest?: string
   draft?: boolean
+  draftOutreachId?: number
   textCount?: number
   billableTextCount?: number
   campaignPlanDueDate?: string
@@ -161,6 +162,9 @@ async function submitOutreach(opts: SubmitOpts) {
   }
   if (opts.audienceRequest) form.append('audienceRequest', opts.audienceRequest)
   if (opts.draft !== undefined) form.append('draft', String(opts.draft))
+  if (opts.draftOutreachId !== undefined) {
+    form.append('draftOutreachId', String(opts.draftOutreachId))
+  }
   if (opts.textCount !== undefined) {
     form.append('textCount', String(opts.textCount))
   }
@@ -758,6 +762,26 @@ describe('Outreach submission flow — single API call contract', () => {
       })
       expect(untouched.status).toBe(OutreachStatus.pending_payment)
       expect(peerlyCreatePeerlyP2pJob).not.toHaveBeenCalled()
+    })
+
+    it('a draftOutreachId is inert on create: 201 and never a 500', async () => {
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: draftScript,
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        draft: true,
+        draftOutreachId: 4242,
+      })
+      expect(res.status).toBe(201)
+
+      const row = firstOrThrow(
+        await service.prisma.outreach.findMany({
+          where: { campaignId: campaign.id },
+        }),
+      )
+      expect(row.status).toBe(OutreachStatus.pending_payment)
+      expect(row.phoneListId).toBe(3180213)
     })
 
     it('a client-set status of draft → 400, no DB row', async () => {

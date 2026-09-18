@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  InternalServerErrorException,
 } from '@nestjs/common'
 import { addDays, isAfter, isFuture, parseISO } from 'date-fns'
 import { RobocallDraftCreateRequest } from '@goodparty_org/contracts'
@@ -294,7 +295,9 @@ export class OutreachRobocallService extends createPrismaBase(
     // Null billing belongs to the `draft` state alone, which the
     // pending_payment scope above can never match.
     if (existing.billableCount === null) {
-      throw new Error('robocall billing missing on a non-draft row')
+      throw new InternalServerErrorException(
+        'robocall billing missing on a non-draft row',
+      )
     }
     return {
       outreachId: existing.outreachId,
