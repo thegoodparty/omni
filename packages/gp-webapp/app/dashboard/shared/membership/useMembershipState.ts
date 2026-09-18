@@ -27,13 +27,21 @@ interface UseMembershipStateResult {
 // submitted record that reached Peerly and kept on the app default staleTime;
 // the PIN dialog re-reads with staleTime 0 through useCvPinGate before it
 // renders a box.
-export const useMembershipState = (): UseMembershipStateResult => {
+//
+// `enabled` is how a flagged-off surface opts out of the reads entirely: the
+// hook is called unconditionally (hooks always are), so without it every user
+// outside the experiment would still pay for the TCR read. The
+// elected-office query stays on — other consumers share it.
+export const useMembershipState = ({
+  enabled = true,
+}: { enabled?: boolean } = {}): UseMembershipStateResult => {
   const [campaign] = useCampaign()
   const { data: electedOffice, isPending: electedOfficePending } =
     useElectedOffice()
   const { data: tcrCompliance, isPending: tcrPending } = useQuery({
     queryKey: TCR_COMPLIANCE_QUERY_KEY,
     queryFn: getTcrCompliance,
+    enabled,
   })
 
   const isAwaitingPinCandidate =
@@ -43,10 +51,11 @@ export const useMembershipState = (): UseMembershipStateResult => {
   const { data: complianceState, isPending: compliancePending } = useQuery({
     queryKey: COMPLIANCE_STATE_QUERY_KEY,
     queryFn: getComplianceState,
-    enabled: isAwaitingPinCandidate,
+    enabled: enabled && isAwaitingPinCandidate,
   })
 
   const ready =
+    enabled &&
     Boolean(campaign) &&
     !electedOfficePending &&
     !tcrPending &&

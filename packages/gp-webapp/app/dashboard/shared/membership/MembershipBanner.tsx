@@ -49,7 +49,7 @@ const bannerCopy = (state: MembershipState) => {
 export const MembershipBanner = (): React.JSX.Element | null => {
   const router = useRouter()
   const { enabled } = useOutreachProGatingV2Flag()
-  const { ready, state, tcrCompliance } = useMembershipState()
+  const { ready, state, tcrCompliance } = useMembershipState({ enabled })
   const [pitchOpen, setPitchOpen] = useState(false)
   const [pinOpen, setPinOpen] = useState(false)
 
@@ -97,12 +97,14 @@ export const MembershipBanner = (): React.JSX.Element | null => {
           </span>
         )}
       </button>
-      <ProPitchDialog open={pitchOpen} onOpenChange={setPitchOpen} />
-      <PinDialog
-        open={pinOpen}
-        onOpenChange={setPinOpen}
-        tcrCompliance={tcrCompliance}
-      />
+      {pitchOpen && <ProPitchDialog open onOpenChange={setPitchOpen} />}
+      {pinOpen && (
+        <PinDialog
+          open
+          onOpenChange={setPinOpen}
+          tcrCompliance={tcrCompliance}
+        />
+      )}
     </>
   )
 }

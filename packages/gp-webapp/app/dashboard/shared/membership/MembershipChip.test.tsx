@@ -15,7 +15,7 @@ const { mockUseMembershipState, mockUseFlag } = vi.hoisted(() => ({
 }))
 
 vi.mock('./useMembershipState', () => ({
-  useMembershipState: () => mockUseMembershipState(),
+  useMembershipState: (...args: unknown[]) => mockUseMembershipState(...args),
 }))
 vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
   useOutreachProGatingV2Flag: (...args: unknown[]) => mockUseFlag(...args),
@@ -66,10 +66,11 @@ beforeEach(() => {
 })
 
 describe('MembershipChip', () => {
-  it('renders nothing when the flag is off', () => {
+  it('renders nothing, and reads nothing, when the flag is off', () => {
     setup({ enabled: false, state: membership({ tier: 'free' }) })
 
     expect(screen.queryByRole('button')).toBeNull()
+    expect(mockUseMembershipState).toHaveBeenCalledWith({ enabled: false })
   })
 
   it('renders nothing before the membership state is ready', () => {
@@ -82,6 +83,7 @@ describe('MembershipChip', () => {
     setup()
 
     expect(mockUseFlag).toHaveBeenCalledWith(false)
+    expect(mockUseMembershipState).toHaveBeenCalledWith({ enabled: true })
   })
 
   it('renders the price for a free campaign and opens the pitch dialog', async () => {
@@ -89,6 +91,7 @@ describe('MembershipChip', () => {
     setup({ state: membership({ tier: 'free' }) })
 
     expect(screen.getByText(MEMBERSHIP_COPY.chip.free)).toBeInTheDocument()
+    expect(screen.queryByText(/^pitch:/)).toBeNull()
 
     await user.click(screen.getByRole('button'))
 
@@ -119,6 +122,7 @@ describe('MembershipChip', () => {
     expect(
       screen.getByText(MEMBERSHIP_COPY.chip.awaitingPin),
     ).toBeInTheDocument()
+    expect(screen.queryByText(/^pin:/)).toBeNull()
 
     await user.click(screen.getByRole('button'))
 

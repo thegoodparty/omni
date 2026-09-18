@@ -15,7 +15,7 @@ const { mockUseMembershipState, mockUseFlag } = vi.hoisted(() => ({
 }))
 
 vi.mock('./useMembershipState', () => ({
-  useMembershipState: () => mockUseMembershipState(),
+  useMembershipState: (...args: unknown[]) => mockUseMembershipState(...args),
 }))
 vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
   useOutreachProGatingV2Flag: (...args: unknown[]) => mockUseFlag(...args),
@@ -89,11 +89,14 @@ describe('resolveMembershipAction', () => {
 })
 
 describe('MembershipBanner', () => {
-  it('renders nothing when the flag is off', () => {
+  it('renders nothing, and reads nothing, when the flag is off', () => {
     setup({ enabled: false, state: membership({ tier: 'free' }) })
 
     expect(screen.queryByRole('button')).toBeNull()
     expect(trackEvent).not.toHaveBeenCalled()
+    // The membership reads are the flag's cost, not just its UI: a
+    // flagged-off user must not pay for the TCR / Peerly queries.
+    expect(mockUseMembershipState).toHaveBeenCalledWith({ enabled: false })
   })
 
   it('renders nothing before the membership state is ready', () => {
@@ -106,6 +109,7 @@ describe('MembershipBanner', () => {
     setup()
 
     expect(mockUseFlag).toHaveBeenCalledWith()
+    expect(mockUseMembershipState).toHaveBeenCalledWith({ enabled: true })
   })
 
   it('renders the upsell and opens the pitch dialog for a free campaign', async () => {
@@ -116,7 +120,8 @@ describe('MembershipBanner', () => {
       screen.getByText(MEMBERSHIP_COPY.banner.free.body),
     ).toBeInTheDocument()
     expect(screen.getByText(MEMBERSHIP_COPY.banner.free.cta)).toBeVisible()
-    expect(screen.getByText('pitch:false')).toBeInTheDocument()
+    // Mounted on demand: nothing of the dialog exists until it is opened.
+    expect(screen.queryByText(/^pitch:/)).toBeNull()
 
     await user.click(screen.getByRole('button'))
 
@@ -151,6 +156,9 @@ describe('MembershipBanner', () => {
     expect(
       screen.getByText(MEMBERSHIP_COPY.banner.awaitingPin.body),
     ).toBeInTheDocument()
+    // PinDialog runs a live Peerly read through useCvPinGate, so it must not
+    // be mounted until the candidate asks for it.
+    expect(screen.queryByText(/^pin:/)).toBeNull()
 
     await user.click(screen.getByRole('button'))
 

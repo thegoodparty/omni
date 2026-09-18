@@ -27,7 +27,7 @@ const chipCopy = (state: MembershipState): string => {
 export const MembershipChip = (): React.JSX.Element | null => {
   const router = useRouter()
   const { enabled } = useOutreachProGatingV2Flag(false)
-  const { ready, state, tcrCompliance } = useMembershipState()
+  const { ready, state, tcrCompliance } = useMembershipState({ enabled })
   const [pitchOpen, setPitchOpen] = useState(false)
   const [pinOpen, setPinOpen] = useState(false)
 
@@ -59,12 +59,14 @@ export const MembershipChip = (): React.JSX.Element | null => {
         )}
         {chipCopy(state)}
       </button>
-      <ProPitchDialog open={pitchOpen} onOpenChange={setPitchOpen} />
-      <PinDialog
-        open={pinOpen}
-        onOpenChange={setPinOpen}
-        tcrCompliance={tcrCompliance}
-      />
+      {pitchOpen && <ProPitchDialog open onOpenChange={setPitchOpen} />}
+      {pinOpen && (
+        <PinDialog
+          open
+          onOpenChange={setPinOpen}
+          tcrCompliance={tcrCompliance}
+        />
+      )}
     </>
   )
 }
