@@ -402,7 +402,9 @@ import { dirname, join, relative } from 'node:path'
 // 2026-09-18: 574 -> 575 for PinDialog, the membership banner's PIN entry.
 // It holds the typed-PIN state and reads useCvPinGate/useSubmitCvPin, both
 // client-only hooks.
-const BASELINE = 576
+// 2026-09-18: 576 -> 578 for the membership banner and chip. Both read the
+// membership hook and the flag, own dialog open state, and route on click.
+const BASELINE = 578
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

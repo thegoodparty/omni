@@ -70,6 +70,7 @@ import {
 } from '@shared/organization-picker'
 import { useTeamAccountsFlag } from '@shared/experiments/teamAccountsFlag'
 import { openSupportChat } from '@shared/utils/supportWidget'
+import { MembershipBanner } from './membership/MembershipBanner'
 
 // Adding, renaming or removing an item here also means updating the AI
 // assistants' product map, in
@@ -631,6 +632,7 @@ const NewNavMenu = ({
       </SidebarContent>
       {!isMobile && (
         <SidebarFooter>
+          <MembershipBanner />
           <SidebarMenu>
             <SidebarMenuItemComponent>
               <DropdownMenu>
