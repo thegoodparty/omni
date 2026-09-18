@@ -88,6 +88,16 @@ module "clickup_bot" {
   # The enforcement half of the flip described in the engineer-agent-fargate
   # root. Keep this set and escalation_repos there identical.
   implement_repos = "thegoodparty/omni,thegoodparty/gp-marketing"
+
+  # gp-marketing's CI drive launches fix runs through this function and needs a
+  # role to do it. omni is absent on purpose: its drive already runs as the
+  # deploy role for the rest of its workflow. See var.ci_invoker_repos.
+  ci_invoker_repos = ["thegoodparty/gp-marketing"]
+}
+
+output "ci_invoker_role_arn" {
+  value       = module.clickup_bot.ci_invoker_role_arn
+  description = "Set this as the AWS_ROLE_ARN variable in thegoodparty/gp-marketing"
 }
 
 output "failure_sns_topic_arn" {
