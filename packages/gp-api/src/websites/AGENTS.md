@@ -1,6 +1,8 @@
 # Websites Module
 
-Backend for campaign websites — public-facing static sites generated per campaign with optional custom domains, contact-form intake, and view tracking. Vercel hosts the rendered output; this module owns the database side and the domain-registration flow through Route 53.
+Backend for campaign websites — public-facing static sites generated per campaign with optional custom domains, contact-form intake, and view tracking. Vercel hosts the rendered output; this module owns the database side and the domain-registration flow.
+
+**Two registrars, split by concern.** Route 53 answers availability checks and name suggestions only. Vercel's registrar does pricing, the actual registration, renewal, project hosting, and transfer auth codes. A domain is therefore _searched_ through Route 53 but _registered_ through Vercel — treat any doc or comment describing registration, renewal, or DNS as a Route 53 operation as out of date.
 
 A longer narrative lives in `README.md` (data model, endpoint catalogue). This file is the navigation pointer.
 
@@ -12,7 +14,7 @@ A longer narrative lives in `README.md` (data model, endpoint catalogue). This f
 | `controllers/websites.controller.ts`  | CRUD on `Website`, contact form submission, view tracking                                                    |
 | `controllers/domains.controller.ts`   | Custom domain registration, status polling, suggestions                                                      |
 | `services/websites.service.ts`        | Website CRUD, default content generation, publish/unpublish                                                  |
-| `services/domains.service.ts`         | Route 53 + Vercel domain orchestration                                                                       |
+| `services/domains.service.ts`         | Domain orchestration: Route 53 for availability/suggestions, Vercel for price/purchase/hosting               |
 | `services/websiteContacts.service.ts` | Inbound contact form persistence                                                                             |
 | `services/websiteViews.service.ts`    | UUID-keyed visitor view counter                                                                              |
 | `schemas/`                            | Zod schemas for create/update website, contact form, list filters                                            |
@@ -21,7 +23,8 @@ A longer narrative lives in `README.md` (data model, endpoint catalogue). This f
 
 ## Patterns
 
-- **Domain registration is a multi-step async flow** (Stripe charge → Route 53 op → polling → Vercel attach). State lives on the `Domain` row; never short-circuit by reading from Route 53 ad hoc.
+- **Domain registration is a multi-step async flow**: Stripe charge, then a Vercel registrar order, then polling that order to completion, then attaching the domain to the Vercel project. The order id is stored as `Domain.operationId`. State lives on the `Domain` row; never short-circuit by querying a registrar ad hoc.
+- **Auto-renew is never turned off.** Purchases go out with `autoRenew: true` and nothing in the module disables it — a domain lapsing mid-campaign is the worse failure. `configureDomain` does not touch renewal despite older comments saying so; it only runs Vercel's domain verification and flips status to `registered`.
 - **Forward Email is the inbound mail provider** for custom-domain campaign emails. New email-related domain features go through `ForwardEmailModule`, not direct DNS edits.
 - Website creation auto-seeds content from the campaign's positions and user data — see `WebsitesService.createForCampaign`.
 - **The site's headline and page `<title>` are not stored.** candidate-sites derives them from the campaign owner's name on every render (`getCandidateHeadline`), so a name correction reaches the live site immediately and cannot drift. `content.main` holds only `tagline` and `image`. Publishing therefore requires the owner to have a name — see `assertReadyToPublish`.
@@ -32,6 +35,7 @@ A longer narrative lives in `README.md` (data model, endpoint catalogue). This f
 ## Gotchas
 
 - **Vercel registrar buys are asynchronous orders.** `buySingleDomain` 2xx means "order accepted", not "domain bought" — an order can still fail on Vercel's side (completion is typically ~13s). `completeDomainRegistration` polls `getRegistrarOrder` and only stamps `submitted`/`registrantVerifiedAt` once the order reports completed; the real orderId is persisted as `Domain.operationId`. Never treat the buy response alone as proof of registration.
+- **Do not poll `GET /domains/status` for `registered` after a purchase — it deadlocks.** The purchase flow's own polling stops at `submitted`, and `configureDomain` is the only code path that writes `registered`, so the transition a poller is waiting for is the one that only fires when it stops waiting and calls `POST /domains/configure`. `submitted` is the signal to configure. (`updateDomainStatusToRegistered` looks like a second writer but is dead code — nothing calls it.) `DomainStatus.active` is never written at all, despite being accepted in status allowlists and mapping to `SUCCESSFUL`.
 - `forwardRef(() => CampaignsModule)` — circular with campaigns. Keep new edges to the campaigns side as forwardRefs to avoid breaking module init.
 - `WebsiteView` uses a localStorage-issued visitor UUID; treat it as advisory, not authoritative analytics.
 - Public-facing endpoints use `@PublicAccess()` and `@UseCampaign()` together — don't drop one when refactoring or you'll either expose admin data or 401 the public site.

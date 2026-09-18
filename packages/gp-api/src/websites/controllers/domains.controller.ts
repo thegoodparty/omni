@@ -182,9 +182,10 @@ export class DomainsController {
       'errors; a repeated call for the same domain returns ' +
       'alreadyExisted: true. Conflicts (a different in-progress domain ' +
       'for the campaign, or the domain is no longer available) return ' +
-      '4xx. On success the domain reaches DomainStatus.submitted. ' +
-      'Poll GET /v1/domains/status to observe progression to ' +
-      'registered / active.',
+      '4xx. On success the domain reaches DomainStatus.submitted, which is ' +
+      'where this flow ends. Do not poll for registered — only ' +
+      'POST /v1/domains/configure sets it, so polling for it here never ' +
+      'succeeds.',
   })
   async purchaseDomain(
     @ReqCampaign() campaign: Campaign & { user: User },
@@ -266,7 +267,13 @@ export class DomainsController {
     }
   }
 
-  // After domain is successfully registered, disable auto renew and configure DNS
+  // Verify the domain with Vercel and mark it registered. Call once the
+  // registrar order has been accepted (status `submitted`) — this is the only
+  // writer of `registered`, so waiting for that status before calling here
+  // never returns.
+  // Auto-renew is left on: Vercel registers with autoRenew: true and nothing
+  // turns it off, which is deliberate — letting a candidate's domain lapse
+  // mid-campaign is the worse failure.
   // TODO: should be handled by a queued job instead of a controller https://goodparty.atlassian.net/browse/WEB-4233
   @Post('configure')
   @UseCampaign()
