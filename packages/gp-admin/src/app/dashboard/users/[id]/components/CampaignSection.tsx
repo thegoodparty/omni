@@ -8,10 +8,13 @@ import type { CampaignData, CampaignDetails } from '@goodparty_org/sdk'
 import type { EnrichedCampaign } from '@/app/dashboard/campaigns/actions'
 import { formatDate } from '@/lib/utils/date'
 import { buildDisplayFields } from '../campaign-fields'
+import { districtTypeLabel } from '@/shared/district/districtTypeLabel'
 
 interface DistrictView {
   l2Type: string
   l2Name: string
+  // The chamber name for a lower-house district depends on the state.
+  state?: string | null
 }
 
 interface CampaignSectionProps {
@@ -111,7 +114,9 @@ export function CampaignSection({ campaign, district }: CampaignSectionProps) {
       <Grid columns={{ initial: '1', md: '2' }} gap="4">
         <InfoCard title="District">
           <DataRow label="District Type">
-            {district?.l2Type ? district.l2Type.replace(/_/g, ' ') : '—'}
+            {district?.l2Type
+              ? districtTypeLabel(district.l2Type, district.state)
+              : '—'}
           </DataRow>
           <DataRow label="District Name">{district?.l2Name ?? '—'}</DataRow>
         </InfoCard>

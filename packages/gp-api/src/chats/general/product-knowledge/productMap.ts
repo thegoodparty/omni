@@ -220,6 +220,10 @@ const WIN_AREAS: ProductArea[] = [
     path: '/dashboard/team',
     modes: ['win'],
     does: 'Invite campaign staff and manage who has access. In the account menu, and candidate campaigns only.',
+    inside: [
+      'Only the owner can remove members or change roles',
+      'A member can also leave on their own: Leave campaign in the sidebar of their volunteer view',
+    ],
   },
 ]
 

@@ -262,6 +262,7 @@ describe('AdminUsersController', () => {
       )
       vi.spyOn(usersService, 'createSignInLink').mockResolvedValue({
         token: 'signin_token_abc',
+        clerkId: 'user_target_clerk_id',
         expiresAt,
       })
 
@@ -276,6 +277,10 @@ describe('AdminUsersController', () => {
       )
       expect(result.url).toContain('/sign-in-link?__clerk_ticket=')
       expect(result.url).toContain('signin_token_abc')
+      // The redemption page needs the ticket's Clerk user id (the token itself
+      // carries no user claim) to recognize an already-signed-in recipient
+      // instead of signing them out against a spent single-use ticket.
+      expect(result.url).toContain('&uid=user_target_clerk_id')
       expect(result.expiresAt).toBe(expiresAt)
     })
 
@@ -285,6 +290,7 @@ describe('AdminUsersController', () => {
       )
       vi.spyOn(usersService, 'createSignInLink').mockResolvedValue({
         token: 'tok en/with+chars=',
+        clerkId: 'user_target_clerk_id',
         expiresAt,
       })
 
@@ -303,6 +309,7 @@ describe('AdminUsersController', () => {
       )
       vi.spyOn(usersService, 'createSignInLink').mockResolvedValue({
         token: 'signin_token_abc',
+        clerkId: 'user_target_clerk_id',
         expiresAt,
       })
 
@@ -318,6 +325,7 @@ describe('AdminUsersController', () => {
       )
       vi.spyOn(usersService, 'createSignInLink').mockResolvedValue({
         token: 'signin_token_abc',
+        clerkId: 'user_target_clerk_id',
         expiresAt,
       })
 
@@ -345,6 +353,7 @@ describe('AdminUsersController', () => {
       )
       vi.spyOn(usersService, 'createSignInLink').mockResolvedValue({
         token: 'signin_token_abc',
+        clerkId: 'user_target_clerk_id',
         expiresAt,
       })
 
@@ -368,6 +377,7 @@ describe('AdminUsersController', () => {
       )
       vi.spyOn(usersService, 'createSignInLink').mockResolvedValue({
         token: 'signin_token_abc',
+        clerkId: 'user_target_clerk_id',
         expiresAt,
       })
 

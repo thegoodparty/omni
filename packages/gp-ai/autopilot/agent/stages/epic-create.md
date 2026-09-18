@@ -83,9 +83,25 @@ back up.
 Post one summary comment on `CLICKUP_TASK_ID` covering: the stories you
 created (title and id) in order, the flag key and how it was chosen, and any
 open questions you parked on earlier in this run. Then move the card to
-`feedback needed` and end your turn — that column is where a human reviews
-the breakdown (the same column a park lands in; the summary comment is what
-tells the reviewer this is a finished breakdown, not an open question).
+`feedback needed` — that column is where a human reviews the breakdown (the
+same column a park lands in; the summary comment is what tells the reviewer
+this is a finished breakdown, not an open question).
+
+Finally, ping Slack so the reviewer hears about the handoff without watching
+the board — every card arriving in `feedback needed` pings, whether it's a
+park or a finished breakdown:
+
+    python -m autopilot.agent.feedback notify --task-id <CLICKUP_TASK_ID> \
+        --stage epic-create \
+        --message "Breakdown ready for review: <N> stories, flag <flag-key>. Move the card to executing to start implementation."
+
+If that command exits non-zero, don't end your turn silently — nobody reads
+this run's stderr. Post the error as one more comment on the card so a human
+reviewer sees the ping never went out, then end your turn. The card is
+already in `feedback needed` either way; never roll its status back over a
+failed ping.
+
+Then end your turn.
 
 This run never moves the card to `executing` or any status past the review
 gate — that is a human call, not something this stage decides.

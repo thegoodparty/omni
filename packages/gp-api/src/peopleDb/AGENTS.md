@@ -31,6 +31,16 @@ logged, because this one has an end condition someone has to watch for
 (`only_legacy` reaching zero is the cutover gate) rather than a standing
 agreement to monitor.
 
+The gate is `only_legacy`, not total agreement. The two sources are copies of
+one dbt mart on different refresh schedules — people-db monthly, election-db
+nightly — so they are rarely built from the same vintage and will not agree
+exactly. The comparison tolerates a difference in proportion to the voters it
+represents, and reports `match_within_tolerance` for skew at that scale, so
+`cell_mismatch` means "loaded, and actually wrong". Expect
+`match_within_tolerance` to dominate `match` until the schedules converge; see
+`personProfiles/services/voterDensityComparison.ts` for the thresholds and the
+production measurements behind them.
+
 ## Every voter read emits one log line
 
 `databricks/voterReadLog.service.ts` wraps each read: it times the Databricks

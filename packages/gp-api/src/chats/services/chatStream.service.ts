@@ -290,6 +290,10 @@ export class ChatStreamService {
     }
   }
 
+  // [serve-chat-attachments] Story 6 injection point: load ready attachment
+  // blocks for the conversation here and prepend them as document turns
+  // before calling the LLM. Citation SSE chunks stream from onToolCallEnd.
+
   private async *run(
     args: StreamArgs,
   ): AsyncGenerator<ChatStreamChunk, void, void> {

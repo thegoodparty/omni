@@ -295,19 +295,43 @@ describe('CampaignsController', () => {
   })
 
   describe('findMine', () => {
-    it('returns the campaign with positionName and raceTargetMetrics', async () => {
-      const campaignWithRelations: CampaignWith<'organization'> = {
+    const owner = {
+      firstName: 'Jared',
+      lastName: 'Smith',
+      name: null,
+    } as User
+
+    it('returns the campaign with positionName, raceTargetMetrics, and the owner name', async () => {
+      const campaignWithRelations: CampaignWith<'organization' | 'user'> = {
         ...mockCampaign,
         organization: {} as Organization,
+        user: owner,
       }
 
       const result = await controller.findMine(campaignWithRelations)
 
+      // ownerName is the campaign OWNER's name (from the user relation), and
+      // the owner's full user row must not ride along in the response.
       expect(result).toEqual({
-        ...campaignWithRelations,
+        ...mockCampaign,
+        organization: {},
         positionName: 'Mayor',
         raceTargetMetrics: null,
+        ownerName: 'Jared Smith',
       })
+      expect(result).not.toHaveProperty('user')
+    })
+
+    it('returns ownerName null when the owner has no usable name', async () => {
+      const campaignWithRelations: CampaignWith<'organization' | 'user'> = {
+        ...mockCampaign,
+        organization: {} as Organization,
+        user: { firstName: null, lastName: null, name: null } as User,
+      }
+
+      const result = await controller.findMine(campaignWithRelations)
+
+      expect(result.ownerName).toBeNull()
     })
 
     it('includes live metrics in raceTargetMetrics', async () => {
@@ -324,9 +348,10 @@ describe('CampaignsController', () => {
         'fetchLiveRaceTargetMetrics',
       ).mockResolvedValue(liveMetrics)
 
-      const campaignWithRelations: CampaignWith<'organization'> = {
+      const campaignWithRelations: CampaignWith<'organization' | 'user'> = {
         ...mockCampaign,
         organization: {} as Organization,
+        user: owner,
       }
 
       const result = await controller.findMine(campaignWithRelations)

@@ -21,8 +21,7 @@ import {
 } from './assistantChat'
 
 // A bar submit starts a chat with that first message; a pick from the clock
-// popover reopens that conversation. For Win the scope handler resumes the
-// latest campaign_assistant conversation on "new", so history still loads.
+// popover reopens that conversation.
 export type AssistantRequest =
   | { kind: 'new'; initialMessage: string }
   | { kind: 'existing'; conversationId: string }

@@ -211,6 +211,81 @@ const rereadFactor = (alert: Alert) =>
 // target, and a rule near it is still worth a second look.
 const MAX_REREAD_FACTOR = 100
 
+describe('people-person-id-repoint-collision', () => {
+  const alert = GLOBAL_ALERTS.find(
+    (a) => a.slug === 'people-person-id-repoint-collision',
+  )
+
+  // Verbatim from person-id-backfill.service.ts::resyncLinkedUser, which is
+  // the only thing that emits any of them. Mirrored rather than imported
+  // because deploy/ does not compile against src/ — so this is the test that
+  // notices when somebody rewords a log line and silently unhooks the alert
+  // from the event it was written for.
+  const COLLISION_LINES = [
+    'person_id drift detected but the destination id is already occupied; left unchanged for manual resolution',
+    'person_id repoint lost a race to a concurrent write; left unchanged',
+  ]
+  const SELF_CORRECTING_LINES = [
+    'person_id repoint failed; the link is still stale',
+    'person_id drift repaired; gp-api rows repointed at the surviving person',
+  ]
+
+  /** The `|= "..."` and `|~ "..."` filters, as the matcher Loki would apply. */
+  const matchesExpr = (line: string) => {
+    const [, literal] = /\|= "([^"]+)"/.exec(alert!.expr) ?? []
+    const [, pattern] = /\|~ "([^"]+)"/.exec(alert!.expr) ?? []
+    if (!literal || !pattern) throw new Error(`no filters in: ${alert!.expr}`)
+    return line.includes(literal) && new RegExp(pattern).test(line)
+  }
+
+  it('is registered', () => {
+    expect(alert).toBeDefined()
+  })
+
+  it('keeps every range vector inside the window the engine fetches', () => {
+    const fetched = alert!.timeRangeSeconds ?? DEFAULT_FETCH_SECONDS
+    expect(widestRangeSeconds(alert!.expr)).toBeLessThanOrEqual(fetched)
+  })
+
+  // The sweep runs `0 4 * * *`. A window shorter than the gap between runs
+  // would leave most of the day reporting zero for a condition that is still
+  // true and still waiting on a person.
+  it('spans hours, not minutes, because the sweep is daily', () => {
+    expect(widestRangeSeconds(alert!.expr)).toBeGreaterThanOrEqual(6 * 3600)
+  })
+
+  it('catches both ways the repoint is abandoned', () => {
+    for (const line of COLLISION_LINES) {
+      expect(matchesExpr(line), line).toBe(true)
+    }
+  })
+
+  // The other three outcomes of `resyncLinkedUser` fix themselves on the next
+  // sweep. Paging on those is how this rule would get muted, and a muted rule
+  // is worth less than no rule.
+  it('ignores the outcomes that retry themselves', () => {
+    for (const line of SELF_CORRECTING_LINES) {
+      expect(matchesExpr(line), line).toBe(false)
+    }
+  })
+
+  // Loki bills the bytes an evaluation decompresses, and a regex alternation
+  // is applied to every line the selector returns. The cheap literal in front
+  // is what keeps a 6h window affordable.
+  it('narrows with a literal before applying the alternation', () => {
+    expect(alert!.expr.indexOf('|= "')).toBeLessThan(
+      alert!.expr.indexOf('|~ "'),
+    )
+  })
+
+  // Unrouted alerts land on the default receiver. This one names a human
+  // action nobody is otherwise told to take, so it goes to the rotation that
+  // owns the people surface.
+  it('pages a group rather than the default receiver', () => {
+    expect(alert!.notify).toEqual('win-bugs')
+  })
+})
+
 describe('evaluation intervals', () => {
   it('never pairs a wide fetch window with a fast interval', () => {
     const offenders = GLOBAL_ALERTS.filter(

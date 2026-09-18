@@ -46,6 +46,19 @@ so anyone opening omni gets them without installing anything by hand.
 entry is needed. The Slack server is OAuth-based — authorize the GoodParty workspace
 on first use via `/mcp`; nothing is committed.
 
+## Reading a Claude Design file
+
+`DesignSync.get_file` caps every read at **256 KiB** and reports success while
+truncating — the only signal is a `truncated` field at the end of the payload, so
+a large design comes back as roughly its first third, syntactically valid, and
+gets used. Do not use it to read a design.
+
+The cap is per-read, not per-file: the underlying `read_file` takes `offset` and
+`limit`. The **`claude-design-read`** skill pages around it and verifies the
+result against the server's own line count. `list_files` is unaffected, and note
+`list_projects` returns only design *systems* — address a regular design project
+by id.
+
 ## Design docs in ClickUp
 
 Our engineering design docs live in ClickUp, and the ClickUp MCP can read them.

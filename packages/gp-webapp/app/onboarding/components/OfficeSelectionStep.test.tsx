@@ -48,6 +48,10 @@ const sampleRace = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
+// A filter chip is labelled "<bucket> (<count>)". Anchoring on that shape keeps
+// the match off the race rows, which are radios too and repeat the office name.
+const chip = (label: string) => new RegExp(`^${label} \\(\\d+\\)$`, 'i')
+
 const renderStep = (
   props: Partial<React.ComponentProps<typeof OfficeSelectionStep>> = {},
 ) => {
@@ -128,6 +132,84 @@ describe('OfficeSelectionStep', () => {
         screen.getByRole('radio', { name: /city council election date/i }),
       ).toBeInTheDocument()
     })
+  })
+
+  // A lower-chamber race used to match no bucket and land in `Other`, which is
+  // deprioritized, so state-house candidates could not filter to their own seat.
+  it.each([
+    ['California State Assembly - District 15', 'State Assembly'],
+    ['Texas House of Representatives - District 3', 'State House'],
+    ['Virginia House of Delegates - District 7', 'House of Delegates'],
+    ['New Jersey General Assembly - District 2', 'State Assembly'],
+  ])('files %s under its own chamber filter', async (positionName, label) => {
+    mockClientFetch.mockResolvedValueOnce({
+      data: [
+        sampleRace({
+          id: 'race-lower',
+          position: {
+            id: 'pos-lower',
+            name: positionName,
+            level: 'state',
+            state: 'CA',
+            electionFrequencies: [{ frequency: 2 }],
+          },
+        }),
+      ],
+      ok: true,
+    } as unknown as Awaited<ReturnType<typeof clientFetch>>)
+
+    renderStep()
+
+    fireEvent.change(screen.getByLabelText(/zip code/i), {
+      target: { value: '94523' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /search/i }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('radio', { name: chip(label) })).toBeVisible()
+    })
+    expect(
+      screen.queryByRole('radio', { name: chip('Other') }),
+    ).not.toBeInTheDocument()
+  })
+
+  // The state-chamber buckets match on position name, and a congressional seat
+  // is named "U.S. House of Representatives - …", so it must not be swept into
+  // a state-chamber filter.
+  it.each([
+    'U.S. House of Representatives - Wyoming At-Large Congressional District',
+    'Aleutians East Borough Assembly - Seat A',
+  ])('keeps %s out of the state-chamber filters', async (positionName) => {
+    mockClientFetch.mockResolvedValueOnce({
+      data: [
+        sampleRace({
+          id: 'race-not-lower',
+          position: {
+            id: 'pos-not-lower',
+            name: positionName,
+            level: 'federal',
+            state: 'WY',
+            electionFrequencies: [{ frequency: 2 }],
+          },
+        }),
+      ],
+      ok: true,
+    } as unknown as Awaited<ReturnType<typeof clientFetch>>)
+
+    renderStep()
+
+    fireEvent.change(screen.getByLabelText(/zip code/i), {
+      target: { value: '82001' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /search/i }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('radio', { name: chip('Other') })).toBeVisible()
+    })
+    for (const label of ['State House', 'State Assembly', 'House of Delegates'])
+      expect(
+        screen.queryByRole('radio', { name: chip(label) }),
+      ).not.toBeInTheDocument()
   })
 
   it('selects the race optimistically and forwards full details after hydration', async () => {

@@ -672,6 +672,15 @@ export type APIEndpoints = {
     Response: undefined
   }
 
+  // Self-removal (ENG-11137): any member — volunteer included — can leave
+  // the active org; the owner is rejected (400, ownership transfer is the
+  // only way an owner leaves). Same cascade as the owner-driven delete:
+  // membership and outreach assignments go together.
+  'DELETE /v1/organizations/team/members/me': {
+    Request: {}
+    Response: undefined
+  }
+
   // Mirrors gp-api's GET /v1/eligibility (EligibilitySchema in
   // @goodparty_org/contracts). Drives the org switcher's "run for" actions.
   'GET /v1/eligibility': {

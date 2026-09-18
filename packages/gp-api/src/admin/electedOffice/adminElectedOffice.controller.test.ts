@@ -13,6 +13,7 @@ function makeController() {
     provisionMagicLinkUser: vi.fn().mockResolvedValue({
       user: { id: 1 },
       token: 'tok',
+      clerkId: 'user_clerk1',
     }),
   }
   const electedOfficeService = {
@@ -79,6 +80,14 @@ describe('AdminElectedOfficeController.createMagicLink', () => {
     expect(ctx.usersService.provisionMagicLinkUser).toHaveBeenCalledWith(
       expect.objectContaining({ firstName: 'Jane', lastName: 'Doe' }),
     )
+  })
+
+  it('returns a /serve/welcome URL carrying the ticket and its user id', async () => {
+    const result = await ctx.controller.createMagicLink(dto({}))
+    expect(result.url).toContain('/serve/welcome?__clerk_ticket=tok')
+    // The redemption page needs the ticket's Clerk user id (the token itself
+    // carries no user claim) to recognize an already-signed-in recipient.
+    expect(result.url).toContain('&uid=user_clerk1')
   })
 
   it('tracks the magic-link-sent event tagged as a serve link', async () => {

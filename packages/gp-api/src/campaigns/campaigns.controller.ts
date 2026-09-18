@@ -35,8 +35,13 @@ import {
 import { Campaign, User, UserRole } from '../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 import { createZodDto, ZodValidationPipe } from 'nestjs-zod'
+import { z } from 'zod'
 import { AnalyticsService } from 'src/analytics/analytics.service'
-import { isTestUser, userHasRole } from 'src/users/util/users.util'
+import {
+  getUserFullName,
+  isTestUser,
+  userHasRole,
+} from 'src/users/util/users.util'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { ReqUser } from '../authentication/decorators/ReqUser.decorator'
@@ -61,6 +66,16 @@ class ListCampaignsPaginationDto extends createZodDto(
   ListCampaignsPaginationSchema,
 ) {}
 
+// Mine-only: ownerName is the campaign OWNER's display name, for surfaces
+// that render the candidate (the campaign plan) to team members whose own
+// session-user name is NOT the candidate's. It stays off the shared
+// CampaignWithLiveContextSchema that the M2M GET :id also validates against.
+// getUserFullName always returns a string (possibly empty, coerced to null)
+// — never absent — so nullable, not nullish.
+const CampaignMineSchema = CampaignWithLiveContextSchema.extend({
+  ownerName: z.string().nullable(),
+})
+
 class UpdateCampaignM2MDto extends createZodDto(UpdateCampaignM2MSchema) {}
 
 @Controller('campaigns')
@@ -81,19 +96,22 @@ export class CampaignsController {
   }
 
   @Get('mine')
-  @ResponseSchema(CampaignWithLiveContextSchema)
+  @ResponseSchema(CampaignMineSchema)
   @McpTool({
     description:
       "Read the calling user's active campaign, including organization and live status. " +
       'Use this on startup to understand who the user is, what office they are running for, ' +
       'and what state the campaign is in.',
   })
-  @UseCampaign({ include: { organization: true } })
+  @UseCampaign({ include: { organization: true, user: true } })
   async findMine(
     @ReqCampaign()
-    campaign: CampaignWith<'organization'>,
+    campaign: CampaignWith<'organization' | 'user'>,
   ) {
-    const { organization: org } = campaign
+    // The user relation is the campaign OWNER (Campaign.userId), not the
+    // caller — a team member's request still resolves the owner here. Strip
+    // the row from the response; only the display name leaves the API.
+    const { organization: org, user: owner, ...campaignFields } = campaign
 
     const [{ positionName }, liveMetrics] = await Promise.all([
       this.organizations.resolvePositionContext({
@@ -104,9 +122,11 @@ export class CampaignsController {
     ])
 
     return {
-      ...campaign,
+      ...campaignFields,
+      organization: org,
       positionName,
       raceTargetMetrics: liveMetrics,
+      ownerName: (owner && getUserFullName(owner)) || null,
     }
   }
 

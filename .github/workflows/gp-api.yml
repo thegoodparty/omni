@@ -194,15 +194,12 @@ jobs:
       - name: Build application
         if: steps.ecr-image.outputs.exists != 'true'
         env:
-          # Same failure the vercel-deploy action already caps for: `nest
-          # build` peaks near Node's default ~4GB heap and OOMs
-          # intermittently (exit 134), which fails this job and the E2E
-          # merge gate that waits on the preview. Only PRs run this step —
-          # it is skipped on pushes to main — so main stayed green while
-          # unrelated PRs failed together (2026-09-18, #1979 and #1971).
-          # Matched to that action's cap rather than raised further: the
-          # limit is per process, so a bigger number across several
-          # workers trips the kernel OOM killer instead.
+          # nest build's type-check peaks near Node's default ~4GB heap and
+          # OOMs intermittently on the 16GB runners (exit 134, first seen
+          # 2026-09-18, run 35374622414) — same failure mode and cap as the
+          # vercel-deploy action's `next build`. Only pull requests run this
+          # step, so main's green never covered it and each occurrence read
+          # as one unlucky PR rather than a standing problem.
           NODE_OPTIONS: --max-old-space-size=6144
         run: npm run build -w ${{ env.WORKSPACE }}
 

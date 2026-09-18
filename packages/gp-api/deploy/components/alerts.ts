@@ -250,6 +250,51 @@ export const SERVER_ERRORS_ONLY: ControllerName[] = [
   'contacts',
 ]
 
+/**
+ * Controllers whose generated route alert needs a burst rather than a single
+ * error, keyed to the count a 10-minute window must EXCEED.
+ *
+ * The default of 0 pages on one qualifying error, and that is right nearly
+ * everywhere: on a controller that errors a handful of times a month, the
+ * first error IS the incident and waiting for a second only delays the page.
+ *
+ * It is wrong for a high-volume public route whose failure mode includes a
+ * transient upstream. `GET /v1/public-person-profiles/voter-density` serves
+ * ~150k requests a day and resolves the person's district through
+ * election-api on every one of them; an isolated 502 there costs one visitor
+ * one heat map, on a card that is progressive enhancement to begin with, and
+ * the next request succeeds. Paging on it spends attention at a rate the
+ * failure does not justify, and the estate has already lost one alert that
+ * way — see the `contacts` note in SERVER_ERRORS_ONLY.
+ *
+ * MEASURED before being set, over the 30 days to 2026-09-18, counting the
+ * errors this rule actually fires on per 10-minute window:
+ *
+ *   - Outside a real incident, EVERY window held 1 or 2 errors. There were 18
+ *     of them, spread across the month, each a single transient 502.
+ *   - The 2026-08-24 outage opened with 83 in its first window and then ran
+ *     2,000-4,800 per window for four days.
+ *   - The 2026-09-14 burst was 52 errors split across two windows, 5 then 47.
+ *
+ * So `> 2` drops all 18 noise windows and keeps both incidents, and it keeps
+ * them at the same evaluation they would have fired on before — the nearest
+ * real window is 5, comfortably clear, and nothing measured lands on 3 or 4.
+ *
+ * THE COST, stated plainly: a fault that produces one or two errors per 10
+ * minutes and never more will no longer page here. On this route that is a
+ * fault affecting under 0.01% of requests, which is below what the ratio rule
+ * would call broken anyway, and it still lands in the logs and on the
+ * dashboard. A fault that grows past it pages on the window it grows in.
+ *
+ * This does not touch `public-person-profiles-error-ratio`, which asks the
+ * other question — whether the route is substantially broken — and is
+ * unchanged. The pair still separates "something failed" from "this is down";
+ * this only moves where the first of those starts counting.
+ */
+export const ROUTE_ERROR_THRESHOLDS: Partial<Record<ControllerName, number>> = {
+  'public-person-profiles': 2,
+}
+
 export const GLOBAL_ALERTS: Alert[] = [
   // ------ Global Shared Alerts ------ //
   {
@@ -632,6 +677,65 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join('\n\n'),
   },
   {
+    slug: 'people-person-id-repoint-collision',
+    name: '[People] Person id repoint blocked, left for manual resolution',
+    type: 'log',
+    // The one drift outcome that ASKS FOR A HUMAN BY NAME and, until this
+    // rule, told none. `resyncLinkedUser` ends in exactly five ways; four are
+    // self-correcting (`repointed` fixed it, `unchanged` had nothing to fix,
+    // `unresolved` retries tomorrow, `failed` is a transient the next sweep
+    // re-attempts). `collision` is the one that does not: the destination
+    // civics id already holds another user's rows, so the repoint is abandoned
+    // and the stale link stays stale every night until somebody merges the two
+    // by hand.
+    //
+    // Nothing about that is visible from outside. gp-api answers a correct 404
+    // at the abandoned id and a correct 200 at the destination, both services
+    // report healthy, and the only symptom is a public profile that renders
+    // the unclaimed civics spine instead of its owner — or, worse, a takedown
+    // that stops being honored because `isRemoved` matches on an id the person
+    // no longer renders under. See the header on `resyncLinkedUser`.
+    //
+    // ON THE LOG RATHER THAN person_profile_person_id_drift_count_total, for
+    // the reason `people-person-contact-email-lookup-failing` above sets out at
+    // length: src/otel.ts sets no `service.instance.id`, so both prod tasks
+    // export that counter under one series identity, and `increase()` over
+    // interleaved cumulative streams is not a number to page on — here it would
+    // read a lock that moved between tasks as a fresh collision. The log line
+    // is exact, and it carries the `userId`, `from`, `to` and `blocker` the
+    // responder needs, which the counter's `result` label does not.
+    //
+    // Both collision branches: the pre-check in `repoint` and the unique
+    // violation that loses a race to a concurrent write. Same situation, found
+    // at different moments, same manual fix.
+    expr: [
+      'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"}',
+      // Cheap line filter before the alternation, as every sibling log alert does.
+      '|= "person_id"',
+      '|~ "destination id is already occupied|lost a race to a concurrent write"',
+      '[6h]))',
+    ].join(' '),
+    threshold: 0,
+    // No grace period, and none is wanted. The sweep is `0 4 * * *`, so this is
+    // one burst a day rather than a signal that can flap across a boundary —
+    // a `for` here would only delay the page past the emission that caused it.
+    for: '0m',
+    // >= the [6h] vector, or the engine's default ten minutes means a rule that
+    // only ever sees 03:54-04:04 and reports zero the rest of the day.
+    timeRangeSeconds: 21600,
+    // 24 re-reads/day against the MAX_REREAD_FACTOR of 100 in
+    // global-alerts.test.ts. A daily sweep does not need minute resolution, and
+    // a 6h window on the 60s default would re-read those hours 360 times.
+    evaluationIntervalSeconds: 900,
+    message: [
+      'The nightly person-id sweep found a user whose civics id has moved, and could not follow it: the destination id already holds another user’s rows. The link was left stale deliberately, for a human.',
+      'Nothing retries this. The stale link survives every subsequent sweep, so the symptom persists until someone acts — that user’s public /people page renders the unclaimed civics spine (wrong name, wrong headshot, no bio) instead of their profile, and if they are under a takedown it silently stops being enforced, because `isRemoved` matches on an id they no longer render under.',
+      'Click *View in Grafana* and read `userId`, `from`, `to` and `blocker` off the matched lines. `blocker` names the table standing in the way — `profile`, `removal` or `claim`. Resolve the destination by hand (decide which of the two rows survives, move or delete the loser), then let the 04:00 sweep repoint the link, or call the backfill directly. Afterwards `POST /api/revalidate-person` on BOTH ids, or gp-marketing serves the two versions for up to an hour per edge.',
+      'If the two ids turn out to describe DIFFERENT PEOPLE, stop and escalate rather than merging: person clusters are built partly from probabilistic matching, and a collision is one of the few places that surfaces. See ENG-11112.',
+    ].join('\n\n'),
+    notify: 'win-bugs',
+  },
+  {
     slug: 'public-campaigns-lookup-error-ratio',
     name: '[People] Public campaign lookup failing',
     type: 'log',
@@ -890,7 +994,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     //
     // Same shape as public-campaigns-lookup-error-ratio above. This controller
     // is ALSO in ALERT_OWNERSHIP, so it has a generated route alert too, and
-    // the two are not redundant: the generated rule trips on the first error
+    // the two are not redundant: the generated rule trips on a burst of errors
     // and this one only when a route is substantially broken, so the pair
     // separates "something failed" from "this route is down" without either
     // having to guess which it is.
@@ -901,6 +1005,19 @@ export const GLOBAL_ALERTS: Alert[] = [
     // 2026-09-17 the errors the generated rule fires on fell in 2 hours out of
     // 168: a 52-error burst and one stray. So it pages about twice a week at
     // worst, and the muting risk was theoretical.
+    //
+    // THE STRAYS TURNED OUT TO BE THE PROBLEM, which is why the generated rule
+    // now needs more than 2 errors in its window (ROUTE_ERROR_THRESHOLDS). The
+    // 2 hours in 168 were counted as hours, and an hour holding one transient
+    // 502 pages exactly as loudly as an hour holding fifty — so what the
+    // measurement read as "twice a week" was mostly single failed requests on
+    // a route serving ~150k a day. Re-measured per 10-minute window over the
+    // 30 days to 2026-09-18, 18 windows held 1-2 errors and the only windows
+    // above that were the two real incidents. THIS rule is what makes raising
+    // that safe: it is unchanged, it is what catches the outage the generated
+    // rule now sleeps through the first minutes of, and against the August
+    // failure it reads 100%. Do not delete it to "simplify" the pair — a test
+    // in controller-alerts.test.ts fails if you do, and says why.
     //
     // `sum by (request_endpoint)` rather than one ratio for the controller:
     // Grafana turns each returned series into its own alert instance, so a

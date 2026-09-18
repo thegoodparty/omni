@@ -6,12 +6,7 @@ import {
   buildDescribeConstituentDataTool,
   buildQueryConstituentDataTool,
 } from '@/llm/tools/queryConstituentData.tool'
-import {
-  ChatScopeHandler,
-  ResolveConversationParams,
-  ResolveConversationResult,
-} from '../types/chatScopeHandler'
-import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
+import { ChatScopeHandler } from '../types/chatScopeHandler'
 import {
   ChiefOfStaffContext,
   ChiefOfStaffContextService,
@@ -39,6 +34,7 @@ import { ContactsService } from '@/contacts/services/contacts.service'
 import { buildDescribeFilterDimensionsTool } from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
+import { buildShowListMapTool } from '../crm-tools/showListMap.tool'
 import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import { HelpCenterSearchService } from '../help-center/helpCenterSearch.service'
 import { buildSearchHelpCenterTool } from '../help-center/searchHelpCenter.tool'
@@ -67,7 +63,6 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
   readonly models = [...CHIEF_OF_STAFF_MODELS]
 
   constructor(
-    private readonly store: GeneralChatStoreService,
     private readonly contextService: ChiefOfStaffContextService,
     private readonly briefings: ChiefOfStaffBriefingsService,
     @Inject(PRIORITIES_PORT)
@@ -89,27 +84,6 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     @Optional()
     private readonly helpCenter?: HelpCenterSearchService,
   ) {}
-
-  async resolveConversation(
-    params: ResolveConversationParams,
-    userId: number,
-  ): Promise<ResolveConversationResult> {
-    // Chief of Staff supports multiple conversations, so every "new chat"
-    // creates a fresh one rather than resuming the most recent. Resuming a
-    // prior chat goes through its conversation id directly (history →
-    // listMessages → stream), never through here — so find-or-create here would
-    // collapse every new chat onto the latest existing conversation.
-    const created = await this.store.createScopedConversation({
-      ownerUserId: userId,
-      organizationSlug: params.organizationSlug,
-      scope: ChatScope.chief_of_staff,
-      ...(params.anchor && {
-        anchor: params.anchor,
-        title: params.anchor.snapshot.title,
-      }),
-    })
-    return { conversationId: created.id, created: true }
-  }
 
   async loadContext(
     conversationId: string,
@@ -240,6 +214,11 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
           contacts: this.contacts,
           organization: ctx.organization,
         })
+        // Registered with the saved-list tool rather than beside the other
+        // reads: the only id it can legitimately be given is one
+        // crud_saved_filters just returned, so advertising it in a session
+        // that cannot create a list would be offering a map of nothing.
+        tools.show_list_map = buildShowListMapTool()
       }
     }
 

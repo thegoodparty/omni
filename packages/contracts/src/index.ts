@@ -744,6 +744,11 @@ export {
 } from './chats/Chat.schema'
 
 export {
+  ShowListMapSchema,
+  type ShowListMap,
+} from './chats/ChiefOfStaffWidgets.schema'
+
+export {
   MeetingAgentDispatchKindSchema,
   type MeetingAgentDispatchKind,
   DispatchMeetingAgentRequestSchema,

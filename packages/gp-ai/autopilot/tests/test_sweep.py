@@ -87,6 +87,7 @@ def env(monkeypatch):
     monkeypatch.setenv("SUBNET_IDS", "subnet-1,subnet-2")
     monkeypatch.setenv("SECURITY_GROUP_ID", "sg-1")
     monkeypatch.setenv("AUTOPILOT_CLICKUP_API_KEY", "test-clickup-key")
+    monkeypatch.setenv("AUTOPILOT_SLACK_CHANNEL", "#autopilot-test")
 
 
 class FakeClickUp:
