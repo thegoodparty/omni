@@ -37,6 +37,14 @@ import {
 // manager".
 const MEET_CARD_DISMISSED_KEY = 'campaign-manager-meet-dismissed'
 
+// Passed as the body's `defaultIntro` on the entries that deliberately play no
+// greeting (a kickoff, a reopened conversation). The body's own default is
+// Chief of Staff's intro, so leaving it unset would type CoS's opener into the
+// manager on the candidate's first chat ever — which is exactly when the home
+// cards that fire a kickoff are on screen. Module-level so its identity is
+// stable across renders (the body keys an effect on it).
+const NO_INTRO: string[] = []
+
 interface CampaignManagerChatContextValue {
   // Open the manager in general mode (meet card / footer) on a new chat.
   // Dismisses the first-run meet card.
@@ -312,9 +320,12 @@ export function CampaignManagerChatProvider({
         chatApi={campaignManagerChatApi}
         analyticsLabel="campaign-manager-chat"
         historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
-        // Same copy as `opener`, so the entries that pass no opener (a kickoff)
-        // can't fall through to the body's Chief of Staff default intro.
-        defaultIntro={greetingIntro}
+        // The greeting rides on `opener` alone. This only keeps the entries
+        // that pass no opener from falling through to the body's Chief of
+        // Staff default — it must not re-add the greeting, or a kickoff would
+        // type the general hello in while its own create is still in flight
+        // and then greet a second time.
+        defaultIntro={greetingOpener ?? NO_INTRO}
         suggestions={suggestions}
         showSuggestionsWithGreeting
         quickPrompts={[
