@@ -14,6 +14,7 @@ before calling route().
 
 import importlib.util
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +41,37 @@ STAGE_SUPERVISOR = "supervisor"
 EPIC_SCOPED_STAGES = frozenset({STAGE_STORY, STAGE_QA})
 
 DEFAULT_AGENT_MODEL = "sonnet"
+
+# The park marker the agent's feedback primitive writes as the FIRST LINE of
+# every parking comment. Deliberately duplicated from
+# autopilot/agent/feedback.py (PARK_MARKER_PATTERN): the Lambda bundle stays
+# dependency-light and cannot import the agent package, whose feedback module
+# pulls in the shared ClickUp/Slack clients. A contract test asserts the two
+# patterns stay character-identical.
+PARK_MARKER_PATTERN = re.compile(r"\[autopilot:parked stage=([a-z0-9][a-z0-9-]*)\]", re.IGNORECASE)
+
+
+def parked_stage_from_comments(comments: list[dict]) -> str | None:
+    """The stage named by the MOST RECENT park marker in a comment thread, or
+    None. Latest wins by the comment's own date (a card can park, resume, and
+    re-park); an unparseable date sorts oldest, same fail-toward-not-blocking
+    direction the agent-side parse takes."""
+
+    def date_ms(comment: dict) -> int:
+        try:
+            return int(str(comment.get("date", "")))
+        except ValueError:
+            return 0
+
+    for comment in sorted(comments, key=date_ms, reverse=True):
+        text = comment.get("comment_text")
+        if not isinstance(text, str):
+            continue
+        match = PARK_MARKER_PATTERN.search(text)
+        if match:
+            return match.group(1).lower()
+    return None
+
 
 # --- Status names --------------------------------------------------------
 # The real board (ENG-11104): ONE ClickUp list holds both feature cards and

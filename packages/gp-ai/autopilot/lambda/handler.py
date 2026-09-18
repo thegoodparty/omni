@@ -380,6 +380,35 @@ def route_event(event: AutopilotEvent) -> None:
             )
             continue
 
+        resume_stage = None
+        if decision.stage == router.STAGE_RESUME:
+            # The agent's config requires RESUME_STAGE for a resume run —
+            # the first live resume died at startup without it. The parked
+            # stage lives in the card's park marker, so this is the one
+            # route that costs a comments read. A read failure RAISES for
+            # the same reason hydration's does: the sweep cannot reconstruct
+            # this trigger (STORY->in progress is an ambiguous pair it
+            # skips), so only Lambda's async retry can save the event.
+            try:
+                comments = supervisor.get_task_comments(event.task_id)
+            except Exception as e:
+                print(
+                    f"ERROR: failed to read comments to resolve the parked stage for "
+                    f"{event.task_id}: {type(e).__name__}"
+                )
+                raise
+            resume_stage = router.parked_stage_from_comments(comments)
+            if resume_stage is None:
+                # No marker means nothing ever parked (a card dragged back
+                # without a park — e.g. a run that stranded before parking).
+                # There is no stage to re-enter; the recovery is re-kicking
+                # the story from approved tdd, not a blind resume.
+                print(
+                    f"ERROR: no park marker on {event.task_id}; cannot resolve RESUME_STAGE, "
+                    "refusing resume dispatch (re-kick the story from approved tdd instead)"
+                )
+                continue
+
         ceiling = router.STAGE_CEILINGS[decision.stage]
         epic_task_id = event.epic_task_id if decision.stage in router.EPIC_SCOPED_STAGES else None
 
@@ -390,6 +419,7 @@ def route_event(event: AutopilotEvent) -> None:
             model=router.DEFAULT_AGENT_MODEL,
             max_budget_usd=ceiling.max_budget_usd,
             deadline_seconds=ceiling.deadline_seconds,
+            resume_stage=resume_stage,
         )
         dispatch.dispatch_stage(event.task_id, decision.stage, decision.transitioned_at, envelope)
 

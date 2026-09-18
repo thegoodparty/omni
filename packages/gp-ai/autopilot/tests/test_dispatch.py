@@ -149,6 +149,23 @@ def test_envelope_forwards_the_conductors_slack_channel(monkeypatch):
     assert by_name["AUTOPILOT_SLACK_CHANNEL"] == "C0TEST"
 
 
+def test_envelope_carries_resume_stage_when_set():
+    env = envelope().to_environment()
+    assert "RESUME_STAGE" not in {e["name"] for e in env}
+
+    resumed = dispatch.StageEnvelope(
+        stage="resume",
+        task_id=TASK_ID,
+        epic_task_id=None,
+        model="sonnet",
+        max_budget_usd=15.0,
+        deadline_seconds=45 * 60,
+        resume_stage="qa",
+    ).to_environment()
+    by_name = {e["name"]: e["value"] for e in resumed}
+    assert by_name["RESUME_STAGE"] == "qa"
+
+
 def test_envelope_omits_a_blank_slack_channel(monkeypatch):
     monkeypatch.setenv("AUTOPILOT_SLACK_CHANNEL", "   ")
     env = envelope().to_environment()
