@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { screen } from '@testing-library/react'
 import { QueryClient } from '@tanstack/react-query'
 import userEvent from '@testing-library/user-event'
@@ -135,6 +137,41 @@ describe('CreateListWizard — edit mode chrome', () => {
       screen.queryByRole('button', { name: 'Back' }),
     ).not.toBeInTheDocument()
     expect(screen.queryByText(/step 1 of/i)).not.toBeInTheDocument()
+  })
+
+  // Edit stays one screen for Serve too: the geography of a saved list is
+  // changed from the map on its detail sheet, not by re-walking the wizard.
+  //
+  // Read off the source, because a second step added to the edit branch is
+  // invisible from the outside — edit renders no stepper and its footer
+  // carries Save rather than Continue, so nothing on screen changes until
+  // someone finds a way to advance. The `steps` array is the claim.
+  it('collapses edit to exactly the conditions step', () => {
+    const source = readFileSync(join(__dirname, 'CreateListWizard.tsx'), 'utf8')
+    expect(source).toContain("isEditing\n    ? ['conditions']\n")
+  })
+
+  it('gives a Serve edit no boundary step', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    render(
+      <CreateListWizard
+        open
+        onOpenChange={vi.fn()}
+        editingSegment={voterFileSegment}
+      />,
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: 'Filters' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', {
+        name: 'What area should this list cover?',
+      }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Continue' }),
+    ).not.toBeInTheDocument()
   })
 
   it('puts the list name in the header, so edit covers renaming with no second step', async () => {
