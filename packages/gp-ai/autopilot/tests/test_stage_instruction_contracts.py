@@ -100,6 +100,18 @@ def test_story_covers_its_load_bearing_directives():
     assert "wait for the merge" in text.lower(), "must wait for the merge, not the dev deploy"
     assert "move" in text.lower() and "`qa`" in text, "must move the ticket to qa once merged"
 
+    # The first real story run ended its turn with "background watchers" on
+    # the merge — which die with the container, stranding the card in
+    # `in progress` with no marker, no comment, and nothing to resume.
+    assert "dies with the container" in text, (
+        "must state that backgrounded waits die with the container when the turn ends"
+    )
+    assert "in-turn wait" in text, "must require the merge wait to happen inside the turn"
+
+    # The same run shipped past a verify that errored out before typechecking
+    # (broken worktree install) — an unrunnable verify must read as red.
+    assert "cannot run counts as red" in text, "a verify that cannot run must count as red, not as skipped"
+
     # A deadline-exceeded run must PARK (marker + status move + Slack ping),
     # not just end cleanly — an unparked run leaves nothing for `parked-stage`
     # to find and nothing to trigger a resume (a real cross-file bug a prior

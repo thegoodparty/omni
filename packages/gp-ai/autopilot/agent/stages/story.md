@@ -52,6 +52,14 @@ gp-api's `npm run verify`). Never open a PR on a red verify. If verify fails
 for a reason outside this story's scope, park rather than silently expanding
 scope to fix it.
 
+A verify that cannot run counts as red. If the command dies on a broken
+workspace install (a missing `node_modules/.bin` binary, an unbuilt internal
+package), fix the environment — rerun the worktree setup script, reinstall —
+until verify genuinely runs. Story 1 of the first pipeline run shipped a
+constructor change past a verify that errored out before typechecking, and
+CI caught what verify never looked at: every caller of the signature you
+change is in verify's jurisdiction, but only if it actually runs.
+
 ### 4. Ship
 
 Open the PR following the `ship-pr` skill's conventions: a why-focused body
@@ -87,6 +95,16 @@ within your deadline — not for the dev deploy that follows it; the merge is
 the event this stage waits on. Once it merges, move `CLICKUP_TASK_ID` to
 `qa` — the conductor treats that move as a legitimate trigger for the next
 stage, not a gate you're bypassing.
+
+Waiting means an in-turn wait: check the PR's state in a loop (an
+`until`-loop Monitor, or a plain check between other work) and keep your
+turn open until it merges or your deadline arrives. Never start a
+background watcher and end your turn "while it waits" — everything you
+launch dies with the container the moment your turn ends, nothing is left
+watching, no comment or marker is on the card, and the ticket strands in
+`in progress` until a stall alert fires hours later. This stage's first
+real run ended exactly that way. There are only two legitimate ways out of
+this phase: the card moved to `qa` after the merge, or a park.
 
 If your deadline arrives while you're still waiting on the merge, don't just
 end your turn — that leaves nothing on the card for `parked-stage` to find,
