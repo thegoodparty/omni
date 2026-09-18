@@ -31,9 +31,19 @@ import { SocialFlow } from './social/SocialFlow'
 import { RobocallFlow } from './robocall/RobocallFlow'
 import { PhoneBankingFlow } from './phone-banking/PhoneBankingFlow'
 import { SmsFlow } from './sms/SmsFlow'
-import { useSeedOutreachDetail } from './useOutreachDetail'
+import { fetchOutreachDetail, useSeedOutreachDetail } from './useOutreachDetail'
 import type { HistoryRow } from './historyStatus.util'
 import type { AudiencePreselect } from './audiencePreselect'
+
+// The two channels that can hold a saved draft, and the row types that
+// resume into each. A draft row is the campaign's way back into the flow
+// that saved it.
+type DraftChannel = 'text' | 'robocall'
+const DRAFT_CHANNELS: Record<string, DraftChannel> = {
+  text: 'text',
+  p2p: 'text',
+  robocall: 'robocall',
+}
 
 export interface OutreachHubPageProps {
   pathname: string
@@ -95,6 +105,46 @@ const OutreachHubContent = ({
   // and cleared on close, so a later tile click starts clean.
   const [composeSeeds, setComposeSeeds] = useState<ComposeRequest | null>(null)
   const seedOutreachDetail = useSeedOutreachDetail()
+
+  // Opening a resumable channel, with the campaign's saved draft of it if
+  // there is one. The flow resumes from the DETAIL, not the row, so it opens
+  // once that read lands; a failed read opens a new campaign rather than a
+  // dead end, and the saved row is still there to try again from. The tile
+  // and a draft-row click share this, so neither owns the fetch.
+  const openChannel = (
+    channel: DraftChannel,
+    row: HistoryRow | undefined = historyRows.find(
+      (o) =>
+        o.status === 'draft' &&
+        DRAFT_CHANNELS[o.outreachType ?? ''] === channel,
+    ),
+  ) => {
+    const openWith = (draft: OutreachDetail | null) => {
+      if (channel === 'text') {
+        setResumeDraft(draft)
+        setSmsFlowOpen(true)
+        return
+      }
+      setRobocallResumeDraft(draft)
+      setRobocallFlowOpen(true)
+    }
+    if (!row) {
+      openWith(null)
+      return
+    }
+    fetchOutreachDetail(row.id).then(openWith, () => openWith(null))
+  }
+
+  // A draft row reopens the flow that saved it; every other row opens the
+  // read-only drawer.
+  const handleRowClick = (row: HistoryRow) => {
+    const channel = DRAFT_CHANNELS[row.outreachType ?? '']
+    if (draftsEnabled && row.status === 'draft' && channel) {
+      openChannel(channel, row)
+      return
+    }
+    setDetailsRow(row)
+  }
 
   // The deep link resolves the params and the channel gate; opening the right
   // flow is the hub's job, since it owns the one mount of each.
@@ -186,11 +236,11 @@ const OutreachHubContent = ({
         onCreateSocial={() => setSocialFlowOpen(true)}
         onCreateSms={(preselect) => {
           setTilePreselect(preselect ?? null)
-          setSmsFlowOpen(true)
+          openChannel('text')
         }}
         onCreateRobocall={(preselect) => {
           setTilePreselect(preselect ?? null)
-          setRobocallFlowOpen(true)
+          openChannel('robocall')
         }}
         onCreatePhoneBanking={(preselect) => {
           setTilePreselect(preselect ?? null)
@@ -260,7 +310,7 @@ const OutreachHubContent = ({
       </Suspense>
       <OutreachHistoryTable
         rows={historyRows}
-        onRowClick={setDetailsRow}
+        onRowClick={handleRowClick}
         membership={membership}
       />
       <OutreachDetailsDrawer

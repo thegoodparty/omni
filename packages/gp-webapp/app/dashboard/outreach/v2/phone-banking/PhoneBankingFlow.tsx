@@ -26,6 +26,10 @@ import {
 } from 'app/dashboard/outreach/constants'
 import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
+import { GateBanner } from '../gate/GateBanner'
+import { GateExplainerModal } from '../gate/GateExplainerModal'
+import { OutreachGate } from '../gate/OutreachGate'
+import { useOutreachGate } from '../gate/useOutreachGate'
 import { PurposeStep } from '../PurposeStep'
 // Intro is a channel-generic v2 component that currently lives under
 // social/; reused read-only here (same precedent as RobocallPurposeStep).
@@ -242,6 +246,12 @@ export const PhoneBankingFlow = ({
   preselectedRecommendedVariant,
 }: PhoneBankingFlowProps) => {
   const router = useRouter()
+  // Milestone 2's in-flow gate. Phone banking saves no draft — the list is
+  // the deliverable and nothing exists until create — so the gate stands in
+  // front of the one write instead of behind a saved row.
+  const gate = useOutreachGate('phone-bank')
+  const [gateOpen, setGateOpen] = useState(false)
+  const [explainerOpen, setExplainerOpen] = useState(false)
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<PhoneBankingFlowPurpose | null>(null)
 
@@ -360,6 +370,8 @@ export const PhoneBankingFlow = ({
     setNameEdited(false)
     setSaved(false)
     setCreateResponse(null)
+    setGateOpen(false)
+    setExplainerOpen(false)
     resetDraftMutation()
     resetCreateMutation()
     resetAudience()
@@ -387,6 +399,14 @@ export const PhoneBankingFlow = ({
     draftMutate,
     preselectedRecommendedVariant,
   ])
+
+  // An OutreachGate with no requirement renders nothing at all, so a
+  // requirement that clears from under an open gate (a membership refetch,
+  // an upgrade finished in another tab) has to put the candidate back on the
+  // step rather than leave them on a blank sheet.
+  useEffect(() => {
+    if (gate.requirement === null) setGateOpen(false)
+  }, [gate.requirement])
 
   // Applies the handed-over preselected list to the who step's picker once
   // the saved lists resolve — and only when the id matches a picker row, so
@@ -649,37 +669,51 @@ export const PhoneBankingFlow = ({
               audience.createRecommendedListPending,
           }
 
-  const cta: FlowShellCta | null = saved
-    ? {
-        label: 'Go to call list',
-        onClick: () => {
-          if (!createResponse) return
-          // The caller page is shared across surfaces by design: it is
-          // auth-only (no campaign required) and fetches org-scoped, so
-          // serve lists open here too (ENG-10970) — not a per-surface path.
-          router.push(`/dashboard/outreach/phone-banking/${createResponse.id}`)
-          onClose()
-        },
-      }
-    : stepId === 'who'
-      ? audienceCta
-      : stepId === 'script'
-        ? {
-            label: 'Continue',
-            onClick: () => setStepId('sheets'),
-            disabled:
-              script.trim().length === 0 ||
-              draftMutation.isPending ||
-              name.trim().length === 0,
-          }
-        : stepId === 'sheets'
+  const cta: FlowShellCta | null = gateOpen
+    ? // The gate screens carry their own buttons.
+      null
+    : saved
+      ? {
+          label: 'Go to call list',
+          onClick: () => {
+            if (!createResponse) return
+            // The caller page is shared across surfaces by design: it is
+            // auth-only (no campaign required) and fetches org-scoped, so
+            // serve lists open here too (ENG-10970) — not a per-surface path.
+            router.push(
+              `/dashboard/outreach/phone-banking/${createResponse.id}`,
+            )
+            onClose()
+          },
+        }
+      : stepId === 'who'
+        ? audienceCta
+        : stepId === 'script'
           ? {
               label: 'Continue',
-              onClick: () => createMutation.mutate(),
-              disabled: createMutation.isPending,
-              loading: createMutation.isPending,
+              onClick: () => setStepId('sheets'),
+              disabled:
+                script.trim().length === 0 ||
+                draftMutation.isPending ||
+                name.trim().length === 0,
             }
-          : null
+          : stepId === 'sheets'
+            ? {
+                label: 'Continue',
+                onClick: () => {
+                  // Nothing is written until the candidate can have the list:
+                  // a gated Continue opens the gate and the mutation waits for
+                  // it to clear.
+                  if (gate.requirement !== null) {
+                    setGateOpen(true)
+                    return
+                  }
+                  createMutation.mutate()
+                },
+                disabled: createMutation.isPending,
+                loading: createMutation.isPending,
+              }
+            : null
 
   return (
     <OutreachFlowShell
@@ -689,11 +723,42 @@ export const PhoneBankingFlow = ({
       headerBadge={<ChannelBadge type={OUTREACH_TYPES.nativePhoneBanking} />}
       currentStep={stepIndex + 1}
       totalSteps={STEP_ORDER.length}
-      onBack={stepIndex > 0 && !saved ? handleBack : undefined}
+      onBack={stepIndex > 0 && !saved && !gateOpen ? handleBack : undefined}
       cta={cta}
+      // A React element is truthy even when it renders null, so the caller
+      // gates the JSX (see GateBanner).
+      banner={
+        gate.requirement !== null && !saved && !gateOpen ? (
+          <GateBanner
+            channel="phone-bank"
+            state={gate}
+            onOpenExplainer={() => setExplainerOpen(true)}
+          />
+        ) : undefined
+      }
       dirty={dirty}
     >
-      {stepId === 'purpose' ? (
+      <GateExplainerModal
+        channel="phone-bank"
+        state={gate}
+        open={explainerOpen}
+        onOpenChange={setExplainerOpen}
+        onUpgrade={() => setGateOpen(true)}
+        onVerify={() => setGateOpen(true)}
+        onPin={() => setGateOpen(true)}
+      />
+      {gateOpen ? (
+        <OutreachGate
+          channel="phone-bank"
+          state={gate}
+          open
+          onExit={() => setGateOpen(false)}
+          onComplete={() => {
+            setGateOpen(false)
+            createMutation.mutate()
+          }}
+        />
+      ) : stepId === 'purpose' ? (
         <div className="space-y-6">
           <Intro
             channel="phoneBanking"

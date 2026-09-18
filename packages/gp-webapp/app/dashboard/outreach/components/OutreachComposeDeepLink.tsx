@@ -6,6 +6,7 @@ import type { OutreachType } from 'gpApi/types/outreach.types'
 import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
+import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveListId.util'
@@ -75,6 +76,10 @@ export const OutreachComposeDeepLink = ({
     tcrCompliance,
     composeSource,
   )
+  // Same switch the tiles run (see ChannelTileGrid): behind the flag the
+  // text, robocall and phone-banking flows carry their own gate, so the link
+  // opens them instead of refusing the arrival.
+  const { enabled: gatedFlows } = useOutreachProGatingV2Flag(false)
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
   const consumedRef = useRef(false)
   const bareParamConsumedRef = useRef(false)
@@ -138,7 +143,7 @@ export const OutreachComposeDeepLink = ({
       source: composeSource,
     })
     if (composeType === OUTREACH_TYPES.text) {
-      if (runTextGate()) {
+      if (gatedFlows || runTextGate()) {
         onCompose({
           type: composeType,
           script: message || undefined,
@@ -158,7 +163,7 @@ export const OutreachComposeDeepLink = ({
     // Phone banking's upgrade-at-entry, exactly as its tile does it: the Pro
     // upgrade wizard rather than a modal.
     if (composeType === OUTREACH_TYPES.phoneBanking) {
-      if (!campaign.isPro) {
+      if (!gatedFlows && !campaign.isPro) {
         trackEvent(EVENTS.ProUpgrade.Compliance.LockedItemClicked, {
           type: composeType,
         })
@@ -173,7 +178,7 @@ export const OutreachComposeDeepLink = ({
       return
     }
     // Robocall is Pro-gated the same way the outreach create cards gate it.
-    if (!campaign.isPro) {
+    if (!gatedFlows && !campaign.isPro) {
       trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceStarted, {
         source: composeSource,
       })
@@ -189,6 +194,7 @@ export const OutreachComposeDeepLink = ({
   }, [
     composeType,
     campaign,
+    gatedFlows,
     searchParams,
     router,
     runTextGate,

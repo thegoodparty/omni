@@ -1,9 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { render } from 'helpers/test-utils/render'
 import type { Campaign } from 'helpers/types'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
+import type { OutreachDetail } from '@goodparty_org/contracts'
 import { OutreachHubPage } from './OutreachHubPage'
 import type { HistoryRow } from './historyStatus.util'
 
@@ -24,13 +26,48 @@ vi.mock('./ChannelTileGrid', () => ({
   ChannelTileGrid: () => null,
 }))
 vi.mock('./social/SocialFlow', () => ({ SocialFlow: () => null }))
-vi.mock('./robocall/RobocallFlow', () => ({ RobocallFlow: () => null }))
 vi.mock('./phone-banking/PhoneBankingFlow', () => ({
   PhoneBankingFlow: () => null,
 }))
-vi.mock('./sms/SmsFlow', () => ({ SmsFlow: () => null }))
+
+// The two resumable flows and the drawer stand in for themselves, so a row
+// click can be asserted by where it landed and on which draft. Written out
+// per factory rather than shared: a vi.mock factory runs during the import
+// below, before any module-scope const in this file exists.
+interface FlowStubProps {
+  open: boolean
+  resumeDraft?: OutreachDetail | null
+}
+vi.mock('./robocall/RobocallFlow', () => ({
+  RobocallFlow: ({ open, resumeDraft }: FlowStubProps) =>
+    open ? (
+      <div data-testid="robocall-flow">
+        {resumeDraft ? `resuming ${resumeDraft.id}` : 'fresh'}
+      </div>
+    ) : null,
+}))
+vi.mock('./sms/SmsFlow', () => ({
+  SmsFlow: ({ open, resumeDraft }: FlowStubProps) =>
+    open ? (
+      <div data-testid="sms-flow">
+        {resumeDraft ? `resuming ${resumeDraft.id}` : 'fresh'}
+      </div>
+    ) : null,
+}))
 vi.mock('./OutreachDetailsDrawer', () => ({
-  OutreachDetailsDrawer: () => null,
+  OutreachDetailsDrawer: ({ row }: { row: { name?: string | null } | null }) =>
+    row ? <div data-testid="details-drawer">{row.name}</div> : null,
+}))
+
+const { mockFetchOutreachDetail } = vi.hoisted(() => ({
+  mockFetchOutreachDetail: vi.fn(),
+}))
+vi.mock('./useOutreachDetail', () => ({
+  outreachDetailQueryPrefix: ['outreach-detail'],
+  outreachDetailQueryKey: (id: number) => ['outreach-detail', id],
+  fetchOutreachDetail: (id: number) => mockFetchOutreachDetail(id),
+  useOutreachDetail: () => ({ data: undefined, isLoading: false }),
+  useSeedOutreachDetail: () => vi.fn(),
 }))
 vi.mock('app/dashboard/outreach/components/OutreachComposeDeepLink', () => ({
   OutreachComposeDeepLink: () => null,
@@ -123,5 +160,84 @@ describe('OutreachHubPage — draft rows gate', () => {
     expect(table.getByText('Draft blast')).toBeInTheDocument()
     expect(table.getByText('PIN needed')).toBeInTheDocument()
     expect(mockUseMembershipState).toHaveBeenCalledWith({ enabled: true })
+  })
+})
+
+const robocallDraftRow: HistoryRow = {
+  id: 77,
+  createdAt: '2026-09-02T00:00:00Z',
+  outreachType: 'robocall',
+  name: 'Draft call',
+  status: 'draft',
+}
+
+const renderHub = (outreaches: HistoryRow[]) =>
+  render(
+    <OutreachHubPage
+      pathname="/dashboard/outreach"
+      campaign={campaign}
+      outreaches={outreaches}
+    />,
+  )
+
+// A draft row is the campaign's way back into the flow that saved it, so it
+// reopens that flow on the saved row rather than the read-only drawer.
+describe('OutreachHubPage — clicking a draft row resumes its flow', () => {
+  beforeEach(() => {
+    mockUseFlag.mockReturnValue({ ready: true, enabled: true })
+    mockUseMembershipState.mockReturnValue({
+      ready: true,
+      state: membership({ tier: 'free', texting: 'needs_verification' }),
+      tcrCompliance: null,
+    })
+    mockFetchOutreachDetail.mockReset()
+  })
+
+  it('opens the text flow on the saved draft', async () => {
+    mockFetchOutreachDetail.mockResolvedValue({ id: 99, name: 'Draft blast' })
+    renderHub([draftRow, sentRow])
+
+    await userEvent.click(within(desktopTable()).getByText('Draft blast'))
+
+    expect(await screen.findByTestId('sms-flow')).toHaveTextContent(
+      'resuming 99',
+    )
+    expect(mockFetchOutreachDetail).toHaveBeenCalledWith(99)
+    expect(screen.queryByTestId('details-drawer')).not.toBeInTheDocument()
+  })
+
+  it('opens the robocall flow on a robocall draft', async () => {
+    mockFetchOutreachDetail.mockResolvedValue({ id: 77, name: 'Draft call' })
+    renderHub([robocallDraftRow, sentRow])
+
+    await userEvent.click(within(desktopTable()).getByText('Draft call'))
+
+    expect(await screen.findByTestId('robocall-flow')).toHaveTextContent(
+      'resuming 77',
+    )
+    expect(screen.queryByTestId('details-drawer')).not.toBeInTheDocument()
+  })
+
+  // A failed detail read must not be a dead end: the flow opens as a new
+  // campaign, and the saved row is still there to try again from.
+  it('opens a fresh flow when the draft detail cannot be read', async () => {
+    mockFetchOutreachDetail.mockRejectedValue(new Error('nope'))
+    renderHub([draftRow, sentRow])
+
+    await userEvent.click(within(desktopTable()).getByText('Draft blast'))
+
+    expect(await screen.findByTestId('sms-flow')).toHaveTextContent('fresh')
+  })
+
+  it('opens the drawer for a row that is not a draft', async () => {
+    renderHub([draftRow, sentRow])
+
+    await userEvent.click(within(desktopTable()).getByText('Intro post'))
+
+    expect(await screen.findByTestId('details-drawer')).toHaveTextContent(
+      'Intro post',
+    )
+    expect(screen.queryByTestId('sms-flow')).not.toBeInTheDocument()
+    expect(mockFetchOutreachDetail).not.toHaveBeenCalled()
   })
 })

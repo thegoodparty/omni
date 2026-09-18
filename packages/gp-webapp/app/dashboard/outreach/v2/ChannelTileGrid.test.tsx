@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
@@ -49,8 +49,16 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   trackEvent: vi.fn(),
 }))
 
+const runTextGate = vi.hoisted(() => vi.fn(() => true))
 vi.mock('app/dashboard/outreach/hooks/useTextOutreachGate', () => ({
-  useTextOutreachGate: () => ({ runTextGate: () => true, gateModals: null }),
+  useTextOutreachGate: () => ({ runTextGate, gateModals: null }),
+}))
+
+// Milestone 2's gate flag. Off by default, so every case in this file keeps
+// asserting today's upgrade-at-entry behavior.
+const proGatingV2 = { ready: true, enabled: false }
+vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
+  useOutreachProGatingV2Flag: () => proGatingV2,
 }))
 
 let mockCampaign: { id: number; isPro: boolean } = { id: 9, isPro: true }
@@ -535,5 +543,98 @@ describe('ChannelTileGrid — the preselect reaches every audience-taking tile',
     expect(mockRouterPush).toHaveBeenCalledWith(
       '/dashboard/door-knocking?create=1&recommended=persuadeAffinity',
     )
+  })
+})
+
+// Milestone 2: the tiles stop being the gate. A free candidate opens the
+// flow, builds their campaign, and meets the gate inside it.
+describe('ChannelTileGrid — flag on: the tiles open the gated flows', () => {
+  beforeEach(() => {
+    proGatingV2.enabled = true
+    mockCampaign = { id: 9, isPro: false }
+    mockElectedOffice = { data: null, isPending: false }
+    mockRouterPush.mockClear()
+    runTextGate.mockClear()
+  })
+
+  afterEach(() => {
+    proGatingV2.enabled = false
+  })
+
+  it('leaves the text, robocall and phone-banking tiles unlocked for a free candidate', () => {
+    renderGrid()
+
+    expect(screen.getByText('SMS').closest('button')).not.toHaveAttribute(
+      'data-locked',
+    )
+    expect(screen.getByText('Robocall').closest('button')).not.toHaveAttribute(
+      'data-locked',
+    )
+    expect(
+      screen.getByText('Phone banking').closest('button'),
+    ).not.toHaveAttribute('data-locked')
+  })
+
+  it('opens the SMS flow for a free candidate instead of the Pro wizard', async () => {
+    const onCreateSms = vi.fn()
+    renderGrid({ onCreateSms })
+
+    await userEvent.click(screen.getByText('SMS'))
+
+    expect(onCreateSms).toHaveBeenCalledTimes(1)
+    expect(mockRouterPush).not.toHaveBeenCalled()
+    // The flow carries the compliance gate now, so the tile no longer runs it.
+    expect(runTextGate).not.toHaveBeenCalled()
+  })
+
+  it('opens the robocall flow for a free candidate instead of the Pro modal', async () => {
+    const onCreateRobocall = vi.fn()
+    renderGrid({ onCreateRobocall })
+
+    await userEvent.click(screen.getByText('Robocall'))
+
+    expect(onCreateRobocall).toHaveBeenCalledTimes(1)
+    expect(
+      screen.queryByText('Get Pro voter data and tools'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('opens the phone-banking flow for a free candidate instead of the Pro wizard', async () => {
+    const onCreatePhoneBanking = vi.fn()
+    renderGrid({ onCreatePhoneBanking })
+
+    await userEvent.click(screen.getByText('Phone banking'))
+
+    expect(onCreatePhoneBanking).toHaveBeenCalledTimes(1)
+    expect(mockRouterPush).not.toHaveBeenCalled()
+  })
+
+  it('still spends the carried audience on open', async () => {
+    const onCreateSms = vi.fn()
+    const onCreateRobocall = vi.fn()
+    renderGrid({ preselectedListId: 42, onCreateSms, onCreateRobocall })
+
+    await userEvent.click(screen.getByText('SMS'))
+    await userEvent.click(screen.getByText('Robocall'))
+
+    expect(onCreateSms).toHaveBeenCalledWith({ listId: 42 })
+    expect(onCreateRobocall).toHaveBeenCalledWith(undefined)
+  })
+
+  // Door knocking is not one of milestone 2's gated flows: its Pro modal and
+  // its locked tile stay exactly as they are.
+  it('leaves door knocking gated at the tile', async () => {
+    renderGrid()
+
+    expect(screen.getByText('Door knocking').closest('button')).toHaveAttribute(
+      'data-locked',
+    )
+
+    await userEvent.click(screen.getByText('Door knocking'))
+
+    expect(mockRouterPush).not.toHaveBeenCalled()
+    expect(
+      await screen.findByText('Get Pro voter data and tools'),
+    ).toBeInTheDocument()
   })
 })
