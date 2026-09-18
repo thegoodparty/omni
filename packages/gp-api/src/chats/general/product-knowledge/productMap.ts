@@ -304,6 +304,7 @@ const SERVE_AREAS: ProductArea[] = [
       'Create new list is in the top bar of the page',
       'Opening a list shows its filter summary and outreach history, never a table of individual people',
       'A constituent’s record carries an "Asked for follow-up" toggle, and the record’s activity history shows who set it and when',
+      'A finished phone banking campaign’s results show how many constituents are still owed a follow-up, and can turn them into a call list or a saved list',
       'Party is not a filter in this product',
     ],
   },

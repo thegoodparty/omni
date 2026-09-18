@@ -512,6 +512,27 @@ clear is its own event with its own actor.
 replaying history would raise flags on people whose request may long since
 have been met, and an official cannot tell a stale flag from a live one.
 
+**The audience side.** `voter_file_filter.follow_up_requested` is the saved-
+filter dimension that turns the flag into people you can act on. It is not a
+voter-file column: it resolves through
+`ContactStatusService.personIdsByFieldValue(follow_up, [requested])` into an
+`id: { in }` constraint, AND-composed via `intersectIdFilterResolutions` the
+same way `contactsMade` is, and it sits in `fieldsHandledSeparately` so the
+generic loop never tries to map it. Serve-only and the exact mirror of
+`contactsMade`: `resolveIdFilterWithContactsMade` takes one branch or the
+other, and `assertNoFollowUpFilterForCampaign` 400s a Win org rather than
+ignoring the key, because a silently-dropped dimension returns a WIDER
+audience than asked for and a phone list built from it calls people nobody
+selected. Nobody flagged resolves to an EMPTY audience, never an absent
+filter, for the same reason.
+
+AND-ed with an activity condition pinned to one outreach, it expresses "who
+from that closed campaign still needs calling back" — which is what the
+results drawer's follow-up block saves, and what phone banking then builds a
+call sheet from. Because it reads the standing flag, that list shrinks as the
+official works it down, while the campaign's own `byFollowUp.yes` count is
+frozen history and can only grow; the two are supposed to disagree.
+
 `ContactEngagementService` filters the feed's `contact_status_event` read by
 field rather than skipping it for Serve: `field: follow_up` for an `eo-` org,
 `field: { not: follow_up }` otherwise, so neither surface can read back the
