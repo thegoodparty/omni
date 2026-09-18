@@ -121,10 +121,10 @@ export class OutreachRobocallController {
   @ResponseSchema(RobocallNumberResponseSchema)
   async rentNumber(
     @ReqCampaign() campaign: Campaign,
-    @ReqOrganization() organization: Organization,
   ): Promise<RobocallNumberResponse> {
-    await this.contacts.assertProAccess(organization)
-
+    // Not Pro-gated (outreach-pro-gating-v2): a free candidate can build a
+    // robocall draft, including renting the number, before upgrading. Only
+    // the paid create/authorize/send routes still require Pro.
     const areaCodePrefix = await resolveRobocallAreaCode(campaign.details, {
       areaCodeFromZipService: this.areaCodeFromZipService,
       logger: this.logger,
@@ -249,12 +249,12 @@ export class OutreachRobocallController {
   async checkCompliance(
     @ReqUser() user: User,
     @ReqCampaign() campaign: Campaign,
-    @ReqOrganization() organization: Organization,
     @Body(new ZodValidationPipe(RobocallComplianceRequestSchema))
     input: RobocallComplianceRequest,
   ): Promise<RobocallComplianceVerdict> {
-    await this.contacts.assertProAccess(organization)
-
+    // Not Pro-gated (outreach-pro-gating-v2): a free candidate can build a
+    // robocall draft, including checking the recording, before upgrading.
+    // Only the paid create/authorize/send routes still require Pro.
     if (!input.audioKey.startsWith(`robocall/${campaign.id}/`)) {
       throw new BadRequestException('Audio does not belong to this campaign')
     }

@@ -382,16 +382,22 @@ describe('POST /v1/outreach/robocall/number', () => {
     expect(res.data).toEqual({ phoneNumber: '+12025550147', region: 'DC' })
   })
 
-  it('rejects a non-Pro campaign without renting', async () => {
+  it('allows a non-Pro campaign to rent a number', async () => {
     await service.prisma.campaign.update({
       where: { id: campaign.id },
       data: { isPro: false },
     })
+    getAreaCodeFromZip.mockResolvedValue(['512', '737'])
+    rentNumber.mockResolvedValue({
+      phone_number: '+15125550143',
+      region: 'TX',
+      is_active: true,
+    })
 
     const res = await postNumber()
 
-    expect(res.status).toBe(HttpStatus.FORBIDDEN)
-    expect(rentNumber).not.toHaveBeenCalled()
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(rentNumber).toHaveBeenCalled()
   })
 
   it('propagates a CallHub rental failure as a 502', async () => {
@@ -546,16 +552,26 @@ describe('POST /v1/outreach/robocall/compliance', () => {
     expect(checkRecording).not.toHaveBeenCalled()
   })
 
-  it('rejects a non-Pro campaign without checking', async () => {
+  it('allows a non-Pro campaign to check the recording', async () => {
     await service.prisma.campaign.update({
       where: { id: campaign.id },
       data: { isPro: false },
     })
+    checkRecording.mockResolvedValue({
+      passed: true,
+      checks: {
+        hasSelfIdentification: true,
+        hasOrganization: true,
+        hasCallbackNumber: true,
+      },
+      transcript: 'Hi, this is Jane Doe...',
+      issues: [],
+    })
 
     const res = await postCompliance(validCompliancePayload)
 
-    expect(res.status).toBe(HttpStatus.FORBIDDEN)
-    expect(checkRecording).not.toHaveBeenCalled()
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(checkRecording).toHaveBeenCalled()
   })
 
   it('rejects a nameless candidate with an actionable 400, not a check', async () => {

@@ -230,7 +230,7 @@ describe('voter-file segment CRUD for a campaign org', () => {
     ).not.toBeNull()
   })
 
-  it('rejects segment creation for a non-pro Win campaign', async () => {
+  it('allows segment creation for a non-pro Win campaign, but not update', async () => {
     await seedWinCampaign(false)
 
     const created = await service.client.post(
@@ -239,8 +239,17 @@ describe('voter-file segment CRUD for a campaign org', () => {
       { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
     )
 
-    expect(created.status).toBe(403)
-    expect(await service.prisma.voterFileFilter.count()).toBe(0)
+    expect(created.status).toBe(201)
+    const id = created.data.id as number
+    expect(await service.prisma.voterFileFilter.count()).toBe(1)
+
+    const updated = await service.client.put(
+      `/v1/voters/voter-file/filter/${id}`,
+      { name: 'Independent women (renamed)' },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(updated.status).toBe(403)
   })
 })
 

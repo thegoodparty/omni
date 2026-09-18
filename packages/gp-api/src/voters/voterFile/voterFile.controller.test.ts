@@ -161,30 +161,16 @@ describe('VoterFileController', () => {
   })
 
   describe('createVoterFileFilter', () => {
-    it('throws when filterAccessCheck rejects', async () => {
-      mockVoterFileFilterService.filterAccessCheck.mockRejectedValue(
-        new ForbiddenException('Campaign is not pro'),
-      )
-      const body = { name: 'My Filter' } as never
-
-      await expect(
-        controller.createVoterFileFilter(baseOrg, body),
-      ).rejects.toThrow(ForbiddenException)
-
-      expect(mockVoterFileFilterService.filterAccessCheck).toHaveBeenCalledWith(
-        baseOrg.slug,
-      )
-      expect(mockVoterFileFilterService.create).not.toHaveBeenCalled()
-    })
-
-    it('creates filter when access check passes', async () => {
+    // Not Pro-gated (outreach-pro-gating-v2): create never calls
+    // filterAccessCheck, unlike update/delete below.
+    it('creates a filter without checking Pro access', async () => {
       const body = { name: 'My Filter' } as never
 
       const result = await controller.createVoterFileFilter(baseOrg, body)
 
-      expect(mockVoterFileFilterService.filterAccessCheck).toHaveBeenCalledWith(
-        baseOrg.slug,
-      )
+      expect(
+        mockVoterFileFilterService.filterAccessCheck,
+      ).not.toHaveBeenCalled()
       expect(mockVoterFileFilterService.create).toHaveBeenCalledWith(
         baseOrg.slug,
         body,

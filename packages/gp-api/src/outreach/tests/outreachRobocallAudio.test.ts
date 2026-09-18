@@ -92,7 +92,7 @@ describe('POST /v1/outreach/robocall/audio/presign', () => {
     expect(spy).not.toHaveBeenCalled()
   })
 
-  it('rejects a non-pro campaign', async () => {
+  it('allows a non-pro campaign to presign a draft upload', async () => {
     const spy = mockUpload()
 
     const freeSlug = 'campaign-996'
@@ -114,7 +114,7 @@ describe('POST /v1/outreach/robocall/audio/presign', () => {
 
     const res = await postPresign({ contentType: 'audio/webm' }, freeSlug)
 
-    expect(res.status).toBe(HttpStatus.FORBIDDEN)
-    expect(spy).not.toHaveBeenCalled()
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(spy).toHaveBeenCalled()
   })
 })
