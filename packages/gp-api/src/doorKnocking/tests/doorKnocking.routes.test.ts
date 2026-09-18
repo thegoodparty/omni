@@ -3818,6 +3818,81 @@ describe('door-knocking routes', () => {
         })
         expect(events).toHaveLength(0)
       })
+
+      // The inverse of the likelihood writer's guard: the standing follow-up
+      // flag is Serve's, so a Win door that happens to carry the answer
+      // records the column and nothing else.
+      it('writes no follow_up event for a Win organization', async () => {
+        const target = await knockAndGetTarget()
+        await record({
+          stopTargetId: target.id,
+          clientKey: CLIENT_KEY,
+          outcome: 'answered',
+          followUp: 'yes',
+        })
+
+        const events = await service.prisma.contactStatusEvent.findMany({
+          where: { organizationSlug: orgSlug, field: 'follow_up' },
+        })
+        expect(events).toHaveLength(0)
+      })
+
+      it('writes a follow_up event for an eo- (Serve) organization, and no duplicate on a replayed knock', async () => {
+        const { slug: eoSlug, filterId, headers } = await serveOrg('followup')
+        await service.client.post(
+          '/v1/door-knocking/serve/turfs',
+          {
+            voterFileFilterId: filterId,
+            name: 'EO follow-up turf',
+            color: '#3355ff',
+            geoPoly: GEO_POLY,
+            mode: 'walk',
+            loop: false,
+          },
+          headers,
+        )
+        const eoTarget =
+          await service.prisma.doorKnockingStopTarget.findFirstOrThrow({
+            orderBy: { id: 'asc' },
+          })
+
+        const recordEo = () =>
+          service.client.post(
+            '/v1/door-knocking/interactions',
+            {
+              stopTargetId: eoTarget.id,
+              clientKey: CLIENT_KEY,
+              outcome: 'answered',
+              followUp: 'yes',
+            },
+            { headers: { 'x-organization-slug': eoSlug } },
+          )
+
+        expect((await recordEo()).status).toBe(201)
+
+        const event = await service.prisma.contactStatusEvent.findFirstOrThrow({
+          where: { organizationSlug: eoSlug, field: 'follow_up' },
+        })
+        expect(event).toMatchObject({
+          personId: eoTarget.personId,
+          fromValue: 'cleared',
+          toValue: 'requested',
+          source: 'door_knock',
+        })
+
+        expect((await recordEo()).status).toBe(201)
+        expect(
+          await service.prisma.contactStatusEvent.count({
+            where: { organizationSlug: eoSlug, field: 'follow_up' },
+          }),
+        ).toBe(1)
+
+        const current =
+          await service.prisma.contactCurrentStatus.findFirstOrThrow({
+            where: { organizationSlug: eoSlug, field: 'follow_up' },
+          })
+        expect(current.value).toBe('requested')
+      })
     })
 
     describe('willVote -> voter_likelihood override events (ENG-10841)', () => {

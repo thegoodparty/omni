@@ -7,6 +7,8 @@ import {
   ContactInteractionDoorKnock,
   ContactStatusField,
   ContactStatusSource,
+  FollowUpAnswer,
+  FollowUpStatus,
   Prisma,
   WillVoteAnswer,
 } from '@/generated/prisma'
@@ -41,6 +43,7 @@ export class ContactInteractionDoorKnockService extends createPrismaBase(
   async create(data: Prisma.ContactInteractionDoorKnockUncheckedCreateInput) {
     const row = await this.model.create({ data })
     await this.emitLikelihoodEvent(row)
+    await this.emitFollowUpEvent(row)
     return row
   }
 
@@ -74,6 +77,7 @@ export class ContactInteractionDoorKnockService extends createPrismaBase(
       },
     })
     await this.emitLikelihoodEvent(row)
+    await this.emitFollowUpEvent(row)
     return row
   }
 
@@ -109,6 +113,39 @@ export class ContactInteractionDoorKnockService extends createPrismaBase(
       // purely to decorate the feed's "before" label) — not worth an extra
       // people-api round trip per synced knock.
       fallbackFromValue: null,
+    })
+  }
+
+  // The Serve mirror, with the inverse `eo-` guard: the door's follow-up
+  // question is Serve's, and so is the standing flag it maintains. Same
+  // latest-answer-wins rule as the phone-banking twin
+  // (PhoneBankingCallService.emitFollowUpEvents) — a "no" clears a flag,
+  // including one set by hand on the contact card, because the flag reports
+  // what is STILL owed and the person who just stood at the door is the
+  // better evidence.
+  private async emitFollowUpEvent(row: ContactInteractionDoorKnock) {
+    if (!row.followUp) {
+      return
+    }
+    if (!row.organizationSlug.startsWith('eo-')) {
+      return
+    }
+    await this.contactStatus.changeStatus({
+      organizationSlug: row.organizationSlug,
+      personId: row.personId,
+      field: ContactStatusField.follow_up,
+      toValue:
+        row.followUp === FollowUpAnswer.yes
+          ? FollowUpStatus.requested
+          : FollowUpStatus.cleared,
+      source: ContactStatusSource.door_knock,
+      actorUserId: row.actorUserId,
+      // Stable per synced knock, like the likelihood twin above: a replayed
+      // sync of the same knock must no-op rather than log a second event.
+      sourceId: row.sourceId ?? row.id,
+      // Nobody is born flagged, so a "no" against no prior flag is a no-op
+      // rather than a logged transition that never happened.
+      fallbackFromValue: FollowUpStatus.cleared,
     })
   }
 }

@@ -299,6 +299,7 @@ const SERVE_AREAS: ProductArea[] = [
       'Saved lists live HERE, on the lists index below the district stat card',
       'Create new list is in the top bar of the page',
       'Opening a list shows its filter summary and outreach history, never a table of individual people',
+      'A constituent’s record carries an "Asked for follow-up" toggle, and the record’s activity history shows who set it and when',
       'Party is not a filter in this product',
     ],
   },

@@ -8,6 +8,8 @@ import type {
   ConstituentActivityEventType,
   ContactStatusField,
   DoorKnockConstituentActivity,
+  FollowUpStatus,
+  FollowUpStatusResponse,
   GetIndividualActivitiesResponse,
   ListDetailContactsResponse,
   ListDetailOutreachHistoryEntry,
@@ -25,6 +27,7 @@ import type {
   SupportStatusRollup,
   TextConstituentActivity,
   UpdateContactStatusInput,
+  UpdateFollowUpInput,
   VoterLikelihood,
   VoterOutreachAttributionSource,
 } from '@goodparty_org/contracts'
@@ -58,6 +61,13 @@ export type { Person, SupportStatusRollup }
 // response shapes for PATCH /v1/contacts/:personId/status, defined once in
 // @goodparty_org/contracts/people/ContactStatus.schema.
 export type { ContactStatuses, UpdateContactStatusInput, VoterLikelihood }
+
+// Serve's standing follow-up flag: request/response shapes for
+// PATCH /v1/contacts/:personId/follow-up. Its own endpoint rather than a
+// third `field` on the status route, because that route's response promises
+// both of Win's editable statuses and a Serve write can honestly supply
+// neither.
+export type { FollowUpStatus, FollowUpStatusResponse, UpdateFollowUpInput }
 
 export type ListContactsResponse = PeopleListResponse
 

@@ -12,6 +12,9 @@ import {
 } from '@nestjs/common'
 import {
   ContactStatusesSchema,
+  FollowUpStatusResponseSchema,
+  UpdateFollowUpInputSchema,
+  type UpdateFollowUpInput,
   ListDetailContactsResponseSchema,
   PersonSchema,
   type UpdateContactStatusInput,
@@ -122,6 +125,27 @@ export class ContactsController {
     @ReqOrganization() organization: Organization,
   ) {
     return this.contactsService.findPerson(params.id, organization)
+  }
+
+  // Serve's own status write, separate from the PATCH below for the reasons
+  // on FollowUpStatusSchema in contracts: no Pro gate (an ElectedOffice row is
+  // the entitlement) and its own response, so Win's two-status guarantee is
+  // untouched.
+  @Patch(':personId/follow-up')
+  @ResponseSchema(FollowUpStatusResponseSchema)
+  async updateFollowUp(
+    @Param() { personId }: UpdateContactStatusParamsDTO,
+    @Body(new ZodValidationPipe(UpdateFollowUpInputSchema))
+    body: UpdateFollowUpInput,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    return this.contactsService.updateFollowUp(
+      personId,
+      body.value,
+      organization,
+      user.id,
+    )
   }
 
   @Patch(':personId/status')

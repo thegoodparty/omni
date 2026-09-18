@@ -506,6 +506,10 @@ export const EVENTS = {
     ListCreated: 'Constituent Data - List Created',
     ActivityListCreated: 'Constituent Data - Activity List Created',
     ListExported: 'Constituent Data - List Exported',
+    // The person-record follow-up toggle. Fires once per confirmed-successful
+    // change with { from, to } — never on a failed PATCH. Serve-only
+    // surface, the mirror of VoterData.ContactStatusChanged below.
+    FollowUpChanged: 'Constituent Data - Follow Up Changed',
   },
   VoterData: {
     ContactSearched: 'Voter Data - Contact Searched',

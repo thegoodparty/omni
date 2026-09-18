@@ -120,10 +120,17 @@ export {
   type NotAVoterStatus,
   NotAVoterReasonSchema,
   type NotAVoterReason,
+  FollowUpStatusSchema,
+  type FollowUpStatus,
+  UpdateFollowUpInputSchema,
+  type UpdateFollowUpInput,
+  FollowUpStatusResponseSchema,
+  type FollowUpStatusResponse,
   VOTER_LIKELIHOOD_LABELS,
   SUPPORT_STATUS_ROLLUP_LABELS,
   DO_NOT_KNOCK_LABELS,
   NOT_A_VOTER_LABELS,
+  FOLLOW_UP_STATUS_LABELS,
   resolveContactStatusLabel,
 } from './people/ContactStatus.schema'
 

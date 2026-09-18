@@ -7,6 +7,7 @@ import { PollIndividualMessageService } from '@/polls/services/pollIndividualMes
 import { VoterOutreachActivityService } from '@/voterOutreachActivity/services/voterOutreachActivity.service'
 import { Injectable } from '@nestjs/common'
 import {
+  ContactStatusField,
   Poll,
   PollIndividualMessage,
   PollIndividualMessageSender,
@@ -258,33 +259,6 @@ export class ContactEngagementService {
           )
         : []
 
-    // Status-change history is Win-only (contacts.service.ts's status-update
-    // endpoint rejects the write for elected-office organizations, so a
-    // Serve org can never have a ContactStatusEvent row) — gated the same
-    // way the legacy outreach rows are gated on Win-ness, not on lalVoterId
-    // being present (status changes don't need the sunset param).
-    const statusChangeEvents = !electedOfficeId
-      ? await fetchWindow(
-          (windowTake) =>
-            this.contactStatus.findEventsForFeed({
-              where: {
-                organizationSlug,
-                personId,
-                ...(cursorDate ? { createdAt: { lt: cursorDate } } : {}),
-              },
-              orderBy: statusOrderBy,
-              take: windowTake,
-            }),
-          cursorDate
-            ? () =>
-                this.contactStatus.findEventsForFeed({
-                  where: { organizationSlug, personId, createdAt: cursorDate },
-                  orderBy: statusOrderBy,
-                })
-            : null,
-        )
-      : []
-
     // One vocabulary per row, decided here rather than per reader — this feed
     // has two (the walk's person sheet and the Constituent Data overlay), and
     // the `eo-` prefix is the whole rule, the same way `politicalParty` is
@@ -293,6 +267,43 @@ export class ContactEngagementService {
     // back only its own, so neither can show a reader the answer to a question
     // their canvasser never asked.
     const isServe = organizationSlug.startsWith('eo-')
+    const statusFieldFilter = {
+      field: isServe
+        ? ContactStatusField.follow_up
+        : { not: ContactStatusField.follow_up },
+    }
+
+    // Status-change history is filtered by field rather than by surface:
+    // Win's three editable statuses are Win facts (ContactsService rejects
+    // those writes for an `eo-` org), and `follow_up` is the only one Serve
+    // can produce. Filtering here rather than skipping the read keeps the
+    // same guarantee the vocabulary split below keeps — neither surface can
+    // show a reader the answer to a question their canvasser never asked.
+    const statusChangeEvents = await fetchWindow(
+      (windowTake) =>
+        this.contactStatus.findEventsForFeed({
+          where: {
+            organizationSlug,
+            personId,
+            ...statusFieldFilter,
+            ...(cursorDate ? { createdAt: { lt: cursorDate } } : {}),
+          },
+          orderBy: statusOrderBy,
+          take: windowTake,
+        }),
+      cursorDate
+        ? () =>
+            this.contactStatus.findEventsForFeed({
+              where: {
+                organizationSlug,
+                personId,
+                ...statusFieldFilter,
+                createdAt: cursorDate,
+              },
+              orderBy: statusOrderBy,
+            })
+        : null,
+    )
 
     const doorKnockActivities: DoorKnockConstituentActivity[] = doorKnocks.map(
       (activity) => ({

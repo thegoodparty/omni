@@ -15,6 +15,7 @@ import {
   ContactStatusField,
   ContactStatusSource,
   FollowUpAnswer,
+  FollowUpStatus,
   OrganizationRole,
   OutreachStatus,
   PhoneBankCallOutcome,
@@ -111,6 +112,7 @@ export class PhoneBankingCallService extends createPrismaBase(
     // this one commits — same order door-knocking's create()/
     // recordIdempotent() use.
     await this.emitLikelihoodEvents(rows)
+    await this.emitFollowUpEvents(rows)
 
     return {
       entryId: entry.id,
@@ -343,6 +345,45 @@ export class PhoneBankingCallService extends createPrismaBase(
         actorUserId: row.actorUserId,
         sourceId: `${row.id}:${row.updatedAt.toISOString()}`,
         fallbackFromValue: null,
+      })
+    }
+  }
+
+  // The Serve mirror of the above, and the inverse `eo-` guard: a follow-up
+  // answer only exists on this surface, and the standing flag it maintains is
+  // Serve-only (ContactsService rejects the field for a Win org).
+  //
+  // LATEST ANSWER WINS, including "no" clearing a flag a person set by hand on
+  // the contact card. The alternative — only ever raising it — was rejected
+  // because the flag's whole job is to say what is STILL owed: a caller who
+  // just spoke to someone and heard "no, I'm all set" is better evidence than
+  // an older yes, and a flag that only ever accumulates is one nobody trusts.
+  // The clear is recorded as its own event with its own actor, so the history
+  // still shows who lifted it and when.
+  //
+  // sourceId mints per save from (interactionId, updatedAt) like the
+  // likelihood twin, so a corrected answer records a new event rather than
+  // no-oping against the first one.
+  private async emitFollowUpEvents(
+    rows: ContactInteractionPhoneBanking[],
+  ): Promise<void> {
+    for (const row of rows) {
+      if (!row.followUp) continue
+      if (!row.organizationSlug.startsWith('eo-')) continue
+      await this.contactStatus.changeStatus({
+        organizationSlug: row.organizationSlug,
+        personId: row.personId,
+        field: ContactStatusField.follow_up,
+        toValue:
+          row.followUp === FollowUpAnswer.yes
+            ? FollowUpStatus.requested
+            : FollowUpStatus.cleared,
+        source: ContactStatusSource.phone_banking,
+        actorUserId: row.actorUserId,
+        sourceId: `${row.id}:${row.updatedAt.toISOString()}`,
+        // Nobody is born flagged, so an answer of "no" against no prior flag
+        // is a no-op rather than a logged transition that never happened.
+        fallbackFromValue: FollowUpStatus.cleared,
       })
     }
   }
