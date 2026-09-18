@@ -167,6 +167,64 @@ describe('POST /v1/outreach/drafts', () => {
     expect(rows).toHaveLength(1)
   })
 
+  it('creates one row when two p2p creates race', async () => {
+    // The cap is only real because the check and the insert share one
+    // Serializable transaction: the loser either reads the winner's row or is
+    // aborted with P2034, and both surface as the same 409.
+    const [first, second] = await Promise.all([
+      createP2pDraft('First'),
+      createP2pDraft('Second'),
+    ])
+
+    const statuses = [first.status, second.status].sort()
+    expect(statuses).toEqual([HttpStatus.CREATED, HttpStatus.CONFLICT].sort())
+
+    const rows = await service.prisma.outreach.findMany({
+      where: { campaignId: CAMPAIGN_ID },
+    })
+    expect(rows).toHaveLength(1)
+  })
+
+  it('does not upload the image when the cap rejects the create', async () => {
+    const first = await createP2pDraft()
+    expect(first.status).toBe(HttpStatus.CREATED)
+    uploadFile.mockClear()
+
+    const second = await createP2pDraft('Another attempt')
+
+    expect(second.status).toBe(HttpStatus.CONFLICT)
+    expect(uploadFile).not.toHaveBeenCalled()
+  })
+
+  it('does not upload the image for a voter list the campaign does not own', async () => {
+    await service.prisma.organization.create({
+      data: {
+        slug: 'upload-guard-org',
+        ownerId: service.user.id,
+        positionId: 'pos-4',
+      },
+    })
+    const foreign = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: 'upload-guard-org', name: 'not yours' },
+    })
+
+    const form = new FormData()
+    form.append('outreachType', 'p2p')
+    form.append('name', 'Weekend texts')
+    form.append('voterFileFilterId', String(foreign.id))
+    form.append('script', 'Hi {first_name}. Reply STOP to opt out.')
+    form.append('file', Buffer.from('fake-image-bytes'), {
+      filename: 'image.png',
+      contentType: 'image/png',
+    })
+
+    const res = await postForm(form)
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(uploadFile).not.toHaveBeenCalled()
+    expect(await service.prisma.outreach.count()).toBe(0)
+  })
+
   it('creates a robocall draft with no billing on the satellite', async () => {
     const res = await service.client.post(
       '/v1/outreach/drafts',
@@ -300,6 +358,29 @@ describe('DELETE /v1/outreach/:id', () => {
     expect(
       await service.prisma.robocallComplianceResult.findUnique({
         where: { audioKey: AUDIO_KEY },
+      }),
+    ).toBeNull()
+  })
+
+  it('leaves an image that is not on the asset domain alone', async () => {
+    const created = await createP2pDraft()
+    // The expiry job runs this teardown over every draft row, including one
+    // whose image this route did not write.
+    await service.prisma.outreach.update({
+      where: { id: created.data.id },
+      data: { imageUrl: 'https://elsewhere.example/legacy/image.png' },
+    })
+
+    const res = await service.client.delete(
+      `/v1/outreach/${created.data.id}`,
+      orgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.NO_CONTENT)
+    expect(deleteObject).not.toHaveBeenCalled()
+    expect(
+      await service.prisma.outreach.findUnique({
+        where: { id: created.data.id },
       }),
     ).toBeNull()
   })

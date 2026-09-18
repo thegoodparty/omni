@@ -65,9 +65,18 @@ export class OutreachDraftController {
     body: CreateOutreachDraftRequest,
     @ReqFile() image?: FileUpload,
   ): Promise<OutreachDetail> {
+    // Cap + list ownership BEFORE the upload: a rejected create must not leave
+    // an orphaned object in the bucket.
+    await this.drafts.preflight(campaign, body)
+
     if (body.outreachType === 'p2p') {
       if (!image) {
         throw new BadRequestException('Image is required for a texting draft')
+      }
+      if (!image.filename || !image.mimetype) {
+        throw new BadRequestException(
+          'Image filename and MIME type are required for a texting draft',
+        )
       }
       const imageUrl = await this.s3.uploadFile(
         ASSET_DOMAIN,
