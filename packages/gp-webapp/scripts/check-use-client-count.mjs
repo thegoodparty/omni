@@ -399,7 +399,10 @@ import { dirname, join, relative } from 'node:path'
 // ElectionFilingForm (the extracted filing form — already client code, just
 // moved out of ElectionFiling), CampaignVerificationFlow (holds the step
 // state) and VerificationIntro (fires its viewed event on mount).
-const BASELINE = 574
+// 2026-09-18: 574 -> 575 for PinDialog, the membership banner's PIN entry.
+// It holds the typed-PIN state and reads useCvPinGate/useSubmitCvPin, both
+// client-only hooks.
+const BASELINE = 575
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
