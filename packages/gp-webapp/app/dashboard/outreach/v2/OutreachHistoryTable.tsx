@@ -31,6 +31,7 @@ import { shortOutreachDate } from './outreachDate.util'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { ChannelBadge, HistoryStatusText } from './channelMeta'
 import { getHistoryStatusLabel, type HistoryRow } from './historyStatus.util'
+import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import {
   fetchOutreachDetail,
   useOutreachDetail,
@@ -55,6 +56,11 @@ interface OutreachHistoryTableProps {
   // org-scoped sibling the same bound-function way SocialFlow's `surface`
   // does, so this table never forks per surface.
   detailFetcher?: OutreachDetailFetcher
+  // The candidate's membership state, read once by the hub — threaded down
+  // only so a draft row's status can name the next step (draftLabelFor).
+  // Omitted callers (constituent-outreach: no draft rows exist there) get
+  // the same null default getHistoryStatusLabel already carries.
+  membership?: MembershipState | null
 }
 
 // Social rows carry no send counts on the list payload — the platform count
@@ -282,6 +288,11 @@ const STATUS_FILTERS = [
   'Done',
   'Pending payment',
   'Canceled',
+  'Pro needed',
+  'Verification needed',
+  'Verification in review',
+  'PIN needed',
+  'Ready to schedule',
 ] as const
 
 // Representative timestamp for newest-first sorting: the row's own date,
@@ -303,6 +314,7 @@ export const OutreachHistoryTable = ({
   onRowClick,
   rowClickable = () => true,
   detailFetcher = fetchOutreachDetail,
+  membership = null,
 }: OutreachHistoryTableProps) => {
   const [page, setPage] = useState(1)
   const [showArchive, setShowArchive] = useState(false)
@@ -320,7 +332,7 @@ export const OutreachHistoryTable = ({
     if (row.archivedAt) {
       return 'Archived'
     }
-    return getHistoryStatusLabel(row)
+    return getHistoryStatusLabel(row, membership)
   }
 
   const visible = useMemo(

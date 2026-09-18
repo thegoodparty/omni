@@ -3,16 +3,20 @@ import { Badge, StatusText } from '@styleguide'
 import {
   ArchiveIcon,
   CalendarClockIcon,
+  CalendarDaysIcon,
   CheckCircleIcon,
   CircleDotIcon,
   CircleIcon,
   ClockIcon,
   DoorOpenIcon,
   HeadphonesIcon,
+  LockIcon,
+  Loader2Icon,
   MessageSquareIcon,
   PencilIcon,
   PhoneIcon,
   Share2Icon,
+  ShieldCheckIcon,
   XCircleIcon,
   ShieldAlertIcon,
 } from '@styleguide/components/ui/icons'
@@ -154,6 +158,14 @@ const STATUS_DISPLAY: Record<
   // envelope in the same transaction as the turf, so the state is the table's
   // too.
   Archived: { icon: <ArchiveIcon />, tone: 'muted' },
+  // The five draft next-step labels (historyStatus.util.ts's DRAFT_LABELS) —
+  // each names what the candidate must clear next, so 'primary' (not
+  // 'destructive'/'warning') reads as a normal step rather than a problem.
+  'Pro needed': { icon: <LockIcon />, tone: 'primary' },
+  'Verification needed': { icon: <ShieldAlertIcon />, tone: 'primary' },
+  'Verification in review': { icon: <Loader2Icon />, tone: 'primary' },
+  'PIN needed': { icon: <ShieldCheckIcon />, tone: 'primary' },
+  'Ready to schedule': { icon: <CalendarDaysIcon />, tone: 'primary' },
 }
 
 export const HistoryStatusText = ({ label }: { label: string | null }) => {

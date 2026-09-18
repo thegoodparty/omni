@@ -616,3 +616,43 @@ describe('OutreachHistoryTable — unified history', () => {
     ).not.toBeInTheDocument()
   })
 })
+
+describe('OutreachHistoryTable — draft rows', () => {
+  const draftRow: HistoryRow = {
+    id: 40,
+    date: '2026-08-01',
+    outreachType: 'p2p',
+    name: 'Draft blast',
+    status: 'draft',
+    phoneListId: null,
+  }
+
+  it('labels a draft Pro needed for a free candidate, in both the desktop row and the mobile card', () => {
+    render(
+      <OutreachHistoryTable
+        rows={[draftRow]}
+        onRowClick={vi.fn()}
+        membership={{
+          tier: 'free',
+          texting: 'needs_verification',
+          pinDelivery: null,
+          isElectedOffice: false,
+        }}
+      />,
+    )
+
+    // One in the desktop table, one in the mobile card — both in the DOM,
+    // the mobile one hidden via CSS (same convention as desktopTable()).
+    expect(screen.getAllByText('Pro needed')).toHaveLength(2)
+  })
+
+  it('reads no label for a draft when no membership is passed', () => {
+    render(<OutreachHistoryTable rows={[draftRow]} onRowClick={vi.fn()} />)
+
+    // Status cell falls back to "n/a" (HistoryStatusText's null-label case);
+    // the People metric cell renders the same fallback text (no textCount on
+    // this row), so both occurrences are expected rather than one.
+    expect(within(desktopTable()).getAllByText('n/a')).toHaveLength(2)
+    expect(screen.queryByText('Pro needed')).not.toBeInTheDocument()
+  })
+})

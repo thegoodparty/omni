@@ -1056,6 +1056,35 @@ describe('OutreachDetailsDrawer — automatic campaigns', () => {
       screen.queryByRole('button', { name: 'Move to archive' }),
     ).not.toBeInTheDocument()
   })
+
+  // A saved outreach draft (server status `draft`, milestone 2) reads no
+  // label at all here — this drawer never threads membership into
+  // getHistoryStatusLabel, so draftLabelFor has nothing to name the next
+  // step with — and unlabeled is still outside lifecycleOf's four named
+  // strings, so the footer stays none, same as the legacy pending draft
+  // above.
+  it('leaves a saved outreach draft with no footer either', async () => {
+    api.mock('GET /v1/outreach/:id', {
+      status: 200,
+      data: { ...baseDetail, outreachType: 'p2p' as const, status: 'draft' },
+    })
+
+    const savedDraft: HistoryRow = {
+      id: 30,
+      createdAt: '2026-08-10T00:00:00Z',
+      outreachType: 'p2p',
+      name: 'Untitled',
+      status: 'draft',
+      phoneListId: null,
+    }
+    render(<OutreachDetailsDrawer row={savedDraft} onOpenChange={vi.fn()} />)
+
+    expect(await screen.findByText('Overview')).toBeInTheDocument()
+    expect(screen.queryByText(/sending automatically/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Move to archive' }),
+    ).not.toBeInTheDocument()
+  })
 })
 
 describe('OutreachDetailsDrawer — SMS statistics', () => {

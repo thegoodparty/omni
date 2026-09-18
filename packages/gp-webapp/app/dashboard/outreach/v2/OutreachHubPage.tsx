@@ -17,6 +17,8 @@ import { clientRequest } from 'gpApi/typed-request'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSingleEffect } from '@shared/hooks/useSingleEffect'
+import { useMembershipState } from 'app/dashboard/shared/membership/useMembershipState'
+import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import type { Campaign, TcrCompliance } from 'helpers/types'
 import type {
   OutreachDetail,
@@ -61,6 +63,15 @@ const OutreachHubContent = ({
 >) => {
   const router = useRouter()
   const [outreaches, setOutreaches] = useOutreach()
+  // A draft outreach can't send yet — behind the flag, a candidate must
+  // never see the row at all (today's behavior), and the membership read it
+  // would take to label one stays idle (`enabled`) rather than paying for a
+  // TCR read no UI here will use.
+  const { enabled: draftsEnabled } = useOutreachProGatingV2Flag(false)
+  const { state: membership } = useMembershipState({ enabled: draftsEnabled })
+  const historyRows = draftsEnabled
+    ? (outreaches ?? [])
+    : (outreaches ?? []).filter((o) => o.status !== 'draft')
   const [detailsRow, setDetailsRow] = useState<HistoryRow | null>(null)
   const [socialFlowOpen, setSocialFlowOpen] = useState(false)
   const [robocallFlowOpen, setRobocallFlowOpen] = useState(false)
@@ -237,8 +248,9 @@ const OutreachHubContent = ({
         />
       </Suspense>
       <OutreachHistoryTable
-        rows={outreaches ?? []}
+        rows={historyRows}
         onRowClick={setDetailsRow}
+        membership={membership}
       />
       <OutreachDetailsDrawer
         row={detailsRow}
