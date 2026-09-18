@@ -34,7 +34,10 @@ name: release-failure-alert
 # TRANSPARENT to that lookup rather than green, because the train coalesces
 # merge bursts into cancellations (see release.yml's concurrency note) and
 # counting one as a state would read red -> cancelled -> red as a spurious
-# recovery followed by a spurious alert.
+# recovery followed by a spurious alert. Only runs on main count, in the lookup
+# and in the run being judged: run numbers are per workflow rather than per
+# branch, so a green break-glass dispatch off a feature branch would otherwise
+# slot into the sequence and clear a main that never went green.
 #
 # NO `concurrency:` GROUP HERE, deliberately. Serializing these listeners looks
 # like the fix for two runs finishing at once, but a group with
@@ -107,6 +110,7 @@ jobs:
           RUN_TITLE: ${{ github.event.workflow_run.display_title }}
           RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
           CONCLUSION: ${{ github.event.workflow_run.conclusion }}
         run: |
           set -euo pipefail
@@ -120,6 +124,22 @@ jobs:
           fi
 
           if [ "$CONCLUSION" = "success" ]; then
+            # workflow_run fires for ANY completed release run, and release.yml
+            # takes a workflow_dispatch that can be aimed at a branch other than
+            # main (that is the break-glass path). Run numbers are sequential per
+            # WORKFLOW rather than per branch, so such a run slots straight into
+            # the sequence the state query below reads, and a green dispatch off
+            # a feature branch would clear a main that is still red. Only main
+            # reaches prod, so only main can say the train is shipping.
+            #
+            # Read from env rather than interpolated inline: a branch name is
+            # attacker-shaped input, and `${{ }}` in the middle of a script is
+            # how it becomes a shell injection.
+            if [ "$HEAD_BRANCH" != "main" ]; then
+              echo "::notice::Run #$RUN_NUMBER was on '$HEAD_BRANCH' rather than main, so it says nothing about whether prod is shipping."
+              exit 0
+            fi
+
             case "$RUN_NUMBER" in
               ''|*[!0-9]*)
                 echo "::error::workflow_run.run_number was '$RUN_NUMBER', so the red/green edge cannot be resolved and recoveries would go unreported. Failing loudly."
