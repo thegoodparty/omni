@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
+  OutreachDetail,
   OutreachReceipt,
   RecommendedList,
   RecommendedListVariant,
@@ -28,6 +29,7 @@ import {
   type PhoneListStatusResponse,
 } from 'helpers/createP2pPhoneList'
 import { createOutreach } from 'helpers/createOutreach'
+import { createOutreachDraft } from 'helpers/createOutreachDraft'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import {
   OUTREACH_OPTIONS,
@@ -48,6 +50,10 @@ import {
   useOutreachAudience,
 } from '../audience/useOutreachAudience'
 import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
+import { GateBanner } from '../gate/GateBanner'
+import { GateExplainerModal } from '../gate/GateExplainerModal'
+import { OutreachGate } from '../gate/OutreachGate'
+import { useOutreachGate } from '../gate/useOutreachGate'
 import { SmsPurposeStep } from './SmsPurposeStep'
 import { SmsScheduleStep, TIME_OPTIONS } from './SmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
@@ -62,6 +68,10 @@ const STEP_ORDER: StepId[] = [
   'compose',
   'review',
 ]
+
+// Build mode (the candidate cannot send yet): there is nothing to schedule,
+// so the draft is written straight off the review summary.
+const BUILD_STEP_ORDER: StepId[] = ['purpose', 'audience', 'compose', 'review']
 
 const STEP_TITLES: Record<StepId, string> = {
   purpose: 'What do you want to do?',
@@ -114,6 +124,12 @@ interface SmsFlowProps {
   // `?recommended=` off the voter data page: a recommendation not saved yet,
   // which the audience step saves on arrival (see useOutreachAudience).
   preselectedRecommendedVariant?: RecommendedListVariant
+  // A saved draft the candidate is picking back up (milestone 2). The flow
+  // opens on it instead of asking the questions it already answered.
+  resumeDraft?: OutreachDetail | null
+  // Fired once a draft is written or discarded, so the hub's history reflects
+  // it; the same refetch a completed send does.
+  onDraftSaved?: () => Promise<void>
 }
 
 const successDate = (d: Date) =>
@@ -258,9 +274,12 @@ export const SmsFlow = ({
   initialScript,
   preselectedListId,
   preselectedRecommendedVariant,
+  resumeDraft = null,
+  onDraftSaved,
 }: SmsFlowProps) => {
   const [campaign] = useCampaign()
   const [user] = useUser()
+  const gate = useOutreachGate('sms')
 
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<SmsPurpose | null>(null)
@@ -300,11 +319,38 @@ export const SmsFlow = ({
   const [scheduled, setScheduled] = useState(false)
   const [paidSend, setPaidSend] = useState(false)
 
+  // The saved draft row this flow is working against: the one the hub
+  // resumed, the one a 409 says already exists, or the one this flow just
+  // wrote.
+  const [savedDraft, setSavedDraft] = useState<OutreachDetail | null>(
+    resumeDraft,
+  )
+  // Whether the flow is running off that row (seeded and scheduling it)
+  // rather than still building one.
+  const [resumed, setResumed] = useState(Boolean(resumeDraft))
+  const [savingDraft, setSavingDraft] = useState(false)
+  const [draftSaveError, setDraftSaveError] = useState(false)
+  const [deletingDraft, setDeletingDraft] = useState(false)
+  const [gateOpen, setGateOpen] = useState(false)
+  const [explainerOpen, setExplainerOpen] = useState(false)
+
   const draftRequestRef = useRef(0)
+
+  // Everything new here hangs off one of these two: with no requirement and
+  // no resumed row the flow is byte-identical to the pre-gate one.
+  const buildMode = gate.requirement !== null && !resumed
+  const stepOrder = buildMode ? BUILD_STEP_ORDER : STEP_ORDER
 
   const recommendedListIntent = purpose
     ? intentForOutreachPurpose(purpose)
     : null
+
+  // A resumed row already names its audience; the picker selects it the same
+  // way a deep link's does, which is also what gives the resume its reach
+  // count and its Peerly phone list.
+  const resumedListId = resumed
+    ? (savedDraft?.voterFileFilterId ?? undefined)
+    : undefined
 
   const audience = useOutreachAudience({
     open,
@@ -312,7 +358,7 @@ export const SmsFlow = ({
     reachabilityKey: 'sms',
     countOverlay: SMS_COUNT_OVERLAY,
     recommendedListIntent,
-    preselectedListId,
+    preselectedListId: resumedListId ?? preselectedListId,
     preselectedRecommendedVariant,
   })
   const { reset: resetAudience } = audience
@@ -338,7 +384,15 @@ export const SmsFlow = ({
     const carriedPurpose = preselectedRecommendedVariant
       ? purposeForRecommendedVariant(preselectedRecommendedVariant)
       : null
-    setStepId(initialScript || carriedPurpose ? 'audience' : 'purpose')
+    // A resumed draft answered purpose, audience and compose when it was
+    // built, so it opens on the one thing still missing.
+    setStepId(
+      resumeDraft
+        ? 'schedule'
+        : initialScript || carriedPurpose
+          ? 'audience'
+          : 'purpose',
+    )
     setPurpose(initialScript ? 'custom' : carriedPurpose)
     setTone('warm')
     setBody(initialScript ?? '')
@@ -351,8 +405,8 @@ export const SmsFlow = ({
     setPhoneListError(false)
     setStopPolling(false)
     setPhoneList(null)
-    setName('')
-    setNameEdited(false)
+    setName(resumeDraft?.name ?? '')
+    setNameEdited(Boolean(resumeDraft?.name))
     setDate(undefined)
     setTimeSlot('10')
     setCustomTime('10:00')
@@ -362,6 +416,13 @@ export const SmsFlow = ({
     setDraftCreateError(false)
     setScheduled(false)
     setPaidSend(false)
+    setSavedDraft(resumeDraft)
+    setResumed(Boolean(resumeDraft))
+    setSavingDraft(false)
+    setDraftSaveError(false)
+    setDeletingDraft(false)
+    setGateOpen(false)
+    setExplainerOpen(false)
     resetDraftMutation()
   }, [
     open,
@@ -369,6 +430,7 @@ export const SmsFlow = ({
     resetAudience,
     initialScript,
     preselectedRecommendedVariant,
+    resumeDraft,
   ])
 
   // Object URL lifecycle for the image preview.
@@ -389,7 +451,12 @@ export const SmsFlow = ({
       campaign?.details?.normalizedOffice ?? '',
     )
   const committeeName = tcrCompliance?.committeeName ?? null
-  const composedMessage = composeScript(body, committeeName)
+  // A resumed row carries the script exactly as it was saved (intro, body and
+  // system footer already joined), so it must not be composed a second time.
+  const composedMessage =
+    resumed && savedDraft?.script
+      ? savedDraft.script
+      : composeScript(body, committeeName)
   const composedLength = composedMessage.length
   const accountName = `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
   const standards = checkSmsStandards(composedMessage, {
@@ -545,6 +612,10 @@ export const SmsFlow = ({
     setPhoneListError(false)
     try {
       const created = await audience.createList()
+      if (buildMode) {
+        setStepId('compose')
+        return
+      }
       setPhoneListToken(null)
       setPhoneList(null)
       setStopPolling(false)
@@ -576,6 +647,10 @@ export const SmsFlow = ({
     name: string,
   ) => {
     const created = await audience.createRecommendedList(recommendation, name)
+    if (buildMode) {
+      setStepId('compose')
+      return
+    }
     // Same reset as onSelect: a token left over from a previously picked
     // list would let a retry skip straight to schedule with the wrong
     // audience.
@@ -610,6 +685,12 @@ export const SmsFlow = ({
   // The status poll runs across the later steps; the pay step waits on it.
   const handleAudienceContinue = async () => {
     if (!selectedList) return
+    // A draft is never submitted to Peerly, so build mode skips the phone
+    // list entirely; the resume creates it once the send is real.
+    if (buildMode) {
+      setStepId('compose')
+      return
+    }
     if (phoneListToken) {
       setStepId('schedule')
       return
@@ -626,6 +707,109 @@ export const SmsFlow = ({
     setStepId('schedule')
   }
 
+  // A resumed row's image lives on the server, so there is no local File to
+  // build an object URL from.
+  const previewUrl =
+    imagePreviewUrl ?? (resumed ? (savedDraft?.imageUrl ?? null) : null)
+
+  // The gate screens stand in for a resumed flow until the candidate can
+  // send, and step aside on their own once the requirement clears.
+  useEffect(() => {
+    if (!resumed) return
+    setGateOpen(gate.requirement !== null)
+  }, [resumed, gate.requirement])
+
+  const handleDraftSaved = async () => {
+    await (onDraftSaved ?? onScheduled)()
+  }
+
+  // Build mode's one write: the draft the candidate comes back to. A 409
+  // means they already have one, so the flow switches to that row instead of
+  // reporting a failure they can do nothing about.
+  const handleSaveDraft = async () => {
+    if (savingDraft || !audience.selectedListId || !image) return
+    setSavingDraft(true)
+    setDraftSaveError(false)
+    const { draft, conflictId } = await createOutreachDraft(
+      {
+        outreachType: 'p2p',
+        name: name.trim(),
+        voterFileFilterId: audience.selectedListId,
+        script: composedMessage,
+      },
+      image,
+    )
+    if (draft) {
+      setSavedDraft(draft)
+      setGateOpen(true)
+      setSavingDraft(false)
+      await handleDraftSaved()
+      return
+    }
+    if (conflictId !== null) {
+      try {
+        const { data } = await clientRequest('GET /v1/outreach/:id', {
+          id: String(conflictId),
+        })
+        setSavedDraft(data)
+        setResumed(true)
+        setGateOpen(true)
+        return
+      } catch {
+        setDraftSaveError(true)
+        return
+      } finally {
+        setSavingDraft(false)
+      }
+    }
+    setSavingDraft(false)
+    setDraftSaveError(true)
+  }
+
+  const handleDeleteDraft = async () => {
+    if (!savedDraft || deletingDraft) return
+    setDeletingDraft(true)
+    try {
+      await clientRequest('DELETE /v1/outreach/:id', {
+        id: String(savedDraft.id),
+      })
+    } catch {
+      setDeletingDraft(false)
+      return
+    }
+    await handleDraftSaved()
+    onClose()
+  }
+
+  // Upgrading (and, for texting, verifying) inside the sheet turns the flow
+  // into the resume of the row it just saved.
+  const handleGateComplete = () => {
+    setGateOpen(false)
+    setResumed(true)
+    setStepId('schedule')
+  }
+
+  // Resume's schedule advance: the audience and the message were settled
+  // when the draft was built, so this is where the Peerly phone list the
+  // purchase needs finally gets derived.
+  const handleResumeScheduleContinue = async () => {
+    if (phoneListToken) {
+      setStepId('review')
+      return
+    }
+    if (!selectedList || phoneListCreating) return
+    setPhoneListCreating(true)
+    setPhoneListError(false)
+    const result = await createP2pPhoneList(selectedList, selectedList.id)
+    setPhoneListCreating(false)
+    if (!result.ok || !result.token) {
+      setPhoneListError(true)
+      return
+    }
+    setPhoneListToken(result.token)
+    setStepId('review')
+  }
+
   // First compose entry generates the initial draft (custom writes its own).
   useEffect(() => {
     if (stepId !== 'compose' || !open) return
@@ -639,6 +823,9 @@ export const SmsFlow = ({
   // the checkout session (legacy TaskFlow sequence, relocated).
   useEffect(() => {
     if (stepId !== 'review' || !open || scheduled) return
+    // Build mode has nothing to charge for yet — the summary's own CTA
+    // writes the draft instead.
+    if (buildMode) return
     if (draftOutreachId || isDraftCreatingRef.current) return
     if (!campaign?.id || !phoneList?.phoneListId || !scheduledAt) return
     isDraftCreatingRef.current = true
@@ -672,9 +859,14 @@ export const SmsFlow = ({
             textCount: phoneList.leadsLoaded,
             billableTextCount: phoneList.leadsLoaded - discount,
             ...(campaignPlanDueDate ? { campaignPlanDueDate } : {}),
+            // Resume: the server converts this row in place, so no second
+            // row is written and the saved image and script stand.
+            ...(resumed && savedDraft
+              ? { draftOutreachId: savedDraft.id }
+              : {}),
             draft: true,
           },
-          image,
+          resumed ? null : image,
         )
         if (generation !== draftGenerationRef.current) return
         if (outreach?.id) {
@@ -692,6 +884,9 @@ export const SmsFlow = ({
     stepId,
     open,
     scheduled,
+    buildMode,
+    resumed,
+    savedDraft,
     draftOutreachId,
     campaign,
     phoneList,
@@ -708,7 +903,7 @@ export const SmsFlow = ({
     await onScheduled()
   }
 
-  const stepIndex = STEP_ORDER.indexOf(stepId)
+  const stepIndex = stepOrder.indexOf(stepId)
 
   const handleBack = () => {
     if (stepId === 'audience' && audience.mode === 'name') {
@@ -722,7 +917,10 @@ export const SmsFlow = ({
       audience.resetBuilder()
       return
     }
-    if (stepId === 'review') {
+    // Resume converts the saved row rather than creating a throwaway one, so
+    // discarding its id would strand the row: the re-entry POST would meet a
+    // draft that is already pending_payment and 409.
+    if (stepId === 'review' && !resumed) {
       // Back off the pay step discards the draft (stale drafts stay hidden
       // server-side); re-entry creates a fresh one.
       draftGenerationRef.current += 1
@@ -730,94 +928,116 @@ export const SmsFlow = ({
       setDraftOutreachId(null)
       setDraftCreateError(false)
     }
-    const previous = STEP_ORDER[stepIndex - 1]
+    const previous = stepOrder[stepIndex - 1]
     if (previous) setStepId(previous)
   }
 
-  const dirty = !scheduled && purpose !== null
+  // A saved draft is the opposite of unsaved work: closing loses nothing.
+  const dirty = !scheduled && purpose !== null && savedDraft === null
 
   const cta: FlowShellCta | null = scheduled
     ? null
-    : stepId === 'audience' && audience.mode === 'filters'
-      ? {
-          label: audience.builderCounting
-            ? 'Continue'
-            : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
-          onClick: () => audience.setMode('name'),
-          disabled:
-            !hasAnyVoterFileSelection(
-              audience.builderFilters,
-              audience.builderSupportStatus,
-              audience.builderPrecincts,
-            ) ||
-            audience.builderCounting ||
-            audience.builderZeroMatch ||
-            audience.builderCapError,
-          loading:
-            hasAnyVoterFileSelection(
-              audience.builderFilters,
-              audience.builderSupportStatus,
-              audience.builderPrecincts,
-            ) && audience.builderCounting,
-        }
-      : stepId === 'audience' && audience.mode === 'name'
+    : // The gate screens carry their own buttons.
+      gateOpen
+      ? null
+      : stepId === 'audience' && audience.mode === 'filters'
         ? {
-            label: 'Continue',
-            onClick: () => {
-              void handleCreateListContinue()
-            },
-            disabled: audience.builderName.trim().length === 0,
-            loading: audience.createListPending || phoneListCreating,
+            label: audience.builderCounting
+              ? 'Continue'
+              : `Continue (${(audience.builderCount ?? 0).toLocaleString()})`,
+            onClick: () => audience.setMode('name'),
+            disabled:
+              !hasAnyVoterFileSelection(
+                audience.builderFilters,
+                audience.builderSupportStatus,
+                audience.builderPrecincts,
+              ) ||
+              audience.builderCounting ||
+              audience.builderZeroMatch ||
+              audience.builderCapError,
+            loading:
+              hasAnyVoterFileSelection(
+                audience.builderFilters,
+                audience.builderSupportStatus,
+                audience.builderPrecincts,
+              ) && audience.builderCounting,
           }
-        : stepId === 'audience'
+        : stepId === 'audience' && audience.mode === 'name'
           ? {
-              label: phoneListError
-                ? 'Try again'
-                : reachableCount !== null
-                  ? `Continue (${reachableCount.toLocaleString()})`
-                  : 'Continue',
+              label: 'Continue',
               onClick: () => {
-                if (audience.selectedRecommendation) {
-                  void handleSelectedRecommendationContinue()
-                  return
-                }
-                void handleAudienceContinue()
+                void handleCreateListContinue()
               },
-              disabled:
-                (!selectedList && !audience.selectedRecommendation) ||
-                audience.reachableLoading ||
-                reachableCount === null ||
-                reachableCount === 0,
-              // A list the naming drawer just created lands here with its
-              // reachability fetch still in flight, so "Try again" would sit
-              // disabled with no explanation until the count resolves.
-              loading:
-                audience.createRecommendedListPending ||
-                phoneListCreating ||
-                (phoneListError && audience.reachableLoading),
+              disabled: audience.builderName.trim().length === 0,
+              loading: audience.createListPending || phoneListCreating,
             }
-          : stepId === 'schedule'
+          : stepId === 'audience'
             ? {
-                label: 'Continue',
-                onClick: () => setStepId('compose'),
+                label: phoneListError
+                  ? 'Try again'
+                  : reachableCount !== null
+                    ? `Continue (${reachableCount.toLocaleString()})`
+                    : 'Continue',
+                onClick: () => {
+                  if (audience.selectedRecommendation) {
+                    void handleSelectedRecommendationContinue()
+                    return
+                  }
+                  void handleAudienceContinue()
+                },
                 disabled:
-                  name.trim().length === 0 ||
-                  scheduledAt === null ||
-                  violates48h ||
-                  outsideWindow,
+                  (!selectedList && !audience.selectedRecommendation) ||
+                  audience.reachableLoading ||
+                  reachableCount === null ||
+                  reachableCount === 0,
+                // A list the naming drawer just created lands here with its
+                // reachability fetch still in flight, so "Try again" would sit
+                // disabled with no explanation until the count resolves.
+                loading:
+                  audience.createRecommendedListPending ||
+                  phoneListCreating ||
+                  (phoneListError && audience.reachableLoading),
               }
-            : stepId === 'compose'
+            : stepId === 'schedule'
               ? {
                   label: 'Continue',
-                  onClick: () => setStepId('review'),
+                  onClick: () => {
+                    if (resumed) {
+                      void handleResumeScheduleContinue()
+                      return
+                    }
+                    setStepId('compose')
+                  },
                   disabled:
-                    body.trim().length === 0 ||
-                    !standards.passed ||
-                    composedLength > SMS_COMPOSED_MAX_LENGTH ||
-                    image === null ||
-                    draftMutation.isPending,
+                    name.trim().length === 0 ||
+                    scheduledAt === null ||
+                    violates48h ||
+                    outsideWindow,
+                  loading: resumed && phoneListCreating,
                 }
-              : null
+              : stepId === 'compose'
+                ? {
+                    label: 'Continue',
+                    onClick: () => setStepId('review'),
+                    disabled:
+                      body.trim().length === 0 ||
+                      !standards.passed ||
+                      composedLength > SMS_COMPOSED_MAX_LENGTH ||
+                      image === null ||
+                      draftMutation.isPending,
+                  }
+                : // Build mode's review has nothing to pay for: the CTA saves
+                  // the draft and hands the flow to the gate.
+                  stepId === 'review' && buildMode
+                  ? {
+                      label: 'Continue',
+                      onClick: () => {
+                        void handleSaveDraft()
+                      },
+                      disabled: !audience.selectedListId || image === null,
+                      loading: savingDraft,
+                    }
+                  : null
 
   // Mirrors the review step's isFree: a free send reads "Review and send" /
   // "Schedule campaign" instead of the pay vocabulary (design prototype).
@@ -832,15 +1052,37 @@ export const SmsFlow = ({
       title={
         scheduled
           ? 'Done'
-          : stepId === 'review' && isFreeSend
-            ? 'Review and send'
-            : STEP_TITLES[stepId]
+          : stepId === 'review' && buildMode
+            ? 'Review and verify'
+            : stepId === 'review' && isFreeSend
+              ? 'Review and send'
+              : STEP_TITLES[stepId]
       }
       headerBadge={<ChannelBadge type={OUTREACH_TYPES.text} />}
       currentStep={stepIndex + 1}
-      totalSteps={scheduled ? 0 : STEP_ORDER.length}
-      onBack={!scheduled && stepIndex > 0 ? handleBack : undefined}
+      totalSteps={scheduled ? 0 : stepOrder.length}
+      onBack={
+        // Resume opens on schedule with everything before it settled, and
+        // the gate screens own their own way out.
+        !scheduled &&
+        !gateOpen &&
+        stepIndex > 0 &&
+        !(resumed && stepId === 'schedule')
+          ? handleBack
+          : undefined
+      }
       cta={cta}
+      // A React element is truthy even when it renders null, so the caller
+      // gates the JSX (see GateBanner).
+      banner={
+        gate.requirement !== null && !scheduled && !gateOpen ? (
+          <GateBanner
+            channel="sms"
+            state={gate}
+            onOpenExplainer={() => setExplainerOpen(true)}
+          />
+        ) : undefined
+      }
       dirty={dirty}
     >
       {phoneListToken && !phoneList && (
@@ -858,6 +1100,15 @@ export const SmsFlow = ({
           limit={60}
         />
       )}
+      <GateExplainerModal
+        channel="sms"
+        state={gate}
+        open={explainerOpen}
+        onOpenChange={setExplainerOpen}
+        onUpgrade={() => setGateOpen(true)}
+        onVerify={() => setGateOpen(true)}
+        onPin={() => setGateOpen(true)}
+      />
       {scheduled ? (
         <SuccessScreen
           contactCount={phoneList?.leadsLoaded ?? reachableCount ?? 0}
@@ -865,6 +1116,22 @@ export const SmsFlow = ({
           outreachId={draftOutreachId}
           paid={paidSend}
           onDone={onClose}
+        />
+      ) : gateOpen ? (
+        <OutreachGate
+          channel="sms"
+          state={gate}
+          open
+          onExit={onClose}
+          onComplete={handleGateComplete}
+          onDelete={
+            savedDraft
+              ? () => {
+                  void handleDeleteDraft()
+                }
+              : undefined
+          }
+          deleting={deletingDraft}
         />
       ) : stepId === 'purpose' ? (
         <SmsPurposeStep selected={purpose} onSelect={handleSelectPurpose} />
@@ -890,6 +1157,7 @@ export const SmsFlow = ({
               setPhoneListError(false)
               audience.startBuilder()
             }}
+            hideBuilder={gate.membership?.tier === 'free'}
             recommendations={audience.recommendations}
             recommendationsLoading={audience.recommendationsLoading}
             recommendationsError={audience.recommendationsError}
@@ -942,23 +1210,32 @@ export const SmsFlow = ({
           )}
         </>
       ) : stepId === 'schedule' ? (
-        <SmsScheduleStep
-          name={name}
-          onNameChange={(value) => {
-            setName(value)
-            setNameEdited(true)
-          }}
-          date={date}
-          onDateChange={setDate}
-          timeSlot={timeSlot}
-          onTimeSlotChange={setTimeSlot}
-          customTime={customTime}
-          onCustomTimeChange={setCustomTime}
-          earliestSend={earliestSend}
-          calendarFloor={earliestSend}
-          violates48h={violates48h}
-          outsideWindow={outsideWindow}
-        />
+        <>
+          <SmsScheduleStep
+            name={name}
+            onNameChange={(value) => {
+              setName(value)
+              setNameEdited(true)
+            }}
+            date={date}
+            onDateChange={setDate}
+            timeSlot={timeSlot}
+            onTimeSlotChange={setTimeSlot}
+            customTime={customTime}
+            onCustomTimeChange={setCustomTime}
+            earliestSend={earliestSend}
+            calendarFloor={earliestSend}
+            violates48h={violates48h}
+            outsideWindow={outsideWindow}
+          />
+          {/* Resume derives the phone list here, so its failure reads here
+              too — the audience step is behind the candidate. */}
+          {resumed && phoneListError && (
+            <p className="mt-4 text-sm text-destructive">
+              We couldn&apos;t prepare this audience. Try again.
+            </p>
+          )}
+        </>
       ) : stepId === 'compose' ? (
         <SmsComposeStep
           tone={tone}
@@ -1002,8 +1279,10 @@ export const SmsFlow = ({
             audienceName={selectedList?.name ?? 'Saved list'}
             sendAt={scheduledAt ?? new Date()}
             composedMessage={composedMessage}
-            imagePreviewUrl={imagePreviewUrl}
-            contactCount={phoneList?.leadsLoaded ?? 0}
+            imagePreviewUrl={previewUrl}
+            contactCount={
+              buildMode ? (reachableCount ?? 0) : (phoneList?.leadsLoaded ?? 0)
+            }
             pricePerContact={PRICE_PER_MESSAGE}
             outreachId={draftOutreachId}
             phoneListToken={phoneListToken}
@@ -1011,10 +1290,19 @@ export const SmsFlow = ({
             excludedDuplicatePhoneCount={
               phoneList?.excludedDuplicatePhoneCount ?? null
             }
-            preparing={!phoneList || (!draftOutreachId && !draftCreateError)}
+            preparing={
+              !buildMode &&
+              (!phoneList || (!draftOutreachId && !draftCreateError))
+            }
             prepareError={draftCreateError}
+            readOnlySummary={buildMode}
             onComplete={handleScheduled}
           />
+          {draftSaveError && (
+            <p className="mt-4 text-sm text-destructive">
+              We couldn&apos;t save this draft. Try again.
+            </p>
+          )}
         </CheckoutSessionProvider>
       )}
     </OutreachFlowShell>

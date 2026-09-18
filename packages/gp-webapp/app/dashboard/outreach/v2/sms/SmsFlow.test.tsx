@@ -3,10 +3,44 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
-import type { SmsDraftRequest } from '@goodparty_org/contracts'
+import type { OutreachDetail, SmsDraftRequest } from '@goodparty_org/contracts'
 import { createOutreach } from 'helpers/createOutreach'
+import { createOutreachDraft } from 'helpers/createOutreachDraft'
 import { SmsFlow, SuccessScreen } from './SmsFlow'
+import type { OutreachGateState } from '../gate/useOutreachGate'
 import type { TcrCompliance } from 'helpers/types'
+
+// The gate's own flag/membership plumbing has its own tests; here the flow's
+// wiring is what's under test, so the hook is driven directly.
+const gateRef = vi.hoisted(() => ({
+  current: {
+    enabled: false,
+    requirement: null,
+    twoStep: true,
+    membership: null,
+    tcrCompliance: null,
+  } as OutreachGateState,
+}))
+vi.mock('../gate/useOutreachGate', () => ({
+  useOutreachGate: () => gateRef.current,
+}))
+
+// Both mount real Stripe / filing surfaces; the flow only owns whether they
+// are on screen.
+vi.mock('app/dashboard/pro-upgrade/components/ProUpgradeFlow', () => ({
+  default: () => <div data-testid="pro-upgrade-flow" />,
+}))
+vi.mock(
+  'app/dashboard/campaign-verification/components/CampaignVerificationSteps',
+  () => ({ default: () => <div data-testid="campaign-verification" /> }),
+)
+
+vi.mock('helpers/createOutreachDraft', () => ({
+  createOutreachDraft: vi.fn(async () => ({
+    draft: { id: 77 } as OutreachDetail,
+    conflictId: null,
+  })),
+}))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -184,6 +218,17 @@ describe('SmsFlow', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(FROZEN_NOW)
+    gateRef.current = {
+      enabled: false,
+      requirement: null,
+      twoStep: true,
+      membership: null,
+      tcrCompliance: null,
+    }
+    vi.mocked(createOutreachDraft).mockResolvedValue({
+      draft: { id: 77 } as OutreachDetail,
+      conflictId: null,
+    })
     mockLists()
     mockListDetail()
     // useOutreachAudience's useElectedOffice fires on mount; 404 => not an
@@ -460,6 +505,210 @@ describe('SmsFlow', () => {
       (await screen.findAllByText('Who do you want to reach?')).length,
     ).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+  })
+
+  describe('pro gate and drafts', () => {
+    const GATE_LINE = 'Two things are needed before this text can send.'
+
+    const FREE_GATE: OutreachGateState = {
+      enabled: true,
+      requirement: 'pro',
+      twoStep: true,
+      membership: {
+        tier: 'free',
+        texting: 'needs_verification',
+        pinDelivery: null,
+        isElectedOffice: false,
+      },
+      tcrCompliance: null,
+    }
+
+    const CLEARED_GATE: OutreachGateState = {
+      enabled: true,
+      requirement: null,
+      twoStep: true,
+      membership: {
+        tier: 'pro',
+        texting: 'cleared',
+        pinDelivery: null,
+        isElectedOffice: false,
+      },
+      tcrCompliance: null,
+    }
+
+    const DRAFT_SCRIPT =
+      'Hello, this is Jane, candidate for City Council. Vote Tuesday.\n\n' +
+      'Paid for by Friends of Jane.\nReply STOP to opt out.'
+
+    const draftDetail = (
+      overrides: Partial<OutreachDetail> = {},
+    ): OutreachDetail => ({
+      id: 88,
+      createdAt: new Date('2026-08-20T12:00:00Z'),
+      updatedAt: new Date('2026-08-20T12:00:00Z'),
+      campaignId: 9,
+      outreachType: 'p2p',
+      projectId: null,
+      name: 'Likely voters — SMS',
+      status: 'draft',
+      error: null,
+      audienceRequest: null,
+      script: DRAFT_SCRIPT,
+      message: null,
+      date: null,
+      imageUrl: 'https://assets.example.org/draft.png',
+      voterFileFilterId: 41,
+      doorKnockingRouteId: null,
+      phoneListId: null,
+      identityId: null,
+      didState: null,
+      didNpaSubset: [],
+      title: null,
+      textCount: null,
+      billableTextCount: null,
+      campaignPlanDueDate: null,
+      organizationSlug: 'campaign-9',
+      archivedAt: null,
+      ...overrides,
+    })
+
+    // Build mode drops the schedule step: purpose → audience → compose →
+    // review, ending on the summary the draft save reads from.
+    const buildToReview = async () => {
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(await screen.findByText('Choose a voter list'))
+      await userEvent.click(await screen.findByText('Likely voters'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+      expect(
+        await screen.findByText(/AI body \(warm\) for introduce_myself/),
+      ).toBeInTheDocument()
+      await attachImage()
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      expect(
+        await screen.findByRole('heading', {
+          level: 3,
+          name: 'Review and verify',
+        }),
+      ).toBeInTheDocument()
+    }
+
+    it('saves the text as a draft and opens the Pro interstitial', async () => {
+      gateRef.current = FREE_GATE
+      mockDraft()
+      const { onScheduled } = openFlow()
+
+      expect(await screen.findByText(GATE_LINE)).toBeInTheDocument()
+      await buildToReview()
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+      expect(vi.mocked(createOutreachDraft)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          outreachType: 'p2p',
+          name: 'Likely voters — SMS',
+          voterFileFilterId: 41,
+          script: expect.stringContaining('Paid for by Friends of Jane.'),
+        }),
+        expect.any(File),
+      )
+      expect(onScheduled).toHaveBeenCalledTimes(1)
+    })
+
+    it('switches into resume mode when a draft already exists', async () => {
+      gateRef.current = FREE_GATE
+      mockDraft()
+      vi.mocked(createOutreachDraft).mockResolvedValue({
+        draft: null,
+        conflictId: 55,
+      })
+      const detailRequests: string[] = []
+      api.mock('GET /v1/outreach/:id', ({ params }) => {
+        detailRequests.push(params.id)
+        return { status: 200, data: draftDetail({ id: 55 }) }
+      })
+      openFlow()
+
+      await buildToReview()
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      await waitFor(() => expect(detailRequests).toEqual(['55']))
+      expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+    })
+
+    it('opens a cleared draft at the schedule step and converts it', async () => {
+      gateRef.current = CLEARED_GATE
+      render(
+        <SmsFlow
+          open
+          onClose={vi.fn()}
+          onScheduled={vi.fn().mockResolvedValue(undefined)}
+          tcrCompliance={TCR_FIXTURE}
+          resumeDraft={draftDetail()}
+        />,
+      )
+
+      expect(
+        await screen.findByText('When do you want to send it?'),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(GATE_LINE)).not.toBeInTheDocument()
+      await userEvent.click(screen.getByText('Pick a date'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: dayName(4) }),
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+      await waitFor(() =>
+        expect(vi.mocked(createOutreach)).toHaveBeenCalledWith(
+          expect.objectContaining({
+            draftOutreachId: 88,
+            script: DRAFT_SCRIPT,
+          }),
+          null,
+        ),
+      )
+    })
+
+    it('deletes the draft from the gate and closes the flow', async () => {
+      gateRef.current = FREE_GATE
+      mockDraft()
+      const deleted: string[] = []
+      api.mock('DELETE /v1/outreach/:id', ({ params }) => {
+        deleted.push(params.id)
+        return { status: 200, data: undefined }
+      })
+      const { onClose, onScheduled } = openFlow()
+
+      await buildToReview()
+      await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+      await screen.findByTestId('pro-upgrade-flow')
+      await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+      await waitFor(() => expect(deleted).toEqual(['77']))
+      expect(onScheduled).toHaveBeenCalledTimes(2)
+      expect(onClose).toHaveBeenCalled()
+    })
+
+    it('renders no banner and keeps the schedule step with the flag off', async () => {
+      mockDraft()
+      openFlow()
+
+      await userEvent.click(screen.getByText('Introduce myself to voters'))
+      await userEvent.click(await screen.findByText('Choose a voter list'))
+      await userEvent.click(await screen.findByText('Likely voters'))
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Continue \(1,200\)/ }),
+      )
+
+      expect(
+        await screen.findByText('When do you want to send it?'),
+      ).toBeInTheDocument()
+      expect(screen.queryByText(GATE_LINE)).not.toBeInTheDocument()
+    })
   })
 })
 

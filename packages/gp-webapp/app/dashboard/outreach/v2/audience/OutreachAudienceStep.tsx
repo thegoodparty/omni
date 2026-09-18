@@ -76,6 +76,10 @@ interface OutreachAudienceStepProps {
   selectedId: number | null
   onSelect: (id: number) => void
   onStartBuilder: () => void
+  // Drops the picker's "Create a new list" entry: a free candidate picks
+  // from what is already there (recommended and saved lists) rather than
+  // cutting a new audience they cannot reach yet.
+  hideBuilder?: boolean
   // Recommended lists (docs/features/recommended-lists.md), rendered above
   // "All lists" in picker mode only.
   recommendations: RecommendedList[]
@@ -160,6 +164,7 @@ export const OutreachAudienceStep = ({
   selectedId,
   onSelect,
   onStartBuilder,
+  hideBuilder = false,
   recommendations,
   recommendationsLoading,
   recommendationsError,
@@ -481,26 +486,28 @@ export const OutreachAudienceStep = ({
             className="max-h-80 w-[var(--radix-popover-trigger-width)] overflow-y-auto p-0"
           >
             <div className="divide-y divide-border">
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false)
-                  onStartBuilder()
-                }}
-                className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted"
-              >
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary-light">
-                  <PlusIcon className="size-4 text-primary" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block font-medium text-primary">
-                    Create a new list
+              {!hideBuilder && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false)
+                    onStartBuilder()
+                  }}
+                  className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-muted"
+                >
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary-light">
+                    <PlusIcon className="size-4 text-primary" />
                   </span>
-                  <span className="block text-sm text-muted-foreground">
-                    Build a custom audience
+                  <span className="min-w-0">
+                    <span className="block font-medium text-primary">
+                      Create a new list
+                    </span>
+                    <span className="block text-sm text-muted-foreground">
+                      Build a custom audience
+                    </span>
                   </span>
-                </span>
-              </button>
+                </button>
+              )}
               {lists.length === 0 && !listsLoading && (
                 <p className="p-4 text-sm text-muted-foreground">
                   No saved lists yet.

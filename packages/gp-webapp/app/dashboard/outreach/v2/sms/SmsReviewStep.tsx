@@ -65,6 +65,10 @@ interface SmsReviewStepProps {
   // to fetch, so the pay card shows a preparing state.
   preparing: boolean
   prepareError: boolean
+  // The candidate cannot send yet (milestone 2's gate), so this reads back
+  // what they built with no schedule rows and no checkout — the flow's own
+  // CTA saves it as a draft instead (design: flowReview's preClear branch).
+  readOnlySummary?: boolean
   // paid=false on the free-texts redemption path — the success screen only
   // fetches a Stripe receipt for a real charge.
   onComplete: (paid: boolean) => Promise<void>
@@ -84,6 +88,7 @@ export const SmsReviewStep = ({
   excludedDuplicatePhoneCount,
   preparing,
   prepareError,
+  readOnlySummary = false,
   onComplete,
 }: SmsReviewStepProps) => {
   const [campaign] = useCampaign()
@@ -100,14 +105,17 @@ export const SmsReviewStep = ({
     checkoutSession?.amount === 0 ||
     (hasFreeTextsOffer && contactCount <= FREE_TEXTS_OFFER.COUNT)
   const totalDollars = isFree ? 0 : (checkoutSession?.amount ?? 0)
+  // No checkout session exists before the draft is saved, so the total is
+  // the same estimate the audience step priced.
+  const summaryDollars = isFree ? 0 : contactCount * pricePerContact
 
   useEffect(() => {
-    if (!outreachId || hasFetchedSession.current) return
+    if (readOnlySummary || !outreachId || hasFetchedSession.current) return
     hasFetchedSession.current = true
     fetchClientSecret().catch(() => {
       // Surfaced through the provider's error state below.
     })
-  }, [outreachId, fetchClientSecret])
+  }, [outreachId, fetchClientSecret, readOnlySummary])
 
   const handleFreeComplete = async () => {
     if (isRedeemingRef.current) return
@@ -156,11 +164,19 @@ export const SmsReviewStep = ({
   return (
     <div className="space-y-6">
       <Intro
-        title={isFree ? 'Review and send' : 'Review & pay'}
+        title={
+          readOnlySummary
+            ? 'Review and verify'
+            : isFree
+              ? 'Review and send'
+              : 'Review & pay'
+        }
         body={
-          isFree
-            ? 'Review your campaign details and schedule your send.'
-            : 'Review your campaign details and complete your payment.'
+          readOnlySummary
+            ? 'Review your campaign details, then verify your campaign so this can send.'
+            : isFree
+              ? 'Review your campaign details and schedule your send.'
+              : 'Review your campaign details and complete your payment.'
         }
       />
 
@@ -176,19 +192,23 @@ export const SmsReviewStep = ({
         </div>
         <div className="border-t border-border px-4 py-4">
           <dl className="space-y-1.5 text-sm">
-            <div className="flex justify-between gap-4">
-              <dt className="text-muted-foreground">Send date</dt>
-              <dd className="text-foreground">{fmtDate(sendAt)}</dd>
-            </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-muted-foreground">Send time</dt>
-              <dd className="text-foreground">
-                {sendAt.toLocaleTimeString('en-US', {
-                  hour: 'numeric',
-                  minute: '2-digit',
-                })}
-              </dd>
-            </div>
+            {!readOnlySummary && (
+              <>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">Send date</dt>
+                  <dd className="text-foreground">{fmtDate(sendAt)}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted-foreground">Send time</dt>
+                  <dd className="text-foreground">
+                    {sendAt.toLocaleTimeString('en-US', {
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    })}
+                  </dd>
+                </div>
+              </>
+            )}
             <div className="flex justify-between gap-4">
               <dt className="text-muted-foreground">Audience</dt>
               <dd className="truncate text-foreground">{audienceName}</dd>
@@ -234,7 +254,13 @@ export const SmsReviewStep = ({
         <div className="flex items-center justify-between border-t border-border px-4 py-4">
           <span className="font-medium text-foreground">Total</span>
           <span className="font-semibold text-foreground">
-            {prepareError || error ? (
+            {readOnlySummary ? (
+              summaryDollars > 0 ? (
+                `$${money(summaryDollars)}`
+              ) : (
+                'Free'
+              )
+            ) : prepareError || error ? (
               '\u2014'
             ) : preparing || (!isFree && !checkoutSession) ? (
               <Loader2Icon className="size-4 animate-spin" />
@@ -278,7 +304,7 @@ export const SmsReviewStep = ({
         </div>
       )}
 
-      {prepareError ? (
+      {readOnlySummary ? null : prepareError ? (
         <Card className="items-start gap-3 border-destructive p-4">
           <p className="text-sm text-foreground">
             We couldn&apos;t set up your purchase. Go back a step and try again.

@@ -83,6 +83,9 @@ const OutreachHubContent = ({
     null,
   )
   const [smsFlowOpen, setSmsFlowOpen] = useState(false)
+  // A saved draft the candidate is picking back up: the SMS flow opens on it
+  // instead of starting a new text. Cleared on close, like tilePreselect.
+  const [resumeDraft, setResumeDraft] = useState<OutreachDetail | null>(null)
   // Seeds a `?compose=` deep link handed over (a tracker/manager task's due
   // date, Know Your Opponent's suggested message, a CRM list). Held per open
   // and cleared on close, so a later tile click starts clean.
@@ -231,8 +234,10 @@ const OutreachHubContent = ({
           setSmsFlowOpen(false)
           setComposeSeeds(null)
           setTilePreselect(null)
+          setResumeDraft(null)
         }}
         onScheduled={refetchOutreaches}
+        resumeDraft={resumeDraft}
         tcrCompliance={tcrCompliance}
         campaignPlanDueDate={composeSeeds?.due}
         initialScript={composeSeeds?.script}

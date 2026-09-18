@@ -311,6 +311,14 @@ export type APIEndpoints = {
     Response: OutreachDetail
   }
 
+  // Discard a saved DRAFT (milestone 2): 404 when the row isn't this
+  // campaign's, 409 once it is no longer a draft. Never reaches a scheduled
+  // or sent campaign — those cancel or archive instead.
+  'DELETE /v1/outreach/:id': {
+    Request: {}
+    Response: undefined
+  }
+
   // Archive/restore for the v2 history drawer footer. Org-scoped (not
   // campaign-scoped) — 404 when the row doesn't belong to the requester's
   // organization. Response reads from the persisted row.
