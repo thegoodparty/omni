@@ -2,6 +2,7 @@ import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
 import { describe, expect, it } from 'vitest'
 import { useTestService } from '@/test-service'
 import { ChatStoreService } from '@/chats/services/chatStore.prisma'
+import { GeneralChatsService } from '../services/general-chats.service'
 import { CampaignManagerHandler } from './campaignManager.handler'
 
 const service = useTestService()
@@ -67,23 +68,30 @@ describe('CampaignManagerHandler.loadContext (integration)', () => {
   })
 })
 
-describe('CampaignManagerHandler.resolveConversation (integration)', () => {
-  it('seeds the scripted greeting as the first assistant message', async () => {
-    const handler = service.app.get(CampaignManagerHandler)
+describe('campaign manager conversations (integration)', () => {
+  it('starts a fresh conversation per open, each seeded with the greeting', async () => {
+    const chats = service.app.get(GeneralChatsService)
     const chatStore = service.app.get(ChatStoreService)
     const userId = service.user.id
     const slug = `cam-${userId}-${Math.random().toString(36).slice(2, 10)}`
     await service.prisma.organization.create({
       data: { slug, ownerId: userId },
     })
+    const params = {
+      scope: ChatScope.campaign_assistant,
+      organizationSlug: slug,
+    }
 
-    const { conversationId, created } = await handler.resolveConversation(
-      { scope: ChatScope.campaign_assistant, organizationSlug: slug },
-      userId,
+    const first = await chats.resolveConversation(params, userId)
+    const second = await chats.resolveConversation(params, userId)
+
+    expect(first.created).toBe(true)
+    expect(second.created).toBe(true)
+    expect(second.conversationId).not.toBe(first.conversationId)
+
+    const messages = await chatStore.listMessagesByConversation(
+      second.conversationId,
     )
-    expect(created).toBe(true)
-
-    const messages = await chatStore.listMessagesByConversation(conversationId)
     expect(messages).toHaveLength(1)
     expect(messages[0]?.role).toBe(ChatMessageRole.assistant)
     expect(messages[0]?.content.toLowerCase()).toContain('campaign manager')
