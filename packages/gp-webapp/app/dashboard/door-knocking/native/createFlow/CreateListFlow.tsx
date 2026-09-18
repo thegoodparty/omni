@@ -637,6 +637,15 @@ export default function CreateListFlow({
   // Milestone 2's in-flow gate. Door knocking saves no draft — nothing is
   // written until the paid create — so the gate stands in front of Build
   // route rather than behind a saved row.
+  //
+  // It cannot fire yet, and that is not an oversight. `DoorKnockingPageGate`
+  // still locks a non-Pro campaign out of this page, because every
+  // /v1/door-knocking read the flow needs — `GET pack`, `GET turfs`,
+  // `GET quota`, `POST audience-check` — runs `assertProAccess` server-side,
+  // so a free candidate admitted here would draw against a failed pack.
+  // Everyone who reaches this flow today is therefore Pro or elected office,
+  // for whom `requirement` is null and every branch below is inert. This is
+  // wired now so that opening those reads is the only change that day needs.
   const gate = useOutreachGate('door')
   const [gateOpen, setGateOpen] = useState(false)
   const [explainerOpen, setExplainerOpen] = useState(false)

@@ -203,11 +203,9 @@ export const ChannelTileGrid = ({
       onCreateRobocall(spendPreselect())
       return
     }
-    // Door knocking's page and its create flow now carry the entitlement
-    // themselves — the page admits a free candidate and Build route is where
-    // Pro is asked for — so with the flag on this tile is a door rather than
-    // a lock. Off the flag it is the only refusal there is.
-    if (!gatedFlows && requiresPro && !isPro) {
+    // Door knocking is the one Pro-locked tile milestone 2 leaves alone: it
+    // navigates to a page with no gate of its own, so the refusal stays here.
+    if (requiresPro && !isPro) {
       trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceStarted, {
         source: 'outreach_page',
       })
@@ -291,14 +289,13 @@ export const ChannelTileGrid = ({
         {TILE_ORDER.map((type) => {
           const option = OUTREACH_OPTIONS.find((o) => o.type === type)
           const meta = CHANNEL_META[type]
-          // The four channels whose own surfaces carry the gate: the tile is
+          // The three channels whose flows carry their own gate: the tile is
           // a door now, not a lock.
           const gatedInFlow =
             gatedFlows &&
             (type === OUTREACH_TYPES.text ||
               type === OUTREACH_TYPES.robocall ||
-              type === OUTREACH_TYPES.phoneBanking ||
-              type === OUTREACH_TYPES.doorKnocking)
+              type === OUTREACH_TYPES.phoneBanking)
           return (
             <ChannelCard
               key={type}

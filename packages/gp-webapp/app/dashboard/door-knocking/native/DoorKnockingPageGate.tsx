@@ -13,7 +13,6 @@ import {
 } from '@styleguide'
 import { LockIcon } from '@styleguide/components/ui/icons'
 import { useNativeDoorKnockingFlag } from 'app/shared/experiments/nativeDoorKnockingFlag'
-import { useOutreachProGatingV2Flag } from 'app/shared/experiments/outreachProGatingV2Flag'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
@@ -112,11 +111,6 @@ export default function DoorKnockingPageGate({
   openCreateFlow,
 }: DoorKnockingPageGateProps) {
   const { ready, enabled } = useNativeDoorKnockingFlag(true)
-  // Milestone 2 moves the entitlement off this page and onto the create
-  // flow's Build route, the one paid write. Read without exposure — the
-  // membership surfaces own that, and arriving here is not the treatment.
-  const { ready: gatedInFlowReady, enabled: gatedInFlow } =
-    useOutreachProGatingV2Flag(false)
   const { data: electedOffice, isPending: isElectedOfficePending } =
     useElectedOffice()
 
@@ -134,19 +128,15 @@ export default function DoorKnockingPageGate({
     // the upgrade card at the org most entitled to the feature, on every cold
     // load. DashboardMenu holds its own elected-office decisions the same way.
     //
-    // With the in-flow gate on, a campaign that is not Pro is admitted
-    // anyway: the map, the filters and the boundary are free, and the gate
-    // stands in front of the route the candidate is buying. So the
-    // elected-office answer can no longer change the outcome for them, and
-    // waiting on it would be a spinner in front of a page already allowed.
-    // The unsettled flag is the one window where either answer flashes
-    // something wrong — the lock at a candidate about to be let in, or the
-    // map at one about to be locked out — so it holds the same spinner.
+    // `outreach-pro-gating-v2` does NOT open this page. The create flow
+    // carries the milestone's in-flow gate, but every /v1/door-knocking read
+    // the map needs — the pack, GET turfs, the quota, audience-check — still
+    // runs assertProAccess server-side, so a free candidate admitted here
+    // would get a permanently failed pack rather than a map they could draw
+    // on. Opening those voter-data reads is an unmade product decision; until
+    // it is made, the lock stays and the in-flow gate is unreachable.
     if (!campaign?.isPro) {
-      const holding = gatedInFlowReady
-        ? !gatedInFlow && isElectedOfficePending
-        : true
-      if (holding) {
+      if (isElectedOfficePending) {
         return (
           <DashboardLayout pathname={pathname} campaign={campaign}>
             <div className="flex w-full items-center justify-center py-20">
@@ -155,7 +145,7 @@ export default function DoorKnockingPageGate({
           </DashboardLayout>
         )
       }
-      if (!gatedInFlow && !electedOffice) {
+      if (!electedOffice) {
         return (
           <DoorKnockingProLockedView pathname={pathname} campaign={campaign} />
         )

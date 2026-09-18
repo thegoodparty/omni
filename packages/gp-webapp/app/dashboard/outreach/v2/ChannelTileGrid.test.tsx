@@ -621,30 +621,20 @@ describe('ChannelTileGrid — flag on: the tiles open the gated flows', () => {
     expect(onCreateRobocall).toHaveBeenCalledWith(undefined)
   })
 
-  // Door knocking joined the gated flows: the page admits a free candidate
-  // and the create flow's Build route is where the entitlement is asked for,
-  // so a tile that still refused the click would be a second, earlier lock on
-  // a screen the candidate is allowed to see.
-  it('leaves the door-knocking tile unlocked for a free candidate', () => {
+  // Door knocking is not one of milestone 2's gated flows: its Pro modal and
+  // its locked tile stay exactly as they are.
+  it('leaves door knocking gated at the tile', async () => {
     renderGrid()
 
-    expect(
-      screen.getByText('Door knocking').closest('button'),
-    ).not.toHaveAttribute('data-locked')
-  })
-
-  it('navigates to the door-knocking flow for a free candidate instead of the Pro modal', async () => {
-    renderGrid()
+    expect(screen.getByText('Door knocking').closest('button')).toHaveAttribute(
+      'data-locked',
+    )
 
     await userEvent.click(screen.getByText('Door knocking'))
 
-    await waitFor(() =>
-      expect(mockRouterPush).toHaveBeenCalledWith(
-        '/dashboard/door-knocking?create=1',
-      ),
-    )
+    expect(mockRouterPush).not.toHaveBeenCalled()
     expect(
-      screen.queryByText('Get Pro voter data and tools'),
-    ).not.toBeInTheDocument()
+      await screen.findByText('Get Pro voter data and tools'),
+    ).toBeInTheDocument()
   })
 })
