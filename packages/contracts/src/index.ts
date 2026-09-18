@@ -1173,7 +1173,11 @@ export {
   type PhoneBankingOutreachDetail,
 } from './phoneBanking/PhoneBankingList.schema'
 
-export { VOTER_NAME_TOKEN } from './phoneBanking/PhoneBankingScript.const'
+export {
+  CONSTITUENT_NAME_TOKEN,
+  CONTACT_NAME_TOKENS,
+  VOTER_NAME_TOKEN,
+} from './phoneBanking/PhoneBankingScript.const'
 
 export {
   TEST_FIXTURE_STATE_VALUES,

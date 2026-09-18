@@ -19,7 +19,7 @@ import { DictationFeedback } from 'app/dashboard/briefings/shared/DictationFeedb
 import { useDoorKnockingServeMode } from './doorKnockingSurface'
 import {
   ANSWER_OPTIONS,
-  ENGAGEMENT_OPTIONS,
+  engagementOptions,
   ENGAGEMENT_QUESTION,
   FOLLOW_UP_OPTIONS,
   FOLLOW_UP_QUESTION,
@@ -249,7 +249,7 @@ export default function RecordKnockForm({
       {opened && (
         <ChoiceRow
           label={ENGAGEMENT_QUESTION}
-          options={ENGAGEMENT_OPTIONS}
+          options={engagementOptions(serveMode)}
           value={engagement}
           onChange={(value) => {
             setEngagement(value)

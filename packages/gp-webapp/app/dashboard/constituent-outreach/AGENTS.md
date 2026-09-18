@@ -8,6 +8,15 @@ forked. If you're changing a flow, the table, the drawer, or the audience
 step, the code lives in `outreach/v2/` and BOTH surfaces feel it — read
 `app/dashboard/outreach/AGENTS.md` first.
 
+**Vocabulary.** This surface has regressed four times on one bug: Win nouns
+reaching an elected official. They have constituents, an office and a term —
+never voters, an election, a candidate or a ballot, and "campaign" only in the
+outreach sense ("Campaign name" is fine, "your campaign tone" is not). Every
+string here is Serve copy, and everything under `outreach/v2/` is shared, so
+fix a shared string with a mode-keyed copy object rather than a rename. The
+rule, the models, and the check that gates it:
+**`docs/product-vocabulary.md`**.
+
 ## Files
 
 | File                          | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -72,7 +81,27 @@ generation services, the spine scoping — are in
   `PhoneBankingList.isServe`, derived server-side from the owning org's `eo-`
   slug prefix, to point at this page instead of the Win hub (ENG-10996).
   Anything else on that page that needs to know its surface should read the
-  same field, not the referrer.
+  same field, not the referrer — and three things now do. The outcome form
+  asks Serve's own engaged-call question (`Do they need follow-up?`, where Win
+  asks support then will-vote) and persists it to `followUp`; the call-sheet
+  PDF swaps the same column's heading and tick boxes off `callSheetRows(entries,
+  isServe)` / `answerHeading(isServe)`, because paper is the only thing a
+  volunteer has on the call and must ask what the app asks; and the script's
+  contact-name token is `[constituent name]` rather than `[voter name]`. A list
+  frozen before any of this still carries the Win token, so every reader
+  accepts either (`CONTACT_NAME_TOKENS`).
+- **A completed list reports follow-up, not support.** The drawer's Results
+  table reads `OutreachDetail.phoneBanking.byFollowUp` on this surface, where
+  Win reads `supporters`/`unsure`/`nonSupporters`. It picks by the `isServe`
+  prop and not by which tally is non-zero, so a completed list nobody answered
+  still reads in Serve's words. Both keys are reported even at zero: "nobody
+  needs following up" is an answer, and a row that vanished when it emptied
+  would make the table's shape a fact about the list.
+- **Team accounts are Win-only here.** `OutreachDetailsDrawer` takes `isServe`
+  and renders no assignees section for it: the roles the assign modal offers
+  are campaign roles, so an elected official gets no assignment rather than
+  one in Win's vocabulary. The `win-team-accounts` flag would usually hide it
+  anyway — this is the product rule, not the flag.
 - **Org switching must not replay detail queries.** `outreachDetailQueryKey`
   is not org-scoped, and the org picker's switch invalidation runs before
   `router.push` unmounts this page — a plain `invalidateQueries` refired every

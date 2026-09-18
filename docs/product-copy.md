@@ -65,6 +65,13 @@ Candidates say voters, doors, calls, texts, yard signs, turnout. They do not
 say audience segment, contact record, dispatch, campaign entity, outreach
 artifact, or persuasion universe. Internal names are for code, not screens.
 
+Their words are not the same words. A candidate has voters, an election and a
+campaign; an elected official has constituents, an office and a term. Most of
+our components are mounted by both products, so before you write a string on
+one, read `product-vocabulary.md` — it has both vocabularies, the words banned
+in Serve, the two senses of "campaign", and the mode-keyed copy pattern that
+fixes a shared component without changing Win.
+
 ### 5. Say it out loud first
 
 If you would not say the sentence to a candidate on the phone, do not ship

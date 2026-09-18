@@ -14,6 +14,7 @@ import {
   ContactInteractionPhoneBanking,
   ContactStatusField,
   ContactStatusSource,
+  FollowUpAnswer,
   OrganizationRole,
   OutreachStatus,
   PhoneBankCallOutcome,
@@ -35,6 +36,7 @@ type RowInput = {
   outcome: PhoneBankCallOutcome
   supportAnswer: SupportAnswer | null
   willVote: WillVoteAnswer | null
+  followUp: FollowUpAnswer | null
   note: string | null
   actorUserId: number
 }
@@ -118,6 +120,7 @@ export class PhoneBankingCallService extends createPrismaBase(
           outcome: row.outcome,
           supportAnswer: row.supportAnswer,
           willVote: row.willVote,
+          followUp: row.followUp,
           occurredAt: row.occurredAt,
         },
       })),
@@ -169,6 +172,7 @@ export class PhoneBankingCallService extends createPrismaBase(
           outcome: input.outcome,
           supportAnswer: input.supportAnswer ?? null,
           willVote: input.willVote ?? null,
+          followUp: input.followUp ?? null,
           note: input.note ?? null,
           actorUserId,
         }),
@@ -198,6 +202,7 @@ export class PhoneBankingCallService extends createPrismaBase(
             outcome: input.outcome,
             supportAnswer: null,
             willVote: null,
+            followUp: null,
             note: input.note ?? null,
             actorUserId,
           }),
@@ -257,6 +262,7 @@ export class PhoneBankingCallService extends createPrismaBase(
         outcome: PhoneBankCallOutcome.answered,
         supportAnswer: null,
         willVote: null,
+        followUp: null,
         note: null,
         actorUserId,
       })),

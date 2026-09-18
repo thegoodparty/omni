@@ -63,7 +63,13 @@ fixes track under ENG-10744.
   condition, conditions AND across. Empty `actions` = membership in that
   outreach ("everyone it reached").
 - **Win vs Serve is the `eo-` org-slug prefix**, nothing else. Serve never
-  receives `politicalParty` (server-stripped) and party filters 400. Precinct
+  receives `politicalParty` (server-stripped) and party filters 400. The
+  person activity feed strips the same way and for the same reason
+  (`contactEngagement.service.ts`): a door-knock or phone-banking row's
+  `supportAnswer`/`willVote` are Win facts about a person, so both read null
+  for an `eo-` org. Stripped server-side rather than hidden per reader,
+  because that feed has two — the walk's person sheet and the Constituent Data
+  overlay — and one null fixes both plus whatever reads it next. Precinct
   is NOT in that set — it is offered to both, because a precinct is an
   administrative subdivision of the district an official already serves.
 - **Precinct is the one filter with no fixed vocabulary.** Every other

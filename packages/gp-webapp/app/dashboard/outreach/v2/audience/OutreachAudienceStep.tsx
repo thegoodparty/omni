@@ -205,6 +205,14 @@ export const OutreachAudienceStep = ({
   // the picker's own root div — and scroll works.
   const pickerRootRef = useRef<HTMLDivElement | null>(null)
   const active = lists.find((l) => l.id === selectedId) ?? null
+  // The three nouns this step states itself, rather than reading from `copy`:
+  // a surface's OutreachAudienceCopy covers the titles and bodies, but these
+  // sit inside shared controls. Serve never says "voter", so they key off the
+  // same flag that strips the Win-only filter fields below.
+  const peopleNoun = isElectedOfficial ? 'constituents' : 'voters'
+  const emptyPickerLabel = isElectedOfficial
+    ? 'Choose a constituent list'
+    : 'Choose a voter list'
 
   // The carried-in recommendation, applied once the picker can act on it:
   // its saved list selected when the picker has that row, the card itself
@@ -270,7 +278,7 @@ export const OutreachAudienceStep = ({
           isCounting={builderCounting}
           isCapError={builderCapError}
           countErrorMessage={builderCountErrorMessage}
-          peopleNoun="voters"
+          peopleNoun={peopleNoun}
         />
       </div>
     )
@@ -429,14 +437,14 @@ export const OutreachAudienceStep = ({
                       // knocking's WhoStep already applies.
                       (cards.length > 0
                         ? 'View your lists here'
-                        : 'Choose a voter list'))}
+                        : emptyPickerLabel))}
                 </p>
                 {active && (
                   <p className="text-sm text-muted-foreground">
                     {reachableLoading ? (
                       <span className="inline-flex items-center gap-1.5">
                         <Loader2Icon className="size-3.5 animate-spin" />
-                        Counting reachable voters…
+                        Counting reachable {peopleNoun}…
                       </span>
                     ) : reachableCount !== null ? (
                       <>

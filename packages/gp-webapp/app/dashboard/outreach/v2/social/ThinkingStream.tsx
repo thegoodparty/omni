@@ -12,15 +12,23 @@ const THINKING_MESSAGES = [
   'Drafting content for each platform…',
 ]
 
+// Serve differs in one line: an elected official has no campaign whose tone
+// could be checked. The rest of the wait reads the same on both surfaces, so
+// this is an override of that message rather than a second list.
+const SERVE_THINKING_MESSAGES = THINKING_MESSAGES.map((message) =>
+  message === 'Checking your campaign tone…' ? 'Checking your tone…' : message,
+)
+
 // Client presentation only: the generate request is one synchronous call —
 // this stream keeps the wait legible (phase 1 TDD: the "AI thinking stream"
 // in the design is presentation during the request).
-export const ThinkingStream = () => {
+export const ThinkingStream = ({ isServe = false }: { isServe?: boolean }) => {
   const [index, setIndex] = useState(0)
   const [visibleText, setVisibleText] = useState('')
+  const messages = isServe ? SERVE_THINKING_MESSAGES : THINKING_MESSAGES
 
   useEffect(() => {
-    const full = THINKING_MESSAGES[index] ?? ''
+    const full = messages[index] ?? ''
     let pos = 0
     setVisibleText('')
     const type = window.setInterval(() => {
@@ -28,14 +36,11 @@ export const ThinkingStream = () => {
       setVisibleText(full.slice(0, pos))
       if (pos >= full.length) {
         window.clearInterval(type)
-        window.setTimeout(
-          () => setIndex((i) => (i + 1) % THINKING_MESSAGES.length),
-          900,
-        )
+        window.setTimeout(() => setIndex((i) => (i + 1) % messages.length), 900)
       }
     }, 45)
     return () => window.clearInterval(type)
-  }, [index])
+  }, [index, messages])
 
   return (
     <Card className="p-6">

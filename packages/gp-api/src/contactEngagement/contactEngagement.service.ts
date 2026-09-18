@@ -285,6 +285,15 @@ export class ContactEngagementService {
         )
       : []
 
+    // One vocabulary per row, decided here rather than per reader — this feed
+    // has two (the walk's person sheet and the Constituent Data overlay), and
+    // the `eo-` prefix is the whole rule, the same way `politicalParty` is
+    // stripped in `ContactsService`. A support answer and a turnout intention
+    // are Win facts about a person; a follow-up is Serve's. Each surface reads
+    // back only its own, so neither can show a reader the answer to a question
+    // their canvasser never asked.
+    const isServe = organizationSlug.startsWith('eo-')
+
     const doorKnockActivities: DoorKnockConstituentActivity[] = doorKnocks.map(
       (activity) => ({
         type: ConstituentActivityType.DOOR_KNOCK,
@@ -292,7 +301,8 @@ export class ContactEngagementService {
         data: {
           activityId: activity.id,
           outcome: activity.outcome,
-          supportAnswer: activity.supportAnswer,
+          supportAnswer: isServe ? null : activity.supportAnswer,
+          followUp: isServe ? activity.followUp : null,
           note: activity.note,
           manual: activity.manual,
           actorName: activity.actor
@@ -340,8 +350,9 @@ export class ContactEngagementService {
         data: {
           activityId: activity.id,
           outcome: activity.outcome,
-          supportAnswer: activity.supportAnswer,
-          willVote: activity.willVote,
+          supportAnswer: isServe ? null : activity.supportAnswer,
+          willVote: isServe ? null : activity.willVote,
+          followUp: isServe ? activity.followUp : null,
           note: activity.note,
           manual: activity.manual,
           actorName: activity.actor

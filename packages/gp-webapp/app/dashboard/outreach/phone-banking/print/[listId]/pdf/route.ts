@@ -70,7 +70,10 @@ export const GET = async (
   const list = await fetchList(listId)
   if (!list) return notFound()
 
-  const rows = callSheetRows(list.entries)
+  // The list's own surface, the same field the caller page reads — paper must
+  // ask the question the app asks.
+  const isServe = list.isServe === true
+  const rows = callSheetRows(list.entries, isServe)
   const sheets = sheetIndexesOf(rows)
   const sheetTotal = Math.max(sheets.length, 1)
 
@@ -84,6 +87,7 @@ export const GET = async (
       sheetIndex,
       sheetCount: sheetTotal,
       rows: rowsForSheet(sheetIndex),
+      isServe,
     })
 
   const sheetParam = new URL(request.url).searchParams.get('sheet')
