@@ -337,6 +337,25 @@ describe('S3Service', () => {
       expect(result).toBeUndefined()
     })
 
+    // S3 GET on a missing key surfaces as either NoSuchKey or a plain 404
+    // (e.g. without s3:ListBucket, or NoSuchBucket) depending on permissions
+    // and error shape. Treat both as "missing" — mirroring objectExists /
+    // headObject — so we don't turn a stale artifact pointer into a 502 that
+    // tells the client to retry a never-succeeding request (ENG-11117).
+    it('returns undefined when S3 returns a plain 404', async () => {
+      const plain404 = new ServiceException({
+        name: 'NotFound',
+        message: 'Not Found',
+        $fault: 'client',
+        $metadata: { httpStatusCode: 404 },
+      })
+      s3Mock.on(GetObjectCommand).rejects(plain404)
+
+      const result = await service.getFile(bucket, key)
+
+      expect(result).toBeUndefined()
+    })
+
     it('throws other errors when file retrieval fails', async () => {
       const otherError = new Error('Network error')
       s3Mock.on(GetObjectCommand).rejects(otherError)
@@ -368,6 +387,68 @@ describe('S3Service', () => {
       s3Mock.on(GetObjectCommand).resolves(mockResponse)
 
       const result = await service.getFile(bucket, key)
+
+      expect(result).toBeUndefined()
+    })
+  })
+
+  describe('getFileBytes', () => {
+    const bucket = 'test-bucket'
+    const key = 'folder/file.bin'
+
+    it('returns undefined when file does not exist (NoSuchKey)', async () => {
+      const noSuchKeyError = new NoSuchKey({
+        message: 'The specified key does not exist',
+        $metadata: {},
+      })
+      s3Mock.on(GetObjectCommand).rejects(noSuchKeyError)
+
+      const result = await service.getFileBytes(bucket, key)
+
+      expect(result).toBeUndefined()
+    })
+
+    it('returns undefined when S3 returns a plain 404', async () => {
+      const plain404 = new ServiceException({
+        name: 'NotFound',
+        message: 'Not Found',
+        $fault: 'client',
+        $metadata: { httpStatusCode: 404 },
+      })
+      s3Mock.on(GetObjectCommand).rejects(plain404)
+
+      const result = await service.getFileBytes(bucket, key)
+
+      expect(result).toBeUndefined()
+    })
+  })
+
+  describe('getFileBytesWithContentType', () => {
+    const bucket = 'test-bucket'
+    const key = 'folder/file.bin'
+
+    it('returns undefined when file does not exist (NoSuchKey)', async () => {
+      const noSuchKeyError = new NoSuchKey({
+        message: 'The specified key does not exist',
+        $metadata: {},
+      })
+      s3Mock.on(GetObjectCommand).rejects(noSuchKeyError)
+
+      const result = await service.getFileBytesWithContentType(bucket, key)
+
+      expect(result).toBeUndefined()
+    })
+
+    it('returns undefined when S3 returns a plain 404', async () => {
+      const plain404 = new ServiceException({
+        name: 'NotFound',
+        message: 'Not Found',
+        $fault: 'client',
+        $metadata: { httpStatusCode: 404 },
+      })
+      s3Mock.on(GetObjectCommand).rejects(plain404)
+
+      const result = await service.getFileBytesWithContentType(bucket, key)
 
       expect(result).toBeUndefined()
     })
