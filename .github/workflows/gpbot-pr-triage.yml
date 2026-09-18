@@ -78,14 +78,40 @@ jobs:
           echo "custom_id=$custom_id" >> "$GITHUB_OUTPUT"
 
           list_id=""
+          task_name=""
           if [ -n "$custom_id" ] && [ -n "${CLICKUP_API_TOKEN:-}" ]; then
             # custom_task_ids + team_id are both required to look a task up by
             # its ENG-1234 form rather than the opaque internal id.
-            list_id="$(curl -sS --max-time 20 \
+            #
+            # Captured once and read twice. The name is what tells a
+            # release-train fix apart from an ordinary bug fix — see the
+            # merge-decision step at the end of this job — and a second GET for
+            # one field would double this workflow's ClickUp calls on every bot
+            # PR.
+            task="$(curl -sS --max-time 20 \
               -H "Authorization: $CLICKUP_API_TOKEN" \
-              "https://api.clickup.com/api/v2/task/${custom_id}?custom_task_ids=true&team_id=90132012119" \
-              | jq -r '.list.id // empty' || true)"
+              "https://api.clickup.com/api/v2/task/${custom_id}?custom_task_ids=true&team_id=90132012119" || true)"
+            if jq -e . <<<"$task" >/dev/null 2>&1; then
+              list_id="$(jq -r '.list.id // empty' <<<"$task")"
+              task_name="$(jq -r '.name // empty' <<<"$task")"
+            else
+              echo "::warning::ClickUp did not return readable JSON for $custom_id; routing by default group and unable to tell whether this is a release-train fix"
+            fi
           fi
+
+          # THE VERDICT TRAVELS, NOT THE TITLE. The later step only needs to
+          # know whether this came from a release-train failure, and a ticket
+          # name is arbitrary prose from a system anyone can type into: putting
+          # it in GITHUB_OUTPUT means picking a heredoc delimiter that the
+          # title is trusted not to contain, for no gain. Deciding here leaves
+          # nothing to escape.
+          #
+          # `[release]` is the prefix gpbot-release-failure-triage.yml puts on
+          # every ticket it files, and nothing else writes it.
+          case "$task_name" in
+            '[release]'*) echo "from_release_ticket=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "from_release_ticket=false" >> "$GITHUB_OUTPUT" ;;
+          esac
 
           group="$(jq -r --arg l "$list_id" '.listRouting[$l] // .defaultGroup' "$roster")"
           echo "resolved list='${list_id:-unknown}' -> group='$group'"
@@ -231,3 +257,129 @@ jobs:
                 --data @- \
             | tee /dev/stderr \
             | jq -e '.ok' > /dev/null
+
+      # A SECOND, LOUDER ASK FOR THE ONE CLASS OF BOT PR NOBODY SHOULD MERGE ON
+      # MOMENTUM: a fix to the release train itself.
+      #
+      # The announcement above goes to the PR channel and asks the owning group
+      # to review. That is right for an ordinary bug fix and not enough here.
+      # release.yml is the only path to prod, so a wrong change to it does not
+      # break a feature, it stops every deploy — and the people who need to
+      # weigh that are the ones already watching #bot-urgent, where the failure
+      # that produced this PR was reported in the first place. Posting it there
+      # puts the fix in the same thread of attention as the outage.
+      #
+      # TWO INDEPENDENT SIGNALS, because each catches what the other misses:
+      #
+      #   - the ClickUp ticket's name begins `[release]`, which is exactly what
+      #     gpbot-release-failure-triage.yml files and nothing else does. This
+      #     is provenance: the PR exists because the train went red.
+      #   - the diff touches release.yml. This is blast radius, and it holds
+      #     however the PR came to be — a ticket filed by hand, an agent that
+      #     wandered into the file, a human's branch that happens to carry the
+      #     bot prefix.
+      #
+      # Neither is sufficient alone. A release-failure ticket can be fixed
+      # entirely outside release.yml (the Sep 17 convergence bug could equally
+      # have been fixed in ci-plan-root.sh), and a PR from any other ticket can
+      # still edit the train.
+      - name: Ask for a human merge decision on release-train fixes
+        id: merge_decision
+        env:
+          FROM_RELEASE_TICKET: ${{ steps.owner.outputs.from_release_ticket }}
+          CUSTOM_ID: ${{ steps.owner.outputs.custom_id }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          URGENT_CHANNEL: ${{ vars.SLACK_URGENT_CHANNEL_ID }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          from_release_ticket="${FROM_RELEASE_TICKET:-false}"
+
+          # `--paginate` because a fix can arrive alongside a large formatting
+          # pass, and release.yml sitting on page two would read as untouched.
+          touches_train=false
+          files="$(gh api "repos/$REPO/pulls/$PR_NUMBER/files?per_page=100" --paginate --jq '.[].filename' 2>/dev/null)" || files=''
+          if [ -z "$files" ]; then
+            # Unknown, not "no". Said out loud because the quiet version of
+            # this is a pipeline change merged without the ask.
+            echo "::warning::could not read the files on #$PR_NUMBER, so this could not be checked for release-pipeline changes"
+          elif grep -qx '.github/workflows/release.yml' <<<"$files"; then
+            touches_train=true
+          fi
+
+          echo "from a [release] ticket: $from_release_ticket; touches release.yml: $touches_train"
+          if [ "$from_release_ticket" != "true" ] && [ "$touches_train" != "true" ]; then
+            echo "ordinary bot PR; the announcement above is the whole ask"
+            exit 0
+          fi
+
+          # LOUD, not degrading. Everywhere else in this job a missing
+          # credential drops to a warning, because an announcement is better
+          # late than never and the PR is still visible on GitHub. This one is
+          # different: it is the step that puts a human in front of a change to
+          # the only path to prod, and a green run that skipped it reads as
+          # "asked and answered". Same rule as release-failure-alert.yml.
+          if [ -z "${SLACK_TOKEN:-}" ] || [ -z "${URGENT_CHANNEL:-}" ]; then
+            echo "::error::GPBOT_SLACK_BOT_TOKEN or SLACK_URGENT_CHANNEL_ID unset — #$PR_NUMBER changes the release train and nobody was asked to decide on it. Failing loudly."
+            exit 1
+          fi
+
+          # A whole sentence per branch rather than a shared trailing clause.
+          # The clause that used to be shared ("which is the only path to
+          # prod") attached to the wrong noun in the ticket-only case, where
+          # the nearest one is the failure.
+          if [ "$from_release_ticket" = "true" ] && [ "$touches_train" = "true" ]; then
+            why="It came from a release-train failure and it edits \`release.yml\`, the only path to prod."
+          elif [ "$from_release_ticket" = "true" ]; then
+            why="It came from a release-train failure, and the train is the only path to prod."
+          else
+            why="It edits \`release.yml\`, the only path to prod."
+          fi
+          ticket=""
+          [ -n "$CUSTOM_ID" ] && ticket=" (<https://app.clickup.com/t/${CUSTOM_ID}|${CUSTOM_ID}>)"
+
+          text=$(jq -rn --arg why "$why" --arg t "$ticket" --arg u "$PR_URL" --arg title "$PR_TITLE" \
+            '":rotating_light: A bot PR needs a human merge decision: <\($u)|\($title)>\($t).\n\($why) A wrong change here stops every deploy rather than breaking one feature, so this wants a read from someone who knows the train.\nNothing will merge it automatically. Review it, or close it — closing is a fine outcome if the fix is wrong."')
+
+          # Same normalisation as release-failure-alert.yml: always exactly one
+          # JSON object, so a proxy error page cannot kill the step with a jq
+          # parse error as its only account of what went wrong.
+          slack() {
+            local resp
+            resp=$(curl -sS --max-time 20 -X POST "https://slack.com/api/$1" \
+              -H "Authorization: Bearer $SLACK_TOKEN" \
+              -H "Content-type: application/json; charset=utf-8" --data @-) || resp=''
+            if jq -e . <<<"$resp" >/dev/null 2>&1; then printf '%s' "$resp"
+            else jq -nc --arg ep "$1" --arg body "${resp:0:200}" '{ok: false, error: ($ep + " answered something that is not JSON: " + $body)}'
+            fi
+          }
+          error_of() { jq -r 'if .ok then "" else (.error // "unknown") end' <<<"$1"; }
+
+          payload=$(jq -n --arg c "$URGENT_CHANNEL" --arg t "$text" '{channel: $c, text: $t}')
+          resp=$(printf '%s' "$payload" | slack chat.postMessage)
+          err=$(error_of "$resp")
+
+          # The one failure this can fix itself, on a public channel. #bot-urgent
+          # had no app in it at all until 2026-09-17, and the join needs
+          # `channels:join`, which gp_ai_bot does not hold yet — so this usually
+          # reports rather than repairs. Kept because the day the scope lands it
+          # starts working, and because the error text is the instruction.
+          if [ "$err" = "not_in_channel" ]; then
+            join=$(jq -nc --arg c "$URGENT_CHANNEL" '{channel: $c}' | slack conversations.join)
+            if [ "$(jq -r '.ok // false' <<<"$join")" != "true" ]; then
+              echo "::error::Not in $URGENT_CHANNEL and could not join it ($(error_of "$join")). Invite @gp_ai_bot to #bot-urgent, or grant the app channels:join. NOBODY WAS ASKED TO DECIDE on a PR that changes the release train."
+              exit 1
+            fi
+            resp=$(printf '%s' "$payload" | slack chat.postMessage)
+            err=$(error_of "$resp")
+          fi
+
+          if [ -n "$err" ]; then
+            echo "::error::Slack rejected the merge-decision request: $err. #$PR_NUMBER changes the release train and nobody was asked to decide on it."
+            exit 1
+          fi
+          echo "asked #bot-urgent to decide on #$PR_NUMBER"
