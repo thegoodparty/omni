@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Organization, User } from '../../../generated/prisma'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
+import type { FeaturesService } from '@/features/services/features.service'
 import type { GeneralChatsService } from '../services/general-chats.service'
 import type {
   ChatHistoryQueryDto,
@@ -55,6 +56,10 @@ const ORG = { slug: 'eo-1' } as unknown as Organization
 const QUERY = { scope: 'ordinance_flow' } as unknown as ChatHistoryQueryDto
 const BODY = { content: 'hi' } as unknown as SendChatMessageDto
 
+const FEATURES = {
+  isFeatureEnabled: async () => false,
+} as unknown as FeaturesService
+
 const run = (
   controller: GeneralChatsController,
   req: FastifyRequest,
@@ -70,6 +75,7 @@ describe('GeneralChatsController.streamMessage', () => {
       buildService(
         buildIterable([{ type: 'text', delta: 'hello' }, { type: 'done' }]),
       ),
+      FEATURES,
       createMockLogger(),
     )
 
@@ -92,6 +98,7 @@ describe('GeneralChatsController.streamMessage', () => {
     }
     const controller = new GeneralChatsController(
       buildService(throwing),
+      FEATURES,
       logger,
     )
 
@@ -121,6 +128,7 @@ describe('GeneralChatsController.streamMessage', () => {
       buildService({ [Symbol.asyncIterator]: () => longStream() }, (args) => {
         signalRef.signal = args.signal
       }),
+      FEATURES,
       createMockLogger(),
     )
     const { req, emitter } = buildReq()
@@ -155,6 +163,7 @@ describe('GeneralChatsController.streamMessage', () => {
           { type: 'done' },
         ]),
       ),
+      FEATURES,
       createMockLogger(),
     )
 

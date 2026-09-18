@@ -5,6 +5,8 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  NotImplementedException,
+  NotFoundException,
   Param,
   Post,
   Put,
@@ -28,6 +30,8 @@ import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.deco
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
 import { waitForDrain } from '@/chats/services/streamDrain.util'
+import { SERVE_CHAT_ATTACHMENTS_FLAG } from '@/chats/services/chatAttachments.service'
+import { FeaturesService } from '@/features/services/features.service'
 import { GeneralChatsService } from '../services/general-chats.service'
 import {
   ChatConversationSchema,
@@ -84,6 +88,7 @@ const formatChunk = (chunk: ChatStreamChunk): string =>
 export class GeneralChatsController {
   constructor(
     private readonly chats: GeneralChatsService,
+    private readonly features: FeaturesService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(GeneralChatsController.name)
@@ -287,6 +292,36 @@ export class GeneralChatsController {
       userId: user.id,
       organizationSlug,
     })
+  }
+
+  @Post(':conversationId/attachments/presign')
+  async presignAttachment(@ReqUser() user: User): Promise<void> {
+    const enabled = await this.features.isFeatureEnabled({
+      user,
+      feature: SERVE_CHAT_ATTACHMENTS_FLAG,
+    })
+    if (!enabled) throw new NotFoundException()
+    throw new NotImplementedException()
+  }
+
+  @Post(':conversationId/attachments')
+  async finalizeAttachment(@ReqUser() user: User): Promise<void> {
+    const enabled = await this.features.isFeatureEnabled({
+      user,
+      feature: SERVE_CHAT_ATTACHMENTS_FLAG,
+    })
+    if (!enabled) throw new NotFoundException()
+    throw new NotImplementedException()
+  }
+
+  @Post(':conversationId/attachments/link')
+  async linkAttachment(@ReqUser() user: User): Promise<void> {
+    const enabled = await this.features.isFeatureEnabled({
+      user,
+      feature: SERVE_CHAT_ATTACHMENTS_FLAG,
+    })
+    if (!enabled) throw new NotFoundException()
+    throw new NotImplementedException()
   }
 
   @Delete(':conversationId')
