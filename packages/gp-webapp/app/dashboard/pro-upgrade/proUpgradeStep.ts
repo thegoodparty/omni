@@ -49,6 +49,25 @@ export const PRO_UPGRADE_STEP_ORDER: ProUpgradeStep[] = [
   PRO_UPGRADE_STEP.SUCCESS,
 ]
 
+// The flagged purchase-only wizard (outreach-pro-gating-v2): filing details
+// and the candidate profile move behind payment into campaign verification, so
+// guidance becomes a real first step (the value prop lives in the Pro pitch
+// dialog) and the router can derive it.
+export const PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY: ProUpgradeStep[] = [
+  PRO_UPGRADE_STEP.GUIDANCE,
+  PRO_UPGRADE_STEP.STATUS,
+  PRO_UPGRADE_STEP.EIN,
+  PRO_UPGRADE_STEP.PAYMENT,
+  PRO_UPGRADE_STEP.SUCCESS,
+]
+
+export const proUpgradeStepOrder = (purchaseOnly: boolean): ProUpgradeStep[] =>
+  purchaseOnly ? PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY : PRO_UPGRADE_STEP_ORDER
+
+export interface DeriveProUpgradeStepOptions {
+  purchaseOnly?: boolean
+}
+
 // The candidate's answer to "have you already filed to run for this office?".
 // The router only needs the normalized tri-state; its caller maps the stored
 // value into this. `unanswered` means the question has not been answered yet.
@@ -89,6 +108,7 @@ export interface ProUpgradeStepInputs {
  */
 export const deriveProUpgradeStep = (
   inputs: ProUpgradeStepInputs,
+  { purchaseOnly = false }: DeriveProUpgradeStepOptions = {},
 ): ProUpgradeStep => {
   const { isPro, filingStatus, hasEin, filingComplete, profileComplete } =
     inputs
@@ -96,6 +116,14 @@ export const deriveProUpgradeStep = (
   // Payment already happened — route to the post-payment surface, never back
   // to a pre-payment step. (Post-payment sub-states are refined in task 15.)
   if (isPro) return PRO_UPGRADE_STEP.SUCCESS
+
+  if (purchaseOnly) {
+    const hasPurchaseProgress = filingStatus === 'has-filed' || hasEin
+    if (!hasPurchaseProgress) return PRO_UPGRADE_STEP.GUIDANCE
+    if (filingStatus === 'unanswered') return PRO_UPGRADE_STEP.STATUS
+    if (!hasEin) return PRO_UPGRADE_STEP.EIN
+    return PRO_UPGRADE_STEP.PAYMENT
+  }
 
   // Brand-new candidate with nothing collected yet lands on the value-prop
   // intro. A "not filed" answer is NOT progress: on its own it must restart a
