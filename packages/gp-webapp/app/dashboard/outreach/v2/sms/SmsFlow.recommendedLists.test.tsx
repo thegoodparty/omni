@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { createP2pPhoneList } from 'helpers/createP2pPhoneList'
@@ -65,6 +65,10 @@ const EXISTING_RECOMMENDATION = {
 }
 
 beforeEach(() => {
+  // The stale-cache test below seeds the shared client; vitest.setup.ts
+  // already clears it between tests, and this keeps the file self-evidently
+  // safe the way its door-knocking counterpart is.
+  testQueryClient.clear()
   api.reset()
   vi.clearAllMocks()
   api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
@@ -189,6 +193,86 @@ describe('SmsFlow — a recommendation carried in from the voter data page', () 
         88,
       ),
     )
+    // Saving changes the answer to "does this list exist yet": the carried
+    // copy is refetched so the next open selects the saved list instead of
+    // saving it again.
+    await waitFor(() =>
+      expect(
+        queries.filter((query) => query.variant === 'electionDayAffinity'),
+      ).toHaveLength(2),
+    )
+  })
+
+  // The query cache outlives the flow: a copy fetched before the list was
+  // saved still says existingFilterId null, and applying it during the
+  // refetch is exactly how one list got saved twice (rows 8 and 9, local).
+  it('waits for a fresh copy before applying a cached recommendation', async () => {
+    testQueryClient.setQueryData(
+      [
+        'outreach-audience-preselected-recommendation',
+        'campaign-9',
+        'sms',
+        'persuadeAffinity',
+      ],
+      RECOMMENDATION,
+    )
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 501, name: 'Persuadable independents' }],
+    })
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => ({
+      status: 200,
+      data:
+        query.variant === 'persuadeAffinity'
+          ? [{ ...RECOMMENDATION, existingFilterId: 501 }]
+          : [],
+    }))
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        demographics: { people: 19000, avgAge: null, avgIncome: null },
+        reachability: {
+          sms: 17000,
+          robocall: null,
+          phoneBanking: null,
+          doorKnocking: null,
+          polls: null,
+        },
+        outreachHistory: [],
+      },
+    })
+    const filterCalls: Record<string, unknown>[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      filterCalls.push(body)
+      return { status: 200, data: { id: 88, name: body.name } }
+    })
+    render(
+      <SmsFlow
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        preselectedRecommendedVariant="persuadeAffinity"
+      />,
+    )
+
+    // The saved list is what gets selected — never the stale card.
+    expect(
+      await screen.findByRole('button', { name: 'Continue (17,000)' }),
+    ).toBeEnabled()
+    expect(screen.getByTestId('recommended-list-card')).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Continue (17,000)' }),
+    )
+    await waitFor(() =>
+      expect(createP2pPhoneList).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 501 }),
+        501,
+      ),
+    )
+    expect(filterCalls).toHaveLength(0)
   })
 
   it('shows the failure under the cards when saving the selected recommendation fails', async () => {
