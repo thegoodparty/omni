@@ -84,6 +84,22 @@ Two things worth knowing before reading one:
 To list what a project contains, `DesignSync(method="list_files", projectId=…)`
 works fine — the cap only bites on file contents.
 
+## If you change the script
+
+The completeness guarantee is the whole point of this skill, so the parsers have
+tests. Run them:
+
+```bash
+uv run --no-project --python 3.12 --with pytest python -m pytest \
+  .claude/skills/claude-design-read/scripts/test_fetch_design.py -q
+```
+
+They pin the properties whose failure looks like success: byte-exact reassembly
+including blank lines at a page boundary, the per-read cap measured in bytes
+rather than characters, and a raise rather than short content when pages cannot
+be composed. The fixtures copy a real `read_file` response — if you need to
+change them, fetch a real page and look at it rather than guessing the format.
+
 ## Known limits
 
 - **A single line of 256 KiB or more cannot be retrieved.** It is cut mid-line and
