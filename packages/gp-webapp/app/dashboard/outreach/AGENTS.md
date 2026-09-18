@@ -119,12 +119,28 @@ channel needs Pro alone. `GateBanner.tsx` is the footer's tinted one-liner
 (`null` off `requirement`), tapping it opens `GateExplainerModal.tsx` (the
 same "what Pro/verification unlock" cards as the Pro wizard's
 `InterstitialStep`, duplicated rather than shared — WET). `OutreachGate.tsx`
-renders the paused-flow screen itself: `requirement === 'pro'` mounts
-`ProUpgradeFlow` on `PRO_UPGRADE_STEP.INTERSTITIAL`, whose `onComplete`
-re-checks the (by-then re-derived) membership and only calls the caller's
-`onComplete` when texting doesn't still need verification; `'verify'` mounts
+renders the paused-flow screen itself: `'pro'` mounts `ProUpgradeFlow` on
+`PRO_UPGRADE_STEP.INTERSTITIAL`; `'verify'` mounts
 `CampaignVerificationSteps`; `'pin'` mounts `PinDialog` behind a short notice
-card; `'in_review'` renders its own notice card. Only the first screen a
+card; `'in_review'` renders its own notice card.
+
+**The gate LATCHES its screen, and no flow may close it on a requirement
+change.** `requirement` is derived from the same campaign cache
+`ProUpgradeFlow`'s `SuccessStep` polls, so it clears the instant payment
+lands — while the candidate is still looking at the success screen with
+Continue in front of them. So `OutreachGate` takes its screen once, on the
+false → true transition of `open`, and renders that regardless of what
+`requirement` does afterwards; only `handleProComplete` moves it, re-reading
+the live requirement when the candidate presses Continue and switching to
+`'verify'`/`'in_review'`/`'pin'` (texting's second step, which only `sms` can
+reach) instead of calling the caller's `onComplete`. A gate opened with
+`requirement === null` still renders nothing. The mirror rule in the flows:
+the resumed effect is OPEN-only (`if (resumed && gate.requirement !== null)
+setGateOpen(true)`) and phone banking's sheets gate has no auto-close at all
+— the gate closes through `onExit` or `onComplete` and nothing else.
+Closing it on the flip is what made the completion (the `createList` on
+phone banking, `handleGateComplete`'s landing on `schedule` for the other
+two) unreachable. Only the first screen a
 candidate can land on (the interstitial or the in-review notice) offers a
 ghost destructive Delete — verification renders its own, and PIN has nothing
 left to abandon. `OutreachFlowShell`'s `banner` slot renders whichever of

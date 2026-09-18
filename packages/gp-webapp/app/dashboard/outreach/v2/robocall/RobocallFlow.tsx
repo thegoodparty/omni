@@ -418,10 +418,13 @@ export const RobocallFlow = ({
     : audioUpload.key
 
   // The gate screens stand in for a resumed flow until the candidate can
-  // send, and step aside on their own once the requirement clears.
+  // send. Open-only: the requirement clears the moment payment lands, while
+  // the upgrade's own success screen is still up, so closing the gate here
+  // would take that screen away before the candidate could press Continue —
+  // and Continue is what calls handleGateComplete. The gate closes through
+  // onExit or onComplete, never through a requirement change.
   useEffect(() => {
-    if (!resumed) return
-    setGateOpen(gate.requirement !== null)
+    if (resumed && gate.requirement !== null) setGateOpen(true)
   }, [resumed, gate.requirement])
 
   const handleDraftSaved = async () => {

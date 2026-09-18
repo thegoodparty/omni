@@ -6,6 +6,7 @@ import { render } from 'helpers/test-utils/render'
 import type { Campaign } from 'helpers/types'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import type { OutreachDetail } from '@goodparty_org/contracts'
+import type { ComposeRequest } from 'app/dashboard/outreach/components/OutreachComposeDeepLink'
 import { OutreachHubPage } from './OutreachHubPage'
 import type { HistoryRow } from './historyStatus.util'
 
@@ -69,8 +70,18 @@ vi.mock('./useOutreachDetail', () => ({
   useOutreachDetail: () => ({ data: undefined, isLoading: false }),
   useSeedOutreachDetail: () => vi.fn(),
 }))
+// The deep link hands the hub a resolved request and mounts nothing of its
+// own, so the stand-in is just a way to fire one.
 vi.mock('app/dashboard/outreach/components/OutreachComposeDeepLink', () => ({
-  OutreachComposeDeepLink: () => null,
+  OutreachComposeDeepLink: ({
+    onCompose,
+  }: {
+    onCompose: (request: ComposeRequest) => void
+  }) => (
+    <button type="button" onClick={() => onCompose({ type: 'text' })}>
+      compose text
+    </button>
+  ),
 }))
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
@@ -227,6 +238,21 @@ describe('OutreachHubPage — clicking a draft row resumes its flow', () => {
     await userEvent.click(within(desktopTable()).getByText('Draft blast'))
 
     expect(await screen.findByTestId('sms-flow')).toHaveTextContent('fresh')
+  })
+
+  // A tracker/manager CTA lands on the same one-draft-per-channel rule the
+  // tile does, so it resumes rather than starting a text the server would
+  // refuse.
+  it('resumes the saved draft when a compose deep link asks for that channel', async () => {
+    mockFetchOutreachDetail.mockResolvedValue({ id: 99, name: 'Draft blast' })
+    renderHub([draftRow, sentRow])
+
+    await userEvent.click(screen.getByRole('button', { name: 'compose text' }))
+
+    expect(await screen.findByTestId('sms-flow')).toHaveTextContent(
+      'resuming 99',
+    )
+    expect(mockFetchOutreachDetail).toHaveBeenCalledWith(99)
   })
 
   it('opens the drawer for a row that is not a draft', async () => {

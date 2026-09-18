@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@styleguide'
 import {
   ClockIcon,
@@ -17,7 +18,7 @@ import {
   GATE_NOUN,
   type GateChannel,
 } from './gateCopy'
-import type { OutreachGateState } from './useOutreachGate'
+import type { GateRequirement, OutreachGateState } from './useOutreachGate'
 
 interface OutreachGateProps {
   channel: GateChannel
@@ -66,28 +67,47 @@ export const OutreachGate = ({
   onDelete,
   deleting,
 }: OutreachGateProps): React.JSX.Element | null => {
-  if (!open || state.requirement === null) return null
+  // THE SCREEN IS LATCHED FOR THE LIFE OF ONE OPEN, and must stay that way.
+  // `state.requirement` is derived from the same campaign cache
+  // ProUpgradeFlow's SuccessStep polls, so it flips the instant payment
+  // lands — while the candidate is still looking at the success screen with
+  // Continue in front of them. Rendering off the live value pulls the screen
+  // out from under them (a cleared requirement renders nothing at all) and
+  // the completion they were about to press never fires. So the screen is
+  // taken once, on the false -> true transition of `open`, and only
+  // `handleProComplete` below moves it.
+  const [screen, setScreen] = useState<GateRequirement>(
+    open ? state.requirement : null,
+  )
+  const openRef = useRef(open)
+  useEffect(() => {
+    if (open === openRef.current) return
+    openRef.current = open
+    setScreen(open ? state.requirement : null)
+  }, [open, state.requirement])
 
-  const noun = GATE_NOUN[channel]
-
-  // Safe to read `state.membership` fresh here rather than re-deriving it:
-  // ProUpgradeFlow's SuccessStep (the screen right before this fires) holds
-  // its own Continue button disabled until the shared CAMPAIGN_QUERY_KEY
-  // query cache reports `isPro: true` (it polls that cache after payment).
-  // useMembershipState derives `membership.tier` from the same cache via
-  // useCampaign, so by the time a candidate can click through to fire this,
-  // the caller's `useOutreachGate()` has already re-rendered with the
-  // post-upgrade `state` this component receives as a prop — no separate
-  // re-fetch or local state needed. Texting still needing verification
-  // means the gate stays open — `state.requirement` has already moved from
-  // 'pro' to 'verify' by then, so simply not completing is what shows the
-  // next screen.
+  // The candidate pressed Continue on the upgrade's success screen, so the
+  // live requirement is now the authority on what is left: texting's second
+  // step moves the latched screen on to it (only `sms` can reach these), and
+  // anything else means the flow can have its candidate back.
   const handleProComplete = (): void => {
-    if (channel === 'sms' && state.membership?.texting !== 'cleared') return
+    const remaining = state.requirement
+    if (
+      remaining === 'verify' ||
+      remaining === 'in_review' ||
+      remaining === 'pin'
+    ) {
+      setScreen(remaining)
+      return
+    }
     onComplete()
   }
 
-  if (state.requirement === 'pro') {
+  if (!open || screen === null) return null
+
+  const noun = GATE_NOUN[channel]
+
+  if (screen === 'pro') {
     return (
       <div>
         {onDelete && <DeleteButton onDelete={onDelete} deleting={deleting} />}
@@ -101,7 +121,7 @@ export const OutreachGate = ({
     )
   }
 
-  if (state.requirement === 'verify') {
+  if (screen === 'verify') {
     return (
       <CampaignVerificationSteps
         onExit={onExit}
@@ -112,7 +132,7 @@ export const OutreachGate = ({
     )
   }
 
-  if (state.requirement === 'pin') {
+  if (screen === 'pin') {
     return (
       <div className="flex flex-col items-center gap-4 rounded-xl border border-base-border bg-card p-6 text-center">
         <span className="flex size-16 items-center justify-center rounded-full bg-primary-light">
@@ -132,7 +152,7 @@ export const OutreachGate = ({
     )
   }
 
-  // requirement === 'in_review'
+  // screen === 'in_review'
   return (
     <div className="flex flex-col gap-4">
       {onDelete && <DeleteButton onDelete={onDelete} deleting={deleting} />}

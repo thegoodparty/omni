@@ -49,7 +49,16 @@ vi.mock('../gate/useOutreachGate', async () => {
 // Both mount real Stripe / filing surfaces; the flow only owns whether they
 // are on screen.
 vi.mock('app/dashboard/pro-upgrade/components/ProUpgradeFlow', () => ({
-  default: () => <div data-testid="pro-upgrade-flow" />,
+  // The completion is the candidate's Continue on the upgrade's success
+  // screen — the one press the gate's own latch exists to keep reachable —
+  // so the stand-in exposes it as a button.
+  default: ({ onComplete }: { onComplete: () => void }) => (
+    <div data-testid="pro-upgrade-flow">
+      <button type="button" onClick={onComplete}>
+        Finish upgrade
+      </button>
+    </div>
+  ),
 }))
 vi.mock(
   'app/dashboard/campaign-verification/components/CampaignVerificationSteps',
@@ -675,11 +684,11 @@ describe('SmsFlow', () => {
       await waitFor(() => expect(deleted).toEqual(['55']))
     })
 
-    // The requirement can clear while the upgrade's own success screen is
-    // still up, which closes the gate on its own. The flow must be standing
-    // on the schedule step by then: a resumed row has no send date, and
-    // review is the checkout step.
-    it('lands the 409 resume on the schedule step when the gate clears', async () => {
+    // The requirement clears while the upgrade's own success screen is
+    // still up. The gate must stay put until the candidate presses Continue
+    // there, and then land them on the schedule step: a resumed row has no
+    // send date, and review is the checkout step.
+    it('lands the 409 resume on the schedule step once the upgrade completes', async () => {
       gateRef.set(FREE_GATE)
       mockDraft()
       vi.mocked(createOutreachDraft).mockResolvedValue({
@@ -698,6 +707,13 @@ describe('SmsFlow', () => {
       vi.mocked(createOutreach).mockClear()
 
       act(() => gateRef.set(CLEARED_GATE))
+
+      // Still on the upgrade's success screen, not dumped back into the flow.
+      expect(screen.getByTestId('pro-upgrade-flow')).toBeInTheDocument()
+
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Finish upgrade' }),
+      )
 
       expect(
         await screen.findByText('When do you want to send it?'),

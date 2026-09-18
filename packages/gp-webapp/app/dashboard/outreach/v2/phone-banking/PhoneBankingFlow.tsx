@@ -400,14 +400,6 @@ export const PhoneBankingFlow = ({
     preselectedRecommendedVariant,
   ])
 
-  // An OutreachGate with no requirement renders nothing at all, so a
-  // requirement that clears from under an open gate (a membership refetch,
-  // an upgrade finished in another tab) has to put the candidate back on the
-  // step rather than leave them on a blank sheet.
-  useEffect(() => {
-    if (gate.requirement === null) setGateOpen(false)
-  }, [gate.requirement])
-
   // Applies the handed-over preselected list to the who step's picker once
   // the saved lists resolve — and only when the id matches a picker row, so
   // a deleted/foreign/invented id is a missed preselection, never a broken

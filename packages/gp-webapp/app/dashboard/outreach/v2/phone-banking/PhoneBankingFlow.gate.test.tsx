@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { PhoneBankingCreate } from '@goodparty_org/contracts'
 import { render } from 'helpers/test-utils/render'
@@ -218,7 +218,11 @@ describe('PhoneBankingFlow — the Pro gate', () => {
     expect(createCalls).toHaveLength(0)
   })
 
-  it('free candidate: completing the gate creates the list', async () => {
+  // The requirement clears the instant payment lands, while the upgrade's
+  // own success screen is still up. The gate latches its screen, so that
+  // flip must leave the candidate exactly where they were — the Continue
+  // they are about to press is what creates the list.
+  it('free candidate: the requirement clearing mid-upgrade leaves the gate up, and its completion creates the list', async () => {
     gateRef.current = FREE_GATE
     const createCalls = mockCreateList()
     render(<PhoneBankingFlow open onClose={vi.fn()} />)
@@ -226,9 +230,15 @@ describe('PhoneBankingFlow — the Pro gate', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByTestId('pro-upgrade-flow')
 
+    act(() => gateRef.set(PRO_GATE))
+
+    expect(screen.getByTestId('pro-upgrade-flow')).toBeInTheDocument()
+    expect(createCalls).toHaveLength(0)
+
     await user.click(screen.getByRole('button', { name: 'Finish upgrade' }))
 
     await waitFor(() => expect(createCalls).toHaveLength(1))
+    expect(screen.queryByTestId('pro-upgrade-flow')).not.toBeInTheDocument()
     expect(
       (await screen.findAllByText('Your call sheet is ready')).length,
     ).toBeGreaterThan(0)
