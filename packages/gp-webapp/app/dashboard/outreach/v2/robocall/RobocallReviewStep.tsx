@@ -136,44 +136,48 @@ export const RobocallReviewStep = ({
         </div>
       </Card>
 
-      <Card className="gap-3 p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Your recording
-        </p>
-        {recording && (
-          <div className="flex items-center gap-3">
-            <IconButton
-              type="button"
-              variant="default"
-              size="large"
-              aria-label={playing ? 'Pause' : 'Play'}
-              onClick={togglePlay}
-            >
-              {playing ? (
-                <PauseIcon className="size-5" />
-              ) : (
-                <PlayIcon className="size-5" />
-              )}
-            </IconButton>
-            <p className="text-sm tabular-nums text-muted-foreground">
-              {fmtDur(recording.durationSec)}
-            </p>
-            <audio
-              ref={audioRef}
-              src={recording.url}
-              onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
-              onEnded={() => setPlaying(false)}
-              className="hidden"
-            />
-          </div>
-        )}
-        {script.trim() && (
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-            {script}
+      {/* A resume has no local clip, and a draft saved with no script has
+          nothing here at all — the heading alone is not a section. */}
+      {(recording || script.trim()) && (
+        <Card className="gap-3 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Your recording
           </p>
-        )}
-      </Card>
+          {recording && (
+            <div className="flex items-center gap-3">
+              <IconButton
+                type="button"
+                variant="default"
+                size="large"
+                aria-label={playing ? 'Pause' : 'Play'}
+                onClick={togglePlay}
+              >
+                {playing ? (
+                  <PauseIcon className="size-5" />
+                ) : (
+                  <PlayIcon className="size-5" />
+                )}
+              </IconButton>
+              <p className="text-sm tabular-nums text-muted-foreground">
+                {fmtDur(recording.durationSec)}
+              </p>
+              <audio
+                ref={audioRef}
+                src={recording.url}
+                onPlay={() => setPlaying(true)}
+                onPause={() => setPlaying(false)}
+                onEnded={() => setPlaying(false)}
+                className="hidden"
+              />
+            </div>
+          )}
+          {script.trim() && (
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+              {script}
+            </p>
+          )}
+        </Card>
+      )}
     </div>
   )
 }

@@ -99,10 +99,11 @@ Robocall drafts carry a satellite with `settleState: draft` and null
 audience as it is then. `OutreachDetail.robocall` exposes exactly the two
 satellite fields a resume cannot re-derive — `audioKey` and `callbackNumber`
 — because the resume's own `POST /outreach/robocall` has to send them back;
-the rest of the satellite is billing and settlement state no client reads. One active draft per type per campaign, so the wizard
-resumes rather than accumulating half-built sends; the cap check runs INSIDE
-the insert's `Serializable` transaction (with a cheap `preflight` copy before
-the image upload, so a rejected create orphans no S3 object). `deleteDraftRow` is the
+the rest of the satellite is billing and settlement state no client reads.
+One active draft per type per campaign, so the wizard resumes rather than
+accumulating half-built sends; the cap check runs INSIDE the insert's
+`Serializable` transaction (with a cheap `preflight` copy before the image
+upload, so a rejected create orphans no S3 object). `deleteDraftRow` is the
 shared teardown (also used by the expiry job): a `status: draft`-guarded
 `deleteMany` on the spine runs FIRST — a 0 count (the row was resumed between
 the caller's scan/check and this call) skips the S3/compliance-result cleanup

@@ -754,6 +754,11 @@ export const SmsFlow = ({
         })
         setSavedDraft(data)
         setResumed(true)
+        // The existing row has no send date, so the flow has to land where
+        // a resume starts. Leaving it on review would put it one enabled
+        // button away from a checkout with no date the moment the gate
+        // steps aside.
+        setStepId('schedule')
         setGateOpen(true)
         return
       } catch {
@@ -794,6 +799,9 @@ export const SmsFlow = ({
   // when the draft was built, so this is where the Peerly phone list the
   // purchase needs finally gets derived.
   const handleResumeScheduleContinue = async () => {
+    // The CTA is disabled without a date, but review is a checkout step:
+    // nothing reaches it on a resumed row until the date exists.
+    if (scheduledAt === null) return
     if (phoneListToken) {
       setStepId('review')
       return
@@ -828,6 +836,8 @@ export const SmsFlow = ({
     // writes the draft instead.
     if (buildMode) return
     if (draftOutreachId || isDraftCreatingRef.current) return
+    // A dateless resumed row must never reach the create: `scheduledAt`
+    // covers it, and is load-bearing rather than defensive.
     if (!campaign?.id || !phoneList?.phoneListId || !scheduledAt) return
     isDraftCreatingRef.current = true
     setDraftCreateError(false)

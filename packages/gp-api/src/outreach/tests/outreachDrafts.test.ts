@@ -151,6 +151,9 @@ describe('POST /v1/outreach/drafts', () => {
     expect(res.data.voterFileFilterId).toBe(filterId)
     expect(res.data.date).toBeNull()
     expect(res.data.phoneListId).toBeNull()
+    // The robocall block is the robocall satellite's resume fields; a
+    // texting row has no satellite, so it must carry none.
+    expect(res.data.robocall).toBeUndefined()
 
     const rows = await service.prisma.outreach.findMany({
       where: { campaignId: CAMPAIGN_ID },
@@ -259,6 +262,12 @@ describe('POST /v1/outreach/drafts', () => {
     expect(res.data.status).toBe(OutreachStatus.draft)
     expect(res.data.outreachType).toBe(OutreachType.robocall)
     expect(res.data.date).toBeNull()
+    // The two satellite fields a resume cannot re-derive, and nothing else:
+    // the resume's own create has to send them back.
+    expect(res.data.robocall).toEqual({
+      audioKey: AUDIO_KEY,
+      callbackNumber: '+15125550123',
+    })
 
     const satellite = await service.prisma.outreachRobocall.findUniqueOrThrow({
       where: { outreachId: res.data.id },
@@ -335,6 +344,42 @@ describe('GET /v1/outreach', () => {
     expect(res.status).toBe(HttpStatus.OK)
     const ids = res.data.map((row: { id: number }) => row.id)
     expect(ids).toContain(created.data.id)
+  })
+})
+
+describe('GET /v1/outreach/:id', () => {
+  it('reads a robocall draft back with its resume fields', async () => {
+    const created = await service.client.post(
+      '/v1/outreach/drafts',
+      robocallDraftBody(),
+      orgHeaders(),
+    )
+    expect(created.status).toBe(HttpStatus.CREATED)
+
+    const res = await service.client.get(
+      `/v1/outreach/${created.data.id}`,
+      orgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    // The resume seeds audioKey and callbackNumber off this block; without
+    // them its own create cannot be built.
+    expect(res.data.robocall).toEqual({
+      audioKey: AUDIO_KEY,
+      callbackNumber: '+15125550123',
+    })
+  })
+
+  it('returns no robocall block for a texting draft', async () => {
+    const created = await createP2pDraft()
+
+    const res = await service.client.get(
+      `/v1/outreach/${created.data.id}`,
+      orgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.robocall).toBeUndefined()
   })
 })
 

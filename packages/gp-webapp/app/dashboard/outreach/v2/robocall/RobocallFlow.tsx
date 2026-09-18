@@ -468,6 +468,10 @@ export const RobocallFlow = ({
         })
         setSavedDraft(data)
         setResumed(true)
+        // The existing row has no send date, so the flow has to land where
+        // a resume starts. Leaving it on review would put it one enabled
+        // button away from the pay step the moment the gate steps aside.
+        setStepId('schedule')
         setGateOpen(true)
         return
       } catch {
@@ -608,9 +612,11 @@ export const RobocallFlow = ({
     // compose/review. Re-pin `now` and, if the send time has already passed,
     // bounce back to schedule (which then shows the past-time alert) rather than
     // advancing to a pay step whose createDraft would 400 on the stale time.
+    // A null date bounces the same way: a resumed row starts without one, so
+    // this is the guard that keeps review from reaching pay with no send time.
     const freshNow = new Date()
     setNow(freshNow)
-    if (scheduledAt !== null && scheduledAt.getTime() <= freshNow.getTime()) {
+    if (scheduledAt === null || scheduledAt.getTime() <= freshNow.getTime()) {
       setStepId('schedule')
       return
     }

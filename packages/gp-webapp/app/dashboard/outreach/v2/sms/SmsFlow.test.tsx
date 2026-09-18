@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -12,18 +12,39 @@ import type { TcrCompliance } from 'helpers/types'
 
 // The gate's own flag/membership plumbing has its own tests; here the flow's
 // wiring is what's under test, so the hook is driven directly.
-const gateRef = vi.hoisted(() => ({
-  current: {
-    enabled: false,
-    requirement: null,
-    twoStep: true,
-    membership: null,
-    tcrCompliance: null,
-  } as OutreachGateState,
-}))
-vi.mock('../gate/useOutreachGate', () => ({
-  useOutreachGate: () => gateRef.current,
-}))
+// `set` is a real subscription rather than a plain assignment because the
+// requirement clearing MID-FLOW (the candidate upgrades inside the sheet) is
+// its own behavior, and a test has to be able to make that happen.
+const gateRef = vi.hoisted(() => {
+  const listeners = new Set<() => void>()
+  return {
+    current: {
+      enabled: false,
+      requirement: null,
+      twoStep: true,
+      membership: null,
+      tcrCompliance: null,
+    } as OutreachGateState,
+    listeners,
+    set(next: OutreachGateState) {
+      this.current = next
+      listeners.forEach((listener) => listener())
+    },
+  }
+})
+vi.mock('../gate/useOutreachGate', async () => {
+  const { useSyncExternalStore } = await import('react')
+  const subscribe = (onChange: () => void) => {
+    gateRef.listeners.add(onChange)
+    return () => {
+      gateRef.listeners.delete(onChange)
+    }
+  }
+  const snapshot = () => gateRef.current
+  return {
+    useOutreachGate: () => useSyncExternalStore(subscribe, snapshot, snapshot),
+  }
+})
 
 // Both mount real Stripe / filing surfaces; the flow only owns whether they
 // are on screen.
@@ -218,13 +239,13 @@ describe('SmsFlow', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(FROZEN_NOW)
-    gateRef.current = {
+    gateRef.set({
       enabled: false,
       requirement: null,
       twoStep: true,
       membership: null,
       tcrCompliance: null,
-    }
+    })
     vi.mocked(createOutreachDraft).mockResolvedValue({
       draft: { id: 77 } as OutreachDetail,
       conflictId: null,
@@ -603,7 +624,7 @@ describe('SmsFlow', () => {
       userEvent.click(screen.getByRole('button', { name: 'Save draft' }))
 
     it('saves the text as a draft and opens the Pro interstitial', async () => {
-      gateRef.current = FREE_GATE
+      gateRef.set(FREE_GATE)
       mockDraft()
       const { onScheduled } = openFlow()
 
@@ -625,7 +646,7 @@ describe('SmsFlow', () => {
     })
 
     it('switches into resume mode when a draft already exists', async () => {
-      gateRef.current = FREE_GATE
+      gateRef.set(FREE_GATE)
       mockDraft()
       vi.mocked(createOutreachDraft).mockResolvedValue({
         draft: null,
@@ -654,8 +675,40 @@ describe('SmsFlow', () => {
       await waitFor(() => expect(deleted).toEqual(['55']))
     })
 
+    // The requirement can clear while the upgrade's own success screen is
+    // still up, which closes the gate on its own. The flow must be standing
+    // on the schedule step by then: a resumed row has no send date, and
+    // review is the checkout step.
+    it('lands the 409 resume on the schedule step when the gate clears', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      vi.mocked(createOutreachDraft).mockResolvedValue({
+        draft: null,
+        conflictId: 55,
+      })
+      api.mock('GET /v1/outreach/:id', {
+        status: 200,
+        data: draftDetail({ id: 55 }),
+      })
+      openFlow()
+
+      await buildToReview()
+      await saveDraft()
+      await screen.findByTestId('pro-upgrade-flow')
+      vi.mocked(createOutreach).mockClear()
+
+      act(() => gateRef.set(CLEARED_GATE))
+
+      expect(
+        await screen.findByText('When do you want to send it?'),
+      ).toBeInTheDocument()
+      // Review is the checkout step: reaching it with no date would create
+      // the pending_payment draft off a row that has none.
+      expect(vi.mocked(createOutreach)).not.toHaveBeenCalled()
+    })
+
     it('opens a cleared draft at the schedule step and converts it', async () => {
-      gateRef.current = CLEARED_GATE
+      gateRef.set(CLEARED_GATE)
       render(
         <SmsFlow
           open
@@ -698,7 +751,7 @@ describe('SmsFlow', () => {
     })
 
     it('blocks the resume when the draft list is gone', async () => {
-      gateRef.current = CLEARED_GATE
+      gateRef.set(CLEARED_GATE)
       api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
       render(
         <SmsFlow
@@ -723,7 +776,7 @@ describe('SmsFlow', () => {
     })
 
     it('deletes the draft from the gate and closes the flow', async () => {
-      gateRef.current = FREE_GATE
+      gateRef.set(FREE_GATE)
       mockDraft()
       const deleted: string[] = []
       api.mock('DELETE /v1/outreach/:id', ({ params }) => {
@@ -747,7 +800,7 @@ describe('SmsFlow', () => {
     // pick, so the step has to say what to do instead of sitting on a
     // disabled Continue.
     it('offers a way out when a free candidate has nothing to pick', async () => {
-      gateRef.current = FREE_GATE
+      gateRef.set(FREE_GATE)
       mockDraft()
       api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
       openFlow()
@@ -770,7 +823,7 @@ describe('SmsFlow', () => {
     })
 
     it('keeps the builder for an ungated elected official', async () => {
-      gateRef.current = {
+      gateRef.set({
         enabled: true,
         requirement: null,
         twoStep: true,
@@ -781,7 +834,7 @@ describe('SmsFlow', () => {
           isElectedOffice: true,
         },
         tcrCompliance: null,
-      }
+      })
       mockDraft()
       openFlow()
 
