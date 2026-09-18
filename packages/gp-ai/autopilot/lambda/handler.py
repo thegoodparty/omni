@@ -337,6 +337,18 @@ def parse_webhook_event(body: dict) -> AutopilotEvent | None:
     )
 
 
+class RetryableRouteError(Exception):
+    """A pre-dispatch routing failure worth a Lambda async retry.
+
+    handle_async_processing swallows every ordinary route_event exception
+    into a returned 500 on purpose — a raise AFTER a dedup claim or a
+    RunTask could double-run a stage on retry. This sentinel is the narrow
+    exception to that rule: it may only be raised BEFORE any claim or
+    dispatch side effect (the resume route's comments read), where a retry
+    replays a pure read and the dedup claim still guards everything after.
+    """
+
+
 def route_event(event: AutopilotEvent) -> None:
     """Routes a validated autopilot event to the stage-runner pipeline.
 
@@ -396,7 +408,13 @@ def route_event(event: AutopilotEvent) -> None:
                     f"ERROR: failed to read comments to resolve the parked stage for "
                     f"{event.task_id}: {type(e).__name__}"
                 )
-                raise
+                # Not a bare raise: route_event's caller swallows ordinary
+                # exceptions into a returned 500, and a returned payload is a
+                # SUCCESSFUL async invocation — no retry. The sentinel is
+                # what handle_async_processing re-raises to reach Lambda.
+                raise RetryableRouteError(
+                    f"comments read failed while resolving RESUME_STAGE for {event.task_id}"
+                ) from e
             resume_stage = router.parked_stage_from_comments(comments)
             if resume_stage is None:
                 # No marker means nothing ever parked (a card dragged back
@@ -536,6 +554,13 @@ def handle_async_processing(event: dict) -> dict:
 
     try:
         route_event(autopilot_event)
+    except RetryableRouteError:
+        # The one sanctioned escape from the never-raise rule below: raised
+        # only before any claim or dispatch side effect (see the class
+        # docstring), so Lambda's async retry replays a pure read — and a
+        # returned 500 would NOT retry (a returned payload is a successful
+        # async invocation), permanently losing the event.
+        raise
     except Exception as e:
         # The worker must never raise: an unhandled exception in an async
         # ("Event") invocation makes Lambda auto-retry it, which would

@@ -259,23 +259,34 @@ def test_resume_without_a_park_marker_is_refused_and_logged(fake_ecs, monkeypatc
     assert "no park marker" in capsys.readouterr().out
 
 
-def test_resume_raises_when_the_comments_read_fails(fake_ecs, monkeypatch):
+def test_resume_comments_read_failure_escapes_the_worker_as_a_function_error(fake_ecs, monkeypatch):
     # Same retry contract as hydration: the sweep cannot reconstruct this
     # trigger (STORY -> in progress is an ambiguous pair it skips), so only
-    # Lambda's async retry can save the event — a swallowed read failure
-    # would drop the human's answer silently.
+    # Lambda's async retry can save the event. That retry happens ONLY on a
+    # function error — the worker's returned 500 counts as a successful async
+    # invocation — so the failure must escape handle_async_processing's
+    # broad catch, not just route_event.
     def boom(task_id):
         raise RuntimeError("clickup down")
 
     monkeypatch.setattr(handler.supervisor, "get_task_comments", boom)
-    event = make_event(
-        STORY_LIST_ID,
-        [transition(HUMAN_USER_ID, router.STATUS_FEEDBACK_NEEDED, router.STATUS_IN_PROGRESS)],
+    payload = handler.AutopilotEvent(
+        kind="statusUpdated",
+        task_id=TASK_ID,
+        list_id=STORY_LIST_ID,
+        transitions=[
+            handler.StatusTransition(
+                actor_user_id=HUMAN_USER_ID,
+                from_status=router.STATUS_FEEDBACK_NEEDED,
+                to_status=router.STATUS_IN_PROGRESS,
+                transitioned_at="1700000600000",
+            )
+        ],
         epic_task_id="epic-9",
-    )
+    ).to_payload()
 
-    with pytest.raises(RuntimeError):
-        handler.route_event(event)
+    with pytest.raises(handler.RetryableRouteError):
+        handler.handler(payload, None)
     assert fake_ecs.run_task_calls == []
 
 
