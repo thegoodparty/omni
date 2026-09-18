@@ -10,7 +10,7 @@ import {
   VoterDensityCell,
   VoterDensityResponse,
 } from '../schemas/public/VoterDensity.schema'
-import { compareLegs, LegOutcome } from './voterDensityComparison'
+import { compareLegsDetailed, LegOutcome } from './voterDensityComparison'
 
 const { ELECTION_API_URL } = process.env
 
@@ -199,7 +199,7 @@ export class VoterDensityProxyService {
     legacy: LegOutcome,
     next: LegOutcome,
   ): void {
-    const result = compareLegs(legacy, next)
+    const { result, ...drift } = compareLegsDetailed(legacy, next)
     recordVoterDensityCompare(result)
 
     if (result === 'match') return
@@ -207,6 +207,13 @@ export class VoterDensityProxyService {
     // A bare counter says the two disagree but not how, and the districts that
     // disagree are the only ones anyone would go look at. `only_legacy` is
     // expected in bulk early on, so it stays at debug until the cutover nears.
+    //
+    // The drift figures ride along on every non-exact comparison, including
+    // the tolerated ones, because they are how the tolerances in
+    // voterDensityComparison.ts get validated: they were set from what the old
+    // log line could show (cell counts and coverage), which could not see
+    // drift between two cells that both exist. A week of
+    // `voterDensityDriftFraction` says whether 1% is generous or tight.
     const detail = {
       personId,
       result,
@@ -214,15 +221,24 @@ export class VoterDensityProxyService {
       newCells: next.ok ? (next.value?.cells.length ?? null) : null,
       legacyCoverage: legacy.ok ? (legacy.value?.coverage ?? null) : null,
       newCoverage: next.ok ? (next.value?.coverage ?? null) : null,
+      voterDensityDriftedVoters: drift.driftedVoters,
+      voterDensityDriftFraction: drift.driftFraction,
+      voterDensityLargestCellDriftFraction: drift.largestCellDriftFraction,
+      voterDensityCoverageDelta: drift.coverageDelta,
       ...(legacy.ok ? {} : { legacyError: legacy.error }),
       ...(next.ok ? {} : { newError: next.error }),
     }
 
+    // Tolerated drift is the expected steady state while the two copies sit on
+    // different refresh schedules, so it is recorded and not warned about —
+    // warning on it would rebuild the ~70% of noise this change exists to end.
     if (result === 'only_legacy') {
       this.logger.debug(
         detail,
         'voter density not yet published to election-db',
       )
+    } else if (result === 'match_within_tolerance') {
+      this.logger.debug(detail, 'voter density sources differ within tolerance')
     } else {
       this.logger.warn(detail, 'voter density sources disagree')
     }
