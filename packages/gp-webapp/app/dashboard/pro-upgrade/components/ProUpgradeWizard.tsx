@@ -58,6 +58,10 @@ const stepFromPathname = (
   // `filing-instructions` is a valid path but not in the linear order; surface
   // it as a step so the chrome can render Back without offering linear nav.
   if (match) return match
+  // `interstitial` has no route of its own — it's only ever entered via
+  // ProUpgradeFlow's `initialStep` — so a stray `/pro-upgrade/interstitial`
+  // URL must not resolve to a step this route-based shell renders.
+  if (segment === PRO_UPGRADE_STEP.INTERSTITIAL) return null
   return segment ? (segment as ProUpgradeStep) : null
 }
 

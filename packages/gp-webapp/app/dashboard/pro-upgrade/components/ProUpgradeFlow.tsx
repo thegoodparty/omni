@@ -34,11 +34,22 @@ export const ProUpgradeFlow = ({
   const orderIndex = stepOrder.indexOf(currentStep)
 
   const goToNextStep = useCallback(() => {
+    // INTERSTITIAL has no place in the purchase-only order (it's only ever
+    // an initialStep, never derived or ordered), so it can't resolve by
+    // index — the wizard always continues from it into guidance.
+    if (currentStep === PRO_UPGRADE_STEP.INTERSTITIAL) {
+      setCurrentStep(PRO_UPGRADE_STEP.GUIDANCE)
+      return
+    }
     if (orderIndex < 0 || orderIndex >= stepOrder.length - 1) return
     setCurrentStep(stepOrder[orderIndex + 1]!)
-  }, [orderIndex, stepOrder])
+  }, [currentStep, orderIndex, stepOrder])
 
   const goToPreviousStep = useCallback(() => {
+    if (currentStep === PRO_UPGRADE_STEP.INTERSTITIAL) {
+      onExit()
+      return
+    }
     if (currentStep === PRO_UPGRADE_STEP.FILING_INSTRUCTIONS) {
       setCurrentStep(PRO_UPGRADE_STEP.STATUS)
       return

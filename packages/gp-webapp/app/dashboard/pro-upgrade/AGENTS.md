@@ -90,6 +90,7 @@ verification, and `guidance` becomes the first ordered step.
 | Candidate profile     | `candidate-profile`   | `CandidateProfileStep`   | Bio + policy priorities via `PUT /websites/mine`. Not in the purchase-only order; campaign verification collects it.                                                                                                                                                                     |
 | Payment               | `payment`             | `PaymentStep`            | Embedded Stripe Custom Checkout (`ui_mode: 'custom'`) + order summary. No redirect.                                                                                                                                                                                                      |
 | Success               | `success`             | `SuccessStep`            | Stripe `return_url` landing. Polls until `isPro` flips (see seam below). Purchase-only shows "Welcome to Pro" + an "Unlocked now" card, adds a "Still to do: verification" row and a "Start verification" CTA when `channel === 'sms'` or there is no channel (the standalone page, where `complete()` routes to campaign verification), a "Still to do: {next step}" row and a Continue CTA for the other channels, holds the CTA until Pro lands, then `complete()`. |
+| Interstitial (milestone 2) | none — `initialStep` only | `InterstitialStep`  | "Your first {noun} has been made" pause screen for a candidate gated out of an outreach channel mid-draft. Reads `channel` off the wizard context, renders the "Upgrade to Pro" card (numbered "1" + a free-texts pill for `sms`) and, for `sms` only, a second "Campaign verification" card. Continue → `goToNextStep` (always lands on `GUIDANCE`); "Finish later" → `exit`. Copy is `GATE_CHANNEL_LABEL` / `PRO_COPY` / `INTERSTITIAL_COPY` from `app/dashboard/outreach/v2/gate/gateCopy.ts` (shared with the outreach gate surfaces a later task builds). |
 
 **Two steps are intentionally NOT in `PRO_UPGRADE_STEP_ORDER`** (`filing-instructions`,
 `guidance`): they are off-order branches reached only by explicit nav from `status`,
@@ -97,6 +98,41 @@ never derived by the router. The shell's Back button targets `status` explicitly
 them (router.back would leave the wizard for a direct-URL arrival). In the
 purchase-only order `guidance` **is** ordered (first), so it drops out of that Back
 special case and only `filing-instructions` stays off-order.
+
+`interstitial` is a third kind of off-order step, stricter than either: it has
+**no route at all** (no `<step>/page.tsx`), so `deriveProUpgradeStep` never derives
+it, neither linear order contains it, and `ProUpgradeWizard`'s `stepFromPathname`
+explicitly refuses to resolve it from a URL. The only way in is `ProUpgradeFlow`'s
+`initialStep` prop — an outreach flow gating a candidate mid-draft starts the
+embeddable flow there directly. From it, `goToNextStep` always lands on `GUIDANCE`
+and `goToPreviousStep` always calls `onExit`, both hardcoded in `ProUpgradeFlow`
+(index-based resolution would no-op, since it isn't in `proUpgradeStepOrder(true)`).
+
+## Embeddable verification steps (milestone 2)
+
+`app/dashboard/campaign-verification/components/CampaignVerificationSteps.tsx` is the
+`intro | form | submitted` state machine extracted from `CampaignVerificationFlow`
+(the standalone page), so a later task can mount the same three screens inside an
+outreach flow's own sheet instead of navigating there. It renders no chrome of its
+own (no `min-h-screen`, no nav, no `Stepper`) and takes `{ initialStep, onStepChange,
+onExit, onComplete, onDelete?, deleteLabel?, completeLabel? }` — `onStepChange` fires
+on mount and on every transition so a caller-owned Stepper/URL can track the active
+step without this component reaching outside its props. `CampaignVerificationFlow` is
+now just the page frame (Exit link + `Stepper` bar) plus this component, mapping
+`?step=submitted` to `initialStep` and `router.replace`-ing it back on `onStepChange`
+(that URL sync is page-wrapper behavior, deliberately not inside the embeddable
+component). It also passes the design's filing-details/contact-information headings
+into `ElectionFilingForm` (`title`/`caption`/`contactTitle`/`contactCaption`, new
+optional props on both `ElectionFilingForm` and `TextingComplianceRegistrationForm`)
+— the legacy standalone election-filing page omits them and keeps its current
+heading-less look.
+
+`InterstitialStep` and this component share their channel/copy vocabulary via
+`app/dashboard/outreach/v2/gate/gateCopy.ts` (`GateChannel` = the same union as
+`ProUpgradeLaunchChannel`, `GATE_NOUN` / `GATE_CHANNEL_LABEL` / `PRO_COPY` /
+`INTERSTITIAL_COPY` / `RESUME_COPY` / `BANNER_COPY` / `EXPLAINER_COPY`) — copy for the
+outreach-flow gate surfaces a later task builds. Treat that file's strings as
+verbatim design copy, not something to rewrite in passing.
 
 ## Reuse, don't rebuild (the anti-drift rule)
 
@@ -326,7 +362,8 @@ permanently-red main gate (PR #1009):
 - `proUpgradeStep.test.ts` + each `*Step.test.tsx` — integration-style tests; mock only the SDK/endpoint boundary, exercise the real shared form/validator.
 - `packages/gp-api/src/campaigns/tcrCompliance/CLAUDE.md` — the backend agentic flow this wizard feeds.
 - `app/dashboard/profile/texting-compliance/` — the shared form components + the post-payment compliance card. `election-filing/components/ElectionFilingForm.tsx` is the form itself (takes `onSubmitted`), shared with campaign verification; `ElectionFiling.tsx` is the standalone page's chrome around it.
-- `app/dashboard/campaign-verification/`: where the purchase-only order collects filing details and the candidate profile, after payment.
+- `app/dashboard/campaign-verification/`: where the purchase-only order collects filing details and the candidate profile, after payment. `components/CampaignVerificationSteps.tsx` is the embeddable `intro | form | submitted` state machine (see above); `CampaignVerificationFlow.tsx` is the standalone page wrapper around it.
+- `app/dashboard/outreach/v2/gate/gateCopy.ts`: the shared Pro-and-verification gate copy (`InterstitialStep` and, per a later task, the outreach flows' own gate surfaces).
 - `app/dashboard/shared/membership/`: the flagged membership banner and chip, the Pro pitch dialog, and the PIN dialog. Under `outreach-pro-gating-v2` these are how a candidate reaches this wizard and campaign verification.
 - `app/dashboard/campaign-story/CLAUDE.md` (Pro-upgrade sync section): the candidate-profile bio + policy priorities are the SAME `Website.content.about` fields the Campaign Story reads and writes, so they pre-fill bidirectionally with no backfill/sync work; only the story's `background` field is not shared (Pro has no counterpart).
 - Epic plan (local): `~/.claude/plans/86ah2ezny-plan.md` — full task-by-task history and design decisions.

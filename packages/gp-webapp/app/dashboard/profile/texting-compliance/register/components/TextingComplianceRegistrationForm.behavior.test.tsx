@@ -435,3 +435,51 @@ describe('TextingComplianceRegistrationForm — composed section (ENG-10857)', (
     expect(onSubmit).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('TextingComplianceRegistrationForm — section headings', () => {
+  it('renders no section headings by default (the legacy election-filing page)', () => {
+    renderForm({})
+
+    expect(
+      screen.queryByText('What are your campaign filing details?'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('What is your campaign filing contact information?'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders the caller-provided filing-details and contact-information headings', () => {
+    render(
+      <FormDataProvider
+        initialState={validInitialState()}
+        validator={(d) =>
+          validateRegistrationForm(d, { requireWebsite: false })
+        }
+      >
+        <TextingComplianceRegistrationForm
+          title="What are your campaign filing details?"
+          caption="If these do not match the details you submitted on your campaign filing or registration, it will take much longer before you can send text messages."
+          contactTitle="What is your campaign filing contact information?"
+          contactCaption="Enter the email, phone, or address exactly as it appears on your filing document. A PIN will be sent to one of these to verify your campaign."
+        />
+      </FormDataProvider>,
+    )
+
+    expect(
+      screen.getByText('What are your campaign filing details?'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'If these do not match the details you submitted on your campaign filing or registration, it will take much longer before you can send text messages.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('What is your campaign filing contact information?'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Enter the email, phone, or address exactly as it appears on your filing document. A PIN will be sent to one of these to verify your campaign.',
+      ),
+    ).toBeInTheDocument()
+  })
+})

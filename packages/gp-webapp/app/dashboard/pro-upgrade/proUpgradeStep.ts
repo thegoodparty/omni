@@ -17,6 +17,12 @@ export const PRO_UPGRADE_STEP = {
   CANDIDATE_PROFILE: 'candidate-profile',
   PAYMENT: 'payment',
   SUCCESS: 'success',
+  // Milestone 2: the "your first {noun} has been made" pause screen an
+  // outreach flow lands on before this wizard. It has no route and no
+  // persisted "seen" state, so — unlike GUIDANCE — it is never derived and
+  // never added to either linear order; a caller can only reach it by
+  // passing it as ProUpgradeFlow's `initialStep`.
+  INTERSTITIAL: 'interstitial',
 } as const
 
 export type ProUpgradeStep =

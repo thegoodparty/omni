@@ -29,10 +29,22 @@ const validateAgenticForm = (data: FormDataState) =>
 
 interface ElectionFilingFormProps {
   onSubmitted: () => void
+  // Forwarded to TextingComplianceRegistrationForm's section headings. Only
+  // the embeddable campaign-verification steps pass these; the legacy
+  // standalone election-filing page omits them and keeps its current
+  // (heading-less) look.
+  title?: string
+  caption?: string
+  contactTitle?: string
+  contactCaption?: string
 }
 
 export default function ElectionFilingForm({
   onSubmitted,
+  title,
+  caption,
+  contactTitle,
+  contactCaption,
 }: ElectionFilingFormProps): React.JSX.Element {
   const queryClient = useQueryClient()
   const [user, , userLoading] = useUser()
@@ -149,6 +161,10 @@ export default function ElectionFilingForm({
         loading={loading}
         hasSubmissionError={hasSubmissionError}
         requireWebsite={false}
+        title={title}
+        caption={caption}
+        contactTitle={contactTitle}
+        contactCaption={contactCaption}
         // The profile section rides inside the form so the combined
         // validation alert stays at the very top of the page, above
         // it. Its errors join that alert via extraErrors (the

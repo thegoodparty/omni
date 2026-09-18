@@ -42,6 +42,11 @@ const CompleteProbe = (): React.JSX.Element => {
   )
 }
 
+const CurrentStepProbe = (): React.JSX.Element => {
+  const { currentStep } = useProUpgradeWizard()
+  return <span>current-step:{currentStep ?? 'null'}</span>
+}
+
 describe('ProUpgradeWizard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -206,6 +211,21 @@ describe('ProUpgradeWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'probe-complete' }))
 
     expect(router.push).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('never resolves the routeless interstitial step from a URL', () => {
+    // `interstitial` has no page.tsx — it is only ever entered via
+    // ProUpgradeFlow's initialStep — so a stray direct URL must not resolve
+    // it as though it were a real route step.
+    mockUsePathname.mockReturnValue('/dashboard/pro-upgrade/interstitial')
+
+    render(
+      <ProUpgradeWizard>
+        <CurrentStepProbe />
+      </ProUpgradeWizard>,
+    )
+
+    expect(screen.getByText('current-step:null')).toBeInTheDocument()
   })
 
   it('does not show the stepper on payment or on steps outside the collection steps', () => {

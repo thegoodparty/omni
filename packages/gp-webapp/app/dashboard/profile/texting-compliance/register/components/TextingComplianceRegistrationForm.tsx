@@ -437,6 +437,15 @@ interface TextingComplianceRegistrationFormProps {
   // failing filing field.
   onValidateExtra?: () => boolean
   extraErrors?: ExtraValidationError[]
+  // Section headings the embeddable campaign-verification steps pass in
+  // (design: "What are your campaign filing details?" /
+  // "What is your campaign filing contact information?"). Omitted by the
+  // legacy standalone election-filing page, which keeps its current
+  // (heading-less) look.
+  title?: string
+  caption?: string
+  contactTitle?: string
+  contactCaption?: string
 }
 
 const TextingComplianceRegistrationForm = ({
@@ -447,6 +456,10 @@ const TextingComplianceRegistrationForm = ({
   topSection,
   onValidateExtra,
   extraErrors = [],
+  title,
+  caption,
+  contactTitle,
+  contactCaption,
 }: TextingComplianceRegistrationFormProps): React.JSX.Element => {
   const { formData, handleChange } = useFormData()
   const {
@@ -589,6 +602,14 @@ const TextingComplianceRegistrationForm = ({
           </StyledAlert>
         )}
         {topSection}
+        {title && (
+          <div>
+            <h2 className="text-lg font-medium">{title}</h2>
+            {caption && (
+              <p className="mt-1 text-sm text-muted-foreground">{caption}</p>
+            )}
+          </div>
+        )}
         <div className="flex flex-col gap-1.5 w-full">
           <Label>Office Level *</Label>
           <Select
@@ -684,6 +705,16 @@ const TextingComplianceRegistrationForm = ({
           value={getStringValue(electionFilingLink)}
           onChange={(e) => handleChange({ electionFilingLink: e.target.value })}
         />
+        {contactTitle && (
+          <div>
+            <h2 className="text-lg font-medium">{contactTitle}</h2>
+            {contactCaption && (
+              <p className="mt-1 text-sm text-muted-foreground">
+                {contactCaption}
+              </p>
+            )}
+          </div>
+        )}
         <FilingAddressFields
           address={addressValue}
           manualAddress={manualAddress}

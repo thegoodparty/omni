@@ -407,7 +407,11 @@ import { dirname, join, relative } from 'node:path'
 // routes into the wizard, so it cannot render on the server.
 // 2026-09-18: 576 -> 578 for the membership banner and chip. Both read the
 // membership hook and the flag, own dialog open state, and route on click.
-const BASELINE = 578
+// 2026-09-18: 578 -> 580 for InterstitialStep (reads the wizard context and
+// routes on click) and CampaignVerificationSteps (the state machine
+// extracted from CampaignVerificationFlow so it can be mounted elsewhere;
+// CampaignVerificationFlow keeps its own 'use client' as the page wrapper).
+const BASELINE = 580
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
