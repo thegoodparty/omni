@@ -80,34 +80,33 @@ test.describe('Team invite — new-user ticket redemption', () => {
       // accept retries against the session the sign-up just created. So drive
       // through the error state instead of holding one blind 90s wait open;
       // only a genuinely dead ticket ("already been used") fails fast.
+      // Only the URL decides success — racing the alert against the
+      // navigation misread a slow but successful accept as a failure (the
+      // page has other role="alert" nodes, e.g. Next's route announcer).
+      // The alert is read purely as a diagnostic after a timed-out wait.
       const ACCEPT_ATTEMPTS = 3
       for (let attempt = 1; ; attempt++) {
-        const outcome = await Promise.race([
-          page
-            .waitForURL((url) => url.pathname === '/dashboard', {
-              timeout: 60_000,
-            })
-            .then(
-              () => 'dashboard' as const,
-              () => 'stuck' as const,
-            ),
-          errorAlert.waitFor({ state: 'visible', timeout: 60_000 }).then(
-            () => 'error' as const,
-            () => 'stuck' as const,
-          ),
-        ])
-        if (outcome === 'dashboard') break
-        if (outcome === 'error') {
-          const alertText = (await errorAlert.textContent()) ?? ''
-          expect(alertText).not.toContain('already been used')
-        }
+        const navigated = await page
+          .waitForURL((url) => url.pathname === '/dashboard', {
+            timeout: 60_000,
+          })
+          .then(
+            () => true,
+            () => false,
+          )
+        if (navigated) break
+        const alertText = await errorAlert
+          .textContent({ timeout: 1_000 })
+          .catch(() => null)
+        expect(alertText ?? '').not.toContain('already been used')
         expect(
           attempt,
-          `accept never reached /dashboard (last outcome: ${outcome})`,
+          `accept never reached /dashboard (alert: ${alertText ?? 'none'})`,
         ).toBeLessThan(ACCEPT_ATTEMPTS)
         // Clerk's rate windows are 10s — wait one out so the re-click isn't
         // spent inside the same exhausted budget.
         await page.waitForTimeout(12_000)
+        if (new URL(page.url()).pathname === '/dashboard') break
         await expect(acceptButton).toBeEnabled({ timeout: 30_000 })
         await acceptButton.click()
       }
