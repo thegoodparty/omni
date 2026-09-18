@@ -420,6 +420,13 @@ export const EVENTS = {
       SuccessContinue: 'Pro Upgrade - Success: Click continue',
       PinEntryViewed: 'Pro Upgrade - PIN Entry Viewed',
     },
+    // outreach-pro-gating-v2 campaign verification flow (Pro upgrade and
+    // campaign verification 2.0).
+    Verification: {
+      IntroViewed: 'Pro Upgrade - Verification Intro Viewed',
+      IntroContinue: 'Pro Upgrade - Verification Intro: Click continue',
+      SubmittedViewed: 'Pro Upgrade - Verification Submitted Viewed',
+    },
   },
   // Candidate questions flow. The event string is snake_case, predating the
   // 'Product Area - Action' convention; the name is kept exactly as ingested so

@@ -395,7 +395,11 @@ import { dirname, join, relative } from 'node:path'
 // state and provides it, so neither can be a server component.
 // 2026-09-18: 570 -> 571 for EinHowToCollapsible, which holds the open/closed
 // state of the purchase-only how-to-get-an-EIN disclosure.
-const BASELINE = 571
+// 2026-09-18: 571 -> 574 for the campaign verification flow:
+// ElectionFilingForm (the extracted filing form — already client code, just
+// moved out of ElectionFiling), CampaignVerificationFlow (holds the step
+// state) and VerificationIntro (fires its viewed event on mount).
+const BASELINE = 574
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
