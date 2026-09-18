@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Button, Stepper } from '@styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -20,7 +20,12 @@ const STEP_INDEX: Record<VerificationStep, number> = {
 
 const CampaignVerificationFlow = (): React.JSX.Element => {
   const router = useRouter()
-  const [step, setStep] = useState<VerificationStep>('intro')
+  const searchParams = useSearchParams()
+  // Only 'submitted' is trusted from the URL — a refresh mid-form should
+  // land back on the intro, not reopen an empty ElectionFilingForm.
+  const [step, setStep] = useState<VerificationStep>(
+    searchParams?.get('step') === 'submitted' ? 'submitted' : 'intro',
+  )
 
   // Reset scroll to the top whenever the active step changes (dashboard
   // convention) — the filing form is long enough that the confirmation would
@@ -79,7 +84,14 @@ const CampaignVerificationFlow = (): React.JSX.Element => {
               >
                 <ArrowLeftIcon /> Back
               </Button>
-              <ElectionFilingForm onSubmitted={() => setStep('submitted')} />
+              <ElectionFilingForm
+                onSubmitted={() => {
+                  setStep('submitted')
+                  router.replace(
+                    '/dashboard/campaign-verification?step=submitted',
+                  )
+                }}
+              />
             </>
           )}
           {step === 'submitted' && <VerificationSubmittedContent />}

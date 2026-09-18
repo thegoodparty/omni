@@ -5,6 +5,16 @@ import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import CampaignVerificationFlow from './CampaignVerificationFlow'
 
+let mockSearchParams = new URLSearchParams()
+
+// The global setup mocks next/navigation with useRouter only; this
+// component also needs useSearchParams, so override the module for this
+// file.
+vi.mock('next/navigation', () => ({
+  useRouter: () => router,
+  useSearchParams: () => mockSearchParams,
+}))
+
 // The real filing form fetches the website, the campaign and the user; this
 // suite is about the flow's own state machine, so both screens are stubbed
 // down to their contract with the flow.
@@ -32,6 +42,7 @@ window.scrollTo = vi.fn()
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockSearchParams = new URLSearchParams()
 })
 
 describe('CampaignVerificationFlow', () => {
@@ -86,5 +97,25 @@ describe('CampaignVerificationFlow', () => {
     await user.click(screen.getByRole('button', { name: 'Back' }))
 
     expect(router.push).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('shows the submitted confirmation on mount when the URL already carries step=submitted', () => {
+    mockSearchParams = new URLSearchParams('step=submitted')
+
+    render(<CampaignVerificationFlow />)
+
+    expect(screen.getByText('mock-submitted')).toBeInTheDocument()
+  })
+
+  it('replaces the URL with step=submitted once the form reports a submit', async () => {
+    const user = userEvent.setup()
+    render(<CampaignVerificationFlow />)
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByText('mock-submit'))
+
+    expect(router.replace).toHaveBeenCalledWith(
+      '/dashboard/campaign-verification?step=submitted',
+    )
   })
 })
