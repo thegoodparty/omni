@@ -55,16 +55,15 @@ import {
   areaCodeFromE164UsNumber,
   resolveRobocallAreaCode,
 } from './util/robocallAreaCode.util'
-
-const candidateName = (user: User): string =>
-  [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
+import { ownerCandidateName } from './util/ownerCandidateName.util'
+import { CampaignWith } from '@/campaigns/campaigns.types'
 
 // Robocall endpoints. The compose surface (script draft, number rental,
 // compliance) is stateless — nothing persists there. `POST robocall` is the
 // one write: it saves the pending_payment draft (spine + satellite) the
 // hold/settlement slices act on.
 @Controller('outreach')
-@UseCampaign()
+@UseCampaign({ include: { user: true } })
 @UseOrganization()
 @UseInterceptors(ZodResponseInterceptor)
 export class OutreachRobocallController {
@@ -172,7 +171,7 @@ export class OutreachRobocallController {
   @ResponseSchema(RobocallScriptDraftResponseSchema)
   async draft(
     @ReqUser() user: User,
-    @ReqCampaign() campaign: Campaign,
+    @ReqCampaign() campaign: CampaignWith<'user'>,
     @ReqOrganization() organization: Organization,
     @Body(new ZodValidationPipe(RobocallScriptDraftRequestSchema))
     input: RobocallScriptDraftRequest,
@@ -182,7 +181,7 @@ export class OutreachRobocallController {
     return {
       draft: await this.generationService.generateDraft(
         input,
-        candidateName(user),
+        ownerCandidateName(campaign),
         await this.resolveOffice(campaign),
         String(user.id),
         await this.composeContext.buildCampaignContext(campaign),
@@ -248,7 +247,7 @@ export class OutreachRobocallController {
   @ResponseSchema(RobocallComplianceVerdictSchema)
   async checkCompliance(
     @ReqUser() user: User,
-    @ReqCampaign() campaign: Campaign,
+    @ReqCampaign() campaign: CampaignWith<'user'>,
     @ReqOrganization() organization: Organization,
     @Body(new ZodValidationPipe(RobocallComplianceRequestSchema))
     input: RobocallComplianceRequest,
@@ -259,13 +258,14 @@ export class OutreachRobocallController {
       throw new BadRequestException('Audio does not belong to this campaign')
     }
 
-    const name = candidateName(user)
+    const name = ownerCandidateName(campaign)
     // Without a name the self-ID check can never pass and the audio can't say
     // it either — fail fast with a fixable error, not a misleading verdict the
     // user is stuck behind.
     if (!name) {
       throw new BadRequestException(
-        'Add your name to your campaign profile before recording a robocall.',
+        "Add the candidate's name to the campaign profile before recording" +
+          ' a robocall.',
       )
     }
     const office = await this.resolveOffice(campaign)

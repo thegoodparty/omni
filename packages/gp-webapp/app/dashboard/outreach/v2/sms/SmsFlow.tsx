@@ -382,18 +382,28 @@ export const SmsFlow = ({
     return () => URL.revokeObjectURL(url)
   }, [image])
 
+  // The message identifies the CANDIDATE — the campaign owner, not whoever
+  // is composing (a Campaign Manager's own name would fail the server-side
+  // standards check at scheduling). Fall back to the session user only while
+  // the campaign hasn't resolved; a loaded campaign whose owner has no name
+  // (ownerName null) stays '', matching what the server grounds drafts in.
+  const candidateFullName =
+    campaign?.ownerName ??
+    (campaign == null
+      ? `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
+      : '')
+  const candidateFirstName = candidateFullName.split(' ')[0] ?? ''
   const introFor = (t: SocialTone) =>
     identificationIntro(
       t,
-      user?.firstName ?? '',
+      candidateFirstName,
       campaign?.details?.normalizedOffice ?? '',
     )
   const committeeName = tcrCompliance?.committeeName ?? null
   const composedMessage = composeScript(body, committeeName)
   const composedLength = composedMessage.length
-  const accountName = `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim()
   const standards = checkSmsStandards(composedMessage, {
-    candidateNames: [accountName, tcrCompliance?.candidateName].filter(
+    candidateNames: [candidateFullName, tcrCompliance?.candidateName].filter(
       (name): name is string => !!name,
     ),
     committeeName,

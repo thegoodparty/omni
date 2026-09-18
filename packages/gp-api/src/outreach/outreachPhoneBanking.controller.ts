@@ -16,21 +16,20 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
-import { Campaign, Organization, User } from '../generated/prisma'
+import { Organization, User } from '../generated/prisma'
 import {
   OutreachPhoneBankingGenerationService,
   WIN_PHONE_BANKING_VOICE,
 } from './services/outreachPhoneBankingGeneration.service'
 import { OutreachComposeContextService } from './services/outreachComposeContext.service'
-
-const candidateName = (user: User): string =>
-  [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
+import { ownerCandidateName } from './util/ownerCandidateName.util'
+import { CampaignWith } from '@/campaigns/campaigns.types'
 
 // Stateless, like the social draft endpoint: nothing persists here. The
 // create flow holds the draft client-side and freezes it via the (separate)
 // POST /v1/phone-banking/lists endpoint.
 @Controller('outreach')
-@UseCampaign()
+@UseCampaign({ include: { user: true } })
 @UseOrganization()
 @UseInterceptors(ZodResponseInterceptor)
 export class OutreachPhoneBankingController {
@@ -48,7 +47,7 @@ export class OutreachPhoneBankingController {
   @ResponseSchema(PhoneBankingScriptDraftResponseSchema)
   async draft(
     @ReqUser() user: User,
-    @ReqCampaign() campaign: Campaign,
+    @ReqCampaign() campaign: CampaignWith<'user'>,
     @ReqOrganization() organization: Organization,
     @Body(new ZodValidationPipe(PhoneBankingScriptDraftRequestSchema))
     input: PhoneBankingScriptDraftRequest,
@@ -78,7 +77,7 @@ export class OutreachPhoneBankingController {
     return {
       draft: await this.generationService.generateDraft(
         input,
-        candidateName(user),
+        ownerCandidateName(campaign),
         positionName ?? campaign.details.normalizedOffice ?? '',
         String(user.id),
         [...dateContext, ...campaignContext],
