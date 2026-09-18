@@ -105,5 +105,5 @@ packages/gp-ai/                  # uv workspace root
 - **Python `3.13`** runtime via `uv` (`.python-version`).
 - **Package manager: `uv`** (`uv sync` / `uv add` / `uv run`). The `.venv/` lives at the repo root; **don't make per-member venvs**.
 - **Required env vars:** see `.env.example`. Real `.env` is gitignored — local-only.
-- **AWS / Lambda:** Deployment is via Terraform under `infrastructure/`. Images are built by omni's single `.github/workflows/gp-ai.yml` (the old per-member `build-*.yml` files did not come across). Secrets come from AWS Secrets Manager (e.g., `AI_SECRETS_<ENV>`); never check creds in. Adding one means a `valueFrom` entry plus a task-role grant in the module — and no AWS access: see `docs/secrets.md`.
+- **AWS / Lambda:** Deployment is via Terraform under `infrastructure/`. Images are built by omni's single `.github/workflows/gp-ai.yml` (the old per-member `build-*.yml` files did not come across). Secrets come from AWS Secrets Manager (e.g., `AI_SECRETS_<ENV>`); never check creds in. Adding one means a `valueFrom` entry plus a task-role grant in the module, and never needs secret read access: see `docs/secrets.md`.
 - `ai-rules/` lives at the omni repo root, not here; omni's `npm install` initializes it.

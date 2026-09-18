@@ -59,7 +59,7 @@ and verified by `ai-rules/scripts/agents-md-sync.sh`, which CI runs on every PR.
 | Writing or fixing a test               | `docs/testing.md`                             |
 | Adding a scheduled / cron job          | `docs/scheduled-jobs.md`                      |
 | Deploys, branches, CI                  | `docs/deployment.md`                          |
-| **Adding or rotating a secret**        | **`docs/secrets.md`** (never ask for AWS access) |
+| **Adding or rotating a secret**        | **`docs/secrets.md`** (never ask to read one) |
 | Debugging a prod issue / incident      | `docs/observability.md`                       |
 | The CRM (contacts) — flows, debugging  | `packages/gp-api/src/contacts/AGENTS.md`      |
 | Which MCP tools exist + their env vars | `docs/mcp.md`                                 |
@@ -130,10 +130,11 @@ packages; uv owns those subtrees. `packages/gp-ai` has no `package.json`, so the
   simplest approach first; don't over-engineer.
 - **Validation:** Zod everywhere. API responses validated at runtime via response
   schemas; never `.passthrough()` input schemas.
-- **Secrets:** never commit or print a plaintext secret, and never ask for AWS
-  credentials, console access, or an IAM grant — adding or rotating a secret is a
-  PR, not an access request. Nothing here needs a prod secret value in hand. Read
-  `docs/secrets.md` before touching one.
+- **Secrets:** never commit or print a plaintext secret — and because this repo is
+  public, never commit a ciphertext either; payloads go to S3 and the repo gets a
+  version id. Never ask to read a secret or to have a value pasted to you: adding
+  or rotating one is a PR plus the write-only profile, which cannot read anything.
+  Nothing here needs a prod secret value in hand. Read `docs/secrets.md` first.
 - **Services:** Prisma-backed services extend `createPrismaBase(MODELS.ModelName)`
   (gp-api, election-api). gp-api's `src/peopleDb/` mirrors this with
   `createPeopleDbBase(PEOPLE_MODELS.ModelName)` against a second, read-only

@@ -69,4 +69,10 @@ module.exports = {
             .join(' ')}`,
         ]
   },
+  // Unlike the yaml/json we deliberately skip above, this is not a formatting
+  // check — it is the last thing standing between a secret and a public git
+  // history. This repo is public, so a committed plaintext is burned and has to
+  // be rotated; failing the commit is worth it rather than catching it in CI.
+  'secrets/**': (files) =>
+    `bash scripts/secrets/validate-secret-files.sh ${quote(files)}`,
 }
