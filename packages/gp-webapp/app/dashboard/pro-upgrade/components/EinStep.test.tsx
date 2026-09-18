@@ -332,6 +332,12 @@ describe('EinStep', () => {
         ),
       ).toBeInTheDocument()
 
+      // The collapsible is the single how-to, so the field's own IRS helper
+      // link (same destination) is dropped.
+      expect(
+        screen.queryByRole('link', { name: /get a free ein in 3-5 minutes/i }),
+      ).not.toBeInTheDocument()
+
       const trigger = screen.getByText(/how to get a free ein/i)
       expect(trigger).toBeInTheDocument()
       // Collapsed until asked for.

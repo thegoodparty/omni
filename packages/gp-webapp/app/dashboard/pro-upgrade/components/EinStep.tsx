@@ -159,14 +159,18 @@ const EinStep = (): React.JSX.Element => {
           trackEvent(EVENTS.ProUpgrade.Compliance.EinHoverHelp)
         }
         helperText={
-          <a
-            href="https://sa.www4.irs.gov/applyein/legalStructure"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline"
-          >
-            Get a free EIN in 3-5 minutes (irs.gov)
-          </a>
+          // Purchase-only puts the whole IRS how-to in the collapsible below,
+          // so this link would be a second route to the same page.
+          purchaseOnly ? undefined : (
+            <a
+              href="https://sa.www4.irs.gov/applyein/legalStructure"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline"
+            >
+              Get a free EIN in 3-5 minutes (irs.gov)
+            </a>
+          )
         }
       />
 

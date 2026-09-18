@@ -80,7 +80,7 @@ const SuccessStep = (): React.JSX.Element => {
       <>
         <Confetti />
         <div className="mx-auto flex max-w-[448px] flex-col items-center gap-6 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-blue-100">
+          <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-primary-light">
             <ProBadge size="large" />
           </div>
 
@@ -148,7 +148,7 @@ const SuccessStep = (): React.JSX.Element => {
     <>
       <Confetti />
       <div className="mx-auto flex max-w-[448px] flex-col items-center gap-6 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-blue-100">
+        <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-primary-light">
           <ProBadge size="large" />
         </div>
 
