@@ -21,6 +21,7 @@ import type {
   RecommendedCriteria,
 } from './createFlow/CreateListFlow'
 import type { DoorKnockingTurf } from '@goodparty_org/contracts'
+import type { TurfDraft } from './turfDrafts'
 import { audienceOptions } from './createFlow/savedListOptions'
 import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import type { PolygonRing } from './VoterMapCanvas'
@@ -63,17 +64,14 @@ export const useCreateListDraw = (seedColor: string = TURF_COLORS[0]) => {
   const [undoDrawToken, setUndoDrawToken] = useState(0)
   const [frameDrawToken, setFrameDrawToken] = useState(0)
   const [pointCount, setPointCount] = useState(0)
+  // The colour of the in-progress ring, always the seed for now. When the
+  // draw step grows its own per-turf picker (a follow-up), a `pickColor`
+  // action can move into this hook and gate re-seeding against a candidate
+  // choice — until then, the assigner's answer wins on every update.
   const [drawColor, setDrawColor] = useState<string>(seedColor)
-  // Whether the candidate has picked a colour themselves. The seed can
-  // change under this hook — the anchor's siblings arrive asynchronously,
-  // and adopting the fresh palette-next slot is the right default — but
-  // once a candidate reaches into the picker their choice is theirs, and
-  // a late-arriving fetch must not repaint their ring for them.
-  const [colorPicked, setColorPicked] = useState(false)
   useEffect(() => {
-    if (colorPicked) return
     setDrawColor(seedColor)
-  }, [seedColor, colorPicked])
+  }, [seedColor])
   // Whether the map is uncovered and being drawn on. It belongs here rather
   // than inside the flow for the reason everything else in this hook does: it
   // is a fact about what the CANVAS is doing. The draw step's shielded preview
@@ -92,15 +90,13 @@ export const useCreateListDraw = (seedColor: string = TURF_COLORS[0]) => {
     onPointCount: setPointCount,
     // The colour the in-progress ring is drawn in. Defaults to the seed
     // (palette[0] for a solo turf; the assigner's next-slot answer when
-    // joining a campaign), and swaps to whatever the confirm step's picker
-    // reports through `pickColor` below.
+    // joining a campaign). No picker is wired to override it today — the
+    // one on the name step was removed, and a per-turf picker on the draw
+    // step is a follow-up (each turf on a multi-turf map picks its own
+    // slot). Kept as a state pair so that hook is ready when the picker
+    // lands: seed changes still re-tint the ring while `colorPicked` is
+    // false, and a future `pickColor` press would flip the guard.
     drawColor,
-    // The confirm step's picker: sticks the choice so a later re-seed
-    // cannot overwrite it, and updates the ring live.
-    pickColor: (color: string) => {
-      setColorPicked(true)
-      setDrawColor(color)
-    },
     // Nothing covers the map on the drawing surface, so the ring is fitted
     // into the whole of it.
     frameDrawBottomPct: 0,
@@ -140,7 +136,6 @@ export const useCreateListDraw = (seedColor: string = TURF_COLORS[0]) => {
       // create should start on whichever slot the assigner recommends
       // right now — a solo campaign gets palette[0], a candidate opening
       // "Add another turf" on a two-turf campaign gets palette[2].
-      setColorPicked(false)
       setDrawColor(seedColor)
       setFullScreen(false)
     },
@@ -255,19 +250,30 @@ export interface CreateListSurfaceProps {
   // Raised once the who step has taken the carried list, so the page can stop
   // handing it back on the next open of this flow.
   onPreselectApplied?: () => void
-  // The confirm step's picker reports the candidate's own colour choice
-  // back so the CANVAS re-tints the in-progress ring. Optional because the
-  // draw hook auto-assigns a colour that never changes underfoot when the
-  // page doesn't wire this.
-  onColorChange?: (color: string) => void
-  // The turfs already in this campaign, threaded to the flow so the confirm
-  // step can default the name to `Turf N` and read them off the colour
-  // picker's used-slots. Undefined for a solo (self-anchored) create.
+  // The turfs already in this campaign, threaded to the flow so the name
+  // step can default to `Turf N`. Undefined for a solo (self-anchored)
+  // create. A future per-turf picker on the drawing step will also read
+  // these to pick a palette slot the campaign has not already used.
   siblingTurfs?: DoorKnockingTurf[]
   // The anchor Outreach id this new turf should join, when the drawer's
   // "Add another turf" opens the flow with `?campaignOutreachId=`. Threaded
   // straight through — the surface never resolves it.
   campaignOutreachId?: number
+  // Multi-turf drafts: polygons the candidate has committed on the drawing
+  // surface but not yet paid for. Lives at the page (the canvas draws
+  // them), threaded down so the flow can render draft cards on the draw
+  // step body and batch-POST them on save.
+  //
+  // Optional during the multi-turf refactor — see the note on the same
+  // group in CreateListFlow.tsx.
+  turfDrafts?: TurfDraft[]
+  onCommitDraft?: (draft: Omit<TurfDraft, 'clientId'>) => void
+  onRemoveDraft?: (clientId: string) => void
+  onUpdateDraft?: (
+    clientId: string,
+    patch: Partial<Omit<TurfDraft, 'clientId'>>,
+  ) => void
+  onClearDrafts?: () => void
 }
 
 export default function CreateListSurface({
@@ -299,9 +305,13 @@ export default function CreateListSurface({
   orgSlug,
   preselectedListId,
   onPreselectApplied,
-  onColorChange,
   siblingTurfs,
   campaignOutreachId,
+  turfDrafts,
+  onCommitDraft,
+  onRemoveDraft,
+  onUpdateDraft,
+  onClearDrafts,
 }: CreateListSurfaceProps) {
   // The who step's list picker. Both reads are the page's own queries by key,
   // so this costs nothing: the saved lists are already warm (the rail resolves
@@ -486,7 +496,6 @@ export default function CreateListSurface({
       onDrawFullScreenChange={onDrawFullScreenChange}
       onRestartDrawing={onRestartDrawing}
       color={color}
-      onColorChange={onColorChange}
       drawnStops={drawnStops}
       onListCreated={onListCreated}
       isServeOrg={isServeOrg}
@@ -497,6 +506,11 @@ export default function CreateListSurface({
       onSelectedListChange={handleSelectedListChange}
       siblingTurfs={siblingTurfs}
       campaignOutreachId={campaignOutreachId}
+      turfDrafts={turfDrafts}
+      onCommitDraft={onCommitDraft}
+      onRemoveDraft={onRemoveDraft}
+      onUpdateDraft={onUpdateDraft}
+      onClearDrafts={onClearDrafts}
     />
   )
 }

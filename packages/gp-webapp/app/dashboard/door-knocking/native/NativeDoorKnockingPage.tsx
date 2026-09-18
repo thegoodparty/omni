@@ -28,6 +28,7 @@ import {
   turfsQueryOptions,
 } from './turfQueries'
 import { assignNextColor } from './turfColors'
+import { draftAsTurfLike, type TurfDraft } from './turfDrafts'
 import { DoorKnockingSurface } from './doorKnockingSurface'
 import {
   HARD_STOP_LIMIT,
@@ -232,6 +233,38 @@ export default function NativeDoorKnockingPage({
   // shade by them.
   const [precincts, setPrecincts] = useState<string[]>([])
   const [ring, setRing] = useState<PolygonRing | null>(null)
+  // The multi-turf drafts committed in the drawing surface this session,
+  // BEFORE the paid press on the route step. Lives here (not in the flow)
+  // because the CANVAS renders them: each draft is a polygon the canvas
+  // draws next to any siblings the campaign already holds. The flow reads
+  // this to render draft cards on the draw step body and to batch-POST them
+  // on save. Empty on a fresh campaign, populated as the candidate presses
+  // "+ New turf" / "Save turf(s)" on the drawing surface.
+  const [turfDrafts, setTurfDrafts] = useState<TurfDraft[]>([])
+  // Actions the drawing surface and the draw-step body call to grow, edit
+  // or drop drafts. Wrapped in useCallback so the flow's own memoized
+  // derivations do not churn on every render — the drafts array itself is
+  // what changes.
+  const commitDraft = useCallback((draft: Omit<TurfDraft, 'clientId'>) => {
+    const clientId = `draft-${crypto.randomUUID()}`
+    setTurfDrafts((current) => [...current, { ...draft, clientId }])
+  }, [])
+  const removeDraft = useCallback((clientId: string) => {
+    setTurfDrafts((current) =>
+      current.filter((draft) => draft.clientId !== clientId),
+    )
+  }, [])
+  const updateDraft = useCallback(
+    (clientId: string, patch: Partial<Omit<TurfDraft, 'clientId'>>) => {
+      setTurfDrafts((current) =>
+        current.map((draft) =>
+          draft.clientId === clientId ? { ...draft, ...patch } : draft,
+        ),
+      )
+    },
+    [],
+  )
+  const clearDrafts = useCallback(() => setTurfDrafts([]), [])
   // "Add another turf" arrives with `?campaignOutreachId=`. Two things
   // read the resolved sibling list: the create flow (default name + colour
   // picker default), and `useCreateListDraw` below (seed colour). Only
@@ -243,9 +276,16 @@ export default function NativeDoorKnockingPage({
     ...campaignTurfsQueryOptions(campaignOutreachId ?? 0),
     enabled: campaignOutreachId !== undefined,
   })
+  // `undefined` covers three cases the flow's naming default reads as one:
+  // "not joining a campaign", "joining but the fetch is still pending", and
+  // "joining but the fetch failed". Collapsing pending into `[]` would let
+  // the confirm step suggest `Turf 1` on a campaign that already has three
+  // — the user has no signal that the answer is late — so this only reports
+  // the real siblings once the query has actually returned them. The seed
+  // colour follows the same rule below: if we don't know, don't pretend.
   const siblingTurfs =
-    campaignOutreachId !== undefined
-      ? (campaignSiblingsQuery.data ?? [])
+    campaignOutreachId !== undefined && campaignSiblingsQuery.isSuccess
+      ? campaignSiblingsQuery.data
       : undefined
   // The palette-next slot for the drawn ring. `undefined` on a solo create
   // resolves to the assigner's default (`TURF_COLORS[0]`), so a candidate
@@ -343,10 +383,21 @@ export default function NativeDoorKnockingPage({
   // (there's no window where saved rings can render before the walk
   // scoping kicks in — they're just always hidden unless a walk is up).
   const visibleTurfs = useMemo(() => {
-    if (!walkTurf) return []
-    const all = turfsQuery.data ?? []
-    return all.filter((candidate) => candidate.id === walkTurf.id)
-  }, [turfsQuery.data, walkTurf])
+    if (walkTurf) {
+      const all = turfsQuery.data ?? []
+      return all.filter((candidate) => candidate.id === walkTurf.id)
+    }
+    // In the create flow: show the campaign's existing siblings (only
+    // populated when arriving via "Add another turf") plus every draft the
+    // candidate has committed on the drawing surface this session. Drafts
+    // are shape-adapted to DoorKnockingTurf so the canvas's saved-turfs
+    // layer renders them with their colour, no new layer required. When
+    // neither is present (a fresh campaign, no draws yet), the array is
+    // empty and the map draws clean.
+    const siblings = siblingTurfs ?? []
+    const drafts = turfDrafts.map(draftAsTurfLike)
+    return [...siblings, ...drafts]
+  }, [turfsQuery.data, walkTurf, siblingTurfs, turfDrafts])
   // The pack's bounding box, framed by the create flow's draw step as a
   // static-map preview card. Null while the pack decodes; the card omits
   // the image in that window rather than rendering against no rect.
@@ -605,13 +656,13 @@ export default function NativeDoorKnockingPage({
   ])
 
   const changeFlowStep = (next: CreateFlowStep) => {
-    // Arriving at the draw step from the filters. The transition alone cannot
-    // say which of two things just happened — a first arrival, or a Back to
-    // re-read the audience followed by Continue — and they want opposite
-    // treatment: the first needs a blank session, the second must keep the
-    // boundary already drawn. A ring is what tells them apart, and treating
-    // the round trip as a first arrival is what used to throw the shape away.
-    if (next === 'draw' && flowStep === 'filters') {
+    // Arriving at the draw step from anywhere else — this is where the
+    // candidate cuts turfs into the campaign they just named. The
+    // transition alone cannot say whether it's a first arrival (blank
+    // session needed) or a Back+Continue round trip (keep the boundary
+    // already drawn), and a ring is what tells them apart. Treating the
+    // round trip as a first arrival is what used to throw the shape away.
+    if (next === 'draw' && flowStep !== 'draw') {
       if (ring) draw.resumeDrawing()
       else draw.startDrawing()
     }
@@ -944,7 +995,6 @@ export default function NativeDoorKnockingPage({
                 onDrawFullScreenChange={draw.setFullScreen}
                 onRestartDrawing={draw.startDrawing}
                 color={draw.drawColor}
-                onColorChange={draw.pickColor}
                 drawnStops={drawnStops}
                 onListCreated={handleListCreated}
                 isServeOrg={isServeOrg}
@@ -956,6 +1006,11 @@ export default function NativeDoorKnockingPage({
                 }
                 siblingTurfs={siblingTurfs}
                 campaignOutreachId={campaignOutreachId}
+                turfDrafts={turfDrafts}
+                onCommitDraft={commitDraft}
+                onRemoveDraft={removeDraft}
+                onUpdateDraft={updateDraft}
+                onClearDrafts={clearDrafts}
               />
             )}
           </div>

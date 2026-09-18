@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
-import { CheckCircleIcon, Input, Label } from '@styleguide'
+import { Input, Label } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { VOTER_READ_FAILURE_ERROR_CODES } from 'app/dashboard/contacts/crm/shared/constants'
@@ -27,7 +27,7 @@ import {
 } from './voterFilterPreview'
 import { audienceEmptyMessage } from './emptiableCriteria'
 import { withoutUnshadeableCriteria } from '../savedListFilters'
-import { TURF_COLORS, turfColorLabel, turfColorTick } from '../turfQueries'
+import type { TurfDraft } from '../turfDrafts'
 import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import { districtUnavailableMessage, packErrorMessage } from '../useVoterPack'
 import { suggestTravelMode } from '../travelMode'
@@ -213,14 +213,11 @@ interface CreateListFlowProps {
   onRestartDrawing: () => void
   // The colour the in-progress ring is drawn in. Seeded from
   // `assignNextColor(siblingTurfs.colors)` up in `useCreateListDraw`, so the
-  // ring lands on the palette-next slot the moment drawing starts.
+  // ring lands on the palette-next slot the moment drawing starts. The
+  // picker that lets a candidate override this belongs on the drawing step
+  // itself (a follow-up); it is deliberately NOT on the name step, which
+  // asks about the CAMPAIGN, not the individual turfs cut into it.
   color: string
-  // The picker on the confirm step reports the candidate's own pick back so
-  // the CANVAS re-tints the ring to what they will see saved. Optional
-  // because callers that do not surface the picker (nothing in this repo
-  // today, but the flow is presentational and its tests mount it without
-  // one) still get an auto-assigned colour that never changes underfoot.
-  onColorChange?: (color: string) => void
   // The whole chain committed: turf, route and outreach envelope all exist.
   // Carries the created row because the page opens the walk on it directly.
   onListCreated: (turf: DoorKnockingTurf) => void
@@ -274,6 +271,25 @@ interface CreateListFlowProps {
   // from `?campaignOutreachId=` on the URL — the drawer's "Add another
   // turf" affordance is what sets it.
   campaignOutreachId?: number
+  // Multi-turf drafts: polygons the candidate has committed on the drawing
+  // surface but not yet paid for. Owned by the page (the canvas draws
+  // them), received here so the draw step body can render one card per
+  // draft and the save mutation can batch a `POST /v1/door-knocking/turfs`
+  // per draft.
+  //
+  // Optional during the multi-turf refactor: a caller (a test, or a
+  // pre-refactor render) that omits them gets an empty drafts list and
+  // no-op writers, and the flow behaves as it did on the single-turf path
+  // — the save mutation falls back to the current `ring` alone. The next
+  // session that finishes the refactor should tighten these to required.
+  turfDrafts?: TurfDraft[]
+  onCommitDraft?: (draft: Omit<TurfDraft, 'clientId'>) => void
+  onRemoveDraft?: (clientId: string) => void
+  onUpdateDraft?: (
+    clientId: string,
+    patch: Partial<Omit<TurfDraft, 'clientId'>>,
+  ) => void
+  onClearDrafts?: () => void
 }
 
 // The clauses an accepted recommendation carries that the who step's boolean
@@ -306,11 +322,11 @@ const STAGE_META: Record<
     caption: 'Select a list or create a new list.',
   },
   draw: {
-    title: 'Draw your door knocking boundaries',
-    caption: 'Outline map areas to build targeted door lists.',
+    title: 'Where do you want to knock?',
+    caption: 'Draw one or more turfs on the map to build your knocking routes.',
   },
-  confirm: {
-    title: 'Name your campaign',
+  name: {
+    title: 'What do you want to name your campaign?',
     caption: 'Give your campaign a name to find it in your outreach history.',
   },
   points: {
@@ -367,7 +383,6 @@ export default function CreateListFlow({
   drawFullScreen,
   onDrawFullScreenChange,
   color,
-  onColorChange,
   onListCreated,
   isServeOrg,
   unpreviewableKeys,
@@ -377,7 +392,23 @@ export default function CreateListFlow({
   onSelectedListChange,
   siblingTurfs,
   campaignOutreachId,
+  turfDrafts,
+  onCommitDraft,
+  onRemoveDraft,
+  onUpdateDraft,
+  onClearDrafts,
 }: CreateListFlowProps) {
+  // WIP HANDOFF (2026-09-18): the multi-turf drafts props are declared on
+  // the interface and received here, but the draw step body, the drawing
+  // surface toolbar, and the batch-save mutation that will read them have
+  // not landed yet. Voided so the compiler stops flagging them as unused
+  // while the next session finishes the drawing surface refactor. Remove
+  // this block once each prop has a real caller.
+  void turfDrafts
+  void onCommitDraft
+  void onRemoveDraft
+  void onUpdateDraft
+  void onClearDrafts
   const queryClient = useQueryClient()
   const serveMode = useDoorKnockingServeMode()
   const officeName = useDoorKnockingOfficeName()
@@ -689,11 +720,14 @@ export default function CreateListFlow({
   const releaseOrphanFilterRef = useRef(releaseOrphanFilter)
   releaseOrphanFilterRef.current = releaseOrphanFilter
   // The three post-name steps are one retry zone: a create that failed at
-  // `route` can be walked back to `points` to fix a line, or to `confirm` to
-  // rename, and pressing Build route again must reuse the filter it already
-  // minted. Releasing it on the way back would strand that retry.
+  // `route` can be walked back to `draw` to redraw the polygon or `confirm`
+  // to rename, and pressing Build route again must reuse the filter it
+  // already minted. Releasing it on the way back would strand that retry.
+  // `points` sits before the name and so falls outside the zone — walking
+  // that far back usually means changing the audience upstream, and any
+  // step above points (who, purpose) invalidates the filter anyway.
   useEffect(() => {
-    if (step === 'confirm' || step === 'points' || step === 'route') return
+    if (step === 'name' || step === 'draw' || step === 'route') return
     releaseOrphanFilterRef.current()
   }, [step])
   // Closing the flow from confirm or route unmounts without a step change, so
@@ -743,7 +777,7 @@ export default function CreateListFlow({
   const nameTouched = useRef(false)
   const appliedSuggestion = useRef<string | null>(null)
   useEffect(() => {
-    if (step !== 'confirm' || nameTouched.current) return
+    if (step !== 'name' || nameTouched.current) return
     // "Add another turf" wins over the purpose suggestion: the purpose was
     // picked once when the CAMPAIGN was cut, and every subsequent turf in
     // it is a slice of that same purpose — repeating it as this turf's name
@@ -1153,7 +1187,7 @@ export default function CreateListFlow({
         continueDisabled={!ring || stops === 0 || overCap}
         onContinue={() => {
           onDrawFullScreenChange(false)
-          goToStage('confirm')
+          goToStage('route')
         }}
         onClose={leaveFullScreen}
         onUndoPoint={onUndoPoint}
@@ -1230,45 +1264,47 @@ export default function CreateListFlow({
                   // different question than the one the create will ask.
                   audienceEmpty,
                 loading: districtHouseholdsPending,
-                // Always the draw step. Building a new list is a way of
-                // choosing the audience, not a way of finishing early —
-                // there is no door knocking without a boundary and a route.
-                onClick: () => goToStage('draw'),
+                // Always the talking-points step. Building a new list is a
+                // way of choosing the audience, not a way of finishing early
+                // — there is no door knocking without a boundary and a
+                // route, and the pitch is what the flow settles next.
+                onClick: () => goToStage('points'),
               }
-            : stage === 'draw'
+            : stage === 'points'
               ? {
-                  // Bare word — the shape's own count sits on the drawing
-                  // surface, and the disclosure sentence and cap warnings are
-                  // below this step's preview card, so a count in the CTA
-                  // would be the third place saying the same number.
+                  // Never blocked on the draft — not on a failure, not on a
+                  // slow model, not on an empty card. A candidate who would
+                  // rather write their points on paper must not be held back
+                  // from the route they came to buy, which is why the field
+                  // is optional server-side too. Unlike phone banking, which
+                  // gates this CTA on its draft because its script is
+                  // required. Leaving mid-draft loses nothing: a draft that
+                  // lands after the step is still in state when Build route
+                  // reads it.
                   label: 'Continue',
-                  disabled: !ring || stops === 0 || overCap,
-                  onClick: () => goToStage('confirm'),
+                  onClick: () => goToStage('name'),
                 }
-              : stage === 'confirm'
+              : stage === 'name'
                 ? {
-                    // "Continue", not "Save" — nothing is written yet at this
-                    // step. The only write in the flow happens on the route
-                    // step's Build route CTA (turf + Geoapify route + outreach
-                    // envelope, in one paid transaction). Calling this "Save"
-                    // read as commit and cost, when it's really just the next
-                    // step.
+                    // "Continue", not "Save" — nothing is written yet at
+                    // this step. The only write in the flow happens on the
+                    // route step's Build route CTA (turf + Geoapify route
+                    // + outreach envelope, in one paid transaction).
+                    // Calling this "Save" read as commit and cost, when
+                    // it's really just the next step.
                     label: 'Continue',
                     disabled: name.trim().length === 0,
-                    onClick: () => goToStage('points'),
+                    onClick: () => goToStage('draw'),
                   }
-                : stage === 'points'
+                : stage === 'draw'
                   ? {
-                      // Never blocked on the draft — not on a failure, not on
-                      // a slow model, not on an empty card. A candidate who
-                      // would rather write their points on paper must not be
-                      // held back from the route they came to buy, which is
-                      // why the field is optional server-side too. Unlike
-                      // phone banking, which gates this CTA on its draft
-                      // because its script is required. Leaving mid-draft
-                      // loses nothing: a draft that lands after the step is
-                      // still in state when Build route reads it.
+                      // Bare word — the shape's own count sits on the
+                      // drawing surface, and the disclosure sentence and
+                      // cap warnings are below this step's preview card,
+                      // so a count in the CTA would be the third place
+                      // saying the same number.
                       label: 'Continue',
+                      disabled: !ring || stops === 0 || overCap,
                       onClick: () => goToStage('route'),
                     }
                   : {
@@ -1423,57 +1459,22 @@ export default function CreateListFlow({
           />
         )}
 
-        {stage === 'confirm' && (
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="turf-name" className="text-sm font-medium">
-                Campaign name
-              </Label>
-              <Input
-                id="turf-name"
-                autoFocus
-                value={name}
-                maxLength={MAX_CAMPAIGN_NAME_LENGTH}
-                placeholder="Name this list"
-                onChange={(event) => {
-                  nameTouched.current = true
-                  setName(event.target.value)
-                }}
-              />
-            </div>
-            {onColorChange && (
-              <div className="flex flex-col gap-2">
-                <Label className="text-sm font-medium">Turf color</Label>
-                <div className="flex gap-2.5">
-                  {TURF_COLORS.map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      aria-label={turfColorLabel(option)}
-                      aria-pressed={color === option}
-                      className={`flex h-8 w-8 items-center justify-center rounded-full border-2 ${
-                        color === option
-                          ? 'border-foreground'
-                          : 'border-transparent'
-                      }`}
-                      style={{ backgroundColor: option }}
-                      onClick={() => onColorChange(option)}
-                    >
-                      {color === option && (
-                        <CheckCircleIcon
-                          size={16}
-                          aria-hidden="true"
-                          style={{ color: turfColorTick(option) }}
-                        />
-                      )}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Colors tell your turfs apart on the map.
-                </p>
-              </div>
-            )}
+        {stage === 'name' && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="turf-name" className="text-sm font-medium">
+              Campaign name
+            </Label>
+            <Input
+              id="turf-name"
+              autoFocus
+              value={name}
+              maxLength={MAX_CAMPAIGN_NAME_LENGTH}
+              placeholder="Name this list"
+              onChange={(event) => {
+                nameTouched.current = true
+                setName(event.target.value)
+              }}
+            />
           </div>
         )}
 

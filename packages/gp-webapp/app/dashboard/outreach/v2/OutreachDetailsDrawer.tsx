@@ -663,11 +663,21 @@ export const OutreachDetailsDrawer = ({
                   // reads — printing a second derivation of either is the
                   // two-denominator failure this feature has a rule against.
                   //
+                  // Solo-campaign only. `OutreachDetail.doorKnocking` carries
+                  // the ANCHOR turf's figures — not the campaign aggregate
+                  // across siblings — so on a multi-turf campaign this pair
+                  // would print anchor-only numbers labelled as campaign
+                  // totals, which is exactly the two-denominator failure
+                  // above. For multi-turf campaigns the per-turf figures live
+                  // on the sibling section above; the drawer-level aggregate
+                  // will need a real backend rollup before it can come back.
+                  //
                   // A walk whose list is gone renders neither cell rather than
                   // two em-dashes, which is the rule this drawer already
                   // followed when it had no block at all: the sentence below
                   // says what happened, and a cell that can only say "—" adds
                   // nothing to it.
+                  (row?.turfCount ?? 1) === 1 &&
                   (doorKnocking || detailQuery.isLoading) && (
                     <>
                       <Metric
@@ -889,25 +899,29 @@ export const OutreachDetailsDrawer = ({
                 surface here (ADR 0012), and a walk is routinely ended with
                 doors left unlogged — so how much of the list was covered is
                 the answer on a done walk too, not only on a live one. */}
-            {/* A campaign of multiple turfs surfaces its siblings here — one
-                compact row per turf, plus an "Add another turf" affordance
-                that lands on the create flow scoped to this campaign. The
-                threshold is `turfCount > 1` (server-side rollup on the
-                collapsed row): a solo campaign has one row indistinguishable
-                from every legacy door-knocking envelope, and stacking a
-                one-row list above its own Progress card would double the
-                information without adding any. */}
-            {isDoorKnocking &&
-              row &&
-              (row.turfCount ?? 1) > 1 &&
-              (row.campaignOutreachId ?? row.id) !== null && (
-                <CampaignTurfList
-                  anchorOutreachId={row.campaignOutreachId ?? row.id}
-                  outreachId={row.id}
-                />
-              )}
+            {/* The campaign's own turfs: one row per turf, plus an "Add
+                another turf" affordance that lands on the create flow scoped
+                to this campaign. Rendered for every door-knocking row rather
+                than only for `turfCount > 1`, so the add-turf path is
+                reachable from a solo campaign — otherwise a candidate with
+                one turf can never grow it, chicken-and-egg. On a solo
+                campaign the section reads as one row, which duplicates some
+                of what the Progress card below shows; the two-row overlap
+                is the price of keeping the affordance reachable. */}
+            {isDoorKnocking && row && (
+              <CampaignTurfList
+                anchorOutreachId={row.campaignOutreachId ?? row.id}
+                outreachId={row.id}
+              />
+            )}
 
-            {isDoorKnocking && doorKnocking && (
+            {isDoorKnocking && doorKnocking && (row?.turfCount ?? 1) === 1 && (
+              // Solo-campaign only, same argument as the Overview cells
+              // above: `doorKnocking.loggedCount` / `peopleCount` are the
+              // ANCHOR turf's, so on a multi-turf campaign this bar would
+              // report one turf's progress as if it were the whole
+              // campaign's. Per-turf progress lives on the sibling section;
+              // the drawer-level aggregate is hidden until a rollup exists.
               <DetailsSection title="Progress">
                 <Card className="gap-3 rounded-lg p-3">
                   <div className="flex items-center justify-between">

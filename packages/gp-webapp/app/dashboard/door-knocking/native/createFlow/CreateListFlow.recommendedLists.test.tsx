@@ -266,7 +266,7 @@ describe('CreateListFlow — recommended lists', () => {
         {...baseProps}
         onFiltersChange={onFiltersChange}
         filters={appliedFilters}
-        step="confirm"
+        step="name"
       />,
     )
     fireEvent.change(screen.getByLabelText('Campaign name'), {
@@ -361,7 +361,7 @@ describe('CreateListFlow — recommended lists', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
     rerender(
-      <CreateListFlow {...baseProps} savedLists={savedLists} step="confirm" />,
+      <CreateListFlow {...baseProps} savedLists={savedLists} step="name" />,
     )
     fireEvent.change(screen.getByLabelText('Campaign name'), {
       target: { value: 'Tuesday evening' },

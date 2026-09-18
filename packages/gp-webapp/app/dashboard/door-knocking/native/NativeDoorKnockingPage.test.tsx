@@ -404,12 +404,25 @@ const continueFromWho = () =>
 // Picking the audience is required because Continue now gates on
 // hasPickedAudience.
 const openFlowAndDraw = async () => {
+  // Walk the create flow from purpose to the draw step. The step order is
+  // purpose → who → points → name → draw → route (see
+  // createFlow/createFlowSteps.ts). Every Continue below advances one
+  // stage; the name step also needs a typed campaign name to enable its
+  // Continue.
   fireEvent.click(
     await screen.findByRole('button', { name: /Introduce myself/ }),
   )
   fireEvent.click(await audiencePicker())
   fireEvent.click(await screen.findByRole('option', { name: /All contacts/ }))
   fireEvent.click(continueFromWho())
+  // points → name
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+  // name step: type a campaign name so its Continue enables, then advance
+  // to draw.
+  fireEvent.change(await screen.findByLabelText('Campaign name'), {
+    target: { value: 'Test campaign' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 }
 
 // Cutting a shape and coming back to the step that frames it, which is the way

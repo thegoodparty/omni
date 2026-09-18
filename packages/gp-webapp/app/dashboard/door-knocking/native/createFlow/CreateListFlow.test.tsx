@@ -113,14 +113,15 @@ const advanceToRoute = (
   props: Partial<ComponentProps<typeof CreateListFlow>> = {},
   campaignName = 'Tuesday evening',
 ) => {
+  // The campaign is named BEFORE the polygon is drawn now, so the name
+  // step advances to draw, and draw advances to route. Two Continues, and
+  // baseProps already carries the ring + turfStats that gate draw's own
+  // Continue.
   fireEvent.change(screen.getByLabelText('Campaign name'), {
     target: { value: campaignName },
   })
-  // Confirm now advances to the talking points, which the route step sits
-  // behind — a test that jumped straight to `route` would skip the step that
-  // fires the draft and so would not see the card at all.
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-  rerender(<CreateListFlow {...baseProps} {...props} step="points" />)
+  rerender(<CreateListFlow {...baseProps} {...props} step="draw" />)
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
   rerender(<CreateListFlow {...baseProps} {...props} step="route" />)
 }
@@ -236,7 +237,7 @@ describe('CreateListFlow', () => {
     }
 
     const { rerender } = render(
-      <CreateListFlow {...baseProps} {...props} step="confirm" />,
+      <CreateListFlow {...baseProps} {...props} step="name" />,
     )
     advanceToRoute(rerender, props, 'Ward 1 evening')
     fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
@@ -268,7 +269,7 @@ describe('CreateListFlow', () => {
     }
 
     const { rerender } = render(
-      <CreateListFlow {...baseProps} {...props} step="confirm" />,
+      <CreateListFlow {...baseProps} {...props} step="name" />,
     )
 
     // Nothing has been written by the time the confirm step is done with —
@@ -342,7 +343,7 @@ describe('CreateListFlow', () => {
     const { rerender } = render(
       <CreateListFlow
         {...baseProps}
-        step="confirm"
+        step="name"
         onListCreated={onListCreated}
       />,
     )
@@ -382,9 +383,7 @@ describe('CreateListFlow', () => {
       },
     }))
 
-    const { rerender } = render(
-      <CreateListFlow {...baseProps} step="confirm" />,
-    )
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
     advanceToRoute(rerender, {}, 'Slow turf')
 
     fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
@@ -415,9 +414,7 @@ describe('CreateListFlow', () => {
       },
     }))
 
-    const { rerender } = render(
-      <CreateListFlow {...baseProps} step="confirm" />,
-    )
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
     advanceToRoute(rerender, {}, 'Unreachable turf')
 
     fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
@@ -443,9 +440,7 @@ describe('CreateListFlow', () => {
       data: { message: 'Route optimization returned an unidentifiable stop' },
     }))
 
-    const { rerender } = render(
-      <CreateListFlow {...baseProps} step="confirm" />,
-    )
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
     advanceToRoute(rerender, {}, 'Vendor turf')
 
     fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
@@ -478,7 +473,7 @@ describe('CreateListFlow', () => {
     const { rerender } = render(
       <CreateListFlow
         {...baseProps}
-        step="confirm"
+        step="name"
         onListCreated={onListCreated}
       />,
     )
@@ -517,7 +512,7 @@ describe('CreateListFlow', () => {
     const { rerender } = render(
       <CreateListFlow
         {...baseProps}
-        step="confirm"
+        step="name"
         onListCreated={onListCreated}
       />,
     )
@@ -556,7 +551,7 @@ describe('CreateListFlow', () => {
     }
 
     const { rerender } = render(
-      <CreateListFlow {...baseProps} {...props} step="confirm" />,
+      <CreateListFlow {...baseProps} {...props} step="name" />,
     )
     advanceToRoute(rerender, props)
 
@@ -581,7 +576,7 @@ describe('CreateListFlow', () => {
   // the route, so the who step writes nothing at all: the list is minted lazily
   // by the create transaction, under the campaign's own name. A flow abandoned
   // before Build route therefore leaves no half-made list in the CRM.
-  it('writes nothing when a hand-cut audience continues to the draw step', async () => {
+  it('writes nothing when a hand-cut audience continues to the talking-points step', async () => {
     let filterPosts = 0
     api.mock('POST /v1/voters/voter-file/filter', () => {
       filterPosts += 1
@@ -592,13 +587,14 @@ describe('CreateListFlow', () => {
     await renderAtWho({ filters: { partyDemocrat: true }, onStepChange })
     // Continue is disabled and unnumbered until an audience is picked;
     // pick All contacts to commit the hand-cut filter draft as the
-    // audience the step is advancing on.
+    // audience the step is advancing on. The audience step now advances
+    // to talking points, not directly to the draw step.
     await pickList(/All contacts/)
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
 
     // Waited out rather than read straight back, so a POST that was fired and
     // is merely still in flight fails this rather than passing it.
-    await waitFor(() => expect(onStepChange).toHaveBeenCalledWith('draw'))
+    await waitFor(() => expect(onStepChange).toHaveBeenCalledWith('points'))
     expect(filterPosts).toBe(0)
   })
 
@@ -806,7 +802,7 @@ describe('CreateListFlow', () => {
   // is the orchestrator's name for the whole pre-draw phase, and reaching the
   // draw step from an unfiltered draft is now two moves — pick a goal, then
   // continue past the audience.
-  it('advances from the goal cards through the audience to the draw step', async () => {
+  it('advances from the goal cards through the audience to the talking-points step', async () => {
     const onStepChange = vi.fn()
     await renderAtWho({ onStepChange })
 
@@ -815,10 +811,11 @@ describe('CreateListFlow', () => {
     expect(onStepChange).not.toHaveBeenCalled()
 
     // The picker now requires an explicit pick before Continue enables and
-    // the count returns in the label.
+    // the count returns in the label. The audience step now advances to
+    // talking points, which sits before the draw step.
     await pickList(/All contacts/)
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
-    expect(onStepChange).toHaveBeenCalledWith('draw')
+    expect(onStepChange).toHaveBeenCalledWith('points')
   })
 
   // Labels are sourced from the config, not hardcoded: 'Contacts Made' was
@@ -959,7 +956,7 @@ describe('CreateListFlow', () => {
   // another" beside "Save and exit" — both wrote a turf here, which is the
   // write that moved to the end of the flow. The label was renamed from Save
   // to Continue because nothing writes at this step.
-  it('gives the confirm step a single Continue that advances rather than writes', async () => {
+  it('gives the name step a single Continue that advances rather than writes', async () => {
     let posts = 0
     api.mock('POST /v1/voters/voter-file/filter', () => {
       posts += 1
@@ -968,11 +965,7 @@ describe('CreateListFlow', () => {
     const onStepChange = vi.fn()
 
     render(
-      <CreateListFlow
-        {...baseProps}
-        step="confirm"
-        onStepChange={onStepChange}
-      />,
+      <CreateListFlow {...baseProps} step="name" onStepChange={onStepChange} />,
     )
 
     expect(screen.queryByRole('button', { name: /^Save and/ })).toBeNull()
@@ -984,18 +977,16 @@ describe('CreateListFlow', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    // The talking-points step, not the route: the name is settled, and the
-    // card is the last thing reviewed before any money moves.
-    expect(onStepChange).toHaveBeenCalledWith('points')
+    // The draw step: the campaign is now named, so the flow moves on to
+    // cutting the turfs that live in it.
+    expect(onStepChange).toHaveBeenCalledWith('draw')
     expect(posts).toBe(0)
   })
 
   // Why the travel mode is being asked for at all is said under the title,
   // since the answer is what shapes the route that gets built.
   it('says why the travel mode matters on the route step', () => {
-    const { rerender } = render(
-      <CreateListFlow {...baseProps} step="confirm" />,
-    )
+    const { rerender } = render(<CreateListFlow {...baseProps} step="name" />)
     advanceToRoute(rerender, {}, 'Lakeview blitz')
 
     expect(heading('Will you be walking or driving?')).toBeInTheDocument()
@@ -1024,7 +1015,7 @@ describe('CreateListFlow', () => {
     const { rerender } = render(
       <CreateListFlow
         {...baseProps}
-        step="confirm"
+        step="name"
         onListCreated={onListCreated}
       />,
     )
@@ -1058,7 +1049,7 @@ describe('CreateListFlow', () => {
     const props = { color: '#16a34a', onListCreated }
 
     const { rerender } = render(
-      <CreateListFlow {...baseProps} {...props} step="confirm" />,
+      <CreateListFlow {...baseProps} {...props} step="name" />,
     )
 
     expect(screen.queryByRole('button', { name: 'Green' })).toBeNull()
@@ -1158,15 +1149,17 @@ describe('CreateListFlow steps', () => {
     )
     expectStep(2, 6)
 
-    // And it really does continue to the map rather than to an ending of its
-    // own — the stepper's promise and the flow's behaviour are the same claim.
+    // And it really does continue through the flow rather than ending on
+    // its own — the stepper's promise and the flow's behaviour are the same
+    // claim. From the audience step the flow now advances to talking
+    // points, which is step 3 of 6.
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
-    expect(onStepChange).toHaveBeenLastCalledWith('draw')
+    expect(onStepChange).toHaveBeenLastCalledWith('points')
 
     rerender(
       <CreateListFlow
         {...props}
-        step="draw"
+        step="points"
         filters={{ partyDemocrat: true }}
       />,
     )
@@ -1185,7 +1178,7 @@ describe('CreateListFlow steps', () => {
     rerender(
       <CreateListFlow
         {...baseProps}
-        step="confirm"
+        step="name"
         filters={{ partyDemocrat: true }}
       />,
     )
@@ -1193,16 +1186,16 @@ describe('CreateListFlow steps', () => {
     expect(screen.queryByLabelText('List name')).toBeNull()
   })
 
-  it('numbers the draw, confirm, points and route steps as the last four of six', () => {
+  it('numbers the points, name, draw and route steps as the last four of six', () => {
     const { rerender } = render(
-      <CreateListFlow {...baseProps} step="draw" filters={{}} />,
+      <CreateListFlow {...baseProps} step="points" filters={{}} />,
     )
     expectStep(3, 6)
 
-    rerender(<CreateListFlow {...baseProps} step="confirm" filters={{}} />)
+    rerender(<CreateListFlow {...baseProps} step="name" filters={{}} />)
     expectStep(4, 6)
 
-    rerender(<CreateListFlow {...baseProps} step="points" filters={{}} />)
+    rerender(<CreateListFlow {...baseProps} step="draw" filters={{}} />)
     expectStep(5, 6)
 
     rerender(<CreateListFlow {...baseProps} step="route" filters={{}} />)
@@ -1219,7 +1212,7 @@ describe('CreateListFlow steps', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /Turn out my supporters/ }),
     )
-    rerender(<CreateListFlow {...baseProps} step="confirm" />)
+    rerender(<CreateListFlow {...baseProps} step="name" />)
 
     expect(screen.getByLabelText('Campaign name')).toHaveValue('Turnout walk')
   })
@@ -1545,7 +1538,7 @@ describe('CreateListFlow steps', () => {
     await pickList(/Super voters/)
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
 
-    rerender(<CreateListFlow {...props} step="confirm" />)
+    rerender(<CreateListFlow {...props} step="name" />)
     advanceToRoute(rerender, props)
     fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
 
@@ -1568,7 +1561,7 @@ describe('CreateListFlow steps', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /Turn out my supporters/ }),
     )
-    rerender(<CreateListFlow {...baseProps} step="confirm" />)
+    rerender(<CreateListFlow {...baseProps} step="name" />)
     expect(screen.getByLabelText('Campaign name')).toHaveValue('Turnout walk')
 
     // Back to the goal cards, pick another, forward again.
@@ -1577,7 +1570,7 @@ describe('CreateListFlow steps', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /Encourage early voting/ }),
     )
-    rerender(<CreateListFlow {...baseProps} step="confirm" />)
+    rerender(<CreateListFlow {...baseProps} step="name" />)
     expect(screen.getByLabelText('Campaign name')).not.toHaveValue(
       'Turnout walk',
     )
@@ -1591,16 +1584,16 @@ describe('CreateListFlow steps', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /Turn out my supporters/ }),
     )
-    rerender(<CreateListFlow {...baseProps} step="confirm" />)
+    rerender(<CreateListFlow {...baseProps} step="name" />)
     expect(screen.getByLabelText('Campaign name')).toHaveValue(
       'Tuesday evening',
     )
   })
 
-  // Back from the draw step returns to the audience, which is the step
-  // immediately in front of the map on the only path there is — and the page
-  // hears `filters` for it, which is what resets the address panel.
-  it('returns from the draw step to the who step', async () => {
+  // Back from the draw step returns to the name step, since the campaign is
+  // named BEFORE the polygon is drawn — the campaign is the container the
+  // turfs are cut into.
+  it('returns from the draw step to the name step', async () => {
     const onStepChange = vi.fn()
     const savedLists = [
       { id: 4, name: 'Precinct 2 homeowners', households: 820, filters: {} },
@@ -1611,39 +1604,45 @@ describe('CreateListFlow steps', () => {
     // Pick a saved list to commit an audience and enable Continue.
     await pickList(/Precinct 2 homeowners/)
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
-    expect(onStepChange).toHaveBeenCalledWith('draw')
+    expect(onStepChange).toHaveBeenCalledWith('points')
+
+    rerender(<CreateListFlow {...props} step="points" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(onStepChange).toHaveBeenLastCalledWith('name')
+
+    rerender(<CreateListFlow {...props} step="name" />)
+    fireEvent.change(screen.getByLabelText('Campaign name'), {
+      target: { value: 'Precinct 2 walk' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(onStepChange).toHaveBeenLastCalledWith('draw')
 
     rerender(<CreateListFlow {...props} step="draw" />)
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    // The page hears `filters`, which is what resets the address panel; the
-    // flow remembers which of the two pre-draw stages it was on.
-    expect(onStepChange).toHaveBeenLastCalledWith('filters')
-
-    rerender(<CreateListFlow {...props} step="filters" />)
-    expect(heading('Who do you want to reach?')).toBeInTheDocument()
+    expect(onStepChange).toHaveBeenLastCalledWith('name')
   })
 
-  // Back from the route step returns to the confirm step, which is the last
-  // place the campaign's name can still be changed before it is bought.
-  it('returns from the route step to the talking points, and on to the name', () => {
+  // Back from the route step walks straight up the post-name chain: route
+  // → draw → name. The campaign name is still editable on the way through.
+  it('returns from the route step to the draw step, and on to the name step', () => {
     const onStepChange = vi.fn()
     const props = { onStepChange }
 
     const { rerender } = render(
-      <CreateListFlow {...baseProps} {...props} step="confirm" />,
+      <CreateListFlow {...baseProps} {...props} step="name" />,
     )
     advanceToRoute(rerender, props, 'Lakeview blitz')
 
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    expect(onStepChange).toHaveBeenLastCalledWith('points')
+    expect(onStepChange).toHaveBeenLastCalledWith('draw')
 
-    rerender(<CreateListFlow {...baseProps} {...props} step="points" />)
+    rerender(<CreateListFlow {...baseProps} {...props} step="draw" />)
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    expect(onStepChange).toHaveBeenLastCalledWith('confirm')
+    expect(onStepChange).toHaveBeenLastCalledWith('name')
 
     // The name survives the round trip, which is the point of the flow staying
     // mounted for its whole length.
-    rerender(<CreateListFlow {...baseProps} {...props} step="confirm" />)
+    rerender(<CreateListFlow {...baseProps} {...props} step="name" />)
     expect(screen.getByLabelText('Campaign name')).toHaveValue('Lakeview blitz')
   })
 })
@@ -1815,7 +1814,7 @@ describe('CreateListFlow preselected list', () => {
     const { rerender } = await renderAtWho(props)
     fireEvent.click(screen.getByRole('button', { name: 'Continue (1,500)' }))
 
-    rerender(<CreateListFlow {...props} step="confirm" />)
+    rerender(<CreateListFlow {...props} step="name" />)
     advanceToRoute(rerender, props)
     fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
 
@@ -1903,7 +1902,7 @@ describe('CreateListFlow purpose step', () => {
 
     rerender(
       <DoorKnockingSurfaceProvider value>
-        <CreateListFlow {...baseProps} step="confirm" />
+        <CreateListFlow {...baseProps} step="name" />
       </DoorKnockingSurfaceProvider>,
     )
 
