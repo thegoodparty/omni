@@ -176,6 +176,76 @@ describe('timestamp normalisation', () => {
   })
 })
 
+describe('legacy unix-ms upgrade stamps', () => {
+  // `setIsPro` wrote `isProUpdatedAt: Date.now()` until #1682 switched it to
+  // `formatISO`, and nothing backfilled the rows written before that —
+  // campaign.jsonTypes.d.ts still types the key `string | number` for exactly
+  // that reason. `->>` hands those rows back as digits.
+  const LEGACY_UPGRADE_MS = 1789000000000 // 2026-09-09T23:06:40Z
+
+  it('reads a legacy unix-ms stamp as the upgrade it is, not as an unparseable date', () => {
+    expect(toEpochMs(String(LEGACY_UPGRADE_MS))).toBe(LEGACY_UPGRADE_MS)
+  })
+
+  it('reads a legacy stamp in seconds too, the other unit this column carries', () => {
+    expect(toEpochMs(String(LEGACY_UPGRADE_MS / 1000))).toBe(LEGACY_UPGRADE_MS)
+  })
+
+  it('stays silent on a resubscribe whose upgrade stamp is a legacy unix-ms number', () => {
+    // The false positive: read as a date, the upgrade is NaN and so absent;
+    // classifyRow takes an absent upgrade as unable to postdate a cancellation
+    // and reports the row. This campaign cancelled in September and resubscribed
+    // a day later — it is Pro because it is paying, and de-Proing it on the
+    // strength of this report would strip Pro from a paying customer.
+    expect(
+      classifyRow(
+        row({
+          isProUpdatedAt: String(LEGACY_UPGRADE_MS),
+          subscriptionId: 'sub_1TnewSubscription000000',
+        }),
+      ),
+    ).toBeNull()
+  })
+
+  it('survives mapRow, which is where the digits actually arrive', () => {
+    const mapped = mapRow({
+      campaign_id: '325636',
+      slug: 'ebony-lofton1',
+      user_id: '19162',
+      email: 'candidate@example.com',
+      is_demo: false,
+      subscription_id: 'sub_1TnewSubscription000000',
+      customer_id: 'cus_Uo0NK36w9bTvdr',
+      is_pro_updated_at: String(LEGACY_UPGRADE_MS),
+      subscription_canceled_at: String(CANCELED_AT_MS),
+    })
+
+    expect(mapped.isProUpdatedAt).toBe(String(LEGACY_UPGRADE_MS))
+    expect(classifyRow(mapped)).toBeNull()
+  })
+
+  it('still flags a legacy-stamped row whose cancellation really is later', () => {
+    // Reading the legacy shape must not cost the class its actual job.
+    const finding = classifyRow(
+      row({ isProUpdatedAt: String(CANCELED_AT_MS - 86_400_000) }),
+    )
+
+    expect(finding?.driftClass).toBe(ProDriftClass.ProAfterCancellation)
+    expect(finding?.reason).toContain('later than the recorded Pro upgrade')
+  })
+
+  it('leaves digits that are no real stamp absent rather than inventing a date', () => {
+    // Widening far enough to accept the legacy shape must not widen far enough
+    // to accept garbage: a fabricated upgrade time is worse than a missing one,
+    // because the missing one reports the row and a human then looks at it.
+    expect(toEpochMs('0')).toBeNull()
+    expect(toEpochMs('2026')).toBeNull() // a bare year, not a stamp
+    expect(toEpochMs('20260701')).toBeNull() // reads as 1970-08-23 in seconds
+    expect(toEpochMs('999999999')).toBeNull() // seconds, but 2001 — predates us
+    expect(toEpochMs('17513280000000000')).toBeNull() // ms, but the year 556860
+  })
+})
+
 describe('report shape', () => {
   it('sorts the self-contradicting class first, then by campaign id', () => {
     const report = buildReport([
