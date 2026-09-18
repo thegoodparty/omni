@@ -434,6 +434,23 @@ describe('ListDetailSheet — universe mode (ENG-10778)', () => {
     expect(downloadButton.querySelector('.lucide-lock')).toBeInTheDocument()
   })
 
+  it('shows only the spinner in place of the download icon while preparing', async () => {
+    mockedUseContactsDownload.mockReturnValue({
+      download: downloadFn,
+      downloadFromHref: vi.fn(),
+      isPreparing: true,
+    })
+
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    const downloadButton = await screen.findByRole('button', {
+      name: 'Download list',
+    })
+    expect(downloadButton).toBeDisabled()
+    expect(downloadButton.querySelector('.animate-spin')).toBeInTheDocument()
+    expect(downloadButton.querySelector('.lucide-download')).toBeNull()
+  })
+
   it('does not fire Segment Viewed for the universe (there is no segment)', async () => {
     render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
 

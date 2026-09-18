@@ -131,6 +131,28 @@ describe('RecommendedListDetailSheet', () => {
 
   // The saved-list sheet's Download, backed by the variant download route
   // since there is no saved segment to name.
+  it('shows only the spinner in place of the download icon while preparing', async () => {
+    vi.mocked(useContactsDownload).mockReturnValue({
+      download: vi.fn(),
+      downloadFromHref,
+      isPreparing: true,
+    })
+
+    render(
+      <RecommendedListDetailSheet
+        recommendation={RECOMMENDATION}
+        onClose={vi.fn()}
+      />,
+    )
+
+    const downloadButton = await screen.findByRole('button', {
+      name: 'Download list',
+    })
+    expect(downloadButton).toBeDisabled()
+    expect(downloadButton.querySelector('.animate-spin')).toBeInTheDocument()
+    expect(downloadButton.querySelector('.lucide-download')).toBeNull()
+  })
+
   it('downloads the recommendation by variant and reports the export once confirmed', async () => {
     api.mock('POST /v1/contacts/list-detail', { status: 200, data: DETAIL })
     let confirm: (() => void) | undefined

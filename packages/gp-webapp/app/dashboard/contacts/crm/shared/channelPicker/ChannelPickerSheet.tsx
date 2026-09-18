@@ -174,7 +174,7 @@ export default function ChannelPickerSheet({
               <Link
                 key={channel}
                 href={channelPickerHref(channel, target)}
-                className="flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 shadow-xs transition-colors hover:border-primary/50"
+                className="flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 no-underline shadow-xs transition-colors hover:border-primary/50"
               >
                 <span
                   className={cn(

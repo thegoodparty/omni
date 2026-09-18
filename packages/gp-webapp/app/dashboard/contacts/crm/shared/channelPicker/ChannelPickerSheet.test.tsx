@@ -102,6 +102,24 @@ describe('ChannelPickerSheet', () => {
 
   // The prototype orders rows by how many of the list each channel reaches;
   // social has no audience and sits last.
+  // The global base style underlines every anchor on hover; a channel row
+  // is a card, not inline text, so it opts out.
+  it('renders the channel rows without the anchor hover underline', async () => {
+    api.mock('GET /v1/contacts/list-detail', { status: 200, data: DETAIL })
+
+    render(
+      <ChannelPickerSheet
+        target={{ kind: 'recommended', recommendation: RECOMMENDATION }}
+        onClose={vi.fn()}
+      />,
+    )
+
+    await screen.findByRole('heading', { name: 'Choose a channel' })
+    for (const row of screen.getAllByRole('link')) {
+      expect(row).toHaveClass('no-underline')
+    }
+  })
+
   it('orders the channels by reach, social last', async () => {
     api.mock('GET /v1/contacts/list-detail', { status: 200, data: DETAIL })
 

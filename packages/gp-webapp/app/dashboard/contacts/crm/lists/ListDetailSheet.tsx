@@ -286,7 +286,7 @@ export default function ListDetailSheet({
               onClick={handleDownload}
               loading={isPreparing}
             >
-              {!canUseProFeatures ? (
+              {isPreparing ? null : !canUseProFeatures ? (
                 <LockIcon className="size-4" />
               ) : (
                 <DownloadIcon className="size-4" />
