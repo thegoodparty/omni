@@ -95,6 +95,12 @@ park or a finished breakdown:
         --stage epic-create \
         --message "Breakdown ready for review: <N> stories, flag <flag-key>. Move the card to executing to start implementation."
 
+If that command exits non-zero, don't end your turn silently — nobody reads
+this run's stderr. Post the error as one more comment on the card so a human
+reviewer sees the ping never went out, then end your turn. The card is
+already in `feedback needed` either way; never roll its status back over a
+failed ping.
+
 Then end your turn.
 
 This run never moves the card to `executing` or any status past the review

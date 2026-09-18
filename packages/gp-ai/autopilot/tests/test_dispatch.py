@@ -243,7 +243,14 @@ def test_dispatch_refuses_when_slack_channel_unset(monkeypatch, fake_dynamodb, f
     assert result["dispatched"] is False
     assert result["error"] == "AUTOPILOT_SLACK_CHANNEL not configured; refusing dispatch"
     assert fake_ecs.run_task_calls == []
-    assert "ERROR: AUTOPILOT_SLACK_CHANNEL not configured" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "ERROR: AUTOPILOT_SLACK_CHANNEL not configured" in out
+    # Same contract as test_qa_dispatch_refuses_when_playwright_task_definition_unset:
+    # the claim is written before the launch attempt and must survive the
+    # refusal, so a redelivery cannot re-drive this transition once the env is
+    # fixed — the sweep plus a fresh transition is the recovery path.
+    assert len(fake_dynamodb.items) == 1
+    assert "claim left in place" in out
 
 
 def test_qa_dispatch_refuses_when_playwright_task_definition_unset(monkeypatch, fake_dynamodb, fake_ecs, capsys):
