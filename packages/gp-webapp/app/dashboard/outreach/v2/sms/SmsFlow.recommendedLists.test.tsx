@@ -65,6 +65,10 @@ const EXISTING_RECOMMENDATION = {
 }
 
 beforeEach(() => {
+  // The stale-cache test below seeds the shared client; vitest.setup.ts
+  // already clears it between tests, and this keeps the file self-evidently
+  // safe the way its door-knocking counterpart is.
+  testQueryClient.clear()
   api.reset()
   vi.clearAllMocks()
   api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
