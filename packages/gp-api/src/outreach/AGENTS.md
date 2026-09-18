@@ -481,6 +481,15 @@ endpoint must subscribe to `payment_method.attached`.
 
 ## Gotchas / invariants
 
+- **The candidate a message identifies is the campaign OWNER, never the
+  requester.** With team accounts, `@ReqUser()` can be a Campaign Manager, so
+  the Win draft/generate endpoints (sms, social, phone banking, robocall) and
+  robocall's compliance self-ID check resolve the name via
+  `util/ownerCandidateName.util.ts` from the campaign's `user` relation
+  (`@UseCampaign({ include: { user: true } })`) — the same source
+  `requireCompliantScript` checks at scheduling. `@ReqUser()` remains correct
+  for actor attribution (LLM-call `userId`, `canceledBy`) and for payment
+  (managers pay on their own card).
 - **Compliance is bound to the audio bytes by S3 ETag, not just the audioKey.**
   A presigned POST can overwrite a key with different bytes inside its expiry
   window, so a passing verdict on the key alone could be ridden by swapped audio.

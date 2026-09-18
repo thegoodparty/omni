@@ -61,18 +61,25 @@ vi.mock('app/dashboard/purchase/utils/purchaseFetch.utils', () => ({
     completeFreePurchase(type, meta),
 }))
 
-// The flow reads campaign (details/office, free-texts offer) and user (first
-// name) from their providers; both are context-mocked at the hook level.
+// The flow reads campaign (details/office, free-texts offer, ownerName) and
+// user (first name) from their providers; both are context-mocked at the
+// hook level. The campaign is a mutable ref so the team-member case can add
+// ownerName; the base deliberately has none, keeping the other tests on the
+// session-user fallback path.
+const campaignState = vi.hoisted(() => {
+  const base = () => ({
+    id: 9,
+    isPro: true,
+    hasFreeTextsOffer: true,
+    details: { normalizedOffice: 'City Council' },
+  })
+  return {
+    base,
+    campaign: base() as ReturnType<typeof base> & { ownerName?: string },
+  }
+})
 vi.mock('@shared/hooks/useCampaign', () => ({
-  useCampaign: () => [
-    {
-      id: 9,
-      isPro: true,
-      hasFreeTextsOffer: true,
-      details: { normalizedOffice: 'City Council' },
-    },
-    vi.fn(),
-  ],
+  useCampaign: () => [campaignState.campaign, vi.fn()],
 }))
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'campaign-9', district: {} }),
@@ -182,6 +189,7 @@ const TCR_FIXTURE = {
 
 describe('SmsFlow', () => {
   beforeEach(() => {
+    campaignState.campaign = campaignState.base()
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(FROZEN_NOW)
     mockLists()
@@ -305,6 +313,36 @@ describe('SmsFlow', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText('Receipt')).not.toBeInTheDocument()
     expect(receiptCalls).toBe(0)
+  })
+
+  it('identifies the campaign owner, not the composer, in the intro', async () => {
+    // A Campaign Manager (session user Jane) composing on Jared's campaign:
+    // the identification intro and the standards check must use the OWNER's
+    // name, or the client passes a script the server rejects at scheduling.
+    campaignState.campaign = {
+      ...campaignState.base(),
+      ownerName: 'Jared Smith',
+    }
+    mockDraft()
+    openFlow()
+
+    await userEvent.click(screen.getByText('Introduce myself to voters'))
+    await userEvent.click(screen.getByText('Choose a voter list'))
+    await userEvent.click(await screen.findByText('Likely voters'))
+    await userEvent.click(
+      screen.getByRole('button', { name: /Continue \(1,200\)/ }),
+    )
+    await screen.findByText('When do you want to send it?')
+    await userEvent.click(screen.getByText('Pick a date'))
+    await userEvent.click(
+      await screen.findByRole('button', { name: dayName(4) }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText(/this is Jared, candidate for City Council\./),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/this is Jane/)).not.toBeInTheDocument()
   })
 
   // The hub's `?compose=text` deep link seeds these. A preset message is one
