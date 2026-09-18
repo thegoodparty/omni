@@ -310,6 +310,66 @@ def park_for_feedback(
     }
 
 
+# The one status a cleanly-ended run must never leave a card in: every
+# legitimate success ends elsewhere (story -> qa, epic-create/qa parks or
+# hands off to feedback needed, qa pass -> done).
+IN_PROGRESS_STATUS = "in progress"
+
+
+def park_if_stranded(
+    result: dict,
+    stage: str,
+    task_id: str,
+    *,
+    clickup_client_factory: Callable[[], Any] = ClickUpClient,
+    slack_client_factory: Callable[[], Any] = SlackClient,
+    env: Mapping[str, str] | None = None,
+    workspace_dir: str | None = None,
+) -> dict:
+    """The harness's stranded-run guard: if a run reports success but left
+    its card in `in progress` without parking, park it deterministically.
+
+    Both live story runs ended their turn "watching the merge in the
+    background" — watchers that die with the container — despite the stage
+    instruction forbidding exactly that. An instruction is a request; this is
+    the invariant: a successful run never leaves its card in `in progress`.
+    Runs only on an already-successful, not-already-parked result. Guard
+    failures are logged, never raised — the run's real outcome must not be
+    masked by a failure of its safety net (a park that got as far as the
+    comment + status move has still rescued the card, even if the Slack ping
+    or sentinel step then failed).
+    """
+    if not isinstance(result, dict) or result.get("status") != "success" or result.get("parked_stage"):
+        return result
+
+    try:
+        with clickup_client_factory() as clickup:
+            current = clickup.get_task(task_id).get_status_name()
+        if current.strip().lower() != IN_PROGRESS_STATUS:
+            return result
+        logger.error(
+            f"Run for {task_id} (stage {stage!r}) ended successfully with the card still in "
+            f"'{IN_PROGRESS_STATUS}' and no park — parking it now so the card cannot strand"
+        )
+        park_result = park_for_feedback(
+            task_id,
+            stage,
+            [
+                "This run ended while the card was still in progress — most likely waiting on a PR "
+                "merge in a background watcher that died with the run. Check the PR's state, then "
+                "comment here (or move the card back to in progress) to resume."
+            ],
+            clickup_client_factory=clickup_client_factory,
+            slack_client_factory=slack_client_factory,
+            env=env,
+            workspace_dir=workspace_dir,
+        )
+        result["parked_stage"] = park_result["stage"]
+    except Exception as e:
+        logger.error(f"Stranded-run guard failed for {task_id}: {type(e).__name__}: {e}")
+    return result
+
+
 def notify_slack(
     task_id: str,
     stage: str,

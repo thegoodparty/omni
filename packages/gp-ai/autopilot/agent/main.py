@@ -33,7 +33,7 @@ from claude_agent_sdk import (
 from shared.logger import get_logger
 
 from .config import CAPABILITIES, AgentConfig, UnknownStageError
-from .feedback import apply_park_outcome
+from .feedback import apply_park_outcome, park_if_stranded
 from .github_auth import setup_github_auth
 from .metrics import format_metric_line
 from .workspace import WorkspaceCloneError, clone_omni, point_playwright_mcp_at_chromium
@@ -281,6 +281,17 @@ async def main():
     # (reassigned above), not the container-wide directory the CLI wrote
     # into. Only tags an already-successful run; see apply_park_outcome.
     apply_park_outcome(result, os.environ.get("WORKSPACE_DIR", "/workspace"))
+
+    # Deterministic backstop for the model ending its turn with the card
+    # still in progress (both live story runs did, despite the instruction):
+    # park it so the card can never strand. A resume run parks as the stage
+    # it was resuming — "resume" itself carries no ceiling and no marker.
+    park_if_stranded(
+        result,
+        config.resume_stage if config.stage == "resume" else config.stage,
+        config.task_id,
+        workspace_dir=os.environ.get("WORKSPACE_DIR", "/workspace"),
+    )
 
     logger.info(format_metric_line(result, config.stage, duration_s, config.epic_task_id))
 
