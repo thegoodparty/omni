@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   EXPLAINER_COPY,
   GATE_CHANNEL_TITLE,
@@ -11,6 +12,13 @@ import {
 } from './gateCopy'
 import type { OutreachGateState } from './useOutreachGate'
 import { GateExplainerModal } from './GateExplainerModal'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
+
+const trackEventMock = vi.mocked(trackEvent)
 
 const stateWith = (
   overrides: Partial<OutreachGateState>,
@@ -31,6 +39,10 @@ const noop = {
 }
 
 describe('GateExplainerModal', () => {
+  beforeEach(() => {
+    trackEventMock.mockClear()
+  })
+
   it('renders nothing when requirement is null', () => {
     render(
       <GateExplainerModal
@@ -215,5 +227,89 @@ describe('GateExplainerModal', () => {
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expect(onUpgrade).not.toHaveBeenCalled()
+  })
+
+  it('fires one explainer view per open, and none while closed', () => {
+    const { rerender } = render(
+      <GateExplainerModal
+        channel="sms"
+        state={stateWith({ requirement: 'verify', twoStep: true })}
+        open={false}
+        {...noop}
+      />,
+    )
+
+    expect(trackEventMock).not.toHaveBeenCalledWith(
+      EVENTS.Outreach.Gate.ExplainerViewed,
+      expect.anything(),
+    )
+
+    rerender(
+      <GateExplainerModal
+        channel="sms"
+        state={stateWith({ requirement: 'verify', twoStep: true })}
+        open
+        {...noop}
+      />,
+    )
+    rerender(
+      <GateExplainerModal
+        channel="sms"
+        state={stateWith({ requirement: 'verify', twoStep: true })}
+        open
+        {...noop}
+      />,
+    )
+
+    const views = trackEventMock.mock.calls.filter(
+      ([name]) => name === EVENTS.Outreach.Gate.ExplainerViewed,
+    )
+    expect(views).toHaveLength(1)
+    expect(views[0]?.[1]).toMatchObject({
+      channel: 'sms',
+      requirement: 'verify',
+    })
+  })
+
+  it('reports which CTA was pressed', async () => {
+    const user = userEvent.setup()
+    render(
+      <GateExplainerModal
+        channel="robocall"
+        state={stateWith({ requirement: 'pro' })}
+        open
+        {...noop}
+      />,
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: EXPLAINER_COPY.ctaUpgrade }),
+    )
+
+    expect(trackEventMock).toHaveBeenCalledWith(
+      EVENTS.Outreach.Gate.ExplainerCta,
+      { channel: 'robocall', requirement: 'pro', cta: 'upgrade' },
+    )
+  })
+
+  it('reports a dismiss as its own CTA', async () => {
+    const user = userEvent.setup()
+    render(
+      <GateExplainerModal
+        channel="sms"
+        state={stateWith({ requirement: 'in_review', twoStep: true })}
+        open
+        {...noop}
+      />,
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: EXPLAINER_COPY.dismissPro }),
+    )
+
+    expect(trackEventMock).toHaveBeenCalledWith(
+      EVENTS.Outreach.Gate.ExplainerCta,
+      { channel: 'sms', requirement: 'in_review', cta: 'dismiss' },
+    )
   })
 })

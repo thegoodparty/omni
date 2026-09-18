@@ -203,8 +203,10 @@ export const ChannelTileGrid = ({
       onCreateRobocall(spendPreselect())
       return
     }
-    // Door knocking is the one Pro-locked tile milestone 2 leaves alone: it
-    // navigates to a page with no gate of its own, so the refusal stays here.
+    // Door knocking is the one Pro-locked tile milestone 2 leaves alone: its
+    // page keeps its own Pro lock (every /v1/door-knocking read the map needs
+    // is still Pro-gated server-side), so this refusal stays until those
+    // reads open and the create flow's in-flow gate becomes reachable.
     if (requiresPro && !isPro) {
       trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceStarted, {
         source: 'outreach_page',

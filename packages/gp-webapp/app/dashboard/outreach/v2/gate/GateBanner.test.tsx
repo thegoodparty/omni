@@ -1,10 +1,18 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { BANNER_COPY, GATE_NOUN } from './gateCopy'
 import type { OutreachGateState } from './useOutreachGate'
 import { GateBanner } from './GateBanner'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
+
+const trackEventMock = vi.mocked(trackEvent)
 
 const stateWith = (
   overrides: Partial<OutreachGateState>,
@@ -18,6 +26,10 @@ const stateWith = (
 })
 
 describe('GateBanner', () => {
+  beforeEach(() => {
+    trackEventMock.mockClear()
+  })
+
   it('renders nothing when requirement is null', () => {
     const { container } = render(
       <GateBanner
@@ -149,5 +161,46 @@ describe('GateBanner', () => {
     await user.keyboard('{Enter}')
 
     expect(onOpenExplainer).toHaveBeenCalledTimes(1)
+  })
+
+  it('fires one banner view per appearance, not per re-render', () => {
+    const { rerender } = render(
+      <GateBanner
+        channel="sms"
+        state={stateWith({ requirement: 'pro', twoStep: true })}
+        onOpenExplainer={vi.fn()}
+      />,
+    )
+    rerender(
+      <GateBanner
+        channel="sms"
+        state={stateWith({ requirement: 'pro', twoStep: true })}
+        onOpenExplainer={vi.fn()}
+      />,
+    )
+
+    const views = trackEventMock.mock.calls.filter(
+      ([name]) => name === EVENTS.Outreach.Gate.BannerViewed,
+    )
+    expect(views).toHaveLength(1)
+    expect(views[0]?.[1]).toMatchObject({
+      channel: 'sms',
+      requirement: 'pro',
+    })
+  })
+
+  it('fires no banner view when nothing is gated', () => {
+    render(
+      <GateBanner
+        channel="sms"
+        state={stateWith({ requirement: null })}
+        onOpenExplainer={vi.fn()}
+      />,
+    )
+
+    expect(trackEventMock).not.toHaveBeenCalledWith(
+      EVENTS.Outreach.Gate.BannerViewed,
+      expect.anything(),
+    )
   })
 })

@@ -10,6 +10,7 @@ import type { SavedListOption } from './savedListOptions'
 import type { PolygonRing } from '../VoterMapCanvas'
 import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
 import type { OutreachGateState } from 'app/dashboard/outreach/v2/gate/useOutreachGate'
+import type { CreateDoorKnockingTurf } from '@goodparty_org/contracts'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
@@ -2080,7 +2081,7 @@ describe('CreateListFlow — the Pro gate', () => {
   })
 
   const mockCreate = () => {
-    const turfPosts: unknown[] = []
+    const turfPosts: CreateDoorKnockingTurf[] = []
     api.mock('POST /v1/voters/voter-file/filter', {
       status: 200,
       data: { id: 44 },

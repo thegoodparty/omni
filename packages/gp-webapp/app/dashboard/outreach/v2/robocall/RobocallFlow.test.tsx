@@ -9,6 +9,7 @@ import type {
 import { http, HttpResponse } from 'msw'
 import { render } from 'helpers/test-utils/render'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { RobocallFlow } from './RobocallFlow'
 import type { OutreachGateState } from '../gate/useOutreachGate'
 
@@ -2299,6 +2300,54 @@ describe('RobocallFlow', () => {
 
       await waitFor(() => expect(deleted).toEqual(['77']))
       expect(onClose).toHaveBeenCalled()
+    })
+
+    it('reports the saved draft and the deleted one', async () => {
+      gateRef.set(FREE_GATE)
+      mockSaveDraft()
+      api.mock('DELETE /v1/outreach/:id', { status: 200, data: undefined })
+
+      await buildToReview()
+      await saveDraft()
+      await screen.findByTestId('pro-upgrade-flow')
+
+      expect(vi.mocked(trackEvent)).toHaveBeenCalledWith(
+        EVENTS.Outreach.Draft.Saved,
+        { channel: 'robocall' },
+      )
+
+      await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+      await waitFor(() =>
+        expect(vi.mocked(trackEvent)).toHaveBeenCalledWith(
+          EVENTS.Outreach.Draft.Deleted,
+          { channel: 'robocall' },
+        ),
+      )
+    })
+
+    // A 409 wrote nothing — the campaign already had the row — so it is not
+    // a save.
+    it('reports no save when the draft already existed', async () => {
+      vi.mocked(trackEvent).mockClear()
+      gateRef.set(FREE_GATE)
+      api.mock('POST /v1/outreach/drafts', {
+        status: 409,
+        data: { message: 'already', existingId: 55 },
+      })
+      api.mock('GET /v1/outreach/:id', {
+        status: 200,
+        data: draftDetail({ id: 55 }),
+      })
+
+      await buildToReview()
+      await saveDraft()
+      await screen.findByTestId('pro-upgrade-flow')
+
+      expect(vi.mocked(trackEvent)).not.toHaveBeenCalledWith(
+        EVENTS.Outreach.Draft.Saved,
+        expect.anything(),
+      )
     })
 
     it('renders no banner and keeps the schedule step with the flag off', async () => {

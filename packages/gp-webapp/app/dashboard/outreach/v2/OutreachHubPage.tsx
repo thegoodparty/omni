@@ -22,6 +22,7 @@ import {
 } from 'app/dashboard/outreach/components/OutreachComposeDeepLink'
 import { clientRequest } from 'gpApi/typed-request'
 import { OUTREACH_TYPES } from 'app/dashboard/outreach/constants'
+import type { OutreachType } from 'gpApi/types/outreach.types'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSingleEffect } from '@shared/hooks/useSingleEffect'
 import { useMembershipState } from 'app/dashboard/shared/membership/useMembershipState'
@@ -51,6 +52,17 @@ const DRAFT_CHANNELS: Partial<Record<string, DraftChannel>> = {
   p2p: 'text',
   robocall: 'robocall',
 }
+
+// Analytics reports the gate's channel vocabulary, so the hub's own name
+// for the text channel is translated rather than reported as a third one.
+const GATE_CHANNEL: Record<DraftChannel, string> = {
+  text: 'sms',
+  robocall: 'robocall',
+}
+
+// Where the resume was pressed: the channel tile, a draft row in the
+// history, or a `?compose=` arrival.
+type ResumeSource = 'tile' | 'row' | 'deep_link'
 
 export interface OutreachHubPageProps {
   pathname: string
@@ -131,6 +143,7 @@ const OutreachHubContent = ({
   const openChannel = useCallback(
     (
       channel: DraftChannel,
+      source: ResumeSource,
       row: HistoryRow | undefined = historyRows.find(
         (o) =>
           o.status === 'draft' &&
@@ -140,6 +153,12 @@ const OutreachHubContent = ({
       if (openingChannelRef.current) return
       const openWith = (draft: OutreachDetail | null) => {
         openingChannelRef.current = false
+        if (draft) {
+          trackEvent(EVENTS.Outreach.Draft.Resumed, {
+            channel: GATE_CHANNEL[channel],
+            source,
+          })
+        }
         if (channel === 'text') {
           setResumeDraft(draft)
           setSmsFlowOpen(true)
@@ -172,7 +191,7 @@ const OutreachHubContent = ({
   const handleRowClick = (row: HistoryRow) => {
     const channel = DRAFT_CHANNELS[row.outreachType ?? '']
     if (draftsEnabled && row.status === 'draft' && channel) {
-      openChannel(channel, row)
+      openChannel(channel, 'row', row)
       return
     }
     setDetailsRow(row)
@@ -187,7 +206,7 @@ const OutreachHubContent = ({
     (request: ComposeRequest) => {
       setComposeSeeds(request)
       if (request.type === OUTREACH_TYPES.text) {
-        openChannel('text')
+        openChannel('text', 'deep_link')
         return
       }
       if (request.type === OUTREACH_TYPES.phoneBanking) {
@@ -198,9 +217,27 @@ const OutreachHubContent = ({
         setSocialFlowOpen(true)
         return
       }
-      openChannel('robocall')
+      openChannel('robocall', 'deep_link')
     },
     [openChannel],
+  )
+
+  // Same lookup `openChannel` runs, so the deep link's create event can say
+  // the arrival is a resume rather than a new campaign.
+  const resumesDraft = useCallback(
+    (type: OutreachType) => {
+      const channel = DRAFT_CHANNELS[type]
+      return Boolean(
+        draftsEnabled &&
+        channel &&
+        historyRows.some(
+          (o) =>
+            o.status === 'draft' &&
+            DRAFT_CHANNELS[o.outreachType ?? ''] === channel,
+        ),
+      )
+    },
+    [draftsEnabled, historyRows],
   )
 
   // The save response is the created row: seed the detail cache (so the
@@ -274,11 +311,11 @@ const OutreachHubContent = ({
         onCreateSocial={() => setSocialFlowOpen(true)}
         onCreateSms={(preselect) => {
           setTilePreselect(preselect ?? null)
-          openChannel('text')
+          openChannel('text', 'tile')
         }}
         onCreateRobocall={(preselect) => {
           setTilePreselect(preselect ?? null)
-          openChannel('robocall')
+          openChannel('robocall', 'tile')
         }}
         onCreatePhoneBanking={(preselect) => {
           setTilePreselect(preselect ?? null)
@@ -344,6 +381,7 @@ const OutreachHubContent = ({
         <OutreachComposeDeepLink
           tcrCompliance={tcrCompliance}
           onCompose={handleCompose}
+          resumesDraft={resumesDraft}
         />
       </Suspense>
       <OutreachHistoryTable

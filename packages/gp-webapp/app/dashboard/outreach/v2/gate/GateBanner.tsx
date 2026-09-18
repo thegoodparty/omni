@@ -1,6 +1,8 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import { InfoIcon } from '@styleguide/components/ui/icons'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { BANNER_COPY, GATE_NOUN, type GateChannel } from './gateCopy'
 import type { OutreachGateState } from './useOutreachGate'
 
@@ -45,6 +47,20 @@ export const GateBanner = ({
   onOpenExplainer,
 }: GateBannerProps): React.JSX.Element | null => {
   const line = bannerLine(channel, state)
+  const visible = line !== null
+
+  // One view per appearance: a requirement moving on while the banner stays
+  // on screen (PIN issued, review cleared) is not a second view.
+  const requirementRef = useRef(state.requirement)
+  requirementRef.current = state.requirement
+  useEffect(() => {
+    if (!visible) return
+    trackEvent(EVENTS.Outreach.Gate.BannerViewed, {
+      channel,
+      requirement: requirementRef.current,
+    })
+  }, [visible, channel])
+
   if (line === null) return null
 
   return (

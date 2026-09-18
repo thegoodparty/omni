@@ -1,6 +1,6 @@
 'use client'
 
-import type { ComponentType } from 'react'
+import { useEffect, useRef, type ComponentType } from 'react'
 import {
   Button,
   Dialog,
@@ -19,6 +19,7 @@ import {
   PhoneIcon,
 } from '@styleguide/components/ui/icons'
 import Body2 from '@shared/typography/Body2'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   EXPLAINER_COPY,
   GATE_CHANNEL_TITLE,
@@ -111,6 +112,17 @@ export const GateExplainerModal = ({
   onPin,
 }: GateExplainerModalProps): React.JSX.Element | null => {
   const { requirement, twoStep } = state
+
+  const requirementRef = useRef(requirement)
+  requirementRef.current = requirement
+  useEffect(() => {
+    if (!open || requirementRef.current === null) return
+    trackEvent(EVENTS.Outreach.Gate.ExplainerViewed, {
+      channel,
+      requirement: requirementRef.current,
+    })
+  }, [open, channel])
+
   if (requirement === null) return null
 
   const noun = GATE_NOUN[channel]
@@ -131,12 +143,28 @@ export const GateExplainerModal = ({
 
   const cta =
     requirement === 'pro'
-      ? { label: EXPLAINER_COPY.ctaUpgrade, onClick: onUpgrade }
+      ? {
+          kind: 'upgrade',
+          label: EXPLAINER_COPY.ctaUpgrade,
+          onClick: onUpgrade,
+        }
       : requirement === 'verify'
-        ? { label: EXPLAINER_COPY.ctaVerify, onClick: onVerify }
+        ? {
+            kind: 'verify',
+            label: EXPLAINER_COPY.ctaVerify,
+            onClick: onVerify,
+          }
         : requirement === 'pin'
-          ? { label: EXPLAINER_COPY.ctaPin, onClick: onPin }
+          ? { kind: 'pin', label: EXPLAINER_COPY.ctaPin, onClick: onPin }
           : null
+
+  const reportCta = (kind: string): void => {
+    trackEvent(EVENTS.Outreach.Gate.ExplainerCta, {
+      channel,
+      requirement,
+      cta: kind,
+    })
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -179,12 +207,19 @@ export const GateExplainerModal = ({
           )}
         </div>
         <DialogFooter className="sm:justify-center">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              reportCta('dismiss')
+              onOpenChange(false)
+            }}
+          >
             {needsPro ? EXPLAINER_COPY.dismissFree : EXPLAINER_COPY.dismissPro}
           </Button>
           {cta && (
             <Button
               onClick={() => {
+                reportCta(cta.kind)
                 onOpenChange(false)
                 cta.onClick()
               }}

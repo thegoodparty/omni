@@ -7,6 +7,7 @@ import type { Campaign } from 'helpers/types'
 import type { MembershipState } from 'app/dashboard/shared/membership/deriveMembershipState'
 import type { OutreachDetail } from '@goodparty_org/contracts'
 import type { ComposeRequest } from 'app/dashboard/outreach/components/OutreachComposeDeepLink'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { OutreachHubPage } from './OutreachHubPage'
 import type { HistoryRow } from './historyStatus.util'
 
@@ -265,5 +266,47 @@ describe('OutreachHubPage — clicking a draft row resumes its flow', () => {
     )
     expect(screen.queryByTestId('sms-flow')).not.toBeInTheDocument()
     expect(mockFetchOutreachDetail).not.toHaveBeenCalled()
+  })
+
+  it('reports the resume with the source that opened it', async () => {
+    vi.mocked(trackEvent).mockClear()
+    mockFetchOutreachDetail.mockResolvedValue({ id: 99, name: 'Draft blast' })
+    renderHub([draftRow, sentRow])
+
+    await userEvent.click(within(desktopTable()).getByText('Draft blast'))
+    await screen.findByTestId('sms-flow')
+
+    expect(vi.mocked(trackEvent)).toHaveBeenCalledWith(
+      EVENTS.Outreach.Draft.Resumed,
+      { channel: 'sms', source: 'row' },
+    )
+  })
+
+  it('reports a deep-link resume as its own source', async () => {
+    vi.mocked(trackEvent).mockClear()
+    mockFetchOutreachDetail.mockResolvedValue({ id: 99, name: 'Draft blast' })
+    renderHub([draftRow, sentRow])
+
+    await userEvent.click(screen.getByRole('button', { name: 'compose text' }))
+    await screen.findByTestId('sms-flow')
+
+    expect(vi.mocked(trackEvent)).toHaveBeenCalledWith(
+      EVENTS.Outreach.Draft.Resumed,
+      { channel: 'sms', source: 'deep_link' },
+    )
+  })
+
+  // Nothing was resumed, so there is nothing to report.
+  it('reports no resume when the flow opens fresh', async () => {
+    vi.mocked(trackEvent).mockClear()
+    renderHub([sentRow])
+
+    await userEvent.click(screen.getByRole('button', { name: 'compose text' }))
+    await screen.findByTestId('sms-flow')
+
+    expect(vi.mocked(trackEvent)).not.toHaveBeenCalledWith(
+      EVENTS.Outreach.Draft.Resumed,
+      expect.anything(),
+    )
   })
 })

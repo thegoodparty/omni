@@ -284,6 +284,12 @@ Org Switcher - Run For Office Clicked,org_switcher_run_for_office_clicked,7d6668
 Outreach - Action Clicked,outreach_action_clicked,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,,,2025-07-03,0,2026-09-01,2026-06-30T20:12:33
 Outreach - Click Create,outreach_click_create,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,,,2025-07-03,3,,2026-06-30T20:12:33
 Outreach - Door Knocking: Complete,outreach_door_knocking_complete,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,,,2025-07-03,0,,2026-06-30T20:12:33
+Outreach - Draft Deleted,outreach_draft_deleted,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T21:40:45
+Outreach - Draft Resumed,outreach_draft_resumed,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T21:40:45
+Outreach - Draft Saved,outreach_draft_saved,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T21:40:38
+Outreach - Gate Banner Viewed,outreach_gate_banner_viewed,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T21:40:45
+Outreach - Gate Explainer Viewed,outreach_gate_explainer_viewed,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T21:40:45
+Outreach - Gate Explainer: Click CTA,outreach_gate_explainer_click_cta,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T21:40:45
 Outreach - Phone Banking: Call Logged,outreach_phone_banking_call_logged,8010d59657909238fcc211512a1c0783870a8f06,,2026-08-21,tomer@goodparty.org,,,,,2026-08-21,1,,2026-09-07T11:07:27
 Outreach - Phone Banking: Complete,outreach_phone_banking_complete,334568cc8a740eadaa6578acb4699e660b18437f,https://github.com/thegoodparty/omni/pull/743,2025-07-03,lurchbulldog@gmail.com,,,,,2025-07-03,0,,2026-06-30T20:12:33
 Outreach - Phone Banking: Contact Viewed,outreach_phone_banking_contact_viewed,8010d59657909238fcc211512a1c0783870a8f06,,2026-08-21,tomer@goodparty.org,,,,,2026-08-21,1,,2026-08-31T11:07:29

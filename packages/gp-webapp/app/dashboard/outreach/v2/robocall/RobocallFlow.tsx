@@ -13,6 +13,7 @@ import {
 } from '@goodparty_org/contracts'
 import { clientRequest } from 'gpApi/typed-request'
 import { createRobocallDraft } from 'helpers/createOutreachDraft'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ChannelBadge } from '../channelMeta'
 import { OutreachFlowShell, type FlowShellCta } from '../OutreachFlowShell'
 import {
@@ -458,6 +459,7 @@ export const RobocallFlow = ({
       ...(script.trim() ? { script } : {}),
     })
     if (draft) {
+      trackEvent(EVENTS.Outreach.Draft.Saved, { channel: 'robocall' })
       setSavedDraft(draft)
       setGateOpen(true)
       setSavingDraft(false)
@@ -499,6 +501,7 @@ export const RobocallFlow = ({
       setDeletingDraft(false)
       return
     }
+    trackEvent(EVENTS.Outreach.Draft.Deleted, { channel: 'robocall' })
     await handleDraftSaved()
     onClose()
   }

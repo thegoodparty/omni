@@ -40,15 +40,18 @@ const onCompose = vi.fn()
 const renderDeepLink = ({
   isPro,
   tcrCompliance,
+  resumesDraft,
 }: {
   isPro: boolean
   tcrCompliance?: TcrCompliance
+  resumesDraft?: (type: string) => boolean
 }) =>
   render(
     <CampaignContext.Provider value={[{ id: 1, isPro } as Campaign]}>
       <OutreachComposeDeepLink
         tcrCompliance={tcrCompliance}
         onCompose={onCompose}
+        resumesDraft={resumesDraft}
       />
     </CampaignContext.Provider>,
   )
@@ -81,6 +84,25 @@ describe('OutreachComposeDeepLink', () => {
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.ClickCreate, {
       type: 'text',
       source: 'deep_link',
+    })
+  })
+
+  // An arrival on a channel the campaign already holds a draft for resumes
+  // that row instead of creating a campaign, so the create event has to say
+  // so rather than counting it as a create.
+  it('marks the create event as a resume when the hub will resume a draft', async () => {
+    mockSearchParams = new URLSearchParams('compose=text')
+    renderDeepLink({
+      isPro: true,
+      tcrCompliance: approvedCompliance,
+      resumesDraft: (type) => type === 'text',
+    })
+
+    await waitFor(() => expect(onCompose).toHaveBeenCalledTimes(1))
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.ClickCreate, {
+      type: 'text',
+      source: 'deep_link',
+      resumed: true,
     })
   })
 

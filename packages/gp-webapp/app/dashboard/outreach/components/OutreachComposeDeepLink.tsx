@@ -34,6 +34,10 @@ export interface ComposeRequest {
 interface OutreachComposeDeepLinkProps {
   tcrCompliance?: TcrCompliance
   onCompose: (request: ComposeRequest) => void
+  // The hub owns the saved-draft lookup (its `openChannel`), so it answers
+  // whether this arrival will resume a row rather than start a campaign —
+  // otherwise `ClickCreate` counts a resume as a create.
+  resumesDraft?: (type: OutreachType) => boolean
 }
 
 // Deep-linkable compose types. The Campaign Tracker and Campaign Manager link
@@ -67,6 +71,7 @@ const parseComposeSource = (value: string | null | undefined): string =>
 export const OutreachComposeDeepLink = ({
   tcrCompliance,
   onCompose,
+  resumesDraft,
 }: OutreachComposeDeepLinkProps): React.JSX.Element => {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -141,6 +146,7 @@ export const OutreachComposeDeepLink = ({
     trackEvent(EVENTS.Outreach.ClickCreate, {
       type: composeType,
       source: composeSource,
+      ...(resumesDraft?.(composeType) ? { resumed: true } : {}),
     })
     if (composeType === OUTREACH_TYPES.text) {
       if (gatedFlows || runTextGate()) {
@@ -202,6 +208,7 @@ export const OutreachComposeDeepLink = ({
     recommendedVariant,
     onCompose,
     composeSource,
+    resumesDraft,
   ])
 
   return (

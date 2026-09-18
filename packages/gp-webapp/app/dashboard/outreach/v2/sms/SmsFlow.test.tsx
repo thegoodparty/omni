@@ -6,6 +6,7 @@ import { api } from 'helpers/test-utils/api-mocking'
 import type { OutreachDetail, SmsDraftRequest } from '@goodparty_org/contracts'
 import { createOutreach } from 'helpers/createOutreach'
 import { createOutreachDraft } from 'helpers/createOutreachDraft'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { SmsFlow, SuccessScreen } from './SmsFlow'
 import type { OutreachGateState } from '../gate/useOutreachGate'
 import type { TcrCompliance } from 'helpers/types'
@@ -858,6 +859,66 @@ describe('SmsFlow', () => {
       await userEvent.click(await screen.findByText('Choose a voter list'))
 
       expect(await screen.findByText('Create a new list')).toBeInTheDocument()
+    })
+
+    it('reports the saved draft', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      openFlow()
+
+      await buildToReview()
+      await saveDraft()
+      await screen.findByTestId('pro-upgrade-flow')
+
+      expect(vi.mocked(trackEvent)).toHaveBeenCalledWith(
+        EVENTS.Outreach.Draft.Saved,
+        { channel: 'sms' },
+      )
+    })
+
+    // A 409 wrote nothing — the campaign already had the row — so it is not
+    // a save.
+    it('reports no save when the draft already existed', async () => {
+      vi.mocked(trackEvent).mockClear()
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      vi.mocked(createOutreachDraft).mockResolvedValue({
+        draft: null,
+        conflictId: 55,
+      })
+      api.mock('GET /v1/outreach/:id', {
+        status: 200,
+        data: draftDetail({ id: 55 }),
+      })
+      openFlow()
+
+      await buildToReview()
+      await saveDraft()
+      await screen.findByTestId('pro-upgrade-flow')
+
+      expect(vi.mocked(trackEvent)).not.toHaveBeenCalledWith(
+        EVENTS.Outreach.Draft.Saved,
+        expect.anything(),
+      )
+    })
+
+    it('reports the deleted draft', async () => {
+      gateRef.set(FREE_GATE)
+      mockDraft()
+      api.mock('DELETE /v1/outreach/:id', { status: 200, data: undefined })
+      openFlow()
+
+      await buildToReview()
+      await saveDraft()
+      await screen.findByTestId('pro-upgrade-flow')
+      await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+
+      await waitFor(() =>
+        expect(vi.mocked(trackEvent)).toHaveBeenCalledWith(
+          EVENTS.Outreach.Draft.Deleted,
+          { channel: 'sms' },
+        ),
+      )
     })
 
     it('renders no banner and keeps the schedule step with the flag off', async () => {

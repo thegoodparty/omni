@@ -30,6 +30,7 @@ import {
 } from 'helpers/createP2pPhoneList'
 import { createOutreach } from 'helpers/createOutreach'
 import { createOutreachDraft } from 'helpers/createOutreachDraft'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { CheckoutSessionProvider } from 'app/dashboard/purchase/components/CheckoutSessionProvider'
 import {
   OUTREACH_OPTIONS,
@@ -744,6 +745,7 @@ export const SmsFlow = ({
       image,
     )
     if (draft) {
+      trackEvent(EVENTS.Outreach.Draft.Saved, { channel: 'sms' })
       setSavedDraft(draft)
       setGateOpen(true)
       setSavingDraft(false)
@@ -786,6 +788,7 @@ export const SmsFlow = ({
       setDeletingDraft(false)
       return
     }
+    trackEvent(EVENTS.Outreach.Draft.Deleted, { channel: 'sms' })
     await handleDraftSaved()
     onClose()
   }
