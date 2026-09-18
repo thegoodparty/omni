@@ -4,6 +4,9 @@ import { Campaign } from 'helpers/types'
 import DoorKnockingPageGate from './DoorKnockingPageGate'
 
 const flagState = { ready: true, enabled: false }
+// Milestone 2's in-flow gate. Off by default, so every case below keeps
+// asserting the page-level Pro lock this feature shipped with.
+const proGatingState = { ready: true, enabled: false }
 const electedOfficeState: { data: object | null; isPending: boolean } = {
   data: null,
   isPending: false,
@@ -11,6 +14,9 @@ const electedOfficeState: { data: object | null; isPending: boolean } = {
 
 vi.mock('app/shared/experiments/nativeDoorKnockingFlag', () => ({
   useNativeDoorKnockingFlag: () => flagState,
+}))
+vi.mock('app/shared/experiments/outreachProGatingV2Flag', () => ({
+  useOutreachProGatingV2Flag: () => proGatingState,
 }))
 vi.mock('@shared/hooks/useElectedOffice', () => ({
   useElectedOffice: () => electedOfficeState,
@@ -56,6 +62,8 @@ const setState = (
   flagState.enabled = flag.enabled
   electedOfficeState.data = electedOffice
   electedOfficeState.isPending = isElectedOfficePending
+  proGatingState.ready = true
+  proGatingState.enabled = false
 }
 
 describe('DoorKnockingPageGate', () => {
@@ -159,6 +167,49 @@ describe('DoorKnockingPageGate', () => {
       'data-preselected-variant',
       'persuadeAffinity',
     )
+  })
+
+  // Milestone 2. The entitlement moves to the one paid write — the create
+  // flow's Build route — so a free Win candidate gets the map, the filters
+  // and the boundary, and meets the gate where the route is bought.
+  it('admits a non-Pro campaign when the in-flow gate flag is on', () => {
+    setState({ ready: true, enabled: true })
+    proGatingState.enabled = true
+    render(<DoorKnockingPageGate {...props} campaign={{} as Campaign} />)
+    expect(screen.getByTestId('native-door-knocking')).toBeInTheDocument()
+    expect(screen.queryByText('Door knocking is a Pro feature')).toBeNull()
+  })
+
+  // Admitted either way with the flag on, so there is nothing the
+  // elected-office answer could still change — waiting on it would be a
+  // spinner in front of a page that is already allowed.
+  it('does not wait on the elected-office query when the in-flow gate flag is on', () => {
+    setState({ ready: true, enabled: true }, null, true)
+    proGatingState.enabled = true
+    render(<DoorKnockingPageGate {...props} campaign={{} as Campaign} />)
+    expect(screen.getByTestId('native-door-knocking')).toBeInTheDocument()
+  })
+
+  // An unsettled gate flag is the one window where either answer would be
+  // wrong on screen: rendering the lock flashes an upgrade card at a
+  // candidate who is about to be let in, and rendering the page flashes a map
+  // at one who is about to be locked out.
+  it('holds the spinner for a non-Pro campaign while the in-flow gate flag is unsettled', () => {
+    setState({ ready: true, enabled: true })
+    proGatingState.ready = false
+    proGatingState.enabled = true
+    render(<DoorKnockingPageGate {...props} campaign={{} as Campaign} />)
+    expect(screen.queryByTestId('native-door-knocking')).toBeNull()
+    expect(screen.queryByText('Door knocking is a Pro feature')).toBeNull()
+  })
+
+  // A Pro campaign is entitled whatever the gate flag says, so it must not be
+  // held behind a second flag read either.
+  it('renders the native experience for a Pro campaign while the gate flag is unsettled', () => {
+    setState({ ready: true, enabled: true })
+    proGatingState.ready = false
+    render(<DoorKnockingPageGate {...props} />)
+    expect(screen.getByTestId('native-door-knocking')).toBeInTheDocument()
   })
 
   it('renders the native experience with no list carried in', () => {

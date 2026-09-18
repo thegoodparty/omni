@@ -9,12 +9,100 @@ import CreateListFlow from './CreateListFlow'
 import type { SavedListOption } from './savedListOptions'
 import type { PolygonRing } from '../VoterMapCanvas'
 import { DoorKnockingSurfaceProvider } from '../doorKnockingSurface'
+import type { OutreachGateState } from 'app/dashboard/outreach/v2/gate/useOutreachGate'
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('helpers/analyticsHelper')>()
   return { ...actual, trackEvent: vi.fn() }
 })
+
+// Milestone 2's in-flow gate, driven directly the way PhoneBankingFlow's own
+// gate suite drives it: the flag/membership plumbing behind the hook has its
+// own tests, and the requirement clearing mid-upgrade is a behavior this file
+// has to be able to stage. Ungated by default, so every other case here is
+// the Pro candidate this flow shipped for.
+const gateRef = vi.hoisted(() => {
+  const listeners = new Set<() => void>()
+  return {
+    current: {
+      enabled: false,
+      requirement: null,
+      twoStep: false,
+      membership: null,
+      tcrCompliance: null,
+    } as OutreachGateState,
+    listeners,
+    set(next: OutreachGateState) {
+      this.current = next
+      listeners.forEach((listener) => listener())
+    },
+  }
+})
+vi.mock('app/dashboard/outreach/v2/gate/useOutreachGate', async () => {
+  const { useSyncExternalStore } = await import('react')
+  const subscribe = (onChange: () => void) => {
+    gateRef.listeners.add(onChange)
+    return () => {
+      gateRef.listeners.delete(onChange)
+    }
+  }
+  const snapshot = () => gateRef.current
+  return {
+    useOutreachGate: () => useSyncExternalStore(subscribe, snapshot, snapshot),
+  }
+})
+
+// Mounts real Stripe surfaces; the flow only owns whether the gate is on
+// screen and what its completion runs, so the stand-in exposes both as
+// buttons.
+vi.mock('app/dashboard/pro-upgrade/components/ProUpgradeFlow', () => ({
+  default: ({
+    onComplete,
+    onExit,
+  }: {
+    onComplete: () => void
+    onExit: () => void
+  }) => (
+    <div data-testid="pro-upgrade-flow">
+      <button type="button" onClick={onComplete}>
+        Finish upgrade
+      </button>
+      <button type="button" onClick={onExit}>
+        Finish later
+      </button>
+    </div>
+  ),
+}))
+
+const FREE_GATE: OutreachGateState = {
+  enabled: true,
+  requirement: 'pro',
+  twoStep: false,
+  membership: {
+    tier: 'free',
+    texting: 'needs_verification',
+    pinDelivery: null,
+    isElectedOffice: false,
+  },
+  tcrCompliance: null,
+}
+
+const PRO_GATE: OutreachGateState = {
+  enabled: true,
+  requirement: null,
+  twoStep: false,
+  membership: {
+    tier: 'pro',
+    texting: 'cleared',
+    pinDelivery: null,
+    isElectedOffice: false,
+  },
+  tcrCompliance: null,
+}
+
+const GATE_LINE =
+  'Pro is needed to see voter names and addresses on this route.'
 
 // mapbox-gl-draw hands back an open ring; save must close it before POSTing.
 const OPEN_RING: PolygonRing = [
@@ -201,6 +289,10 @@ beforeEach(() => {
     status: 200,
     data: [],
   })
+})
+
+beforeEach(() => {
+  gateRef.current = PRO_GATE
 })
 
 describe('CreateListFlow', () => {
@@ -1974,4 +2066,114 @@ describe('CreateListFlow on the Serve surface', () => {
   // per-door people count in the create flow). The Serve-vs-Win constituent
   // wording still runs everywhere DoorsPanel is used (person sheet, walk
   // view).
+})
+
+// Milestone 2. The page used to refuse a free candidate outright; now the
+// whole flow is theirs and the gate stands in front of the one paid write —
+// Build route, which buys the Geoapify route and is the only call here
+// gp-api refuses without Pro.
+describe('CreateListFlow — the Pro gate', () => {
+  beforeEach(() => {
+    testQueryClient.clear()
+    vi.clearAllMocks()
+    gateRef.current = FREE_GATE
+  })
+
+  const mockCreate = () => {
+    const turfPosts: unknown[] = []
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 44 },
+    })
+    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
+      turfPosts.push(body)
+      return { status: 200, data: { ...savedTurf, id: 12 } }
+    })
+    return turfPosts
+  }
+
+  it('shows the gate banner on the route step for a free candidate', () => {
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} step="confirm" />,
+    )
+    expect(screen.getByText(GATE_LINE)).toBeInTheDocument()
+
+    advanceToRoute(rerender, {}, 'Tuesday evening')
+
+    expect(screen.getByText(GATE_LINE)).toBeInTheDocument()
+  })
+
+  // The draw stage is the one step with nothing under the footer to spare:
+  // the map is the content and the shape is being cut against it, so the
+  // banner would sit over the only thing the candidate is looking at.
+  it('does not show the gate banner on the draw stage', () => {
+    render(<CreateListFlow {...baseProps} step="draw" />)
+
+    expect(screen.queryByText(GATE_LINE)).toBeNull()
+  })
+
+  it('free candidate: Build route opens the gate instead of buying the route', async () => {
+    const turfPosts = mockCreate()
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} step="confirm" />,
+    )
+    advanceToRoute(rerender, {}, 'Tuesday evening')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    expect(await screen.findByTestId('pro-upgrade-flow')).toBeInTheDocument()
+    expect(turfPosts).toHaveLength(0)
+  })
+
+  it('free candidate: completing the gate builds the route once', async () => {
+    const turfPosts = mockCreate()
+    const onListCreated = vi.fn()
+    const { rerender } = render(
+      <CreateListFlow
+        {...baseProps}
+        onListCreated={onListCreated}
+        step="confirm"
+      />,
+    )
+    advanceToRoute(rerender, { onListCreated }, 'Tuesday evening')
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    await screen.findByTestId('pro-upgrade-flow')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Finish upgrade' }))
+
+    await waitFor(() => expect(turfPosts).toHaveLength(1))
+    expect(onListCreated).toHaveBeenCalledTimes(1)
+  })
+
+  it('free candidate: leaving the gate lands back on the route step', async () => {
+    const turfPosts = mockCreate()
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} step="confirm" />,
+    )
+    advanceToRoute(rerender, {}, 'Tuesday evening')
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+    await screen.findByTestId('pro-upgrade-flow')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Finish later' }))
+
+    expect(
+      await screen.findByRole('button', { name: 'Build route' }),
+    ).toBeInTheDocument()
+    expect(turfPosts).toHaveLength(0)
+  })
+
+  it('Pro candidate: Build route buys the route with no gate and no banner', async () => {
+    gateRef.current = PRO_GATE
+    const turfPosts = mockCreate()
+    const { rerender } = render(
+      <CreateListFlow {...baseProps} step="confirm" />,
+    )
+    advanceToRoute(rerender, {}, 'Tuesday evening')
+    expect(screen.queryByText(GATE_LINE)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    await waitFor(() => expect(turfPosts).toHaveLength(1))
+    expect(screen.queryByTestId('pro-upgrade-flow')).toBeNull()
+  })
 })
