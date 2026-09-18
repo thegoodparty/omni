@@ -39,6 +39,15 @@ name: release-failure-alert
 # branch, so a green break-glass dispatch off a feature branch would otherwise
 # slot into the sequence and clear a main that never went green.
 #
+# The lookup reads ONE page, so the page size is the horizon, and the two ways
+# it can come back without a predecessor are not the same thing. A short page is
+# all the history there is and means the train was never red. A full page means
+# the horizon ran out first, which the train's own supersession makes possible:
+# a merge burst cancels every queued run but the newest, so a long outage can
+# bury the last decisive run under cancellations. The first case stays quiet;
+# the second posts without an outage length, because dropping a real recovery is
+# worse than not knowing how long it lasted.
+#
 # NO `concurrency:` GROUP HERE, deliberately. Serializing these listeners looks
 # like the fix for two runs finishing at once, but a group with
 # cancel-in-progress: false keeps only ONE pending run and cancels the
@@ -147,12 +156,22 @@ jobs:
                 ;;
             esac
 
+            # One page is the whole lookback, so the page size IS the horizon.
+            # 100 is the endpoint's maximum. Named once and used for both the
+            # request and the fullness test below, which have to agree.
+            LOOKBACK=100
+            page=$(gh api "repos/${{ github.repository }}/actions/workflows/release.yml/runs?status=completed&branch=main&per_page=$LOOKBACK")
+
+            # The RAW count, read before the decisive filter throws the
+            # cancelled runs away, because whether the page came back full is
+            # what gives an absent predecessor its meaning further down.
+            fetched=$(jq -r '.workflow_runs | length' <<<"$page")
+
             # Decisive runs only. Dropping cancelled/skipped here is what makes
             # them transparent rather than a state of their own.
-            runs=$(gh api "repos/${{ github.repository }}/actions/workflows/release.yml/runs?status=completed&branch=main&per_page=50" \
-              --jq '[.workflow_runs[]
-                     | {n: .run_number, c: .conclusion}
-                     | select(.c == "success" or .c == "failure" or .c == "timed_out" or .c == "startup_failure")]')
+            runs=$(jq -c '[.workflow_runs[]
+                           | {n: .run_number, c: .conclusion}
+                           | select(.c == "success" or .c == "failure" or .c == "timed_out" or .c == "startup_failure")]' <<<"$page")
 
             prev=$(jq -r --argjson n "$RUN_NUMBER" \
               '[.[] | select(.n < $n)] | sort_by(.n) | last | .c // "none"' <<<"$runs")
@@ -161,27 +180,50 @@ jobs:
               echo "::notice::The train was already green before run #$RUN_NUMBER; nothing to clear."
               exit 0
             fi
-            if [ "$prev" = "none" ]; then
-              echo "::notice::No earlier decisive release run on main within the last 50 completed runs, so there is no red state to clear."
+
+            # NO PREDECESSOR MEANS TWO DIFFERENT THINGS and the page size is
+            # what separates them. A SHORT page is the whole completed history
+            # of this workflow, so there was never a red run to clear and
+            # saying "recovered" would invent an outage. A FULL page means the
+            # lookback ran out before it found one, and the reason it can is
+            # the train's own supersession: a burst of merges cancels every
+            # queued run but the newest, so a long outage can bury the last
+            # decisive run under cancellations. Reading that as "nothing to
+            # clear" would drop a real recovery, which is the single thing this
+            # path must never do, so a full page posts without a length instead.
+            if [ "$prev" = "none" ] && [ "$fetched" -lt "$LOOKBACK" ]; then
+              echo "::notice::No decisive release run on main precedes #$RUN_NUMBER anywhere in this workflow's completed history, so there is no red state to clear."
               exit 0
             fi
+
             if [ "$(jq -r --argjson n "$RUN_NUMBER" 'any(.[]; .n > $n and .c != "success")' <<<"$runs")" = "true" ]; then
               echo "::notice::A release run newer than #$RUN_NUMBER has already failed, so the train is red again and this recovery notice would be stale. That run's own alert stands."
               exit 0
             fi
 
-            # How long the outage ran, in runs. Truncates at the 50-run window,
-            # which is why the copy reads "after N" rather than "exactly N".
-            streak=$(jq -r --argjson n "$RUN_NUMBER" \
-              '[.[] | select(.n < $n)] | sort_by(.n) | reverse | map(.c)
-               | (index("success") // length)' <<<"$runs")
+            # How long the outage ran, in runs. Left empty when the predecessor
+            # fell outside the lookback: the notice then says so rather than
+            # claiming a length it cannot count, and "0 failed runs" is exactly
+            # the nonsense that would otherwise print.
+            streak=""
+            if [ "$prev" != "none" ]; then
+              streak=$(jq -r --argjson n "$RUN_NUMBER" \
+                '[.[] | select(.n < $n)] | sort_by(.n) | reverse | map(.c)
+                 | (index("success") // length)' <<<"$runs")
+            fi
+
+            if [ -n "$streak" ]; then
+              recovered="Recovered after $streak failed run(s)."
+            else
+              recovered="The outage ran longer than the last $LOOKBACK completed runs, so its length is unknown."
+            fi
 
             text=$(jq -rn \
               --arg url "$RUN_URL" \
               --arg title "$RUN_TITLE" \
               --arg sha "${HEAD_SHA:0:9}" \
-              --arg streak "$streak" \
-              '":large_green_circle: Release train is green again. Prod is shipping.\nRun: <\($url)|\($title)> (\($sha))\nRecovered after \($streak) failed run(s)."')
+              --arg recovered "$recovered" \
+              '":large_green_circle: Release train is green again. Prod is shipping.\nRun: <\($url)|\($title)> (\($sha))\n\($recovered)"')
             undelivered="THE RECOVERY NOTICE WAS NOT SENT."
           else
             # timed_out jobs conclude "timed_out", not "failure" — both count.
