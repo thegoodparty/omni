@@ -29,6 +29,7 @@ import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interc
 import { CountContactsDTO } from './schemas/countContacts.schema'
 import { GetPersonParamsDTO } from './schemas/getPerson.schema'
 import { ListDetailContactsDTO } from './schemas/listDetailContacts.schema'
+import { PolygonPreviewContactsDTO } from './schemas/polygonPreviewContacts.schema'
 import {
   DownloadContactsDTO,
   ListContactsDTO,
@@ -93,6 +94,14 @@ export class ContactsController {
     @ReqOrganization() organization: Organization,
   ) {
     return this.contactsService.overlapCount(filters, organization)
+  }
+
+  @Post('polygon-preview')
+  async polygonPreview(
+    @Body() dto: PolygonPreviewContactsDTO,
+    @ReqOrganization() organization: Organization,
+  ) {
+    return this.contactsService.polygonPreview(dto, organization)
   }
 
   @Get('list-detail')

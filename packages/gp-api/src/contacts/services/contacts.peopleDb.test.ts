@@ -209,6 +209,7 @@ describe('ContactsService — people-db (sole path)', () => {
       mockActivityConditionResolutionService as never,
       mockVoterQueryService as never,
       mockVoterDownloadService as never,
+      {} as never,
       mockStatsService as never,
       mockContactsMadeResolutionService as never,
       createMockLogger(),
