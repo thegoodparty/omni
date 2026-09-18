@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common'
 import {
   MAX_OVERLAP_SAVED_FILTER_SETS,
+  FollowUpStatusSchema,
+  type FollowUpStatusResponse,
   SupportStatusRollupSchema,
   VoterLikelihoodSchema,
   type ContactStatuses,
@@ -22,6 +24,7 @@ import {
 import {
   ContactStatusField,
   ContactStatusSource,
+  FollowUpStatus,
   Organization,
 } from '../../generated/prisma'
 import { FastifyReply } from 'fastify'
@@ -1377,7 +1380,7 @@ export class ContactsService {
     // voterLikelihood is Win-only (ENG-10833) — Serve responses stay exactly
     // as they were (field omitted), so skip the lookup entirely for `eo-`
     // orgs rather than compute-and-drop it.
-    const [optedOutAt, supportStatus, voterLikelihoodOrNull] =
+    const [optedOutAt, supportStatus, voterLikelihoodOrNull, followUpOrNull] =
       await Promise.all([
         this.contactInteractionTextService.latestOptOutAt(
           organization.slug,
@@ -1399,15 +1402,25 @@ export class ContactsService {
               VoterLikelihoodSchema,
               () => seedVoterLikelihood(person.voterStatus),
             ),
+        // The mirror of the line above: Serve-only, so a Win response stays
+        // exactly as it was rather than carrying a flag that surface cannot
+        // set.
+        this.hasElectedOfficeAccess(organization)
+          ? this.effectiveFollowUp(organization.slug, person.id)
+          : Promise.resolve(null),
       ])
     const base = {
       ...this.stripPartyIfElectedOffice(organization, person),
       supportStatus,
       optedOutAt: optedOutAt ? optedOutAt.toISOString() : null,
     }
-    return voterLikelihoodOrNull === null
-      ? base
-      : { ...base, voterLikelihood: voterLikelihoodOrNull }
+    const withLikelihood =
+      voterLikelihoodOrNull === null
+        ? base
+        : { ...base, voterLikelihood: voterLikelihoodOrNull }
+    return followUpOrNull === null
+      ? withLikelihood
+      : { ...withLikelihood, followUp: followUpOrNull }
   }
 
   // Both editable statuses (ENG-10833) are Win-only. Rejects `eo-` orgs
@@ -1473,6 +1486,67 @@ export class ContactsService {
     ])
 
     return { voterLikelihood, supportStatus }
+  }
+
+  // Serve's standing follow-up flag, the mirror image of the gate above: this
+  // one rejects a WIN org, because the follow-up question only exists on the
+  // Serve surface and a candidate has no use for the flag it maintains. No
+  // Pro gate either — an ElectedOffice row is the entitlement, so a Serve org
+  // is license-equivalent to Pro and the upsell has nothing to sell.
+  //
+  // Interaction-sourced writes (a Serve call or knock answering the question)
+  // reach the same field through ContactStatusService.changeStatus from their
+  // own services; this is the by-hand toggle on the contact card, and the two
+  // are deliberately the same field so the latest of either wins.
+  async updateFollowUp(
+    personId: string,
+    value: FollowUpStatus,
+    organization: Organization,
+    actorUserId: number,
+  ): Promise<FollowUpStatusResponse> {
+    if (!this.hasElectedOfficeAccess(organization)) {
+      throw new BadRequestException(
+        'Follow-up is not available for this organization',
+      )
+    }
+
+    // Resolves personId within the org's district (404s otherwise), the same
+    // guard the status PATCH leans on.
+    await this.findPerson(personId, organization)
+
+    await this.contactStatusService.changeStatus({
+      organizationSlug: organization.slug,
+      personId,
+      field: ContactStatusField.follow_up,
+      toValue: value,
+      source: ContactStatusSource.manual,
+      actorUserId,
+      // Nobody is born flagged, so clearing an unflagged person is a no-op
+      // rather than a logged transition that never happened — same seed the
+      // two interaction writers use.
+      fallbackFromValue: FollowUpStatus.cleared,
+    })
+
+    return {
+      followUp: await this.effectiveFollowUp(organization.slug, personId),
+    }
+  }
+
+  // No derived seed to fall back to: unlike voter likelihood (people-api's
+  // Voter_Status) and support status (the interaction rollup), nothing derives
+  // a follow-up request. Absence of an override IS the answer — nothing is
+  // owed — which is why `cleared` is the fallback rather than a lookup.
+  private effectiveFollowUp(
+    organizationSlug: string,
+    personId: string,
+  ): Promise<FollowUpStatus> {
+    return this.effectiveStatus(
+      organizationSlug,
+      personId,
+      ContactStatusField.follow_up,
+      FollowUpStatusSchema,
+      () => FollowUpStatus.cleared,
+    )
   }
 
   private async derivedSupportStatus(

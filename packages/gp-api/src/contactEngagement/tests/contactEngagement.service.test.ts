@@ -1,4 +1,6 @@
 import {
+  ContactStatusField,
+  ContactStatusSource,
   OutreachType,
   PollIndividualMessageSender,
   VoterOutreachAttributionSource,
@@ -535,6 +537,76 @@ describe('ContactEngagementService', () => {
 
       expect(mockPollIndividualMessageService.findMany).not.toHaveBeenCalled()
       expect(result.results).toEqual([])
+    })
+
+    it('reads back only follow_up status changes for a Serve org', async () => {
+      await service.getIndividualActivities(baseInput)
+
+      expect(mockContactStatusService.findEventsForFeed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            organizationSlug: 'eo-office-123',
+            personId: 'person-123',
+            field: ContactStatusField.follow_up,
+          }),
+        }),
+      )
+    })
+
+    it('excludes follow_up status changes for a Win org', async () => {
+      const campaignInput: IndividualActivityInput = {
+        personId: 'person-123',
+        organizationSlug: 'campaign-org-1',
+        campaignId: 7,
+        take: 20,
+      }
+
+      await service.getIndividualActivities(campaignInput)
+
+      expect(mockContactStatusService.findEventsForFeed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            organizationSlug: 'campaign-org-1',
+            field: { not: ContactStatusField.follow_up },
+          }),
+        }),
+      )
+    })
+
+    it('renders a Serve follow-up change with its actor and timestamp', async () => {
+      mockContactStatusService.findEventsForFeed.mockResolvedValue([
+        {
+          id: 'event-1',
+          createdAt: new Date('2026-09-18T15:30:00Z'),
+          organizationSlug: 'eo-office-123',
+          personId: 'person-123',
+          field: ContactStatusField.follow_up,
+          fromValue: 'cleared',
+          toValue: 'requested',
+          source: ContactStatusSource.phone_banking,
+          actorUserId: 42,
+          sourceId: 'call-1',
+          actor: { firstName: 'Ada', lastName: 'Lovelace' },
+        },
+      ])
+
+      const result = await service.getIndividualActivities(baseInput)
+
+      expect(result.results).toEqual([
+        {
+          type: ConstituentActivityType.STATUS_CHANGE,
+          date: '2026-09-18T15:30:00.000Z',
+          data: {
+            activityId: 'event-1',
+            field: ContactStatusField.follow_up,
+            fromLabel: 'No',
+            toLabel: 'Yes',
+            actorName: 'Ada Lovelace',
+            actorUserId: 42,
+            source: ContactStatusSource.phone_banking,
+          },
+        },
+      ])
     })
 
     it('unions in legacy VoterOutreachActivity rows only when lalVoterId is given', async () => {

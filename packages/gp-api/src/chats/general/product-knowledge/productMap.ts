@@ -307,6 +307,7 @@ const SERVE_AREAS: ProductArea[] = [
       'Draw an area on that map to narrow the list to one part of the district',
       'The create-list flow asks for that area too, between the filters and the name, and it can be skipped',
       'An area can be changed or removed until the list has been used for outreach',
+      'A constituent’s record carries an "Asked for follow-up" toggle, and the record’s activity history shows who set it and when',
       'Party is not a filter in this product',
     ],
   },

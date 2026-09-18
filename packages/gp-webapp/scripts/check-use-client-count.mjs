@@ -393,7 +393,11 @@ import { dirname, join, relative } from 'node:path'
 // and inherits the boundary from its importers, the same rule ListMapSection
 // beside it already follows: it holds no state and only binds handlers it is
 // handed.
-const BASELINE = 569
+// 2026-09-18: 567 -> 568 for FollowUpRow, the Serve contact card's follow-up
+// toggle. It owns a React Query mutation with an optimistic write, rollback
+// and a snackbar on failure, and reads the org from context — all client
+// state, and all of it inside an already-client overlay.
+const BASELINE = 570
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

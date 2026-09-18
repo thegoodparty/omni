@@ -15,7 +15,7 @@ import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interc
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { describeFilterForTalkingPoints } from '@/contacts/utils/describeFilter.util'
-import { Campaign, Organization, User } from '../generated/prisma'
+import { Organization, User } from '../generated/prisma'
 import {
   OutreachDoorKnockingGenerationService,
   WIN_DOOR_KNOCKING_VOICE,
@@ -25,9 +25,8 @@ import {
   DoorKnockingTalkingPointsDraftRequest,
   DoorKnockingTalkingPointsDraftRequestSchema,
 } from './schemas/DoorKnockingTalkingPointsDraft.schema'
-
-const candidateName = (user: User): string =>
-  [user.firstName, user.lastName].filter(Boolean).join(' ').trim()
+import { ownerCandidateName } from './util/ownerCandidateName.util'
+import { CampaignWith } from '@/campaigns/campaigns.types'
 
 // Stateless, like every other compose draft endpoint: nothing persists here.
 // The create flow holds the points client-side and freezes them onto
@@ -37,7 +36,7 @@ const candidateName = (user: User): string =>
 // carries a paid Geoapify round trip inside a 120-second window, and an LLM
 // call has no business inside it — see doorKnockingCreate.service.
 @Controller('outreach')
-@UseCampaign()
+@UseCampaign({ include: { user: true } })
 @UseOrganization()
 @UseInterceptors(ZodResponseInterceptor)
 export class OutreachDoorKnockingController {
@@ -55,7 +54,7 @@ export class OutreachDoorKnockingController {
   @ResponseSchema(DoorKnockingTalkingPointsDraftResponseSchema)
   async draft(
     @ReqUser() user: User,
-    @ReqCampaign() campaign: Campaign,
+    @ReqCampaign() campaign: CampaignWith<'user'>,
     @ReqOrganization() organization: Organization,
     @Body(new ZodValidationPipe(DoorKnockingTalkingPointsDraftRequestSchema))
     input: DoorKnockingTalkingPointsDraftRequest,
@@ -90,7 +89,7 @@ export class OutreachDoorKnockingController {
 
     return this.generationService.generateDraft({
       input,
-      name: candidateName(user),
+      name: ownerCandidateName(campaign),
       office: positionName ?? campaign.details.normalizedOffice ?? '',
       userId: String(user.id),
       extraContext: campaignContext,

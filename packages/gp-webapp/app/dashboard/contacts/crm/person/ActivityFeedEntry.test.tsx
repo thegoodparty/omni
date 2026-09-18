@@ -88,6 +88,31 @@ describe('<StatusChangeActivityRow>', () => {
     ).toBeInTheDocument()
   })
 
+  it('names the Serve follow-up field, its answer, and when it was logged', () => {
+    mockedUseUser.mockReturnValue([
+      { id: 99, email: 'other@goodparty.org' } as never,
+      vi.fn(),
+      false,
+    ])
+
+    render(
+      <StatusChangeActivityRow
+        activity={makeActivity({
+          field: 'follow_up',
+          fromLabel: 'No',
+          toLabel: 'Yes',
+          source: 'phone_banking',
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Follow-up updated')).toBeInTheDocument()
+    expect(
+      screen.getByText("Jane Staffer changed Follow-up from 'No' to 'Yes'"),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/July 20, 2026, at/)).toBeInTheDocument()
+  })
+
   it('falls back to "Someone" when there is no actor name and the viewer is not the actor', () => {
     mockedUseUser.mockReturnValue([
       { id: 99, email: 'other@goodparty.org' } as never,

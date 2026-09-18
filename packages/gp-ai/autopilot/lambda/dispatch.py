@@ -69,6 +69,11 @@ class StageEnvelope:
     model: str
     max_budget_usd: float
     deadline_seconds: int
+    # Which stage a resume run re-enters, resolved by the conductor from the
+    # card's park marker. Required by the agent's config (RESUME_STAGE) for
+    # stage=resume and meaningless otherwise — the first live resume died at
+    # agent startup because nothing ever set it.
+    resume_stage: str | None = None
 
     def to_environment(self) -> list[dict[str, str]]:
         environment = [
@@ -80,6 +85,8 @@ class StageEnvelope:
         ]
         if self.epic_task_id is not None:
             environment.append({"name": "EPIC_TASK_ID", "value": self.epic_task_id})
+        if self.resume_stage is not None:
+            environment.append({"name": "RESUME_STAGE", "value": self.resume_stage})
         # Forwarded from the conductor's own env, not an envelope field: the
         # agent-side feedback primitives (park, notify) post to this channel,
         # and the task definition carries no channel of its own — without

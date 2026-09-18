@@ -77,6 +77,7 @@ const STATUS_CHANGE_FIELD_LABELS: Record<ContactStatusField, string> = {
   support_status: 'Support Status',
   do_not_knock: 'Do Not Knock',
   not_a_voter: 'Not A Voter',
+  follow_up: 'Follow-up',
 }
 
 // No per-outreach detail route exists in this app (app/dashboard/outreach has
