@@ -198,6 +198,31 @@ locals {
     {
       name  = "WORKSPACE_DIR"
       value = "/workspace"
+    },
+    # "DEV"/"PROD" below are Amplitude projects, not this AWS environment:
+    # autopilot's flag client (autopilot/agent/amplitude_flags.py) creates
+    # every flag in BOTH Amplitude projects — on at 100% in the dev project,
+    # 0% in prod — no matter which agent environment runs the stage, so both
+    # AWS envs carry all four values. Not var.environment-dependent on
+    # purpose. Ids resolved live from the Experiment management API on
+    # 2026-09-17; they only change if someone adds or deletes a deployment in
+    # the Amplitude UI (see .claude/skills/amplitude-flag/SKILL.md, which
+    # documents the same layout for the human-driven flow).
+    {
+      name  = "AMPLITUDE_DEV_PROJECT_ID"
+      value = "703396"
+    },
+    {
+      name  = "AMPLITUDE_DEV_DEPLOYMENT_IDS"
+      value = "13486"
+    },
+    {
+      name  = "AMPLITUDE_PROD_PROJECT_ID"
+      value = "694490"
+    },
+    {
+      name  = "AMPLITUDE_PROD_DEPLOYMENT_IDS"
+      value = "13485,53792"
     }
   ]
 }

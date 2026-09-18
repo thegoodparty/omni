@@ -69,7 +69,11 @@ jobs:
 
       - name: Invoke the sweep
         env:
-          FUNCTION_NAME: autopilot-conductor-prod
+          # dev only until the prod board + webhook exist (the prod rollout
+          # step in packages/gp-ai/infrastructure/environments/dev/autopilot-bot/README.md);
+          # a prod sweep before then would scan a list id that isn't live and
+          # fail every run. Add a second invoke (or a matrix) at prod rollout.
+          FUNCTION_NAME: autopilot-bot-dev
         run: |
           set -euo pipefail
 
