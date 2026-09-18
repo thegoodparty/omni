@@ -74,7 +74,7 @@ export abstract class AwsService {
         default:
           throw error.$fault === 'client'
             ? new InternalServerErrorException(
-                'A storage request could not be completed.',
+                'A request to AWS could not be completed.',
               )
             : new BadGatewayException('Error communicating with AWS service')
       }
