@@ -489,6 +489,11 @@ export class OutreachRobocallSendService extends createPrismaBase(
         },
       })
       if (!row) return
+      // Null billing belongs to the `draft` state alone, which the send
+      // path's settleState scope can never reach.
+      if (row.billableCount === null) {
+        throw new Error('robocall billing missing on a non-draft row')
+      }
       await this.notification.notifyRobocallDialing(
         row.outreach.campaign?.slug ?? 'unknown',
         outreachId,

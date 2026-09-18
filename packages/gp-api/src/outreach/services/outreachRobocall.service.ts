@@ -312,16 +312,20 @@ export class OutreachRobocallService extends createPrismaBase(
         },
       },
     })
-    return existing
-      ? {
-          outreachId: existing.outreachId,
-          billableCount: existing.billableCount,
-          // Recompute rather than trust the stored column: a draft created
-          // before the number fee shipped has a stale, fee-less amountInCents,
-          // and returning it would understate the total by the fee.
-          amountInCents: calcRobocallTotalInCents(existing.billableCount),
-          numberFeeInCents: ROBOCALL_NUMBER_FEE_CENTS,
-        }
-      : null
+    if (!existing) return null
+    // Null billing belongs to the `draft` state alone, which the
+    // pending_payment scope above can never match.
+    if (existing.billableCount === null) {
+      throw new Error('robocall billing missing on a non-draft row')
+    }
+    return {
+      outreachId: existing.outreachId,
+      billableCount: existing.billableCount,
+      // Recompute rather than trust the stored column: a draft created
+      // before the number fee shipped has a stale, fee-less amountInCents,
+      // and returning it would understate the total by the fee.
+      amountInCents: calcRobocallTotalInCents(existing.billableCount),
+      numberFeeInCents: ROBOCALL_NUMBER_FEE_CENTS,
+    }
   }
 }

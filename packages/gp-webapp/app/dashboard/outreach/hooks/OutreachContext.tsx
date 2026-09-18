@@ -19,6 +19,7 @@ type OutreachStatus =
   | 'pending_payment'
   | 'canceled'
   | 'failed'
+  | 'draft'
 
 export interface Outreach {
   id: number

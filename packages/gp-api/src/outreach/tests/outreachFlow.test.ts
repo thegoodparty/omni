@@ -126,6 +126,7 @@ const orgHeaders = () => ({ headers: { 'x-organization-slug': orgSlug } })
 
 interface SubmitOpts {
   outreachType: OutreachType
+  status?: OutreachStatus
   script?: string
   date?: string
   scheduledLocalTime?: string
@@ -148,7 +149,7 @@ async function submitOutreach(opts: SubmitOpts) {
   const form = new FormData()
   form.append('campaignId', String(campaign.id))
   form.append('outreachType', opts.outreachType)
-  form.append('status', 'pending')
+  form.append('status', opts.status ?? OutreachStatus.pending)
   if (opts.date) form.append('date', opts.date)
   if (opts.scheduledLocalTime) {
     form.append('scheduledLocalTime', opts.scheduledLocalTime)
@@ -757,6 +758,25 @@ describe('Outreach submission flow — single API call contract', () => {
       })
       expect(untouched.status).toBe(OutreachStatus.pending_payment)
       expect(peerlyCreatePeerlyP2pJob).not.toHaveBeenCalled()
+    })
+
+    it('a client-set status of draft → 400, no DB row', async () => {
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.draft,
+        script: draftScript,
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+      })
+
+      expect(res.status).toBe(400)
+      expect(JSON.stringify(res.data)).toContain(
+        'draft is set by POST /outreach/drafts, not the client',
+      )
+      const rows = await service.prisma.outreach.findMany({
+        where: { campaignId: campaign.id },
+      })
+      expect(rows.length).toBe(0)
     })
 
     it('draft with a non-p2p outreachType → 400, no DB row', async () => {

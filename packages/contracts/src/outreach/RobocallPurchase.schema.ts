@@ -40,6 +40,8 @@ export const RobocallDraftCreateRequestSchema = z.object({
       message: 'campaignPlanDueDate must be a valid calendar date',
     })
     .optional(),
+  // Converts an existing `draft` row in place instead of inserting (resume).
+  draftOutreachId: z.number().int().positive().optional(),
 })
 export type RobocallDraftCreateRequest = z.infer<
   typeof RobocallDraftCreateRequestSchema
