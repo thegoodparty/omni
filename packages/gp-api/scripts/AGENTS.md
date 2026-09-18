@@ -17,6 +17,7 @@ If logic only runs once and lives elsewhere, it doesn't belong here. If it's reu
 | `migrate-clean.ts` / `migrate-logger.ts`                          | Custom Prisma migrate wrappers used by `npm run migrate:*`                                                                         |
 | `aws-setup.sh` / `setup-readonly-role.sh`                         | Bash helpers for first-time AWS setup; not used in CI                                                                              |
 | `10dlc-status-drift-report.ts`                                    | Compares Peerly TCR state against our DB; one-shot operational                                                                     |
+| `stripe-campaign-reconcile.ts`                                    | Walks Stripe's Pro subscriptions against `campaign.details.subscriptionId`; read-only drift report (refund candidates, duplicates incl. one person across two customer records, stale Pro) |
 | `amplitude-flag-cohort.ts`                                        | Adds a list of emails to an Amplitude Experiment flag's targeting segment (dry-run default, `--execute` to apply)                  |
 | `requeue-stranded-compliance-runs.ts`                             | Flips compliance_setup runs stuck FAILED at `pending_website_live` back to AWAITING_RESUME (dry-run default, `--execute` to apply) |
 | `backfill-voter-file-filter-orgs.ts`                              | Migration helper for the org-scoping change on `VoterFileFilter`                                                                   |
