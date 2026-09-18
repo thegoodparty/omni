@@ -40,13 +40,16 @@ name: release-failure-alert
 # slot into the sequence and clear a main that never went green.
 #
 # The lookup reads ONE page, so the page size is the horizon, and the two ways
-# it can come back without a predecessor are not the same thing. A short page is
-# all the history there is and means the train was never red. A full page means
-# the horizon ran out first, which the train's own supersession makes possible:
-# a merge burst cancels every queued run but the newest, so a long outage can
-# bury the last decisive run under cancellations. The first case stays quiet;
-# the second posts without an outage length, because dropping a real recovery is
-# worse than not knowing how long it lasted.
+# it can come back without a predecessor are not the same thing. History no
+# longer than the horizon is all the history there is and means the train was
+# never red. History longer than it means the horizon ran out first, which the
+# train's own supersession makes possible: a merge burst cancels every queued run
+# but the newest, so a long outage can bury the last decisive run under
+# cancellations. The first case stays quiet; the second posts without an outage
+# length, because dropping a real recovery is worse than not knowing how long it
+# lasted. The response's `total_count` is what tells them apart, and a row count
+# cannot: the triggering run holds a row itself, so a page filled to the horizon
+# reads the same whether history stopped there or carries on past it.
 #
 # NO `concurrency:` GROUP HERE, deliberately. Serializing these listeners looks
 # like the fix for two runs finishing at once, but a group with
@@ -157,15 +160,24 @@ jobs:
             esac
 
             # One page is the whole lookback, so the page size IS the horizon.
-            # 100 is the endpoint's maximum. Named once and used for both the
-            # request and the fullness test below, which have to agree.
+            # 100 is the endpoint's maximum.
             LOOKBACK=100
             page=$(gh api "repos/${{ github.repository }}/actions/workflows/release.yml/runs?status=completed&branch=main&per_page=$LOOKBACK")
 
-            # The RAW count, read before the decisive filter throws the
-            # cancelled runs away, because whether the page came back full is
-            # what gives an absent predecessor its meaning further down.
-            fetched=$(jq -r '.workflow_runs | length' <<<"$page")
+            # How much history exists, NOT how much this page returned. The two
+            # differ in the one place it matters: the triggering run occupies a
+            # row itself, so a page of exactly LOOKBACK rows looks identical
+            # whether history ended there or continues past it, and a row count
+            # cannot tell a horizon that ran out from one that landed exactly on
+            # the end. total_count is the count the query matches in full and
+            # honours the status and branch filters, so it answers that outright.
+            total=$(jq -r '.total_count // "unknown"' <<<"$page")
+            case "$total" in
+              ''|*[!0-9]*)
+                echo "::error::the run list came back without a usable total_count ('$total'), so a truncated horizon cannot be told from the end of history and a recovery could be dropped. Failing loudly."
+                exit 1
+                ;;
+            esac
 
             # Decisive runs only. Dropping cancelled/skipped here is what makes
             # them transparent rather than a state of their own.
@@ -181,18 +193,18 @@ jobs:
               exit 0
             fi
 
-            # NO PREDECESSOR MEANS TWO DIFFERENT THINGS and the page size is
-            # what separates them. A SHORT page is the whole completed history
-            # of this workflow, so there was never a red run to clear and
-            # saying "recovered" would invent an outage. A FULL page means the
-            # lookback ran out before it found one, and the reason it can is
-            # the train's own supersession: a burst of merges cancels every
-            # queued run but the newest, so a long outage can bury the last
-            # decisive run under cancellations. Reading that as "nothing to
+            # NO PREDECESSOR MEANS TWO DIFFERENT THINGS and only the total
+            # separates them. With history no longer than the horizon the page
+            # held all of it, so there was never a red run to clear and saying
+            # "recovered" would invent an outage. With history LONGER than the
+            # horizon the lookback ran out before it found one, and the reason
+            # it can is the train's own supersession: a burst of merges cancels
+            # every queued run but the newest, so a long outage can bury the
+            # last decisive run under cancellations. Reading that as "nothing to
             # clear" would drop a real recovery, which is the single thing this
-            # path must never do, so a full page posts without a length instead.
-            if [ "$prev" = "none" ] && [ "$fetched" -lt "$LOOKBACK" ]; then
-              echo "::notice::No decisive release run on main precedes #$RUN_NUMBER anywhere in this workflow's completed history, so there is no red state to clear."
+            # path must never do, so it posts without a length instead.
+            if [ "$prev" = "none" ] && [ "$total" -le "$LOOKBACK" ]; then
+              echo "::notice::No decisive release run on main precedes #$RUN_NUMBER anywhere in this workflow's $total completed runs, so there is no red state to clear."
               exit 0
             fi
 
