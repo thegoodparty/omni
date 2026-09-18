@@ -542,9 +542,19 @@ jobs:
           # converged" because prod/alert-filter was declared twice and both
           # copies wrote alert-filter.code. It converged anyway, so the count
           # was right by luck rather than by construction.
+          #
+          # `dev-` PREFIXED, because that is the name ci-plan-root.sh writes:
+          # it is called with `dev/<root>` and slugs its argument whole
+          # (`slug="${root//\//-}"`), so dev/shared-infra lands in PLAN_DIR as
+          # dev-shared-infra.code. Comparing against the bare directory name
+          # matched nothing at all — release 35273516196 held all 13 result
+          # files, reported all 13 roots as having "produced no re-plan
+          # result", and failed the job, which skipped all eight Promote jobs
+          # and blocked prod on a filename. The `got:` list below is printed
+          # for exactly this: it named every file, each one `dev-` prefixed.
           missing=()
           while IFS= read -r root; do
-            [ -f "$PLAN_DIR/$root.code" ] || missing+=("$root")
+            [ -f "$PLAN_DIR/dev-$root.code" ] || missing+=("dev-$root")
           done < <(find packages/gp-ai/infrastructure/environments/dev -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
           if [ "${#missing[@]}" -ne 0 ]; then
             for root in "${missing[@]}"; do
@@ -1237,9 +1247,12 @@ jobs:
           # By name rather than by count, for the reason spelled out on the
           # dev job's copy of this step: equal totals do not mean equal sets,
           # and a duplicated root hides a missing one.
+          # `prod-` prefixed, for the reason on the dev job's copy: the result
+          # files are named after ci-plan-root.sh's whole slugged argument, not
+          # after the root directory.
           missing=()
           while IFS= read -r root; do
-            [ -f "$PLAN_DIR/$root.code" ] || missing+=("$root")
+            [ -f "$PLAN_DIR/prod-$root.code" ] || missing+=("prod-$root")
           done < <(find packages/gp-ai/infrastructure/environments/prod -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)
           if [ "${#missing[@]}" -ne 0 ]; then
             for root in "${missing[@]}"; do

@@ -60,7 +60,7 @@ export default function InsightsStep() {
           chartType="barList"
           percentage={true}
           title="Age Distribution"
-          insight="This data is based on your voter file and may not be 100% accurate."
+          insight="This data is based on your constituent file and may not be 100% accurate."
           data={chartData.ageDistribution}
           isLoading={isLoading}
           error={error}
@@ -70,7 +70,7 @@ export default function InsightsStep() {
           chartType="donut"
           percentage={true}
           title="Has Children Under 18"
-          insight="This data is based on your voter file and may not be 100% accurate."
+          insight="This data is based on your constituent file and may not be 100% accurate."
           data={chartData.presenceOfChildren}
           isLoading={isLoading}
           error={error}
@@ -80,7 +80,7 @@ export default function InsightsStep() {
           chartType="donut"
           percentage={true}
           title="Homeowner"
-          insight="This data is based on your voter file and may not be 100% accurate."
+          insight="This data is based on your constituent file and may not be 100% accurate."
           data={chartData.homeowner}
           isLoading={isLoading}
           error={error}
@@ -90,7 +90,7 @@ export default function InsightsStep() {
           chartType="barList"
           percentage={true}
           title="Estimated Income Range"
-          insight="This data is based on your voter file and may not be 100% accurate."
+          insight="This data is based on your constituent file and may not be 100% accurate."
           data={chartData.estimatedIncomeRange}
           isLoading={isLoading}
           error={error}
@@ -100,7 +100,7 @@ export default function InsightsStep() {
           chartType="barList"
           percentage={true}
           title="Education"
-          insight="This data is based on your voter file and may not be 100% accurate."
+          insight="This data is based on your constituent file and may not be 100% accurate."
           data={chartData.education}
           isLoading={isLoading}
           error={error}

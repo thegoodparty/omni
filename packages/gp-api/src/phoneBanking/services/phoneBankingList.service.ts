@@ -48,8 +48,13 @@ const MAX_BUILD_PAGES = 101
 // count — well past Prisma's default 5s transaction timeout.
 const BUILD_TX_TIMEOUT_MS = 60_000
 
-const EMPTY_AUDIENCE_MESSAGE =
-  'No matching voters with a phone number — widen the filters'
+// Rendered verbatim by the webapp, and `POST /phone-banking/serve/lists`
+// throws it too — so the noun follows the org the way every other Serve
+// answer in this file does (the `eo-` prefix is the whole rule).
+const emptyAudienceMessage = (organization: Organization): string =>
+  `No matching ${
+    organization.slug.startsWith('eo-') ? 'constituents' : 'voters'
+  } with a phone number — widen the filters`
 
 const EXHAUSTED_AUDIENCE_MESSAGE =
   'Everyone reachable in this list is already in a previous phone banking ' +
@@ -132,7 +137,7 @@ export class PhoneBankingListService extends createPrismaBase(
       filterInput,
     )
     if (resolved.empty) {
-      throw new BadRequestException(EMPTY_AUDIENCE_MESSAGE)
+      throw new BadRequestException(emptyAudienceMessage(organization))
     }
 
     const notAVoterIds = new Set(
@@ -196,7 +201,9 @@ export class PhoneBankingListService extends createPrismaBase(
     // previous campaign" would misdirect the user away from widening it).
     if (grouped.size === 0) {
       throw new BadRequestException(
-        skippedPriorBatch ? EXHAUSTED_AUDIENCE_MESSAGE : EMPTY_AUDIENCE_MESSAGE,
+        skippedPriorBatch
+          ? EXHAUSTED_AUDIENCE_MESSAGE
+          : emptyAudienceMessage(organization),
       )
     }
 
@@ -588,6 +595,7 @@ export class PhoneBankingListService extends createPrismaBase(
           outcome: interaction.outcome,
           supportAnswer: interaction.supportAnswer,
           willVote: interaction.willVote,
+          followUp: interaction.followUp,
           occurredAt: interaction.occurredAt,
         },
       ]),

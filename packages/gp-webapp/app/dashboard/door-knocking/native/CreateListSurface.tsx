@@ -20,7 +20,10 @@ import type {
   CreateFlowStep,
   RecommendedCriteria,
 } from './createFlow/CreateListFlow'
-import type { DoorKnockingTurf } from '@goodparty_org/contracts'
+import type {
+  DoorKnockingTurf,
+  RecommendedListVariant,
+} from '@goodparty_org/contracts'
 import { audienceOptions } from './createFlow/savedListOptions'
 import type { PrecinctOptionsResult } from 'app/dashboard/contacts/crm/wizard/usePrecinctOptions'
 import type { PolygonRing } from './VoterMapCanvas'
@@ -226,6 +229,9 @@ export interface CreateListSurfaceProps {
   // Raised once the who step has taken the carried list, so the page can stop
   // handing it back on the next open of this flow.
   onPreselectApplied?: () => void
+  // The same pair for a recommendation carried in on `?recommended=`.
+  preselectedRecommendedVariant?: RecommendedListVariant
+  onRecommendedPreselectApplied?: () => void
 }
 
 export default function CreateListSurface({
@@ -257,6 +263,8 @@ export default function CreateListSurface({
   orgSlug,
   preselectedListId,
   onPreselectApplied,
+  preselectedRecommendedVariant,
+  onRecommendedPreselectApplied,
 }: CreateListSurfaceProps) {
   // The who step's list picker. Both reads are the page's own queries by key,
   // so this costs nothing: the saved lists are already warm (the rail resolves
@@ -448,6 +456,8 @@ export default function CreateListSurface({
       orgSlug={orgSlug}
       preselectedListId={preselectedListId}
       onPreselectApplied={onPreselectApplied}
+      preselectedRecommendedVariant={preselectedRecommendedVariant}
+      onRecommendedPreselectApplied={onRecommendedPreselectApplied}
       onSelectedListChange={handleSelectedListChange}
     />
   )

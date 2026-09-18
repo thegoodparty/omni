@@ -75,6 +75,7 @@ import type {
   RecommendedListChannel,
   RecommendedListIntent,
   RecommendedListsResponse,
+  RecommendedListVariant,
   MyAssignmentsResponse,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
@@ -1122,9 +1123,13 @@ export type APIEndpoints = {
     Response: SegmentResponse[]
   }
   'GET /v1/campaigns/mine/recommended-lists': {
+    // No channel = the global universes the voter data page lists (every
+    // intent, no contactability cut). A variant asks for that one universe
+    // regardless of intent, for a flow entered from that page.
     Request: {
-      channel: RecommendedListChannel
+      channel?: RecommendedListChannel
       intent?: RecommendedListIntent
+      variant?: RecommendedListVariant
     }
     Response: RecommendedListsResponse
   }
@@ -1293,6 +1298,15 @@ export type APIEndpoints = {
     // Omitted segment = the universe row's detail (ENG-10778): the whole
     // unfiltered district.
     Request: { segment?: number }
+    Response: ListDetailContactsResponse
+  }
+  // The same payload for a filter that has not been saved (a recommended
+  // list's detail sheet); the body is the count endpoint's inline filter.
+  'POST /v1/contacts/list-detail': {
+    Request: {
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
     Response: ListDetailContactsResponse
   }
 

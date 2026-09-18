@@ -7,6 +7,10 @@ election day turnout). This feature turns that pair into one or more
 **recommended voter lists** — each a `VoterFileFilter` the candidate can accept,
 edit, and send against.
 
+The same universes are listed on the voter data page before any channel is
+picked — the **global** lists, with no contactability cut — and a candidate can
+start an outreach from one there. See [The voter data page](#the-voter-data-page).
+
 **Two independent gates, and they are not the same mechanism.** Win-only is a
 permanent product restriction, not a rollout setting: the endpoint refuses
 Serve (`eo-`) organizations, and the affinity and ideology filter dimensions
@@ -426,7 +430,26 @@ reasons alone.
 
 ## The endpoint
 
-`GET campaigns/mine/recommended-lists?channel=<channel>&intent=<intent>`
+`GET campaigns/mine/recommended-lists?channel=<channel>&intent=<intent>&variant=<variant>`
+
+Three shapes of request, all optional params:
+
+- **`channel` + `intent`** — a flow's audience step. The intent's variants,
+  cut and priced for the channel. A channel with no intent returns `[]`
+  (`custom` and social's `issue_update` map to no intent).
+- **No `channel`** — the voter data page. Every intent's variants as the
+  global universes: no contactability cut, no `estimatedCostCents`, the
+  normal vote-goal floor. Two intents can describe the same universe (early
+  voting duplicates persuasion and event audiences by decision), so a global
+  response collapses equivalent filters and keeps the first in registry
+  order. An `intent` alongside narrows it to that intent's universes.
+- **`variant`** — one universe by registry key, regardless of intent, cut for
+  the channel if one is given. This is how a flow entered from the voter data
+  page fetches the recommendation it arrived with: the purpose the candidate
+  then picks must not hide it. **Held to no size floor, only the zero check**:
+  the candidate already chose it where its global count cleared the floor, a
+  channel's cut can take it under (SMS keeps 58%-74% of a list), and dropping
+  it here would open the flow with nothing.
 
 Returns an ordered array of recommendations. Each carries the unsaved filter
 shape plus everything the card displays:
@@ -434,6 +457,7 @@ shape plus everything the card displays:
 | Field                | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `variant`            | the registry key, e.g. `persuadeAffinity`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `intent`             | the intent the variant belongs to. Provenance (`recommendedIntent`) and the accept event carry this, not the purpose the candidate picked to reach the card — the two differ for a recommendation carried in from the voter data page |
 | `filter`             | the unsaved `VoterFileFilter` shape                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `count`              | contactable size after the channel refinement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `voteGoalShare`      | `count` over `votesNeededToWin`. Omitted — not nulled — when the vote goal can't be resolved. Deliberately unbounded above: a list can hold several times the votes a race needs                                                                                                                                                                                                                                                                                                                                                 |
@@ -452,6 +476,49 @@ Behavior:
   size floor gates on it. No caching in v1.
 - **Refuse `eo-` organizations.**
 - **Variants under the floor are omitted**, per the rules above.
+
+## The voter data page
+
+`/dashboard/contacts` (Win only) lists the global universes above its saved
+lists (`gp-webapp` `app/dashboard/contacts/crm/recommended/`). The section
+renders nothing when nothing qualifies, a Pro notice for a non-Pro campaign,
+and its own error node on a 502/504.
+
+**Details** on a card that already matches a saved list opens that list's own
+detail sheet. Otherwise it opens a sheet built from the recommendation itself,
+with every section the saved-list sheet has: the filter summary, demographics
+and reachability from `POST /v1/contacts/list-detail` (the same aggregates as
+a saved list, computed for the inline filter the count endpoint already
+accepts), the two history tiles and the history section reading empty (nothing
+has been sent to a list that does not exist), and a Download. That Download is
+`GET /v1/campaigns/mine/recommended-lists/:variant/download`: the route
+resolves the variant's global universe (`RecommendedListsService.globalFilterFor`
+— ideology bucket and election code included, so it is the same universe the
+card counted) and streams it through `ContactsService.downloadFilter`, the
+saved-list CSV path fed an inline filter, always as individual voters. It
+refuses an `eo-` org, 400s an unknown variant, and 404s an ideology variant
+the campaign has no bucket for.
+
+**Send outreach** saves nothing. It opens the page's "Choose a channel" sheet
+(`crm/shared/channelPicker/`), which lists every channel with how many of the
+list it can reach and what that costs, and each row links into the outreach
+hub with that flow named (`?compose=text|robocall|phoneBanking|social`, door
+knocking straight to its create flow) and the audience beside it: `?listId=`
+when the recommendation already matches a saved list, `?recommended=<variant>`
+otherwise. The chosen flow fetches the variant for its own channel from open.
+It also skips "What do you want to do?": the card's intent is the answer,
+so the flow opens on its audience step with the purpose that intent maps
+onto (`purposeForRecommendedVariant`, the inverse of the purpose map, over
+the contracts' `RECOMMENDED_LIST_VARIANT_INTENT`), and a channel that drafts
+on purpose pick (phone banking) drafts for it exactly as a tap would.
+On its audience step the recommendation arrives already chosen, as the
+prototype has it: the saved list selected if the candidate already has it,
+otherwise its card reads pressed with Continue carrying the recommendation's
+count for that channel, and nothing asks for a name. Continue saves the list
+under the recommendation's own title and moves on; tapping the card instead
+opens the naming drawer, for a candidate who wants to rename it first. Door
+knocking applies it to its draft the same way and paints the card pressed.
+The card is listed under "Recommended for you" whatever purpose was picked.
 
 ### Dedupe against existing lists
 

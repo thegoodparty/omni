@@ -113,6 +113,17 @@ export class ContactsController {
     return this.contactsService.getListDetail(dto, organization)
   }
 
+  // The same payload for an unsaved filter (a recommended list's detail
+  // sheet) — a body rather than a segment id, like `count` above.
+  @Post('list-detail')
+  @ResponseSchema(ListDetailContactsResponseSchema)
+  async getFilterDetail(
+    @Body() filters: CountContactsDTO,
+    @ReqOrganization() organization: Organization,
+  ) {
+    return this.contactsService.getFilterDetail(filters, organization)
+  }
+
   @Get(':id')
   @ResponseSchema(PersonSchema)
   async getContact(

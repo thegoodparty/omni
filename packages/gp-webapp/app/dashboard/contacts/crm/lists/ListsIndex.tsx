@@ -1,12 +1,12 @@
 'use client'
 
-import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { Button, Card, UserIcon } from '@styleguide'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { districtStatsQueryOptions } from 'app/dashboard/polls/shared/queries'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useShowContactProModal } from '../ContactProModal'
+import { useOpenChannelPicker } from '../shared/channelPicker/ChannelPickerProvider'
 import { getContactsLabels } from '../../../shared/contactsLabels'
 import { ALL_SEGMENTS } from '../shared/constants'
 import ListCard from './ListCard'
@@ -30,6 +30,7 @@ const AllContactsCard = ({
   const query = useQuery(districtStatsQueryOptions)
   const { selectList } = useContactsTable()
   const showProUpgradeModal = useShowContactProModal()
+  const openChannelPicker = useOpenChannelPicker()
 
   // getListDetail is pro-gated like every other filtering/detail action
   // (ENG-10495) — the universe view is no exception, so a non-pro click
@@ -70,19 +71,19 @@ const AllContactsCard = ({
             Details
           </Button>
           {showSendOutreach && (
-            <Button size="small" className="h-8 px-3.5 text-xs" asChild>
-              <Link
-                href="/dashboard/outreach"
-                onClick={() =>
-                  // No listId: the universe row links bare (there is no
-                  // saved segment behind the unfiltered universe).
-                  trackEvent(EVENTS.VoterData.SendOutreachClicked, {
-                    surface: 'universeRow',
-                  })
-                }
-              >
-                Send outreach
-              </Link>
+            <Button
+              size="small"
+              className="h-8 px-3.5 text-xs"
+              onClick={() => {
+                // No listId: there is no saved segment behind the unfiltered
+                // universe, so the picker opens on the whole district.
+                trackEvent(EVENTS.VoterData.SendOutreachClicked, {
+                  surface: 'universeRow',
+                })
+                openChannelPicker({ kind: 'universe' })
+              }}
+            >
+              Send outreach
             </Button>
           )}
         </div>

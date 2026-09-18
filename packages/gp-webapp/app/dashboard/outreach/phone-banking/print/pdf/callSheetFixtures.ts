@@ -28,6 +28,7 @@ export const interaction = (
   outcome: 'answered',
   supportAnswer: null,
   willVote: null,
+  followUp: null,
   occurredAt: new Date('2026-08-18T18:00:00.000Z'),
   ...overrides,
 })

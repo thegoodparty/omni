@@ -744,6 +744,24 @@ export class StripeService {
     return customer.id
   }
 
+  // Returns the customer as Stripe holds it, deleted ones included — a deleted
+  // customer comes back as `{ deleted: true }` with none of its fields, which
+  // callers have to handle rather than treat as a failure.
+  async retrieveCustomer(customerId: string) {
+    try {
+      return await this.stripe.customers.retrieve(customerId)
+    } catch (e) {
+      if (e instanceof Error) {
+        this.logger.error(e, `Failed to retrieve customer ${customerId}`)
+        throw new BadGatewayException(
+          `Failed to retrieve customer ${customerId}`,
+          e.message,
+        )
+      }
+      throw e
+    }
+  }
+
   async retrieveSubscription(subscriptionId: string) {
     try {
       return await this.stripe.subscriptions.retrieve(subscriptionId)

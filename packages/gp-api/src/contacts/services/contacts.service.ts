@@ -72,6 +72,7 @@ import {
 } from '../contacts.types'
 import { CountContactsDTO } from '../schemas/countContacts.schema'
 import { PolygonPreviewContactsDTO } from '../schemas/polygonPreviewContacts.schema'
+import type { VoterFilterBase } from '@/shared/schemas/voterFilterBase.schema'
 import type { VoterFileFilter } from '../../generated/prisma'
 import type { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
 import { ListDetailContactsDTO } from '../schemas/listDetailContacts.schema'
@@ -1221,6 +1222,48 @@ export class ContactsService {
     return { ...aggregates, outreachHistory }
   }
 
+  // The same payload as getListDetail for a filter that has not been saved
+  // — a recommended list's detail sheet. Same pro gate and the same filter
+  // translation countContacts gives an unsaved filter, so the figures agree
+  // with what saving it would show. No row, so no outreach history.
+  async getFilterDetail(
+    filterInput: CountContactsDTO,
+    organization: Organization,
+  ): Promise<ListDetailContactsResponse> {
+    if (!(await this.isProAccess(organization))) {
+      throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
+    }
+
+    const { filters: baseFilters, idOverrides } = await this.resolveBaseFilters(
+      organization,
+      filterInput,
+    )
+    const { idResolution, contactsMadeIdOverrides } =
+      await this.resolveIdFilterWithContactsMade(organization, filterInput)
+
+    if (idResolution.kind === 'empty') {
+      return {
+        demographics: { people: 0, avgAge: null, avgIncome: null },
+        reachability: {
+          sms: 0,
+          robocall: 0,
+          phoneBanking: 0,
+          doorKnocking: 0,
+          polls: 0,
+        },
+        outreachHistory: [],
+      }
+    }
+
+    const aggregates = await this.fetchListDetailAggregates(
+      organization,
+      this.mergeIdFilter(baseFilters, idResolution),
+      idOverrides,
+      contactsMadeIdOverrides,
+    )
+    return { ...aggregates, outreachHistory: [] }
+  }
+
   // Demographics + reachable-by-channel aggregates shared by a saved list's
   // detail and the universe detail (ENG-10778 made the latter a second
   // caller). One call, and on Databricks one statement: the channel counts
@@ -1497,6 +1540,41 @@ export class ContactsService {
             idOverrides,
             contactsMadeIdOverrides,
             groupByHousehold,
+            excludeColumns,
+            res,
+          ),
+    )
+  }
+
+  // The saved-list download for a filter that has not been saved — the voter
+  // data page's recommended-list sheet. Same pro gate and the same resolution
+  // a saved list gets, always as individual voters: the household grouping
+  // belongs to the built-in door-knocking segment alone.
+  async downloadFilter(
+    filter: VoterFilterBase,
+    res: FastifyReply,
+    organization: Organization,
+  ) {
+    if (!(await this.isProAccess(organization))) {
+      throw new ForbiddenException('Campaign is not pro')
+    }
+
+    const { filters, empty, idOverrides, contactsMadeIdOverrides } =
+      await this.resolveSavedFilterForQuery(organization, filter)
+    this.assertNoPartyFilterForElectedOffice(organization, filters)
+    this.assertNoRecommendedListFilterForElectedOffice(organization, filters)
+    const excludeColumns = this.hasElectedOfficeAccess(organization)
+      ? SERVE_EXCLUDED_DOWNLOAD_COLUMNS
+      : undefined
+    return this.withOrgDistrictResolution(organization, (params) =>
+      empty
+        ? this.emptyDownload(res)
+        : this.streamPeopleDownload(
+            params,
+            filters,
+            idOverrides,
+            contactsMadeIdOverrides,
+            false,
             excludeColumns,
             res,
           ),

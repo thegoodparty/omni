@@ -14,6 +14,7 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { DoorKnockingTurfCountsService } from '@/doorKnocking/services/doorKnockingTurfCounts.service'
 import { activeTurfScope } from '@/doorKnocking/utils/turfScope.util'
 import {
+  FollowUpAnswer,
   Outreach,
   OutreachStatus,
   OutreachType,
@@ -236,6 +237,7 @@ export class OutreachSocialService extends createPrismaBase(
       supporters,
       unsure,
       nonSupporters,
+      followUpGroups,
       calledEntries,
     ] = await Promise.all([
       this.client.phoneBankingListEntry.count({
@@ -265,6 +267,13 @@ export class OutreachSocialService extends createPrismaBase(
           supportAnswer: SupportAnswer.non_supporter,
         },
       }),
+      // One grouped read rather than a count per answer: the answer is
+      // binary, so two counts would be two round trips for the same row set.
+      this.client.contactInteractionPhoneBanking.groupBy({
+        by: ['followUp'],
+        where: { phoneBankingListId: listId, followUp: { not: null } },
+        _count: { _all: true },
+      }),
       this.client.$queryRaw<{ outcome: PhoneBankCallOutcome }[]>(Prisma.sql`
           SELECT DISTINCT ON (entry.id) interaction.outcome
           FROM phone_banking_list_entry entry
@@ -291,6 +300,18 @@ export class OutreachSocialService extends createPrismaBase(
       byOutcome[outcome] += 1
     }
 
+    // Both keys present at zero, for the reason door-knocking's
+    // knockStatusCounts gives: "nobody needs following up" is an answer, and a
+    // row that vanished when it emptied would make the table's own shape a
+    // fact about the list.
+    const byFollowUp: Record<FollowUpAnswer, number> = {
+      [FollowUpAnswer.yes]: 0,
+      [FollowUpAnswer.no]: 0,
+    }
+    for (const group of followUpGroups) {
+      if (group.followUp) byFollowUp[group.followUp] = group._count._all
+    }
+
     return {
       listId,
       entriesTotal,
@@ -298,6 +319,7 @@ export class OutreachSocialService extends createPrismaBase(
       peopleTotal,
       peopleCalled,
       byOutcome,
+      byFollowUp,
       supporters,
       unsure,
       nonSupporters,

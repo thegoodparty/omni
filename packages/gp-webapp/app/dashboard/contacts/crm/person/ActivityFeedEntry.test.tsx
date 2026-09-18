@@ -119,6 +119,7 @@ const makePhoneBankingActivity = (
     outcome: 'answered',
     supportAnswer: null,
     willVote: null,
+    followUp: null,
     note: null,
     manual: false,
     actorName: 'Jane Staffer',

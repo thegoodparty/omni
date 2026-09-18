@@ -16,7 +16,10 @@ import {
   ChevronDownIcon,
   PlusIcon,
 } from '@styleguide/components/ui/icons'
-import type { RecommendedList } from '@goodparty_org/contracts'
+import type {
+  RecommendedList,
+  RecommendedListVariant,
+} from '@goodparty_org/contracts'
 import filterSections from 'app/dashboard/contacts/shared/filters.config'
 import { PILL_TOGGLE_ITEM_CLASSNAME } from 'app/dashboard/contacts/crm/shared/constants'
 import PrecinctFilter from 'app/dashboard/contacts/crm/wizard/PrecinctFilter'
@@ -63,12 +66,12 @@ interface WhoStepProps {
   // `selectList` callback so the trigger commits to the pick — including
   // an explicit All-contacts pick — instead of showing the placeholder.
   hasPickedAudience: boolean
-  // True when the current audience came from a recommended-list card,
-  // not from the picker. The picker's own selected-state visuals are
-  // suppressed then — the audience lives on the recommendation card, not
-  // on any row of this popover, so highlighting a row (in particular the
-  // default "All contacts" row) would mislead.
-  hasActiveRecommendation: boolean
+  // The recommendation the current audience came from, when it came from a
+  // card rather than the picker. That card reads pressed, and the picker's
+  // own selected-state visuals are suppressed — the audience lives on the
+  // card, not on any row of this popover, so highlighting a row (in
+  // particular the default "All contacts" row) would mislead.
+  activeRecommendationVariant: RecommendedListVariant | null
   isServeOrg: boolean
   // Which of the step's two faces is on screen: the list picker, or the
   // filter pills behind "Create a new list". Lifted so it survives a step back
@@ -138,7 +141,7 @@ export const WhoStep = ({
   selectedListId,
   onSelectList,
   hasPickedAudience,
-  hasActiveRecommendation,
+  activeRecommendationVariant,
   isServeOrg,
   building,
   onBuildingChange,
@@ -163,6 +166,7 @@ export const WhoStep = ({
   // hand-cut filters. The audience is committed either way (Continue is
   // gated on `hasPickedAudience`); this is just about what the picker
   // itself claims to hold.
+  const hasActiveRecommendation = activeRecommendationVariant !== null
   const showsPickerSelection = hasPickedAudience && !hasActiveRecommendation
 
   const toggleGroupValues = (
@@ -316,6 +320,9 @@ export const WhoStep = ({
                   key={recommendation.variant}
                   recommendation={recommendation}
                   channel="doorKnocking"
+                  selected={
+                    activeRecommendationVariant === recommendation.variant
+                  }
                   onSelect={() => onSelectRecommendation(recommendation)}
                 />
               ))}
@@ -354,7 +361,9 @@ export const WhoStep = ({
                       // invites the choice.
                       recommendations.length > 0
                       ? 'View your lists here'
-                      : 'Choose a voter list'}
+                      : isServeOrg
+                        ? 'Choose a constituent list'
+                        : 'Choose a voter list'}
                 </span>
                 {showsPickerSelection ? (
                   active.sub ? (

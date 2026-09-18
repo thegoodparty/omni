@@ -61,19 +61,28 @@ const joinLabels = (labels: string[]): string =>
 // empty — and enough to act on, since it points at the pills to go and look
 // at. The fallback covers a list that carries none of them, which should not
 // reach here but is not worth a crash if it does.
+// Serve says "constituents" for all three of these: they are the sentences a
+// create failure puts in front of a user, and an elected official is never
+// told about voters (docs/product-vocabulary.md). The noun is the only
+// difference — the diagnosis each sentence makes is the same on both surfaces.
+const people = (isServe: boolean): string =>
+  isServe ? 'constituents' : 'voters'
+
 export const emptyAudienceMessage = (
   filter: ContactsFilterResolutionInput,
+  isServe: boolean,
 ): string => {
   const labels = EMPTIABLE_CRITERIA.filter((criterion) =>
     criterion.applies(filter),
   ).map((criterion) => criterion.label)
   const named = joinLabels(labels)
+  const noun = people(isServe)
   return named
-    ? `No voters match this list's ${named} filters — edit the list or pick a different audience`
-    : "No voters match this list's filters — edit the list or pick a different audience"
+    ? `No ${noun} match this list's ${named} filters — edit the list or pick a different audience`
+    : `No ${noun} match this list's filters — edit the list or pick a different audience`
 }
 
-// The polygon case, kept verbatim. This one really is about the boundary:
-// the audience exists, and the shape encloses none of it.
-export const EMPTY_TURF_MESSAGE =
-  'No matching voters inside this turf — widen the area or the filters'
+// The polygon case. This one really is about the boundary: the audience
+// exists, and the shape encloses none of it.
+export const emptyTurfMessage = (isServe: boolean): string =>
+  `No matching ${people(isServe)} inside this turf — widen the area or the filters`

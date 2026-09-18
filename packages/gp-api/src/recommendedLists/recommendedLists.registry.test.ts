@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { RECOMMENDED_LIST_VARIANT_VALUES } from '@goodparty_org/contracts'
+import {
+  RECOMMENDED_LIST_VARIANT_INTENT,
+  RECOMMENDED_LIST_VARIANT_VALUES,
+} from '@goodparty_org/contracts'
 import {
   RECOMMENDED_LISTS_REGISTRY,
   fillCopy,
@@ -19,6 +22,17 @@ describe('variantsForIntent', () => {
       'persuadeIdeology',
       'persuadeUndecided',
     ])
+  })
+
+  // The webapp answers the outreach flow's purpose step for a carried-in
+  // recommendation from the contracts map; a registry that disagreed would
+  // build one intent's list and open the flow on another's purpose.
+  it('agrees with the contracts map about every variant’s intent', () => {
+    for (const variant of RECOMMENDED_LIST_VARIANT_VALUES) {
+      expect(RECOMMENDED_LISTS_REGISTRY[variant].intent).toBe(
+        RECOMMENDED_LIST_VARIANT_INTENT[variant],
+      )
+    }
   })
 
   it('covers all five intents and all thirteen variants exactly once', () => {

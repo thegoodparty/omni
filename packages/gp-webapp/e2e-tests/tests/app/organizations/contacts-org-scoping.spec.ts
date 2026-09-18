@@ -59,9 +59,28 @@ test.describe('Contacts Organization Scoping', () => {
     expect(person).toBeTruthy()
 
     const panel = await openPersonViaTypeahead(page, person!)
-    await expect(panel.getByText('Political Party')).not.toBeVisible()
-    await expect(panel.getByText('Registered Voter')).toBeVisible()
-    await expect(panel.getByText('Voter Status')).toBeVisible()
+    // The whole voter-file card is Win-only now. It carried a support status
+    // Serve can never set (gp-api rejects the write for an `eo-` org) plus
+    // registration and turnout propensity, and an official does not ask
+    // whether a constituent votes or how reliably — so there was nothing left
+    // to put in it. This spec used to assert the Win labels were VISIBLE
+    // here, which is how they outlived a vocabulary pass on the one surface
+    // named Constituent Data.
+    for (const label of [
+      'Political Party',
+      'Support Status',
+      'Registered Voter',
+      'Registered to vote',
+      'Voter Status',
+      'Turnout likelihood',
+      'Voter Demographics',
+      'Constituent Demographics',
+    ]) {
+      await expect(panel.getByText(label)).not.toBeVisible()
+    }
+    // The personal-profile card below it is untouched on both surfaces, so a
+    // panel that rendered nothing at all would still fail here.
+    await expect(panel.getByText('Demographic Information')).toBeVisible()
     await closePersonPanel(panel)
   })
 
@@ -103,7 +122,7 @@ test.describe('Contacts Organization Scoping', () => {
     // The Win lists index renders (its universe row proves the segments
     // fetch resolved) without the EO org's list.
     await expect(
-      page.getByRole('heading', { name: 'Voter Lists' }),
+      page.getByRole('heading', { name: 'Voter Lists', exact: true }),
     ).toBeVisible({ timeout: 20_000 })
     await expect(listCard(page, 'All voters')).toBeVisible({
       timeout: 20_000,

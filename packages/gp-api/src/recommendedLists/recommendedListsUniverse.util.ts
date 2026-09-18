@@ -180,6 +180,9 @@ const buildUniverse = (
   }
 }
 
+// A null channel is the global universe itself — what the voter data page
+// shows before any channel is picked — so no contactability cut is applied.
+//
 // `electionCode` is required rather than defaulted: the band a race gets is
 // policy, and a caller that forgets to pass one would silently serve the
 // November band to an off-cycle race, which is the exact bug this argument
@@ -199,7 +202,7 @@ const buildUniverse = (
 // tighter band to move them to.
 export const buildVariantFilter = (
   variant: RecommendedListVariant,
-  channel: RecommendedListChannel,
+  channel: RecommendedListChannel | null,
   ideologyBucket: IdeologyBucket | null,
   electionCode: ElectionCode | null,
 ): VoterFilterShape | null => {
@@ -212,6 +215,6 @@ export const buildVariantFilter = (
 
   return {
     ...buildUniverse(variant, ideologyBucket, electionCode),
-    ...CHANNEL_CONTACTABILITY[channel],
+    ...(channel ? CHANNEL_CONTACTABILITY[channel] : {}),
   }
 }

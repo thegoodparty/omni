@@ -20,11 +20,13 @@ import {
   OUTCOME_DOT_CLASS,
   OUTCOME_LABEL,
   OUTCOME_ORDER,
+  FOLLOW_UP_ANSWER_LABEL,
   SUPPORT_ANSWER_LABEL,
   WILL_VOTE_ANSWER_LABEL,
   buildRecordCallRequest,
   draftFromInteraction,
   draftWithEngagement,
+  draftWithFollowUp,
   draftWithOutcome,
   draftWithSupportAnswer,
   draftWithWillVote,
@@ -40,6 +42,10 @@ interface PhoneBankingOutcomeFormProps {
   personId: string
   interaction: PhoneBankingInteraction | null
   householdHasOthersUnlogged: boolean
+  // Serve asks one question of an engaged call where Win asks two — see
+  // `isDraftComplete`. Threaded from the caller page's `list.isServe` rather
+  // than re-derived, so one loaded list cannot answer it two ways.
+  isServe: boolean
   onSaved: (results: PhoneBankingCallResult[]) => void
 }
 
@@ -55,10 +61,11 @@ export default function PhoneBankingOutcomeForm({
   personId,
   interaction,
   householdHasOthersUnlogged,
+  isServe,
   onSaved,
 }: PhoneBankingOutcomeFormProps): React.JSX.Element {
   const [draft, setDraft] = useState<PhoneBankingOutcomeDraft>(() =>
-    draftFromInteraction(interaction),
+    draftFromInteraction(interaction, isServe),
   )
   // Summary state once something is saved; the cascade form reopens only on
   // Edit — mirrors the canvas's sticky log-call bar.
@@ -99,7 +106,7 @@ export default function PhoneBankingOutcomeForm({
   })
 
   const handleCancel = () => {
-    setDraft(draftFromInteraction(interaction))
+    setDraft(draftFromInteraction(interaction, isServe))
     setIsEditing(!interaction)
   }
 
@@ -116,9 +123,15 @@ export default function PhoneBankingOutcomeForm({
             />
             {OUTCOME_LABEL[interaction.outcome]}
           </span>
+          {/* Read off the interaction rather than the draft, so the surface
+              has to be checked here too: a Serve list's existing rows carry
+              the Win answers (it shipped asking them), and showing them back
+              would put "Support: Yes" in front of the caller this change
+              exists to stop asking. Gated symmetrically with the edit form
+              below — each surface reads back only its own question. */}
           {interaction.outcome === 'answered' && (
             <>
-              {interaction.supportAnswer && (
+              {!isServe && interaction.supportAnswer && (
                 <span className="truncate">
                   {' · Support: '}
                   <span className="font-medium text-foreground">
@@ -126,11 +139,19 @@ export default function PhoneBankingOutcomeForm({
                   </span>
                 </span>
               )}
-              {interaction.willVote && (
+              {!isServe && interaction.willVote && (
                 <span className="truncate">
                   {' · Will vote: '}
                   <span className="font-medium text-foreground">
                     {WILL_VOTE_ANSWER_LABEL[interaction.willVote]}
+                  </span>
+                </span>
+              )}
+              {isServe && interaction.followUp && (
+                <span className="truncate">
+                  {' · Follow-up: '}
+                  <span className="font-medium text-foreground">
+                    {FOLLOW_UP_ANSWER_LABEL[interaction.followUp]}
                   </span>
                 </span>
               )}
@@ -150,7 +171,7 @@ export default function PhoneBankingOutcomeForm({
     )
   }
 
-  const showActions = isDraftComplete(draft)
+  const showActions = isDraftComplete(draft, isServe)
 
   return (
     <div className="flex flex-col gap-4">
@@ -208,54 +229,86 @@ export default function PhoneBankingOutcomeForm({
 
       {draft.outcome === 'answered' && draft.engagement === 'engaged' && (
         <>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Do they support you?
-            </p>
-            <div className="mt-2">
-              <FilterPillGroup
-                type="single"
-                value={draft.supportAnswer ?? ''}
-                onValueChange={(value) =>
-                  setDraft((current) =>
-                    draftWithSupportAnswer(
-                      current,
-                      (value || undefined) as typeof draft.supportAnswer,
-                    ),
-                  )
-                }
-              >
-                <FilterPill value="supporter">Yes</FilterPill>
-                <FilterPill value="non_supporter">No</FilterPill>
-                <FilterPill value="unsure">Unsure</FilterPill>
-              </FilterPillGroup>
-            </div>
-          </div>
-
-          {draft.supportAnswer !== undefined && (
+          {isServe ? (
+            // Serve's whole engaged branch, and deliberately not a renaming of
+            // Win's two: an elected official's caller has no stance to ask a
+            // constituent about and no election to ask them about either, so
+            // the one thing worth writing down is what the office owes them
+            // afterwards. Same question, same answers, as a Serve door knock.
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Will they vote this election?
+                Do they need follow-up?
               </p>
               <div className="mt-2">
                 <FilterPillGroup
                   type="single"
-                  value={draft.willVote ?? ''}
+                  value={draft.followUp ?? ''}
                   onValueChange={(value) =>
                     setDraft((current) =>
-                      draftWithWillVote(
+                      draftWithFollowUp(
                         current,
-                        (value || undefined) as typeof draft.willVote,
+                        (value || undefined) as typeof draft.followUp,
                       ),
                     )
                   }
                 >
                   <FilterPill value="yes">Yes</FilterPill>
                   <FilterPill value="no">No</FilterPill>
-                  <FilterPill value="unsure">Unsure</FilterPill>
                 </FilterPillGroup>
               </div>
             </div>
+          ) : (
+            <>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Do they support you?
+                </p>
+                <div className="mt-2">
+                  <FilterPillGroup
+                    type="single"
+                    value={draft.supportAnswer ?? ''}
+                    onValueChange={(value) =>
+                      setDraft((current) =>
+                        draftWithSupportAnswer(
+                          current,
+                          (value || undefined) as typeof draft.supportAnswer,
+                        ),
+                      )
+                    }
+                  >
+                    <FilterPill value="supporter">Yes</FilterPill>
+                    <FilterPill value="non_supporter">No</FilterPill>
+                    <FilterPill value="unsure">Unsure</FilterPill>
+                  </FilterPillGroup>
+                </div>
+              </div>
+
+              {draft.supportAnswer !== undefined && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Will they vote this election?
+                  </p>
+                  <div className="mt-2">
+                    <FilterPillGroup
+                      type="single"
+                      value={draft.willVote ?? ''}
+                      onValueChange={(value) =>
+                        setDraft((current) =>
+                          draftWithWillVote(
+                            current,
+                            (value || undefined) as typeof draft.willVote,
+                          ),
+                        )
+                      }
+                    >
+                      <FilterPill value="yes">Yes</FilterPill>
+                      <FilterPill value="no">No</FilterPill>
+                      <FilterPill value="unsure">Unsure</FilterPill>
+                    </FilterPillGroup>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </>
       )}

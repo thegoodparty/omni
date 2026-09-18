@@ -15,7 +15,9 @@ import { ALERT_OWNERSHIP, SERVER_ERRORS_ONLY } from '../alerts'
 // The cost is real and accepted: a 400 that IS a bug — a webapp sending a
 // payload the API stopped accepting, say — no longer pages, and shows up as a
 // support report or in the logs instead.
-const EXCLUDED_STATUS_CODES = [400, 401, 403, 404, 409, 498]
+// Exported so a handler that must NOT answer one of these can assert against
+// the real list rather than a copy of it — see payments.controller.test.ts.
+export const EXCLUDED_STATUS_CODES = [400, 401, 403, 404, 409, 498]
 
 // The notification has to state the same vocabulary the filter applies, so it
 // reads from the constant instead of restating it. The previous hardcoded
@@ -51,6 +53,28 @@ const EXCLUDED_STATUS_PROSE = EXCLUDED_STATUS_CODES.join('/')
 // it keeps every genuine "no answer" case — including both door-knocking pack
 // timeouts above — and discards the aborts. A route that legitimately streams
 // for longer than this needs its own treatment rather than a wider floor here.
+//
+// ON `mcp` THIS FLOOR IS LOAD-BEARING TO THE MILLISECOND, which is worth
+// knowing before anyone moves it. Its no-status completions are not the
+// gateway: over the 30 days to 2026-09-17, the 24 on POST /v1/mcp land at
+// 30001-30007ms (19 of them), at exactly 30000ms (4), and one at 28753ms,
+// while POST /v1/ecanvasser/:id/sync in the same window sits at
+// 118733-120007ms. A cluster that tight on 30s is the calling MCP client's own
+// request deadline expiring, not infrastructure severing the connection.
+//
+// That is still a fault and still worth paging on — the caller waited a full
+// 30 seconds for a tool call and gp-api never answered, and the fix is the
+// route behind the tool — but it means 19 of those 23 deadline expiries clear
+// this floor by between 1 and 7 milliseconds. Raising NO_STATUS_MIN_MS at all
+// silences mcp's entire measured error signal.
+//
+// The strict `>` drops the 4 logged at exactly 30000ms. Those 4 lines are the
+// only no-status completions at that value anywhere in prod over the window, so
+// `>=` would cost 4 events in 30 days and buy back 17% of this controller's
+// signal — but it also rewrites the expression of every generated rule in the
+// estate, which is the kind of retune the field's own docs say to do
+// deliberately rather than in passing. Left alone on purpose, and written down
+// so the next person does not have to measure it again.
 const NO_STATUS_MIN_MS = 30_000
 const NO_STATUS_PROSE = '30 seconds'
 const noStatusFilter = `response_statusCode = "" and responseTimeMs > ${NO_STATUS_MIN_MS}`

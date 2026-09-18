@@ -70,6 +70,14 @@ import { sleep } from '@/shared/util/sleep.util'
 
 const MAX_PATTERN_CANDIDATES = 50
 
+// Route53 Domains throttles account-wide at a very low rate. An unbounded
+// fanout of availability checks drains the token bucket and starves the
+// purchase call's own check that follows in the same agent flow (chronic
+// ~25% 502s on /domains/purchase), and throttled candidates are silently
+// dropped from search results. Search is agent-driven, so the added latency
+// from batching is fine.
+const AVAILABILITY_CHECK_BATCH_SIZE = 5
+
 const DOMAIN_PURCHASE_ADVISORY_LOCK_KEY = 918_275
 
 const DOMAIN_RESERVATION_KIND = {
@@ -574,11 +582,15 @@ export class DomainsService
       ),
     )
 
-    const checked = await Promise.allSettled(
-      candidates.map((domain) =>
-        this.checkPatternedCandidate(domain, maxPrice),
-      ),
-    )
+    const checked: PromiseSettledResult<PatternedDomainCandidate | null>[] = []
+    for (let i = 0; i < candidates.length; i += AVAILABILITY_CHECK_BATCH_SIZE) {
+      const batch = candidates.slice(i, i + AVAILABILITY_CHECK_BATCH_SIZE)
+      checked.push(
+        ...(await Promise.allSettled(
+          batch.map((domain) => this.checkPatternedCandidate(domain, maxPrice)),
+        )),
+      )
+    }
 
     const found: PatternedDomainCandidate[] = []
     for (const r of checked) {

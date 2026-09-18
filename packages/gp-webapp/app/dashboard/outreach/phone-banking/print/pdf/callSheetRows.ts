@@ -1,4 +1,5 @@
 import type {
+  FollowUpAnswer,
   PhoneBankCallOutcome,
   PhoneBankingInteraction,
   PhoneBankingListEntry,
@@ -8,7 +9,10 @@ import type {
 
 // The three-state shape the walk-list PDF uses (`WalkListAnswer` in
 // door-knocking's `print/pdf/walkListRows.ts`), reused twice here: once for a
-// row's call outcome and once for a person's support answer. `form` prints
+// row's call outcome and once for a person's own answer — support on Win,
+// follow-up on Serve, which is the same column asking each surface's own
+// question (the shape door-knocking's `answerBoxes(isServe)` already has).
+// `form` prints
 // blank tick boxes, `logged` prints a recorded answer as text, and `skip`
 // prints an instruction in place of both — there is nothing left to ask.
 export type CallSheetAnswer =
@@ -19,7 +23,9 @@ export type CallSheetAnswer =
 export interface CallSheetPerson {
   key: string
   name: string
-  support: CallSheetAnswer
+  // Whichever question this surface asks; never both. Named for the slot
+  // rather than for Win's question, since Serve fills the same slot.
+  answer: CallSheetAnswer
 }
 
 export interface CallSheetRow {
@@ -59,6 +65,13 @@ const SUPPORT_LABELS: Record<SupportAnswer, string> = {
   non_supporter: 'No',
 }
 
+// Serve's own two-way answer, read back the same way. Binary where support is
+// three-way, for the reason FOLLOW_UP_OPTIONS gives on the door-knocking side.
+const FOLLOW_UP_LABELS: Record<FollowUpAnswer, string> = {
+  yes: 'Yes',
+  no: 'No',
+}
+
 // One physical call produces one outcome, so every person on the same entry
 // is expected to carry the same interaction. Persons are logged individually
 // (the data model allows a household to be reached across separate calls),
@@ -80,19 +93,21 @@ const outcomeAnswer = (
 }
 
 // A dead-end call has nobody left to ask, so every person on the row
-// inherits the row's own skip instruction rather than a blank Support form.
-const supportAnswer = (
+// inherits the row's own skip instruction rather than a blank answer form.
+// Reads the surface's own field, so a Serve sheet can never print back a
+// support answer and a Win sheet can never print back a follow-up.
+const personAnswer = (
   person: PhoneBankingListPerson,
   outcome: CallSheetAnswer,
+  isServe: boolean,
 ): CallSheetAnswer => {
   if (outcome.kind === 'skip') return outcome
-  if (person.interaction?.supportAnswer) {
-    return {
-      kind: 'logged',
-      label: SUPPORT_LABELS[person.interaction.supportAnswer],
-    }
-  }
-  return { kind: 'form' }
+  const logged = isServe
+    ? person.interaction?.followUp &&
+      FOLLOW_UP_LABELS[person.interaction.followUp]
+    : person.interaction?.supportAnswer &&
+      SUPPORT_LABELS[person.interaction.supportAnswer]
+  return logged ? { kind: 'logged', label: logged } : { kind: 'form' }
 }
 
 // One row per phone number, in seq order. Unlike the walk list's per-resident
@@ -100,6 +115,7 @@ const supportAnswer = (
 // named residents stack inside it rather than each getting a row of their own.
 export const callSheetRows = (
   entries: PhoneBankingListEntry[],
+  isServe: boolean,
 ): CallSheetRow[] =>
   entries
     .slice()
@@ -115,7 +131,7 @@ export const callSheetRows = (
         persons: entry.persons.map((person) => ({
           key: person.personId,
           name: person.name,
-          support: supportAnswer(person, outcome),
+          answer: personAnswer(person, outcome, isServe),
         })),
       }
     })
