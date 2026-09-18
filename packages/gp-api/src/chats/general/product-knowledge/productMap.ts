@@ -155,6 +155,10 @@ const WIN_AREAS: ProductArea[] = [
       'Five channels: SMS, Robocall, Social media, Phone banking, and Door knocking',
       'Door knocking opens its own page rather than a flow here',
       'Each channel starts by asking who to reach, which reads from your saved lists',
+      'A text or robocall can be written and saved before upgrading to Pro: build it, save it, and finish it once you can send',
+      'A saved one waits in the outreach history, labeled with what it still needs — Pro needed, Verification needed, Verification in review, PIN needed, or Ready to schedule',
+      'Click that row to reopen the flow and pick up where you left off, or delete it from there',
+      'One saved text and one saved robocall at a time, kept for 90 days',
     ],
   },
   {
@@ -213,6 +217,7 @@ const WIN_AREAS: ProductArea[] = [
       'One flow, and which screens it asks for depends on the campaign: some candidates answer whether they have filed, give their campaign EIN, and pay, and nothing else',
       'Other candidates are asked for their filing details and candidate profile before paying, in the same flow',
       'When those are not asked for up front they are collected afterwards, under Campaign verification',
+      'The same flow can open inside a text or robocall you are building, so upgrading does not lose the work',
     ],
   },
   {
