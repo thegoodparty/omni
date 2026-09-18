@@ -242,7 +242,7 @@ id.
 ## The canvassing totals rollup (Segment → HubSpot)
 
 `DoorKnockingStatsService` emits one server-side Segment event,
-**`Door Knocking - Canvassing Totals Updated`**, carrying nine running totals
+**`Door Knocking - Canvassing Totals Updated`**, carrying ten running totals
 for the organization. Campaign Success owns a HubSpot workflow that copies each
 property onto the contact and then its associated company — see
 [`HUBSPOT_INTEGRATION.md`](../src/vendors/segment/HUBSPOT_INTEGRATION.md) for
@@ -261,7 +261,7 @@ drop client events while the writes still land. The existing client-side
 `EVENTS.DoorKnocking` events in gp-webapp are untouched — this is a parallel
 event, not a move.
 
-### The nine numbers
+### The ten numbers
 
 All org-scoped and all-time. The definitions are one SQL statement in
 `doorKnockingStats.service.ts`, which is where the traps are commented; this
@@ -275,6 +275,7 @@ table is the plain-language version CS reads.
 | `uniqueContactsMade`    | The same population counted once per person                                                                                  |
 | `committedVoters`       | People whose latest door-knock support answer is `supporter` **and** whose latest door-knock GOTV answer is `will vote: yes` |
 | `votersPersuaded`       | People who answered `non_supporter` at one door and `supporter` at a later one                                               |
+| `needsFollowUp`         | Constituents whose latest door-knock follow-up answer is `yes` — the Serve surface's answer, and a current-state count       |
 | `uniqueTurfsCreated`    | Lists the organization has drawn and still has                                                                               |
 | `uniqueTurfsCompleted`  | The subset of those whose envelope reached `completed` ("End knocking session")                                              |
 | `lastCanvassActivityAt` | The newest `occurredAt` on any knock                                                                                         |
@@ -322,6 +323,24 @@ The edges worth knowing:
   happened. It is computed here rather than emitted at the door because the
   knock write never reads prior status and so cannot know a transition
   occurred.
+- **`needsFollowUp` is current state, not history — deliberately the opposite
+  of the number next to it.** It counts constituents whose *latest* follow-up
+  answer is `yes`, so a later visit answering `no` takes the person back out
+  and the number goes down. The two questions differ: `votersPersuaded` asks
+  what happened, and a past event cannot unhappen; `needsFollowUp` asks how
+  many constituents are awaiting follow-up right now, and a worklist that only
+  ever grew would be one nobody could finish. Same latest-answer shape as the
+  `latest_support` / `latest_will_vote` CTEs, and door-attributed for the same
+  reason they are.
+- **`needsFollowUp` is the only one of these numbers that carries Serve work.**
+  A Serve (`eo-`) canvasser is asked "do they need follow-up?" instead of "do
+  they support you?" and "will they vote?", so `committedVoters` and
+  `votersPersuaded` are *structurally* 0 for an elected official's org — not
+  low, but arithmetically incapable of being anything else, since both are
+  derived from `supportAnswer`. Before this number existed, a Serve company
+  record in HubSpot showed doors knocked and nothing learned. The converse also
+  holds: a Win org whose canvassers are never asked the follow-up question
+  reports `needsFollowUp: 0`.
 - **Turf-derived numbers describe live lists; interaction-derived numbers
   describe recorded work.** The three turf numbers all exclude tombstoned
   lists, which are unreachable from every read path in the product. The
