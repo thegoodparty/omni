@@ -385,7 +385,29 @@ import { dirname, join, relative } from 'node:path'
 // the handshake — it reads the Clerk session through `useUser`, holds the
 // field's state, and redirects on success, none of which a server component
 // can do. Its page shell stays a server component.
-const BASELINE = 567
+// 2026-09-18: 567 -> 568 for useMembershipState, the shared membership hook.
+// It reads React Query and the campaign/elected-office/TCR contexts, so it
+// can only run client-side; every surface consuming it is already a client
+// component.
+// 2026-09-18: 568 -> 570 for the shared Pro wizard context
+// (proUpgradeWizardContext) and ProUpgradeFlow, the state-driven twin of the
+// route-based wizard. One holds a React context, the other holds the step
+// state and provides it, so neither can be a server component.
+// 2026-09-18: 570 -> 571 for EinHowToCollapsible, which holds the open/closed
+// state of the purchase-only how-to-get-an-EIN disclosure.
+// 2026-09-18: 571 -> 574 for the campaign verification flow:
+// ElectionFilingForm (the extracted filing form — already client code, just
+// moved out of ElectionFiling), CampaignVerificationFlow (holds the step
+// state) and VerificationIntro (fires its viewed event on mount).
+// 2026-09-18: 574 -> 575 for PinDialog, the membership banner's PIN entry.
+// It holds the typed-PIN state and reads useCvPinGate/useSubmitCvPin, both
+// client-only hooks.
+// 2026-09-18: 575 -> 576 for ProPitchDialog, the Pro pitch the membership
+// surfaces open. It is a Radix dialog that fires its viewed event on open and
+// routes into the wizard, so it cannot render on the server.
+// 2026-09-18: 576 -> 578 for the membership banner and chip. Both read the
+// membership hook and the flag, own dialog open state, and route on click.
+const BASELINE = 578
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

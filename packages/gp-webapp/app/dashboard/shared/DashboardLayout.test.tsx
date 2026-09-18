@@ -34,6 +34,9 @@ vi.mock('@shared/hooks/EcanvasserProvider', () => ({
 vi.mock('./DashboardMenu', () => ({ default: () => null }))
 vi.mock('./ProUpgradePrompt', () => ({ ProUpgradePrompt: () => null }))
 vi.mock('@shared/user/ImpersonationBanner', () => ({ default: () => null }))
+vi.mock('./membership/MembershipChip', () => ({
+  MembershipChip: () => null,
+}))
 // The dock (mounted for every Win org now) pulls in FooterChatBar's styleguide
 // deps, which are irrelevant to this file's DashboardLayout-only assertions.
 // It stands in as a marker element rather than as bare children, because

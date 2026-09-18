@@ -351,11 +351,17 @@ Pro Upgrade - Filing Status: Click not yet filed,pro_upgrade_filing_status_click
 Pro Upgrade - Guidance Viewed,pro_upgrade_guidance_viewed,7f6db6f25fc3e3277698af890bce5a7e3bd7de36,https://github.com/thegoodparty/omni/pull/1986,2026-06-07,tomer@goodparty.org,,,,,2026-06-07,1,,2026-06-30T20:12:33
 Pro Upgrade - Guidance: Click let's go,pro_upgrade_guidance_click_lets_go,7f6db6f25fc3e3277698af890bce5a7e3bd7de36,https://github.com/thegoodparty/omni/pull/1986,2026-06-07,tomer@goodparty.org,,,,,2026-06-07,1,,2026-06-30T20:12:33
 Pro Upgrade - Locked Item: Click,pro_upgrade_locked_item_click,54770c93280dd2e2b0febcaa23ac3d73028287f7,https://github.com/thegoodparty/omni/pull/2001,2026-06-08,tomer@goodparty.org,,,,,2026-06-08,3,,2026-06-30T20:12:33
+Pro Upgrade - Membership Banner Viewed,pro_upgrade_membership_banner_viewed,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T07:50:24
+Pro Upgrade - Membership Banner: Click,pro_upgrade_membership_banner_click,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T07:50:28
+Pro Upgrade - Membership Chip: Click,pro_upgrade_membership_chip_click,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T07:50:29
 Pro Upgrade - Modal: Click Button,pro_upgrade_modal_click_button,8b0426df16c5949c469f122beaaf70b859ba0d1f,,2025-03-10,snayak00@gmail.com,,,,,2025-03-10,1,,2026-06-30T20:12:33
 Pro Upgrade - Modal: Exit,pro_upgrade_modal_exit,8b0426df16c5949c469f122beaaf70b859ba0d1f,,2025-03-10,snayak00@gmail.com,,,,,2025-03-10,1,,2026-06-30T20:12:33
 Pro Upgrade - Modal: Modal Shown,pro_upgrade_modal_modal_shown,8b0426df16c5949c469f122beaaf70b859ba0d1f,,2025-03-10,snayak00@gmail.com,,,,,2025-03-10,1,,2026-06-30T20:12:33
 Pro Upgrade - PIN Entry Viewed,pro_upgrade_pin_entry_viewed,001203d930501b41ed0b51c7a3551620d2ede502,https://github.com/thegoodparty/omni/pull/1939,2026-06-03,tomer@goodparty.org,,,,,2026-06-03,2,,2026-06-30T20:12:33
 Pro Upgrade - Payment Viewed,pro_upgrade_payment_viewed,c465ade2992cad108b60684aa48d84e57b125f6e,https://github.com/thegoodparty/omni/pull/1990,2026-06-07,tomer@goodparty.org,,,,,2026-06-07,1,,2026-06-30T20:12:33
+Pro Upgrade - Pitch Viewed,pro_upgrade_pitch_viewed,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T07:50:32
+Pro Upgrade - Pitch: Click continue without Pro,pro_upgrade_pitch_click_continue_without_pro,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T07:50:36
+Pro Upgrade - Pitch: Click join,pro_upgrade_pitch_click_join,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T07:50:33
 Pro Upgrade - Service Agreement Page: Click back,pro_upgrade_service_agreement_page_click_back,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,58821b65733bc3b6da57c261c7602ee7e8f1c6e5,https://github.com/thegoodparty/omni/pull/732,2026-07-13,tristan@goodparty.org,2026-07-13,,,2026-07-13T21:45:27
 Pro Upgrade - Service Agreement Page: Click finish,pro_upgrade_service_agreement_page_click_finish,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,76c2256cac0700dca9c4094a44961a2d90487934,https://github.com/thegoodparty/omni/pull/732,2026-07-13,tristan@goodparty.org,2026-07-13,,,2026-07-13T21:45:27
 Pro Upgrade - Splash Page: Click upgrade,pro_upgrade_splash_page_click_upgrade,8b0426df16c5949c469f122beaaf70b859ba0d1f,,2025-03-10,snayak00@gmail.com,76c2256cac0700dca9c4094a44961a2d90487934,https://github.com/thegoodparty/omni/pull/732,2026-07-13,tristan@goodparty.org,2026-07-13,,,2026-07-13T21:45:27
@@ -367,6 +373,9 @@ Pro Upgrade - Texting Setup Banner: Click Start,pro_upgrade_texting_setup_banner
 Pro Upgrade - Value Prop Viewed,pro_upgrade_value_prop_viewed,4d37796a8d006151b6b85118974c80afa5fd7320,https://github.com/thegoodparty/omni/pull/1983,2026-06-06,tomer@goodparty.org,,,,,2026-06-06,1,,2026-06-30T20:12:33
 Pro Upgrade - Value Prop: Click Get Pro,pro_upgrade_value_prop_click_get_pro,4d37796a8d006151b6b85118974c80afa5fd7320,https://github.com/thegoodparty/omni/pull/1983,2026-06-06,tomer@goodparty.org,,,,,2026-06-06,1,,2026-06-30T20:12:33
 Pro Upgrade - Value Prop: Click Maybe later,pro_upgrade_value_prop_click_maybe_later,4d37796a8d006151b6b85118974c80afa5fd7320,https://github.com/thegoodparty/omni/pull/1983,2026-06-06,tomer@goodparty.org,,,,,2026-06-06,1,,2026-06-30T20:12:33
+Pro Upgrade - Verification Intro Viewed,pro_upgrade_verification_intro_viewed,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T07:50:37
+Pro Upgrade - Verification Intro: Click continue,pro_upgrade_verification_intro_click_continue,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T07:50:40
+Pro Upgrade - Verification Submitted Viewed,pro_upgrade_verification_submitted_viewed,,,2026-09-18,,,,,,2026-09-18,,,2026-09-18T07:50:41
 Pro Upgrade: Click Go to Stripe,pro_upgrade_click_go_to_stripe,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,76c2256cac0700dca9c4094a44961a2d90487934,https://github.com/thegoodparty/omni/pull/732,2026-07-13,tristan@goodparty.org,2026-07-13,,,2026-07-13T21:45:27
 Pro Upgrade: Click exit top nav,pro_upgrade_click_exit_top_nav,8b0426df16c5949c469f122beaaf70b859ba0d1f,,2025-03-10,snayak00@gmail.com,,,,,2025-03-10,1,,2026-06-30T20:12:33
 Pro Upgrade: Confirm office,pro_upgrade_confirm_office,8b0426df16c5949c469f122beaaf70b859ba0d1f,,2025-03-10,snayak00@gmail.com,76c2256cac0700dca9c4094a44961a2d90487934,https://github.com/thegoodparty/omni/pull/732,2026-07-13,tristan@goodparty.org,2026-07-13,,,2026-07-13T21:45:27

@@ -38,7 +38,9 @@ export const proUpgradeStepPath = (step: ProUpgradeStep): string =>
 //   cannot derive it. It is reached only by explicit navigation from the
 //   filing-status step ("yes, already filed" → guidance) and advances by
 //   explicit navigation to the EIN step (task 09), so it stays out of the
-//   linear order by design rather than being inserted here.
+//   linear order by design rather than being inserted here. In the
+//   purchase-only order below, guidance is the first ordered step and the
+//   router derives it.
 export const PRO_UPGRADE_STEP_ORDER: ProUpgradeStep[] = [
   PRO_UPGRADE_STEP.VALUE_PROP,
   PRO_UPGRADE_STEP.STATUS,
@@ -48,6 +50,25 @@ export const PRO_UPGRADE_STEP_ORDER: ProUpgradeStep[] = [
   PRO_UPGRADE_STEP.PAYMENT,
   PRO_UPGRADE_STEP.SUCCESS,
 ]
+
+// The flagged purchase-only wizard (outreach-pro-gating-v2): filing details
+// and the candidate profile move behind payment into campaign verification, so
+// guidance becomes a real first step (the value prop lives in the Pro pitch
+// dialog) and the router can derive it.
+export const PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY: ProUpgradeStep[] = [
+  PRO_UPGRADE_STEP.GUIDANCE,
+  PRO_UPGRADE_STEP.STATUS,
+  PRO_UPGRADE_STEP.EIN,
+  PRO_UPGRADE_STEP.PAYMENT,
+  PRO_UPGRADE_STEP.SUCCESS,
+]
+
+export const proUpgradeStepOrder = (purchaseOnly: boolean): ProUpgradeStep[] =>
+  purchaseOnly ? PRO_UPGRADE_STEP_ORDER_PURCHASE_ONLY : PRO_UPGRADE_STEP_ORDER
+
+export interface DeriveProUpgradeStepOptions {
+  purchaseOnly?: boolean
+}
 
 // The candidate's answer to "have you already filed to run for this office?".
 // The router only needs the normalized tri-state; its caller maps the stored
@@ -89,6 +110,7 @@ export interface ProUpgradeStepInputs {
  */
 export const deriveProUpgradeStep = (
   inputs: ProUpgradeStepInputs,
+  { purchaseOnly = false }: DeriveProUpgradeStepOptions = {},
 ): ProUpgradeStep => {
   const { isPro, filingStatus, hasEin, filingComplete, profileComplete } =
     inputs
@@ -96,6 +118,18 @@ export const deriveProUpgradeStep = (
   // Payment already happened — route to the post-payment surface, never back
   // to a pre-payment step. (Post-payment sub-states are refined in task 15.)
   if (isPro) return PRO_UPGRADE_STEP.SUCCESS
+
+  if (purchaseOnly) {
+    // A "not filed" answer is never progress here either — even with an EIN
+    // persisted from a prior session, it re-asks the filing-status question
+    // instead of reaching payment.
+    const hasPurchaseProgress = filingStatus === 'has-filed' || hasEin
+    if (!hasPurchaseProgress) return PRO_UPGRADE_STEP.GUIDANCE
+    if (filingStatus === 'unanswered' || filingStatus === 'not-filed')
+      return PRO_UPGRADE_STEP.STATUS
+    if (!hasEin) return PRO_UPGRADE_STEP.EIN
+    return PRO_UPGRADE_STEP.PAYMENT
+  }
 
   // Brand-new candidate with nothing collected yet lands on the value-prop
   // intro. A "not filed" answer is NOT progress: on its own it must restart a
@@ -111,7 +145,8 @@ export const deriveProUpgradeStep = (
   // resumed here — filing-instructions is a dead-end branch reached only by
   // explicit navigation from the status step (like guidance), so the router
   // does not derive it. A not-filed candidate with real downstream progress
-  // resumes at that data step below.
+  // resumes at that data step below. In the purchase-only branch above,
+  // guidance is derived directly instead.
   if (filingStatus === 'unanswered') return PRO_UPGRADE_STEP.STATUS
 
   // Remaining pre-payment data steps, in canonical order; first incomplete wins.

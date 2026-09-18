@@ -19,15 +19,20 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
 
 const mockUseProUpgradeWizard = vi.mocked(useProUpgradeWizard)
 const goToNextStep = vi.fn()
+const exit = vi.fn()
 
 describe('ValuePropStep', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUseProUpgradeWizard.mockReturnValue({
       currentStep: 'value-prop',
+      purchaseOnly: false,
+      channel: null,
       goToStep: vi.fn(),
       goToNextStep,
       goToPreviousStep: vi.fn(),
+      exit,
+      complete: vi.fn(),
     })
   })
 
@@ -88,12 +93,15 @@ describe('ValuePropStep', () => {
     expect(router.push).not.toHaveBeenCalled()
   })
 
-  it('exits the wizard to the dashboard when "Maybe later" is clicked', () => {
+  it('exits the wizard when "Maybe later" is clicked', () => {
     render(<ValuePropStep />)
 
     screen.getByRole('button', { name: /maybe later/i }).click()
 
-    expect(router.push).toHaveBeenCalledWith('/dashboard')
+    // The shell owns the destination, so the embedded flow can close its own
+    // surface instead of navigating away.
+    expect(exit).toHaveBeenCalledTimes(1)
+    expect(router.push).not.toHaveBeenCalled()
     expect(goToNextStep).not.toHaveBeenCalled()
   })
 })
