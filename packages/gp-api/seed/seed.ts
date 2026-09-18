@@ -10,6 +10,7 @@ import seedWebsiteData from './websiteData'
 import seedMtfcc from './mtfcc'
 import seedOffices from './offices'
 import { seedEcanvasserDemoAccount } from './util/seedEcanvasserDemoAccount.util'
+import { resyncSeededSequences } from './util/resyncSequences.util'
 import seedContentful from './contentful'
 
 const IS_PREVIEW = process.env.IS_PREVIEW === 'true'
@@ -57,6 +58,13 @@ async function main() {
     await seedWebsiteData(prisma)
     await seedOffices(SERVE_USER.email, prisma)
     await seedContentful(prisma)
+
+    // The factory seeds above insert campaign plan versions, campaign
+    // positions and campaign update history with explicit random ids, which
+    // leaves those sequences untouched and every later insert colliding. Must
+    // run after the factory seeds and only on this branch — the csv-only
+    // branch writes no explicit ids.
+    await resyncSeededSequences(prisma)
   }
 }
 

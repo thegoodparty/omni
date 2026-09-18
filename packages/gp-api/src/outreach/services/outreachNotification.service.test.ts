@@ -30,6 +30,7 @@ const mockVoterFileFilterToAudience = vi.fn()
 const mockTcrFindFirst = vi.fn()
 
 const PEERLY_IDENTITY_LABEL = 'Peerly Identity ID: '
+const PHONE_LABEL = 'Phone: '
 
 type TextNode = { text?: string }
 
@@ -291,6 +292,30 @@ describe('OutreachNotificationService', () => {
       expect(mockSlackMessage).toHaveBeenCalledTimes(1)
       const [message] = firstOrThrow(mockSlackMessage.mock.calls)
       expect(findLabeledValue(message, PEERLY_IDENTITY_LABEL)).toBe('N/A')
+    })
+
+    it('renders the account phone when the user has one', async () => {
+      await service.notifySuccess({
+        user: { ...mockUser, phone: '5551234567' } as User,
+        campaign: baseCampaign,
+        outreach: baseOutreach,
+      })
+
+      const [message] = firstOrThrow(mockSlackMessage.mock.calls)
+      expect(findLabeledValue(message, PHONE_LABEL)).toBe('5551234567')
+    })
+
+    it('renders N/A for the phone when the account has none', async () => {
+      mockTcrFindFirst.mockResolvedValueOnce(null)
+
+      await service.notifySuccess({
+        user: mockUser,
+        campaign: baseCampaign,
+        outreach: baseOutreach,
+      })
+
+      const [message] = firstOrThrow(mockSlackMessage.mock.calls)
+      expect(findLabeledValue(message, PHONE_LABEL)).toBe('N/A')
     })
 
     it('looks up assignedPa when hubspotId is present', async () => {

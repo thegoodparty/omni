@@ -18,6 +18,8 @@ import { useContactsTable } from './ContactsTableProvider'
 import CreateListWizard from './wizard/CreateListWizard'
 import DistrictStatCard from './DistrictStatCard'
 import ListsIndex from './lists/ListsIndex'
+import RecommendedListsSection from './recommended/RecommendedListsSection'
+import { ChannelPickerProvider } from './shared/channelPicker/ChannelPickerProvider'
 import ListDetailSheet from './lists/ListDetailSheet'
 import CrmAssistant from './assistant/CrmAssistant'
 import VoterDataUnavailableState from './VoterDataUnavailableState'
@@ -104,108 +106,111 @@ export const CrmContactsPage = () => {
 
   return (
     <ContactProModalProvider value={setShowProModal}>
-      <DashboardLayout
-        // The header title is mode copy, so it rides the same
-        // isWinContextReady gate as the rest of the page (ENG-10448).
-        navHeader={
-          isWinContextReady
-            ? { icon: 'users', label: labels.dataTitle }
-            : undefined
-        }
-      >
-        {/* Top bar: search + primary create action on its own full-bleed
+      <ChannelPickerProvider>
+        <DashboardLayout
+          // The header title is mode copy, so it rides the same
+          // isWinContextReady gate as the rest of the page (ENG-10448).
+          navHeader={
+            isWinContextReady
+              ? { icon: 'users', label: labels.dataTitle }
+              : undefined
+          }
+        >
+          {/* Top bar: search + primary create action on its own full-bleed
             white bar (negative margins cancel the layout wrapper's padding)
             so the content below floats on the gray canvas (ENG-10747). */}
-        {!voterDataUnavailable && (
-          <div className="-mx-2 -mt-2 flex flex-col gap-4 border-b border-border bg-background px-4 py-3 md:-mx-4 md:-mt-4 md:flex-row md:items-center md:justify-between md:px-6">
-            <div className="w-full md:w-[420px]">
-              <ContactTypeahead />
+          {!voterDataUnavailable && (
+            <div className="-mx-2 -mt-2 flex flex-col gap-4 border-b border-border bg-background px-4 py-3 md:-mx-4 md:-mt-4 md:flex-row md:items-center md:justify-between md:px-6">
+              <div className="w-full md:w-[420px]">
+                <ContactTypeahead />
+              </div>
+              <Button
+                className="shrink-0 self-start text-sm font-semibold md:self-auto"
+                disabled={!isWinContextReady}
+                onClick={handleCreateList}
+                icon={<PlusIcon />}
+              >
+                Create new list
+              </Button>
             </div>
-            <Button
-              className="shrink-0 self-start text-sm font-semibold md:self-auto"
-              disabled={!isWinContextReady}
-              onClick={handleCreateList}
-              icon={<PlusIcon />}
-            >
-              Create new list
-            </Button>
-          </div>
-        )}
+          )}
 
-        {/* Hold ALL mode copy (heading, stat label, and the lists section's
+          {/* Hold ALL mode copy (heading, stat label, and the lists section's
             Voter/Constituent heading) until the Win/Serve context settles:
             isWinContext reads false until then, so rendering any of it
             early would flash the Serve noun to a Win user (ENG-10448) —
             ListsIndex reads contactsLabels too, so it needs the same gate
             the H1/stat card already had. */}
-        {isWinContextReady && (
-          // pb-24 clears the fixed assistant bar so the last list card
-          // scrolls fully above it.
-          <div className="mx-auto mt-8 flex w-full max-w-[560px] flex-col gap-8 pb-24">
-            {voterDataUnavailable ? (
-              // Unmounting rather than disabling: DistrictStatCard and
-              // ListsIndex's AllContactsCard share the ['contacts-stats'] key,
-              // and React Query fires a query when ANY mounted observer is
-              // enabled, so disabling one of them would still spend the request.
-              <VoterDataUnavailableState
-                officeName={organization?.positionName ?? null}
-                isWinContext={isWinContext}
-                organizationSlug={organization?.slug}
-              />
-            ) : (
-              <>
-                <div className="flex flex-col gap-1">
-                  <h1 className="text-lg font-semibold">
-                    {labels.universeTitle}
-                  </h1>
-                  <p className="text-sm text-muted-foreground">
-                    {labels.universeSubtitleBefore}
-                    <span className="font-semibold text-foreground">
-                      {districtLocation}
-                    </span>
-                    {labels.universeSubtitleAfter}
-                  </p>
-                  <DistrictStatCard
-                    className="mt-4"
-                    label={labels.districtTotalLabel}
-                    populationLabel={labels.districtPopulationLabel}
-                    additionalRows={universeMetricRows}
-                  />
-                </div>
+          {isWinContextReady && (
+            // pb-24 clears the fixed assistant bar so the last list card
+            // scrolls fully above it.
+            <div className="mx-auto mt-8 flex w-full max-w-[560px] flex-col gap-8 pb-24">
+              {voterDataUnavailable ? (
+                // Unmounting rather than disabling: DistrictStatCard and
+                // ListsIndex's AllContactsCard share the ['contacts-stats'] key,
+                // and React Query fires a query when ANY mounted observer is
+                // enabled, so disabling one of them would still spend the request.
+                <VoterDataUnavailableState
+                  officeName={organization?.positionName ?? null}
+                  isWinContext={isWinContext}
+                  organizationSlug={organization?.slug}
+                />
+              ) : (
+                <>
+                  <div className="flex flex-col gap-1">
+                    <h1 className="text-lg font-semibold">
+                      {labels.universeTitle}
+                    </h1>
+                    <p className="text-sm text-muted-foreground">
+                      {labels.universeSubtitleBefore}
+                      <span className="font-semibold text-foreground">
+                        {districtLocation}
+                      </span>
+                      {labels.universeSubtitleAfter}
+                    </p>
+                    <DistrictStatCard
+                      className="mt-4"
+                      label={labels.districtTotalLabel}
+                      populationLabel={labels.districtPopulationLabel}
+                      additionalRows={universeMetricRows}
+                    />
+                  </div>
 
-                <ListsIndex />
-              </>
-            )}
-          </div>
-        )}
-        {/* Both sheets open purely off the URL, and a district-gated query reports
+                  <RecommendedListsSection />
+                  <ListsIndex />
+                </>
+              )}
+            </div>
+          )}
+          {/* Both sheets open purely off the URL, and a district-gated query reports
             pending/idle — so isLoading (isPending && isFetching) and isError are
             both false and neither guard branch fires. Left mounted, a deep link
             drops a dataless sheet straight over the empty state. The assistant's
             CRM tools hit the same gated services. */}
-        {!voterDataUnavailable && (
-          <>
-            <PersonOverlay />
-            {/* One instance serves both flows: `editingSegment` switches it
+          {!voterDataUnavailable && (
+            <>
+              <PersonOverlay />
+              {/* One instance serves both flows: `editingSegment` switches it
                 into the edit sheet, so a list's Edit and the page's "Create
                 new list" can never render two stacked drawers. */}
-            <CreateListWizard
-              open={wizardOpen || editingSegment !== null}
-              onOpenChange={(open) => {
-                if (open) return
-                setWizardOpen(false)
-                closeEditList()
-              }}
-              editingSegment={editingSegment}
-            />
-            <ListDetailSheet
-              listId={currentlySelectedListId}
-              onClose={() => selectList(null)}
-            />
-            <CrmAssistant />
-          </>
-        )}
-      </DashboardLayout>
+              <CreateListWizard
+                open={wizardOpen || editingSegment !== null}
+                onOpenChange={(open) => {
+                  if (open) return
+                  setWizardOpen(false)
+                  closeEditList()
+                }}
+                editingSegment={editingSegment}
+              />
+              <ListDetailSheet
+                listId={currentlySelectedListId}
+                onClose={() => selectList(null)}
+              />
+              <CrmAssistant />
+            </>
+          )}
+        </DashboardLayout>
+      </ChannelPickerProvider>
       {campaign && (
         <ProUpgradeModal
           variant={VARIANTS.Second_NonViable}

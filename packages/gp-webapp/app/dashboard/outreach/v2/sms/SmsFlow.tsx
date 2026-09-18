@@ -5,6 +5,8 @@ import { format } from 'date-fns'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
   OutreachReceipt,
+  RecommendedList,
+  RecommendedListVariant,
   SmsDraftRequest,
   SmsPurpose,
   SocialTone,
@@ -45,6 +47,7 @@ import {
   intentForOutreachPurpose,
   useOutreachAudience,
 } from '../audience/useOutreachAudience'
+import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
 import { SmsPurposeStep } from './SmsPurposeStep'
 import { SmsScheduleStep, TIME_OPTIONS } from './SmsScheduleStep'
 import { SmsComposeStep } from './SmsComposeStep'
@@ -108,6 +111,9 @@ interface SmsFlowProps {
   // a draft immediately overwrites.
   initialScript?: string
   preselectedListId?: number
+  // `?recommended=` off the voter data page: a recommendation not saved yet,
+  // which the audience step saves on arrival (see useOutreachAudience).
+  preselectedRecommendedVariant?: RecommendedListVariant
 }
 
 const successDate = (d: Date) =>
@@ -251,6 +257,7 @@ export const SmsFlow = ({
   campaignPlanDueDate,
   initialScript,
   preselectedListId,
+  preselectedRecommendedVariant,
 }: SmsFlowProps) => {
   const [campaign] = useCampaign()
   const [user] = useUser()
@@ -306,6 +313,7 @@ export const SmsFlow = ({
     countOverlay: SMS_COUNT_OVERLAY,
     recommendedListIntent,
     preselectedListId,
+    preselectedRecommendedVariant,
   })
   const { reset: resetAudience } = audience
   const selectedList = audience.selectedList
@@ -324,9 +332,14 @@ export const SmsFlow = ({
     draftRequestRef.current += 1
     // A seeded message opens past the purpose picker on `custom`: the words
     // are already chosen, so asking what the candidate wants to do and then
-    // drafting over them would throw the seed away.
-    setStepId(initialScript ? 'audience' : 'purpose')
-    setPurpose(initialScript ? 'custom' : null)
+    // drafting over them would throw the seed away. A carried-in
+    // recommendation opens past it too, on the purpose its intent maps onto:
+    // the candidate answered that question by picking the card.
+    const carriedPurpose = preselectedRecommendedVariant
+      ? purposeForRecommendedVariant(preselectedRecommendedVariant)
+      : null
+    setStepId(initialScript || carriedPurpose ? 'audience' : 'purpose')
+    setPurpose(initialScript ? 'custom' : carriedPurpose)
     setTone('warm')
     setBody(initialScript ?? '')
     setManuallyEdited(Boolean(initialScript))
@@ -350,7 +363,13 @@ export const SmsFlow = ({
     setScheduled(false)
     setPaidSend(false)
     resetDraftMutation()
-  }, [open, resetDraftMutation, resetAudience, initialScript])
+  }, [
+    open,
+    resetDraftMutation,
+    resetAudience,
+    initialScript,
+    preselectedRecommendedVariant,
+  ])
 
   // Object URL lifecycle for the image preview.
   useEffect(() => {
@@ -544,6 +563,49 @@ export const SmsFlow = ({
     }
   }
 
+  // Recommendation flow: create the saved filter, derive its phone list,
+  // and advance to schedule in one atomic gesture. Reached from the naming
+  // drawer (a tapped card, the candidate's own name) and from the shell's
+  // Continue over a selected card (the recommendation's own title). Only
+  // the create may throw. Past it the list exists under that name and is
+  // selected, so a phone-list failure is the audience step's error (same as
+  // handleAudienceContinue) — thrown further it read as "couldn't save this
+  // list" and every retry POSTed a duplicate.
+  const continueWithRecommendation = async (
+    recommendation: RecommendedList,
+    name: string,
+  ) => {
+    const created = await audience.createRecommendedList(recommendation, name)
+    // Same reset as onSelect: a token left over from a previously picked
+    // list would let a retry skip straight to schedule with the wrong
+    // audience.
+    setPhoneListToken(null)
+    setPhoneList(null)
+    setStopPolling(false)
+    setPhoneListError(false)
+    setPhoneListCreating(true)
+    const result = await createP2pPhoneList(created, created.id)
+    setPhoneListCreating(false)
+    if (!result.ok || !result.token) {
+      setPhoneListError(true)
+      return
+    }
+    setPhoneListToken(result.token)
+    setStepId('schedule')
+  }
+
+  const handleSelectedRecommendationContinue = async () => {
+    if (!audience.selectedRecommendation) return
+    try {
+      await continueWithRecommendation(
+        audience.selectedRecommendation,
+        audience.selectedRecommendation.copy.title,
+      )
+    } catch {
+      // audience.createRecommendedListError renders under the cards.
+    }
+  }
+
   // Audience advance: derive the Peerly phone list from the saved filter.
   // The status poll runs across the later steps; the pay step waits on it.
   const handleAudienceContinue = async () => {
@@ -715,10 +777,14 @@ export const SmsFlow = ({
                   ? `Continue (${reachableCount.toLocaleString()})`
                   : 'Continue',
               onClick: () => {
+                if (audience.selectedRecommendation) {
+                  void handleSelectedRecommendationContinue()
+                  return
+                }
                 void handleAudienceContinue()
               },
               disabled:
-                !selectedList ||
+                (!selectedList && !audience.selectedRecommendation) ||
                 audience.reachableLoading ||
                 reachableCount === null ||
                 reachableCount === 0,
@@ -726,6 +792,7 @@ export const SmsFlow = ({
               // reachability fetch still in flight, so "Try again" would sit
               // disabled with no explanation until the count resolves.
               loading:
+                audience.createRecommendedListPending ||
                 phoneListCreating ||
                 (phoneListError && audience.reachableLoading),
             }
@@ -827,37 +894,24 @@ export const SmsFlow = ({
             recommendationsLoading={audience.recommendationsLoading}
             recommendationsError={audience.recommendationsError}
             recommendedListsChannel={audience.recommendedListsChannel}
-            onCreateRecommendedList={async (recommendation, name) => {
-              // Recommendation flow (naming drawer): create the saved
-              // filter, derive its phone list, and advance to schedule in
-              // one atomic gesture. Only the create may throw into the
-              // drawer. Past it the list exists under the typed name and
-              // is selected, so a phone-list failure is the audience
-              // step's error (same as handleAudienceContinue) — thrown
-              // into the drawer it read as "couldn't save this list" and
-              // every retry POSTed a duplicate.
-              const created = await audience.createRecommendedList(
-                recommendation,
-                name,
-              )
-              // Same reset as onSelect: a token left over from a previously
-              // picked list would let a retry skip straight to schedule with
-              // the wrong audience.
+            onCreateRecommendedList={continueWithRecommendation}
+            onRecommendationReused={audience.trackRecommendationReused}
+            selectedRecommendation={audience.selectedRecommendation}
+            onSelectRecommendation={(recommendation) => {
+              audience.selectRecommendation(recommendation)
               setPhoneListToken(null)
               setPhoneList(null)
               setStopPolling(false)
               setPhoneListError(false)
-              setPhoneListCreating(true)
-              const result = await createP2pPhoneList(created, created.id)
-              setPhoneListCreating(false)
-              if (!result.ok || !result.token) {
-                setPhoneListError(true)
-                return
-              }
-              setPhoneListToken(result.token)
-              setStepId('schedule')
             }}
-            onRecommendationReused={audience.trackRecommendationReused}
+            createRecommendedListError={audience.createRecommendedListError}
+            preselectedRecommendation={audience.preselectedRecommendation}
+            preselectedRecommendationApplied={
+              audience.preselectedRecommendationApplied
+            }
+            onPreselectedRecommendationApplied={
+              audience.markPreselectedRecommendationApplied
+            }
             reachableCount={reachableCount}
             reachableLoading={audience.reachableLoading}
             pricePerContact={PRICE_PER_MESSAGE}

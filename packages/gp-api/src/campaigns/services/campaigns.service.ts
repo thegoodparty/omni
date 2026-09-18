@@ -513,6 +513,73 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     return campaign
   }
 
+  // The read below takes the row lock FIRST, and the transaction this runs in
+  // is the default READ COMMITTED rather than Serializable. Both halves
+  // matter, and neither works without the other.
+  //
+  // Unlike patchCampaignDetails (#1942) the read was always INSIDE the
+  // transaction, so this was never a lost update on its own — Serializable
+  // turned the race into an abort instead. Over the 30 days to 2026-09-17 that
+  // abort was 10 prod requests and 363 dev ones on PUT /v1/campaigns/mine,
+  // every one of them `prisma.campaign.update()` raising P2034, `Transaction
+  // failed due to a write conflict or a deadlock`, 13-21ms after the read.
+  //
+  // In all 10 prod cases the other writer was GET /v1/campaigns/mine/status,
+  // which the campaign UI calls in bursts of several per second as the user
+  // moves through it, and which stamps `data.lastVisited` on every one of
+  // those calls (see getStatus). Prod
+  // 2026-08-28T06:02:51Z is the shape of all ten:
+  //
+  //   51.551  PUT /v1/campaigns/mine        req b32387ca  received
+  //   51.560  GET /v1/campaigns/mine/status req d0b40c51  received
+  //   51.564  PUT reads the campaign row inside its transaction
+  //   51.573  GET completes — its campaign.update has committed
+  //   51.577  PUT P2034 on campaign.update -> 400, the save discarded
+  //
+  // Nine milliseconds between this method's read and the poll's commit. At
+  // Serializable (and at REPEATABLE READ) a row that a concurrent committed
+  // transaction has updated cannot be updated at all: Postgres raises 40001
+  // rather than exposing the newer version. So the candidate's save was thrown
+  // away, and nothing retried it. `FOR UPDATE` at READ COMMITTED inverts that
+  // — the poll's lock is waited on rather than collided with, and because READ
+  // COMMITTED takes a fresh snapshot per statement, the findFirst below then
+  // reads the COMMITTED result. Contention becomes a few milliseconds of
+  // latency instead of a discarded request.
+  //
+  // Keeping Serializable alongside the lock would not have worked: at that
+  // level `SELECT ... FOR UPDATE` on a concurrently-updated row raises 40001
+  // itself instead of blocking, which is the same failure one statement
+  // earlier.
+  //
+  // Not rewritten as an atomic `details || patch` the way patchCampaignDetails
+  // was, because this method cannot be expressed as one merge. It deep-merges
+  // three jsonb columns through deepmerge-ts, which CONCATENATES arrays —
+  // hence the customIssues / runningAgainst overrides below that put the
+  // incoming array back — deletes keys conditionally, and derives
+  // resetStaleResults and ballotStatusChanged by comparing the request against
+  // the row's prior electionDate and ballotStatus. `jsonb ||` is a shallow
+  // merge and would silently drop nested keys, and the two derived flags need
+  // the committed PRE-write row, which no single merge statement hands you.
+  // The lock supplies exactly that.
+  //
+  // No retry is added. A retry here would genuinely re-read, so unlike one
+  // wrapped around the old patchCampaignDetails it would not turn a visible
+  // error into a lost update — but it still leaves the conflict to be
+  // discovered rather than prevented, and it is impossible on the outerTx path
+  // below, where the caller owns the transaction and an abort has already
+  // poisoned it.
+  //
+  // Lock order is campaign-then-organization, the reverse of what this method
+  // used to do (the organization.update further down took its lock first,
+  // since the findFirst above it took none). Safe because nothing else locks
+  // an organization row and then a campaign row: the only other transactional
+  // organization.update is in electedOffice.create, which touches
+  // electedOffice and organization and never campaign.
+  //
+  // The outerTx path is NOT fixed. Its one caller, the agentic TCR-compliance
+  // kickoff, owns a Serializable transaction, so `FOR UPDATE` there raises
+  // 40001 exactly as campaign.update did. That path is 66 dev / 0 prod P2034
+  // on POST /v1/campaigns/tcr-compliance/agentic: unchanged, not improved.
   async updateJsonFields(
     id: number,
     body: UpdateCampaignFieldsInput,
@@ -538,10 +605,17 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
 
     const runUpdate = async (tx: Prisma.TransactionClient) => {
       this.logger.debug({ id, body }, 'Updating campaign json fields')
+      // Before the read, not after it: everything below derives from this row,
+      // and at READ COMMITTED the findFirst that follows only sees the
+      // committed latest version because this statement already waited for it.
+      // See the header comment for what this replaced and why.
+      await tx.$queryRaw`SELECT id FROM campaign WHERE id = ${id} FOR UPDATE`
       const campaign = await tx.campaign.findFirst({
         where: { id },
       })
 
+      // A missing row selects nothing above and reads as null here, which is
+      // the same condition the pre-lock shape reported.
       if (!campaign) return false
 
       // A re-running candidate reuses their campaign, so a didWin /
@@ -663,11 +737,12 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       })
     }
 
+    // Deliberately the default READ COMMITTED. Serializable is what made the
+    // row lock above impossible to use, and the lock is what the transaction
+    // needed all along — see the header comment.
     const updatedCampaign = outerTx
       ? await runUpdate(outerTx)
-      : await this.client.$transaction(runUpdate, {
-          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-        })
+      : await this.client.$transaction(runUpdate)
 
     if (!updatedCampaign) {
       throw new InternalServerErrorException(`Failed to update campaign ${id}`)
@@ -701,36 +776,93 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     return updatedCampaign
   }
 
+  // One atomic `details = details || patch` statement, not a read, an
+  // application-side spread and a write-back.
+  //
+  // The previous shape read `details` OUTSIDE its transaction and wrote the
+  // merged blob inside a Serializable one, so the isolation level protected
+  // nothing it was meant to: the snapshot it serialized only began after the
+  // read had already happened. Two concurrent patches of the same campaign
+  // therefore had two outcomes and only one was visible. When the second
+  // transaction BEGAN before the first committed, Postgres caught the
+  // write-write overlap and aborted it — P2034, `Transaction failed due to a
+  // write conflict or a deadlock`. When it began a moment later there was no
+  // overlap left to catch, so the second write silently overwrote every key
+  // the first had set, from a snapshot taken before those keys existed, and
+  // answered 200. The aborts are the narrow observable edge of a lost update
+  // that leaves no log line at all.
+  //
+  // Measured over the 30 days to 2026-09-17, P2034 raised from this method:
+  // 4 in prod, 73 in dev. Prod 2026-09-15T07:42:51Z is the shape of all of
+  // them — Stripe delivered `customer.subscription.created` (request
+  // 47a77f84) and `checkout.session.completed` (request 97845068) 9ms apart
+  // for sub_1UFr0v1taBPnTqn4PH8LMj6R. The first patched
+  // `details.subscriptionId`; the second reached here via setIsPro to stamp
+  // `details.isProUpdatedAt`, lost the conflict, and 400'd the webhook.
+  // Different keys, one blob. Two more (prod campaigns 222443 and 326572)
+  // were raised inside notifySlackOnProUpgrade, which catches and logs them,
+  // so the `proUpgradeSlackNotifiedAt` stamp was dropped AFTER the Slack
+  // message had been sent — leaving those campaigns eligible to be announced
+  // again.
+  //
+  // `details || patch` re-reads the row under its own row lock, so a
+  // concurrent writer blocks and then merges onto the committed result instead
+  // of onto a stale snapshot. The write becomes order-independent for the
+  // disjoint key sets every caller here uses (`subscriptionId`,
+  // `isProUpdatedAt`, `proUpgradeSlackNotifiedAt`, `subscriptionCancelAt`,
+  // `subscriptionCanceledAt`) and idempotent on re-application, which is
+  // exactly what a Stripe redelivery does. No retry is added and none is
+  // wanted: there is no transaction left to abort, and a retry around the old
+  // shape would have re-run the write from the same stale read.
+  //
+  // Two deliberate details. `||` is a top-level merge, the same shallow
+  // semantics the spread had, so a nested object in `patch` still replaces
+  // rather than merges; but an explicitly-`undefined` value now leaves the
+  // existing key alone where the spread plus JSON serialization deleted it.
+  // No caller passes `undefined` (every one passes a value or `null`), and
+  // leaving a key untouched is the correct reading of a patch. And
+  // `updated_at` is set by hand because raw SQL does not fire Prisma's
+  // `@updatedAt`.
+  //
+  // Of the other two contended writers on the `campaign` row that this did
+  // not fix, `updateJsonFields` has since been fixed a different way (a row
+  // lock, because it cannot be reduced to one merge — see its comment).
+  // setIsPro's own read-then-write transaction is still unfixed: 1 prod /
+  // ~679 dev, the dev figure inflated by the test-set-pro E2E route.
   async patchCampaignDetails(
     campaignId: number,
     details: Partial<PrismaJson.CampaignDetails>,
   ) {
-    const currentCampaign = await this.model.findFirst({
-      where: { id: campaignId },
-    })
-    if (!currentCampaign?.details) {
+    // Raw SQL because merging into an existing jsonb column has no Prisma
+    // equivalent — same reason as compareAndSwapCheckoutSessionId in
+    // users.service.ts.
+    const updatedCount = await this.client.$executeRaw`
+      UPDATE campaign
+      SET details = details || ${JSON.stringify(details)}::jsonb,
+          updated_at = NOW()
+      WHERE id = ${campaignId}
+        AND jsonb_typeof(details) = 'object'
+    `
+
+    // Zero rows has two causes, and the `!currentCampaign?.details` pre-read
+    // this replaced collapsed both into one 500. `details` is NOT NULL with a
+    // `{}` default, so the case that actually happens is a campaign id that
+    // does not resolve — a 404. A column that is not a JSON object means the
+    // row is malformed rather than the request, so it keeps the 500 it had.
+    if (updatedCount === 0) {
+      const campaign = await this.model.findUnique({
+        where: { id: campaignId },
+        select: { id: true },
+      })
+      if (!campaign) {
+        throw new NotFoundException(`Campaign ${campaignId} not found`)
+      }
       throw new InternalServerErrorException(
         `Campaign ${campaignId} has no details JSON`,
       )
     }
-    const { details: currentDetails } = currentCampaign
 
-    const updatedDetails = {
-      ...currentDetails,
-      ...details,
-    }
-    const updatedCampaign = await this.client.$transaction(
-      async (tx) =>
-        tx.campaign.update({
-          where: { id: campaignId },
-          data: { details: updatedDetails },
-        }),
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
-    )
-
-    return updatedCampaign
+    return this.model.findUniqueOrThrow({ where: { id: campaignId } })
   }
 
   async persistCampaignProCancellation(campaign: Campaign) {
@@ -760,8 +892,23 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     // Stripe delivers webhooks at-least-once, so two concurrent deliveries for
     // the same subscription could otherwise both read isPro=false, both compute
     // becamePro=true, and both fire the one-time Pro-upgrade side effects.
-    // Serializable makes the second writer block on the first and observe
-    // isPro=true, so it computes becamePro=false.
+    //
+    // Serializable does NOT make the second writer observe isPro=true, which is
+    // what this comment used to claim. At that isolation level a row already
+    // updated by a concurrent committed transaction cannot be updated at all:
+    // Postgres raises 40001, Prisma surfaces P2034, and the second delivery
+    // fails rather than recomputing becamePro=false. The gate holds only
+    // because the failure is loud and Stripe redelivers into a row that is by
+    // then already Pro. Measured 1 prod and ~679 dev P2034 from this
+    // transaction in the 30 days to 2026-09-17.
+    //
+    // The fix is the same one updateJsonFields just took — `SELECT ... FOR
+    // UPDATE` on the campaign row and the default READ COMMITTED, so the
+    // second writer blocks, re-reads isPro=true, and computes becamePro=false
+    // for real. Deliberately not done here: this is the payment path's
+    // one-time-side-effect gate, and turning a loud failure that Stripe
+    // retries into a silent no-op belongs in a change that can test that
+    // transition on its own.
     const { campaign, isBecomingProFirstTime } = await this.client.$transaction(
       async (tx) => {
         const existingCampaign = await tx.campaign.findUnique({
@@ -796,7 +943,6 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     // cancellation date on every downgrade, and re-stamped it on no-op rewrites
     // from at-least-once Stripe webhook deliveries.
     if (isBecomingProFirstTime) {
-      // Must be in serial so as to not overwrite campaign details w/ concurrent queries
       await this.patchCampaignDetails(campaignId, {
         isProUpdatedAt: formatISO(new Date()),
       })
@@ -886,12 +1032,53 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       isVerified: campaignIsVerified,
     } = campaign
 
-    await this.model.update({
-      where: { id },
-      data: {
-        data: { ...data, lastVisited: timestamp },
-      },
-    })
+    // One atomic single-key merge, not a read-modify-write of the whole blob.
+    //
+    // This runs on a GET the campaign UI calls in bursts of several per
+    // second, and it wrote `data: { ...data, lastVisited }` — the ENTIRE
+    // data column,
+    // rebuilt from the row the UseCampaign guard read before the handler even
+    // started. That had two consequences and only one of them was visible.
+    //
+    // Visibly, it was the aggressor behind every prod P2034 on
+    // PUT /v1/campaigns/mine in the 30 days to 2026-09-17 — all 10, with this
+    // write committing 2-13ms before that request's transaction aborted.
+    // updateJsonFields now waits on this statement's row lock instead of
+    // colliding with it.
+    //
+    // Invisibly, in the opposite interleaving — guard reads, some other
+    // campaign write commits, then this statement runs — the stale blob
+    // overwrote that write, with a 200 and no log line. The window is this
+    // request's own duration, which prod shows reaching 1017ms (request
+    // 47eeaa03, 2026-09-09T15:42:34Z), not the few milliseconds the aborts
+    // suggest. `data` is also where campaignUpdateHistory.create accumulates
+    // reportedVoterGoals, under an advisory lock this statement never took, so
+    // a candidate's reported voter goal is reachable this way too. No
+    // confirmed instance of either — a lost update leaves nothing behind to
+    // count, which is the point.
+    //
+    // The CASE reproduces what the spread did to a non-object data column:
+    // `{ ...null, lastVisited }` was `{ lastVisited }`. A bare `jsonb ||`
+    // does not error on that input, which is worse — concatenating a JSON
+    // scalar with an object yields the ARRAY `[null, {"lastVisited":...}]`,
+    // and the column comes back through Prisma as `{"0":null,"1":{...}}`.
+    // Verified by removing the CASE and watching the JSON-null case in
+    // campaigns.update.integration.test.ts read keys `['0','1']` rather than
+    // raise. updated_at is set by hand because raw SQL does not fire
+    // Prisma's `@updatedAt`, and this write did bump it before.
+    const stamped = await this.client.$executeRaw`
+      UPDATE campaign
+      SET data = CASE WHEN jsonb_typeof(data) = 'object' THEN data ELSE '{}'::jsonb END
+                 || jsonb_build_object('lastVisited', ${timestamp}::bigint),
+          updated_at = NOW()
+      WHERE id = ${id}
+    `
+
+    // Preserves the 404 the previous `model.update` produced via Prisma's
+    // P2025 when the campaign was deleted between the guard and here.
+    if (stamped === 0) {
+      throw new NotFoundException(`Campaign ${id} not found`)
+    }
 
     const isVerified =
       campaignIsVerified ||

@@ -3,7 +3,9 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { voterPackQueryOptions } from 'app/dashboard/door-knocking/native/useVoterPack'
+import type { RecommendedListVariant } from '@goodparty_org/contracts'
 import { ChannelTileGrid } from './ChannelTileGrid'
+import type { AudiencePreselect } from './audiencePreselect'
 
 // Counts district downloads. The real one is a binary fetch of tens of MB, and
 // what this file cares about is only whether pressing the tile asks for it.
@@ -72,15 +74,17 @@ vi.mock('@shared/experiments/nativeDoorKnockingFlag', () => ({
 const renderGrid = (
   overrides: Partial<{
     onCreateSocial: () => void
-    onCreateSms: () => void
-    onCreateRobocall: () => void
-    onCreatePhoneBanking: (preselectedListId?: number) => void
+    onCreateSms: (preselect?: AudiencePreselect) => void
+    onCreateRobocall: (preselect?: AudiencePreselect) => void
+    onCreatePhoneBanking: (preselect?: AudiencePreselect) => void
     preselectedListId: number
+    preselectedRecommendedVariant: RecommendedListVariant
   }> = {},
 ) =>
   render(
     <ChannelTileGrid
       preselectedListId={overrides.preselectedListId}
+      preselectedRecommendedVariant={overrides.preselectedRecommendedVariant}
       onCreateSocial={overrides.onCreateSocial ?? vi.fn()}
       onCreateSms={overrides.onCreateSms ?? vi.fn()}
       onCreateRobocall={overrides.onCreateRobocall ?? vi.fn()}
@@ -315,7 +319,7 @@ describe('ChannelTileGrid — door-knocking tile carries the selected list', () 
     await userEvent.click(screen.getByText('Social media'))
     await userEvent.click(screen.getByText('Phone banking'))
 
-    expect(onCreatePhoneBanking).toHaveBeenCalledWith(42)
+    expect(onCreatePhoneBanking).toHaveBeenCalledWith({ listId: 42 })
   })
 
   // The instance can outlive the navigation in the App Router's soft-nav
@@ -422,7 +426,7 @@ describe('ChannelTileGrid — phone-banking tile carries the selected list', () 
 
     await userEvent.click(screen.getByText('Phone banking'))
 
-    expect(onCreatePhoneBanking).toHaveBeenCalledWith(42)
+    expect(onCreatePhoneBanking).toHaveBeenCalledWith({ listId: 42 })
   })
 
   it('spends the list on hand-off, so a later open starts clean', async () => {
@@ -430,7 +434,7 @@ describe('ChannelTileGrid — phone-banking tile carries the selected list', () 
     renderGrid({ preselectedListId: 42, onCreatePhoneBanking })
 
     await userEvent.click(screen.getByText('Phone banking'))
-    expect(onCreatePhoneBanking).toHaveBeenNthCalledWith(1, 42)
+    expect(onCreatePhoneBanking).toHaveBeenNthCalledWith(1, { listId: 42 })
 
     await userEvent.click(screen.getByText('Phone banking'))
 
@@ -465,6 +469,71 @@ describe('ChannelTileGrid — phone-banking tile carries the selected list', () 
     )
     await userEvent.click(screen.getByText('Phone banking'))
 
-    expect(onCreatePhoneBanking).toHaveBeenCalledWith(42)
+    expect(onCreatePhoneBanking).toHaveBeenCalledWith({ listId: 42 })
+  })
+})
+
+// A list carried in on ?listId= used to reach only phone banking and door
+// knocking; the SMS and robocall tiles opened their flows with nothing, so a
+// voter data page "Send outreach" that picked either lost its list.
+describe('ChannelTileGrid — the preselect reaches every audience-taking tile', () => {
+  beforeEach(() => {
+    mockCampaign = { id: 9, isPro: true }
+    mockRouterPush.mockClear()
+  })
+
+  it('hands the carried list to the SMS flow', async () => {
+    const onCreateSms = vi.fn()
+    renderGrid({ preselectedListId: 42, onCreateSms })
+
+    await userEvent.click(screen.getByText('SMS'))
+
+    expect(onCreateSms).toHaveBeenCalledWith({ listId: 42 })
+  })
+
+  it('hands the carried list to the robocall flow', async () => {
+    const onCreateRobocall = vi.fn()
+    renderGrid({ preselectedListId: 42, onCreateRobocall })
+
+    await userEvent.click(screen.getByText('Robocall'))
+
+    expect(onCreateRobocall).toHaveBeenCalledWith({ listId: 42 })
+  })
+
+  it('spends the list once SMS has taken it', async () => {
+    const onCreateSms = vi.fn()
+    const onCreateRobocall = vi.fn()
+    renderGrid({ preselectedListId: 42, onCreateSms, onCreateRobocall })
+
+    await userEvent.click(screen.getByText('SMS'))
+    await userEvent.click(screen.getByText('Robocall'))
+
+    expect(onCreateRobocall).toHaveBeenCalledWith(undefined)
+  })
+
+  // The voter data page's recommended cards carry a variant instead of a
+  // list: nothing is saved until the flow's own audience step.
+  it('hands a recommended variant to the flows', async () => {
+    const onCreateSms = vi.fn()
+    renderGrid({
+      preselectedRecommendedVariant: 'persuadeAffinity',
+      onCreateSms,
+    })
+
+    await userEvent.click(screen.getByText('SMS'))
+
+    expect(onCreateSms).toHaveBeenCalledWith({
+      recommendedVariant: 'persuadeAffinity',
+    })
+  })
+
+  it('carries a recommended variant to door knocking as ?recommended=', async () => {
+    renderGrid({ preselectedRecommendedVariant: 'persuadeAffinity' })
+
+    await userEvent.click(screen.getByText('Door knocking'))
+
+    expect(mockRouterPush).toHaveBeenCalledWith(
+      '/dashboard/door-knocking?create=1&recommended=persuadeAffinity',
+    )
   })
 })

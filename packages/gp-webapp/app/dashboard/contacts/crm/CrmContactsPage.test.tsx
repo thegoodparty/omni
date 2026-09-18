@@ -93,6 +93,14 @@ vi.mock('./assistant/CrmAssistant', () => ({
 vi.mock('./lists/ListsIndex', () => ({
   default: () => <div data-testid="lists-index" />,
 }))
+vi.mock('./recommended/RecommendedListsSection', () => ({
+  default: () => <div data-testid="recommended-lists-section" />,
+}))
+vi.mock('./shared/channelPicker/ChannelPickerProvider', () => ({
+  ChannelPickerProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="channel-picker-provider">{children}</div>
+  ),
+}))
 const mockOrganization = vi.hoisted(() => ({
   current: { slug: 'campaign-1', positionName: 'Mayor of Nowhere' } as {
     slug: string

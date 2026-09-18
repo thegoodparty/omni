@@ -1527,6 +1527,139 @@ describe('ContactsService', () => {
       })
     })
 
+    describe('downloadFilter (CSV for an unsaved filter)', () => {
+      const makeReply = () =>
+        ({
+          raw: {
+            headersSent: false,
+            flushHeaders: vi.fn(),
+            setHeader: vi.fn(),
+            on: vi.fn(),
+          },
+        }) as never
+
+      it('throws when the organization is not pro, before streaming', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+
+        await expect(
+          service.downloadFilter(
+            { independentAffinity: true },
+            makeReply(),
+            org,
+          ),
+        ).rejects.toThrow(ForbiddenException)
+        expect(mockVoterDownloadService.streamPeopleCsv).not.toHaveBeenCalled()
+      })
+
+      it('streams the inline filter as individual voters, never households', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        const res = makeReply()
+
+        await service.downloadFilter({ independentAffinity: true }, res, org)
+
+        expect(mockVoterDownloadService.streamPeopleCsv).toHaveBeenCalledOnce()
+        expect(mockVoterDownloadService.streamPeopleCsv).toHaveBeenCalledWith(
+          expect.objectContaining({
+            districtId: OVERRIDE_DISTRICT_ID,
+            groupByHousehold: false,
+          }),
+          res,
+          expect.objectContaining({ filename: 'contacts.csv' }),
+        )
+      })
+    })
+
+    describe('getFilterDetail (aggregates for an unsaved filter)', () => {
+      it('throws when the organization is not pro, before querying', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+
+        await expect(
+          service.getFilterDetail({ voterStatus: ['Super'] }, org),
+        ).rejects.toThrow(ForbiddenException)
+        expect(
+          mockVoterQueryService.getListDetailAggregates,
+        ).not.toHaveBeenCalled()
+      })
+
+      it('runs the inline filter through the same translation a saved list gets', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockVoterQueryService.getListDetailAggregates.mockResolvedValue({
+          count: 4200,
+          avgAge: 44,
+          avgIncome: 58000,
+          sms: 2600,
+          robocall: 2900,
+          phoneBanking: 3100,
+          doorKnocking: 4200,
+        })
+
+        const result = await service.getFilterDetail(
+          { independentAffinity: true },
+          org,
+        )
+
+        expect(
+          mockVoterQueryService.getListDetailAggregates,
+        ).toHaveBeenCalledWith(
+          expect.objectContaining({
+            districtId: OVERRIDE_DISTRICT_ID,
+            filters: expect.objectContaining({
+              filterValues: { independentAffinity: ['Yes'] },
+            }),
+          }),
+        )
+        expect(result).toEqual({
+          demographics: { people: 4200, avgAge: 44, avgIncome: 58000 },
+          reachability: {
+            sms: 2600,
+            robocall: 2900,
+            phoneBanking: 3100,
+            doorKnocking: 4200,
+            polls: 2600,
+          },
+          outreachHistory: [],
+        })
+      })
+
+      it('returns zeros without querying when support status resolves to nobody', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+          { kind: 'empty' },
+        )
+
+        const result = await service.getFilterDetail(
+          { supportStatus: ['supporter'] },
+          org,
+        )
+
+        expect(result.demographics.people).toBe(0)
+        expect(result.reachability.sms).toBe(0)
+        expect(
+          mockVoterQueryService.getListDetailAggregates,
+        ).not.toHaveBeenCalled()
+      })
+    })
+
     describe('getListDetail (list-detail demographics/reachability, ENG-10706)', () => {
       const savedFilter = {
         id: 42,

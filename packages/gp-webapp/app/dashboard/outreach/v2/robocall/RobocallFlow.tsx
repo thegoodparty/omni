@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { addDays } from 'date-fns'
 import { useMutation } from '@tanstack/react-query'
 import {
+  type RecommendedListVariant,
   type RobocallAuthorizeResponse,
   type RobocallComplianceRequest,
   type RobocallScriptDraftRequest,
@@ -26,6 +27,7 @@ import {
   intentForOutreachPurpose,
   useOutreachAudience,
 } from '../audience/useOutreachAudience'
+import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { RobocallPurposeStep } from './RobocallPurposeStep'
 import { RobocallScheduleStep } from './RobocallScheduleStep'
@@ -103,6 +105,9 @@ interface RobocallFlowProps {
   // pay step creates, matching what the p2p create has always done.
   campaignPlanDueDate?: string
   preselectedListId?: number
+  // `?recommended=` off the voter data page: a recommendation not saved yet,
+  // which the audience step saves on arrival (see useOutreachAudience).
+  preselectedRecommendedVariant?: RecommendedListVariant
 }
 
 // Flow state is flat client state owned here (phase 1 TDD pattern): no server
@@ -113,6 +118,7 @@ export const RobocallFlow = ({
   onScheduled,
   campaignPlanDueDate,
   preselectedListId,
+  preselectedRecommendedVariant,
 }: RobocallFlowProps) => {
   const [stepId, setStepId] = useState<StepId>('purpose')
   const [purpose, setPurpose] = useState<RobocallPurpose | null>(null)
@@ -141,6 +147,7 @@ export const RobocallFlow = ({
     countOverlay: ROBOCALL_COUNT_OVERLAY,
     recommendedListIntent,
     preselectedListId,
+    preselectedRecommendedVariant,
   })
   const { reset: resetAudience } = audience
 
@@ -274,8 +281,14 @@ export const RobocallFlow = ({
       resetAudioUpload()
       return
     }
-    setStepId('purpose')
-    setPurpose(null)
+    // A carried-in recommendation opens past the purpose picker, on the
+    // purpose its intent maps onto: the candidate answered that question by
+    // picking the card.
+    const carriedPurpose = preselectedRecommendedVariant
+      ? purposeForRecommendedVariant(preselectedRecommendedVariant)
+      : null
+    setStepId(carriedPurpose ? 'audience' : 'purpose')
+    setPurpose(carriedPurpose)
     setCampaignName('')
     lastAutoName.current = ''
     setScheduledDay(undefined)
@@ -298,6 +311,7 @@ export const RobocallFlow = ({
     resetAudioUpload,
     resetRent,
     resetCompliance,
+    preselectedRecommendedVariant,
   ])
 
   // Run the compliance check once a recording is saved (uploaded). Keyed on the
@@ -445,6 +459,21 @@ export const RobocallFlow = ({
     }
   }
 
+  // The shell's Continue over a selected recommendation card: saved under
+  // the recommendation's own title, then on to schedule.
+  const handleSelectedRecommendationContinue = async () => {
+    if (!audience.selectedRecommendation) return
+    try {
+      await audience.createRecommendedList(
+        audience.selectedRecommendation,
+        audience.selectedRecommendation.copy.title,
+      )
+      goToSchedule()
+    } catch {
+      // createRecommendedListError renders under the cards.
+    }
+  }
+
   // First AI draft on entry (non-custom, and only if we don't already have one
   // from a prior visit). Custom writes its own words, so it never drafts — but
   // it still needs the rented number to read aloud, shown in the compose step.
@@ -529,12 +558,19 @@ export const RobocallFlow = ({
               audience.reachableCount !== null
                 ? `Continue (${audience.reachableCount.toLocaleString()})`
                 : 'Continue',
-            onClick: goToSchedule,
+            onClick: () => {
+              if (audience.selectedRecommendation) {
+                void handleSelectedRecommendationContinue()
+                return
+              }
+              goToSchedule()
+            },
             disabled:
-              !audience.selectedList ||
+              (!audience.selectedList && !audience.selectedRecommendation) ||
               audience.reachableLoading ||
               audience.reachableCount === null ||
               audience.reachableCount === 0,
+            loading: audience.createRecommendedListPending,
           }
 
   const cta: FlowShellCta | null =
@@ -612,6 +648,16 @@ export const RobocallFlow = ({
               goToSchedule()
             }}
             onRecommendationReused={audience.trackRecommendationReused}
+            selectedRecommendation={audience.selectedRecommendation}
+            onSelectRecommendation={audience.selectRecommendation}
+            createRecommendedListError={audience.createRecommendedListError}
+            preselectedRecommendation={audience.preselectedRecommendation}
+            preselectedRecommendationApplied={
+              audience.preselectedRecommendationApplied
+            }
+            onPreselectedRecommendationApplied={
+              audience.markPreselectedRecommendationApplied
+            }
             reachableCount={audience.reachableCount}
             reachableLoading={audience.reachableLoading}
             pricePerContact={PRICE_PER_CONTACT}

@@ -8,6 +8,7 @@ import { WhoStep } from './WhoStep'
 // is what exercises this component's own render guards.
 const RECOMMENDATION = {
   variant: 'introNeverIded' as const,
+  intent: 'introduce' as const,
   filter: { voterStatus: ['Super'], precincts: ['Cook|101'] },
   count: 4200,
   voteGoalShare: 0.28,
@@ -35,7 +36,7 @@ const baseProps = {
   selectedListId: null,
   onSelectList: vi.fn(),
   hasPickedAudience: false,
-  hasActiveRecommendation: false,
+  activeRecommendationVariant: null,
   isServeOrg: false,
   building: false,
   onBuildingChange: vi.fn(),
@@ -48,6 +49,22 @@ const baseProps = {
 }
 
 describe('WhoStep — recommended lists', () => {
+  it('paints the active recommendation as the pressed card', () => {
+    render(
+      <WhoStep
+        {...baseProps}
+        recommendations={[RECOMMENDATION]}
+        hasPickedAudience
+        activeRecommendationVariant={RECOMMENDATION.variant}
+      />,
+    )
+
+    expect(screen.getByTestId('recommended-list-card')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
   it('renders nothing extra when there are no recommendations', () => {
     render(<WhoStep {...baseProps} recommendations={[]} />)
 

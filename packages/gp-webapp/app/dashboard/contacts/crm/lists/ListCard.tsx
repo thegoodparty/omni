@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
 import {
   Button,
   Card,
@@ -21,6 +20,7 @@ import { dateUsHelper } from 'helpers/dateHelper'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useShowContactProModal } from '../ContactProModal'
+import { useOpenChannelPicker } from '../shared/channelPicker/ChannelPickerProvider'
 import { useListRowDetail } from './useListRowDetail'
 import DeleteListDialog from './DeleteListDialog'
 import DuplicateListDialog from './DuplicateListDialog'
@@ -46,6 +46,7 @@ export default function ListCard({ segment }: ListCardProps) {
     canUseProFeatures,
   } = useContactsTable()
   const showProUpgradeModal = useShowContactProModal()
+  const openChannelPicker = useOpenChannelPicker()
   const { peopleCount, lastOutreach, isLoading, isError, isGated } =
     useListRowDetail(segment.id, canUseProFeatures)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -153,18 +154,18 @@ export default function ListCard({ segment }: ListCardProps) {
               dead-ends for an eo- org; the readiness gate avoids flashing
               the button at a Serve user while the mode resolves. */}
           {isWinContextReady && isWinContext && (
-            <Button size="small" className="h-8 px-3.5 text-xs" asChild>
-              <Link
-                href={`/dashboard/outreach?listId=${segment.id}`}
-                onClick={() =>
-                  trackEvent(EVENTS.VoterData.SendOutreachClicked, {
-                    listId: segment.id,
-                    surface: 'listCard',
-                  })
-                }
-              >
-                Send outreach
-              </Link>
+            <Button
+              size="small"
+              className="h-8 px-3.5 text-xs"
+              onClick={() => {
+                trackEvent(EVENTS.VoterData.SendOutreachClicked, {
+                  listId: segment.id,
+                  surface: 'listCard',
+                })
+                openChannelPicker({ kind: 'list', segment })
+              }}
+            >
+              Send outreach
             </Button>
           )}
         </div>

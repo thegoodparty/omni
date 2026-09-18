@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { render } from 'helpers/test-utils/render'
+import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { createP2pPhoneList } from 'helpers/createP2pPhoneList'
@@ -42,6 +42,7 @@ vi.mock('@shared/hooks/useUser', () => ({
 
 const RECOMMENDATION = {
   variant: 'persuadeAffinity' as const,
+  intent: 'persuade' as const,
   filter: { independentAffinity: true, voterStatus: ['Super', 'Likely'] },
   count: 19000,
   voteGoalShare: 0.48,
@@ -64,6 +65,10 @@ const EXISTING_RECOMMENDATION = {
 }
 
 beforeEach(() => {
+  // The stale-cache test below seeds the shared client; vitest.setup.ts
+  // already clears it between tests, and this keeps the file self-evidently
+  // safe the way its door-knocking counterpart is.
+  testQueryClient.clear()
   api.reset()
   vi.clearAllMocks()
   api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
@@ -90,6 +95,218 @@ const openToAudience = async () => {
     (await screen.findAllByText('Who do you want to reach?')).length,
   ).toBeGreaterThan(0)
 }
+
+// Arriving from the voter data page with `?recommended=`: the card already
+// answered "What do you want to do?", so the flow opens on the audience step
+// with the variant's purpose picked, asks for that one variant cut for SMS,
+// and the audience step applies it on arrival.
+describe('SmsFlow — a recommendation carried in from the voter data page', () => {
+  it('skips the purpose step, fetches the variant for this channel and arrives with it selected, saving it on Continue', async () => {
+    const queries: Record<string, unknown>[] = []
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => {
+      queries.push(query)
+      return {
+        status: 200,
+        data:
+          query.variant === 'electionDayAffinity'
+            ? [
+                {
+                  ...RECOMMENDATION,
+                  variant: 'electionDayAffinity' as const,
+                  intent: 'electionDay' as const,
+                  copy: {
+                    title: 'Turn out independent-leaning voters',
+                    criteriaSummary: 'Moderate propensity independents',
+                  },
+                },
+              ]
+            : [],
+      }
+    })
+    api.mock('POST /v1/contacts/count', { status: 200, data: { count: 19000 } })
+    const filterCalls: Record<string, unknown>[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      filterCalls.push(body)
+      return {
+        status: 200,
+        data: { id: 88, name: body.name, recommendedModified: false },
+      }
+    })
+    render(
+      <SmsFlow
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        preselectedRecommendedVariant="electionDayAffinity"
+      />,
+    )
+
+    // No purpose question: the card carried its intent, and the audience
+    // step is the first thing on screen.
+    expect(
+      (await screen.findAllByText('Who do you want to reach?')).length,
+    ).toBeGreaterThan(0)
+    expect(screen.queryByText('Introduce myself to voters')).toBeNull()
+
+    // Cut for this channel — and already the chosen audience, as the
+    // prototype has it: the card reads pressed, nothing asks for a name, and
+    // Continue carries its count.
+    const card = await screen.findByTestId('recommended-list-card')
+    await waitFor(() => expect(card).toHaveAttribute('aria-pressed', 'true'))
+    expect(screen.queryByRole('textbox', { name: 'List name' })).toBeNull()
+    expect(queries).toContainEqual(
+      expect.objectContaining({
+        channel: 'sms',
+        variant: 'electionDayAffinity',
+      }),
+    )
+    expect(screen.getByTestId('recommended-list-card')).toHaveTextContent(
+      'Turn out independent-leaning voters',
+    )
+
+    const continueButton = await screen.findByRole('button', {
+      name: 'Continue (19,000)',
+    })
+    expect(continueButton).toBeEnabled()
+    await userEvent.click(continueButton)
+
+    // Saved under the recommendation's own title, then the phone list is
+    // derived from it exactly as a named list's would be. Provenance is the
+    // variant's own intent, not the purpose the candidate happened to pick
+    // to get here.
+    await waitFor(() => expect(filterCalls).toHaveLength(1))
+    expect(filterCalls[0]).toMatchObject({
+      name: 'Turn out independent-leaning voters',
+      recommendedVariant: 'electionDayAffinity',
+      recommendedChannel: 'sms',
+      recommendedIntent: 'electionDay',
+    })
+    await waitFor(() => expect(acceptedCalls()).toHaveLength(1))
+    expect(acceptedCalls()[0]?.[1]).toMatchObject({
+      variant: 'electionDayAffinity',
+      channel: 'sms',
+      intent: 'electionDay',
+    })
+    await waitFor(() =>
+      expect(createP2pPhoneList).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 88 }),
+        88,
+      ),
+    )
+    // Saving changes the answer to "does this list exist yet": the carried
+    // copy is refetched so the next open selects the saved list instead of
+    // saving it again.
+    await waitFor(() =>
+      expect(
+        queries.filter((query) => query.variant === 'electionDayAffinity'),
+      ).toHaveLength(2),
+    )
+  })
+
+  // The query cache outlives the flow: a copy fetched before the list was
+  // saved still says existingFilterId null, and applying it during the
+  // refetch is exactly how one list got saved twice (rows 8 and 9, local).
+  it('waits for a fresh copy before applying a cached recommendation', async () => {
+    testQueryClient.setQueryData(
+      [
+        'outreach-audience-preselected-recommendation',
+        'campaign-9',
+        'sms',
+        'persuadeAffinity',
+      ],
+      RECOMMENDATION,
+    )
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 501, name: 'Persuadable independents' }],
+    })
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => ({
+      status: 200,
+      data:
+        query.variant === 'persuadeAffinity'
+          ? [{ ...RECOMMENDATION, existingFilterId: 501 }]
+          : [],
+    }))
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        demographics: { people: 19000, avgAge: null, avgIncome: null },
+        reachability: {
+          sms: 17000,
+          robocall: null,
+          phoneBanking: null,
+          doorKnocking: null,
+          polls: null,
+        },
+        outreachHistory: [],
+      },
+    })
+    const filterCalls: Record<string, unknown>[] = []
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      filterCalls.push(body)
+      return { status: 200, data: { id: 88, name: body.name } }
+    })
+    render(
+      <SmsFlow
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        preselectedRecommendedVariant="persuadeAffinity"
+      />,
+    )
+
+    // The saved list is what gets selected — never the stale card.
+    expect(
+      await screen.findByRole('button', { name: 'Continue (17,000)' }),
+    ).toBeEnabled()
+    expect(screen.getByTestId('recommended-list-card')).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Continue (17,000)' }),
+    )
+    await waitFor(() =>
+      expect(createP2pPhoneList).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 501 }),
+        501,
+      ),
+    )
+    expect(filterCalls).toHaveLength(0)
+  })
+
+  it('shows the failure under the cards when saving the selected recommendation fails', async () => {
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => ({
+      status: 200,
+      data: query.variant === 'persuadeAffinity' ? [RECOMMENDATION] : [],
+    }))
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+    render(
+      <SmsFlow
+        open
+        onClose={vi.fn()}
+        onScheduled={vi.fn().mockResolvedValue(undefined)}
+        preselectedRecommendedVariant="persuadeAffinity"
+      />,
+    )
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Continue (19,000)' }),
+    )
+
+    expect(
+      await screen.findByText("We couldn't save this list. Try again."),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('recommended-list-card')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(createP2pPhoneList).not.toHaveBeenCalled()
+  })
+})
 
 describe('SmsFlow — recommended lists', () => {
   it('shows a card and carries its variant through to the created filter', async () => {
@@ -135,7 +352,8 @@ describe('SmsFlow — recommended lists', () => {
     expect(filterCalls[0]).toMatchObject({
       recommendedVariant: 'persuadeAffinity',
       recommendedChannel: 'sms',
-      recommendedIntent: 'introduce',
+      // The variant's own intent, not the purpose picked to reach it.
+      recommendedIntent: 'persuade',
     })
 
     // Fires only here, after the create response carries gp-api's
@@ -145,7 +363,7 @@ describe('SmsFlow — recommended lists', () => {
     expect(acceptedCalls()[0]?.[1]).toEqual({
       variant: 'persuadeAffinity',
       channel: 'sms',
-      intent: 'introduce',
+      intent: 'persuade',
       count: 19000,
       voteGoalShare: 0.48,
       modified: true,
@@ -201,7 +419,7 @@ describe('SmsFlow — recommended lists', () => {
     expect(acceptedCalls()[0]?.[1]).toEqual({
       variant: 'persuadeUndecided',
       channel: 'sms',
-      intent: 'introduce',
+      intent: 'persuade',
       count: 19000,
       voteGoalShare: 0.48,
       modified: false,

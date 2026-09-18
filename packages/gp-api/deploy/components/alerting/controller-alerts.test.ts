@@ -105,10 +105,23 @@ describe('controllerAlerts', () => {
     }
   })
 
-  // A controller with no public routes (currently `mcp`) has nothing to watch,
-  // and grafana.ts skips empty rule groups rather than fail preview.
-  it('builds nothing for a controller with no routes', () => {
-    expect(controllerAlerts('mcp')).toHaveLength(0)
+  // `mcp` generated no rule at all until 2026-09-17. Its only handler is
+  // `@All()`, which generate-route-types.ts did not recognise, so the
+  // controller reached CONTROLLER_NAMES with an empty ROUTE_MAP and the loop
+  // below it had nothing to iterate — while POST /v1/mcp served 24,736 requests
+  // in 30 days and GET another 69,016.
+  //
+  // Both live methods are named rather than just asserting a rule exists: the
+  // generator expands `@All()` across every method fastify registers, and a
+  // regression to one of them would still produce a rule that looks right and
+  // watches half the endpoint.
+  it('watches every method the mcp @All() handler answers', () => {
+    const alert = onlyAlert('mcp')
+
+    expect(alert.expr).toContain('GET /v1/mcp')
+    expect(alert.expr).toContain('POST /v1/mcp')
+    expect(alert.disabled).toBe(false)
+    expect([alert.notify ?? []].flat()).toEqual(['serve-bugs', 'win-bugs'])
   })
 
   // The rule now reads the whole gp-api stream, so the endpoint pattern is the

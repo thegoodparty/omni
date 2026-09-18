@@ -11,6 +11,7 @@ import {
   type PhoneBankingCreateResponse,
   type PhoneBankingPurpose,
   type PhoneBankingScriptDraftRequest,
+  type RecommendedListVariant,
   type ServePhoneBankingCreate,
   type ServePhoneBankingPurpose,
   type ServePhoneBankingScriptDraftRequest,
@@ -37,6 +38,7 @@ import {
   intentForOutreachPurpose,
   useOutreachAudience,
 } from '../audience/useOutreachAudience'
+import { purposeForRecommendedVariant } from '../audience/recommendedListMapping.util'
 import {
   PHONE_BANKING_PURPOSES,
   phoneBankingPurposeNameSuggestion,
@@ -227,6 +229,9 @@ interface PhoneBankingFlowProps {
   // A ?listId= deep link's saved list, handed over by the hub tile's click —
   // applied to the who step's picker once the saved lists resolve.
   preselectedListId?: number
+  // `?recommended=` off the voter data page: a recommendation not saved yet,
+  // which the who step saves on arrival (see useOutreachAudience).
+  preselectedRecommendedVariant?: RecommendedListVariant
 }
 
 // Flow state is flat client state owned here (phase 1 TDD, same convention
@@ -239,6 +244,7 @@ export const PhoneBankingFlow = ({
   onSaved,
   surface = WIN_PHONE_BANKING_SURFACE,
   preselectedListId,
+  preselectedRecommendedVariant,
 }: PhoneBankingFlowProps) => {
   const router = useRouter()
   const [stepId, setStepId] = useState<StepId>('purpose')
@@ -286,6 +292,7 @@ export const PhoneBankingFlow = ({
     reachabilityKey: 'phoneBanking',
     countOverlay: PHONE_BANKING_COUNT_OVERLAY,
     recommendedListIntent,
+    preselectedRecommendedVariant,
   })
   const {
     reset: resetAudience,
@@ -339,8 +346,15 @@ export const PhoneBankingFlow = ({
   useEffect(() => {
     if (!open) return
     draftRequestRef.current += 1
-    setStepId('purpose')
-    setPurpose(null)
+    // A carried-in recommendation opens past the purpose picker, on the
+    // purpose its intent maps onto: the candidate answered that question by
+    // picking the card. It drafts for that purpose too, below, exactly as a
+    // tap on the card would.
+    const carriedPurpose = preselectedRecommendedVariant
+      ? purposeForRecommendedVariant(preselectedRecommendedVariant)
+      : null
+    setStepId(carriedPurpose ? 'who' : 'purpose')
+    setPurpose(carriedPurpose)
     setTone('warm')
     setScript('')
     setScriptManuallyEdited(false)
@@ -354,7 +368,30 @@ export const PhoneBankingFlow = ({
     resetDraftMutation()
     resetCreateMutation()
     resetAudience()
-  }, [open, resetDraftMutation, resetCreateMutation, resetAudience])
+    if (carriedPurpose) {
+      // requestDraft's own body, inlined: it reads the instructions state,
+      // which the reset above has not flushed yet, and this effect cannot
+      // depend on a closure that is fresh every render.
+      const requestId = ++draftRequestRef.current
+      draftMutate(
+        { purpose: carriedPurpose, tone: 'warm' },
+        {
+          onSuccess: (generated) => {
+            if (requestId !== draftRequestRef.current) return
+            setScript(generated)
+            setScriptManuallyEdited(false)
+          },
+        },
+      )
+    }
+  }, [
+    open,
+    resetDraftMutation,
+    resetCreateMutation,
+    resetAudience,
+    draftMutate,
+    preselectedRecommendedVariant,
+  ])
 
   // Applies the handed-over preselected list to the who step's picker once
   // the saved lists resolve — and only when the id matches a picker row, so
@@ -522,6 +559,21 @@ export const PhoneBankingFlow = ({
     }
   }
 
+  // The shell's Continue over a selected recommendation card: saved under
+  // the recommendation's own title, then on to the script.
+  const handleSelectedRecommendationContinue = async () => {
+    if (!audience.selectedRecommendation) return
+    try {
+      await audience.createRecommendedList(
+        audience.selectedRecommendation,
+        audience.selectedRecommendation.copy.title,
+      )
+      setStepId('script')
+    } catch {
+      // createRecommendedListError renders under the cards.
+    }
+  }
+
   const handleBack = () => {
     // Within the builder, Back walks the sub-modes: name -> filters (keeps the
     // built filters), filters -> picker (resetBuilder clears them).
@@ -585,13 +637,21 @@ export const PhoneBankingFlow = ({
               audience.reachableCount !== null
                 ? `Continue (${audience.reachableCount.toLocaleString()})`
                 : 'Continue',
-            onClick: () => setStepId('script'),
+            onClick: () => {
+              if (audience.selectedRecommendation) {
+                void handleSelectedRecommendationContinue()
+                return
+              }
+              setStepId('script')
+            },
             disabled:
-              !audience.selectedList ||
+              (!audience.selectedList && !audience.selectedRecommendation) ||
               audience.reachableLoading ||
               audience.reachableCount === null ||
               audience.reachableCount === 0,
-            loading: audience.reachableLoading,
+            loading:
+              audience.reachableLoading ||
+              audience.createRecommendedListPending,
           }
 
   const cta: FlowShellCta | null = saved
@@ -675,6 +735,16 @@ export const PhoneBankingFlow = ({
               setStepId('script')
             }}
             onRecommendationReused={audience.trackRecommendationReused}
+            selectedRecommendation={audience.selectedRecommendation}
+            onSelectRecommendation={audience.selectRecommendation}
+            createRecommendedListError={audience.createRecommendedListError}
+            preselectedRecommendation={audience.preselectedRecommendation}
+            preselectedRecommendationApplied={
+              audience.preselectedRecommendationApplied
+            }
+            onPreselectedRecommendationApplied={
+              audience.markPreselectedRecommendationApplied
+            }
             reachableCount={audience.reachableCount}
             reachableLoading={audience.reachableLoading}
             selectedListTotal={audience.selectedListTotal}

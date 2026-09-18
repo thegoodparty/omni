@@ -865,6 +865,48 @@ describe('NativeDoorKnockingPage create flow', () => {
     )
   })
 
+  // The same chain for a recommended variant: page prop through the surface
+  // into the flow, which asks for it on door knocking and applies it.
+  it('opens the create flow on the recommendation carried in on ?recommended=', async () => {
+    api.mock('GET /v1/campaigns/mine/recommended-lists', ({ query }) => ({
+      status: 200,
+      data:
+        query.variant === 'persuadeAffinity'
+          ? [
+              {
+                variant: 'persuadeAffinity',
+                intent: 'persuade',
+                filter: { voterStatus: ['Super', 'Likely'] },
+                count: 3,
+                copy: {
+                  title: 'Persuadable independents',
+                  criteriaSummary: 'Moderate to high propensity independents',
+                },
+                existingFilterId: null,
+              },
+            ]
+          : [],
+    }))
+    renderPage({ preselectedRecommendedVariant: 'persuadeAffinity' }, [
+      { id: 7, name: 'Precinct 2 homeowners' },
+    ])
+
+    // The card answered the goal question, so the flow opens on the who
+    // stage with no goal cards to press.
+    expect(
+      await screen.findByTestId('recommended-list-card'),
+    ).toHaveTextContent('Persuadable independents')
+    expect(
+      screen.queryByRole('button', { name: /Introduce myself/ }),
+    ).toBeNull()
+    // Applied, not merely offered: the draft carries the universe's bands.
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /^Continue \(/ }),
+      ).toBeEnabled(),
+    )
+  })
+
   // A stale bookmark, a list deleted in the CRM since, or another org's id:
   // the param is not trusted, so all of them are a missed preselection and
   // nothing else. The picker now reads its placeholder rather than defaulting

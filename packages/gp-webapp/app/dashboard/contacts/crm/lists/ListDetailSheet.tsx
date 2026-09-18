@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import {
   Badge,
@@ -41,6 +40,7 @@ import { useContactsTable } from '../ContactsTableProvider'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { OUTREACH_CHANNEL_NOUNS } from '../shared/outreachChannelLabels'
 import CrmSheet from '../shared/CrmSheet'
+import { useOpenChannelPicker } from '../shared/channelPicker/ChannelPickerProvider'
 import ListMapSection from '../map/ListMapSection'
 import ListFilterSummary from './ListFilterSummary'
 import ReachabilityGrid from './ReachabilityGrid'
@@ -83,6 +83,7 @@ export default function ListDetailSheet({
 
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [duplicateOpen, setDuplicateOpen] = useState(false)
+  const openChannelPicker = useOpenChannelPicker()
 
   const isUniverse = listId === ALL_SEGMENTS
 
@@ -285,7 +286,7 @@ export default function ListDetailSheet({
               onClick={handleDownload}
               loading={isPreparing}
             >
-              {!canUseProFeatures ? (
+              {isPreparing ? null : !canUseProFeatures ? (
                 <LockIcon className="size-4" />
               ) : (
                 <DownloadIcon className="size-4" />
@@ -297,18 +298,20 @@ export default function ListDetailSheet({
                 resolves. `segment` also excludes universe mode — that
                 row's own card carries its own Send outreach button. */}
             {segment && isWinContextReady && isWinContext && (
-              <Button className="h-11 flex-1 text-sm" asChild>
-                <Link
-                  href={`/dashboard/outreach?listId=${segment.id}`}
-                  onClick={() =>
-                    trackEvent(EVENTS.VoterData.SendOutreachClicked, {
-                      listId: segment.id,
-                      surface: 'listDetail',
-                    })
-                  }
-                >
-                  Send outreach
-                </Link>
+              <Button
+                className="h-11 flex-1 text-sm"
+                onClick={() => {
+                  trackEvent(EVENTS.VoterData.SendOutreachClicked, {
+                    listId: segment.id,
+                    surface: 'listDetail',
+                  })
+                  // The prototype swaps this drawer for "Choose a channel";
+                  // two full-height sheets never stack.
+                  onClose()
+                  openChannelPicker({ kind: 'list', segment })
+                }}
+              >
+                Send outreach
               </Button>
             )}
           </div>

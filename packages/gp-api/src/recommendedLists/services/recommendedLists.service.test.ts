@@ -403,6 +403,7 @@ describe('RecommendedListsService.recommend', () => {
         'estimatedCostCents',
         'existingFilterId',
         'filter',
+        'intent',
         'variant',
       ])
     })
@@ -476,6 +477,7 @@ describe('RecommendedListsService.recommend', () => {
         'count',
         'existingFilterId',
         'filter',
+        'intent',
         'variant',
         'voteGoalShare',
       ])
@@ -494,6 +496,7 @@ describe('RecommendedListsService.recommend', () => {
         'count',
         'existingFilterId',
         'filter',
+        'intent',
         'variant',
         'voteGoalShare',
       ])
@@ -769,6 +772,215 @@ describe('RecommendedListsService.recommend', () => {
     ).rejects.toBeInstanceOf(BadRequestException)
 
     expect(resolveEligibleDistrictId).not.toHaveBeenCalled()
+  })
+
+  it('names the intent each recommendation belongs to', async () => {
+    const results = await service.recommend(
+      organization,
+      campaign,
+      'sms',
+      'persuade',
+    )
+
+    expect(results.map((result) => result.intent)).toEqual([
+      'persuade',
+      'persuade',
+    ])
+  })
+
+  // The voter data page asks for the universes themselves, before any
+  // channel has been picked: no contactability cut, no price, every intent.
+  describe('global mode (no channel)', () => {
+    it('returns every intent, deduped, with no contactability filter', async () => {
+      const results = await service.recommend(
+        organization,
+        campaign,
+        null,
+        null,
+      )
+
+      // earlyVoteSupporters duplicates eventSupporters and earlyVoteAffinity
+      // duplicates persuadeAffinity (docs/features/recommended-lists.md), so
+      // the page shows each distinct universe once, under its first intent.
+      expect(results.map((result) => result.variant)).toEqual([
+        'introNeverIded',
+        'persuadeAffinity',
+        'persuadeUndecided',
+        'eventSupporters',
+        'eventAffinity',
+        'electionDaySupporters',
+        'electionDayAffinity',
+      ])
+      for (const result of results) {
+        expect(result.filter.hasCellPhone).toBeUndefined()
+        expect(result.filter.hasAnyPhone).toBeUndefined()
+        expect(result.filter.precincts).toBeUndefined()
+        expect(result.estimatedCostCents).toBeUndefined()
+      }
+    })
+
+    it('carries each variant intent', async () => {
+      const results = await service.recommend(
+        organization,
+        campaign,
+        null,
+        null,
+      )
+
+      expect(
+        results.find((result) => result.variant === 'electionDayAffinity')
+          ?.intent,
+      ).toBe('electionDay')
+    })
+
+    it('still holds non-exempt variants to the vote-goal floor', async () => {
+      countForFilter.mockResolvedValue(FLOOR - 1)
+
+      const results = await service.recommend(
+        organization,
+        campaign,
+        null,
+        null,
+      )
+
+      expect(results.map((result) => result.variant)).toEqual([
+        'eventSupporters',
+        'electionDaySupporters',
+      ])
+    })
+
+    it('narrows to one intent when asked', async () => {
+      const results = await service.recommend(
+        organization,
+        campaign,
+        null,
+        'electionDay',
+      )
+
+      expect(results.map((result) => result.variant)).toEqual([
+        'electionDaySupporters',
+        'electionDayAffinity',
+      ])
+    })
+
+    it('classifies ideology, since three intents carry an ideology variant', async () => {
+      await service.recommend(organization, campaign, null, null)
+
+      expect(bucketForCampaign).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  // A flow arriving from the voter data page carries one variant and its own
+  // channel; the intent the candidate later picks must not hide it.
+  describe('a single variant', () => {
+    it('returns only that variant, cut for the channel', async () => {
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        'introduce',
+        'electionDayAffinity',
+      )
+
+      expect(results).toHaveLength(1)
+      expect(results[0]?.variant).toBe('electionDayAffinity')
+      expect(results[0]?.intent).toBe('electionDay')
+      expect(results[0]?.filter.hasCellPhone).toBe(true)
+      expect(results[0]?.estimatedCostCents).toBe(calcTextAmountInCents(2_000))
+    })
+
+    it('ranks precincts for a door-knocking variant', async () => {
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'doorKnocking',
+        null,
+        'persuadeAffinity',
+      )
+
+      expect(results[0]?.filter.precincts).toHaveLength(DOOR_PRECINCT_COUNT)
+      expect(countForFilter).not.toHaveBeenCalled()
+    })
+
+    // The candidate already chose this list on the voter data page, where
+    // its global count cleared the floor. The channel cut can take it under
+    // the floor (SMS keeps 58%-74% of a list), and dropping it here would open
+    // the flow with nothing — the one thing a carried preselection must not do.
+    it('is held to no size floor, only the zero check', async () => {
+      countForFilter.mockResolvedValue(FLOOR - 1)
+
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        null,
+        'persuadeAffinity',
+      )
+
+      expect(results.map((result) => result.variant)).toEqual([
+        'persuadeAffinity',
+      ])
+    })
+
+    it('still drops a variant that counts nobody', async () => {
+      countForFilter.mockResolvedValue(0)
+
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        null,
+        'persuadeAffinity',
+      )
+
+      expect(results).toEqual([])
+    })
+
+    it('returns nothing for an ideology variant with no bucket', async () => {
+      const results = await service.recommend(
+        organization,
+        campaign,
+        'sms',
+        null,
+        'persuadeIdeology',
+      )
+
+      expect(results).toEqual([])
+    })
+  })
+
+  // The voter data page downloads a recommendation it has not saved, so the
+  // route needs the universe itself, not a sized card.
+  describe('globalFilterFor', () => {
+    it('returns the global universe with no contactability cut', async () => {
+      const filter = await service.globalFilterFor(
+        organization,
+        campaign,
+        'persuadeAffinity',
+      )
+
+      expect(filter).toEqual({
+        voterStatus: ['Super', 'Likely'],
+        independentAffinity: true,
+      })
+      expect(countForFilter).not.toHaveBeenCalled()
+    })
+
+    it('returns null for an ideology variant with no bucket', async () => {
+      const filter = await service.globalFilterFor(
+        organization,
+        campaign,
+        'persuadeIdeology',
+      )
+
+      expect(filter).toBeNull()
+    })
+
+    it('refuses an elected-office org', async () => {
+      await expect(
+        service.globalFilterFor(electedOffice, campaign, 'persuadeAffinity'),
+      ).rejects.toBeInstanceOf(BadRequestException)
+    })
   })
 
   describe('door knocking', () => {

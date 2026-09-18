@@ -89,6 +89,28 @@ export function useContactsDownload({
     // missed the cookie", so it can't safely fire a success event either.
     onDownloadConfirmed?: () => void,
   ): void => {
+    const query = new URLSearchParams()
+    if (segment) {
+      query.set('segment', segment)
+    }
+    const queryString = query.toString()
+    downloadFromHref(
+      `/api/v1/contacts/download${queryString ? `?${queryString}` : ''}`,
+      analyticsProperties,
+      onDownloadConfirmed,
+    )
+  }
+
+  // The same top-level download against any CSV route — the recommended-list
+  // sheet has no saved segment to name, so it downloads by variant instead.
+  const downloadFromHref = (
+    href: string,
+    analyticsProperties: Record<
+      string,
+      string | number | boolean | null | undefined
+    >,
+    onDownloadConfirmed?: () => void,
+  ): void => {
     if (!canUseProFeatures) {
       onProGated?.()
       return
@@ -115,14 +137,6 @@ export function useContactsDownload({
       { autoHideDuration: 12000 },
     )
 
-    const query = new URLSearchParams()
-    if (segment) {
-      query.set('segment', segment)
-    }
-    const queryString = query.toString()
-    const href = `/api/v1/contacts/download${
-      queryString ? `?${queryString}` : ''
-    }`
     const dateStr = dateUsHelper(new Date()).replace(/ /g, '_')
 
     const link = document.createElement('a')
@@ -179,5 +193,5 @@ export function useContactsDownload({
     trackEvent(EVENTS.Contacts.Download, analyticsProperties)
   }
 
-  return { download, isPreparing }
+  return { download, downloadFromHref, isPreparing }
 }

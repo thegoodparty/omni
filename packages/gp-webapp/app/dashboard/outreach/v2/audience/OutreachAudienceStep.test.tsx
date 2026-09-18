@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import type { RecommendedList } from '@goodparty_org/contracts'
@@ -22,6 +22,7 @@ const COPY: OutreachAudienceCopy = {
 
 const RECOMMENDATION: RecommendedList = {
   variant: 'persuadeAffinity',
+  intent: 'persuade',
   filter: { independentAffinity: true },
   count: 19000,
   voteGoalShare: 0.48,
@@ -35,6 +36,7 @@ const RECOMMENDATION: RecommendedList = {
 const EXISTING_RECOMMENDATION: RecommendedList = {
   ...RECOMMENDATION,
   variant: 'persuadeUndecided',
+  intent: 'persuade',
   copy: {
     title: 'Undecided persuadables',
     criteriaSummary: 'Undecided voters',
@@ -57,6 +59,8 @@ const baseProps = () => ({
   recommendedListsChannel: 'sms' as const,
   onCreateRecommendedList: vi.fn(async () => undefined),
   onRecommendationReused: vi.fn(),
+  selectedRecommendation: null,
+  onSelectRecommendation: vi.fn(),
   reachableCount: null,
   reachableLoading: false,
   pricePerContact: 0.035,
@@ -176,5 +180,138 @@ describe('OutreachAudienceStep — recommended lists', () => {
     // This branch never reaches createList, so it is where the accept has
     // to be reported from or reuse goes uncounted.
     expect(onRecommendationReused).toHaveBeenCalledWith(EXISTING_RECOMMENDATION)
+  })
+})
+
+// A recommendation carried in from the voter data page (`?recommended=`):
+// the step applies it on arrival exactly as tapping its card would, and
+// keeps the card on screen so the candidate sees what they arrived with.
+describe('OutreachAudienceStep — a preselected recommendation', () => {
+  // The prototype lands with the list already chosen and nothing asking for
+  // a name: the card is the selection, and Continue saves it as it advances.
+  it('selects it on arrival for one that is not saved yet, without the naming drawer', async () => {
+    const onPreselectedRecommendationApplied = vi.fn()
+    const onSelectRecommendation = vi.fn()
+    const onCreateRecommendedList = vi.fn(async () => undefined)
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        preselectedRecommendation={RECOMMENDATION}
+        preselectedRecommendationApplied={false}
+        onPreselectedRecommendationApplied={onPreselectedRecommendationApplied}
+        onSelectRecommendation={onSelectRecommendation}
+        onCreateRecommendedList={onCreateRecommendedList}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(onSelectRecommendation).toHaveBeenCalledWith(RECOMMENDATION),
+    )
+    expect(screen.queryByRole('textbox', { name: 'List name' })).toBeNull()
+    expect(onPreselectedRecommendationApplied).toHaveBeenCalledTimes(1)
+    expect(onCreateRecommendedList).not.toHaveBeenCalled()
+    // The card stays listed even though this purpose's own recommendations
+    // did not include it.
+    expect(screen.getByTestId('recommended-list-card')).toHaveTextContent(
+      'Persuadable independents',
+    )
+  })
+
+  it('selects the saved list on arrival for one the candidate already has', async () => {
+    const onSelect = vi.fn()
+    const onRecommendationReused = vi.fn()
+    const onPreselectedRecommendationApplied = vi.fn()
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        lists={[{ id: 501, name: 'Undecided persuadables' }]}
+        preselectedRecommendation={EXISTING_RECOMMENDATION}
+        preselectedRecommendationApplied={false}
+        onPreselectedRecommendationApplied={onPreselectedRecommendationApplied}
+        onSelect={onSelect}
+        onRecommendationReused={onRecommendationReused}
+      />,
+    )
+
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith(501))
+    expect(onRecommendationReused).toHaveBeenCalledWith(EXISTING_RECOMMENDATION)
+    expect(onPreselectedRecommendationApplied).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('textbox', { name: 'List name' })).toBeNull()
+  })
+
+  // Spent is the hook's memory, not this step's: the step unmounts between
+  // steps, and Back into it must not reopen a drawer the candidate closed.
+  it('does nothing on arrival once the preselection has been applied', () => {
+    const onPreselectedRecommendationApplied = vi.fn()
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        preselectedRecommendation={RECOMMENDATION}
+        preselectedRecommendationApplied
+        onPreselectedRecommendationApplied={onPreselectedRecommendationApplied}
+      />,
+    )
+
+    expect(screen.queryByRole('textbox', { name: 'List name' })).toBeNull()
+    expect(onPreselectedRecommendationApplied).not.toHaveBeenCalled()
+    expect(screen.getByTestId('recommended-list-card')).toBeInTheDocument()
+  })
+
+  it('paints the selected recommendation as the pressed card', () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        recommendations={[RECOMMENDATION, EXISTING_RECOMMENDATION]}
+        selectedRecommendation={RECOMMENDATION}
+      />,
+    )
+
+    const cards = screen.getAllByTestId('recommended-list-card')
+    expect(cards[0]).toHaveAttribute('aria-pressed', 'true')
+    expect(cards[1]).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('shows why a Continue that saves the selected recommendation failed', () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        recommendations={[RECOMMENDATION]}
+        selectedRecommendation={RECOMMENDATION}
+        createRecommendedListError="We couldn't save this list. Try again."
+      />,
+    )
+
+    expect(
+      screen.getByText("We couldn't save this list. Try again."),
+    ).toBeInTheDocument()
+  })
+
+  it('keeps the carried card on screen when the purpose query fails', () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        recommendationsError
+        preselectedRecommendation={RECOMMENDATION}
+        preselectedRecommendationApplied
+      />,
+    )
+
+    expect(screen.getByTestId('recommended-lists-error')).toBeInTheDocument()
+    expect(screen.getByTestId('recommended-list-card')).toHaveTextContent(
+      'Persuadable independents',
+    )
+  })
+
+  it('does not list the carried card twice when the purpose already offers it', () => {
+    render(
+      <OutreachAudienceStep
+        {...baseProps()}
+        recommendations={[RECOMMENDATION]}
+        preselectedRecommendation={RECOMMENDATION}
+        preselectedRecommendationApplied
+      />,
+    )
+
+    expect(screen.getAllByTestId('recommended-list-card')).toHaveLength(1)
   })
 })
