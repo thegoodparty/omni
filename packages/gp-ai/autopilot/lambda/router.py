@@ -126,9 +126,13 @@ class RoutableEvent:
     list_id: str | None
     current_status: str | None
     transitions: list[Transition]
-    # Top-level delivery timestamp; the only dedup key source for kinds that
-    # carry no history_items (commentPosted).
+    # The delivery's timestamp; the only dedup key source for kinds whose
+    # history items parse to no status transition (commentPosted).
     event_ts: str | None = None
+    # Who caused the delivery (first history item's user). The comment-resume
+    # route keys off it: a park's own parking comment must never resume the
+    # stage that just parked.
+    event_actor_id: str | None = None
     # The task's ClickUp parent: set = this is a story and names its epic,
     # unset = this is a feature card (see derive_card_type). For the
     # breakdown-approval gate the epic IS the card itself, so route() derives
@@ -249,6 +253,23 @@ def route(event: RoutableEvent) -> list[RoutingDecision]:
         # commentPosted carries no status transition — the trigger is the
         # CURRENT status at delivery time, not a before/after pair.
         if card_type == STORY_CARD and event.current_status == STATUS_FEEDBACK_NEEDED:
+            # The park primitive's LAST card write is its own comment, which
+            # arrives right back here as a commentPosted delivery. Without
+            # this check every park resumes itself immediately — and a resume
+            # that re-parks comments again, so the loop self-sustains, one
+            # paid Fargate run per lap. Fail closed on a missing bot id for
+            # the same reason the gate check does: an unidentifiable actor
+            # cannot be proven human.
+            bot_user_id = os.environ.get("AUTOPILOT_BOT_USER_ID")
+            if not bot_user_id:
+                print("ERROR: AUTOPILOT_BOT_USER_ID not configured; refusing comment-resume dispatch")
+                return []
+            if event.event_actor_id == bot_user_id:
+                print(
+                    f"Ignoring the bot's own comment on story {event.task_id}: "
+                    "a parking comment must not resume the stage that parked"
+                )
+                return []
             # Bucketed, not the raw delivery timestamp: distinct comments in a
             # burst would each mint a fresh key and launch concurrent resume
             # runs (see COMMENT_TRIGGER_BUCKET_MS).

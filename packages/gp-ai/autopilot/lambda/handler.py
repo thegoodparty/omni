@@ -138,10 +138,17 @@ class AutopilotEvent:
     # this is also what card typing keys on (router.derive_card_type).
     # Hydrated from the task read; real deliveries never carry it.
     epic_task_id: str | None = None
-    # Top-level delivery timestamp (ClickUp's `date` on the webhook body).
-    # commentPosted carries no history_items, so this is the only timestamp
-    # available to key that kind's dedup claim.
+    # The delivery's timestamp. Real taskCommentPosted deliveries carry NO
+    # top-level `date` — the timestamp lives on the history items (verified
+    # against ClickUp's documented payloads after the first live park's
+    # answer path was refused for a missing dedup key) — so parsing falls
+    # back to the first history item's date.
     event_ts: str | None = None
+    # Who caused this delivery, from the first history item's user id. The
+    # comment-resume route needs it to tell a human's answer from the park's
+    # own parking comment: without the distinction, every park would resume
+    # itself the moment its own comment webhook lands.
+    event_actor_id: str | None = None
 
     def to_payload(self) -> dict[str, Any]:
         # autopilot_async is the internal-dispatch marker handler() checks for
@@ -156,6 +163,7 @@ class AutopilotEvent:
             "current_status": self.current_status,
             "epic_task_id": self.epic_task_id,
             "event_ts": self.event_ts,
+            "event_actor_id": self.event_actor_id,
         }
 
     @classmethod
@@ -168,6 +176,7 @@ class AutopilotEvent:
             current_status=payload.get("current_status"),
             epic_task_id=payload.get("epic_task_id"),
             event_ts=payload.get("event_ts"),
+            event_actor_id=payload.get("event_actor_id"),
         )
 
 
@@ -294,7 +303,27 @@ def parse_webhook_event(body: dict) -> AutopilotEvent | None:
     if not isinstance(epic_task_id, str):
         epic_task_id = None
 
+    # Real deliveries carry no top-level `date` (same reason list_id above
+    # stays None) — the timestamp and the acting user live on the history
+    # items, including for taskCommentPosted, whose items parse to no status
+    # transition but still carry `date` and `user`. Without this fallback
+    # every comment-triggered resume was refused at dispatch for a missing
+    # dedup timestamp, which is the whole answer-a-parked-question loop.
     event_ts = _normalize_ts(body.get("date"))
+    event_actor_id = None
+    raw_items = body.get("history_items")
+    if isinstance(raw_items, list):
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            if event_ts is None:
+                event_ts = _normalize_ts(item.get("date"))
+            if event_actor_id is None:
+                user = item.get("user")
+                if isinstance(user, dict) and user.get("id") is not None:
+                    event_actor_id = str(user["id"])
+            if event_ts is not None and event_actor_id is not None:
+                break
 
     return AutopilotEvent(
         kind=kind,
@@ -304,6 +333,7 @@ def parse_webhook_event(body: dict) -> AutopilotEvent | None:
         current_status=current_status,
         epic_task_id=epic_task_id,
         event_ts=event_ts,
+        event_actor_id=event_actor_id,
     )
 
 
@@ -322,6 +352,7 @@ def route_event(event: AutopilotEvent) -> None:
         list_id=event.list_id,
         current_status=event.current_status,
         event_ts=event.event_ts,
+        event_actor_id=event.event_actor_id,
         epic_task_id=event.epic_task_id,
         transitions=[
             router.Transition(
