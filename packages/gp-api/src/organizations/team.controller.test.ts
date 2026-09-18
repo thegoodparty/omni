@@ -437,6 +437,7 @@ describe('POST /v1/organizations/team/invites', () => {
       expect(sendEmail).toHaveBeenCalledWith(
         expect.objectContaining({ id: invitee.id }),
         expect.any(String),
+        'campaignAdmin',
       )
 
       const rows = await service.prisma.organizationMembership.findMany({
@@ -624,9 +625,9 @@ describe('POST /v1/organizations/team/invites', () => {
       await createOrg()
       const outreach = await createOutreachForOrg()
       const invitee = await createMemberUser({ email: 'vol-known@x.com' })
-      vi.spyOn(stubEmail(), 'sendTeamMemberAddedEmail').mockResolvedValue(
-        undefined as never,
-      )
+      const sendEmail = vi
+        .spyOn(stubEmail(), 'sendTeamMemberAddedEmail')
+        .mockResolvedValue(undefined as never)
       const track = vi
         .spyOn(stubAnalytics(), 'track')
         .mockResolvedValue(undefined as never)
@@ -655,6 +656,11 @@ describe('POST /v1/organizations/team/invites', () => {
       })
       expect(assignments).toHaveLength(1)
       expect(assignments[0]?.assignedByUserId).toBe(service.user.id)
+      expect(sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ id: invitee.id }),
+        expect.any(String),
+        'volunteer',
+      )
       // Delegate review (round 2, PR #1738): the counterpart to the general
       // (no-outreach) volunteer invite's listScoped: false above.
       await vi.waitFor(() => expect(track).toHaveBeenCalled())
