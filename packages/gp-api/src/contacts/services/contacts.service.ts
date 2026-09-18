@@ -57,6 +57,7 @@ import { VoterDoorKnockingService } from '@/peopleDb/services/voterDoorKnocking.
 import { StatsService } from '@/peopleDb/services/stats.service'
 import { DoorKnockingEvaluateDTO } from '@/peopleDb/schemas/doorKnocking.schema'
 import { pointInPolygon, polygonBbox } from '@/shared/util/geo.util'
+import type { Bbox } from '@goodparty_org/contracts'
 import {
   EXCLUDABLE_VOTER_COLUMNS,
   type ExcludableVoterColumn,
@@ -879,7 +880,16 @@ export class ContactsService {
   async polygonPreview(
     { geoPoly, filters: filterInput }: PolygonPreviewContactsDTO,
     organization: Organization,
-  ): Promise<{ count: number; audienceEmpty: boolean }> {
+    // TEMPORARY `debug` field. The shape returns zero over visibly dense
+    // dots and the server log is not reachable from where this is being
+    // diagnosed, so the two numbers that separate "the query matched
+    // nobody" from "the ray-cast rejected everybody" ride the response
+    // instead. Remove with the log line above once answered.
+  ): Promise<{
+    count: number
+    audienceEmpty: boolean
+    debug?: { evaluated: number; insidePolygon: number; bbox: Bbox }
+  }> {
     if (!(await this.isProAccess(organization))) {
       throw new ForbiddenException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
@@ -930,7 +940,15 @@ export class ContactsService {
           },
           'polygon-preview diagnostic',
         )
-        return { count: inside.length, audienceEmpty: false }
+        return {
+          count: inside.length,
+          audienceEmpty: false,
+          debug: {
+            evaluated: people.length,
+            insidePolygon: inside.length,
+            bbox: polygonBbox(geoPoly),
+          },
+        }
       },
     )
   }

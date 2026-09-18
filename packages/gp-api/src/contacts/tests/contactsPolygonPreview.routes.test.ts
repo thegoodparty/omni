@@ -185,7 +185,7 @@ describe('POST /v1/contacts/polygon-preview', () => {
     })
 
     expect(response.status).toBe(201)
-    expect(response.data).toEqual({ count: 0, audienceEmpty: false })
+    expect(response.data).toMatchObject({ count: 0, audienceEmpty: false })
   })
 
   // The bbox query rejects rather than truncates past its cap, so the
@@ -224,7 +224,7 @@ describe('POST /v1/contacts/polygon-preview', () => {
     })
 
     expect(response.status).toBe(201)
-    expect(response.data).toEqual({ count: 1, audienceEmpty: false })
+    expect(response.data).toMatchObject({ count: 1, audienceEmpty: false })
     expect(evaluateSpy.mock.calls[0]?.[0]?.bbox).toEqual({
       minLng: 0,
       maxLng: 1,
