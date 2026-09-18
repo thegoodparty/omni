@@ -899,6 +899,13 @@ export {
   type OutreachArchiveResponse,
 } from './outreach/OutreachArchive.schema'
 export {
+  OUTREACH_DRAFT_TYPES,
+  CreateOutreachDraftRequestSchema,
+  type CreateOutreachDraftRequest,
+  OutreachDraftConflictSchema,
+  type OutreachDraftConflict,
+} from './outreach/OutreachDraft.schema'
+export {
   CancelOutreachResponseSchema,
   type CancelOutreachResponse,
 } from './outreach/OutreachCancel.schema'

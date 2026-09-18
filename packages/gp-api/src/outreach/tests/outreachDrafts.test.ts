@@ -1,0 +1,371 @@
+/**
+ * Outreach drafts: create + delete.
+ *
+ * Contract under test:
+ *   - POST /v1/outreach/drafts persists a `draft` spine for a candidate who
+ *     cannot send yet — no date, no phone list, no payment — and returns the
+ *     OutreachDetail shape the history drawer reads.
+ *   - A p2p draft arrives as multipart with its image; a robocall draft may
+ *     arrive as multipart (no file) or as JSON, and reuses the create-time
+ *     compliance + ETag gate.
+ *   - One active draft per type per campaign: a second attempt 409s carrying
+ *     the existing id so the client can resume instead.
+ *   - DELETE /v1/outreach/:id removes a draft (S3 objects first, then the
+ *     row), 409s any non-draft status, and 404s another campaign's row.
+ *   - Neither route is Pro-gated and neither sits under
+ *     OutreachNotificationInterceptor: a draft is not a send attempt.
+ */
+
+import { HttpStatus } from '@nestjs/common'
+import FormData from 'form-data'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useTestService } from '@/test-service'
+import { S3Service } from '@/vendors/aws/services/s3.service'
+import { ASSET_DOMAIN } from '@/shared/util/appEnvironment.util'
+import {
+  OutreachStatus,
+  OutreachType,
+  RobocallSettleState,
+} from '../../generated/prisma'
+
+const service = useTestService()
+
+const CAMPAIGN_ID = 977
+const AUDIO_ETAG = '"etag-draft-clip"'
+const AUDIO_KEY = `robocall/${CAMPAIGN_ID}/draft-clip.webm`
+const IMAGE_KEY = 'scheduled-campaign/jane-doe/p2p/draft/image.png'
+
+const uploadFile = vi.fn()
+const deleteObject = vi.fn()
+
+let orgSlug: string
+let filterId: number
+
+beforeEach(async () => {
+  const s3 = service.app.get(S3Service)
+  uploadFile.mockResolvedValue(`https://${ASSET_DOMAIN}/${IMAGE_KEY}`)
+  deleteObject.mockResolvedValue(undefined)
+  vi.spyOn(s3, 'uploadFile').mockImplementation(uploadFile)
+  vi.spyOn(s3, 'deleteObject').mockImplementation(deleteObject)
+  vi.spyOn(s3, 'headObject').mockResolvedValue({
+    contentLength: 1,
+    etag: AUDIO_ETAG,
+  })
+
+  orgSlug = `campaign-${CAMPAIGN_ID}`
+
+  await service.prisma.organization.create({
+    data: { slug: orgSlug, ownerId: service.user.id, positionId: 'pos-1' },
+  })
+
+  // A free candidate: drafts are exactly what this candidate can do, so
+  // nothing here may depend on Pro.
+  await service.prisma.campaign.create({
+    data: {
+      id: CAMPAIGN_ID,
+      organizationSlug: orgSlug,
+      userId: service.user.id,
+      slug: 'jane-doe',
+      isPro: false,
+      details: { state: 'TX', zip: '78634' },
+      data: {},
+      aiContent: {},
+    },
+  })
+
+  const filter = await service.prisma.voterFileFilter.create({
+    data: { organizationSlug: orgSlug, name: 'saved list' },
+  })
+  filterId = filter.id
+
+  await service.prisma.robocallComplianceResult.create({
+    data: {
+      audioKey: AUDIO_KEY,
+      passed: true,
+      checkedAt: new Date(),
+      audioEtag: AUDIO_ETAG,
+    },
+  })
+})
+
+const orgHeaders = () => ({ headers: { 'x-organization-slug': orgSlug } })
+
+const postForm = (form: FormData) =>
+  service.client.post('/v1/outreach/drafts', form, {
+    headers: { ...orgHeaders().headers, ...form.getHeaders() },
+  })
+
+const createP2pDraft = (name = 'Weekend texts') => {
+  const form = new FormData()
+  form.append('outreachType', 'p2p')
+  form.append('name', name)
+  form.append('voterFileFilterId', String(filterId))
+  form.append('script', 'Hi {first_name}, this is Jane. Reply STOP to opt out.')
+  form.append('file', Buffer.from('fake-image-bytes'), {
+    filename: 'image.png',
+    contentType: 'image/png',
+  })
+  return postForm(form)
+}
+
+const robocallDraftBody = () => ({
+  outreachType: 'robocall',
+  name: 'Robocall draft',
+  voterFileFilterId: filterId,
+  script: 'This is Jane, candidate for city council. Paid for by Jane.',
+  audioKey: AUDIO_KEY,
+  callbackNumber: '+15125550123',
+})
+
+describe('POST /v1/outreach/drafts', () => {
+  it('creates a p2p draft for a free campaign with no send state', async () => {
+    const res = await createP2pDraft()
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.status).toBe(OutreachStatus.draft)
+    expect(res.data.outreachType).toBe(OutreachType.p2p)
+    expect(res.data.imageUrl).toBe(`https://${ASSET_DOMAIN}/${IMAGE_KEY}`)
+    expect(res.data.voterFileFilterId).toBe(filterId)
+    expect(res.data.date).toBeNull()
+    expect(res.data.phoneListId).toBeNull()
+
+    const rows = await service.prisma.outreach.findMany({
+      where: { campaignId: CAMPAIGN_ID },
+    })
+    expect(rows).toHaveLength(1)
+    const row = rows[0]
+    expect(row?.status).toBe(OutreachStatus.draft)
+    expect(row?.organizationSlug).toBe(orgSlug)
+    // The wizard writes the script into both columns, the way the send path
+    // does, so a resume reads back what the candidate wrote.
+    expect(row?.script).toContain('Reply STOP')
+    expect(row?.message).toBe(row?.script)
+    expect(row?.date).toBeNull()
+    expect(row?.phoneListId).toBeNull()
+
+    // The key has no send date to sit under — a draft has no date.
+    expect(uploadFile).toHaveBeenCalledWith(
+      ASSET_DOMAIN,
+      expect.anything(),
+      IMAGE_KEY,
+      expect.objectContaining({ contentType: 'image/png' }),
+    )
+  })
+
+  it('409s a second p2p draft with the existing draft id', async () => {
+    const first = await createP2pDraft()
+    expect(first.status).toBe(HttpStatus.CREATED)
+
+    const second = await createP2pDraft('Another attempt')
+
+    expect(second.status).toBe(HttpStatus.CONFLICT)
+    expect(second.data.existingId).toBe(first.data.id)
+
+    const rows = await service.prisma.outreach.findMany({
+      where: { campaignId: CAMPAIGN_ID },
+    })
+    expect(rows).toHaveLength(1)
+  })
+
+  it('creates a robocall draft with no billing on the satellite', async () => {
+    const res = await service.client.post(
+      '/v1/outreach/drafts',
+      robocallDraftBody(),
+      orgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.status).toBe(OutreachStatus.draft)
+    expect(res.data.outreachType).toBe(OutreachType.robocall)
+    expect(res.data.date).toBeNull()
+
+    const satellite = await service.prisma.outreachRobocall.findUniqueOrThrow({
+      where: { outreachId: res.data.id },
+    })
+    expect(satellite.settleState).toBe(RobocallSettleState.draft)
+    // Billing is derived at resume, not at draft: nothing is priced yet.
+    expect(satellite.billableCount).toBeNull()
+    expect(satellite.amountInCents).toBeNull()
+    expect(satellite.audioKey).toBe(AUDIO_KEY)
+    expect(satellite.complianceAudioEtag).toBe(AUDIO_ETAG)
+    expect(satellite.compliancePassedAt).not.toBeNull()
+  })
+
+  it('accepts a robocall draft sent as multipart with no file', async () => {
+    const body = robocallDraftBody()
+    const form = new FormData()
+    form.append('outreachType', body.outreachType)
+    form.append('name', body.name)
+    form.append('voterFileFilterId', String(body.voterFileFilterId))
+    form.append('script', body.script)
+    form.append('audioKey', body.audioKey)
+    form.append('callbackNumber', body.callbackNumber)
+
+    const res = await postForm(form)
+
+    expect(res.status).toBe(HttpStatus.CREATED)
+    expect(res.data.status).toBe(OutreachStatus.draft)
+    expect(uploadFile).not.toHaveBeenCalled()
+  })
+
+  it('rejects a robocall draft whose audio never passed compliance', async () => {
+    const res = await service.client.post(
+      '/v1/outreach/drafts',
+      {
+        ...robocallDraftBody(),
+        audioKey: `robocall/${CAMPAIGN_ID}/other.webm`,
+      },
+      orgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+    expect(await service.prisma.outreach.count()).toBe(0)
+  })
+
+  it('rejects a voter list owned by another organization', async () => {
+    await service.prisma.organization.create({
+      data: {
+        slug: 'other-org',
+        ownerId: service.user.id,
+        positionId: 'pos-2',
+      },
+    })
+    const foreign = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: 'other-org', name: 'not yours' },
+    })
+
+    const res = await service.client.post(
+      '/v1/outreach/drafts',
+      { ...robocallDraftBody(), voterFileFilterId: foreign.id },
+      orgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(await service.prisma.outreach.count()).toBe(0)
+  })
+})
+
+describe('GET /v1/outreach', () => {
+  it('lists the draft alongside sent outreach', async () => {
+    const created = await createP2pDraft()
+
+    const res = await service.client.get('/v1/outreach', orgHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    const ids = res.data.map((row: { id: number }) => row.id)
+    expect(ids).toContain(created.data.id)
+  })
+})
+
+describe('DELETE /v1/outreach/:id', () => {
+  it('deletes the draft and its stored image', async () => {
+    const created = await createP2pDraft()
+
+    const res = await service.client.delete(
+      `/v1/outreach/${created.data.id}`,
+      orgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.NO_CONTENT)
+    expect(deleteObject).toHaveBeenCalledWith(ASSET_DOMAIN, IMAGE_KEY)
+    expect(
+      await service.prisma.outreach.findUnique({
+        where: { id: created.data.id },
+      }),
+    ).toBeNull()
+  })
+
+  it('deletes a robocall draft, its audio, and its compliance verdict', async () => {
+    const created = await service.client.post(
+      '/v1/outreach/drafts',
+      robocallDraftBody(),
+      orgHeaders(),
+    )
+
+    const res = await service.client.delete(
+      `/v1/outreach/${created.data.id}`,
+      orgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.NO_CONTENT)
+    expect(deleteObject).toHaveBeenCalledWith(
+      process.env.ROBOCALL_AUDIO_BUCKET,
+      AUDIO_KEY,
+    )
+    expect(
+      await service.prisma.outreachRobocall.findUnique({
+        where: { outreachId: created.data.id },
+      }),
+    ).toBeNull()
+    expect(
+      await service.prisma.robocallComplianceResult.findUnique({
+        where: { audioKey: AUDIO_KEY },
+      }),
+    ).toBeNull()
+  })
+
+  it('409s a row that is not a draft', async () => {
+    const pending = await service.prisma.outreach.create({
+      data: {
+        campaignId: CAMPAIGN_ID,
+        organizationSlug: orgSlug,
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.pending,
+        name: 'Already scheduled',
+      },
+    })
+
+    const res = await service.client.delete(
+      `/v1/outreach/${pending.id}`,
+      orgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.CONFLICT)
+    expect(deleteObject).not.toHaveBeenCalled()
+    expect(
+      await service.prisma.outreach.findUnique({ where: { id: pending.id } }),
+    ).not.toBeNull()
+  })
+
+  it("404s another campaign's draft", async () => {
+    await service.prisma.organization.create({
+      data: {
+        slug: 'other-campaign-org',
+        ownerId: service.user.id,
+        positionId: 'pos-3',
+      },
+    })
+    const otherCampaign = await service.prisma.campaign.create({
+      data: {
+        id: CAMPAIGN_ID + 1,
+        organizationSlug: 'other-campaign-org',
+        userId: service.user.id,
+        slug: 'john-roe',
+        details: {},
+        data: {},
+        aiContent: {},
+      },
+    })
+    const foreignDraft = await service.prisma.outreach.create({
+      data: {
+        campaignId: otherCampaign.id,
+        organizationSlug: 'other-campaign-org',
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.draft,
+        name: 'Not yours',
+      },
+    })
+
+    const res = await service.client.delete(
+      `/v1/outreach/${foreignDraft.id}`,
+      orgHeaders(),
+    )
+
+    expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    expect(
+      await service.prisma.outreach.findUnique({
+        where: { id: foreignDraft.id },
+      }),
+    ).not.toBeNull()
+  })
+})

@@ -25,6 +25,7 @@ import { OutreachAssignmentController } from './outreachAssignment.controller'
 import { OutreachSmsAdminController } from './outreachSmsAdmin.controller'
 import { OutreachSmsAdminService } from './services/outreachSmsAdmin.service'
 import { OutreachSmsController } from './outreachSms.controller'
+import { OutreachDraftController } from './outreachDraft.controller'
 import { OutreachSocialController } from './outreachSocial.controller'
 import { OutreachServeSocialController } from './outreachServeSocial.controller'
 import { OutreachPhoneBankingController } from './outreachPhoneBanking.controller'
@@ -39,6 +40,7 @@ import { OutreachInboundSweepService } from './services/outreachInboundSweep.ser
 import { OutreachMaterializationService } from './services/outreachMaterialization.service'
 import { OutreachAssignmentService } from './services/outreachAssignment.service'
 import { OutreachService } from './services/outreach.service'
+import { OutreachDraftService } from './services/outreachDraft.service'
 import { OutreachSocialService } from './services/outreachSocial.service'
 import { OutreachSocialGenerationService } from './services/outreachSocialGeneration.service'
 import { OutreachPhoneBankingGenerationService } from './services/outreachPhoneBankingGeneration.service'
@@ -106,6 +108,7 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
   ],
   controllers: [
     OutreachController,
+    OutreachDraftController,
     OutreachAssignmentController,
     OutreachSocialController,
     OutreachServeSocialController,
@@ -120,6 +123,7 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
   ],
   providers: [
     OutreachService,
+    OutreachDraftService,
     OutreachSmsAdminService,
     OutreachSocialService,
     OutreachSocialGenerationService,
@@ -161,6 +165,7 @@ import { OutreachRobocallSingleSendService } from './services/outreachRobocallSi
   ],
   exports: [
     OutreachService,
+    OutreachDraftService,
     OutreachPurchaseHandlerService,
     OutreachAssignmentService,
   ],
