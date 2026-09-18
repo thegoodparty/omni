@@ -4,7 +4,7 @@ name: release-failure-alert
 # means prod is not shipping — and the Sep 2026 incident (ENG-11106/11107)
 # showed a red train can sit unnoticed for days: ~20 consecutive failed runs
 # before a human happened to look. This posts one Slack message to #bot-urgent
-# per failed run.
+# per failed run, and one when the train goes green again.
 #
 # A separate workflow_run listener rather than a job inside release.yml: the
 # train's job graph changes often (the autopilot roots alone added several
@@ -16,6 +16,36 @@ name: release-failure-alert
 # easy to misread: a failed "Dev <service>" job SKIPS the E2E shards and the
 # run's red gate job is still named "E2E" — during the Sep incident that got
 # a deploy-role IAM failure triaged as an e2e problem.
+#
+# THE RECOVERY NOTICE IS THE ONLY EDGE-GATED HALF, and the asymmetry is load
+# bearing. A green run posts only when the run before it was red, or the channel
+# would get a message per merge. Every red run still posts unconditionally:
+# repetition is the only thing that keeps a multi-day outage visible, and
+# suppressing red -> red would rebuild exactly the silence this workflow exists
+# to break. Because the state lookup is consulted on the green path alone, a bug
+# in it can cost a missing or spurious recovery notice and can never swallow an
+# alert. Anything that wants red -> red quiet needs a heartbeat to replace the
+# repetition first; workflow_run cannot be that heartbeat, since a red train
+# with nothing merging behind it produces no further events to listen to.
+#
+# State is re-derived from the GitHub API on every run rather than stored. A
+# cached red/green flag drifts once and then lies forever; re-deriving means a
+# missed event self-corrects on the next run. `cancelled` and `skipped` runs are
+# TRANSPARENT to that lookup rather than green, because the train coalesces
+# merge bursts into cancellations (see release.yml's concurrency note) and
+# counting one as a state would read red -> cancelled -> red as a spurious
+# recovery followed by a spurious alert.
+#
+# NO `concurrency:` GROUP HERE, deliberately. Serializing these listeners looks
+# like the fix for two runs finishing at once, but a group with
+# cancel-in-progress: false keeps only ONE pending run and cancels the
+# previously pending one. That is the same supersession release.yml relies on to
+# coalesce a merge burst, and here it would silently drop an alert. The green
+# path is written to tolerate any execution order instead: it holds the notice
+# back only when a NEWER decisive run is already red (the train is red again, so
+# a recovery notice would be a lie), and posts past newer GREEN runs, which see
+# green -> green and stay quiet, so deferring to them would mean nobody ever
+# says it recovered.
 #
 # THIS WORKFLOW HAS NO QUIET FAILURE PATH, because it shipped with one and
 # that path hid the alert completely. It also shipped carrying
@@ -32,7 +62,7 @@ name: release-failure-alert
 #     the job's env block, and the same warning in gpbot-pr-triage.yml);
 #   - a `not_in_channel` it can fix — a public channel it has not joined — it
 #     fixes, rather than waiting to be noticed;
-#   - an alert it cannot deliver fails the run, which is the only signal left
+#   - a message it cannot deliver fails the run, which is the only signal left
 #     that this alert exists at all.
 #
 # #1909 reached the second point independently and landed first, by having the
@@ -52,11 +82,12 @@ permissions:
 
 jobs:
   notify:
-    name: Alert on failed release run
+    name: Alert on a failed or recovered release run
     # Every terminal conclusion that means the run did not succeed, except
     # 'cancelled' — that is the train coalescing a burst of merges
-    # (release.yml's concurrency note) and is routine, not an incident.
-    if: contains(fromJson('["failure","timed_out","startup_failure"]'), github.event.workflow_run.conclusion)
+    # (release.yml's concurrency note) and is routine, not an incident — plus
+    # 'success', which reaches the edge check below and usually stops there.
+    if: contains(fromJson('["failure","timed_out","startup_failure","success"]'), github.event.workflow_run.conclusion)
     runs-on: ubuntu-latest
     steps:
       - name: Post to Slack
@@ -74,46 +105,99 @@ jobs:
           RUN_ID: ${{ github.event.workflow_run.id }}
           RUN_URL: ${{ github.event.workflow_run.html_url }}
           RUN_TITLE: ${{ github.event.workflow_run.display_title }}
+          RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           CONCLUSION: ${{ github.event.workflow_run.conclusion }}
         run: |
           set -euo pipefail
+          # Ahead of the green path's early exits on purpose, so every
+          # successful release run exercises this too: the secret or the channel
+          # var going missing now surfaces on the next recovery rather than
+          # waiting for the next outage to discover it.
           if [ -z "$SLACK_TOKEN" ] || [ -z "$CHANNEL_ID" ]; then
-            echo "::error::GPBOT_SLACK_BOT_TOKEN or SLACK_URGENT_CHANNEL_ID unset — cannot alert on a failed release run. Failing loudly."
+            echo "::error::GPBOT_SLACK_BOT_TOKEN or SLACK_URGENT_CHANNEL_ID unset — cannot post release train state to Slack. Failing loudly."
             exit 1
           fi
 
-          # timed_out jobs conclude "timed_out", not "failure" — both count.
-          failed=$(gh api "repos/${{ github.repository }}/actions/runs/$RUN_ID/jobs?per_page=100" \
-            --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | .name] | join(", ")')
-
-          # Phase, in pipeline order: a failed dev deploy skips the E2E shards,
-          # so it wins the classification even though the "E2E" gate job also
-          # reports failure in that case. A startup_failure run schedules no
-          # jobs at all, so the job-name case has nothing to match on.
-          if [ "$CONCLUSION" = "startup_failure" ]; then
-            phase="runner startup failure (no jobs ran)"
-          else
-            # "Dev " before "Verify dev serving": verify-dev only needs
-            # gp-api + gp-webapp, so it can fail alongside another parallel
-            # Dev job — and the deploy failure is then the real story.
-            case "$failed" in
-              *"Await checks"*) phase="checks gate (pre-deploy checks failed)" ;;
-              *"Dev "*)    phase="dev deploy (E2E shards were skipped, not run)" ;;
-              *"Verify dev serving"*) phase="dev serving verification (dev did not converge to the deployed SHA)" ;;
-              *"E2E"*)     phase="E2E against dev" ;;
-              *"Promote"*|*"Record prod"*|*"Check gp-ai"*) phase="prod promotion" ;;
-              *)           phase="unknown — read the run" ;;
+          if [ "$CONCLUSION" = "success" ]; then
+            case "$RUN_NUMBER" in
+              ''|*[!0-9]*)
+                echo "::error::workflow_run.run_number was '$RUN_NUMBER', so the red/green edge cannot be resolved and recoveries would go unreported. Failing loudly."
+                exit 1
+                ;;
             esac
-          fi
 
-          text=$(jq -rn \
-            --arg phase "$phase" \
-            --arg failed "${failed:-none reported}" \
-            --arg url "$RUN_URL" \
-            --arg title "$RUN_TITLE" \
-            --arg sha "${HEAD_SHA:0:9}" \
-            '":red_circle: Release train failed at: \($phase). Prod is not shipping until a run goes green.\nRun: <\($url)|\($title)> (\($sha))\nFailed jobs: \($failed)"')
+            # Decisive runs only. Dropping cancelled/skipped here is what makes
+            # them transparent rather than a state of their own.
+            runs=$(gh api "repos/${{ github.repository }}/actions/workflows/release.yml/runs?status=completed&branch=main&per_page=50" \
+              --jq '[.workflow_runs[]
+                     | {n: .run_number, c: .conclusion}
+                     | select(.c == "success" or .c == "failure" or .c == "timed_out" or .c == "startup_failure")]')
+
+            prev=$(jq -r --argjson n "$RUN_NUMBER" \
+              '[.[] | select(.n < $n)] | sort_by(.n) | last | .c // "none"' <<<"$runs")
+
+            if [ "$prev" = "success" ]; then
+              echo "::notice::The train was already green before run #$RUN_NUMBER; nothing to clear."
+              exit 0
+            fi
+            if [ "$prev" = "none" ]; then
+              echo "::notice::No earlier decisive release run on main within the last 50 completed runs, so there is no red state to clear."
+              exit 0
+            fi
+            if [ "$(jq -r --argjson n "$RUN_NUMBER" 'any(.[]; .n > $n and .c != "success")' <<<"$runs")" = "true" ]; then
+              echo "::notice::A release run newer than #$RUN_NUMBER has already failed, so the train is red again and this recovery notice would be stale. That run's own alert stands."
+              exit 0
+            fi
+
+            # How long the outage ran, in runs. Truncates at the 50-run window,
+            # which is why the copy reads "after N" rather than "exactly N".
+            streak=$(jq -r --argjson n "$RUN_NUMBER" \
+              '[.[] | select(.n < $n)] | sort_by(.n) | reverse | map(.c)
+               | (index("success") // length)' <<<"$runs")
+
+            text=$(jq -rn \
+              --arg url "$RUN_URL" \
+              --arg title "$RUN_TITLE" \
+              --arg sha "${HEAD_SHA:0:9}" \
+              --arg streak "$streak" \
+              '":large_green_circle: Release train is green again. Prod is shipping.\nRun: <\($url)|\($title)> (\($sha))\nRecovered after \($streak) failed run(s)."')
+            undelivered="THE RECOVERY NOTICE WAS NOT SENT."
+          else
+            # timed_out jobs conclude "timed_out", not "failure" — both count.
+            failed=$(gh api "repos/${{ github.repository }}/actions/runs/$RUN_ID/jobs?per_page=100" \
+              --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | .name] | join(", ")')
+
+            # Phase, in pipeline order: a failed dev deploy skips the E2E
+            # shards, so it wins the classification even though the "E2E" gate
+            # job also reports failure in that case. A startup_failure run
+            # schedules no jobs at all, so the job-name case has nothing to
+            # match on.
+            if [ "$CONCLUSION" = "startup_failure" ]; then
+              phase="runner startup failure (no jobs ran)"
+            else
+              # "Dev " before "Verify dev serving": verify-dev only needs
+              # gp-api + gp-webapp, so it can fail alongside another parallel
+              # Dev job — and the deploy failure is then the real story.
+              case "$failed" in
+                *"Await checks"*) phase="checks gate (pre-deploy checks failed)" ;;
+                *"Dev "*)    phase="dev deploy (E2E shards were skipped, not run)" ;;
+                *"Verify dev serving"*) phase="dev serving verification (dev did not converge to the deployed SHA)" ;;
+                *"E2E"*)     phase="E2E against dev" ;;
+                *"Promote"*|*"Record prod"*|*"Check gp-ai"*) phase="prod promotion" ;;
+                *)           phase="unknown — read the run" ;;
+              esac
+            fi
+
+            text=$(jq -rn \
+              --arg phase "$phase" \
+              --arg failed "${failed:-none reported}" \
+              --arg url "$RUN_URL" \
+              --arg title "$RUN_TITLE" \
+              --arg sha "${HEAD_SHA:0:9}" \
+              '":red_circle: Release train failed at: \($phase). Prod is not shipping until a run goes green.\nRun: <\($url)|\($title)> (\($sha))\nFailed jobs: \($failed)"')
+            undelivered="THE ALERT WAS NOT SENT and prod is not shipping."
+          fi
 
           payload=$(jq -n --arg c "$CHANNEL_ID" --arg t "$text" '{channel: $c, text: $t}')
 
@@ -159,10 +243,10 @@ jobs:
           if [ "$err" = "not_in_channel" ]; then
             join=$(jq -nc --arg c "$CHANNEL_ID" '{channel: $c}' | slack conversations.join)
             if [ "$(jq -r '.ok // false' <<<"$join")" != "true" ]; then
-              echo "::error::Not in $CHANNEL_ID and could not join it ($(error_of "$join")). Grant the app the channels:join scope, or invite it to #bot-urgent by hand. THE ALERT WAS NOT SENT and prod is not shipping."
+              echo "::error::Not in $CHANNEL_ID and could not join it ($(error_of "$join")). Grant the app the channels:join scope, or invite it to #bot-urgent by hand. $undelivered"
               exit 1
             fi
-            echo "::notice::The app was not in $CHANNEL_ID; joined it and re-sent the alert."
+            echo "::notice::The app was not in $CHANNEL_ID; joined it and re-sent the message."
             resp=$(printf '%s' "$payload" | slack chat.postMessage)
             err=$(error_of "$resp")
           fi
@@ -172,6 +256,6 @@ jobs:
           # never told about a train that is not shipping. A red run here is the
           # only remaining signal that this alert exists at all.
           if [ -n "$err" ]; then
-            echo "::error::Slack rejected the alert: $err. THE ALERT WAS NOT SENT and prod is not shipping."
+            echo "::error::Slack rejected the message: $err. $undelivered"
             exit 1
           fi
