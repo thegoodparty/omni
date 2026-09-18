@@ -27,6 +27,7 @@ const mockUseCampaign = vi.mocked(useCampaign)
 const goToStep = vi.fn()
 const goToNextStep = vi.fn()
 const goToPreviousStep = vi.fn()
+const exit = vi.fn()
 
 describe('GuidanceStep', () => {
   beforeEach(() => {
@@ -38,11 +39,23 @@ describe('GuidanceStep', () => {
       goToStep,
       goToNextStep,
       goToPreviousStep,
-      exit: vi.fn(),
+      exit,
       complete: vi.fn(),
     })
     mockUseCampaign.mockReturnValue([null])
   })
+
+  const enablePurchaseOnly = () =>
+    mockUseProUpgradeWizard.mockReturnValue({
+      currentStep: 'guidance',
+      purchaseOnly: true,
+      channel: null,
+      goToStep,
+      goToNextStep,
+      goToPreviousStep,
+      exit,
+      complete: vi.fn(),
+    })
 
   it('fires the viewed analytics event on mount', () => {
     render(<GuidanceStep />)
@@ -142,5 +155,60 @@ describe('GuidanceStep', () => {
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ProUpgrade.Compliance.GuidanceContinue,
     )
+  })
+
+  describe('purchase-only', () => {
+    beforeEach(enablePurchaseOnly)
+
+    it('renders the two things collected before checkout', () => {
+      render(<GuidanceStep />)
+
+      expect(
+        screen.getByRole('heading', {
+          name: "Let's gather a few things to unlock Pro",
+        }),
+      ).toBeInTheDocument()
+      expect(
+        screen.getByText('Have this information available to activate Pro.'),
+      ).toBeInTheDocument()
+      expect(screen.getByText('Your campaign EIN')).toBeInTheDocument()
+      expect(screen.getByText('Payment')).toBeInTheDocument()
+      // Filing details and the candidate profile move behind payment.
+      expect(
+        screen.queryByText('Your campaign filing details'),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByText('Your candidate profile'),
+      ).not.toBeInTheDocument()
+      expect(screen.getByText('Ready when you are.')).toBeInTheDocument()
+    })
+
+    it('advances to the filing-status step when Continue is clicked', () => {
+      render(<GuidanceStep />)
+
+      screen.getByRole('button', { name: 'Continue' }).click()
+
+      expect(goToStep).toHaveBeenCalledWith('status')
+      expect(goToNextStep).not.toHaveBeenCalled()
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.ProUpgrade.Compliance.GuidanceContinue,
+      )
+    })
+
+    it('leaves the flow from Back, since guidance leads the purchase-only order', () => {
+      render(<GuidanceStep />)
+
+      screen.getByRole('button', { name: 'Back' }).click()
+
+      expect(exit).toHaveBeenCalledTimes(1)
+      expect(goToPreviousStep).not.toHaveBeenCalled()
+    })
+
+    it('fires the viewed analytics event on mount', () => {
+      render(<GuidanceStep />)
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.ProUpgrade.Compliance.GuidanceViewed,
+      )
+    })
   })
 })

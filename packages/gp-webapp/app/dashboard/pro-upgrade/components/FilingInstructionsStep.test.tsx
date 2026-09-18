@@ -215,4 +215,36 @@ describe('FilingInstructionsStep', () => {
     await waitFor(() => expect(errorSnackbar).toHaveBeenCalled())
     expect(successSnackbar).not.toHaveBeenCalled()
   })
+
+  describe('purchase-only', () => {
+    beforeEach(() => {
+      mockUseProUpgradeWizard.mockReturnValue({
+        currentStep: 'filing-instructions',
+        purchaseOnly: true,
+        channel: null,
+        goToStep: vi.fn(),
+        goToNextStep: vi.fn(),
+        goToPreviousStep,
+        exit,
+        complete: vi.fn(),
+      })
+    })
+
+    it('exits the flow from the "Finish later" CTA', async () => {
+      render(<FilingInstructionsStep />)
+      await screen.findByText('June 1, 2026 – June 30, 2026')
+
+      expect(
+        screen.queryByRole('button', { name: 'Continue to dashboard' }),
+      ).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Finish later' }))
+
+      expect(exit).toHaveBeenCalledTimes(1)
+      expect(router.push).not.toHaveBeenCalled()
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.ProUpgrade.Compliance.FilingInstructionsExit,
+      )
+    })
+  })
 })

@@ -297,4 +297,57 @@ describe('EinStep', () => {
     ).toBeInTheDocument()
     expect(screen.getByLabelText('Campaign EIN')).toHaveValue('1')
   })
+
+  it('omits the how-to-get-an-EIN collapsible when the flag is off', () => {
+    render(<EinStep />)
+    expect(screen.queryByText(/how to get a free ein/i)).not.toBeInTheDocument()
+  })
+
+  describe('purchase-only', () => {
+    beforeEach(() => {
+      mockUseProUpgradeWizard.mockReturnValue({
+        currentStep: 'ein',
+        purchaseOnly: true,
+        channel: null,
+        goToStep: vi.fn(),
+        goToNextStep,
+        goToPreviousStep,
+        exit: vi.fn(),
+        complete: vi.fn(),
+      })
+    })
+
+    it('offers the how-to-get-an-EIN steps behind a collapsible', () => {
+      render(<EinStep />)
+
+      // Still the same question and input — only the caption and the how-to
+      // alternative are new.
+      expect(
+        screen.getByRole('heading', { name: 'What is your campaign EIN?' }),
+      ).toBeInTheDocument()
+      expect(screen.getByLabelText('Campaign EIN')).toBeInTheDocument()
+      expect(
+        screen.getByText(
+          'Every campaign needs an EIN (Employer Identification Number) to comply with regulations.',
+        ),
+      ).toBeInTheDocument()
+
+      const trigger = screen.getByText(/how to get a free ein/i)
+      expect(trigger).toBeInTheDocument()
+      // Collapsed until asked for.
+      expect(
+        screen.queryByText(/political organization/i),
+      ).not.toBeInTheDocument()
+
+      fireEvent.click(trigger)
+
+      expect(screen.getByText(/political organization/i)).toBeInTheDocument()
+      expect(
+        screen.getByRole('link', { name: /open irs\.gov/i }),
+      ).toHaveAttribute(
+        'href',
+        'https://sa.www4.irs.gov/applyein/legalStructure',
+      )
+    })
+  })
 })

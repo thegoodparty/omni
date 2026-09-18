@@ -15,6 +15,7 @@ import {
   checkEinSanity,
   einIndicatorState,
 } from '@shared/inputs/EinSanityCheck'
+import { EinHowToCollapsible } from './EinHowToCollapsible'
 import { useProUpgradeWizard } from './ProUpgradeWizard'
 
 // Front-end EIN collection, Phase 1 style: format + sanity only, no backend /
@@ -23,7 +24,7 @@ import { useProUpgradeWizard } from './ProUpgradeWizard'
 // server sanity layers can't drift: `einIndicatorState` drives the field icon
 // and `checkEinSanity` gates submit.
 const EinStep = (): React.JSX.Element => {
-  const { goToNextStep, goToPreviousStep } = useProUpgradeWizard()
+  const { purchaseOnly, goToNextStep, goToPreviousStep } = useProUpgradeWizard()
   const [campaign] = useCampaign()
   const queryClient = useQueryClient()
   const { errorSnackbar } = useSnackbar()
@@ -136,9 +137,9 @@ const EinStep = (): React.JSX.Element => {
         What is your campaign EIN?
       </h1>
       <Body2 className="text-base-muted-foreground mb-6">
-        Every campaign needs one to access voter data and texting. If you
-        don&apos;t have one for your campaign, you can get a free EIN from the
-        IRS in just a few minutes.
+        {purchaseOnly
+          ? 'Every campaign needs an EIN (Employer Identification Number) to comply with regulations.'
+          : "Every campaign needs one to access voter data and texting. If you don't have one for your campaign, you can get a free EIN from the IRS in just a few minutes."}
       </Body2>
 
       {showEinError && (
@@ -168,6 +169,20 @@ const EinStep = (): React.JSX.Element => {
           </a>
         }
       />
+
+      {purchaseOnly && (
+        <>
+          <div className="my-5 flex items-center gap-3">
+            <span className="h-px flex-1 bg-base-border" />
+            <span className="text-xs font-semibold tracking-wide text-base-muted-foreground">
+              OR
+            </span>
+            <span className="h-px flex-1 bg-base-border" />
+          </div>
+          <EinHowToCollapsible />
+        </>
+      )}
+
       <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
         <Button
           variant="outline"

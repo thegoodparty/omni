@@ -7,7 +7,10 @@ import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 import { Campaign } from 'helpers/types'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { PRO_UPGRADE_STEP } from '../proUpgradeStep'
-import { ProUpgradeWizardContext } from './proUpgradeWizardContext'
+import {
+  ProUpgradeWizardContext,
+  type ProUpgradeWizardContextValue,
+} from './proUpgradeWizardContext'
 import SuccessStep from './SuccessStep'
 
 // The confetti overlay paints to a <canvas>, which jsdom can't render — stub it
@@ -33,7 +36,10 @@ const complete = vi.fn()
 
 // The shell owns where Continue goes, so the step is exercised through the
 // wizard context both shells provide.
-const withWizard = (ui: React.ReactNode): React.JSX.Element => (
+const withWizard = (
+  ui: React.ReactNode,
+  overrides: Partial<ProUpgradeWizardContextValue> = {},
+): React.JSX.Element => (
   <ProUpgradeWizardContext.Provider
     value={{
       currentStep: PRO_UPGRADE_STEP.SUCCESS,
@@ -44,6 +50,7 @@ const withWizard = (ui: React.ReactNode): React.JSX.Element => (
       goToPreviousStep: vi.fn(),
       exit,
       complete,
+      ...overrides,
     }}
   >
     {ui}
@@ -150,5 +157,68 @@ describe('SuccessStep', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  describe('purchase-only', () => {
+    it('lists what Pro unlocked and completes the flow from Continue', async () => {
+      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+
+      render(withWizard(<SuccessStep />, { purchaseOnly: true }))
+
+      expect(
+        screen.getByRole('heading', { name: 'Welcome to Pro' }),
+      ).toBeInTheDocument()
+      expect(screen.getByText('Unlocked now')).toBeInTheDocument()
+      expect(
+        screen.getByText('Individual voter records for your race'),
+      ).toBeInTheDocument()
+      // No channel, so nothing to verify and the neutral label stands.
+      expect(
+        screen.queryByText('Still to do: verification'),
+      ).not.toBeInTheDocument()
+
+      const continueButton = screen.getByRole('button', { name: 'Continue' })
+      await waitFor(() => expect(continueButton).toBeEnabled())
+      continueButton.click()
+
+      expect(complete).toHaveBeenCalledTimes(1)
+      expect(mockTrackEvent).toHaveBeenCalledWith(
+        EVENTS.ProUpgrade.Compliance.SuccessContinue,
+      )
+    })
+
+    it('points a texting candidate at verification', async () => {
+      api.mock('GET /v1/campaigns/mine', { status: 200, data: campaign(true) })
+
+      render(
+        withWizard(<SuccessStep />, { purchaseOnly: true, channel: 'sms' }),
+      )
+
+      expect(screen.getByText('Still to do: verification')).toBeInTheDocument()
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', { name: 'Start verification' }),
+        ).toBeEnabled(),
+      )
+    })
+
+    it('holds Continue until the webhook flips isPro', async () => {
+      // Campaign verification reads the Pro state this screen asserts, so
+      // handing off before the flip lands would show a non-Pro surface.
+      api.mockOrdered('GET /v1/campaigns/mine', [
+        { status: 200, data: campaign(false) },
+        { status: 200, data: campaign(true) },
+      ])
+
+      render(withWizard(<SuccessStep />, { purchaseOnly: true }))
+
+      const continueButton = screen.getByRole('button', { name: 'Continue' })
+      expect(continueButton).toBeDisabled()
+
+      await waitFor(() => expect(continueButton).toBeEnabled(), {
+        timeout: 5000,
+      })
+      expect(complete).not.toHaveBeenCalled()
+    })
   })
 })

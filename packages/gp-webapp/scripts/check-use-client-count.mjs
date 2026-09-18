@@ -393,7 +393,9 @@ import { dirname, join, relative } from 'node:path'
 // (proUpgradeWizardContext) and ProUpgradeFlow, the state-driven twin of the
 // route-based wizard. One holds a React context, the other holds the step
 // state and provides it, so neither can be a server component.
-const BASELINE = 570
+// 2026-09-18: 570 -> 571 for EinHowToCollapsible, which holds the open/closed
+// state of the purchase-only how-to-get-an-EIN disclosure.
+const BASELINE = 571
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
