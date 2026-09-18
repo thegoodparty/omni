@@ -89,7 +89,6 @@ export const CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL = '__product_overview__'
 export const SendChatMessageRequestSchema = z.object({
   content: z.string().min(1).max(CHAT_MESSAGE_MAX_LENGTH),
   clientMessageId: z.guid().optional(),
-  attachmentIds: z.array(z.string()).max(10).optional(),
 })
 export type SendChatMessageRequest = z.infer<
   typeof SendChatMessageRequestSchema
