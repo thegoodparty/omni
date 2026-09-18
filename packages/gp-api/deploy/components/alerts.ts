@@ -632,6 +632,65 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join('\n\n'),
   },
   {
+    slug: 'people-person-id-repoint-collision',
+    name: '[People] Person id repoint blocked, left for manual resolution',
+    type: 'log',
+    // The one drift outcome that ASKS FOR A HUMAN BY NAME and, until this
+    // rule, told none. `resyncLinkedUser` ends in exactly five ways; four are
+    // self-correcting (`repointed` fixed it, `unchanged` had nothing to fix,
+    // `unresolved` retries tomorrow, `failed` is a transient the next sweep
+    // re-attempts). `collision` is the one that does not: the destination
+    // civics id already holds another user's rows, so the repoint is abandoned
+    // and the stale link stays stale every night until somebody merges the two
+    // by hand.
+    //
+    // Nothing about that is visible from outside. gp-api answers a correct 404
+    // at the abandoned id and a correct 200 at the destination, both services
+    // report healthy, and the only symptom is a public profile that renders
+    // the unclaimed civics spine instead of its owner — or, worse, a takedown
+    // that stops being honored because `isRemoved` matches on an id the person
+    // no longer renders under. See the header on `resyncLinkedUser`.
+    //
+    // ON THE LOG RATHER THAN person_profile_person_id_drift_count_total, for
+    // the reason `people-person-contact-email-lookup-failing` above sets out at
+    // length: src/otel.ts sets no `service.instance.id`, so both prod tasks
+    // export that counter under one series identity, and `increase()` over
+    // interleaved cumulative streams is not a number to page on — here it would
+    // read a lock that moved between tasks as a fresh collision. The log line
+    // is exact, and it carries the `userId`, `from`, `to` and `blocker` the
+    // responder needs, which the counter's `result` label does not.
+    //
+    // Both collision branches: the pre-check in `repoint` and the unique
+    // violation that loses a race to a concurrent write. Same situation, found
+    // at different moments, same manual fix.
+    expr: [
+      'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"}',
+      // Cheap line filter before the alternation, as every sibling log alert does.
+      '|= "person_id"',
+      '|~ "destination id is already occupied|lost a race to a concurrent write"',
+      '[6h]))',
+    ].join(' '),
+    threshold: 0,
+    // No grace period, and none is wanted. The sweep is `0 4 * * *`, so this is
+    // one burst a day rather than a signal that can flap across a boundary —
+    // a `for` here would only delay the page past the emission that caused it.
+    for: '0m',
+    // >= the [6h] vector, or the engine's default ten minutes means a rule that
+    // only ever sees 03:54-04:04 and reports zero the rest of the day.
+    timeRangeSeconds: 21600,
+    // 24 re-reads/day against the MAX_REREAD_FACTOR of 100 in
+    // global-alerts.test.ts. A daily sweep does not need minute resolution, and
+    // a 6h window on the 60s default would re-read those hours 360 times.
+    evaluationIntervalSeconds: 900,
+    message: [
+      'The nightly person-id sweep found a user whose civics id has moved, and could not follow it: the destination id already holds another user’s rows. The link was left stale deliberately, for a human.',
+      'Nothing retries this. The stale link survives every subsequent sweep, so the symptom persists until someone acts — that user’s public /people page renders the unclaimed civics spine (wrong name, wrong headshot, no bio) instead of their profile, and if they are under a takedown it silently stops being enforced, because `isRemoved` matches on an id they no longer render under.',
+      'Click *View in Grafana* and read `userId`, `from`, `to` and `blocker` off the matched lines. `blocker` names the table standing in the way — `profile`, `removal` or `claim`. Resolve the destination by hand (decide which of the two rows survives, move or delete the loser), then let the 04:00 sweep repoint the link, or call the backfill directly. Afterwards `POST /api/revalidate-person` on BOTH ids, or gp-marketing serves the two versions for up to an hour per edge.',
+      'If the two ids turn out to describe DIFFERENT PEOPLE, stop and escalate rather than merging: person clusters are built partly from probabilistic matching, and a collision is one of the few places that surfaces. See ENG-11112.',
+    ].join('\n\n'),
+    notify: 'win-bugs',
+  },
+  {
     slug: 'public-campaigns-lookup-error-ratio',
     name: '[People] Public campaign lookup failing',
     type: 'log',
